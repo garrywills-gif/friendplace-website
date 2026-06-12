@@ -1,0 +1,139 @@
+{
+  "app_name": "YouBelong",
+  "personality": "4 Tactile / Playful LIGHT",
+  "personality_one_liner": "A deeply welcoming, highly accessible community space that feels like walking into a friendly local cafe, optimized for older adults.",
+  "color": {
+    "surface": "#F8FAFC",
+    "onSurface": "#0F172A",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#1E293B",
+    "surfaceTertiary": "#F1F5F9",
+    "onSurfaceTertiary": "#334155",
+    "surfaceInverse": "#0F172A",
+    "onSurfaceInverse": "#F8FAFC",
+    "brand": "#0F766E",
+    "brandPrimary": "#0F766E",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#0369A1",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#CCFBF1",
+    "onBrandTertiary": "#0F766E",
+    "success": "#15803D",
+    "onSuccess": "#FFFFFF",
+    "warning": "#B45309",
+    "onWarning": "#FFFFFF",
+    "error": "#B91C1C",
+    "onError": "#FFFFFF",
+    "info": "#0369A1",
+    "onInfo": "#FFFFFF",
+    "border": "#E2E8F0",
+    "borderStrong": "#94A3B8",
+    "divider": "#E2E8F0"
+  },
+  "typography": {
+    "displayFontFamily": "Nunito",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": {
+      "sm": 16,
+      "base": 18,
+      "lg": 22,
+      "xl": 28,
+      "2xl": 36
+    }
+  },
+  "spacing": {
+    "rule": "Accessibility First: Extremely generous spacing. All tap targets must be 56pt minimum. Avoid dense clustering. Single column layouts preferred.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "pill": 999
+  },
+  "shadow_tier": "2",
+  "navigation": "bottom_tabs",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": ["Use solid colors and gentle gradient backdrops for hero areas only."],
+    "dont's": ["Do not use blur or glassmorphism. It reduces contrast and creates visual confusion for older adults, violating core accessibility requirements."]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-blur",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Welcome",
+      "purpose": "Warmly introduce the app, present the butterfly motif, and offer highly visible, large login/signup buttons.",
+      "states": {
+        "loading": "Centered spinner, size large.",
+        "empty": "N/A",
+        "error": "Clear message: 'We couldn't connect. Please try again.' with a large Retry button."
+      },
+      "layout": "Hero background image (friends at coffee) with a top-down gradient scrim (transparent to 80% surfaceInverse). Large butterfly logo at the top center. Massive tagline 'Find Your People.' and secondary 'Because You Belong Too.' below it. The bottom 40% contains extremely large (minHeight 64pt) pill-shaped buttons for Auth: Sign Up, Log In, Apple, Google."
+    },
+    {
+      "name": "Home Dashboard",
+      "purpose": "Serve as the simple, uncrowded starting point with large tiles for all major community features.",
+      "states": {
+        "loading": "Skeleton grid with large blocks.",
+        "empty": "N/A",
+        "error": "Clear message and Retry button."
+      },
+      "layout": "A 2-column grid of large, chunky tiles. Each tile uses a 'brandTertiary' tinted background with a massive, distinct filled Ionicon and a 22pt title. Tiles: Coffee Lounge (spans full width at top), Find Friends, Local Events, Community Groups, Notice Board, Games, Profile. Top header has greeting and points total."
+    },
+    {
+      "name": "Coffee Lounge",
+      "purpose": "The core real-time feature: allow users to browse and join active 'virtual tables' for live text/audio chat.",
+      "states": {
+        "loading": "Skeleton list of large cards.",
+        "empty": "Illustration of an empty cafe table with text 'No active tables right now. Start one!' and a large CTA.",
+        "error": "Retry button with clear text."
+      },
+      "layout": "Vertical list. Each 'Table' (e.g., Morning Coffee, Book Club) is a massive card with a soft shadow (tier 2). Inside: Large 22pt Table Name, a row of oversized avatar circles showing who is seated, and a bold, pill-shaped 'Join Table' CTA. A sticky 'Create Table' FAB sits at the bottom."
+    }
+  ],
+  "images": {
+    "welcome_hero": {
+      "url": "https://images.unsplash.com/photo-1764173039543-f9f197744e1b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwxfHxoYXBweSUyMG9sZGVyJTIwYWR1bHRzJTIwZnJpZW5kcyUyMGNvZmZlZSUyMGNhZmV8ZW58MHx8fHwxNzgxMjU1MDkxfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Three seniors talking and smiling together at a cafe"
+    },
+    "coffee_lounge_hero": {
+      "url": "https://images.unsplash.com/photo-1527525591638-6fa607ae2f39?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTB8MHwxfHNlYXJjaHwyfHxoYXBweSUyMG9sZGVyJTIwYWR1bHRzJTIwZnJpZW5kcyUyMGNvZmZlZSUyMGNhZmV8ZW58MHx8fHwxNzgxMjU1MDkxfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Older men chatting over coffee at a cafe table"
+    },
+    "community_events": {
+      "url": "https://images.unsplash.com/photo-1567804154474-380ce535360e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwyfHxzZW5pb3IlMjBjb21tdW5pdHklMjBncm91cCUyMGdhdGhlcmluZyUyMHNtaWxpbmd8ZW58MHx8fHwxNzgxMjU1MDkwfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Seniors gathering and smiling at a community event"
+    },
+    "butterfly_logo": {
+      "url": "https://images.unsplash.com/photo-1764170347100-36f930110fb7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDR8MHwxfHNlYXJjaHwxfHxibHVlJTIwYnV0dGVyZmx5JTIwbG9nbyUyMHRyYW5zcGFyZW50fGVufDB8fHx8MTc4MTI1NTA5MXww&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract blue butterfly graphic"
+    }
+  },
+  "instructions_to_main_agent": [
+    "ACCESSIBILITY ZERO TOLERANCE: Base font size is 18pt. Button labels are 22pt. The minimum height for any Pressable or Button is 56pt, preferably 64pt for primary CTAs.",
+    "Do NOT use glassmorphism, blur effects, or muddy dark backgrounds. Use solid, high-contrast surfaces. This is critical for older adults.",
+    "Navigation must be flat and explicit. Avoid hidden gestures, swipe-to-delete, or deep nested menus. Always provide a clear 'Back' or 'Home' button.",
+    "Theme: Tactile / Playful structure (chunky cards, large pills) but with a mature Teal & Blue palette. The vibe should be a warm, welcoming community lounge.",
+    "For the Welcome screen image, ensure the top-to-bottom gradient scrim is dark enough at the bottom (>=80% surfaceInverse) so the white text is perfectly legible.",
+    "Coffee Lounge 'Virtual Tables': Render these as large, inviting cards. The avatar stack of people currently at the table is the focal point, paired with a massive 'Join Table' button.",
+    "Ensure the layout relies on a single column or a very simple 2-column grid. Avoid clutter. Whitespace is a navigation aid for this demographic."
+  ]
+}
