@@ -57,7 +57,12 @@ export default function Friends() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
-        <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>Find Friends</Text>
+        <View style={styles.headRow}>
+          <Pressable testID="friends-back" onPress={() => router.back()} style={[styles.backBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Ionicons name="chevron-back" size={24} color={c.onSurface} />
+          </Pressable>
+          <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>Find Friends</Text>
+        </View>
         <View style={[styles.searchRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           <Ionicons name="search" size={22} color={c.muted} />
           <TextInput
@@ -123,6 +128,8 @@ export default function Friends() {
 
 const styles = StyleSheet.create({
   head: { paddingHorizontal: 16, paddingBottom: 8, gap: 10 },
+  headRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  backBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   title: { fontWeight: "900" },
   searchRow: { flexDirection: "row", alignItems: "center", borderRadius: 16, paddingHorizontal: 14, borderWidth: 1, minHeight: 52 },
   chipRow: { gap: 8, paddingVertical: 4 },
