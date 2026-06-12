@@ -3,11 +3,12 @@ import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from
 import { useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
+import ButterflyLogo from "@/src/components/ButterflyLogo";
 
 // Warm community photo — older adults sharing coffee and conversation
 const COMMUNITY_BG =
@@ -62,21 +63,8 @@ export default function Welcome() {
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 24 }]}>
         {/* Hero */}
         <View style={styles.hero}>
-          {/* Modern flat butterfly — layered teal + blue wings for depth */}
-          <View style={styles.butterflyWrap}>
-            <MaterialCommunityIcons
-              name="butterfly"
-              size={104 * scale}
-              color="#3B82F6"
-              style={styles.butterflyShadow}
-            />
-            <MaterialCommunityIcons
-              name="butterfly"
-              size={104 * scale}
-              color="#5EEAD4"
-              style={styles.butterflyTop}
-            />
-          </View>
+          {/* Two-tone flat butterfly — matches the YouBelong brand mark */}
+          <ButterflyLogo size={108 * scale} />
           <Text style={[styles.brand, { fontSize: 48 * scale }]} testID="welcome-brand">YouBelong</Text>
           <Text style={[styles.tag1, { fontSize: 24 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.tag2, { fontSize: 17 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
