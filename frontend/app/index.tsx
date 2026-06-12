@@ -10,9 +10,9 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import PeopleO from "@/src/components/PeopleO";
 
-// A bright, sunlit photo of friends talking over coffee
+// A warm, well-lit photo of 3–4 friends chatting over coffee
 const COMMUNITY_BG =
-  "https://images.pexels.com/photos/20252172/pexels-photo-20252172.jpeg?auto=compress&cs=tinysrgb&w=1400";
+  "https://images.unsplash.com/photo-1582298538104-fe2e74c27f59?auto=format&fit=crop&w=1400&q=80";
 
 export default function Welcome() {
   const router = useRouter();
@@ -50,16 +50,16 @@ export default function Welcome() {
   return (
     <View style={styles.full}>
       {/* Warm photo of people sharing coffee & conversation */}
-      <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" blurRadius={6} />
-      {/* Blue → teal overlay matching the requested look */}
+      <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" blurRadius={2} />
+      {/* Teal-leaning overlay: less blue at top, more turquoise community colours */}
       <LinearGradient
         colors={[
-          "rgba(30, 64, 175, 0.86)",
-          "rgba(14, 116, 144, 0.80)",
-          "rgba(20, 184, 166, 0.78)",
-          "rgba(45, 212, 191, 0.84)",
+          "rgba(13, 148, 136, 0.72)",
+          "rgba(20, 184, 166, 0.72)",
+          "rgba(45, 212, 191, 0.78)",
+          "rgba(94, 234, 212, 0.86)",
         ]}
-        locations={[0, 0.35, 0.7, 1]}
+        locations={[0, 0.38, 0.72, 1]}
         style={StyleSheet.absoluteFill}
       />
 
@@ -116,7 +116,7 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#14B8A6" },
   content: { paddingHorizontal: 22, flexGrow: 1, justifyContent: "flex-start", gap: 14 },
-  hero: { alignItems: "center", marginTop: 8 },
+  hero: { alignItems: "center", marginTop: 32 },
   butterfly: { color: "#FFFFFF", letterSpacing: 6, opacity: 0.95, textAlign: "center" },
   wordmark: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 4,
@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: "500",
   },
-  actions: { gap: 12, marginTop: 22, marginBottom: 12 },
+  actions: { gap: 12, marginTop: 38, marginBottom: 16 },
   btnPrimary: {
     minHeight: 62, borderRadius: 999, backgroundColor: "#FFFFFF",
     alignItems: "center", justifyContent: "center",

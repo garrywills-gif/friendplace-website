@@ -25,12 +25,12 @@ export default function PeopleO({
   const innerR = innerD / 2;
 
   // Person silhouette dimensions (sit INSIDE the inner clipped circle)
-  // Each dimension is +20% over the previous tuning so the figures read more
-  // clearly as people; the circular clip keeps them framed inside the O.
-  const headD = innerD * 0.55;           // head diameter (0.46 → 0.55, +20%)
-  const shoulderW = innerD * 0.74;       // shoulder/bust width (0.62 → 0.74, +20%)
-  const shoulderH = innerD * 0.66;       // shoulder/bust height (0.55 → 0.66, +20%)
-  const gap = innerD * 0.14;             // visible gap between the two figures
+  // Bumped another +30% on top of the previous tuning so the two figures
+  // read clearly as people; the circular clip keeps them framed inside the O.
+  const headD = innerD * 0.72;           // head diameter (0.55 → 0.72, +30%)
+  const shoulderW = innerD * 0.96;       // shoulder/bust width (0.74 → 0.96, +30%)
+  const shoulderH = innerD * 0.86;       // shoulder/bust height (0.66 → 0.86, +30%)
+  const gap = innerD * 0.16;             // visible gap between the two figures
   const headTop = innerD * 0.06;         // head sits near top of inner circle
   const shoulderTop = headTop + headD * 0.78;
 
