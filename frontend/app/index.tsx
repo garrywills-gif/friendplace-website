@@ -51,13 +51,13 @@ export default function Welcome() {
     <View style={styles.full}>
       {/* Warm photo of people sharing coffee & conversation */}
       <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" />
-      {/* Warm teal overlay — softens the photo, keeps it hopeful */}
+      {/* Blue → teal overlay matching the requested look */}
       <LinearGradient
         colors={[
-          "rgba(20, 184, 166, 0.72)",
-          "rgba(45, 212, 191, 0.66)",
-          "rgba(94, 234, 212, 0.62)",
+          "rgba(30, 64, 175, 0.86)",
+          "rgba(14, 116, 144, 0.80)",
           "rgba(20, 184, 166, 0.78)",
+          "rgba(45, 212, 191, 0.84)",
         ]}
         locations={[0, 0.35, 0.7, 1]}
         style={StyleSheet.absoluteFill}
@@ -66,9 +66,6 @@ export default function Welcome() {
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
         {/* Hero */}
         <View style={styles.hero}>
-          {/* Small elegant butterfly accent above */}
-          <Text style={[styles.butterfly, { fontSize: 26 * scale }]} testID="welcome-butterfly">✿</Text>
-
           {/* Wordmark — two people form the 'o' in long */}
           <View style={styles.wordmark} testID="welcome-brand">
             <Text style={[styles.wordmarkText, { fontSize: wordmarkSize }]}>YouBel</Text>
@@ -102,13 +99,13 @@ export default function Welcome() {
             <View style={styles.line} />
           </View>
 
-          <Pressable testID="welcome-apple" onPress={() => handleSocial("Apple")} style={({ pressed }) => [styles.social, { backgroundColor: "#0F766E", opacity: pressed ? 0.85 : 1 }]}>
+          <Pressable testID="welcome-apple" onPress={() => handleSocial("Apple")} style={({ pressed }) => [styles.social, { backgroundColor: "#000", opacity: pressed ? 0.85 : 1 }]}>
             <Ionicons name="logo-apple" size={26} color="#FFF" />
             <Text style={[styles.socialText, { color: "#FFF", fontSize: 18 * scale }]}>Continue with Apple</Text>
           </Pressable>
           <Pressable testID="welcome-google" onPress={() => handleSocial("Google")} style={({ pressed }) => [styles.social, { backgroundColor: "#FFFFFF", opacity: pressed ? 0.85 : 1 }]}>
-            <Ionicons name="logo-google" size={24} color="#0F766E" />
-            <Text style={[styles.socialText, { color: "#0F766E", fontSize: 18 * scale }]}>Continue with Google</Text>
+            <Ionicons name="logo-google" size={24} color="#1E40AF" />
+            <Text style={[styles.socialText, { color: "#1E40AF", fontSize: 18 * scale }]}>Continue with Google</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -166,6 +163,11 @@ const styles = StyleSheet.create({
   orText: { color: "#FFFFFF", fontWeight: "700" },
   social: {
     minHeight: 58, borderRadius: 999, flexDirection: "row",
+    alignItems: "center", justifyContent: "center", gap: 10,
+  },
+  socialText: { fontWeight: "700" },
+});
+minHeight: 58, borderRadius: 999, flexDirection: "row",
     alignItems: "center", justifyContent: "center", gap: 10,
   },
   socialText: { fontWeight: "700" },
