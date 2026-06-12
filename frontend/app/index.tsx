@@ -167,8 +167,3 @@ const styles = StyleSheet.create({
   },
   socialText: { fontWeight: "700" },
 });
-minHeight: 58, borderRadius: 999, flexDirection: "row",
-    alignItems: "center", justifyContent: "center", gap: 10,
-  },
-  socialText: { fontWeight: "700" },
-});
