@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Dimensions } from "react-native";
 import { useRouter } from "expo-router";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,7 +9,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 
-const LOGO = "https://customer-assets.emergentagent.com/job_c6e73a4e-7434-496a-a98e-aa042fe1d5e5/artifacts/k75xx68h_image.png";
+const LOGO = "https://customer-assets.emergentagent.com/job_belong-together/artifacts/8yzov3na_image.png";
 
 export default function Welcome() {
   const router = useRouter();
@@ -16,6 +17,9 @@ export default function Welcome() {
   const { user, loading, login } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
+  const screenW = Dimensions.get("window").width;
+  const logoW = Math.min(screenW - 24, 560);
+  const logoH = logoW * 0.55;
 
   useEffect(() => {
     if (!loading && user) router.replace("/(tabs)/home");
@@ -23,7 +27,7 @@ export default function Welcome() {
 
   if (loading) {
     return (
-      <View style={[styles.full, { backgroundColor: "#0B1F3A", justifyContent: "center", alignItems: "center" }]}>
+      <View style={[styles.full, { backgroundColor: "#000000", justifyContent: "center", alignItems: "center" }]}>
         <ActivityIndicator size="large" color="#5EEAD4" />
       </View>
     );
@@ -40,24 +44,23 @@ export default function Welcome() {
   };
 
   return (
-    <View style={styles.full}>
-      {/* Rich multi-stop gradient: deep navy → blue → teal → mint */}
+    <View style={[styles.full, { backgroundColor: "#000000" }]}>
+      {/* Gradient starts at pure BLACK at the top so the logo's black bg blends in seamlessly,
+          then flows through deep navy → blue → teal */}
       <LinearGradient
-        colors={["#0B1F3A", "#0E3A6E", "#0E7490", "#0F766E", "#14B8A6"]}
-        locations={[0, 0.28, 0.55, 0.78, 1]}
+        colors={["#000000", "#000000", "#0B1F3A", "#0E3A6E", "#0E7490", "#0F766E"]}
+        locations={[0, 0.30, 0.42, 0.62, 0.82, 1]}
         style={StyleSheet.absoluteFill}
       />
-      {/* soft glow behind logo */}
-      <LinearGradient
-        colors={["rgba(94,234,212,0.0)", "rgba(94,234,212,0.18)", "rgba(94,234,212,0.0)"]}
-        locations={[0, 0.5, 1]}
-        style={[StyleSheet.absoluteFill, { top: -100 }]}
-      />
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 28 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 28 }]}>
         <View style={styles.logoWrap}>
-          <Text style={[styles.butterfly, { fontSize: 110 * scale }]} testID="welcome-butterfly">🦋</Text>
-          <Text style={[styles.brand, { fontSize: 60 * scale }]} testID="welcome-brand">YouBelong</Text>
-          <Text style={[styles.tag1, { fontSize: 26 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
+          <Image
+            source={LOGO}
+            style={{ width: logoW, height: logoH }}
+            contentFit="contain"
+            testID="welcome-logo"
+          />
+          <Text style={[styles.tag1, { fontSize: 28 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.tag2, { fontSize: 17 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
         </View>
 
@@ -75,7 +78,7 @@ export default function Welcome() {
             <View style={styles.line} />
           </View>
 
-          <Pressable testID="welcome-apple" onPress={() => handleSocial("Apple")} style={({ pressed }) => [styles.social, { backgroundColor: "#000", opacity: pressed ? 0.85 : 1 }]}>
+          <Pressable testID="welcome-apple" onPress={() => handleSocial("Apple")} style={({ pressed }) => [styles.social, { backgroundColor: "#000", borderColor: "rgba(255,255,255,0.18)", borderWidth: 1, opacity: pressed ? 0.85 : 1 }]}>
             <Ionicons name="logo-apple" size={26} color="#FFF" />
             <Text style={[styles.socialText, { color: "#FFF", fontSize: 18 * scale }]}>Continue with Apple</Text>
           </Pressable>
@@ -92,13 +95,11 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   full: { flex: 1 },
   content: { paddingHorizontal: 20, flexGrow: 1, justifyContent: "space-between", gap: 16 },
-  logoWrap: { alignItems: "center", justifyContent: "center", marginTop: 40, marginBottom: 24 },
-  butterfly: { textAlign: "center" },
-  brand: { fontWeight: "900", color: "#FFFFFF", textAlign: "center", letterSpacing: 1, marginTop: 8 },
-  tag1: { fontWeight: "800", textAlign: "center", marginTop: 18, letterSpacing: 0.3, color: "#FFFFFF" },
-  tag2: { textAlign: "center", marginTop: 6, fontWeight: "600", color: "#CCFBF1" },
+  logoWrap: { alignItems: "center", justifyContent: "center", marginTop: 12, marginBottom: 24 },
+  tag1: { fontWeight: "900", textAlign: "center", marginTop: 4, letterSpacing: 0.3, color: "#5EEAD4" },
+  tag2: { textAlign: "center", marginTop: 6, fontWeight: "600", color: "#CBD5E1" },
   actions: { gap: 12, marginTop: 16, marginBottom: 8 },
-  btnPrimary: { minHeight: 60, borderRadius: 999, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  btnPrimary: { minHeight: 60, borderRadius: 999, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   btnPrimaryText: { color: "#0B1F3A", fontWeight: "800" },
   btnOutline: { minHeight: 60, borderRadius: 999, borderWidth: 2, borderColor: "#5EEAD4", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.06)" },
   btnOutlineText: { color: "#FFFFFF", fontWeight: "800" },
