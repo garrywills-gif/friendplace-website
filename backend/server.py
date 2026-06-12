@@ -1,59 +1,711 @@
-from fastapi import FastAPI, APIRouter
+"""YouBelong backend — FastAPI + MongoDB + WebSockets.
+
+Real-time Coffee Lounge tables, private messaging, community groups, events,
+notice board, butterfly points/badges, and a seeded sample dataset so the
+prototype feels alive on first launch.
+"""
+
+from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List
-import uuid
-from datetime import datetime
-
+from typing import List, Optional, Dict, Set
+from pathlib import Path
+from datetime import datetime, timezone
+import os, uuid, logging, json, asyncio
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ["DB_NAME"]]
 
-# Create the main app without a prefix
-app = FastAPI()
+app = FastAPI(title="YouBelong API")
+api = APIRouter(prefix="/api")
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("youbelong")
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
+def nid() -> str:
+    return str(uuid.uuid4())
+
+
+# ---------------- Models ----------------
+class User(BaseModel):
+    id: str = Field(default_factory=nid)
+    first_name: str
+    username: str
+    suburb: str = ""
+    interests: List[str] = []
+    avatar: str = ""  # emoji or url
+    bio: str = ""
+    points: int = 0
+    badges: List[str] = []
+    friends: List[str] = []
+    blocked: List[str] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class SignupBody(BaseModel):
+    first_name: str
+    username: str
+    suburb: str = ""
+    interests: List[str] = []
+    avatar: str = ""
+
+
+class LoginBody(BaseModel):
+    username: str
+
+
+class Table(BaseModel):
+    id: str = Field(default_factory=nid)
+    name: str
+    emoji: str = "☕"
+    description: str = ""
+    visibility: str = "public"  # public | friends
+    host_id: str = ""
+    seated: List[str] = []  # user ids
+    created_at: str = Field(default_factory=now_iso)
+
+
+class CreateTableBody(BaseModel):
+    name: str
+    emoji: str = "☕"
+    description: str = ""
+    visibility: str = "public"
+    host_id: str
+
+
+class Message(BaseModel):
+    id: str = Field(default_factory=nid)
+    table_id: Optional[str] = None
+    dm_id: Optional[str] = None
+    user_id: str
+    user_name: str = ""
+    avatar: str = ""
+    text: str
+    created_at: str = Field(default_factory=now_iso)
+
+
+class Group(BaseModel):
+    id: str = Field(default_factory=nid)
+    name: str
+    emoji: str = "👥"
+    description: str = ""
+    members: List[str] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class GroupPost(BaseModel):
+    id: str = Field(default_factory=nid)
+    group_id: str
+    user_id: str
+    user_name: str = ""
+    avatar: str = ""
+    text: str
+    likes: List[str] = []
+    comments: List[dict] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class Event(BaseModel):
+    id: str = Field(default_factory=nid)
+    title: str
+    emoji: str = "🎉"
+    description: str = ""
+    location: str = ""
+    date: str = ""
+    time: str = ""
+    rsvps: List[str] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class Notice(BaseModel):
+    id: str = Field(default_factory=nid)
+    user_id: str
+    user_name: str = ""
+    avatar: str = ""
+    title: str
+    body: str
+    category: str = "Announcement"
+    likes: List[str] = []
+    comments: List[dict] = []
+    created_at: str = Field(default_factory=now_iso)
+
+
+class FriendRequest(BaseModel):
+    id: str = Field(default_factory=nid)
+    from_id: str
+    to_id: str
+    status: str = "pending"  # pending | accepted | declined
+    created_at: str = Field(default_factory=now_iso)
+
+
+# ------------- helpers -------------
+def strip_id(doc: dict) -> dict:
+    if doc and "_id" in doc:
+        doc.pop("_id", None)
+    return doc
+
+
+async def award_points(user_id: str, amount: int, reason: str = ""):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        return
+    new_points = user.get("points", 0) + amount
+    badges = set(user.get("badges", []))
+    if new_points >= 10:
+        badges.add("Friendly Butterfly")
+    if new_points >= 30:
+        badges.add("Helpful Neighbour")
+    if new_points >= 60:
+        badges.add("Social Star")
+    if new_points >= 100:
+        badges.add("Community Builder")
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"points": new_points, "badges": list(badges)}},
+    )
+
+
+# ------------- Auth -------------
+@api.post("/auth/signup")
+async def signup(body: SignupBody):
+    existing = await db.users.find_one({"username": body.username}, {"_id": 0})
+    if existing:
+        raise HTTPException(400, "Username already taken")
+    user = User(**body.dict(), points=5, badges=["Friendly Butterfly"])
+    await db.users.insert_one(user.dict())
+    return user.dict()
+
+
+@api.post("/auth/login")
+async def login(body: LoginBody):
+    user = await db.users.find_one({"username": body.username}, {"_id": 0})
+    if not user:
+        raise HTTPException(404, "Username not found")
+    return user
+
+
+@api.get("/users")
+async def list_users(suburb: Optional[str] = None, interest: Optional[str] = None, q: Optional[str] = None):
+    query = {}
+    if suburb:
+        query["suburb"] = {"$regex": suburb, "$options": "i"}
+    if interest:
+        query["interests"] = {"$regex": interest, "$options": "i"}
+    if q:
+        query["$or"] = [
+            {"first_name": {"$regex": q, "$options": "i"}},
+            {"username": {"$regex": q, "$options": "i"}},
+        ]
+    docs = await db.users.find(query, {"_id": 0}).to_list(500)
+    return docs
+
+
+@api.get("/users/{user_id}")
+async def get_user(user_id: str):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(404, "User not found")
+    return user
+
+
+@api.post("/users/{user_id}/block/{other_id}")
+async def block_user(user_id: str, other_id: str):
+    await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}})
+    return {"ok": True}
+
+
+@api.post("/users/{user_id}/report/{other_id}")
+async def report_user(user_id: str, other_id: str, reason: str = "unspecified"):
+    await db.reports.insert_one({"id": nid(), "from": user_id, "target": other_id, "reason": reason, "created_at": now_iso()})
+    return {"ok": True}
+
+
+# ------------- Friends -------------
+@api.post("/friends/request")
+async def send_friend_request(body: FriendRequest):
+    fr = FriendRequest(**body.dict())
+    await db.friend_requests.insert_one(fr.dict())
+    return fr.dict()
+
+
+@api.get("/friends/requests/{user_id}")
+async def my_requests(user_id: str):
+    docs = await db.friend_requests.find({"to_id": user_id, "status": "pending"}, {"_id": 0}).to_list(200)
+    return docs
+
+
+@api.post("/friends/accept/{req_id}")
+async def accept_request(req_id: str):
+    req = await db.friend_requests.find_one({"id": req_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(404, "Request not found")
+    await db.friend_requests.update_one({"id": req_id}, {"$set": {"status": "accepted"}})
+    await db.users.update_one({"id": req["from_id"]}, {"$addToSet": {"friends": req["to_id"]}})
+    await db.users.update_one({"id": req["to_id"]}, {"$addToSet": {"friends": req["from_id"]}})
+    await award_points(req["from_id"], 5)
+    await award_points(req["to_id"], 5)
+    return {"ok": True}
+
+
+# ------------- Tables (Coffee Lounge) -------------
+@api.get("/tables")
+async def list_tables():
+    docs = await db.tables.find({}, {"_id": 0}).to_list(500)
+    return docs
+
+
+@api.post("/tables")
+async def create_table(body: CreateTableBody):
+    t = Table(**body.dict(), seated=[body.host_id])
+    await db.tables.insert_one(t.dict())
+    await award_points(body.host_id, 10)
+    return t.dict()
+
+
+@api.get("/tables/{table_id}")
+async def get_table(table_id: str):
+    t = await db.tables.find_one({"id": table_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Table not found")
+    seated_users = await db.users.find({"id": {"$in": t.get("seated", [])}}, {"_id": 0}).to_list(50)
+    t["seated_users"] = seated_users
+    return t
+
+
+@api.post("/tables/{table_id}/join/{user_id}")
+async def join_table(table_id: str, user_id: str):
+    await db.tables.update_one({"id": table_id}, {"$addToSet": {"seated": user_id}})
+    return {"ok": True}
+
+
+@api.post("/tables/{table_id}/leave/{user_id}")
+async def leave_table(table_id: str, user_id: str):
+    await db.tables.update_one({"id": table_id}, {"$pull": {"seated": user_id}})
+    return {"ok": True}
+
+
+@api.get("/tables/{table_id}/messages")
+async def table_messages(table_id: str):
+    docs = await db.messages.find({"table_id": table_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    return docs
+
+
+# ------------- Groups -------------
+@api.get("/groups")
+async def list_groups():
+    return await db.groups.find({}, {"_id": 0}).to_list(200)
+
+
+@api.post("/groups")
+async def create_group(body: Group):
+    g = Group(**body.dict())
+    await db.groups.insert_one(g.dict())
+    return g.dict()
+
+
+@api.post("/groups/{group_id}/join/{user_id}")
+async def join_group(group_id: str, user_id: str):
+    await db.groups.update_one({"id": group_id}, {"$addToSet": {"members": user_id}})
+    await award_points(user_id, 3)
+    return {"ok": True}
+
+
+@api.get("/groups/{group_id}/posts")
+async def group_posts(group_id: str):
+    return await db.group_posts.find({"group_id": group_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+
+@api.post("/groups/{group_id}/posts")
+async def create_group_post(group_id: str, body: GroupPost):
+    data = body.dict()
+    data["group_id"] = group_id
+    p = GroupPost(**data)
+    await db.group_posts.insert_one(p.dict())
+    await award_points(body.user_id, 4)
+    return p.dict()
+
+
+@api.post("/groups/posts/{post_id}/like/{user_id}")
+async def like_group_post(post_id: str, user_id: str):
+    await db.group_posts.update_one({"id": post_id}, {"$addToSet": {"likes": user_id}})
+    return {"ok": True}
+
+
+@api.post("/groups/posts/{post_id}/comment")
+async def comment_group_post(post_id: str, body: dict):
+    comment = {"id": nid(), "user_id": body.get("user_id"), "user_name": body.get("user_name", ""), "text": body.get("text", ""), "created_at": now_iso()}
+    await db.group_posts.update_one({"id": post_id}, {"$push": {"comments": comment}})
+    return comment
+
+
+# ------------- Events -------------
+@api.get("/events")
+async def list_events():
+    return await db.events.find({}, {"_id": 0}).sort("date", 1).to_list(200)
+
+
+@api.post("/events")
+async def create_event(body: Event):
+    e = Event(**body.dict())
+    await db.events.insert_one(e.dict())
+    return e.dict()
+
+
+@api.post("/events/{event_id}/rsvp/{user_id}")
+async def rsvp_event(event_id: str, user_id: str):
+    await db.events.update_one({"id": event_id}, {"$addToSet": {"rsvps": user_id}})
+    await award_points(user_id, 6)
+    return {"ok": True}
+
+
+@api.post("/events/{event_id}/unrsvp/{user_id}")
+async def unrsvp_event(event_id: str, user_id: str):
+    await db.events.update_one({"id": event_id}, {"$pull": {"rsvps": user_id}})
+    return {"ok": True}
+
+
+# ------------- Notice Board -------------
+@api.get("/notices")
+async def list_notices():
+    return await db.notices.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+
+
+@api.post("/notices")
+async def create_notice(body: Notice):
+    n = Notice(**body.dict())
+    await db.notices.insert_one(n.dict())
+    await award_points(body.user_id, 4)
+    return n.dict()
+
+
+@api.post("/notices/{notice_id}/like/{user_id}")
+async def like_notice(notice_id: str, user_id: str):
+    await db.notices.update_one({"id": notice_id}, {"$addToSet": {"likes": user_id}})
+    return {"ok": True}
+
+
+@api.post("/notices/{notice_id}/comment")
+async def comment_notice(notice_id: str, body: dict):
+    comment = {"id": nid(), "user_id": body.get("user_id"), "user_name": body.get("user_name", ""), "text": body.get("text", ""), "created_at": now_iso()}
+    await db.notices.update_one({"id": notice_id}, {"$push": {"comments": comment}})
+    return comment
+
+
+# ------------- Flutter (online ping) -------------
+class FlutterDoc(BaseModel):
+    id: str = Field(default_factory=nid)
+    from_id: str
+    to_id: str
+    from_name: str = ""
+    from_avatar: str = ""
+    message: str = "wants to chat 🦋"
+    read: bool = False
+    created_at: str = Field(default_factory=now_iso)
+
+
+@api.post("/flutters/send")
+async def send_flutter(body: dict):
+    sender = await db.users.find_one({"id": body["from_id"]}, {"_id": 0})
+    if not sender:
+        raise HTTPException(404, "Sender not found")
+    f = FlutterDoc(
+        from_id=body["from_id"],
+        to_id=body["to_id"],
+        from_name=sender.get("first_name", ""),
+        from_avatar=sender.get("avatar", ""),
+        message=body.get("message", "wants to chat 🦋"),
+    )
+    await db.flutters.insert_one(f.dict())
+    await award_points(body["from_id"], 2)
+    return f.dict()
+
+
+@api.get("/flutters/{user_id}")
+async def my_flutters(user_id: str):
+    return await db.flutters.find({"to_id": user_id, "read": False}, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+
+@api.post("/flutters/{flutter_id}/read")
+async def mark_flutter_read(flutter_id: str):
+    await db.flutters.update_one({"id": flutter_id}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+# ------------- DM -------------
+def dm_conv_id(a: str, b: str) -> str:
+    return "-".join(sorted([a, b]))
+
+
+@api.get("/dm/{user_id}/conversations")
+async def my_conversations(user_id: str):
+    docs = await db.dm_conversations.find({"participants": user_id}, {"_id": 0}).sort("updated_at", -1).to_list(100)
+    # attach other user info + last message
+    out = []
+    for c in docs:
+        other_id = next((p for p in c["participants"] if p != user_id), None)
+        other = await db.users.find_one({"id": other_id}, {"_id": 0}) if other_id else None
+        last = await db.messages.find_one({"dm_id": c["id"]}, {"_id": 0}, sort=[("created_at", -1)])
+        out.append({**c, "other": other, "last": last})
+    return out
+
+
+@api.get("/dm/{conv_id}/messages")
+async def dm_messages(conv_id: str):
+    return await db.messages.find({"dm_id": conv_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+
+
+@api.post("/dm/start")
+async def start_dm(body: dict):
+    a = body["user_id"]
+    b = body["other_id"]
+    cid = dm_conv_id(a, b)
+    existing = await db.dm_conversations.find_one({"id": cid}, {"_id": 0})
+    if not existing:
+        doc = {"id": cid, "participants": [a, b], "created_at": now_iso(), "updated_at": now_iso()}
+        await db.dm_conversations.insert_one(doc)
+        doc.pop("_id", None)
+        existing = doc
+    return existing
+
+
+# ------------- WebSockets -------------
+class ConnectionHub:
+    def __init__(self):
+        self.rooms: Dict[str, Set[WebSocket]] = {}
+
+    async def connect(self, room: str, ws: WebSocket):
+        await ws.accept()
+        self.rooms.setdefault(room, set()).add(ws)
+
+    def disconnect(self, room: str, ws: WebSocket):
+        if room in self.rooms:
+            self.rooms[room].discard(ws)
+
+    async def broadcast(self, room: str, message: dict):
+        dead = []
+        for ws in list(self.rooms.get(room, [])):
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        for d in dead:
+            self.rooms[room].discard(d)
+
+
+hub = ConnectionHub()
+
+
+@app.websocket("/api/ws/table/{table_id}")
+async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...)):
+    room = f"table:{table_id}"
+    await hub.connect(room, websocket)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    await db.tables.update_one({"id": table_id}, {"$addToSet": {"seated": user_id}})
+    await hub.broadcast(room, {"type": "presence", "event": "join", "user": user})
+    try:
+        while True:
+            data = await websocket.receive_text()
+            payload = json.loads(data)
+            text = (payload.get("text") or "").strip()
+            if not text:
+                continue
+            msg = Message(
+                table_id=table_id,
+                user_id=user_id,
+                user_name=user.get("first_name", "") if user else "",
+                avatar=user.get("avatar", "") if user else "",
+                text=text,
+            )
+            await db.messages.insert_one(msg.dict())
+            await award_points(user_id, 1)
+            await hub.broadcast(room, {"type": "message", "message": msg.dict()})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        hub.disconnect(room, websocket)
+        await db.tables.update_one({"id": table_id}, {"$pull": {"seated": user_id}})
+        await hub.broadcast(room, {"type": "presence", "event": "leave", "user": user})
+
+
+@app.websocket("/api/ws/dm/{conv_id}")
+async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...)):
+    room = f"dm:{conv_id}"
+    await hub.connect(room, websocket)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    try:
+        while True:
+            data = await websocket.receive_text()
+            payload = json.loads(data)
+            text = (payload.get("text") or "").strip()
+            if not text:
+                continue
+            msg = Message(
+                dm_id=conv_id,
+                user_id=user_id,
+                user_name=user.get("first_name", "") if user else "",
+                avatar=user.get("avatar", "") if user else "",
+                text=text,
+            )
+            await db.messages.insert_one(msg.dict())
+            await db.dm_conversations.update_one({"id": conv_id}, {"$set": {"updated_at": now_iso()}})
+            await hub.broadcast(room, {"type": "message", "message": msg.dict()})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        hub.disconnect(room, websocket)
+
+
+# ------------- Seed -------------
+SAMPLE_USERS = [
+    {"first_name": "Margaret", "username": "maggie", "suburb": "Bondi", "interests": ["Gardening", "Books", "Tea"], "avatar": "🌸", "bio": "Loves roses and a good cuppa.", "points": 78, "badges": ["Friendly Butterfly", "Helpful Neighbour", "Social Star"]},
+    {"first_name": "Frank", "username": "frankie", "suburb": "Manly", "interests": ["Woodwork", "Fishing", "Pets"], "avatar": "🔨", "bio": "Retired carpenter. Always tinkering.", "points": 42, "badges": ["Friendly Butterfly", "Helpful Neighbour"]},
+    {"first_name": "Joyce", "username": "joycey", "suburb": "Surry Hills", "interests": ["Books", "Cats", "Tea"], "avatar": "📚", "bio": "Two cats and a hundred books.", "points": 55, "badges": ["Friendly Butterfly", "Helpful Neighbour"]},
+    {"first_name": "Bill", "username": "billdo", "suburb": "Bondi", "interests": ["Men's Shed", "Walking", "Cricket"], "avatar": "🧓", "bio": "Up at 5, walking by 6.", "points": 31, "badges": ["Friendly Butterfly"]},
+    {"first_name": "Dorothy", "username": "dot", "suburb": "Newtown", "interests": ["Crochet", "Trivia", "Pets"], "avatar": "🧶", "bio": "Crochet anything you ask!", "points": 64, "badges": ["Friendly Butterfly", "Helpful Neighbour", "Social Star"]},
+    {"first_name": "Arthur", "username": "art", "suburb": "Manly", "interests": ["Gardening", "Birdwatching"], "avatar": "🌳", "bio": "Birds visit my balcony daily.", "points": 22, "badges": ["Friendly Butterfly"]},
+    {"first_name": "Eileen", "username": "eil", "suburb": "Sydney CBD", "interests": ["Art", "Coffee", "Travel"], "avatar": "🎨", "bio": "Watercolours and lattes.", "points": 105, "badges": ["Friendly Butterfly", "Helpful Neighbour", "Social Star", "Community Builder"]},
+    {"first_name": "Roy", "username": "roy", "suburb": "Parramatta", "interests": ["Cricket", "Trivia", "BBQs"], "avatar": "🏏", "bio": "Trivia king of the neighborhood.", "points": 38, "badges": ["Friendly Butterfly", "Helpful Neighbour"]},
+]
+
+SAMPLE_TABLES = [
+    {"name": "Morning Coffee", "emoji": "☕", "description": "Start the day with a friendly chat."},
+    {"name": "Gardening Chat", "emoji": "🌱", "description": "Share tips, swap cuttings, talk roses."},
+    {"name": "Men's Shed", "emoji": "🔨", "description": "Tools, projects, and stories."},
+    {"name": "Book Club", "emoji": "📚", "description": "What are you reading this week?"},
+    {"name": "Pet Lovers", "emoji": "🐾", "description": "Show us your furry companions."},
+    {"name": "New Friends", "emoji": "👋", "description": "Just joined? Pull up a chair."},
+    {"name": "Sydney Locals", "emoji": "🏠", "description": "Locals helping locals."},
+]
+
+SAMPLE_GROUPS = [
+    {"name": "Walking Group", "emoji": "🚶", "description": "Weekly walks around the harbour."},
+    {"name": "Community Volunteers", "emoji": "🤝", "description": "Helping out where we can."},
+    {"name": "Garden Club", "emoji": "🌷", "description": "Tips, swaps, and visits."},
+    {"name": "Travel Enthusiasts", "emoji": "✈️", "description": "Trip stories and tips."},
+    {"name": "Coffee Catch-Ups", "emoji": "☕", "description": "Local cafe meetups."},
+]
+
+SAMPLE_EVENTS = [
+    {"title": "Coffee Morning", "emoji": "☕", "description": "Casual morning catch-up over a cuppa.", "location": "Cafe Belong, Manly", "date": "2026-05-20", "time": "10:00 AM"},
+    {"title": "Community Morning Tea", "emoji": "🫖", "description": "Tea, biscuits, and chatter at the community hall.", "location": "Bondi Community Hall", "date": "2026-05-22", "time": "10:30 AM"},
+    {"title": "Walking Group", "emoji": "🚶", "description": "Gentle stroll around Centennial Park.", "location": "Centennial Park", "date": "2026-05-24", "time": "8:00 AM"},
+    {"title": "Men's Shed BBQ", "emoji": "🔨", "description": "Snags, stories and a bit of tinkering — all welcome.", "location": "Manly Men's Shed", "date": "2026-05-26", "time": "12:00 PM"},
+    {"title": "Community Market", "emoji": "🥕", "description": "Browse the local markets together.", "location": "Surry Hills Markets", "date": "2026-05-28", "time": "9:30 AM"},
+    {"title": "Library Book Club", "emoji": "📚", "description": "This month: 'The Thursday Murder Club'. Bring your thoughts!", "location": "Newtown Library", "date": "2026-05-30", "time": "2:00 PM"},
+    {"title": "Trivia Afternoon", "emoji": "🎯", "description": "Bring your thinking caps.", "location": "Newtown Library", "date": "2026-06-02", "time": "2:00 PM"},
+]
+
+SAMPLE_NOTICES = [
+    {"title": "Free veggie seedlings", "body": "I have extra tomato and basil seedlings — happy to share with anyone in Bondi.", "category": "Share"},
+    {"title": "Recommend a podiatrist", "body": "Looking for a friendly podiatrist near Manly. Any suggestions?", "category": "Ask"},
+    {"title": "Knitting circle Wednesdays", "body": "We meet every Wednesday at 2pm at the library. All welcome!", "category": "Activity"},
+    {"title": "Lost cat — orange tabby", "body": "Missing since Tuesday near Newtown. His name is Biscuit.", "category": "Announcement"},
+]
+
+SAMPLE_GROUP_POSTS = [
+    {"group_idx": 0, "user_idx": 0, "text": "Lovely walk this morning around the harbour — six of us made it. Tea afterwards was 🌸"},
+    {"group_idx": 2, "user_idx": 2, "text": "My peace lily is finally blooming! Anyone else have luck indoors?"},
+    {"group_idx": 4, "user_idx": 6, "text": "Cafe Belong has a senior's discount on Tuesdays — pass it on!"},
+    {"group_idx": 1, "user_idx": 7, "text": "Saturday's food drive went brilliantly. Thank you to everyone who turned up. 🤝"},
+]
+
+
+@app.on_event("startup")
+async def seed():
+    users_count = await db.users.count_documents({})
+    if users_count > 0:
+        logger.info("Seed skipped — data already present (%s users)", users_count)
+        return
+    logger.info("Seeding YouBelong sample data…")
+
+    users = []
+    for u in SAMPLE_USERS:
+        user = User(**u)
+        await db.users.insert_one(user.dict())
+        users.append(user.dict())
+
+    tables = []
+    for i, t in enumerate(SAMPLE_TABLES):
+        host = users[i % len(users)]
+        seated_ids = [users[j]["id"] for j in [i % len(users), (i + 1) % len(users), (i + 3) % len(users)]]
+        seated_ids = list({*seated_ids})
+        tbl = Table(**t, host_id=host["id"], seated=seated_ids, visibility="public")
+        await db.tables.insert_one(tbl.dict())
+        tables.append(tbl.dict())
+        # seed a few messages
+        starters = ["Morning everyone! ☀️", "Lovely to see you all here.", "How was your week?"]
+        for k, txt in enumerate(starters):
+            sender = users[(i + k) % len(users)]
+            msg = Message(table_id=tbl.id, user_id=sender["id"], user_name=sender["first_name"], avatar=sender["avatar"], text=txt)
+            await db.messages.insert_one(msg.dict())
+
+    groups = []
+    for i, g in enumerate(SAMPLE_GROUPS):
+        members = [users[j]["id"] for j in range(min(5, len(users)))]
+        grp = Group(**g, members=members)
+        await db.groups.insert_one(grp.dict())
+        groups.append(grp.dict())
+
+    for p in SAMPLE_GROUP_POSTS:
+        u = users[p["user_idx"]]
+        gp = GroupPost(
+            group_id=groups[p["group_idx"]]["id"],
+            user_id=u["id"],
+            user_name=u["first_name"],
+            avatar=u["avatar"],
+            text=p["text"],
+            likes=[users[(p["user_idx"] + 1) % len(users)]["id"]],
+        )
+        await db.group_posts.insert_one(gp.dict())
+
+    for e in SAMPLE_EVENTS:
+        ev = Event(**e, rsvps=[users[0]["id"], users[2]["id"]])
+        await db.events.insert_one(ev.dict())
+
+    for i, n in enumerate(SAMPLE_NOTICES):
+        u = users[i % len(users)]
+        notice = Notice(user_id=u["id"], user_name=u["first_name"], avatar=u["avatar"], **n, likes=[users[(i + 1) % len(users)]["id"]])
+        await db.notices.insert_one(notice.dict())
+
+    # seed a DM between Margaret and Joyce
+    a, b = users[0]["id"], users[2]["id"]
+    cid = dm_conv_id(a, b)
+    await db.dm_conversations.insert_one({"id": cid, "participants": [a, b], "created_at": now_iso(), "updated_at": now_iso()})
+    for s, txt in [(a, "Joyce! Are you coming to morning tea on the 20th?"), (b, "Wouldn't miss it Maggie 💖"), (a, "Bring your scones recipe please!")]:
+        u = users[0] if s == a else users[2]
+        m = Message(dm_id=cid, user_id=s, user_name=u["first_name"], avatar=u["avatar"], text=txt)
+        await db.messages.insert_one(m.dict())
+
+    # mutual friendships
+    await db.users.update_one({"id": users[0]["id"]}, {"$set": {"friends": [users[2]["id"], users[4]["id"]]}})
+    await db.users.update_one({"id": users[2]["id"]}, {"$set": {"friends": [users[0]["id"]]}})
+    await db.users.update_one({"id": users[4]["id"]}, {"$set": {"friends": [users[0]["id"]]}})
+
+    logger.info("Seed complete: %s users, %s tables, %s groups", len(users), len(tables), len(groups))
+
+
+@api.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"app": "YouBelong", "status": "ok"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.dict()
-    status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
-    return [StatusCheck(**status_check) for status_check in status_checks]
+@api.get("/health")
+async def health():
+    return {"status": "ok"}
 
-# Include the router in the main app
-app.include_router(api_router)
+
+app.include_router(api)
 
 app.add_middleware(
     CORSMiddleware,
@@ -63,12 +715,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

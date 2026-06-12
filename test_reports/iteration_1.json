@@ -1,0 +1,47 @@
+{
+  "summary": "First full E2E pass for YouBelong. Backend: 27/27 pytest passing (100%) after fixing two 500-error bugs (group post create duplicate kwarg, /dm/start ObjectId leak). Frontend: welcome screen, login (maggie), home (all 7 tiles + Flutter banners from Frank & Dorothy + 112 points + badges), Coffee Lounge (all 7 seeded tables with Active Now badges and occupancy labels), table chat (history + WebSocket send), Find Friends (search/suburb filter + Add/Flutter/Msg buttons), and Profile (badges, friends, interests) all render and function correctly. Two minor React Native web deprecation warnings detected. Welcome screen 'butterfly' logo appears as a small white square with 'YOUBELONG' text rather than a butterfly emoji/illustration as described in PRD.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/groups/{group_id}/posts", "issue": "FIXED by tester: duplicate `group_id` kwarg when constructing GroupPost(**body.dict(), group_id=group_id) caused TypeError -> 500. Patched to overlay group_id into the body dict."},
+      {"endpoint": "POST /api/dm/start", "issue": "FIXED by tester: motor's insert_one mutates the dict adding ObjectId `_id`, which then fails FastAPI serialization (500). Added doc.pop('_id', None) before return."},
+      {"endpoint": "startup seed", "issue": "Seed function in server.py does not seed Flutters for Margaret, although PRD/credentials state Margaret should have unread Flutters from Frank and Dorothy. Current DB happens to contain them (likely seeded manually earlier) but a fresh DB would break this expectation. Add flutter seeding inside `@app.on_event('startup') async def seed()`."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Welcome screen logo", "issue": "Logo renders as a small white square containing 'YOUBELONG' text + tiny image rather than a clearly recognizable butterfly logo as described in the PRD. Replace with a butterfly emoji 🦋 or illustration.", "testID": "", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Welcome", "issues": ["Logo is not visually a butterfly per PRD"]},
+      {"screen": "Coffee Lounge", "issues": ["Leftover TEST_Table entries from automated tests visible — consider periodic cleanup or scope public listing"]}
+    ],
+    "react_native_issues": [
+      {"component": "Global styles", "issue": "Console warning: '\"shadow*\" style props are deprecated. Use boxShadow.' — migrate shadow style props to the new boxShadow API across StyleSheet definitions."},
+      {"component": "Pressable / View", "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents' — move pointerEvents from props to the style object."}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_youbelong_api.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Add flutter seeding to the startup seed function so a fresh database matches PRD (Frank + Dorothy flutters for Margaret).",
+    "Replace the welcome screen logo with a visible butterfly logo/emoji to match PRD.",
+    "Migrate deprecated React Native web style props: shadow* -> boxShadow, props.pointerEvents -> style.pointerEvents.",
+    "Optional: clean up leaked TEST_Table rows created during testing in Coffee Lounge."
+  ],
+  "critical_code_review_comments": [
+    "server.py mixes Pydantic models that already contain server-managed fields (e.g., GroupPost.group_id) with request bodies — caused the duplicate-kwarg 500. Recommend a separate request/response model split for safer API contracts.",
+    "server.py is ~720 lines and growing — consider splitting routes by domain (auth, tables, groups, notices, dm) for maintainability.",
+    "Block/Report endpoints take target user id in path with no auth — anyone could block/report on behalf of anyone (prototype only, but note for future)."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (fixed create_group_post duplicate kwarg + stripped _id in start_dm)",
+    "/app/backend/tests/test_youbelong_api.py (new comprehensive API + WebSocket test suite)"
+  ],
+  "success_rate": {"backend": "100% (27/27 after fixes)", "frontend": "~95% (all critical flows verified; deep flows (games, events RSVP UI, notices UI, groups UI) not deeply clicked but API-verified)"},
+  "seed_data_creation": "No new seed data created. A few TEST_* records (one table, one notice, one group post) were created by the pytest suite and remain in the DB.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL: https://belong-together.preview.emergentagent.com. Use EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL). To reach the Welcome screen on web, run localStorage.removeItem('yb_user') first. Demo username login is via POST /api/auth/login {username}. WebSocket uses wss scheme and /api/ws/table/{id}?user_id=... and /api/ws/dm/{conv_id}?user_id=... The pytest suite at /app/backend/tests/test_youbelong_api.py covers auth, users, tables, groups, events, notices, flutters, DM, friends, and both WebSocket flows.",
+  "rca_of_issue": "Two 500s in backend: (1) create_group_post used `GroupPost(**body.dict(), group_id=group_id)` while body already contained group_id -> Python duplicate keyword TypeError. Fix: overlay group_id onto the dict. (2) start_dm returned the freshly inserted dm_conversations doc, but motor's insert_one mutates the dict to include ObjectId('_id'), which FastAPI's jsonable_encoder cannot serialize. Fix: doc.pop('_id', None) before return."
+}
