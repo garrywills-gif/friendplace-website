@@ -10,9 +10,9 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import PeopleO from "@/src/components/PeopleO";
 
-// A warm photo of friends chatting over coffee
+// A bright, sunlit photo of friends talking over coffee
 const COMMUNITY_BG =
-  "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1400&q=80";
+  "https://images.pexels.com/photos/20252172/pexels-photo-20252172.jpeg?auto=compress&cs=tinysrgb&w=1400";
 
 export default function Welcome() {
   const router = useRouter();
@@ -50,7 +50,7 @@ export default function Welcome() {
   return (
     <View style={styles.full}>
       {/* Warm photo of people sharing coffee & conversation */}
-      <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+      <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" blurRadius={6} />
       {/* Blue → teal overlay matching the requested look */}
       <LinearGradient
         colors={[
@@ -78,7 +78,7 @@ export default function Welcome() {
           {/* Underline accent */}
           <View style={styles.brandRule} />
 
-          <Text style={[styles.tag1, { fontSize: 27.6 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
+          <Text style={[styles.tag1, { fontSize: 30.4 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.tag2, { fontSize: 17 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
           <Text style={[styles.welcomeMsg, { fontSize: 16 * scale }]} testID="welcome-message">
             A friendly place to meet people, join conversations and feel connected.
