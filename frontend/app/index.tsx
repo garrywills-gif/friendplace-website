@@ -1,7 +1,6 @@
 import React, { useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Dimensions } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
-import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,9 +16,6 @@ export default function Welcome() {
   const { user, loading, login } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
-  const screenW = Dimensions.get("window").width;
-  const logoW = Math.min(screenW - 32, 520);
-  const logoH = logoW * 0.62;
 
   useEffect(() => {
     if (!loading && user) router.replace("/(tabs)/home");
@@ -57,16 +53,12 @@ export default function Welcome() {
         locations={[0, 0.5, 1]}
         style={[StyleSheet.absoluteFill, { top: -100 }]}
       />
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 28 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 28 }]}>
         <View style={styles.logoWrap}>
-          <Image
-            source={LOGO}
-            style={{ width: logoW, height: logoH }}
-            contentFit="contain"
-            testID="welcome-logo"
-          />
-          <Text style={[styles.tag1, { fontSize: 32 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
-          <Text style={[styles.tag2, { fontSize: 18 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
+          <Text style={[styles.butterfly, { fontSize: 110 * scale }]} testID="welcome-butterfly">🦋</Text>
+          <Text style={[styles.brand, { fontSize: 60 * scale }]} testID="welcome-brand">YouBelong</Text>
+          <Text style={[styles.tag1, { fontSize: 26 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
+          <Text style={[styles.tag2, { fontSize: 17 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
         </View>
 
         <View style={styles.actions}>
@@ -100,8 +92,10 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   full: { flex: 1 },
   content: { paddingHorizontal: 20, flexGrow: 1, justifyContent: "space-between", gap: 16 },
-  logoWrap: { alignItems: "center", justifyContent: "center", marginTop: 8 },
-  tag1: { fontWeight: "900", textAlign: "center", marginTop: 8, letterSpacing: 0.3, color: "#FFFFFF", textShadowColor: "rgba(0,0,0,0.25)", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
+  logoWrap: { alignItems: "center", justifyContent: "center", marginTop: 40, marginBottom: 24 },
+  butterfly: { textAlign: "center" },
+  brand: { fontWeight: "900", color: "#FFFFFF", textAlign: "center", letterSpacing: 1, marginTop: 8 },
+  tag1: { fontWeight: "800", textAlign: "center", marginTop: 18, letterSpacing: 0.3, color: "#FFFFFF" },
   tag2: { textAlign: "center", marginTop: 6, fontWeight: "600", color: "#CCFBF1" },
   actions: { gap: 12, marginTop: 16, marginBottom: 8 },
   btnPrimary: { minHeight: 60, borderRadius: 999, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },

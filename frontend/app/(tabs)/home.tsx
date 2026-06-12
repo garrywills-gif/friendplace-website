@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Image } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,8 +7,6 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
-
-const LOGO = "https://customer-assets.emergentagent.com/job_c6e73a4e-7434-496a-a98e-aa042fe1d5e5/artifacts/k75xx68h_image.png";
 
 type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; route: string; bg: string; full?: boolean };
 
@@ -52,7 +50,10 @@ export default function Home() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: 24 }]}>
         <View style={styles.headerRow}>
-          <Image source={{ uri: LOGO }} style={styles.brandLogo} resizeMode="contain" />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={{ fontSize: 32 }}>🦋</Text>
+            <Text style={[styles.brand, { color: c.brand, fontSize: 26 * scale }]}>YouBelong</Text>
+          </View>
           <Pressable testID="home-settings" onPress={() => router.push("/settings")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <Ionicons name="settings-outline" size={26} color={c.onSurface} />
           </Pressable>
@@ -123,7 +124,7 @@ export default function Home() {
 const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  brandLogo: { width: 170, height: 48 },
+  brand: { fontWeight: "900", letterSpacing: 0.3 },
   hello: { fontWeight: "600", marginTop: 6 },
   name: { fontWeight: "900", marginTop: 2 },
   iconBtn: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", borderWidth: 1 },
