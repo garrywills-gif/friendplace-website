@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Dimensions, Platform } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -9,7 +9,9 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 
-const LOGO = "https://customer-assets.emergentagent.com/job_belong-together/artifacts/8yzov3na_image.png";
+// Warm community photo — older adults sharing coffee and conversation
+const COMMUNITY_BG =
+  "https://images.unsplash.com/photo-1764173039543-f9f197744e1b?auto=format&fit=crop&w=1200&q=80";
 
 export default function Welcome() {
   const router = useRouter();
@@ -17,11 +19,6 @@ export default function Welcome() {
   const { user, loading, login } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
-  const screenW = Dimensions.get("window").width;
-  // hero-sized — fills the upper third of the screen
-  const logoW = screenW - 8;
-  const logoH = logoW * 0.6;
-  const glowSize = logoW * 0.95;
 
   useEffect(() => {
     if (!loading && user) router.replace("/(tabs)/home");
@@ -47,48 +44,34 @@ export default function Welcome() {
 
   return (
     <View style={styles.full}>
-      {/* Full-screen blue → teal gradient — NO black anywhere */}
+      {/* Warm community photo background */}
+      <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+      {/* Blue → teal gradient overlay — strong enough for readability,
+          soft enough to let the warmth of the photo glow through */}
       <LinearGradient
-        colors={["#1E3A8A", "#1E5DAA", "#0EA5E9", "#0E7490", "#14B8A6"]}
-        locations={[0, 0.28, 0.55, 0.8, 1]}
+        colors={[
+          "rgba(30, 58, 138, 0.94)",
+          "rgba(14, 116, 144, 0.88)",
+          "rgba(20, 184, 166, 0.86)",
+          "rgba(15, 118, 110, 0.92)",
+        ]}
+        locations={[0, 0.4, 0.75, 1]}
         style={StyleSheet.absoluteFill}
       />
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 36, paddingBottom: insets.bottom + 28 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 24 }]}>
+        {/* Hero */}
         <View style={styles.hero}>
-          {/* Soft mint glow behind the logo */}
-          <View
-            pointerEvents="none"
-            style={[
-              styles.glow,
-              { width: glowSize, height: glowSize, borderRadius: glowSize / 2, top: -glowSize * 0.18 },
-            ]}
-          />
-          <View
-            pointerEvents="none"
-            style={[
-              styles.glowInner,
-              { width: glowSize * 0.7, height: glowSize * 0.7, borderRadius: (glowSize * 0.7) / 2, top: -glowSize * 0.05 },
-            ]}
-          />
-
-          {/* Hero logo — mixBlendMode:'screen' removes the logo's black background
-              over the gradient, so it reads as a transparent treatment */}
-          <Image
-            source={LOGO}
-            style={[
-              { width: logoW, height: logoH },
-              // @ts-ignore — mixBlendMode is supported on RN 0.76+ and web
-              Platform.OS === "web" ? { mixBlendMode: "screen" } : { mixBlendMode: "screen" as any },
-            ]}
-            contentFit="contain"
-            testID="welcome-logo"
-          />
-
-          <Text style={[styles.tag1, { fontSize: 30 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
+          <Text style={[styles.butterfly, { fontSize: 88 * scale }]} testID="welcome-butterfly">🦋</Text>
+          <Text style={[styles.brand, { fontSize: 64 * scale }]} testID="welcome-brand">YouBelong</Text>
+          <Text style={[styles.tag1, { fontSize: 26 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.tag2, { fontSize: 18 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
+          <Text style={[styles.welcomeMsg, { fontSize: 16 * scale }]} testID="welcome-message">
+            A friendly place to meet people, join conversations and feel connected.
+          </Text>
         </View>
 
+        {/* Actions — sized for older adults, brought up close to the hero */}
         <View style={styles.actions}>
           <Pressable testID="welcome-signup" onPress={() => router.push("/auth/signup")} style={({ pressed }) => [styles.btnPrimary, { opacity: pressed ? 0.85 : 1 }]}>
             <Text style={[styles.btnPrimaryText, { fontSize: 22 * scale }]}>Sign Up</Text>
@@ -118,47 +101,61 @@ export default function Welcome() {
 }
 
 const styles = StyleSheet.create({
-  full: { flex: 1 },
-  content: { paddingHorizontal: 20, flexGrow: 1, justifyContent: "space-between", gap: 20 },
-  hero: { alignItems: "center", justifyContent: "center", marginTop: 8 },
-  glow: {
-    position: "absolute",
-    backgroundColor: "rgba(94, 234, 212, 0.28)",
-    ...(Platform.OS === "web" ? ({ filter: "blur(48px)" } as any) : null),
+  full: { flex: 1, backgroundColor: "#0E7490" },
+  content: { paddingHorizontal: 22, flexGrow: 1, justifyContent: "flex-start", gap: 18 },
+  hero: { alignItems: "center", marginTop: 12 },
+  butterfly: {
+    textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.35)",
+    textShadowOffset: { width: 0, height: 6 },
+    textShadowRadius: 16,
   },
-  glowInner: {
-    position: "absolute",
-    backgroundColor: "rgba(186, 230, 253, 0.35)",
-    ...(Platform.OS === "web" ? ({ filter: "blur(32px)" } as any) : null),
+  brand: {
+    fontWeight: "900",
+    color: "#FFFFFF",
+    textAlign: "center",
+    letterSpacing: 0.5,
+    marginTop: 4,
+    textShadowColor: "rgba(0,0,0,0.3)",
+    textShadowOffset: { width: 0, height: 4 },
+    textShadowRadius: 12,
   },
   tag1: {
-    fontWeight: "900",
-    textAlign: "center",
-    marginTop: 4,
-    letterSpacing: 0.4,
+    fontWeight: "800",
     color: "#FFFFFF",
+    textAlign: "center",
+    marginTop: 14,
+    letterSpacing: 0.4,
     textShadowColor: "rgba(0,0,0,0.25)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 8,
   },
-  tag2: { textAlign: "center", marginTop: 8, fontWeight: "600", color: "#CCFBF1" },
-  actions: { gap: 14, marginTop: 8, marginBottom: 8 },
+  tag2: { color: "#CCFBF1", textAlign: "center", marginTop: 6, fontWeight: "700" },
+  welcomeMsg: {
+    color: "rgba(255,255,255,0.92)",
+    textAlign: "center",
+    marginTop: 18,
+    paddingHorizontal: 8,
+    lineHeight: 24,
+    fontWeight: "500",
+  },
+  actions: { gap: 12, marginTop: 24, marginBottom: 12 },
   btnPrimary: {
-    minHeight: 64, borderRadius: 999, backgroundColor: "#FFFFFF",
+    minHeight: 62, borderRadius: 999, backgroundColor: "#FFFFFF",
     alignItems: "center", justifyContent: "center",
-    shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6,
+    shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6,
   },
   btnPrimaryText: { color: "#0E3A6E", fontWeight: "900", letterSpacing: 0.3 },
   btnOutline: {
-    minHeight: 64, borderRadius: 999, borderWidth: 2, borderColor: "rgba(255,255,255,0.85)",
-    alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.08)",
+    minHeight: 62, borderRadius: 999, borderWidth: 2, borderColor: "rgba(255,255,255,0.9)",
+    alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.1)",
   },
   btnOutlineText: { color: "#FFFFFF", fontWeight: "900" },
-  divider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 6 },
-  line: { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.35)" },
-  orText: { color: "rgba(255,255,255,0.85)", fontWeight: "700" },
+  divider: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 4 },
+  line: { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.4)" },
+  orText: { color: "rgba(255,255,255,0.9)", fontWeight: "700" },
   social: {
-    minHeight: 60, borderRadius: 999, flexDirection: "row",
+    minHeight: 58, borderRadius: 999, flexDirection: "row",
     alignItems: "center", justifyContent: "center", gap: 10,
   },
   socialText: { fontWeight: "700" },
