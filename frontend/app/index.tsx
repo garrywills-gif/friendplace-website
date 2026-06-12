@@ -8,7 +8,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
-import ButterflyLogo from "@/src/components/ButterflyLogo";
 
 // Warm community photo — older adults sharing coffee and conversation
 const COMMUNITY_BG =
@@ -61,11 +60,10 @@ export default function Welcome() {
       />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 24 }]}>
-        {/* Hero */}
+        {/* Hero — wordmark only, clean and modern */}
         <View style={styles.hero}>
-          {/* Two-tone flat butterfly — matches the YouBelong brand mark */}
-          <ButterflyLogo size={108 * scale} />
-          <Text style={[styles.brand, { fontSize: 48 * scale }]} testID="welcome-brand">YouBelong</Text>
+          <Text style={[styles.brand, { fontSize: 64 * scale }]} testID="welcome-brand">YouBelong</Text>
+          <View style={styles.brandRule} />
           <Text style={[styles.tag1, { fontSize: 24 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.tag2, { fontSize: 17 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
           <Text style={[styles.welcomeMsg, { fontSize: 16 * scale }]} testID="welcome-message">
@@ -108,7 +106,8 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#0E7490" },
   content: { paddingHorizontal: 22, flexGrow: 1, justifyContent: "flex-start", gap: 18 },
-  hero: { alignItems: "center", marginTop: 12 },
+  hero: { alignItems: "center", marginTop: 32 },
+  brandRule: { width: 72, height: 3, borderRadius: 2, backgroundColor: "#5EEAD4", marginTop: 14, marginBottom: 4 },
   butterflyWrap: { width: 110, height: 110, alignItems: "center", justifyContent: "center" },
   butterflyShadow: { position: "absolute", left: 6, top: 4, opacity: 0.7 },
   butterflyTop: { position: "absolute" },
