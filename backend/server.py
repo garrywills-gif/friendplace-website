@@ -125,6 +125,7 @@ class Event(BaseModel):
     date: str = ""
     time: str = ""
     rsvps: List[str] = []
+    sponsor: Optional[dict] = None  # {name, message, discount_code}
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -597,12 +598,16 @@ SAMPLE_GROUPS = [
 ]
 
 SAMPLE_EVENTS = [
-    {"title": "Coffee Morning", "emoji": "☕", "description": "Casual morning catch-up over a cuppa.", "location": "Cafe Belong, Manly", "date": "2026-05-20", "time": "10:00 AM"},
-    {"title": "Community Morning Tea", "emoji": "🫖", "description": "Tea, biscuits, and chatter at the community hall.", "location": "Bondi Community Hall", "date": "2026-05-22", "time": "10:30 AM"},
+    {"title": "Coffee Morning", "emoji": "☕", "description": "Casual morning catch-up over a cuppa.", "location": "Cafe Belong, Manly", "date": "2026-05-20", "time": "10:00 AM",
+     "sponsor": {"name": "Café Belong", "message": "Senior's discount on coffee & cake", "discount_code": "BELONG10"}},
+    {"title": "Community Morning Tea", "emoji": "🫖", "description": "Tea, biscuits, and chatter at the community hall.", "location": "Bondi Community Hall", "date": "2026-05-22", "time": "10:30 AM",
+     "sponsor": {"name": "Bondi Community Centre", "message": "Free tea & scones for RSVPs", "discount_code": "BONDITEA"}},
     {"title": "Walking Group", "emoji": "🚶", "description": "Gentle stroll around Centennial Park.", "location": "Centennial Park", "date": "2026-05-24", "time": "8:00 AM"},
-    {"title": "Men's Shed BBQ", "emoji": "🔨", "description": "Snags, stories and a bit of tinkering — all welcome.", "location": "Manly Men's Shed", "date": "2026-05-26", "time": "12:00 PM"},
+    {"title": "Men's Shed BBQ", "emoji": "🔨", "description": "Snags, stories and a bit of tinkering — all welcome.", "location": "Manly Men's Shed", "date": "2026-05-26", "time": "12:00 PM",
+     "sponsor": {"name": "Manly Hardware Co.", "message": "10% off your next visit", "discount_code": "SHED10"}},
     {"title": "Community Market", "emoji": "🥕", "description": "Browse the local markets together.", "location": "Surry Hills Markets", "date": "2026-05-28", "time": "9:30 AM"},
-    {"title": "Library Book Club", "emoji": "📚", "description": "This month: 'The Thursday Murder Club'. Bring your thoughts!", "location": "Newtown Library", "date": "2026-05-30", "time": "2:00 PM"},
+    {"title": "Library Book Club", "emoji": "📚", "description": "This month: 'The Thursday Murder Club'. Bring your thoughts!", "location": "Newtown Library", "date": "2026-05-30", "time": "2:00 PM",
+     "sponsor": {"name": "Newtown Bookshop", "message": "15% off any book on the day", "discount_code": "READMORE"}},
     {"title": "Trivia Afternoon", "emoji": "🎯", "description": "Bring your thinking caps.", "location": "Newtown Library", "date": "2026-06-02", "time": "2:00 PM"},
 ]
 

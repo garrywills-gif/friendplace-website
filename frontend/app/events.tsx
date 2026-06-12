@@ -13,6 +13,7 @@ export default function Events() {
   const { user, refresh } = useAuth();
   const { show } = useToast();
   const [events, setEvents] = useState<any[]>([]);
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
   const load = async () => setEvents(await api.listEvents());
   useFocusEffect(useCallback(() => { load(); }, []));
@@ -37,6 +38,8 @@ export default function Events() {
         contentContainerStyle={{ padding: 16, gap: 12 }}
         renderItem={({ item }) => {
           const going = user && (item.rsvps || []).includes(user.id);
+          const sp = item.sponsor;
+          const showCode = !!sp && going && (revealed[item.id] || false);
           return (
             <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <View style={styles.row}>
@@ -48,6 +51,39 @@ export default function Events() {
                 </View>
               </View>
               {!!item.description && <Text style={[styles.desc, { color: c.onSurfaceSecondary, fontSize: 15 * scale }]}>{item.description}</Text>}
+
+              {sp && (
+                <View style={[styles.sponsorWrap, { backgroundColor: "#FEF3C7", borderColor: "#FBBF24" }]} testID={`sponsor-${item.id}`}>
+                  <View style={styles.sponsorRow}>
+                    <View style={[styles.sponsorIcon, { backgroundColor: "#F59E0B" }]}><Ionicons name="ribbon" size={16} color="#FFFFFF" /></View>
+                    <View style={{ flex: 1, marginLeft: 10 }}>
+                      <Text style={[styles.sponsorBy, { color: "#92400E", fontSize: 12 * scale }]}>SPONSORED BY</Text>
+                      <Text style={[styles.sponsorName, { color: "#78350F", fontSize: 15 * scale }]}>{sp.name}</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.sponsorMsg, { color: "#78350F", fontSize: 14 * scale }]}>🎁 {sp.message}</Text>
+                  {going ? (
+                    showCode ? (
+                      <View style={[styles.codeBox, { backgroundColor: "#FFFFFF", borderColor: "#F59E0B" }]} testID={`code-${item.id}`}>
+                        <Text style={{ color: "#92400E", fontWeight: "700", fontSize: 12 * scale }}>Your discount code</Text>
+                        <Text style={{ color: "#78350F", fontWeight: "900", fontSize: 22 * scale, letterSpacing: 2, marginTop: 2 }}>{sp.discount_code}</Text>
+                      </View>
+                    ) : (
+                      <Pressable
+                        testID={`reveal-${item.id}`}
+                        onPress={() => setRevealed({ ...revealed, [item.id]: true })}
+                        style={[styles.revealBtn, { backgroundColor: "#F59E0B" }]}
+                      >
+                        <Ionicons name="gift" size={18} color="#FFFFFF" />
+                        <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 14 * scale }}>Reveal my discount code</Text>
+                      </Pressable>
+                    )
+                  ) : (
+                    <Text style={[styles.sponsorHint, { color: "#92400E", fontSize: 12 * scale }]}>RSVP to unlock the discount code 🔒</Text>
+                  )}
+                </View>
+              )}
+
               <View style={styles.bottom}>
                 <Text style={[styles.count, { color: c.muted, fontSize: 14 * scale }]}>👥 {(item.rsvps || []).length} going</Text>
                 <Pressable
@@ -74,6 +110,15 @@ const styles = StyleSheet.create({
   title: { fontWeight: "800" },
   meta: { marginTop: 2, fontWeight: "500" },
   desc: { fontWeight: "500" },
+  sponsorWrap: { borderRadius: 14, borderWidth: 1, padding: 12, gap: 8 },
+  sponsorRow: { flexDirection: "row", alignItems: "center" },
+  sponsorIcon: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  sponsorBy: { fontWeight: "800", letterSpacing: 1 },
+  sponsorName: { fontWeight: "800" },
+  sponsorMsg: { fontWeight: "600" },
+  sponsorHint: { fontStyle: "italic" },
+  revealBtn: { paddingVertical: 12, borderRadius: 999, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
+  codeBox: { padding: 12, borderRadius: 12, borderWidth: 2, alignItems: "center" },
   bottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
   count: { fontWeight: "600" },
   rsvp: { flexDirection: "row", alignItems: "center", paddingHorizontal: 18, paddingVertical: 12, borderRadius: 999, borderWidth: 2, gap: 6 },
