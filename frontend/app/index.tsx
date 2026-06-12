@@ -50,8 +50,10 @@ export default function Welcome() {
       />
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.logoWrap}>
-          <Image source={LOGO} style={styles.logo} contentFit="contain" />
-          <Text style={[styles.tag1, { color: "#0F766E", fontSize: 28 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
+          <View style={styles.logoCard}>
+            <Image source={LOGO} style={styles.logo} contentFit="contain" />
+          </View>
+          <Text style={[styles.tag1, { color: "#0F766E", fontSize: 30 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.tag2, { color: "#475569", fontSize: 18 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
         </View>
 
@@ -82,8 +84,9 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   full: { flex: 1 },
   content: { paddingHorizontal: 24, flexGrow: 1, justifyContent: "space-between" },
-  logoWrap: { alignItems: "center", marginTop: 32 },
-  logo: { width: 280, height: 140, marginBottom: 4 },
+  logoWrap: { alignItems: "center", marginTop: 24 },
+  logoCard: { backgroundColor: "#FFFFFF", borderRadius: 28, paddingHorizontal: 24, paddingVertical: 28, shadowColor: "#0F172A", shadowOpacity: 0.08, shadowRadius: 24, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  logo: { width: 300, height: 160 },
   tag1: { fontWeight: "900", textAlign: "center", marginTop: 8, letterSpacing: 0.2 },
   tag2: { textAlign: "center", marginTop: 6, fontWeight: "600" },
   actions: { gap: 12, marginTop: 32, marginBottom: 24 },

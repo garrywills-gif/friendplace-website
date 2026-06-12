@@ -687,6 +687,15 @@ async def seed():
         m = Message(dm_id=cid, user_id=s, user_name=u["first_name"], avatar=u["avatar"], text=txt)
         await db.messages.insert_one(m.dict())
 
+    # seed Flutters: Frank and Dorothy → Margaret
+    for sender in [users[1], users[4]]:  # Frank, Dorothy
+        flut = FlutterDoc(
+            from_id=sender["id"], to_id=users[0]["id"],
+            from_name=sender["first_name"], from_avatar=sender["avatar"],
+            message="wants to chat 🦋",
+        )
+        await db.flutters.insert_one(flut.dict())
+
     # mutual friendships
     await db.users.update_one({"id": users[0]["id"]}, {"$set": {"friends": [users[2]["id"], users[4]["id"]]}})
     await db.users.update_one({"id": users[2]["id"]}, {"$set": {"friends": [users[0]["id"]]}})
