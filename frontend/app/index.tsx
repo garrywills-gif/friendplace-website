@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from
 import { useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
@@ -46,14 +46,14 @@ export default function Welcome() {
     <View style={styles.full}>
       {/* Warm community photo background */}
       <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" />
-      {/* Blue → teal gradient overlay — strong enough for readability,
-          soft enough to let the warmth of the photo glow through */}
+      {/* Stronger blue → teal overlay (+20% opacity) so text reads cleanly
+          and the photo softens behind it */}
       <LinearGradient
         colors={[
-          "rgba(30, 58, 138, 0.94)",
-          "rgba(14, 116, 144, 0.88)",
-          "rgba(20, 184, 166, 0.86)",
-          "rgba(15, 118, 110, 0.92)",
+          "rgba(30, 58, 138, 1.0)",
+          "rgba(14, 116, 144, 0.98)",
+          "rgba(20, 184, 166, 0.96)",
+          "rgba(15, 118, 110, 1.0)",
         ]}
         locations={[0, 0.4, 0.75, 1]}
         style={StyleSheet.absoluteFill}
@@ -62,12 +62,29 @@ export default function Welcome() {
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 24 }]}>
         {/* Hero */}
         <View style={styles.hero}>
-          <Text style={[styles.butterfly, { fontSize: 88 * scale }]} testID="welcome-butterfly">🦋</Text>
-          <Text style={[styles.brand, { fontSize: 64 * scale }]} testID="welcome-brand">YouBelong</Text>
-          <Text style={[styles.tag1, { fontSize: 26 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
-          <Text style={[styles.tag2, { fontSize: 18 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
+          {/* Modern flat butterfly — layered teal + blue wings for depth */}
+          <View style={styles.butterflyWrap}>
+            <MaterialCommunityIcons
+              name="butterfly"
+              size={104 * scale}
+              color="#3B82F6"
+              style={styles.butterflyShadow}
+            />
+            <MaterialCommunityIcons
+              name="butterfly"
+              size={104 * scale}
+              color="#5EEAD4"
+              style={styles.butterflyTop}
+            />
+          </View>
+          <Text style={[styles.brand, { fontSize: 48 * scale }]} testID="welcome-brand">YouBelong</Text>
+          <Text style={[styles.tag1, { fontSize: 24 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
+          <Text style={[styles.tag2, { fontSize: 17 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
           <Text style={[styles.welcomeMsg, { fontSize: 16 * scale }]} testID="welcome-message">
             A friendly place to meet people, join conversations and feel connected.
+          </Text>
+          <Text style={[styles.featureLine, { fontSize: 15 * scale }]} testID="welcome-features">
+            Join conversations, make friends and discover local events.
           </Text>
         </View>
 
@@ -104,12 +121,9 @@ const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#0E7490" },
   content: { paddingHorizontal: 22, flexGrow: 1, justifyContent: "flex-start", gap: 18 },
   hero: { alignItems: "center", marginTop: 12 },
-  butterfly: {
-    textAlign: "center",
-    textShadowColor: "rgba(0,0,0,0.35)",
-    textShadowOffset: { width: 0, height: 6 },
-    textShadowRadius: 16,
-  },
+  butterflyWrap: { width: 110, height: 110, alignItems: "center", justifyContent: "center" },
+  butterflyShadow: { position: "absolute", left: 6, top: 4, opacity: 0.7 },
+  butterflyTop: { position: "absolute" },
   brand: {
     fontWeight: "900",
     color: "#FFFFFF",
@@ -132,12 +146,20 @@ const styles = StyleSheet.create({
   },
   tag2: { color: "#CCFBF1", textAlign: "center", marginTop: 6, fontWeight: "700" },
   welcomeMsg: {
-    color: "rgba(255,255,255,0.92)",
+    color: "rgba(255,255,255,0.94)",
     textAlign: "center",
     marginTop: 18,
     paddingHorizontal: 8,
     lineHeight: 24,
     fontWeight: "500",
+  },
+  featureLine: {
+    color: "#CCFBF1",
+    textAlign: "center",
+    marginTop: 8,
+    paddingHorizontal: 8,
+    lineHeight: 22,
+    fontWeight: "700",
   },
   actions: { gap: 12, marginTop: 24, marginBottom: 12 },
   btnPrimary: {
