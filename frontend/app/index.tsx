@@ -10,9 +10,9 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import PeopleO from "@/src/components/PeopleO";
 
-// A warm photo of people sharing coffee and conversation
+// A warm photo of friends chatting over coffee
 const COMMUNITY_BG =
-  "https://images.unsplash.com/photo-1543269664-7eef42226a21?auto=format&fit=crop&w=1400&q=80";
+  "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1400&q=80";
 
 export default function Welcome() {
   const router = useRouter();
@@ -70,7 +70,7 @@ export default function Welcome() {
           <View style={styles.wordmark} testID="welcome-brand">
             <Text style={[styles.wordmarkText, { fontSize: wordmarkSize }]}>YouBel</Text>
             <View style={{ marginHorizontal: 1, alignItems: "center", justifyContent: "center", height: wordmarkSize }}>
-              <PeopleO size={oSize} leftColor="#FFFFFF" rightColor="#CCFBF1" />
+              <PeopleO size={oSize} leftColor="#FFFFFF" rightColor="#5EEAD4" />
             </View>
             <Text style={[styles.wordmarkText, { fontSize: wordmarkSize }]}>ng</Text>
           </View>
@@ -78,7 +78,7 @@ export default function Welcome() {
           {/* Underline accent */}
           <View style={styles.brandRule} />
 
-          <Text style={[styles.tag1, { fontSize: 24 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
+          <Text style={[styles.tag1, { fontSize: 27.6 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.tag2, { fontSize: 17 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
           <Text style={[styles.welcomeMsg, { fontSize: 16 * scale }]} testID="welcome-message">
             A friendly place to meet people, join conversations and feel connected.
