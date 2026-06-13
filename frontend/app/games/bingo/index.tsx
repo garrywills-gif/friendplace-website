@@ -58,7 +58,7 @@ export default function BingoHub() {
         <Pressable testID="bingo-daily" onPress={() => start({ daily: true })} style={[styles.daily, { backgroundColor: "#1E3A7F", borderColor: c.brand }]}>
           <View style={[styles.pill, { backgroundColor: "#FCC656" }]}><Ionicons name="sparkles" size={14} color={"#0D2A57"} /><Text style={{ color: "#0D2A57", fontWeight: "900", fontSize: 11 * scale }}>DAILY BINGO</Text></View>
           <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 22 * scale, marginTop: 8 }}>Today&apos;s shared card</Text>
-          <Text style={{ color: "#FFFFFFCC", fontSize: 14 * scale, marginTop: 2 }}>Same call sequence for everyone &middot; 15 Butterfly Points</Text>
+          <Text style={{ color: "#FFFFFFCC", fontSize: 14 * scale, marginTop: 2 }}>Same call sequence for everyone &middot; 15 Community Points</Text>
         </Pressable>
 
         {events.length > 0 && (
@@ -120,7 +120,7 @@ export default function BingoHub() {
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 17 * scale }}>{d.label}</Text>
                   <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>{sub}</Text>
-                  <Text style={{ color: d.color, fontWeight: "800", fontSize: 12 * scale, marginTop: 2 }}>{d.points} Butterfly Points</Text>
+                  <Text style={{ color: d.color, fontWeight: "800", fontSize: 12 * scale, marginTop: 2 }}>{d.points} Community Points</Text>
                 </View>
                 {active && <Ionicons name="checkmark-circle" size={26} color={d.color} />}
               </Pressable>

@@ -109,7 +109,7 @@ export default function BingoPlayer() {
           <Text style={{ fontSize: 80 }}>\uD83C\uDF89</Text>
           <Text style={{ color: c.brand, fontWeight: "900", fontSize: 42 * scale }}>BINGO!</Text>
           {!!completion && <>
-            <Text style={{ color: c.onSurface, fontSize: 18 * scale }}>You earned +{completion.points_earned} Butterfly Points</Text>
+            <Text style={{ color: c.onSurface, fontSize: 18 * scale }}>You earned +{completion.points_earned} Community Points</Text>
             <Text style={{ color: c.muted, fontSize: 14 * scale }}>{completion.calls_used} calls \u00B7 {completion.duration_seconds}s</Text>
             {(completion.granted || []).length > 0 && (
               <View style={{ gap: 4, marginTop: 6 }}>

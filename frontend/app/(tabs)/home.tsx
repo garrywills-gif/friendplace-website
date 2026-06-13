@@ -22,6 +22,7 @@ export default function Home() {
   const [unread, setUnread] = useState<number>(0);
   const [thought, setThought] = useState<string>(() => getThoughtForDate());
   const [isFav, setIsFav] = useState<boolean>(false);
+  const [community, setCommunity] = useState<any>(null);
 
   const shuffleThought = () => setThought((t) => getRandomThought(t));
 
@@ -51,6 +52,7 @@ export default function Home() {
     try { setFlutters(await api.myFlutters(user.id)); } catch {}
     try { const r: any = await api.notificationCount(user.id); setUnread(r?.unread || 0); } catch {}
     try { await api.heartbeat(user.id); } catch {}
+    try { setCommunity(await api.communityToday(user.id)); } catch {}
   };
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
 
@@ -158,6 +160,48 @@ export default function Home() {
           )}
         </Pressable>
 
+        {community && (community.birthdays?.length || community.new_members?.length || community.anniversaries?.length || community.milestones?.last_reached) ? (
+          <View style={[styles.communityCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]} testID="community-card">
+            <Text style={[styles.communityHead, { color: c.brand, fontSize: 12 * scale }]}>COMMUNITY TODAY</Text>
+            {community.birthdays?.slice(0, 3).map((u: any) => (
+              <Pressable key={`b-${u.id}`} testID={`bday-${u.id}`} onPress={() => router.push(`/user/${u.id}` as any)} style={styles.commRow}>
+                <Text style={styles.commEmoji}>🎂</Text>
+                <Text numberOfLines={1} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
+                  It&apos;s {u.first_name}&apos;s birthday today! Send a wave.
+                </Text>
+                <Ionicons name="chevron-forward" size={18} color={c.muted} />
+              </Pressable>
+            ))}
+            {community.anniversaries?.slice(0, 2).map((u: any) => (
+              <Pressable key={`a-${u.id}`} onPress={() => router.push(`/user/${u.id}` as any)} style={styles.commRow}>
+                <Text style={styles.commEmoji}>🎉</Text>
+                <Text numberOfLines={1} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
+                  {u.first_name} is celebrating {u.years} year{u.years > 1 ? "s" : ""} with YouBelong!
+                </Text>
+                <Ionicons name="chevron-forward" size={18} color={c.muted} />
+              </Pressable>
+            ))}
+            {community.new_members?.length > 0 && (
+              <Pressable testID="new-members-row" onPress={() => router.push("/(tabs)/friends" as any)} style={styles.commRow}>
+                <Text style={styles.commEmoji}>👋</Text>
+                <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
+                  Say hello to {community.new_members.length} new {community.new_members.length === 1 ? "neighbour" : "neighbours"} this week
+                </Text>
+                <Ionicons name="chevron-forward" size={18} color={c.muted} />
+              </Pressable>
+            )}
+            {community.milestones?.last_reached && (
+              <View style={styles.commRow}>
+                <Text style={styles.commEmoji}>🏆</Text>
+                <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 14 * scale }}>
+                  {community.milestones.last_reached.label}
+                  {community.milestones.next ? ` · ${community.milestones.next.users - community.milestones.total_users} to next milestone` : ""}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : null}
+
         <View style={styles.grid}>
           {tiles.map((t) => (
             <Pressable
@@ -197,6 +241,10 @@ const styles = StyleSheet.create({
   badgesCol: { alignItems: "flex-end", gap: 6, maxWidth: "55%" },
   badgePill: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1.5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, maxWidth: 170 },
   badgeText: { fontWeight: "800" },
+  communityCard: { borderRadius: 18, padding: 14, borderWidth: 1, marginTop: 12, gap: 8 },
+  communityHead: { fontWeight: "900", letterSpacing: 0.6, marginBottom: 2 },
+  commRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  commEmoji: { fontSize: 22 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 4 },
   tile: { borderRadius: 22, padding: 18, justifyContent: "space-between", gap: 8 },
   tileTitle: { color: "#FFFFFF", fontWeight: "800", marginTop: "auto" },

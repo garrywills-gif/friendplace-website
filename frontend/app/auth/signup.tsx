@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/lib/theme";
@@ -11,6 +11,7 @@ import { INTERESTS } from "@/src/lib/interests";
 
 const SUBURBS = ["Bondi", "Manly", "Surry Hills", "Newtown", "Sydney CBD", "Parramatta"];
 const AVATARS = ["🌸", "🔨", "📚", "🧓", "🧶", "🌳", "🎨", "🏏", "🌷", "🐾", "👋", "☕"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export default function Signup() {
   const router = useRouter();
@@ -25,7 +26,18 @@ export default function Signup() {
   const [suburb, setSuburb] = useState("");
   const [avatar, setAvatar] = useState("🌸");
   const [interests, setInterests] = useState<string[]>([]);
+  const [bdayMonth, setBdayMonth] = useState<number | null>(null); // 1..12
+  const [bdayDay, setBdayDay] = useState<string>("");
+  const [bdayYear, setBdayYear] = useState<string>("");
   const [busy, setBusy] = useState(false);
+
+  const birthdayString = useMemo(() => {
+    if (!bdayMonth || !bdayDay) return "";
+    const mm = String(bdayMonth).padStart(2, "0");
+    const dd = String(parseInt(bdayDay, 10) || 0).padStart(2, "0");
+    if (dd === "00") return "";
+    return bdayYear && /^\d{4}$/.test(bdayYear) ? `${bdayYear}-${mm}-${dd}` : `${mm}-${dd}`;
+  }, [bdayMonth, bdayDay, bdayYear]);
 
   const toggle = (i: string) =>
     setInterests((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]));
@@ -86,6 +98,39 @@ export default function Signup() {
               </Pressable>
             ))}
           </View>
+
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Birthday <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional — for birthday waves)</Text></Text>
+          <View style={styles.row}>
+            {MONTHS.map((m, idx) => {
+              const on = bdayMonth === idx + 1;
+              return (
+                <Pressable key={m} testID={`signup-bday-month-${idx + 1}`} onPress={() => setBdayMonth(on ? null : idx + 1)} style={[styles.chip, { paddingHorizontal: 12, backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}>
+                  <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontSize: 14 * scale, fontWeight: "700" }}>{m}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
+            <TextInput
+              testID="signup-bday-day"
+              value={bdayDay}
+              onChangeText={(t) => setBdayDay(t.replace(/[^0-9]/g, "").slice(0, 2))}
+              keyboardType="number-pad"
+              placeholder="Day (1–31)"
+              placeholderTextColor={c.muted}
+              style={[styles.input, inputStyle, { flex: 1 }]}
+            />
+            <TextInput
+              testID="signup-bday-year"
+              value={bdayYear}
+              onChangeText={(t) => setBdayYear(t.replace(/[^0-9]/g, "").slice(0, 4))}
+              keyboardType="number-pad"
+              placeholder="Year (optional)"
+              placeholderTextColor={c.muted}
+              style={[styles.input, inputStyle, { flex: 1 }]}
+            />
+          </View>
+          <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 4 }}>We only use your birthday to wish you a happy day on the community.</Text>
 
           <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb</Text>
           <View style={styles.row}>

@@ -102,6 +102,8 @@ export const api = {
 
   // safety + admin + support
   safetyReasons: () => req("/safety/report-reasons"),
+  // community
+  communityToday: (uid?: string) => req(`/community/today${uid ? `?user_id=${uid}` : ""}`),
   submitReport: (body: { reporter_id: string; target_user_id?: string; target_type?: string; target_id?: string; reason: string; notes?: string }) =>
     req("/reports", { method: "POST", body: JSON.stringify(body) }),
   submitSupportTicket: (body: { user_id?: string; user_email?: string; category: string; subject: string; message: string }) =>

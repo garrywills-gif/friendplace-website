@@ -13,7 +13,7 @@ const STEPS = [
   { icon: "\uD83E\uDD8B", title: "Welcome to YouBelong", body: "A warm place to meet new friends, share a chat over coffee, and have a little fun every day. Built for grown-ups who value real connection.", tint: "#0F766E" },
   { icon: "\u2615\uFE0F", title: "The Coffee Lounge", body: "Our virtual living room. Pull up a chair at any open table and join a friendly conversation. No pressure \u2014 leave whenever you like.", tint: "#B45309" },
   { icon: "\uD83E\uDD8B", title: "Flutters", body: "A Flutter is a gentle wave. Send one to say hello to a friend, or to cheer them on when they finish a tough game.", tint: "#7C3AED" },
-  { icon: "\u2728", title: "Butterfly Points", body: "Earn Butterfly Points for joining in \u2014 playing games, sharing notices, helping others. Collect them to unlock fun badges on your profile.", tint: "#2563EB" },
+  { icon: "\u2728", title: "Community Points", body: "Earn Community Points for joining in \u2014 playing games, sharing notices, helping others. Collect them to unlock fun badges on your profile.", tint: "#2563EB" },
   { icon: "\uD83D\uDCDD", title: "Community Notice Board", body: "Share local news, ask a question, give a wave, or celebrate a moment. Everyone's welcome. Be kind \u2014 it's our only rule.", tint: "#DB2777" },
   { icon: "\uD83C\uDFAE", title: "Games Hub", body: "Jigsaw, Trivia, Bingo and more. Play at your own pace with four difficulty levels and a Daily Challenge every day.", tint: "#0EA5E9" },
   { icon: "\u267F", title: "Made for everyone", body: "Tap Accessibility Settings any time to make the text bigger, turn on Read Aloud, or switch to High Contrast. Your account, your way.", tint: "#16A34A" },

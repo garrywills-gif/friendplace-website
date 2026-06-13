@@ -12,12 +12,12 @@ const FAQ = [
   { q: "How do I make a friend?", a: "Open Find Friends from the bottom bar, browse members near you, and tap 'Send Friend Request'. When they accept, you can chat any time." },
   { q: "What is the Coffee Lounge?", a: "The Coffee Lounge is our virtual living room. Sit at any table for a friendly chat with others, just like a real café. New tables open every day." },
   { q: "What are Flutters?", a: "A Flutter is a gentle wave to someone — like saying 'hello, I'm here'. You can also send Flutters to congratulate friends on a game achievement." },
-  { q: "What are Butterfly Points?", a: "You earn Butterfly Points for taking part — chatting, posting, playing games. They unlock fun badges to show off on your profile." },
+  { q: "What are Community Points?", a: "You earn Community Points for taking part — chatting, posting, playing games. They unlock fun badges to show off on your profile." },
   { q: "How do I keep my account safe?", a: "Never share passwords or bank details. Use the Report button if someone makes you uncomfortable, and Block them straight away. Our team reviews every report." },
   { q: "How do I make the text bigger?", a: "Tap Profile → Accessibility Settings. Slide the text size up, turn on Read Aloud, or pick High Contrast for easier reading." },
   { q: "I'm being bothered by another user — what do I do?", a: "Tap the three dots on their post or profile, then choose Report. Pick a reason and add details. You can also Block them so they can't reach you. We act on every report." },
   { q: "Why can't I post or message right now?", a: "If your account has been temporarily restricted, our team is reviewing recent activity. Please contact support — we'll get back to you quickly." },
-  { q: "How do daily challenges work?", a: "Open Games Hub each day. Daily Trivia, Daily Bingo and Daily Jigsaw give bonus Butterfly Points and feed your daily streak." },
+  { q: "How do daily challenges work?", a: "Open Games Hub each day. Daily Trivia, Daily Bingo and Daily Jigsaw give bonus Community Points and feed your daily streak." },
 ];
 
 export default function HelpCentre() {

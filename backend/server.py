@@ -133,6 +133,7 @@ class SignupBody(BaseModel):
     suburb: str = ""
     interests: List[str] = []
     avatar: str = ""
+    birthday: str = ""  # YYYY-MM-DD or MM-DD (optional)
 
 
 class LoginBody(BaseModel):
@@ -310,6 +311,7 @@ async def signup(body: SignupBody):
         suburb=body.suburb,
         interests=body.interests,
         avatar=body.avatar,
+        birthday=(body.birthday or "").strip(),
         is_demo=False,
         points=5,
         badges=["Friendly Member"],
@@ -319,6 +321,16 @@ async def signup(body: SignupBody):
     doc["failed_login_attempts"] = 0
     doc["lockout_until"] = None
     await db.users.insert_one(doc)
+    # Welcome notification to the new user themselves
+    await db.notifications.insert_one({
+        "id": nid(), "user_id": user.id, "type": "welcome",
+        "title": "Welcome to YouBelong!",
+        "body": "We're so glad you're here. Take a look at the Coffee Lounge or send a friend request to say hello.",
+        "read": False, "created_at": now_iso(),
+    })
+    # And tell the existing community about a new neighbour
+    try: await _broadcast_new_member(doc)
+    except Exception as e: logger.warning("new-member broadcast failed: %s", e)
     return {"access_token": make_token(user.id), "token_type": "bearer", "user": _safe_user(doc)}
 
 
@@ -725,6 +737,152 @@ async def update_privacy_settings(user_id: str, body: PrivacySettingsBody):
 async def onboarding_complete(user_id: str):
     await db.users.update_one({"id": user_id}, {"$set": {"onboarding_completed": True}})
     return {"ok": True}
+
+
+class PreferencesBody(BaseModel):
+    read_messages_aloud: Optional[bool] = None
+    text_scale: Optional[float] = None        # 0.85 – 1.6
+    high_contrast: Optional[bool] = None
+    large_text: Optional[bool] = None         # legacy compat
+
+
+@api.patch("/users/{user_id}/preferences")
+async def update_preferences(user_id: str, body: PreferencesBody):
+    update: Dict = {}
+    if body.read_messages_aloud is not None:
+        update["preferences.read_messages_aloud"] = bool(body.read_messages_aloud)
+    if body.text_scale is not None:
+        update["preferences.text_scale"] = max(0.85, min(1.6, float(body.text_scale)))
+    if body.high_contrast is not None:
+        update["preferences.high_contrast"] = bool(body.high_contrast)
+    if body.large_text is not None:
+        update["preferences.large_text"] = bool(body.large_text)
+    if update:
+        await db.users.update_one({"id": user_id}, {"$set": update})
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return {"ok": True, "preferences": (u or {}).get("preferences", {}), "user": u}
+
+
+@api.get("/users/{user_id}/preferences")
+async def get_preferences(user_id: str):
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "preferences": 1})
+    return {"preferences": (u or {}).get("preferences", {})}
+
+
+# ========================== Phase B: Community Features ==========================
+COMMUNITY_MILESTONES = [
+    {"users": 50, "label": "We are 50 strong!"},
+    {"users": 100, "label": "100 members \u2014 hooray!"},
+    {"users": 250, "label": "250 friendly butterflies"},
+    {"users": 500, "label": "Half a thousand!"},
+    {"users": 1000, "label": "One thousand members"},
+]
+
+
+def _mmdd(date_str: Optional[str]) -> Optional[str]:
+    """Return MM-DD slice from YYYY-MM-DD or MM-DD; None if invalid."""
+    if not date_str: return None
+    parts = date_str.strip().split("-")
+    if len(parts) == 3:
+        return f"{parts[1].zfill(2)}-{parts[2].zfill(2)}"
+    if len(parts) == 2:
+        return f"{parts[0].zfill(2)}-{parts[1].zfill(2)}"
+    return None
+
+
+def _years_since(date_str: Optional[str]) -> Optional[int]:
+    if not date_str: return None
+    try:
+        d = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+    except Exception:
+        return None
+    today = datetime.now(timezone.utc)
+    years = today.year - d.year - (1 if (today.month, today.day) < (d.month, d.day) else 0)
+    return years if years >= 0 else None
+
+
+@api.get("/community/today")
+async def community_today(user_id: Optional[str] = None):
+    """A friendly daily digest for the Home screen: birthdays, new members,
+    member anniversaries, and community milestones."""
+    today = datetime.now(timezone.utc)
+    today_mmdd = today.strftime("%m-%d")
+
+    # Friends-aware birthdays (today)
+    me = await db.users.find_one({"id": user_id}, {"_id": 0, "friends": 1}) if user_id else None
+    friend_ids = set((me or {}).get("friends") or [])
+    bday_query: Dict = {
+        "$or": [{"birthday": {"$regex": f"-{today_mmdd}$"}}, {"birthday": today_mmdd}],
+        "banned": {"$ne": True},
+        "restricted": {"$ne": True},
+        "username": {"$not": {"$regex": "_[a-f0-9]{6,}$|^(TEST_|Priv_|test_)"}},
+    }
+    if user_id:
+        bday_query["id"] = {"$ne": user_id}
+    birthdays_all = await db.users.find(bday_query, {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1, "suburb": 1}).to_list(50)
+    # Sort: friends first
+    birthdays_all.sort(key=lambda u: (0 if u["id"] in friend_ids else 1, u.get("first_name") or ""))
+
+    # New members joined in the last 7 days
+    since = (today - timedelta(days=7)).isoformat()
+    new_members = await db.users.find(
+        {
+            "created_at": {"$gte": since},
+            "banned": {"$ne": True},
+            "restricted": {"$ne": True},
+            "is_demo": {"$ne": True},
+            "username": {"$not": {"$regex": "_[a-f0-9]{6,}$|^(TEST_|Priv_|test_)"}},
+            **({"id": {"$ne": user_id}} if user_id else {}),
+        },
+        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1, "suburb": 1, "created_at": 1, "is_demo": 1}
+    ).sort("created_at", -1).to_list(20)
+
+    # Anniversaries — members whose join (created_at) MM-DD == today and years_since >= 1
+    anniversaries = []
+    anniversary_users = await db.users.find(
+        {"created_at": {"$exists": True}, **({"id": {"$ne": user_id}} if user_id else {})},
+        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1, "suburb": 1, "created_at": 1}
+    ).to_list(2000)
+    for u in anniversary_users:
+        try:
+            d = datetime.fromisoformat((u.get("created_at") or "").replace("Z", "+00:00"))
+            yrs = _years_since(u.get("created_at"))
+            if d.strftime("%m-%d") == today_mmdd and yrs and yrs >= 1:
+                anniversaries.append({**u, "years": yrs})
+        except Exception:
+            pass
+
+    # Community milestones — most recent reached
+    total_users = await db.users.count_documents({})
+    reached = [m for m in COMMUNITY_MILESTONES if total_users >= m["users"]]
+    next_milestone = next((m for m in COMMUNITY_MILESTONES if total_users < m["users"]), None)
+
+    return {
+        "date": today.date().isoformat(),
+        "birthdays": birthdays_all,
+        "new_members": new_members,
+        "anniversaries": anniversaries,
+        "milestones": {
+            "total_users": total_users,
+            "last_reached": reached[-1] if reached else None,
+            "next": next_milestone,
+        },
+    }
+
+
+async def _broadcast_new_member(user: Dict):
+    """Send a 'welcome new member' notification to all active users so they can wave hello."""
+    if user.get("is_demo"):
+        return
+    recipients = await db.users.find({"id": {"$ne": user["id"]}, "banned": {"$ne": True}}, {"_id": 0, "id": 1}).to_list(2000)
+    note_template = {
+        "type": "new_member",
+        "title": "Say hello to a new member",
+        "body": f"{user.get('first_name') or user.get('username','?')} just joined YouBelong from {user.get('suburb') or 'nearby'}. Send a wave!",
+        "ref_user_id": user["id"],
+    }
+    for r in recipients:
+        await db.notifications.insert_one({"id": nid(), "user_id": r["id"], "read": False, "created_at": now_iso(), **note_template})
 
 
 @api.post("/users/{user_id}/heartbeat")

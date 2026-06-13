@@ -33,6 +33,7 @@ type SignupBody = {
   suburb?: string;
   interests?: string[];
   avatar?: string;
+  birthday?: string;
 };
 
 type Ctx = {

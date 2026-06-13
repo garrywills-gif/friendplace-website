@@ -8,7 +8,7 @@ import { useAuth } from "@/src/lib/auth";
 import Button from "@/src/components/Button";
 import { api } from "@/src/lib/api";
 
-const ALL_BADGES = ["Friendly Butterfly", "Helpful Neighbour", "Social Star", "Community Builder"];
+const ALL_BADGES = ["Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder"];
 
 export default function Profile() {
   const { c, scale } = useTheme();
@@ -41,7 +41,7 @@ export default function Profile() {
       <View style={[styles.statsCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
         <View style={styles.statBox}>
           <Text style={[styles.statNum, { color: c.brand, fontSize: 32 * scale }]}>{user.points}</Text>
-          <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Butterfly Points</Text>
+          <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Community Points</Text>
         </View>
         <View style={[styles.divider, { backgroundColor: c.border }]} />
         <View style={styles.statBox}>
