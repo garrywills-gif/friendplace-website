@@ -18,6 +18,8 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError
 import os, uuid, logging, json, asyncio, random
 
+from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_themes as ws_list_themes, generate_puzzle as ws_generate, daily_pick as ws_daily_pick, today_iso as ws_today_iso
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
@@ -1099,12 +1101,133 @@ async def games_stats(user_id: str):
 async def dailies():
     """Today's daily challenges across all game types (puzzle/trivia/wordsearch)."""
     d = datetime.now(timezone.utc)
+    daily_ws = ws_daily_pick(ws_today_iso())
     return {
         "date": d.date().isoformat(),
         "jigsaw": (await jigsaw_daily()),
         "trivia": {"available": True, "title": "Daily Trivia: 10 mixed questions"},
-        "wordsearch": {"available": True, "title": "Daily Word Search: today's theme"},
+        "wordsearch": {
+            "available": True,
+            "title": f"Daily Word Search · {WS_THEMES[daily_ws['theme']]['label']}",
+            "theme": daily_ws["theme"],
+            "difficulty": daily_ws["difficulty"],
+        },
     }
+
+
+# ------------- Word Search -------------
+class WordSearchProgressBody(BaseModel):
+    puzzle_id: str             # "<theme>:<difficulty>:<seed>"  (seed is "daily-YYYY-MM-DD" for daily)
+    theme: str
+    difficulty: str
+    found_words: List[str] = []
+    hints_used: int = 0
+    seconds: int = 0
+    completed: bool = False
+    is_daily: bool = False
+
+
+@api.get("/games/wordsearch/catalog")
+async def wordsearch_catalog():
+    """List themes + difficulty configs (no word leakage)."""
+    diffs = []
+    for k, d in WS_DIFFS.items():
+        diffs.append({
+            "key": k,
+            "label": d["label"],
+            "size": d["size"],
+            "num_words": d["num_words"],
+            "points": d["points"],
+            "hints": d["hints"],
+            "directions": d["directions"],
+        })
+    return {"themes": ws_list_themes(), "difficulties": diffs}
+
+
+@api.get("/games/wordsearch/puzzle")
+async def wordsearch_puzzle(theme: str, difficulty: str = "easy", seed: Optional[int] = None):
+    """Return a deterministic puzzle. If no seed is provided, derives a stable
+    per-day seed for the (theme, difficulty) so resume + auto-save works
+    naturally — the same player gets the same puzzle until tomorrow."""
+    if theme not in WS_THEMES:
+        raise HTTPException(404, "Unknown theme")
+    if difficulty not in WS_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+    if seed is None:
+        # Derive a per-day-per-theme-per-difficulty seed.
+        stable_key = f"{theme}|{difficulty}|{ws_today_iso()}"
+        use_seed = abs(hash(stable_key)) % (10 ** 9)
+    else:
+        use_seed = int(seed)
+    puz = ws_generate(theme, difficulty, use_seed)
+    return {**puz, "puzzle_id": f"{theme}:{difficulty}:{use_seed}"}
+
+
+@api.get("/games/wordsearch/daily")
+async def wordsearch_daily():
+    """Today's Daily Word Search — same puzzle for every member, every day."""
+    today = ws_today_iso()
+    pick = ws_daily_pick(today)
+    puz = ws_generate(pick["theme"], pick["difficulty"], pick["seed"])
+    return {**puz, "puzzle_id": f"{pick['theme']}:{pick['difficulty']}:daily-{today}", "date": today, "is_daily": True}
+
+
+@api.post("/games/wordsearch/progress/{user_id}")
+async def wordsearch_save_progress(user_id: str, body: WordSearchProgressBody):
+    """Upsert progress (resume support). Awards points + achievements on first completion."""
+    if body.theme not in WS_THEMES:
+        raise HTTPException(404, "Unknown theme")
+    if body.difficulty not in WS_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+
+    existing = await db.wordsearch_progress.find_one({"user_id": user_id, "puzzle_id": body.puzzle_id}, {"_id": 0})
+    set_doc = {
+        "user_id": user_id,
+        "puzzle_id": body.puzzle_id,
+        "theme": body.theme,
+        "difficulty": body.difficulty,
+        "found_words": body.found_words,
+        "hints_used": body.hints_used,
+        "seconds": body.seconds,
+        "completed": body.completed,
+        "is_daily": body.is_daily,
+        "updated_at": now_iso(),
+    }
+    await db.wordsearch_progress.update_one(
+        {"user_id": user_id, "puzzle_id": body.puzzle_id},
+        {"$set": set_doc, "$setOnInsert": {"id": nid(), "created_at": now_iso()}},
+        upsert=True,
+    )
+
+    granted: List[str] = []
+    points_awarded = 0
+    streak = 0
+    # First-time completion → award points + log game completion (which handles streaks/achievements)
+    if body.completed and (not existing or not existing.get("completed_logged")):
+        result = await log_game_completion(user_id, GameCompletionBody(
+            game_type="wordsearch",
+            difficulty=body.difficulty,
+            title=WS_THEMES[body.theme]["label"],
+            duration_seconds=body.seconds,
+            score=len(body.found_words),
+            is_daily=body.is_daily,
+        ))
+        granted = result.get("granted", [])
+        streak = result.get("streak", 0)
+        points_awarded = WS_DIFFS[body.difficulty]["points"]
+        await award_points(user_id, points_awarded)
+        await db.wordsearch_progress.update_one(
+            {"user_id": user_id, "puzzle_id": body.puzzle_id},
+            {"$set": {"completed_logged": True}},
+        )
+
+    return {"ok": True, "granted": granted, "points_awarded": points_awarded, "streak": streak}
+
+
+@api.get("/games/wordsearch/progress/{user_id}")
+async def wordsearch_get_progress(user_id: str, puzzle_id: str):
+    p = await db.wordsearch_progress.find_one({"user_id": user_id, "puzzle_id": puzzle_id}, {"_id": 0})
+    return p or {}
 
 
 # ------------- Jigsaw (built-in catalogue) -------------

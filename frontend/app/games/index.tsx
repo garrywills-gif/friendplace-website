@@ -12,7 +12,7 @@ type GameTile = { key: string; title: string; sub: string; icon: keyof typeof Io
 const GAMES: GameTile[] = [
   { key: "jigsaw",     title: "Puzzle Centre",      sub: "8 categories · 4 levels",  icon: "grid",           tint: "#0F766E", route: "/games/jigsaw",     ready: true },
   { key: "trivia",     title: "Trivia",             sub: "7 categories · 4 levels", icon: "help-circle",    tint: "#7C3AED", route: "/games/trivia",     ready: true },
-  { key: "wordsearch", title: "Word Search",        sub: "6 themes",                icon: "search",         tint: "#B45309", route: "/games/wordsearch", ready: false },
+  { key: "wordsearch", title: "Word Search",        sub: "20 themes · 4 levels",     icon: "search",         tint: "#B45309", route: "/games/wordsearch", ready: true },
   { key: "memory",     title: "Memory Match",       sub: "5 themes",                icon: "sparkles",       tint: "#DB2777", route: "/games/memory",     ready: false },
   { key: "bingo",      title: "Bingo",              sub: "75-ball · 4 levels · live events",   icon: "apps",           tint: "#2E9EE2", route: "/games/bingo",      ready: true },
   { key: "sudoku",     title: "Sudoku",             sub: "4 levels",                icon: "grid-outline",   tint: "#1E3A7F", route: "/games/sudoku",     ready: false },
@@ -101,13 +101,24 @@ export default function GamesHub() {
             </View>
             <Ionicons name="chevron-forward" size={20} color={c.muted} />
           </Pressable>
-          <View style={[styles.dailyRow, styles.dailyDisabled, { borderColor: c.border, backgroundColor: c.surfaceTertiary }]}>
-            <View style={[styles.dailyIcon, { backgroundColor: "#B4530922" }]}><Ionicons name="search" size={20} color={"#B45309"} /></View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Daily Word Search</Text>
-              <Text style={{ color: c.muted, fontSize: 13 * scale }}>Coming soon</Text>
+          {dailies?.wordsearch?.available ? (
+            <Pressable testID="daily-wordsearch" onPress={() => router.push(`/games/wordsearch/play?theme=${dailies.wordsearch.theme}&difficulty=${dailies.wordsearch.difficulty}&daily=1`)} style={[styles.dailyRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+              <View style={[styles.dailyIcon, { backgroundColor: "#B4530922" }]}><Ionicons name="search" size={20} color={"#B45309"} /></View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Daily Word Search</Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale }}>{dailies.wordsearch.title?.replace(/^Daily Word Search · /, "") || "Today's theme"} · {dailies.wordsearch.difficulty}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={c.muted} />
+            </Pressable>
+          ) : (
+            <View style={[styles.dailyRow, styles.dailyDisabled, { borderColor: c.border, backgroundColor: c.surfaceTertiary }]}>
+              <View style={[styles.dailyIcon, { backgroundColor: "#B4530922" }]}><Ionicons name="search" size={20} color={"#B45309"} /></View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Daily Word Search</Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale }}>Coming soon</Text>
+              </View>
             </View>
-          </View>
+          )}
         </View>
 
         {/* Games grid */}

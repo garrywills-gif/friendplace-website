@@ -100,6 +100,16 @@ export const api = {
   bingoSessions: (uid: string) => req(`/games/bingo/sessions/${uid}`),
   bingoStats: (uid: string) => req(`/games/bingo/stats/${uid}`),
 
+  // word search
+  wsCatalog: () => req("/games/wordsearch/catalog"),
+  wsPuzzle: (theme: string, difficulty: string, seed?: number) =>
+    req(`/games/wordsearch/puzzle?theme=${encodeURIComponent(theme)}&difficulty=${encodeURIComponent(difficulty)}${seed !== undefined ? `&seed=${seed}` : ""}`),
+  wsDaily: () => req("/games/wordsearch/daily"),
+  wsGetProgress: (uid: string, puzzle_id: string) =>
+    req(`/games/wordsearch/progress/${uid}?puzzle_id=${encodeURIComponent(puzzle_id)}`),
+  wsSaveProgress: (uid: string, body: { puzzle_id: string; theme: string; difficulty: string; found_words: string[]; hints_used: number; seconds: number; completed: boolean; is_daily?: boolean }) =>
+    req(`/games/wordsearch/progress/${uid}`, { method: "POST", body: JSON.stringify(body) }),
+
   // safety + admin + support
   safetyReasons: () => req("/safety/report-reasons"),
   // community
