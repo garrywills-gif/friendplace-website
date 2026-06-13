@@ -14,19 +14,45 @@ const HOW_TO = "Two pictures, almost the same. Tap on a difference in either pic
 type Elem = { id: string; emoji: string; x: number; y: number; size: number };
 type Diff = { id: string; target: string; type: string; x: number; y: number; radius: number };
 
-function Scene({ elements, found, sceneW, sceneH, zoom, onTap, foundDiffs, hintCircle, testIDPrefix }: any) {
+function Scene({ elements, sceneW, sceneH, zoom, onTap, foundDiffs, hintCircle, testIDPrefix }: any) {
+  const ref = React.useRef<View>(null);
+  const offsetRef = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const measure = React.useCallback(() => {
+    const node: any = ref.current;
+    if (!node) return;
+    if (typeof node.measureInWindow === "function") {
+      node.measureInWindow((x: number, y: number) => { offsetRef.current = { x, y }; });
+    } else if (typeof node.getBoundingClientRect === "function") {
+      const r = node.getBoundingClientRect();
+      offsetRef.current = { x: r.left, y: r.top };
+    }
+  }, []);
   return (
-    <Pressable testID={`${testIDPrefix}-scene`} onPress={(e: any) => {
-      const x = (e.nativeEvent.locationX / sceneW) * 100;
-      const y = (e.nativeEvent.locationY / sceneH) * 100;
-      onTap(x, y);
-    }} style={{ width: sceneW, height: sceneH, backgroundColor: "#EFF6FF", borderRadius: 14, overflow: "hidden", borderWidth: 2, borderColor: "#1E3A7F" }}>
-      <View style={{ width: sceneW, height: sceneH, transform: [{ scale: zoom }] }}>
+    <Pressable
+      ref={ref as any}
+      testID={`${testIDPrefix}-scene`}
+      onLayout={measure}
+      onPress={(e: any) => {
+        measure();   // refresh in case the page scrolled
+        const ne = e.nativeEvent || {};
+        let lx = ne.locationX;
+        let ly = ne.locationY;
+        if (typeof lx !== "number" || typeof ly !== "number" || Number.isNaN(lx)) {
+          // Web fallback: use pageX/Y minus measured offset.
+          lx = (ne.pageX ?? 0) - offsetRef.current.x;
+          ly = (ne.pageY ?? 0) - offsetRef.current.y;
+        }
+        const x = (lx / sceneW) * 100;
+        const y = (ly / sceneH) * 100;
+        onTap(x, y);
+      }}
+      style={{ width: sceneW, height: sceneH, backgroundColor: "#EFF6FF", borderRadius: 14, overflow: "hidden", borderWidth: 2, borderColor: "#1E3A7F" }}
+    >
+      <View pointerEvents="none" style={{ width: sceneW, height: sceneH, transform: [{ scale: zoom }] }}>
         {elements.map((el: Elem) => (
           <Text key={el.id} style={{ position: "absolute", left: (el.x / 100) * sceneW - el.size / 2, top: (el.y / 100) * sceneH - el.size / 2, fontSize: el.size }}>{el.emoji}</Text>
         ))}
       </View>
-      {/* Found markers (green circles) */}
       {foundDiffs.map((d: Diff) => (
         <View key={d.id} pointerEvents="none" style={{ position: "absolute", left: (d.x / 100) * sceneW - 20, top: (d.y / 100) * sceneH - 20, width: 40, height: 40, borderRadius: 20, borderWidth: 3, borderColor: "#16A34A", backgroundColor: "#16A34A22" }}>
           <Ionicons name="checkmark" size={28} color="#16A34A" style={{ position: "absolute", top: 4, left: 5 }} />
@@ -61,6 +87,34 @@ export default function SpotPlayer() {
   const [zoom, setZoom] = useState(1);
   const [magnify, setMagnify] = useState(false);
   const startedAt = useRef<number>(Date.now());
+
+  // Given Scene B (the "broken" picture), apply each FOUND difference so the
+  // bottom picture progressively becomes identical to Scene A (the master).
+  // Diff types from the backend: add | remove | resize | swap | move | color.
+  const applyFixes = useCallback((sceneA: Elem[], sceneB: Elem[], foundDiffIds: string[], diffs: Diff[]): Elem[] => {
+    let result = sceneB.map((e) => ({ ...e }));
+    for (const fid of foundDiffIds) {
+      const diff: any = diffs.find((d) => d.id === fid);
+      if (!diff) continue;
+      const targetA = sceneA.find((e) => e.id === diff.target);
+      const type = diff.type;
+      if (type === "add" && targetA) {
+        if (!result.find((e) => e.id === targetA.id)) result.push({ ...targetA });
+      } else if (type === "remove") {
+        result = result.filter((e) => e.id !== diff.target);
+      } else if (type === "resize" && targetA) {
+        result = result.map((e) => (e.id === diff.target ? { ...e, size: targetA.size } : e));
+      } else if (type === "swap" && targetA) {
+        result = result.map((e) => (e.id === diff.target ? { ...e, emoji: targetA.emoji } : e));
+      } else if (type === "move" && targetA) {
+        result = result.map((e) => (e.id === diff.target ? { ...e, x: targetA.x, y: targetA.y } : e));
+      } else if (type === "color" && targetA) {
+        // Color/style diffs swap the emoji to match (emoji-based palettes encode colour)
+        result = result.map((e) => (e.id === diff.target ? { ...e, emoji: targetA.emoji } : e));
+      }
+    }
+    return result;
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -177,8 +231,22 @@ export default function SpotPlayer() {
           {prefs.readMessagesAloud && (<SpeakButton text={HOW_TO} color={c.brand} size={22} bg={c.brandTertiary} testID="std-speak" />)}
         </View>
 
+        {/* Top scene = MASTER (the correct version) — taps here mark differences */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 4 }}>
+          <View style={{ backgroundColor: "#1E3A7F", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 }}>
+            <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.5 }}>MASTER ★</Text>
+          </View>
+          <Text style={{ color: c.muted, fontSize: 12 * scale }}>Tap where you spot a difference</Text>
+        </View>
         <Scene elements={puzzle.scene_a} found={foundIds} sceneW={sceneW} sceneH={sceneH} zoom={magnify ? Math.max(zoom, 1.8) : zoom} onTap={onTapScene} foundDiffs={foundDiffs} hintCircle={hintCircle} testIDPrefix="std-a" />
-        <Scene elements={puzzle.scene_b} found={foundIds} sceneW={sceneW} sceneH={sceneH} zoom={magnify ? Math.max(zoom, 1.8) : zoom} onTap={onTapScene} foundDiffs={foundDiffs} hintCircle={hintCircle} testIDPrefix="std-b" />
+        {/* Bottom scene = WORKSPACE — auto-repairs to match the master as you find each difference */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8, marginBottom: 4 }}>
+          <View style={{ backgroundColor: completed ? "#16A34A" : "#B45309", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 }}>
+            <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.5 }}>{completed ? "MATCHED ✓" : "FIXING…"}</Text>
+          </View>
+          <Text style={{ color: c.muted, fontSize: 12 * scale }}>{foundIds.length}/{puzzle.diff_count} pieces repaired</Text>
+        </View>
+        <Scene elements={applyFixes(puzzle.scene_a, puzzle.scene_b, foundIds, puzzle.differences)} found={foundIds} sceneW={sceneW} sceneH={sceneH} zoom={magnify ? Math.max(zoom, 1.8) : zoom} onTap={onTapScene} foundDiffs={foundDiffs} hintCircle={hintCircle} testIDPrefix="std-b" />
 
         <View style={styles.actions}>
           <Pressable testID="std-zoom-out" onPress={() => setZoom(Math.max(1, zoom - 0.25))} style={[styles.actionBtn, { backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border }]}>
