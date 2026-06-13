@@ -113,6 +113,16 @@ export const api = {
   wsSaveProgress: (uid: string, body: { puzzle_id: string; theme: string; difficulty: string; found_words: string[]; hints_used: number; seconds: number; completed: boolean; is_daily?: boolean }) =>
     req(`/games/wordsearch/progress/${uid}`, { method: "POST", body: JSON.stringify(body) }),
 
+  // memory match
+  mmCatalog: () => req("/games/memory/catalog"),
+  mmPuzzle: (theme: string, difficulty: string, seed?: number) =>
+    req(`/games/memory/puzzle?theme=${encodeURIComponent(theme)}&difficulty=${encodeURIComponent(difficulty)}${seed !== undefined ? `&seed=${seed}` : ""}`),
+  mmDaily: () => req("/games/memory/daily"),
+  mmGetProgress: (uid: string, puzzle_id: string) =>
+    req(`/games/memory/progress/${uid}?puzzle_id=${encodeURIComponent(puzzle_id)}`),
+  mmSaveProgress: (uid: string, body: { puzzle_id: string; theme: string; difficulty: string; matched_pairs: string[]; moves: number; seconds: number; completed: boolean; is_daily?: boolean }) =>
+    req(`/games/memory/progress/${uid}`, { method: "POST", body: JSON.stringify(body) }),
+
   // safety + admin + support
   safetyReasons: () => req("/safety/report-reasons"),
   // community

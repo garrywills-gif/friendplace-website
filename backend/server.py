@@ -19,6 +19,7 @@ from jose import jwt, JWTError
 import os, uuid, logging, json, asyncio, random
 
 from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_themes as ws_list_themes, generate_puzzle as ws_generate, daily_pick as ws_daily_pick, today_iso as ws_today_iso
+from memory_match import THEMES as MM_THEMES, DIFFICULTIES as MM_DIFFS, list_themes as mm_list_themes, generate_puzzle as mm_generate, daily_pick as mm_daily_pick, today_iso as mm_today_iso
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -1286,6 +1287,95 @@ async def wordsearch_save_progress(user_id: str, body: WordSearchProgressBody):
 @api.get("/games/wordsearch/progress/{user_id}")
 async def wordsearch_get_progress(user_id: str, puzzle_id: str):
     p = await db.wordsearch_progress.find_one({"user_id": user_id, "puzzle_id": puzzle_id}, {"_id": 0})
+    return p or {}
+
+
+# ------------- Memory Match -------------
+class MemoryMatchProgressBody(BaseModel):
+    puzzle_id: str
+    theme: str
+    difficulty: str
+    matched_pairs: List[str] = []     # list of card emoji that have been matched
+    moves: int = 0
+    seconds: int = 0
+    completed: bool = False
+    is_daily: bool = False
+
+
+@api.get("/games/memory/catalog")
+async def memory_catalog():
+    diffs = []
+    for k, d in MM_DIFFS.items():
+        diffs.append({"key": k, "label": d["label"], "cols": d["cols"], "rows": d["rows"], "pairs": d["pairs"], "points": d["points"], "preview_seconds": d["preview_seconds"]})
+    return {"themes": mm_list_themes(), "difficulties": diffs}
+
+
+@api.get("/games/memory/puzzle")
+async def memory_puzzle(theme: str, difficulty: str = "easy", seed: Optional[int] = None):
+    if theme not in MM_THEMES:
+        raise HTTPException(404, "Unknown theme")
+    if difficulty not in MM_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+    if seed is None:
+        stable_key = f"{theme}|{difficulty}|{mm_today_iso()}"
+        use_seed = abs(hash(stable_key)) % (10 ** 9)
+    else:
+        use_seed = int(seed)
+    puz = mm_generate(theme, difficulty, use_seed)
+    return {**puz, "puzzle_id": f"mm:{theme}:{difficulty}:{use_seed}"}
+
+
+@api.get("/games/memory/daily")
+async def memory_daily():
+    today = mm_today_iso()
+    pick = mm_daily_pick(today)
+    puz = mm_generate(pick["theme"], pick["difficulty"], pick["seed"])
+    return {**puz, "puzzle_id": f"mm:{pick['theme']}:{pick['difficulty']}:daily-{today}", "date": today, "is_daily": True}
+
+
+@api.post("/games/memory/progress/{user_id}")
+async def memory_save_progress(user_id: str, body: MemoryMatchProgressBody):
+    if body.theme not in MM_THEMES:
+        raise HTTPException(404, "Unknown theme")
+    if body.difficulty not in MM_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+    existing = await db.memory_progress.find_one({"user_id": user_id, "puzzle_id": body.puzzle_id}, {"_id": 0})
+    set_doc = {
+        "user_id": user_id, "puzzle_id": body.puzzle_id, "theme": body.theme, "difficulty": body.difficulty,
+        "matched_pairs": body.matched_pairs, "moves": body.moves, "seconds": body.seconds,
+        "completed": body.completed, "is_daily": body.is_daily, "updated_at": now_iso(),
+    }
+    await db.memory_progress.update_one(
+        {"user_id": user_id, "puzzle_id": body.puzzle_id},
+        {"$set": set_doc, "$setOnInsert": {"id": nid(), "created_at": now_iso()}},
+        upsert=True,
+    )
+    granted: List[str] = []
+    points_awarded = 0
+    streak = 0
+    if body.completed and (not existing or not existing.get("completed_logged")):
+        result = await log_game_completion(user_id, GameCompletionBody(
+            game_type="memory",
+            difficulty=body.difficulty,
+            title=MM_THEMES[body.theme]["label"],
+            duration_seconds=body.seconds,
+            score=body.moves,
+            is_daily=body.is_daily,
+        ))
+        granted = result.get("granted", [])
+        streak = result.get("streak", 0)
+        points_awarded = MM_DIFFS[body.difficulty]["points"]
+        await award_points(user_id, points_awarded)
+        await db.memory_progress.update_one(
+            {"user_id": user_id, "puzzle_id": body.puzzle_id},
+            {"$set": {"completed_logged": True}},
+        )
+    return {"ok": True, "granted": granted, "points_awarded": points_awarded, "streak": streak}
+
+
+@api.get("/games/memory/progress/{user_id}")
+async def memory_get_progress(user_id: str, puzzle_id: str):
+    p = await db.memory_progress.find_one({"user_id": user_id, "puzzle_id": puzzle_id}, {"_id": 0})
     return p or {}
 
 
