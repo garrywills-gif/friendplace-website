@@ -230,6 +230,18 @@ export const api = {
   unrsvpEvent: (id: string, uid: string) => req(`/events/${id}/unrsvp/${uid}`, { method: "POST" }),
   createEvent: (body: { title: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; host_id?: string }) =>
     req(`/events`, { method: "POST", body: JSON.stringify(body) }),
+  updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
+    req(`/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  cancelEvent: (id: string, body: { actor_id: string; reason?: string }) =>
+    req(`/events/${id}/cancel`, { method: "POST", body: JSON.stringify(body) }),
+  restoreEvent: (id: string, body: { actor_id: string; reason?: string }) =>
+    req(`/events/${id}/restore`, { method: "POST", body: JSON.stringify(body) }),
+  adminHardDeleteEvent: (id: string, admin_id: string, reason?: string) =>
+    req(`/admin/events/${id}?admin_id=${admin_id}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`, { method: "DELETE" }),
+  adminHardDeleteNotice: (id: string, admin_id: string, reason?: string) =>
+    req(`/admin/notices/${id}?admin_id=${admin_id}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`, { method: "DELETE" }),
+  adminHardDeleteUser: (user_id: string, admin_id: string, reason?: string) =>
+    req(`/admin/users/${user_id}?admin_id=${admin_id}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`, { method: "DELETE" }),
 
   // notices
   listNotices: (opts: { user_id?: string; q?: string; category?: string } = {}) => {

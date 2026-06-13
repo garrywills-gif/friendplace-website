@@ -53,20 +53,33 @@ export default function Events() {
           const sp = item.sponsor;
           const showCode = !!sp && going && (revealed[item.id] || false);
           return (
-            <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: item.cancelled ? "#DC2626" : c.border, borderWidth: item.cancelled ? 2 : 1, opacity: item.cancelled ? 0.85 : 1 }]}>
+              {item.cancelled && (
+                <View style={{ backgroundColor: "#DC2626", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, alignSelf: "flex-start", marginBottom: 8 }}>
+                  <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 * scale }}>CANCELLED</Text>
+                </View>
+              )}
               <View style={styles.row}>
                 <View style={[styles.emojiBox, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 36 }}>{item.emoji}</Text></View>
                 <View style={{ flex: 1, marginLeft: 14 }}>
-                  <Text style={[styles.title, { color: c.onSurface, fontSize: 20 * scale }]}>{item.title}</Text>
+                  <Text style={[styles.title, { color: c.onSurface, fontSize: 20 * scale, textDecorationLine: item.cancelled ? "line-through" : "none" }]}>{item.title}</Text>
                   <Text style={[styles.meta, { color: c.muted, fontSize: 14 * scale }]}>📅 {item.date}  🕐 {item.time}</Text>
                   <Text style={[styles.meta, { color: c.muted, fontSize: 14 * scale }]}>📍 {item.location}</Text>
                 </View>
-                <SpeakButton
-                  text={`${item.title}. ${item.date} at ${item.time}. ${item.location}. ${item.description || ""}`}
-                  color={c.brand}
-                  size={22}
-                  testID={`speak-event-${item.id}`}
-                />
+                <View style={{ alignItems: "flex-end", gap: 6 }}>
+                  <SpeakButton
+                    text={`${item.title}. ${item.date} at ${item.time}. ${item.location}. ${item.description || ""}`}
+                    color={c.brand}
+                    size={22}
+                    testID={`speak-event-${item.id}`}
+                  />
+                  {user && (user.id === item.host_id || (user as any).is_admin) && (
+                    <Pressable testID={`event-edit-${item.id}`} onPress={() => router.push(`/events/edit/${item.id}` as any)} hitSlop={8} style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, backgroundColor: c.surfaceTertiary, flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Ionicons name="pencil" size={14} color={c.brand} />
+                      <Text style={{ color: c.brand, fontWeight: "800", fontSize: 12 * scale }}>Edit</Text>
+                    </Pressable>
+                  )}
+                </View>
               </View>
               {!!item.description && <Text style={[styles.desc, { color: c.onSurfaceSecondary, fontSize: 15 * scale }]}>{item.description}</Text>}
 

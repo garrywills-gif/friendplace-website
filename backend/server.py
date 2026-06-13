@@ -2803,6 +2803,237 @@ async def create_event(body: Event):
     return e.dict()
 
 
+class EventUpdateBody(BaseModel):
+    actor_id: str                      # user making the change (must be host or admin)
+    title: Optional[str] = None
+    emoji: Optional[str] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+    capacity: Optional[int] = None     # None to clear (unlimited); use 0 = unlimited too
+    notify_changes: bool = True        # blast a notification to all RSVPs
+
+
+@api.patch("/events/{event_id}")
+async def update_event(event_id: str, body: EventUpdateBody):
+    ev = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    actor = await db.users.find_one({"id": body.actor_id}, {"_id": 0})
+    if not actor:
+        raise HTTPException(404, "Actor not found")
+    is_host = ev.get("host_id") == body.actor_id
+    if not (is_host or actor.get("is_admin")):
+        raise HTTPException(403, "Only the host or an admin can edit this event")
+    if ev.get("cancelled"):
+        raise HTTPException(400, "Event is cancelled — restore it before editing")
+
+    update: Dict = {}
+    changes: List[str] = []
+    for field in ("title", "emoji", "description", "location", "date", "time"):
+        v = getattr(body, field)
+        if v is not None and v != ev.get(field):
+            update[field] = v.strip() if isinstance(v, str) else v
+            changes.append(field)
+    if body.capacity is not None:
+        cap = int(body.capacity)
+        if cap <= 0:
+            update["capacity"] = None
+        else:
+            update["capacity"] = cap
+        if update["capacity"] != ev.get("capacity"):
+            changes.append("capacity")
+
+    # If date/time changed, clear sent-reminder flags so reminders re-fire correctly.
+    if "date" in changes or "time" in changes:
+        for f in ("reminder_24h_sent", "reminder_2h_sent", "reminder_now_sent"):
+            update[f] = None
+
+    if not changes:
+        return {"ok": True, "changed": []}
+    update["updated_at"] = now_iso()
+    await db.events.update_one({"id": event_id}, {"$set": update})
+
+    # If a "going" user is no longer within new capacity, push the overflow to the
+    # waitlist (most-recent additions overflow first to keep early RSVPs in).
+    if "capacity" in changes and update.get("capacity") is not None:
+        going = list(ev.get("rsvps") or [])
+        waitlist = list(ev.get("waitlist") or [])
+        cap = int(update["capacity"])
+        while len(going) > cap:
+            overflow = going.pop()  # most recent
+            waitlist.append(overflow)
+            try:
+                await push_notification(
+                    overflow,
+                    "event_reminder",
+                    f"{ev.get('title','Event')} — moved to waitlist",
+                    "The host reduced the capacity. You're now on the waitlist.",
+                    {"event_id": event_id},
+                )
+            except Exception:
+                pass
+        await db.events.update_one({"id": event_id}, {"$set": {"rsvps": going, "waitlist": waitlist}})
+
+    # Notify everyone who RSVPd (going + maybe + waitlist) about the change
+    if body.notify_changes:
+        recipients = list(dict.fromkeys((ev.get("rsvps") or []) + (ev.get("rsvps_maybe") or []) + (ev.get("waitlist") or [])))
+        if recipients:
+            title = f"Event updated: {update.get('title') or ev.get('title','Event')}"
+            human_fields = {
+                "title": "title", "emoji": "emoji", "description": "description",
+                "location": "location", "date": "date", "time": "time", "capacity": "capacity",
+            }
+            change_words = ", ".join(human_fields[c] for c in changes if c in human_fields) or "details"
+            body_text = f"The host updated the {change_words}. Tap to see the latest details."
+            for uid in recipients:
+                try:
+                    await push_notification(uid, "event_reminder", title, body_text, {"event_id": event_id})
+                except Exception:
+                    pass
+    return {"ok": True, "changed": changes}
+
+
+class EventCancelBody(BaseModel):
+    actor_id: str
+    reason: Optional[str] = None
+
+
+@api.post("/events/{event_id}/cancel")
+async def cancel_event(event_id: str, body: EventCancelBody):
+    """Host or admin marks an event cancelled. Kept visible with a Cancelled badge.
+
+    All RSVPd users (going + maybe + waitlist) receive a notification.
+    """
+    ev = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    actor = await db.users.find_one({"id": body.actor_id}, {"_id": 0})
+    if not actor:
+        raise HTTPException(404, "Actor not found")
+    is_host = ev.get("host_id") == body.actor_id
+    if not (is_host or actor.get("is_admin")):
+        raise HTTPException(403, "Only the host or an admin can cancel this event")
+    if ev.get("cancelled"):
+        return {"ok": True, "already": True}
+    await db.events.update_one(
+        {"id": event_id},
+        {"$set": {
+            "cancelled": True,
+            "cancelled_at": now_iso(),
+            "cancelled_by": body.actor_id,
+            "cancelled_reason": (body.reason or "").strip(),
+            # Stop pending reminders firing for a cancelled event
+            "reminder_24h_sent": now_iso(),
+            "reminder_2h_sent": now_iso(),
+            "reminder_now_sent": now_iso(),
+        }},
+    )
+    recipients = list(dict.fromkeys((ev.get("rsvps") or []) + (ev.get("rsvps_maybe") or []) + (ev.get("waitlist") or [])))
+    if recipients:
+        title = f"Cancelled: {ev.get('emoji','🎉')} {ev.get('title','Event')}"
+        body_text = (body.reason or "The host cancelled this event. We're sorry for the change of plan.").strip()
+        for uid in recipients:
+            try:
+                await push_notification(uid, "event_reminder", title, body_text, {"event_id": event_id})
+            except Exception:
+                pass
+    return {"ok": True}
+
+
+@api.post("/events/{event_id}/restore")
+async def restore_event(event_id: str, body: EventCancelBody):
+    """Host or admin restores a cancelled event (un-cancels)."""
+    ev = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    actor = await db.users.find_one({"id": body.actor_id}, {"_id": 0})
+    if not actor:
+        raise HTTPException(404, "Actor not found")
+    is_host = ev.get("host_id") == body.actor_id
+    if not (is_host or actor.get("is_admin")):
+        raise HTTPException(403, "Only the host or an admin can restore this event")
+    await db.events.update_one(
+        {"id": event_id},
+        {"$set": {"cancelled": False},
+         "$unset": {"cancelled_at": "", "cancelled_by": "", "cancelled_reason": "",
+                    "reminder_24h_sent": "", "reminder_2h_sent": "", "reminder_now_sent": ""}},
+    )
+    return {"ok": True}
+
+
+class AdminHardDeleteBody(BaseModel):
+    admin_id: str
+    reason: Optional[str] = None
+
+
+@api.delete("/admin/events/{event_id}")
+async def admin_hard_delete_event(event_id: str, admin_id: str, reason: Optional[str] = None):
+    await _require_admin(admin_id)
+    ev = await db.events.find_one({"id": event_id}, {"_id": 0, "host_id": 1, "title": 1})
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    await db.events.delete_one({"id": event_id})
+    if ev.get("host_id"):
+        await _log_moderation_action(
+            user_id=ev["host_id"], by=admin_id, action="content_removed",
+            reason=reason or f"Event '{ev.get('title','?')}' hard-deleted by admin",
+            target_type="event", target_id=event_id,
+        )
+    return {"ok": True}
+
+
+@api.delete("/admin/notices/{notice_id}")
+async def admin_hard_delete_notice(notice_id: str, admin_id: str, reason: Optional[str] = None):
+    await _require_admin(admin_id)
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0, "user_id": 1})
+    if not n:
+        raise HTTPException(404, "Notice not found")
+    await db.notices.delete_one({"id": notice_id})
+    if n.get("user_id"):
+        await _log_moderation_action(
+            user_id=n["user_id"], by=admin_id, action="content_removed",
+            reason=reason or "Notice hard-deleted by admin",
+            target_type="notice", target_id=notice_id,
+        )
+    return {"ok": True}
+
+
+@api.delete("/admin/users/{user_id}")
+async def admin_hard_delete_user(user_id: str, admin_id: str, reason: Optional[str] = None):
+    """Hard-delete a user account and their content. ADMIN ONLY. Irreversible.
+
+    Removes the user record, their notices, messages, friend connections,
+    flutters, and any moderation reports they filed. Reports filed against
+    them are kept (for audit) but the target_user_id is anonymised.
+    """
+    await _require_admin(admin_id)
+    if user_id == admin_id:
+        raise HTTPException(400, "Cannot hard-delete your own admin account")
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "username": 1, "is_admin": 1})
+    if not user:
+        raise HTTPException(404, "User not found")
+    if user.get("is_admin"):
+        raise HTTPException(400, "Cannot hard-delete another admin")
+    # Log BEFORE deletion so the audit entry exists
+    await _log_moderation_action(
+        user_id=user_id, by=admin_id, action="hard_delete",
+        reason=reason or f"User @{user.get('username','?')} hard-deleted by admin",
+        extra={"username_snapshot": user.get("username")},
+    )
+    await db.users.delete_one({"id": user_id})
+    await db.notices.delete_many({"user_id": user_id})
+    await db.messages.delete_many({"$or": [{"user_id": user_id}, {"from_id": user_id}, {"to_id": user_id}]})
+    await db.flutters.delete_many({"$or": [{"from_id": user_id}, {"to_id": user_id}]})
+    await db.notifications.delete_many({"user_id": user_id})
+    await db.reports.delete_many({"reporter_id": user_id})
+    await db.reports.update_many({"target_user_id": user_id}, {"$set": {"target_user_id": "[deleted]"}})
+    # Pull from friends arrays everywhere
+    await db.users.update_many({}, {"$pull": {"friends": user_id, "blocked": user_id}})
+    return {"ok": True}
+
+
 class RsvpBody(BaseModel):
     response: str  # "going" | "maybe" | "cant"
 
