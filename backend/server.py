@@ -16,7 +16,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
 from jose import jwt, JWTError
-import os, uuid, logging, json, asyncio, random
+import os, uuid, logging, json, asyncio, random, re
 
 from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_themes as ws_list_themes, generate_puzzle as ws_generate, daily_pick as ws_daily_pick, today_iso as ws_today_iso
 from memory_match import THEMES as MM_THEMES, DIFFICULTIES as MM_DIFFS, list_themes as mm_list_themes, generate_puzzle as mm_generate, daily_pick as mm_daily_pick, today_iso as mm_today_iso
@@ -306,6 +306,12 @@ async def signup(body: SignupBody):
     uname = body.username.strip()
     if len(uname) < 3:
         raise HTTPException(400, "Username must be at least 3 characters")
+    if any(ch.isspace() for ch in uname):
+        raise HTTPException(400, "Username can't contain spaces")
+    if not re.match(r"^[A-Za-z0-9_.\-]+$", uname):
+        raise HTTPException(400, "Username can only contain letters, numbers, and . _ -")
+    if len(body.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
     if await db.users.find_one({"username": {"$regex": f"^{uname}$", "$options": "i"}}):
         raise HTTPException(400, "Username already taken")
     if body.email and await db.users.find_one({"email": {"$regex": f"^{body.email}$", "$options": "i"}}):
@@ -488,8 +494,15 @@ async def list_demo_accounts():
 
 
 @api.get("/users")
-async def list_users(suburb: Optional[str] = None, interest: Optional[str] = None, q: Optional[str] = None):
-    query = {}
+async def list_users(
+    suburb: Optional[str] = None,
+    interest: Optional[str] = None,
+    q: Optional[str] = None,
+    viewer_id: Optional[str] = None,
+):
+    """List members. When `viewer_id` is provided, hides users blocked by or
+    who have blocked the viewer, and excludes banned/restricted users."""
+    query: Dict = {"banned": {"$ne": True}}
     if suburb:
         query["suburb"] = {"$regex": suburb, "$options": "i"}
     if interest:
@@ -499,6 +512,12 @@ async def list_users(suburb: Optional[str] = None, interest: Optional[str] = Non
             {"first_name": {"$regex": q, "$options": "i"}},
             {"username": {"$regex": q, "$options": "i"}},
         ]
+    if viewer_id:
+        viewer = await db.users.find_one({"id": viewer_id}, {"_id": 0, "blocked": 1}) or {}
+        blocked_by_me = viewer.get("blocked") or []
+        query["id"] = {"$nin": blocked_by_me + [viewer_id]}
+        # Also exclude users who have blocked the viewer
+        query["blocked"] = {"$ne": viewer_id}
     docs = await db.users.find(query, {"_id": 0}).to_list(500)
     return docs
 
@@ -517,10 +536,7 @@ async def block_user(user_id: str, other_id: str):
     return {"ok": True}
 
 
-@api.post("/users/{user_id}/report/{other_id}")
-async def report_user(user_id: str, other_id: str, reason: str = "unspecified"):
-    await db.reports.insert_one({"id": nid(), "from": user_id, "target": other_id, "reason": reason, "created_at": now_iso()})
-    return {"ok": True}
+# Legacy endpoint removed (was writing to old report schema). Use /api/users/{id}/report instead.
 
 
 # ------------- Notifications -------------
@@ -1159,9 +1175,10 @@ async def games_stats(user_id: str):
 
 @api.get("/games/dailies")
 async def dailies():
-    """Today's daily challenges across all game types (puzzle/trivia/wordsearch)."""
+    """Today's daily challenges across all game types (puzzle/trivia/wordsearch/memory)."""
     d = datetime.now(timezone.utc)
     daily_ws = ws_daily_pick(ws_today_iso())
+    daily_mm = mm_daily_pick(mm_today_iso())
     return {
         "date": d.date().isoformat(),
         "jigsaw": (await jigsaw_daily()),
@@ -1171,6 +1188,12 @@ async def dailies():
             "title": f"Daily Word Search · {WS_THEMES[daily_ws['theme']]['label']}",
             "theme": daily_ws["theme"],
             "difficulty": daily_ws["difficulty"],
+        },
+        "memory": {
+            "available": True,
+            "title": f"Daily Memory Match · {MM_THEMES[daily_mm['theme']]['label']}",
+            "theme": daily_mm["theme"],
+            "difficulty": daily_mm["difficulty"],
         },
     }
 
@@ -2754,26 +2777,37 @@ class FlutterDoc(BaseModel):
     created_at: str = Field(default_factory=now_iso)
 
 
+class FlutterSendBody(BaseModel):
+    from_id: str
+    to_id: str
+    message: Optional[str] = None
+
+
 @api.post("/flutters/send")
-async def send_flutter(body: dict):
-    sender = await db.users.find_one({"id": body["from_id"]}, {"_id": 0})
+async def send_flutter(body: FlutterSendBody):
+    sender = await db.users.find_one({"id": body.from_id}, {"_id": 0})
     if not sender:
         raise HTTPException(404, "Sender not found")
+    receiver = await db.users.find_one({"id": body.to_id}, {"_id": 0, "blocked": 1})
+    if not receiver:
+        raise HTTPException(404, "Recipient not found")
+    if body.from_id in (receiver.get("blocked") or []):
+        raise HTTPException(403, "Cannot flutter this user")
     f = FlutterDoc(
-        from_id=body["from_id"],
-        to_id=body["to_id"],
+        from_id=body.from_id,
+        to_id=body.to_id,
         from_name=sender.get("first_name", ""),
         from_avatar=sender.get("avatar", ""),
-        message=body.get("message", "would like to chat 🦋"),
+        message=body.message or "would like to chat 🦋",
     )
     await db.flutters.insert_one(f.dict())
-    await award_points(body["from_id"], 2)
+    await award_points(body.from_id, 2)
     await push_notification(
-        body["to_id"],
+        body.to_id,
         "flutter",
         f"{f.from_avatar} {f.from_name} is looking to chat",
         f.message or "",
-        {"from_id": body["from_id"], "flutter_id": f.id},
+        {"from_id": body.from_id, "flutter_id": f.id},
     )
     return f.dict()
 

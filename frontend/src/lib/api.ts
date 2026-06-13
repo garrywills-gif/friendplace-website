@@ -29,7 +29,7 @@ export const api = {
   me: (token: string) =>
     req("/auth/me", { headers: { Authorization: `Bearer ${token}` } }),
 
-  listUsers: (params: { suburb?: string; interest?: string; q?: string } = {}) => {
+  listUsers: (params: { suburb?: string; interest?: string; q?: string; viewer_id?: string } = {}) => {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => !!v) as any).toString();
     return req(`/users${qs ? `?${qs}` : ""}`);
   },

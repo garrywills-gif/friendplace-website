@@ -22,11 +22,11 @@ export default function Friends() {
 
   const load = async () => {
     try {
-      const list = await api.listUsers({ q, suburb: suburb === "All" ? undefined : suburb });
+      const list = await api.listUsers({ q, suburb: suburb === "All" ? undefined : suburb, viewer_id: user?.id });
       setUsers((list as any[]).filter((u) => u.id !== user?.id));
     } catch { show("Failed to load"); }
   };
-  useFocusEffect(useCallback(() => { load(); }, [q, suburb]));
+  useFocusEffect(useCallback(() => { load(); }, [q, suburb, user?.id]));
 
   const sendReq = async (other: any) => {
     if (!user) return;
