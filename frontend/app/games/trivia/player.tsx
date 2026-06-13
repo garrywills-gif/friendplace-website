@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -37,6 +37,7 @@ export default function TriviaPlayer() {
   const [feedback, setFeedback] = useState<{ correct: boolean; correct_answer: number; explain?: string } | null>(null);
   const [hiddenChoices, setHiddenChoices] = useState<number[]>([]);
   const [completion, setCompletion] = useState<any>(null);
+  const [confirm, setConfirm] = useState<null | { title: string; body: string; cta: string; onConfirm: () => void }>(null);
 
   const load = useCallback(async () => {
     if (!user || !sid) return;
@@ -212,62 +213,49 @@ export default function TriviaPlayer() {
 
   const useFifty = () => {
     if (session.lifelines.fifty_used || picked !== null) return;
-    const correct = (session.answers || []).find((a: any) => a.qid === question.id)?.correct_answer;
-    // We don't know the correct answer client-side until we submit. Best UX: ask the server.
-    Alert.alert(
-      "Use 50/50?",
-      "This will remove two wrong answers. You can use it once per game.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Use", onPress: async () => {
-          try {
-            // Reveal: submit a sentinel "peek" by calling answer with -2? Instead, simply ask the server with a special endpoint not built — workaround: use answer endpoint but only to get correct_answer? Too invasive.
-            // Pragmatic: use the question's choices length and call complete? No.
-            // Instead: locally pick two wrong indices by NOT KNOWING the right one — we need it.
-            // Use a tiny trick: call triviaAnswer with picked=-1 and advance=false to get correct_answer, then immediately reset picked locally and let the user choose.
-            const res: any = await api.triviaAnswer(user!.id, sid, { qid: question.id, picked: -1, advance: false, lifelines: { fifty_used: true } });
-            const ans: number = res.correct_answer;
-            const all = question.choices.map((_, i) => i).filter((i) => i !== ans);
-            // Shuffle and take 2 to hide
-            for (let i = all.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [all[i], all[j]] = [all[j], all[i]];
-            }
-            setHiddenChoices(all.slice(0, 2));
-            // Remove the -1 "skipped" entry we just stored, so the question is fresh.
-            setSession((s) => s ? {
-              ...s,
-              lifelines: { ...s.lifelines, fifty_used: true },
-              answers: (s.answers || []).filter((a: any) => a.qid !== question.id),
-              score: s.score, // server already decremented if needed
-            } : s);
-          } catch (e) { console.warn("50/50 failed", e); }
-        } },
-      ]
-    );
+    setConfirm({
+      title: "Use 50/50?",
+      body: "This will remove two wrong answers. You can use it once per game.",
+      cta: "Use",
+      onConfirm: async () => {
+        setConfirm(null);
+        try {
+          const res: any = await api.triviaAnswer(user!.id, sid, { qid: question.id, picked: -1, advance: false, lifelines: { fifty_used: true } });
+          const ans: number = res.correct_answer;
+          const all = question.choices.map((_, i) => i).filter((i) => i !== ans);
+          for (let i = all.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [all[i], all[j]] = [all[j], all[i]];
+          }
+          setHiddenChoices(all.slice(0, 2));
+          setSession((s) => s ? {
+            ...s,
+            lifelines: { ...s.lifelines, fifty_used: true },
+            answers: (s.answers || []).filter((a: any) => a.qid !== question.id),
+            score: s.score,
+          } : s);
+        } catch (e) { console.warn("50/50 failed", e); }
+      },
+    });
   };
 
   const useSkip = () => {
     if (session.lifelines.skip_used || picked !== null || submitting) return;
-    Alert.alert(
-      "Skip this question?",
-      "You'll move to the next question. Skip can be used once per game.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Skip", onPress: async () => {
-          setSubmitting(true);
-          try {
-            await api.triviaAnswer(user!.id, sid, { qid: question.id, picked: -1, advance: true, lifelines: { skip_used: true } });
-            const s: any = await api.triviaGetSession(user!.id, sid);
-            setSession(s);
-            if (s.current_index >= s.question_ids.length - 1 && (s.answers || []).length >= s.question_ids.length - 1) {
-              // edge case: skipped last
-            }
-          } catch (e) { console.warn("skip failed", e); }
-          finally { setSubmitting(false); }
-        } },
-      ]
-    );
+    setConfirm({
+      title: "Skip this question?",
+      body: "You'll move to the next question. Skip can be used once per game.",
+      cta: "Skip",
+      onConfirm: async () => {
+        setConfirm(null);
+        setSubmitting(true);
+        try {
+          await api.triviaAnswer(user!.id, sid, { qid: question.id, picked: -1, advance: true, lifelines: { skip_used: true } });
+          const s: any = await api.triviaGetSession(user!.id, sid);
+          setSession(s);
+        } catch (e) { console.warn("skip failed", e); }
+        finally { setSubmitting(false); }
+      },
+    });
   };
 
   return (
@@ -390,6 +378,24 @@ export default function TriviaPlayer() {
           />
         )}
       </ScrollView>
+
+      {/* Cross-platform confirm modal (Alert.alert is silent on react-native-web) */}
+      <Modal visible={!!confirm} transparent animationType="fade" onRequestClose={() => setConfirm(null)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setConfirm(null)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: c.surface, borderColor: c.border }]} onPress={() => {}}>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 18 * scale, marginBottom: 6 }}>{confirm?.title}</Text>
+            <Text style={{ color: c.muted, fontSize: 15 * scale, lineHeight: 22, marginBottom: 14 }}>{confirm?.body}</Text>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <Pressable testID="trivia-confirm-cancel" onPress={() => setConfirm(null)} style={[styles.modalBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Cancel</Text>
+              </Pressable>
+              <Pressable testID="trivia-confirm-ok" onPress={confirm?.onConfirm} style={[styles.modalBtn, { backgroundColor: c.brand, borderColor: c.brand }]}>
+                <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>{confirm?.cta || "OK"}</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -419,4 +425,7 @@ const styles = StyleSheet.create({
   resultCard: { width: "100%", padding: 14, borderRadius: 16, borderWidth: 1 },
   reviewRow: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 14, borderWidth: 1 },
   reviewIcon: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: 24 },
+  modalCard: { width: "100%", maxWidth: 380, padding: 18, borderRadius: 18, borderWidth: 1 },
+  modalBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 14, borderRadius: 999, borderWidth: 1.5 },
 });
