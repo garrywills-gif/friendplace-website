@@ -5,15 +5,18 @@ notice board, butterfly points/badges, and a seeded sample dataset so the
 prototype feels alive on first launch.
 """
 
-from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Set
 from pathlib import Path
-from datetime import datetime, timezone
-import os, uuid, logging, json, asyncio
+from datetime import datetime, timezone, timedelta
+from passlib.context import CryptContext
+from jose import jwt, JWTError
+import os, uuid, logging, json, asyncio, random
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -21,6 +24,54 @@ load_dotenv(ROOT_DIR / ".env")
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
+
+# ---------------- Auth config & helpers ----------------
+JWT_SECRET = os.environ.get("JWT_SECRET", "yb-dev-secret-change-me")
+JWT_ALG = "HS256"
+JWT_TTL_MIN = int(os.environ.get("JWT_TTL_MIN", "10080"))  # 7 days
+RESET_TTL_MIN = int(os.environ.get("RESET_TTL_MIN", "10"))
+MAX_LOGIN_ATTEMPTS = int(os.environ.get("MAX_LOGIN_ATTEMPTS", "5"))
+LOCKOUT_MIN = int(os.environ.get("LOCKOUT_MIN", "15"))
+
+pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+bearer = HTTPBearer(auto_error=False)
+
+
+def hash_pw(p: str) -> str:
+    return pwd_ctx.hash(p)
+
+
+def verify_pw(p: str, h: str) -> bool:
+    try:
+        return pwd_ctx.verify(p, h)
+    except Exception:
+        return False
+
+
+def make_token(user_id: str) -> str:
+    exp = datetime.now(timezone.utc) + timedelta(minutes=JWT_TTL_MIN)
+    return jwt.encode({"sub": user_id, "exp": exp}, JWT_SECRET, algorithm=JWT_ALG)
+
+
+def decode_token(tok: str) -> Optional[str]:
+    try:
+        data = jwt.decode(tok, JWT_SECRET, algorithms=[JWT_ALG])
+        return data.get("sub")
+    except JWTError:
+        return None
+
+
+async def current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
+    if not creds or not creds.credentials:
+        raise HTTPException(401, "Not authenticated")
+    uid = decode_token(creds.credentials)
+    if not uid:
+        raise HTTPException(401, "Invalid or expired token")
+    u = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+    if not u:
+        raise HTTPException(401, "User not found")
+    return u
+
 
 app = FastAPI(title="YouBelong API")
 api = APIRouter(prefix="/api")
@@ -40,8 +91,9 @@ def nid() -> str:
 # ---------------- Models ----------------
 class User(BaseModel):
     id: str = Field(default_factory=nid)
-    first_name: str
+    first_name: str = ""
     username: str
+    email: str = ""
     suburb: str = ""
     interests: List[str] = []
     avatar: str = ""  # emoji or url
@@ -50,19 +102,37 @@ class User(BaseModel):
     badges: List[str] = []
     friends: List[str] = []
     blocked: List[str] = []
+    is_demo: bool = False
     created_at: str = Field(default_factory=now_iso)
 
 
 class SignupBody(BaseModel):
-    first_name: str
     username: str
+    password: str = Field(min_length=6)
+    email: Optional[EmailStr] = None
+    first_name: str = ""
     suburb: str = ""
     interests: List[str] = []
     avatar: str = ""
 
 
 class LoginBody(BaseModel):
+    username: str  # username OR email
+    password: str
+
+
+class DemoLoginBody(BaseModel):
     username: str
+
+
+class ForgotBody(BaseModel):
+    identifier: str  # username OR email
+
+
+class ResetBody(BaseModel):
+    identifier: str
+    code: str
+    new_password: str = Field(min_length=6)
 
 
 class Table(BaseModel):
@@ -178,22 +248,168 @@ async def award_points(user_id: str, amount: int, reason: str = ""):
 
 
 # ------------- Auth -------------
+def _safe_user(u: dict) -> dict:
+    """Return a user dict without sensitive fields."""
+    u = dict(u or {})
+    u.pop("_id", None)
+    u.pop("password_hash", None)
+    u.pop("failed_login_attempts", None)
+    u.pop("lockout_until", None)
+    return u
+
+
+async def _find_user_by_identifier(identifier: str) -> Optional[dict]:
+    ident = (identifier or "").strip().lower()
+    if not ident:
+        return None
+    # try username (case-insensitive) then email
+    u = await db.users.find_one({"username": {"$regex": f"^{ident}$", "$options": "i"}})
+    if u:
+        return u
+    return await db.users.find_one({"email": {"$regex": f"^{ident}$", "$options": "i"}})
+
+
 @api.post("/auth/signup")
 async def signup(body: SignupBody):
-    existing = await db.users.find_one({"username": body.username}, {"_id": 0})
-    if existing:
+    uname = body.username.strip()
+    if len(uname) < 3:
+        raise HTTPException(400, "Username must be at least 3 characters")
+    if await db.users.find_one({"username": {"$regex": f"^{uname}$", "$options": "i"}}):
         raise HTTPException(400, "Username already taken")
-    user = User(**body.dict(), points=5, badges=["Friendly Butterfly"])
-    await db.users.insert_one(user.dict())
-    return user.dict()
+    if body.email and await db.users.find_one({"email": {"$regex": f"^{body.email}$", "$options": "i"}}):
+        raise HTTPException(400, "Email already registered")
+
+    user = User(
+        first_name=body.first_name or "",
+        username=uname,
+        email=(body.email or "").lower(),
+        suburb=body.suburb,
+        interests=body.interests,
+        avatar=body.avatar,
+        is_demo=False,
+        points=5,
+        badges=["Friendly Butterfly"],
+    )
+    doc = user.dict()
+    doc["password_hash"] = hash_pw(body.password)
+    doc["failed_login_attempts"] = 0
+    doc["lockout_until"] = None
+    await db.users.insert_one(doc)
+    return {"access_token": make_token(user.id), "token_type": "bearer", "user": _safe_user(doc)}
 
 
 @api.post("/auth/login")
 async def login(body: LoginBody):
-    user = await db.users.find_one({"username": body.username}, {"_id": 0})
-    if not user:
-        raise HTTPException(404, "Username not found")
+    u = await _find_user_by_identifier(body.username)
+    if not u:
+        raise HTTPException(400, "Invalid credentials")
+    # demo accounts can't log in via the password flow (must use /auth/demo-login)
+    if u.get("is_demo"):
+        raise HTTPException(400, "Demo accounts use 'Try a demo account' on the login screen")
+
+    now = datetime.now(timezone.utc)
+    lockout = u.get("lockout_until")
+    if lockout:
+        try:
+            lock_dt = datetime.fromisoformat(lockout) if isinstance(lockout, str) else lockout
+            if now < lock_dt:
+                raise HTTPException(429, "Too many failed attempts. Try again later.")
+        except (ValueError, TypeError):
+            pass
+
+    pwh = u.get("password_hash")
+    if not pwh or not verify_pw(body.password, pwh):
+        attempts = int(u.get("failed_login_attempts", 0)) + 1
+        update = {"failed_login_attempts": attempts}
+        if attempts >= MAX_LOGIN_ATTEMPTS:
+            update["lockout_until"] = (now + timedelta(minutes=LOCKOUT_MIN)).isoformat()
+            update["failed_login_attempts"] = 0
+        await db.users.update_one({"id": u["id"]}, {"$set": update})
+        raise HTTPException(400, "Invalid credentials")
+
+    await db.users.update_one(
+        {"id": u["id"]},
+        {"$set": {"failed_login_attempts": 0, "lockout_until": None, "last_login_at": now.isoformat()}},
+    )
+    return {"access_token": make_token(u["id"]), "token_type": "bearer", "user": _safe_user(u)}
+
+
+@api.post("/auth/demo-login")
+async def demo_login(body: DemoLoginBody):
+    """Login as a seeded demo user (no password). Real accounts cannot use this."""
+    u = await db.users.find_one({"username": {"$regex": f"^{body.username}$", "$options": "i"}})
+    if not u:
+        raise HTTPException(404, "Demo user not found")
+    if not u.get("is_demo"):
+        raise HTTPException(400, "Not a demo account — use Log In with your password")
+    return {"access_token": make_token(u["id"]), "token_type": "bearer", "user": _safe_user(u)}
+
+
+@api.get("/auth/me")
+async def auth_me(user=Depends(current_user)):
     return user
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(body: ForgotBody):
+    u = await _find_user_by_identifier(body.identifier)
+    if not u or u.get("is_demo"):
+        # Don't leak which accounts exist — just say OK
+        return {"message": "If that account exists, a reset code was generated."}
+    code = f"{random.randint(0, 999999):06d}"
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=RESET_TTL_MIN)).isoformat()
+    await db.password_resets.delete_many({"user_id": u["id"], "used": False})
+    await db.password_resets.insert_one({
+        "user_id": u["id"], "code": code, "expires_at": expires_at,
+        "used": False, "created_at": now_iso(),
+    })
+    logger.info(f"Password reset code for {u.get('username')}: {code}")
+    # NOTE: returned in the response only because no email provider is wired yet.
+    # Replace with email delivery (Resend / SendGrid) once a key is provided.
+    return {
+        "message": "Reset code generated.",
+        "dev_code": code,
+        "expires_in_minutes": RESET_TTL_MIN,
+    }
+
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetBody):
+    u = await _find_user_by_identifier(body.identifier)
+    if not u:
+        raise HTTPException(400, "Invalid or expired code")
+    rec = await db.password_resets.find_one({"user_id": u["id"], "code": body.code, "used": False})
+    if not rec:
+        raise HTTPException(400, "Invalid or expired code")
+    try:
+        exp = datetime.fromisoformat(rec["expires_at"])
+    except Exception:
+        raise HTTPException(400, "Invalid or expired code")
+    if datetime.now(timezone.utc) > exp:
+        raise HTTPException(400, "Invalid or expired code")
+
+    await db.users.update_one(
+        {"id": u["id"]},
+        {"$set": {
+            "password_hash": hash_pw(body.new_password),
+            "failed_login_attempts": 0,
+            "lockout_until": None,
+        }},
+    )
+    await db.password_resets.update_many(
+        {"user_id": u["id"], "code": body.code},
+        {"$set": {"used": True}},
+    )
+    return {"message": "Password has been reset. You can now log in."}
+
+
+@api.get("/auth/demo-accounts")
+async def list_demo_accounts():
+    docs = await db.users.find({"is_demo": True}, {"_id": 0, "password_hash": 0}).to_list(50)
+    return [
+        {"username": d["username"], "first_name": d.get("first_name", ""), "avatar": d.get("avatar", ""), "suburb": d.get("suburb", "")}
+        for d in docs
+    ]
 
 
 @api.get("/users")
@@ -628,6 +844,12 @@ SAMPLE_GROUP_POSTS = [
 
 @app.on_event("startup")
 async def seed():
+    # One-time migration: mark every legacy (passwordless) account as a demo account
+    # so it stays separate from real signups. Idempotent — runs every restart safely.
+    await db.users.update_many(
+        {"password_hash": {"$exists": False}},
+        {"$set": {"is_demo": True, "failed_login_attempts": 0, "lockout_until": None}},
+    )
     users_count = await db.users.count_documents({})
     if users_count > 0:
         logger.info("Seed skipped — data already present (%s users)", users_count)
@@ -636,9 +858,11 @@ async def seed():
 
     users = []
     for u in SAMPLE_USERS:
-        user = User(**u)
-        await db.users.insert_one(user.dict())
-        users.append(user.dict())
+        user = User(**u, is_demo=True)
+        doc = user.dict()
+        # demo accounts have no password; they're accessed via /auth/demo-login
+        await db.users.insert_one(doc)
+        users.append(doc)
 
     tables = []
     for i, t in enumerate(SAMPLE_TABLES):

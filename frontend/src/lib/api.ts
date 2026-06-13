@@ -14,7 +14,20 @@ async function req<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
 
 export const api = {
   signup: (b: any) => req("/auth/signup", { method: "POST", body: JSON.stringify(b) }),
-  login: (username: string) => req("/auth/login", { method: "POST", body: JSON.stringify({ username }) }),
+  login: (username: string, password: string) =>
+    req("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+  demoLogin: (username: string) =>
+    req("/auth/demo-login", { method: "POST", body: JSON.stringify({ username }) }),
+  demoAccounts: () => req("/auth/demo-accounts"),
+  forgot: (identifier: string) =>
+    req("/auth/forgot-password", { method: "POST", body: JSON.stringify({ identifier }) }),
+  reset: (identifier: string, code: string, new_password: string) =>
+    req("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ identifier, code, new_password }),
+    }),
+  me: (token: string) =>
+    req("/auth/me", { headers: { Authorization: `Bearer ${token}` } }),
 
   listUsers: (params: { suburb?: string; interest?: string; q?: string } = {}) => {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => !!v) as any).toString();

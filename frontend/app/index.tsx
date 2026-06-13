@@ -19,7 +19,7 @@ const BRAND_LOGO = require("../assets/brand/youbelong-logo.png");
 export default function Welcome() {
   const router = useRouter();
   const { scale } = useTheme();
-  const { user, loading, login } = useAuth();
+  const { user, loading, demoLogin } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
@@ -41,8 +41,8 @@ export default function Welcome() {
 
   const handleSocial = async (provider: string) => {
     try {
-      show(`Continuing with ${provider}…`);
-      await login("maggie");
+      show(`Continuing with ${provider}… (demo)`);
+      await demoLogin("maggie");
       router.replace("/(tabs)/home");
     } catch {
       show("Try Sign Up instead");

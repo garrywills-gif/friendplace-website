@@ -6,6 +6,7 @@ export type User = {
   id: string;
   first_name: string;
   username: string;
+  email?: string;
   suburb: string;
   interests: string[];
   avatar: string;
@@ -14,33 +15,50 @@ export type User = {
   badges: string[];
   friends: string[];
   blocked: string[];
+  is_demo?: boolean;
+};
+
+type SignupBody = {
+  username: string;
+  password: string;
+  email?: string;
+  first_name?: string;
+  suburb?: string;
+  interests?: string[];
+  avatar?: string;
 };
 
 type Ctx = {
   user: User | null;
+  token: string | null;
   loading: boolean;
-  signup: (b: { first_name: string; username: string; suburb?: string; interests?: string[]; avatar?: string }) => Promise<void>;
-  login: (username: string) => Promise<void>;
+  signup: (b: SignupBody) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
+  demoLogin: (username: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 };
 
 const AuthCtx = createContext<Ctx | null>(null);
-const KEY = "yb_user";
+const USER_KEY = "yb_user";
+const TOKEN_KEY = "yb_token";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    const t = setTimeout(() => { if (!cancelled) setLoading(false); }, 2500); // hard fallback so UI never hangs
+    const t = setTimeout(() => { if (!cancelled) setLoading(false); }, 2500);
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(KEY);
-        if (raw) {
-          try { setUser(JSON.parse(raw) as User); } catch {}
-        }
+        const [rawU, rawT] = await Promise.all([
+          AsyncStorage.getItem(USER_KEY),
+          AsyncStorage.getItem(TOKEN_KEY),
+        ]);
+        if (rawU) try { setUser(JSON.parse(rawU) as User); } catch {}
+        if (rawT) setToken(rawT);
       } catch {}
       if (!cancelled) setLoading(false);
       clearTimeout(t);
@@ -48,11 +66,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; clearTimeout(t); };
   }, []);
 
-  const persist = async (u: User | null) => {
+  const persist = async (u: User | null, tok: string | null) => {
     setUser(u);
+    setToken(tok);
     try {
-      if (u) await AsyncStorage.setItem(KEY, JSON.stringify(u));
-      else await AsyncStorage.removeItem(KEY);
+      if (u) await AsyncStorage.setItem(USER_KEY, JSON.stringify(u));
+      else await AsyncStorage.removeItem(USER_KEY);
+      if (tok) await AsyncStorage.setItem(TOKEN_KEY, tok);
+      else await AsyncStorage.removeItem(TOKEN_KEY);
     } catch {}
   };
 
@@ -60,21 +81,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthCtx.Provider
       value={{
         user,
+        token,
         loading,
         signup: async (b) => {
-          const u = await api.signup(b);
-          await persist(u);
+          const r: any = await api.signup(b);
+          await persist(r.user as User, r.access_token as string);
         },
-        login: async (username) => {
-          const u = await api.login(username);
-          await persist(u);
+        login: async (identifier, password) => {
+          const r: any = await api.login(identifier, password);
+          await persist(r.user as User, r.access_token as string);
         },
-        logout: async () => { await persist(null); },
+        demoLogin: async (username) => {
+          const r: any = await api.demoLogin(username);
+          await persist(r.user as User, r.access_token as string);
+        },
+        logout: async () => { await persist(null, null); },
         refresh: async () => {
           if (!user) return;
           try {
             const u = await api.getUser(user.id);
-            await persist(u);
+            setUser(u as User);
+            await AsyncStorage.setItem(USER_KEY, JSON.stringify(u));
           } catch {}
         },
       }}
