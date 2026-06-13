@@ -33,10 +33,18 @@ export default function Onboarding() {
     scrollRef.current?.scrollTo({ x: next * SCREEN_W, animated: true });
   };
 
-  const finish = async () => {
-    try { if (user?.id) await api.completeOnboarding(user.id); } catch {}
-    try { await refresh?.(); } catch {}
-    router.replace("/(tabs)/home");
+  const finish = () => {
+    // Navigate FIRST so the user never feels stuck waiting on a network call.
+    if (!user?.id) {
+      router.replace("/");
+    } else {
+      router.replace("/home");
+    }
+    // Mark onboarding complete + refresh auth state in the background.
+    if (user?.id) {
+      api.completeOnboarding(user.id).catch(() => {});
+      refresh?.().catch(() => {});
+    }
   };
 
   return (
@@ -85,7 +93,7 @@ export default function Onboarding() {
           <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale, marginLeft: 4 }}>Back</Text>
         </Pressable>
         <Pressable testID={last ? "onboarding-finish" : "onboarding-next"} onPress={() => last ? finish() : goTo(page + 1)} style={[styles.footBtnPrimary, { backgroundColor: c.brand }]}>
-          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>{last ? "Let&apos;s go" : "Next"}</Text>
+          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>{last ? "Let’s go" : "Next"}</Text>
           {!last && <Ionicons name="chevron-forward" size={20} color="#FFF" style={{ marginLeft: 4 }} />}
         </Pressable>
       </View>
