@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "./api";
+import { registerForPush } from "./push";
 
 export type User = {
   id: string;
@@ -31,6 +32,9 @@ type SignupBody = {
   email?: string;
   first_name?: string;
   suburb?: string;
+  suburb_postcode?: string;
+  suburb_state?: string;
+  location_visibility?: "suburb" | "private";
   interests?: string[];
   avatar?: string;
   birthday?: string;
@@ -94,14 +98,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signup: async (b) => {
           const r: any = await api.signup(b);
           await persist(r.user as User, r.access_token as string);
+          registerForPush(r.user?.id).catch(() => {});
         },
         login: async (identifier, password) => {
           const r: any = await api.login(identifier, password);
           await persist(r.user as User, r.access_token as string);
+          registerForPush(r.user?.id).catch(() => {});
         },
         demoLogin: async (username) => {
           const r: any = await api.demoLogin(username);
           await persist(r.user as User, r.access_token as string);
+          registerForPush(r.user?.id).catch(() => {});
         },
         logout: async () => { await persist(null, null); },
         refresh: async () => {

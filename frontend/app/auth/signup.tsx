@@ -7,9 +7,9 @@ import { useToast } from "@/src/lib/toast";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
 import PasswordField from "@/src/components/PasswordField";
+import SuburbField from "@/src/components/SuburbField";
 import { INTERESTS } from "@/src/lib/interests";
 
-const SUBURBS = ["Bondi", "Manly", "Surry Hills", "Newtown", "Sydney CBD", "Parramatta"];
 const AVATARS = ["🌸", "🔨", "📚", "🧓", "🧶", "🌳", "🎨", "🏏", "🌷", "🐾", "👋", "☕"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -24,6 +24,9 @@ export default function Signup() {
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
   const [suburb, setSuburb] = useState("");
+  const [suburbPostcode, setSuburbPostcode] = useState<string | undefined>(undefined);
+  const [suburbState, setSuburbState] = useState<string | undefined>(undefined);
+  const [locationPrivate, setLocationPrivate] = useState(false);
   const [avatar, setAvatar] = useState("🌸");
   const [interests, setInterests] = useState<string[]>([]);
   const [bdayMonth, setBdayMonth] = useState<number | null>(null); // 1..12
@@ -54,9 +57,13 @@ export default function Signup() {
         password: pw,
         email: email.trim() ? email.trim().toLowerCase() : undefined,
         first_name: firstName.trim() || undefined,
-        suburb,
+        suburb: locationPrivate ? "" : suburb,
+        suburb_postcode: locationPrivate ? undefined : suburbPostcode,
+        suburb_state: locationPrivate ? undefined : suburbState,
+        location_visibility: locationPrivate ? "private" : "suburb",
         interests,
         avatar,
+        birthday: birthdayString || undefined,
       });
       show(`Welcome${firstName ? `, ${firstName.trim()}` : ""}! 🦋`);
       router.replace("/onboarding");
@@ -132,14 +139,30 @@ export default function Signup() {
           </View>
           <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 4 }}>We only use your birthday to wish you a happy day on the community.</Text>
 
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb</Text>
-          <View style={styles.row}>
-            {SUBURBS.map((s) => (
-              <Pressable key={s} onPress={() => setSuburb(s)} style={[styles.chip, { backgroundColor: suburb === s ? c.brand : c.surfaceSecondary, borderColor: suburb === s ? c.brand : c.border }]}>
-                <Text style={{ color: suburb === s ? c.onBrandPrimary : c.onSurface, fontSize: 15 * scale, fontWeight: "600" }}>{s}</Text>
-              </Pressable>
-            ))}
-          </View>
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional — helps you find neighbours)</Text></Text>
+          <SuburbField
+            testID="signup-suburb"
+            initialValue={suburb}
+            preferNotToSay={locationPrivate}
+            onChange={(m, pns) => {
+              if (pns) {
+                setSuburb("");
+                setSuburbPostcode(undefined);
+                setSuburbState(undefined);
+                setLocationPrivate(true);
+              } else if (m) {
+                setSuburb(m.name);
+                setSuburbPostcode(m.postcode);
+                setSuburbState(m.state);
+                setLocationPrivate(false);
+              } else {
+                setSuburb("");
+                setSuburbPostcode(undefined);
+                setSuburbState(undefined);
+                setLocationPrivate(false);
+              }
+            }}
+          />
 
           <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Interests</Text>
           <View style={styles.row}>

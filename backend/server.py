@@ -338,7 +338,7 @@ async def signup(body: SignupBody):
         first_name=body.first_name or "",
         username=uname,
         email=(body.email or "").lower(),
-        suburb=body.suburb,
+        suburb=body.suburb if (body.location_visibility or "suburb") != "private" else "",
         interests=body.interests,
         avatar=body.avatar,
         birthday=(body.birthday or "").strip(),
@@ -347,6 +347,15 @@ async def signup(body: SignupBody):
         badges=["Friendly Member"],
     )
     doc = user.dict()
+    # Optional structured location (already validated by SuburbField search)
+    if (body.location_visibility or "suburb") == "private":
+        doc["location_visibility"] = "private"
+    else:
+        doc["location_visibility"] = "suburb"
+        if body.suburb_postcode:
+            doc["suburb_postcode"] = body.suburb_postcode
+        if body.suburb_state:
+            doc["suburb_state"] = body.suburb_state
     doc["password_hash"] = hash_pw(body.password)
     doc["failed_login_attempts"] = 0
     doc["lockout_until"] = None
@@ -445,7 +454,7 @@ async def demo_login(body: DemoLoginBody):
 
 @api.get("/auth/me")
 async def auth_me(user=Depends(current_user)):
-    return user
+    return _safe_user(user)
 
 
 @api.post("/auth/forgot-password")
@@ -606,6 +615,28 @@ async def push_notification(user_id: str, n_type: str, title: str, body: str = "
         "created_at": now_iso(),
     }
     await db.notifications.insert_one(doc)
+    # Mirror to device push (Emergent-managed). Safe to call without google-services.json
+    # — fails silently and never blocks the in-app notification.
+    try:
+        from push import send_push
+        push_data: Dict = {"title": title, "message": body or title, "type": n_type}
+        # Deep-link hint so a tap from the system tray opens the right screen
+        deeplink_map = {
+            "friend_request": "/messages",
+            "friend_accepted": "/friends",
+            "dm": "/messages",
+            "table_join": "/coffee",
+            "event_invite": "/events",
+            "event_reminder": "/events",
+            "notice_comment": "/notices",
+            "flutter": "/notifications",
+            "looking_for_chat": "/friends",
+        }
+        if n_type in deeplink_map:
+            push_data["action_url"] = deeplink_map[n_type]
+        await send_push(recipients=[user_id], data=push_data)
+    except Exception as e:
+        logger.warning("device push failed (non-blocking): %s", e)
 
 
 @api.get("/notifications/{user_id}")
@@ -3858,6 +3889,10 @@ async def health():
 
 
 app.include_router(api)
+
+# Push notifications (Emergent-managed relay). Mounted under /api/.
+from push import router as push_router  # noqa: E402
+app.include_router(push_router, prefix="/api")
 
 app.add_middleware(
     CORSMiddleware,
