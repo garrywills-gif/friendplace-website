@@ -21,6 +21,7 @@ import os, uuid, logging, json, asyncio, random, re
 from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_themes as ws_list_themes, generate_puzzle as ws_generate, daily_pick as ws_daily_pick, today_iso as ws_today_iso
 from memory_match import THEMES as MM_THEMES, DIFFICULTIES as MM_DIFFS, list_themes as mm_list_themes, generate_puzzle as mm_generate, daily_pick as mm_daily_pick, today_iso as mm_today_iso
 from sudoku import DIFFICULTIES as SD_DIFFS, generate_puzzle as sd_generate, daily_pick as sd_daily_pick, today_iso as sd_today_iso
+from spot_difference import THEMES as STD_THEMES, DIFFICULTIES as STD_DIFFS, list_themes as std_list_themes, generate_puzzle as std_generate, daily_pick as std_daily_pick, today_iso as std_today_iso
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -1525,6 +1526,135 @@ async def sudoku_save_progress(user_id: str, body: SudokuProgressBody):
 async def sudoku_get_progress(user_id: str, puzzle_id: str):
     p = await db.sudoku_progress.find_one({"user_id": user_id, "puzzle_id": puzzle_id}, {"_id": 0})
     return p or {}
+
+
+# ------------- Spot The Difference -------------
+class SpotProgressBody(BaseModel):
+    puzzle_id: str
+    theme: str
+    difficulty: str
+    found_ids: List[str] = []
+    hints_used: int = 0
+    seconds: int = 0
+    completed: bool = False
+    is_daily: bool = False
+    beat_the_clock: bool = False  # whether user opted in to time bonus
+
+
+@api.get("/games/spot/catalog")
+async def spot_catalog():
+    diffs = []
+    for k, d in STD_DIFFS.items():
+        diffs.append({"key": k, "label": d["label"], "diffs": d["diffs"], "points": d["points"], "hints": d["hints"], "ribbon": d["ribbon"]})
+    return {"themes": std_list_themes(), "difficulties": diffs}
+
+
+@api.get("/games/spot/puzzle")
+async def spot_puzzle(theme: str, difficulty: str = "easy", seed: Optional[int] = None):
+    if theme not in STD_THEMES:
+        raise HTTPException(404, "Unknown theme")
+    if difficulty not in STD_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+    if seed is None:
+        stable_key = f"std|{theme}|{difficulty}|{std_today_iso()}"
+        use_seed = abs(hash(stable_key)) % (10 ** 9)
+    else:
+        use_seed = int(seed)
+    puz = std_generate(theme, difficulty, use_seed)
+    return {**puz, "puzzle_id": f"std:{theme}:{difficulty}:{use_seed}"}
+
+
+@api.get("/games/spot/daily")
+async def spot_daily():
+    today = std_today_iso()
+    pick = std_daily_pick(today)
+    puz = std_generate(pick["theme"], pick["difficulty"], pick["seed"])
+    return {**puz, "puzzle_id": f"std:{pick['theme']}:{pick['difficulty']}:daily-{today}", "date": today, "is_daily": True}
+
+
+@api.post("/games/spot/progress/{user_id}")
+async def spot_save_progress(user_id: str, body: SpotProgressBody):
+    if body.theme not in STD_THEMES:
+        raise HTTPException(404, "Unknown theme")
+    if body.difficulty not in STD_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+    existing = await db.spot_progress.find_one({"user_id": user_id, "puzzle_id": body.puzzle_id}, {"_id": 0})
+    # Personal best tracking — only on first completion of this puzzle
+    prev_best = None
+    if existing and existing.get("completed"):
+        prev_best = existing.get("personal_best_seconds")
+    set_doc = {
+        "user_id": user_id, "puzzle_id": body.puzzle_id, "theme": body.theme, "difficulty": body.difficulty,
+        "found_ids": body.found_ids, "hints_used": body.hints_used, "seconds": body.seconds,
+        "completed": body.completed, "is_daily": body.is_daily, "beat_the_clock": body.beat_the_clock,
+        "updated_at": now_iso(),
+    }
+    if body.completed:
+        # Track personal best only for completed runs
+        if prev_best is None or body.seconds < prev_best:
+            set_doc["personal_best_seconds"] = body.seconds
+        else:
+            set_doc["personal_best_seconds"] = prev_best
+    await db.spot_progress.update_one(
+        {"user_id": user_id, "puzzle_id": body.puzzle_id},
+        {"$set": set_doc, "$setOnInsert": {"id": nid(), "created_at": now_iso()}},
+        upsert=True,
+    )
+
+    granted: List[str] = []
+    points_awarded = 0
+    streak = 0
+    new_personal_best = False
+    if body.completed and (not existing or not existing.get("completed_logged")):
+        diff_def = STD_DIFFS[body.difficulty]
+        result = await log_game_completion(user_id, GameCompletionBody(
+            game_type="spot",
+            difficulty=body.difficulty,
+            title=f"Spot The Difference · {STD_THEMES[body.theme]['label']}",
+            duration_seconds=body.seconds,
+            score=len(body.found_ids),
+            is_daily=body.is_daily,
+        ))
+        granted = result.get("granted", [])
+        streak = result.get("streak", 0)
+        # Points awarded only on Hard & Nightmare (per user spec)
+        points_awarded = diff_def["points"]
+        # Beat-the-Clock bonus if opted in and finished under the bonus time
+        if body.beat_the_clock and points_awarded > 0:
+            from spot_difference import BEAT_THE_CLOCK
+            btc = BEAT_THE_CLOCK[body.difficulty]
+            if body.seconds <= btc["seconds"]:
+                points_awarded += btc["bonus"]
+        if points_awarded:
+            await award_points(user_id, points_awarded)
+        # Personal best?
+        if prev_best is None or body.seconds < prev_best:
+            new_personal_best = True
+        await db.spot_progress.update_one(
+            {"user_id": user_id, "puzzle_id": body.puzzle_id},
+            {"$set": {"completed_logged": True}},
+        )
+    return {"ok": True, "granted": granted, "points_awarded": points_awarded, "streak": streak, "new_personal_best": new_personal_best}
+
+
+@api.get("/games/spot/progress/{user_id}")
+async def spot_get_progress(user_id: str, puzzle_id: str):
+    p = await db.spot_progress.find_one({"user_id": user_id, "puzzle_id": puzzle_id}, {"_id": 0})
+    return p or {}
+
+
+@api.get("/games/spot/bests/{user_id}")
+async def spot_personal_bests(user_id: str):
+    """Per-difficulty personal bests + total completed for the user."""
+    docs = await db.spot_progress.find({"user_id": user_id, "completed": True}, {"_id": 0}).to_list(500)
+    bests: Dict[str, Dict] = {}
+    for d in docs:
+        k = d.get("difficulty", "easy")
+        sec = d.get("personal_best_seconds", d.get("seconds"))
+        cur = bests.get(k)
+        if cur is None or (sec is not None and sec < cur["seconds"]):
+            bests[k] = {"seconds": sec, "theme": d.get("theme"), "puzzle_id": d.get("puzzle_id")}
+    return {"bests": bests, "total_completed": len(docs)}
 
 
 # ------------- Jigsaw (built-in catalogue) -------------

@@ -137,6 +137,17 @@ export const api = {
   sdSaveProgress: (uid: string, body: { puzzle_id: string; difficulty: string; entries: number[][]; notes: number[][][]; hints_used: number; mistakes: number; seconds: number; completed: boolean; is_daily?: boolean }) =>
     req(`/games/sudoku/progress/${uid}`, { method: "POST", body: JSON.stringify(body) }),
 
+  // spot the difference
+  stdCatalog: () => req("/games/spot/catalog"),
+  stdPuzzle: (theme: string, difficulty: string, seed?: number) =>
+    req(`/games/spot/puzzle?theme=${encodeURIComponent(theme)}&difficulty=${encodeURIComponent(difficulty)}${seed !== undefined ? `&seed=${seed}` : ""}`),
+  stdDaily: () => req("/games/spot/daily"),
+  stdGetProgress: (uid: string, puzzle_id: string) =>
+    req(`/games/spot/progress/${uid}?puzzle_id=${encodeURIComponent(puzzle_id)}`),
+  stdSaveProgress: (uid: string, body: { puzzle_id: string; theme: string; difficulty: string; found_ids: string[]; hints_used: number; seconds: number; completed: boolean; is_daily?: boolean; beat_the_clock?: boolean }) =>
+    req(`/games/spot/progress/${uid}`, { method: "POST", body: JSON.stringify(body) }),
+  stdBests: (uid: string) => req(`/games/spot/bests/${uid}`),
+
   // safety + admin + support
   safetyReasons: () => req("/safety/report-reasons"),
   // community
