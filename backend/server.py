@@ -1176,10 +1176,11 @@ async def games_stats(user_id: str):
 
 @api.get("/games/dailies")
 async def dailies():
-    """Today's daily challenges across all game types (puzzle/trivia/wordsearch/memory)."""
+    """Today's daily challenges across all game types (jigsaw/trivia/wordsearch/memory/sudoku)."""
     d = datetime.now(timezone.utc)
     daily_ws = ws_daily_pick(ws_today_iso())
     daily_mm = mm_daily_pick(mm_today_iso())
+    daily_sd = sd_daily_pick(sd_today_iso())
     return {
         "date": d.date().isoformat(),
         "jigsaw": (await jigsaw_daily()),
@@ -1195,6 +1196,11 @@ async def dailies():
             "title": f"Daily Memory Match · {MM_THEMES[daily_mm['theme']]['label']}",
             "theme": daily_mm["theme"],
             "difficulty": daily_mm["difficulty"],
+        },
+        "sudoku": {
+            "available": True,
+            "title": f"Daily Sudoku · {SD_DIFFS[daily_sd['difficulty']]['label']}",
+            "difficulty": daily_sd["difficulty"],
         },
     }
 
