@@ -295,6 +295,7 @@ export default function WordSearchPlayer() {
                     key={ci}
                     testID={`ws-cell-${r}-${ci}`}
                     onPress={() => onCellTap(r, ci)}
+                    hitSlop={3}
                     style={[styles.cell, { width: tileW, height: tileW, backgroundColor: bg, borderColor: isStart ? c.accent : "transparent" }]}
                   >
                     <Text style={{ color: fg, fontWeight: "900", fontSize: Math.max(13, tileW * 0.46) * scale }}>{letter}</Text>
@@ -305,10 +306,15 @@ export default function WordSearchPlayer() {
           ))}
         </View>
 
+        {/* Always-visible tip — explains the gesture + that diagonals work. */}
+        <Text style={{ color: c.muted, fontSize: 13 * scale, textAlign: "center", marginTop: 6 }}>
+          💡 Tap the first letter, then the last letter. Words can go across, down, or <Text style={{ fontWeight: "800" }}>diagonally</Text>.
+        </Text>
+
         {/* Selection hint */}
         {start && (
-          <Text style={{ color: c.muted, fontSize: 13 * scale, textAlign: "center" }}>
-            Now tap the last letter · <Text onPress={onClear} style={{ color: c.brand, fontWeight: "800" }}>cancel</Text>
+          <Text style={{ color: c.brand, fontSize: 14 * scale, textAlign: "center", fontWeight: "700", marginTop: 2 }}>
+            Now tap the last letter · <Text onPress={onClear} style={{ color: c.brand, fontWeight: "800", textDecorationLine: "underline" }}>cancel</Text>
           </Text>
         )}
 
