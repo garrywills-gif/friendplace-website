@@ -7,6 +7,8 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import SpeakButton from "@/src/components/SpeakButton";
+import { getThoughtForDate, getRandomThought } from "@/src/lib/thoughts";
 
 type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; route: string; bg: string; full?: boolean };
 
@@ -17,6 +19,9 @@ export default function Home() {
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const [flutters, setFlutters] = useState<any[]>([]);
+  const [thought, setThought] = useState<string>(() => getThoughtForDate());
+
+  const shuffleThought = () => setThought((t) => getRandomThought(t));
 
   const loadFlutters = async () => {
     if (!user) return;
@@ -84,6 +89,22 @@ export default function Home() {
           </View>
         )}
 
+        <View style={[styles.thoughtCard, { backgroundColor: c.surfaceSecondary, borderColor: c.brand }]} testID="todays-thought">
+          <View style={styles.thoughtHead}>
+            <View style={[styles.thoughtChip, { backgroundColor: c.brandTertiary }]}>
+              <Ionicons name="sunny" size={14} color={c.brand} />
+              <Text style={[styles.thoughtChipText, { color: c.brand, fontSize: 12 * scale }]}>TODAY'S THOUGHT</Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <SpeakButton text={thought} color={c.brand} size={22} testID="thought-speak" />
+              <Pressable testID="thought-shuffle" onPress={shuffleThought} hitSlop={6} style={[styles.thoughtIconBtn]}>
+                <Ionicons name="shuffle" size={22} color={c.brand} />
+              </Pressable>
+            </View>
+          </View>
+          <Text style={[styles.thoughtText, { color: c.onSurface, fontSize: 18 * scale }]}>{thought}</Text>
+        </View>
+
         <Pressable testID="home-points-card" onPress={() => router.push("/(tabs)/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary }]}>
           <View style={styles.pointsRow}>
             <Text style={{ fontSize: 40 }}>🦋</Text>
@@ -142,4 +163,10 @@ const styles = StyleSheet.create({
   tile: { borderRadius: 22, padding: 18, justifyContent: "space-between", gap: 8 },
   tileTitle: { color: "#FFFFFF", fontWeight: "800", marginTop: "auto" },
   tileSub: { color: "rgba(255,255,255,0.85)", fontWeight: "600" },
+  thoughtCard: { borderRadius: 20, padding: 16, borderWidth: 1.5, gap: 10, marginTop: 6 },
+  thoughtHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  thoughtChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  thoughtChipText: { fontWeight: "800", letterSpacing: 0.6 },
+  thoughtIconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
+  thoughtText: { fontWeight: "700", lineHeight: 26 },
 });

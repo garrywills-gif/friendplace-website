@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
+import SpeakButton from "@/src/components/SpeakButton";
 
 export default function Notices() {
   const { c, scale } = useTheme();
@@ -67,6 +68,7 @@ export default function Notices() {
                   <Text style={[styles.author, { color: c.onSurface, fontSize: 16 * scale }]}>{item.user_name}</Text>
                   <Text style={[styles.cat, { color: c.brand, fontSize: 12 * scale }]}>{item.category}</Text>
                 </View>
+                <SpeakButton text={`${item.title}. ${item.body}`} color={c.brand} size={22} testID={`speak-notice-${item.id}`} />
               </View>
               <Text style={[styles.title, { color: c.onSurface, fontSize: 19 * scale }]}>{item.title}</Text>
               <Text style={[styles.body, { color: c.onSurfaceSecondary, fontSize: 16 * scale }]}>{item.body}</Text>

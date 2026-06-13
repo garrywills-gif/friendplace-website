@@ -6,9 +6,9 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
+import { INTERESTS } from "@/src/lib/interests";
 
 const SUBURBS = ["Bondi", "Manly", "Surry Hills", "Newtown", "Sydney CBD", "Parramatta"];
-const INTERESTS = ["Gardening", "Books", "Cats", "Dogs", "Cricket", "Cooking", "Art", "Travel", "Walking", "Trivia", "Knitting", "Coffee"];
 const AVATARS = ["🌸", "🔨", "📚", "🧓", "🧶", "🌳", "🎨", "🏏", "🌷", "🐾", "👋", "☕"];
 
 export default function Signup() {

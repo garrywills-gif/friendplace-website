@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import SpeakButton from "@/src/components/SpeakButton";
 
 export default function Events() {
   const { c, scale } = useTheme();
@@ -49,6 +50,12 @@ export default function Events() {
                   <Text style={[styles.meta, { color: c.muted, fontSize: 14 * scale }]}>📅 {item.date}  🕐 {item.time}</Text>
                   <Text style={[styles.meta, { color: c.muted, fontSize: 14 * scale }]}>📍 {item.location}</Text>
                 </View>
+                <SpeakButton
+                  text={`${item.title}. ${item.date} at ${item.time}. ${item.location}. ${item.description || ""}`}
+                  color={c.brand}
+                  size={22}
+                  testID={`speak-event-${item.id}`}
+                />
               </View>
               {!!item.description && <Text style={[styles.desc, { color: c.onSurfaceSecondary, fontSize: 15 * scale }]}>{item.description}</Text>}
 

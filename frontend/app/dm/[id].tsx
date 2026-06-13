@@ -6,6 +6,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import SpeakButton from "@/src/components/SpeakButton";
 
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
@@ -55,10 +56,11 @@ export default function DM() {
           renderItem={({ item }) => {
             const mine = item.user_id === user?.id;
             return (
-              <View style={[{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "78%" }]}>
-                <View style={[{ padding: 12, borderRadius: 18, backgroundColor: mine ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderBottomRightRadius: mine ? 4 : 18, borderBottomLeftRadius: mine ? 18 : 4 }]}>
+              <View style={[{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%", flexDirection: "row", alignItems: "flex-end", gap: 4 }]}>
+                <View style={[{ padding: 12, borderRadius: 18, backgroundColor: mine ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderBottomRightRadius: mine ? 4 : 18, borderBottomLeftRadius: mine ? 18 : 4, flexShrink: 1 }]}>
                   <Text style={{ color: mine ? "#FFF" : c.onSurface, fontSize: 16 * scale }}>{item.text}</Text>
                 </View>
+                <SpeakButton text={item.text} color={mine ? c.brand : c.muted} bg={c.surfaceTertiary} size={18} testID={`speak-msg-${item.id}`} />
               </View>
             );
           }}
