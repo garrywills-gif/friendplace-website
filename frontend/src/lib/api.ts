@@ -60,6 +60,17 @@ export const api = {
   setPrivacy: (uid: string, privacy: "everyone" | "friends" | "invisible") =>
     req(`/users/${uid}/privacy`, { method: "PATCH", body: JSON.stringify({ privacy }) }),
 
+  // jigsaw
+  jigsawCatalog: () => req("/games/jigsaw/catalog"),
+  jigsawDaily: () => req("/games/jigsaw/daily"),
+  jigsawProgress: (uid: string) => req(`/games/jigsaw/progress/${uid}`),
+  jigsawProgressOne: (uid: string, pid: string, diff: string) => req(`/games/jigsaw/progress/${uid}/${pid}/${diff}`),
+  jigsawSaveProgress: (uid: string, body: { puzzle_id: string; difficulty: string; order: number[]; percent: number; completed: boolean }) =>
+    req(`/games/jigsaw/progress/${uid}`, { method: "PUT", body: JSON.stringify(body) }),
+  jigsawCompleted: (uid: string) => req(`/games/jigsaw/completed/${uid}`),
+  jigsawStats: (uid: string) => req(`/games/jigsaw/stats/${uid}`),
+  jigsawRandom: () => req("/games/jigsaw/random"),
+
   // tables
   listTables: () => req("/tables"),
   createTable: (b: any) => req("/tables", { method: "POST", body: JSON.stringify(b) }),

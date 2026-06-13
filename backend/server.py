@@ -655,6 +655,111 @@ async def user_status(user_id: str):
     return _status_from(u.get("last_seen_at"), u.get("privacy", "everyone"))
 
 
+# ------------- Jigsaw (built-in catalogue) -------------
+from jigsaw_data import JIGSAW_CATALOGUE, CATEGORIES, DIFFICULTY_GRID  # noqa: E402
+
+
+class JigsawProgressBody(BaseModel):
+    puzzle_id: str
+    difficulty: str
+    order: List[int]
+    percent: float
+    completed: bool = False
+
+
+@api.get("/games/jigsaw/catalog")
+async def jigsaw_catalog():
+    return {"categories": CATEGORIES, "puzzles": JIGSAW_CATALOGUE, "difficulties": DIFFICULTY_GRID}
+
+
+@api.get("/games/jigsaw/daily")
+async def jigsaw_daily():
+    """Deterministic puzzle-of-the-day."""
+    d = datetime.now(timezone.utc)
+    seed = d.year * 10000 + d.month * 100 + d.day
+    p = JIGSAW_CATALOGUE[seed % len(JIGSAW_CATALOGUE)]
+    return {"date": d.date().isoformat(), "puzzle": p, "difficulty": "moderate"}
+
+
+@api.get("/games/jigsaw/progress/{user_id}")
+async def jigsaw_all_progress(user_id: str):
+    docs = await db.jigsaw_progress.find({"user_id": user_id}, {"_id": 0}).to_list(500)
+    return docs
+
+
+@api.get("/games/jigsaw/progress/{user_id}/{puzzle_id}/{difficulty}")
+async def jigsaw_progress(user_id: str, puzzle_id: str, difficulty: str):
+    doc = await db.jigsaw_progress.find_one({"user_id": user_id, "puzzle_id": puzzle_id, "difficulty": difficulty}, {"_id": 0})
+    return doc or {}
+
+
+@api.put("/games/jigsaw/progress/{user_id}")
+async def jigsaw_save_progress(user_id: str, body: JigsawProgressBody):
+    key = {"user_id": user_id, "puzzle_id": body.puzzle_id, "difficulty": body.difficulty}
+    existing = await db.jigsaw_progress.find_one(key, {"_id": 0}) or {}
+    # already completed? Don't re-award or overwrite the duration.
+    if existing.get("completed"):
+        return existing
+    diff_info = DIFFICULTY_GRID.get(body.difficulty, {})
+    points = int(diff_info.get("points", 15))
+    doc = {**key, "order": body.order, "percent": body.percent, "completed": body.completed, "updated_at": now_iso()}
+    # Stamp started_at the first time we see any progress on this puzzle/difficulty.
+    if not existing.get("started_at") and (body.percent > 0 or body.completed):
+        doc["started_at"] = now_iso()
+    elif existing.get("started_at"):
+        doc["started_at"] = existing["started_at"]
+    if body.completed:
+        doc["completed_at"] = now_iso()
+        try:
+            start_dt = datetime.fromisoformat(doc.get("started_at") or doc["completed_at"])
+            end_dt = datetime.fromisoformat(doc["completed_at"])
+            doc["duration_seconds"] = max(1, int((end_dt - start_dt).total_seconds()))
+        except Exception:
+            doc["duration_seconds"] = 0
+        doc["points_earned"] = points
+    await db.jigsaw_progress.update_one(key, {"$set": doc}, upsert=True)
+    if body.completed:
+        await award_points(user_id, points)
+    return doc
+
+
+@api.get("/games/jigsaw/completed/{user_id}")
+async def jigsaw_completed(user_id: str):
+    docs = await db.jigsaw_progress.find({"user_id": user_id, "completed": True}, {"_id": 0}).sort("completed_at", -1).to_list(500)
+    return docs
+
+
+@api.get("/games/jigsaw/stats/{user_id}")
+async def jigsaw_stats(user_id: str):
+    docs = await db.jigsaw_progress.find({"user_id": user_id, "completed": True}, {"_id": 0}).to_list(2000)
+    total_completed = len(docs)
+    total_seconds = sum(int(d.get("duration_seconds") or 0) for d in docs)
+    total_points = sum(int(d.get("points_earned") or 0) for d in docs)
+    by_diff: Dict[str, int] = {}
+    for d in docs:
+        k = d.get("difficulty", "easy")
+        by_diff[k] = by_diff.get(k, 0) + 1
+    fastest = None
+    for d in docs:
+        s = int(d.get("duration_seconds") or 0)
+        if s > 0 and (fastest is None or s < int(fastest.get("duration_seconds") or 0)):
+            fastest = d
+    return {
+        "total_completed": total_completed,
+        "total_seconds": total_seconds,
+        "total_points": total_points,
+        "by_difficulty": by_diff,
+        "fastest": fastest,
+    }
+
+
+@api.get("/games/jigsaw/random")
+async def jigsaw_random():
+    """A random rotating puzzle for the "Surprise me" button."""
+    p = random.choice(JIGSAW_CATALOGUE)
+    return {"puzzle": p, "difficulty": "easy"}
+
+
 # ------------- Tables (Coffee Lounge) -------------
 @api.get("/tables")
 async def list_tables():
