@@ -258,7 +258,7 @@ async def award_points(user_id: str, amount: int, reason: str = ""):
     new_points = user.get("points", 0) + amount
     badges = set(user.get("badges", []))
     if new_points >= 10:
-        badges.add("Friendly Butterfly")
+        badges.add("Friendly Member")
     if new_points >= 30:
         badges.add("Helpful Neighbour")
     if new_points >= 60:
@@ -312,7 +312,7 @@ async def signup(body: SignupBody):
         avatar=body.avatar,
         is_demo=False,
         points=5,
-        badges=["Friendly Butterfly"],
+        badges=["Friendly Member"],
     )
     doc = user.dict()
     doc["password_hash"] = hash_pw(body.password)
@@ -2502,14 +2502,14 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...)):
 
 # ------------- Seed -------------
 SAMPLE_USERS = [
-    {"first_name": "Margaret", "username": "maggie", "suburb": "Bondi", "interests": ["Gardening", "Books", "Tea"], "avatar": "🌸", "bio": "Loves roses and a good cuppa.", "points": 78, "badges": ["Friendly Butterfly", "Helpful Neighbour", "Social Star"]},
-    {"first_name": "Frank", "username": "frankie", "suburb": "Manly", "interests": ["Woodwork", "Fishing", "Pets"], "avatar": "🔨", "bio": "Retired carpenter. Always tinkering.", "points": 42, "badges": ["Friendly Butterfly", "Helpful Neighbour"]},
-    {"first_name": "Joyce", "username": "joycey", "suburb": "Surry Hills", "interests": ["Books", "Cats", "Tea"], "avatar": "📚", "bio": "Two cats and a hundred books.", "points": 55, "badges": ["Friendly Butterfly", "Helpful Neighbour"]},
-    {"first_name": "Bill", "username": "billdo", "suburb": "Bondi", "interests": ["Men's Shed", "Walking", "Cricket"], "avatar": "🧓", "bio": "Up at 5, walking by 6.", "points": 31, "badges": ["Friendly Butterfly"]},
-    {"first_name": "Dorothy", "username": "dot", "suburb": "Newtown", "interests": ["Crochet", "Trivia", "Pets"], "avatar": "🧶", "bio": "Crochet anything you ask!", "points": 64, "badges": ["Friendly Butterfly", "Helpful Neighbour", "Social Star"]},
-    {"first_name": "Arthur", "username": "art", "suburb": "Manly", "interests": ["Gardening", "Birdwatching"], "avatar": "🌳", "bio": "Birds visit my balcony daily.", "points": 22, "badges": ["Friendly Butterfly"]},
-    {"first_name": "Eileen", "username": "eil", "suburb": "Sydney CBD", "interests": ["Art", "Coffee", "Travel"], "avatar": "🎨", "bio": "Watercolours and lattes.", "points": 105, "badges": ["Friendly Butterfly", "Helpful Neighbour", "Social Star", "Community Builder"]},
-    {"first_name": "Roy", "username": "roy", "suburb": "Parramatta", "interests": ["Cricket", "Trivia", "BBQs"], "avatar": "🏏", "bio": "Trivia king of the neighborhood.", "points": 38, "badges": ["Friendly Butterfly", "Helpful Neighbour"]},
+    {"first_name": "Margaret", "username": "maggie", "suburb": "Bondi", "interests": ["Gardening", "Books", "Tea"], "avatar": "🌸", "bio": "Loves roses and a good cuppa.", "points": 78, "badges": ["Friendly Member", "Helpful Neighbour", "Social Star"]},
+    {"first_name": "Frank", "username": "frankie", "suburb": "Manly", "interests": ["Woodwork", "Fishing", "Pets"], "avatar": "🔨", "bio": "Retired carpenter. Always tinkering.", "points": 42, "badges": ["Friendly Member", "Helpful Neighbour"]},
+    {"first_name": "Joyce", "username": "joycey", "suburb": "Surry Hills", "interests": ["Books", "Cats", "Tea"], "avatar": "📚", "bio": "Two cats and a hundred books.", "points": 55, "badges": ["Friendly Member", "Helpful Neighbour"]},
+    {"first_name": "Bill", "username": "billdo", "suburb": "Bondi", "interests": ["Men's Shed", "Walking", "Cricket"], "avatar": "🧓", "bio": "Up at 5, walking by 6.", "points": 31, "badges": ["Friendly Member"]},
+    {"first_name": "Dorothy", "username": "dot", "suburb": "Newtown", "interests": ["Crochet", "Trivia", "Pets"], "avatar": "🧶", "bio": "Crochet anything you ask!", "points": 64, "badges": ["Friendly Member", "Helpful Neighbour", "Social Star"]},
+    {"first_name": "Arthur", "username": "art", "suburb": "Manly", "interests": ["Gardening", "Birdwatching"], "avatar": "🌳", "bio": "Birds visit my balcony daily.", "points": 22, "badges": ["Friendly Member"]},
+    {"first_name": "Eileen", "username": "eil", "suburb": "Sydney CBD", "interests": ["Art", "Coffee", "Travel"], "avatar": "🎨", "bio": "Watercolours and lattes.", "points": 105, "badges": ["Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder"]},
+    {"first_name": "Roy", "username": "roy", "suburb": "Parramatta", "interests": ["Cricket", "Trivia", "BBQs"], "avatar": "🏏", "bio": "Trivia king of the neighborhood.", "points": 38, "badges": ["Friendly Member", "Helpful Neighbour"]},
 ]
 
 SAMPLE_TABLES = [

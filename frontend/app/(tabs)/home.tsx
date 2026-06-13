@@ -141,19 +141,21 @@ export default function Home() {
           <Text style={[styles.thoughtText, { color: c.onSurface, fontSize: 18 * scale }]}>{thought}</Text>
         </View>
 
-        <Pressable testID="home-points-card" onPress={() => router.push("/(tabs)/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary }]}>
-          <View style={styles.pointsRow}>
-            <Text style={{ fontSize: 40 }}>🦋</Text>
-            <View style={{ flex: 1, marginLeft: 14 }}>
-              <Text style={[styles.pointsLabel, { color: c.onBrandTertiary, fontSize: 16 * scale }]}>Butterfly Points</Text>
-              <Text style={[styles.pointsNum, { color: c.onBrandTertiary, fontSize: 32 * scale }]}>{user?.points ?? 0}</Text>
-            </View>
-            <View style={styles.badgesWrap}>
+        <Pressable testID="home-points-card" onPress={() => router.push("/(tabs)/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+          <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+            <Text numberOfLines={1} style={[styles.pointsLabel, { color: c.brand, fontSize: 12 * scale }]}>COMMUNITY POINTS</Text>
+            <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling minimumFontScale={0.6} style={[styles.pointsNum, { color: c.onSurface, fontSize: 34 * scale }]}>{user?.points ?? 0}</Text>
+          </View>
+          {(user?.badges || []).length > 0 && (
+            <View style={styles.badgesCol}>
               {(user?.badges || []).slice(0, 2).map((b) => (
-                <Text key={b} style={[styles.badge, { color: c.brand, fontSize: 12 * scale, borderColor: c.brand }]}>{b}</Text>
+                <View key={b} style={[styles.badgePill, { borderColor: c.brand, backgroundColor: c.surface }]}>
+                  <Ionicons name="ribbon" size={12} color={c.brand} />
+                  <Text numberOfLines={1} style={[styles.badgeText, { color: c.brand, fontSize: 11 * scale }]}>{b}</Text>
+                </View>
               ))}
             </View>
-          </View>
+          )}
         </Pressable>
 
         <View style={styles.grid}>
@@ -189,12 +191,12 @@ const styles = StyleSheet.create({
   flutterItem: { flexDirection: "row", alignItems: "center", padding: 10, borderRadius: 12, borderWidth: 1, gap: 6 },
   replyBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
   dismissBtn: { padding: 6 },
-  pointsCard: { borderRadius: 20, padding: 18, marginTop: 4 },
-  pointsRow: { flexDirection: "row", alignItems: "center" },
-  pointsLabel: { fontWeight: "700" },
+  pointsCard: { flexDirection: "row", alignItems: "center", borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18, marginTop: 20, marginBottom: 8, borderWidth: 1.5 },
+  pointsLabel: { fontWeight: "900", letterSpacing: 0.6 },
   pointsNum: { fontWeight: "900", marginTop: 2 },
-  badgesWrap: { gap: 4, alignItems: "flex-end" },
-  badge: { borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontWeight: "700" },
+  badgesCol: { alignItems: "flex-end", gap: 6, maxWidth: "55%" },
+  badgePill: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1.5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, maxWidth: 170 },
+  badgeText: { fontWeight: "800" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 4 },
   tile: { borderRadius: 22, padding: 18, justifyContent: "space-between", gap: 8 },
   tileTitle: { color: "#FFFFFF", fontWeight: "800", marginTop: "auto" },
