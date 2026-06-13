@@ -11,7 +11,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 
 type Cell = [number, number];
 
-const HOW_TO = "To find a word, tap the first letter and then the last letter. The squares in between will be highlighted. If you got it right, the word turns green. Tap the speaker to hear remaining words read aloud. Tap Hint if you need a clue.";
+const HOW_TO = "Touch the first letter and drag your finger to the last letter, then lift your finger. The squares you trace will be highlighted. If you got the word right, it turns green. Words go across, down, or diagonally. You can also tap the first letter and then the last letter if you prefer not to drag. Tap the speaker to hear the remaining words. Tap Hint if you need a clue.";
 
 function sameCell(a: Cell | null, b: Cell | null) {
   return !!a && !!b && a[0] === b[0] && a[1] === b[1];
@@ -168,23 +168,10 @@ export default function WordSearchPlayer() {
     return s;
   }, [puzzle, found]);
 
-  const onCellTap = (r: number, c: number) => {
-    if (completed || !puzzle) return;
-    setHintCell(null);
-    if (!start) {
-      setStart([r, c]);
-      setHover([r, c]);
-      return;
-    }
-    // Second tap = end of word
-    const end: Cell = [r, c];
-    if (sameCell(start, end)) {
-      // tap same cell again to cancel
-      setStart(null); setHover(null); return;
-    }
-    const path = tracePath(start, end);
-    if (!path) { show("Words go straight: across, down or diagonally"); setStart(null); setHover(null); return; }
-    // Check against unfound words
+  // Shared path-completion logic — used by both tap (2-tap mode) and drag.
+  const completePath = useCallback((path: Cell[] | null) => {
+    if (!puzzle || completed) return;
+    if (!path || path.length < 2) { setStart(null); setHover(null); return; }
     const remaining = puzzle.words.filter((w: string) => !found.includes(w));
     let matched: string | null = null;
     for (const w of remaining) {
@@ -206,7 +193,134 @@ export default function WordSearchPlayer() {
       setStart(null); setHover(null);
       show("Not quite — try again");
     }
+  }, [puzzle, completed, found, hintsUsed, persist, show]);
+
+  const onCellTap = (r: number, c: number) => {
+    if (completed || !puzzle || dragMode.current) return;
+    setHintCell(null);
+    if (!start) {
+      setStart([r, c]);
+      setHover([r, c]);
+      return;
+    }
+    // Second tap = end of word
+    const end: Cell = [r, c];
+    if (sameCell(start, end)) {
+      setStart(null); setHover(null); return;
+    }
+    const path = tracePath(start, end);
+    if (!path) { show("Words go straight: across, down or diagonally"); setStart(null); setHover(null); return; }
+    completePath(path);
   };
+
+  // ---- Drag-to-select (touch a letter, slide finger across, lift) ----
+  // We use the responder system on the board container so a single continuous
+  // gesture can traverse multiple cells. Two gestures supported:
+  //   (1) TAP-TAP: tap first letter → tap last letter (accessibility-friendly)
+  //   (2) DRAG: touch first letter, slide finger to last letter, lift
+  const boardLayout = useRef<{ x: number; y: number; tile: number } | null>(null);
+  const dragMode = useRef<boolean>(false);
+  const movedRef = useRef<boolean>(false);
+  const grantCell = useRef<Cell | null>(null);
+  const onBoardLayout = (e: any) => {
+    e.target?.measureInWindow?.((x: number, y: number) => {
+      boardLayout.current = { x: x + 6, y: y + 6, tile: tileW }; // +6 = boardWrap padding
+    });
+  };
+  const xyToCell = useCallback((pageX: number, pageY: number): Cell | null => {
+    const bl = boardLayout.current;
+    if (!bl) return null;
+    const col = Math.floor((pageX - bl.x) / bl.tile);
+    const row = Math.floor((pageY - bl.y) / bl.tile);
+    if (row < 0 || col < 0 || row >= size || col >= size) return null;
+    return [row, col];
+  }, [size]);
+  const dragHandlers = {
+    onStartShouldSetResponder: () => !completed,
+    onMoveShouldSetResponder: () => !completed,
+    onResponderGrant: (e: any) => {
+      if (completed) return;
+      const cell = xyToCell(e.nativeEvent.pageX, e.nativeEvent.pageY);
+      if (!cell) return;
+      setHintCell(null);
+      movedRef.current = false;
+      grantCell.current = cell;
+      // Don't change `start` yet — wait to see if this is a drag or a tap.
+      // (Touch DOWN visual feedback): show the cell as "start" temporarily if
+      // we don't already have a pending tap-twice start.
+      if (!start) {
+        setStart(cell);
+        setHover(cell);
+      } else {
+        // We had a pending tap-twice start from earlier — keep it visible but
+        // also show the user where their finger landed.
+        setHover(cell);
+      }
+    },
+    onResponderMove: (e: any) => {
+      const cell = xyToCell(e.nativeEvent.pageX, e.nativeEvent.pageY);
+      if (!cell || !grantCell.current) return;
+      if (!movedRef.current && !sameCell(grantCell.current, cell)) {
+        // Movement detected → enter drag mode. Start is the cell we grabbed.
+        movedRef.current = true;
+        dragMode.current = true;
+        setStart(grantCell.current);
+      }
+      if (movedRef.current) {
+        const anchor: Cell = grantCell.current!;
+        const path = tracePath(anchor, cell);
+        // Snap to nearest straight line: only update hover if it's a valid line
+        if (path) setHover(cell);
+      }
+    },
+    onResponderRelease: (e: any) => {
+      const wasDrag = movedRef.current;
+      movedRef.current = false;
+      dragMode.current = false;
+      if (wasDrag) {
+        // Drag complete — validate path from the cell we grabbed to current hover
+        const endCell = xyToCell(e.nativeEvent.pageX, e.nativeEvent.pageY) || hover;
+        const path = (grantCell.current && endCell) ? tracePath(grantCell.current, endCell) : null;
+        grantCell.current = null;
+        completePath(path);
+        return;
+      }
+      // Single tap with no movement — use tap-twice behavior.
+      const cell = grantCell.current;
+      grantCell.current = null;
+      if (!cell) { return; }
+      // If `start` was just set in onResponderGrant (no prior pending), keep it as the pending start.
+      // If `start` already existed from a previous gesture AND it is NOT this cell,
+      // treat this as the second tap completing the selection.
+      // To distinguish, compare to where `start` was BEFORE this gesture — which equals
+      // the cell we set in onResponderGrant only if there was no prior start.
+      // We capture the prior-start by checking if start was already set BEFORE this gesture:
+      // We mirror that via a ref.
+      if (priorStart.current && !sameCell(priorStart.current, cell)) {
+        const path = tracePath(priorStart.current, cell);
+        priorStart.current = null;
+        if (!path) {
+          show("Words go straight: across, down or diagonally");
+          setStart(null); setHover(null);
+          return;
+        }
+        completePath(path);
+        return;
+      }
+      // First tap — remember the cell as pending start.
+      priorStart.current = cell;
+      setStart(cell);
+      setHover(cell);
+    },
+    onResponderTerminationRequest: () => false,
+    onResponderTerminate: () => {
+      movedRef.current = false; dragMode.current = false; grantCell.current = null;
+    },
+  };
+  // Mirrors the visible `start` state so we know if a previous tap left a
+  // pending start when a new tap gesture begins.
+  const priorStart = useRef<Cell | null>(null);
+  useEffect(() => { priorStart.current = start; }, [start]);
 
   const onHint = () => {
     if (!puzzle || completed) return;
@@ -272,8 +386,12 @@ export default function WordSearchPlayer() {
           )}
         </View>
 
-        {/* Board */}
-        <View style={[styles.boardWrap, { backgroundColor: c.surfaceSecondary, borderColor: c.border, width: realBoardW + 12, alignSelf: "center" }]}>
+        {/* Board — drag-to-select handled at board level; tap still works on each cell */}
+        <View
+          onLayout={onBoardLayout}
+          {...dragHandlers}
+          style={[styles.boardWrap, { backgroundColor: c.surfaceSecondary, borderColor: c.border, width: realBoardW + 12, alignSelf: "center" }]}
+        >
           {puzzle.grid.map((row: string[], r: number) => (
             <View key={r} style={{ flexDirection: "row" }}>
               {row.map((letter: string, ci: number) => {
@@ -311,11 +429,11 @@ export default function WordSearchPlayer() {
 
         {/* Always-visible tip — explains the gesture + that diagonals work. */}
         <Text style={{ color: c.muted, fontSize: 13 * scale, textAlign: "center", marginTop: 6 }}>
-          💡 Tap the first letter, then the last letter. Words can go across, down, or <Text style={{ fontWeight: "800" }}>diagonally</Text>.
+          💡 <Text style={{ fontWeight: "800" }}>Drag</Text> across the letters, or tap the first letter and then the last. Words can go across, down, or <Text style={{ fontWeight: "800" }}>diagonally</Text>.
         </Text>
 
         {/* Selection hint */}
-        {start && (
+        {start && !dragMode.current && (
           <Text style={{ color: c.brand, fontSize: 14 * scale, textAlign: "center", fontWeight: "700", marginTop: 2 }}>
             Now tap the last letter · <Text onPress={onClear} style={{ color: c.brand, fontWeight: "800", textDecorationLine: "underline" }}>cancel</Text>
           </Text>
