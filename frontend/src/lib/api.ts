@@ -123,6 +123,20 @@ export const api = {
   mmSaveProgress: (uid: string, body: { puzzle_id: string; theme: string; difficulty: string; matched_pairs: string[]; moves: number; seconds: number; completed: boolean; is_daily?: boolean }) =>
     req(`/games/memory/progress/${uid}`, { method: "POST", body: JSON.stringify(body) }),
 
+  // sudoku
+  sdCatalog: () => req("/games/sudoku/catalog"),
+  sdPuzzle: (difficulty: string, seed?: number) =>
+    req(`/games/sudoku/puzzle?difficulty=${encodeURIComponent(difficulty)}${seed !== undefined ? `&seed=${seed}` : ""}`),
+  sdDaily: () => req("/games/sudoku/daily"),
+  sdCheck: (difficulty: string, seed: number, row: number, col: number, value: number) =>
+    req(`/games/sudoku/check?difficulty=${encodeURIComponent(difficulty)}&seed=${seed}&row=${row}&col=${col}&value=${value}`),
+  sdHint: (difficulty: string, seed: number, row: number, col: number) =>
+    req(`/games/sudoku/hint?difficulty=${encodeURIComponent(difficulty)}&seed=${seed}&row=${row}&col=${col}`),
+  sdGetProgress: (uid: string, puzzle_id: string) =>
+    req(`/games/sudoku/progress/${uid}?puzzle_id=${encodeURIComponent(puzzle_id)}`),
+  sdSaveProgress: (uid: string, body: { puzzle_id: string; difficulty: string; entries: number[][]; notes: number[][][]; hints_used: number; mistakes: number; seconds: number; completed: boolean; is_daily?: boolean }) =>
+    req(`/games/sudoku/progress/${uid}`, { method: "POST", body: JSON.stringify(body) }),
+
   // safety + admin + support
   safetyReasons: () => req("/safety/report-reasons"),
   // community

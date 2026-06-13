@@ -20,6 +20,7 @@ import os, uuid, logging, json, asyncio, random, re
 
 from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_themes as ws_list_themes, generate_puzzle as ws_generate, daily_pick as ws_daily_pick, today_iso as ws_today_iso
 from memory_match import THEMES as MM_THEMES, DIFFICULTIES as MM_DIFFS, list_themes as mm_list_themes, generate_puzzle as mm_generate, daily_pick as mm_daily_pick, today_iso as mm_today_iso
+from sudoku import DIFFICULTIES as SD_DIFFS, generate_puzzle as sd_generate, daily_pick as sd_daily_pick, today_iso as sd_today_iso
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -1399,6 +1400,124 @@ async def memory_save_progress(user_id: str, body: MemoryMatchProgressBody):
 @api.get("/games/memory/progress/{user_id}")
 async def memory_get_progress(user_id: str, puzzle_id: str):
     p = await db.memory_progress.find_one({"user_id": user_id, "puzzle_id": puzzle_id}, {"_id": 0})
+    return p or {}
+
+
+# ------------- Sudoku -------------
+class SudokuProgressBody(BaseModel):
+    puzzle_id: str              # "sd:<difficulty>:<seed>"
+    difficulty: str
+    entries: List[List[int]]    # 9x9 user-filled grid (0 = empty)
+    notes: List[List[List[int]]] = []  # 9x9 of lists of pencil-note candidates
+    hints_used: int = 0
+    mistakes: int = 0
+    seconds: int = 0
+    completed: bool = False
+    is_daily: bool = False
+
+
+@api.get("/games/sudoku/catalog")
+async def sudoku_catalog():
+    diffs = []
+    for k, d in SD_DIFFS.items():
+        diffs.append({
+            "key": k, "label": d["label"], "clues": d["clues"], "points": d["points"],
+            "hints": d["hints"], "max_mistakes": d["max_mistakes"],
+        })
+    return {"difficulties": diffs}
+
+
+@api.get("/games/sudoku/puzzle")
+async def sudoku_puzzle(difficulty: str = "easy", seed: Optional[int] = None, include_solution: bool = False):
+    """Return a deterministic 9x9 sudoku. Solution is omitted by default — only the
+    frontend's progress endpoint validates submissions."""
+    if difficulty not in SD_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+    if seed is None:
+        stable_key = f"sd|{difficulty}|{sd_today_iso()}"
+        use_seed = abs(hash(stable_key)) % (10 ** 9)
+    else:
+        use_seed = int(seed)
+    puz = sd_generate(difficulty, use_seed)
+    payload = {**puz, "puzzle_id": f"sd:{difficulty}:{use_seed}"}
+    if not include_solution:
+        payload.pop("solution", None)
+    return payload
+
+
+@api.get("/games/sudoku/daily")
+async def sudoku_daily():
+    today = sd_today_iso()
+    pick = sd_daily_pick(today)
+    puz = sd_generate(pick["difficulty"], pick["seed"])
+    return {**puz, "solution": None, "puzzle_id": f"sd:{pick['difficulty']}:daily-{today}", "date": today, "is_daily": True}
+
+
+@api.get("/games/sudoku/check")
+async def sudoku_check(difficulty: str, seed: int, row: int, col: int, value: int):
+    """Confirms whether a single cell value matches the solution. Lightweight
+    server-side check so the client never sees the full solution."""
+    if difficulty not in SD_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+    if not (0 <= row < 9 and 0 <= col < 9 and 1 <= value <= 9):
+        raise HTTPException(400, "Invalid cell or value")
+    puz = sd_generate(difficulty, int(seed))
+    correct = puz["solution"][row][col]
+    return {"correct": correct == value, "expected_hint": None}
+
+
+@api.get("/games/sudoku/hint")
+async def sudoku_hint(difficulty: str, seed: int, row: int, col: int):
+    if difficulty not in SD_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+    if not (0 <= row < 9 and 0 <= col < 9):
+        raise HTTPException(400, "Invalid cell")
+    puz = sd_generate(difficulty, int(seed))
+    return {"value": puz["solution"][row][col]}
+
+
+@api.post("/games/sudoku/progress/{user_id}")
+async def sudoku_save_progress(user_id: str, body: SudokuProgressBody):
+    if body.difficulty not in SD_DIFFS:
+        raise HTTPException(400, "Unknown difficulty")
+    existing = await db.sudoku_progress.find_one({"user_id": user_id, "puzzle_id": body.puzzle_id}, {"_id": 0})
+    set_doc = {
+        "user_id": user_id, "puzzle_id": body.puzzle_id, "difficulty": body.difficulty,
+        "entries": body.entries, "notes": body.notes, "hints_used": body.hints_used,
+        "mistakes": body.mistakes, "seconds": body.seconds,
+        "completed": body.completed, "is_daily": body.is_daily, "updated_at": now_iso(),
+    }
+    await db.sudoku_progress.update_one(
+        {"user_id": user_id, "puzzle_id": body.puzzle_id},
+        {"$set": set_doc, "$setOnInsert": {"id": nid(), "created_at": now_iso()}},
+        upsert=True,
+    )
+    granted: List[str] = []
+    points_awarded = 0
+    streak = 0
+    if body.completed and (not existing or not existing.get("completed_logged")):
+        result = await log_game_completion(user_id, GameCompletionBody(
+            game_type="sudoku",
+            difficulty=body.difficulty,
+            title=f"Sudoku · {SD_DIFFS[body.difficulty]['label']}",
+            duration_seconds=body.seconds,
+            score=max(0, 81 - body.mistakes * 3),
+            is_daily=body.is_daily,
+        ))
+        granted = result.get("granted", [])
+        streak = result.get("streak", 0)
+        points_awarded = SD_DIFFS[body.difficulty]["points"]
+        await award_points(user_id, points_awarded)
+        await db.sudoku_progress.update_one(
+            {"user_id": user_id, "puzzle_id": body.puzzle_id},
+            {"$set": {"completed_logged": True}},
+        )
+    return {"ok": True, "granted": granted, "points_awarded": points_awarded, "streak": streak}
+
+
+@api.get("/games/sudoku/progress/{user_id}")
+async def sudoku_get_progress(user_id: str, puzzle_id: str):
+    p = await db.sudoku_progress.find_one({"user_id": user_id, "puzzle_id": puzzle_id}, {"_id": 0})
     return p or {}
 
 

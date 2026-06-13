@@ -15,7 +15,7 @@ const GAMES: GameTile[] = [
   { key: "wordsearch", title: "Word Search",        sub: "20 themes · 4 levels",     icon: "search",         tint: "#B45309", route: "/games/wordsearch", ready: true },
   { key: "memory",     title: "Memory Match",       sub: "12 themes · 4 levels",    icon: "sparkles",       tint: "#DB2777", route: "/games/memory",     ready: true },
   { key: "bingo",      title: "Bingo",              sub: "75-ball · 4 levels · live events",   icon: "apps",           tint: "#2E9EE2", route: "/games/bingo",      ready: true },
-  { key: "sudoku",     title: "Sudoku",             sub: "4 levels",                icon: "grid-outline",   tint: "#1E3A7F", route: "/games/sudoku",     ready: false },
+  { key: "sudoku",     title: "Sudoku",             sub: "4 levels · pencil notes", icon: "grid-outline",   tint: "#1E3A7F", route: "/games/sudoku",     ready: true },
   { key: "spot",       title: "Spot the Difference",sub: "Find what's changed",     icon: "eye",            tint: "#16A34A", route: "/games/spot",       ready: false },
 ];
 
