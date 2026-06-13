@@ -903,8 +903,9 @@ async def jigsaw_save_progress(user_id: str, body: JigsawProgressBody):
     await db.jigsaw_progress.update_one(key, {"$set": doc}, upsert=True)
     if body.completed:
         await award_points(user_id, points)
-        # Map jigsaw "nightmare" difficulty to Games-Hub "expert" for unified rules
-        unified_diff = {"easy": "easy", "moderate": "moderate", "hard": "challenging", "nightmare": "expert"}.get(body.difficulty, body.difficulty)
+        # Backend now uses the new vocabulary natively; keep a tolerant map for any
+        # legacy progress documents still labelled with old keys.
+        unified_diff = {"hard": "challenging", "nightmare": "expert"}.get(body.difficulty, body.difficulty)
         try:
             # Daily-challenge detection: matches today's deterministic puzzle id
             daily = await jigsaw_daily()

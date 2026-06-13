@@ -10,7 +10,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 
 type GameTile = { key: string; title: string; sub: string; icon: keyof typeof Ionicons.glyphMap; tint: string; route: string; ready: boolean };
 const GAMES: GameTile[] = [
-  { key: "jigsaw",     title: "Jigsaw Puzzles",     sub: "6 categories · 4 levels",  icon: "grid",           tint: "#0F766E", route: "/games/jigsaw",     ready: true },
+  { key: "jigsaw",     title: "Puzzle Centre",      sub: "8 categories · 4 levels",  icon: "grid",           tint: "#0F766E", route: "/games/jigsaw",     ready: true },
   { key: "trivia",     title: "Trivia",             sub: "7 categories",            icon: "help-circle",    tint: "#7C3AED", route: "/games/trivia",     ready: false },
   { key: "wordsearch", title: "Word Search",        sub: "6 themes",                icon: "search",         tint: "#B45309", route: "/games/wordsearch", ready: false },
   { key: "memory",     title: "Memory Match",       sub: "5 themes",                icon: "sparkles",       tint: "#DB2777", route: "/games/memory",     ready: false },

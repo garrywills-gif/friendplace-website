@@ -6,7 +6,7 @@ fresh and unlimited.
 """
 from typing import List, Dict
 
-CATEGORIES = ["Nature", "Flowers", "Animals", "Classic Cars", "Travel", "Australia", "Gardens", "Landmarks"]
+CATEGORIES = ["Nature", "Gardens", "Animals", "Australia", "Travel", "Classic Cars", "Coffee & Cafes", "Local Landmarks"]
 
 # Curated, category-themed Unsplash photos. These are the "featured" puzzles.
 _CURATED: List[Dict] = [
@@ -34,7 +34,15 @@ _CURATED: List[Dict] = [
     {"category": "Landmarks",     "id": "lan-eiffel",     "title": "Eiffel Tower",        "url": "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&w=1200&q=80"},
     {"category": "Landmarks",     "id": "lan-bigben",     "title": "Big Ben",             "url": "https://images.unsplash.com/photo-1486299267070-83823f5448dd?auto=format&fit=crop&w=1200&q=80"},
     {"category": "Landmarks",     "id": "lan-colosseum",  "title": "The Colosseum",       "url": "https://images.unsplash.com/photo-1552832230-c0197dd311b5?auto=format&fit=crop&w=1200&q=80"},
+    {"category": "Coffee & Cafes","id": "caf-latte",      "title": "Latte Art",           "url": "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=1200&q=80"},
+    {"category": "Coffee & Cafes","id": "caf-window",     "title": "Cafe Window",         "url": "https://images.unsplash.com/photo-1453614512568-c4024d13c247?auto=format&fit=crop&w=1200&q=80"},
+    {"category": "Coffee & Cafes","id": "caf-beans",      "title": "Coffee Beans",        "url": "https://images.unsplash.com/photo-1559056199-641a0ac8b55e?auto=format&fit=crop&w=1200&q=80"},
 ]
+# Normalise older category names to the new vocabulary so saved progress
+# documents (and the curated list above) keep working.
+_RENAME = {"Flowers": "Gardens", "Landmarks": "Local Landmarks"}
+for _p in _CURATED:
+    _p["category"] = _RENAME.get(_p["category"], _p["category"])
 
 # --- Endless library --------------------------------------------------------
 # Generated category puzzles using Picsum's seed endpoint, which returns a
@@ -42,8 +50,8 @@ _CURATED: List[Dict] = [
 # title so the experience reads as a "rotating library" — 20 per category by
 # default which can be increased without code changes.
 _SLUG = {
-    "Nature": "nat", "Flowers": "flo", "Animals": "ani", "Classic Cars": "car",
-    "Travel": "trv", "Australia": "aus", "Gardens": "gar", "Landmarks": "lan",
+    "Nature": "nat", "Gardens": "gar", "Animals": "ani", "Australia": "aus",
+    "Travel": "trv", "Classic Cars": "car", "Coffee & Cafes": "caf", "Local Landmarks": "lan",
 }
 _PER_CATEGORY = 20
 
@@ -63,8 +71,8 @@ JIGSAW_CATALOGUE: List[Dict] = _CURATED + _GENERATED
 
 # Difficulty -> grid (cols, rows) + difficulty-scaled points
 DIFFICULTY_GRID: Dict[str, Dict] = {
-    "easy":      {"cols": 4, "rows": 3, "pieces": 12, "label": "Easy",      "points": 10},
-    "moderate":  {"cols": 6, "rows": 4, "pieces": 24, "label": "Moderate",  "points": 20},
-    "hard":      {"cols": 8, "rows": 6, "pieces": 48, "label": "Hard",      "points": 40},
-    "nightmare": {"cols": 12, "rows": 8, "pieces": 96, "label": "Nightmare", "points": 80},
+    "easy":        {"cols": 4, "rows": 3, "pieces": 12, "label": "Easy",        "points": 10},
+    "moderate":    {"cols": 6, "rows": 4, "pieces": 24, "label": "Moderate",    "points": 20},
+    "challenging": {"cols": 8, "rows": 6, "pieces": 48, "label": "Challenging", "points": 40},
+    "expert":      {"cols": 12, "rows": 8, "pieces": 96, "label": "Expert",     "points": 80},
 }

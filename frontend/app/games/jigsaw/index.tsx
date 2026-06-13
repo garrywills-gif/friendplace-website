@@ -63,7 +63,7 @@ export default function JigsawHub() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Jigsaw Puzzles" />
+      <Header title="Puzzle Centre" />
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
         contentContainerStyle={{ padding: 14, paddingBottom: 60 }}
