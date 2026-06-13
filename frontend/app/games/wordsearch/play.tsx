@@ -295,7 +295,10 @@ export default function WordSearchPlayer() {
                     key={ci}
                     testID={`ws-cell-${r}-${ci}`}
                     onPress={() => onCellTap(r, ci)}
-                    hitSlop={3}
+                    hitSlop={10}
+                    delayPressIn={0}
+                    accessibilityRole="button"
+                    accessibilityLabel={letter}
                     style={[styles.cell, { width: tileW, height: tileW, backgroundColor: bg, borderColor: isStart ? c.accent : "transparent" }]}
                   >
                     <Text style={{ color: fg, fontWeight: "900", fontSize: Math.max(13, tileW * 0.46) * scale }}>{letter}</Text>
