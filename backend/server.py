@@ -103,6 +103,10 @@ class User(BaseModel):
     friends: List[str] = []
     blocked: List[str] = []
     is_demo: bool = False
+    # Privacy: who can see me / contact me
+    privacy: str = "everyone"  # everyone | friends | invisible
+    # Online presence
+    last_seen_at: str = Field(default_factory=now_iso)
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -448,11 +452,78 @@ async def report_user(user_id: str, other_id: str, reason: str = "unspecified"):
     return {"ok": True}
 
 
-# ------------- Friends -------------
+# ------------- Notifications -------------
+# type values used across the app:
+#   friend_request, friend_accepted, dm, event_invite, table_join, notice_comment, flutter
+async def push_notification(user_id: str, n_type: str, title: str, body: str = "", payload: Optional[Dict] = None):
+    if not user_id:
+        return
+    doc = {
+        "id": nid(),
+        "user_id": user_id,
+        "type": n_type,
+        "title": title,
+        "body": body,
+        "payload": payload or {},
+        "read": False,
+        "created_at": now_iso(),
+    }
+    await db.notifications.insert_one(doc)
+
+
+@api.get("/notifications/{user_id}")
+async def list_notifications(user_id: str, unread_only: bool = False):
+    q: Dict = {"user_id": user_id}
+    if unread_only:
+        q["read"] = False
+    docs = await db.notifications.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return docs
+
+
+@api.get("/notifications/{user_id}/count")
+async def notifications_count(user_id: str):
+    n = await db.notifications.count_documents({"user_id": user_id, "read": False})
+    return {"unread": n}
+
+
+@api.post("/notifications/{nid_}/read")
+async def mark_notification_read(nid_: str):
+    await db.notifications.update_one({"id": nid_}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api.post("/notifications/{user_id}/read-all")
+async def mark_all_notifications_read(user_id: str):
+    await db.notifications.update_many({"user_id": user_id, "read": False}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+# ------------- Friends (full lifecycle) -------------
 @api.post("/friends/request")
 async def send_friend_request(body: FriendRequest):
+    if body.from_id == body.to_id:
+        raise HTTPException(400, "Cannot friend yourself")
+    # Prevent duplicates: existing pending or already friends
+    existing = await db.friend_requests.find_one({
+        "from_id": body.from_id, "to_id": body.to_id, "status": "pending",
+    })
+    if existing:
+        raise HTTPException(400, "Request already pending")
+    target = await db.users.find_one({"id": body.to_id}, {"friends": 1, "first_name": 1, "_id": 0})
+    if target and body.from_id in (target.get("friends") or []):
+        raise HTTPException(400, "Already friends")
     fr = FriendRequest(**body.dict())
     await db.friend_requests.insert_one(fr.dict())
+    sender = await db.users.find_one({"id": body.from_id}, {"first_name": 1, "avatar": 1, "_id": 0})
+    sname = (sender or {}).get("first_name") or "Someone"
+    avatar = (sender or {}).get("avatar") or "🙂"
+    await push_notification(
+        body.to_id,
+        "friend_request",
+        f"{avatar} {sname} wants to be friends",
+        "Tap to accept or decline.",
+        {"request_id": fr.id, "from_id": body.from_id},
+    )
     return fr.dict()
 
 
@@ -462,17 +533,126 @@ async def my_requests(user_id: str):
     return docs
 
 
+@api.get("/friends/inbox/{user_id}")
+async def friends_inbox(user_id: str):
+    incoming = await db.friend_requests.find({"to_id": user_id, "status": "pending"}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    outgoing = await db.friend_requests.find({"from_id": user_id, "status": "pending"}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # decorate with the OTHER party's profile basics so the UI can render avatars + names
+    async def hydrate(reqs, side_key):
+        out = []
+        for r in reqs:
+            other_id = r[side_key]
+            u = await db.users.find_one({"id": other_id}, {"_id": 0, "password_hash": 0})
+            if u:
+                r["other"] = {"id": u["id"], "first_name": u.get("first_name", ""), "username": u.get("username", ""), "avatar": u.get("avatar", ""), "suburb": u.get("suburb", "")}
+            out.append(r)
+        return out
+    incoming = await hydrate(incoming, "from_id")
+    outgoing = await hydrate(outgoing, "to_id")
+    return {"incoming": incoming, "outgoing": outgoing}
+
+
 @api.post("/friends/accept/{req_id}")
 async def accept_request(req_id: str):
     req = await db.friend_requests.find_one({"id": req_id}, {"_id": 0})
     if not req:
         raise HTTPException(404, "Request not found")
+    if req.get("status") != "pending":
+        raise HTTPException(400, "Already resolved")
     await db.friend_requests.update_one({"id": req_id}, {"$set": {"status": "accepted"}})
     await db.users.update_one({"id": req["from_id"]}, {"$addToSet": {"friends": req["to_id"]}})
     await db.users.update_one({"id": req["to_id"]}, {"$addToSet": {"friends": req["from_id"]}})
     await award_points(req["from_id"], 5)
     await award_points(req["to_id"], 5)
+    accepter = await db.users.find_one({"id": req["to_id"]}, {"first_name": 1, "avatar": 1, "_id": 0})
+    aname = (accepter or {}).get("first_name") or "Your friend"
+    avatar = (accepter or {}).get("avatar") or "🦋"
+    await push_notification(
+        req["from_id"],
+        "friend_accepted",
+        f"{avatar} {aname} accepted your friend request",
+        "Say hello — you can now message each other.",
+        {"friend_id": req["to_id"]},
+    )
     return {"ok": True}
+
+
+@api.post("/friends/decline/{req_id}")
+async def decline_request(req_id: str):
+    req = await db.friend_requests.find_one({"id": req_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(404, "Request not found")
+    if req.get("status") != "pending":
+        raise HTTPException(400, "Already resolved")
+    await db.friend_requests.update_one({"id": req_id}, {"$set": {"status": "declined"}})
+    return {"ok": True}
+
+
+@api.post("/friends/cancel/{req_id}")
+async def cancel_request(req_id: str):
+    """Sender cancels their own outgoing pending request."""
+    req = await db.friend_requests.find_one({"id": req_id}, {"_id": 0})
+    if not req:
+        raise HTTPException(404, "Request not found")
+    if req.get("status") != "pending":
+        raise HTTPException(400, "Already resolved")
+    await db.friend_requests.update_one({"id": req_id}, {"$set": {"status": "cancelled"}})
+    return {"ok": True}
+
+
+@api.delete("/friends/{user_id}/{friend_id}")
+async def remove_friend(user_id: str, friend_id: str):
+    await db.users.update_one({"id": user_id}, {"$pull": {"friends": friend_id}})
+    await db.users.update_one({"id": friend_id}, {"$pull": {"friends": user_id}})
+    return {"ok": True}
+
+
+# ------------- Privacy & Presence -------------
+class PrivacyBody(BaseModel):
+    privacy: str  # everyone | friends | invisible
+
+
+@api.patch("/users/{user_id}/privacy")
+async def set_privacy(user_id: str, body: PrivacyBody):
+    if body.privacy not in ("everyone", "friends", "invisible"):
+        raise HTTPException(400, "Invalid privacy value")
+    await db.users.update_one({"id": user_id}, {"$set": {"privacy": body.privacy}})
+    return {"ok": True, "privacy": body.privacy}
+
+
+@api.post("/users/{user_id}/heartbeat")
+async def heartbeat(user_id: str):
+    await db.users.update_one({"id": user_id}, {"$set": {"last_seen_at": now_iso()}})
+    return {"ok": True}
+
+
+def _status_from(last_seen: Optional[str], privacy: str = "everyone") -> Dict:
+    """Return {label, code} computed from the last-seen timestamp."""
+    if privacy == "invisible":
+        return {"label": "Offline", "code": "offline"}
+    if not last_seen:
+        return {"label": "Offline", "code": "offline"}
+    try:
+        ts = datetime.fromisoformat(last_seen)
+    except Exception:
+        return {"label": "Offline", "code": "offline"}
+    delta = datetime.now(timezone.utc) - (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc))
+    secs = int(delta.total_seconds())
+    if secs < 120:
+        return {"label": "Online now", "code": "online"}
+    if secs < 60 * 60 * 24:
+        return {"label": "Active today", "code": "active_today"}
+    if secs < 60 * 60 * 24 * 7:
+        return {"label": "Last seen recently", "code": "recent"}
+    return {"label": "Offline", "code": "offline"}
+
+
+@api.get("/users/{user_id}/status")
+async def user_status(user_id: str):
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "last_seen_at": 1, "privacy": 1})
+    if not u:
+        raise HTTPException(404, "User not found")
+    return _status_from(u.get("last_seen_at"), u.get("privacy", "everyone"))
 
 
 # ------------- Tables (Coffee Lounge) -------------
@@ -502,7 +682,24 @@ async def get_table(table_id: str):
 
 @api.post("/tables/{table_id}/join/{user_id}")
 async def join_table(table_id: str, user_id: str):
+    t = await db.tables.find_one({"id": table_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Table not found")
+    if user_id in (t.get("seated") or []):
+        return {"ok": True}
     await db.tables.update_one({"id": table_id}, {"$addToSet": {"seated": user_id}})
+    host_id = t.get("host_id")
+    if host_id and host_id != user_id:
+        joiner = await db.users.find_one({"id": user_id}, {"first_name": 1, "avatar": 1, "_id": 0}) or {}
+        jname = joiner.get("first_name") or "Someone"
+        avatar = joiner.get("avatar") or "🪑"
+        await push_notification(
+            host_id,
+            "table_join",
+            f"{avatar} {jname} took a seat at {t.get('name', 'your table')}",
+            "Say hello in the chat.",
+            {"table_id": table_id, "joiner_id": user_id},
+        )
     return {"ok": True}
 
 
@@ -645,6 +842,13 @@ async def send_flutter(body: dict):
     )
     await db.flutters.insert_one(f.dict())
     await award_points(body["from_id"], 2)
+    await push_notification(
+        body["to_id"],
+        "flutter",
+        f"{f.from_avatar} {f.from_name} is online and looking for company",
+        f.message or "",
+        {"from_id": body["from_id"], "flutter_id": f.id},
+    )
     return f.dict()
 
 
@@ -777,6 +981,23 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...)):
             await db.messages.insert_one(msg.dict())
             await db.dm_conversations.update_one({"id": conv_id}, {"$set": {"updated_at": now_iso()}})
             await hub.broadcast(room, {"type": "message", "message": msg.dict()})
+            # notify the OTHER participant about a new DM
+            try:
+                conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0})
+                if conv:
+                    others = [x for x in (conv.get("user_ids") or []) if x != user_id]
+                    sender_name = (user or {}).get("first_name") or "Someone"
+                    sender_avatar = (user or {}).get("avatar") or "🦋"
+                    for other_id in others:
+                        await push_notification(
+                            other_id,
+                            "dm",
+                            f"{sender_avatar} {sender_name} sent you a message",
+                            text[:120],
+                            {"dm_id": conv_id, "from_id": user_id},
+                        )
+            except Exception as e:
+                logger.warning("dm notification failed: %s", e)
     except WebSocketDisconnect:
         pass
     finally:

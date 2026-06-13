@@ -19,6 +19,7 @@ export default function Home() {
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const [flutters, setFlutters] = useState<any[]>([]);
+  const [unread, setUnread] = useState<number>(0);
   const [thought, setThought] = useState<string>(() => getThoughtForDate());
   const [isFav, setIsFav] = useState<boolean>(false);
 
@@ -41,6 +42,8 @@ export default function Home() {
   const loadFlutters = async () => {
     if (!user) return;
     try { setFlutters(await api.myFlutters(user.id)); } catch {}
+    try { const r: any = await api.notificationCount(user.id); setUnread(r?.unread || 0); } catch {}
+    try { await api.heartbeat(user.id); } catch {}
   };
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
 
@@ -74,6 +77,14 @@ export default function Home() {
             <Ionicons name="chevron-back" size={26} color={c.onSurface} />
           </Pressable>
           <Text style={[styles.brand, { color: c.brand, fontSize: 26 * scale }]}>YouBelong</Text>
+          <Pressable testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border, marginRight: 8 }]}>
+            <Ionicons name="notifications-outline" size={24} color={c.onSurface} />
+            {unread > 0 && (
+              <View style={[styles.bellBadge, { backgroundColor: c.error }]}>
+                <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 }}>{unread > 9 ? "9+" : unread}</Text>
+              </View>
+            )}
+          </Pressable>
           <Pressable testID="home-settings" onPress={() => router.push("/settings")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <Ionicons name="settings-outline" size={26} color={c.onSurface} />
           </Pressable>
@@ -189,4 +200,5 @@ const styles = StyleSheet.create({
   thoughtChipText: { fontWeight: "800", letterSpacing: 0.6 },
   thoughtIconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   thoughtText: { fontWeight: "700", lineHeight: 26 },
+  bellBadge: { position: "absolute", top: -4, right: -4, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
 });

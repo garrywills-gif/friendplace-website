@@ -42,7 +42,23 @@ export const api = {
   sendFriendReq: (from_id: string, to_id: string) =>
     req("/friends/request", { method: "POST", body: JSON.stringify({ from_id, to_id }) }),
   myRequests: (uid: string) => req(`/friends/requests/${uid}`),
+  friendsInbox: (uid: string) => req(`/friends/inbox/${uid}`),
   acceptReq: (rid: string) => req(`/friends/accept/${rid}`, { method: "POST" }),
+  declineReq: (rid: string) => req(`/friends/decline/${rid}`, { method: "POST" }),
+  cancelReq: (rid: string) => req(`/friends/cancel/${rid}`, { method: "POST" }),
+  removeFriend: (uid: string, fid: string) => req(`/friends/${uid}/${fid}`, { method: "DELETE" }),
+
+  // notifications
+  notifications: (uid: string, unreadOnly = false) => req(`/notifications/${uid}${unreadOnly ? "?unread_only=true" : ""}`),
+  notificationCount: (uid: string) => req(`/notifications/${uid}/count`),
+  readNotification: (id: string) => req(`/notifications/${id}/read`, { method: "POST" }),
+  readAllNotifications: (uid: string) => req(`/notifications/${uid}/read-all`, { method: "POST" }),
+
+  // presence & privacy
+  heartbeat: (uid: string) => req(`/users/${uid}/heartbeat`, { method: "POST" }),
+  userStatus: (uid: string) => req(`/users/${uid}/status`),
+  setPrivacy: (uid: string, privacy: "everyone" | "friends" | "invisible") =>
+    req(`/users/${uid}/privacy`, { method: "PATCH", body: JSON.stringify({ privacy }) }),
 
   // tables
   listTables: () => req("/tables"),

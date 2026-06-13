@@ -97,6 +97,21 @@ export default function Profile() {
       )}
 
       <View style={{ height: 24 }} />
+      <Button label="Friend Requests" onPress={() => router.push("/friends/inbox")} testID="profile-friend-requests" />
+      <View style={{ height: 8 }} />
+      <Text style={[styles.section, { color: c.onSurface, fontSize: 18 * scale, marginTop: 4 }]}>🛡️ Privacy</Text>
+      <View style={styles.row}>
+        {(["everyone", "friends", "invisible"] as const).map((p) => {
+          const active = (user.privacy || "everyone") === p;
+          const label = p === "everyone" ? "Everyone" : p === "friends" ? "Friends only" : "Invisible";
+          return (
+            <Pressable key={p} testID={`privacy-${p}`} onPress={async () => { await api.setPrivacy(user.id, p); await refresh(); }} style={[styles.chip, { backgroundColor: active ? c.brand : c.surfaceSecondary, borderColor: active ? c.brand : c.border }]}>
+              <Text style={{ color: active ? c.onBrandPrimary : c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={{ height: 16 }} />
       <Button label="Accessibility Settings" variant="outline" onPress={() => router.push("/settings/accessibility")} testID="profile-accessibility" />
       <View style={{ height: 12 }} />
       <Button label="Settings" variant="ghost" onPress={() => router.push("/settings")} testID="profile-settings" />

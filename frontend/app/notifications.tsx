@@ -1,0 +1,102 @@
+import React, { useCallback, useState } from "react";
+import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "@/src/lib/theme";
+import { useAuth } from "@/src/lib/auth";
+import { useToast } from "@/src/lib/toast";
+import { api } from "@/src/lib/api";
+import Header from "@/src/components/Header";
+
+const ICON: Record<string, { name: keyof typeof Ionicons.glyphMap; tint: string }> = {
+  friend_request: { name: "person-add", tint: "#2E9EE2" },
+  friend_accepted: { name: "people", tint: "#16A34A" },
+  dm: { name: "chatbubble", tint: "#1E3A7F" },
+  event_invite: { name: "calendar", tint: "#B45309" },
+  table_join: { name: "cafe", tint: "#0F766E" },
+  notice_comment: { name: "newspaper", tint: "#7C3AED" },
+  flutter: { name: "sparkles", tint: "#DB2777" },
+};
+
+function relTime(iso?: string) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso); const diff = Math.max(0, (Date.now() - d.getTime()) / 1000);
+    if (diff < 60) return "just now";
+    if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
+    if (diff < 86400 * 7) return `${Math.round(diff / 86400)}d ago`;
+    return d.toLocaleDateString();
+  } catch { return ""; }
+}
+
+export default function Notifications() {
+  const router = useRouter();
+  const { c, scale } = useTheme();
+  const { user } = useAuth();
+  const { show } = useToast();
+  const [list, setList] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = async () => { if (!user) return; try { setList(await api.notifications(user.id)); } catch {} };
+
+  useFocusEffect(useCallback(() => { load(); return undefined; }, [user?.id]));
+
+  const onItemPress = async (n: any) => {
+    try { if (!n.read) { await api.readNotification(n.id); load(); } } catch {}
+    if (n.type === "friend_request" || n.type === "friend_accepted") return router.push("/friends/inbox");
+    if (n.type === "dm" && n.payload?.dm_id) return router.push(`/dm/${n.payload.dm_id}?other_id=${n.payload.from_id || ""}`);
+    if (n.type === "table_join" && n.payload?.table_id) return router.push(`/table/${n.payload.table_id}`);
+    if (n.type === "flutter") return router.push("/(tabs)/home");
+    if (n.type === "event_invite") return router.push("/events");
+    if (n.type === "notice_comment") return router.push("/notices");
+  };
+
+  const markAll = async () => { if (!user) return; await api.readAllNotifications(user.id); load(); show("Marked all as read"); };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: c.surface }}>
+      <Header title="Notifications" />
+      <View style={[styles.toolbar, { borderColor: c.border }]}>
+        <Text style={{ color: c.muted, fontSize: 14 * scale, fontWeight: "700" }}>{list.filter((n) => !n.read).length} unread</Text>
+        <Pressable testID="mark-all-read" onPress={markAll} hitSlop={6}>
+          <Text style={{ color: c.brandSecondary, fontWeight: "800", fontSize: 15 * scale }}>Mark all as read</Text>
+        </Pressable>
+      </View>
+      <FlatList
+        data={list}
+        keyExtractor={(n) => n.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
+        ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+        contentContainerStyle={{ padding: 14, paddingBottom: 60 }}
+        ListEmptyComponent={() => (
+          <View style={{ paddingTop: 60, alignItems: "center" }}>
+            <Ionicons name="notifications-outline" size={48} color={c.muted} />
+            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 10, fontSize: 16 * scale }}>You're all caught up.</Text>
+          </View>
+        )}
+        renderItem={({ item }) => {
+          const ic = ICON[item.type] || { name: "notifications", tint: c.brand };
+          return (
+            <Pressable testID={`notif-${item.id}`} onPress={() => onItemPress(item)} style={[styles.row, { backgroundColor: item.read ? c.surfaceSecondary : c.brandTertiary, borderColor: item.read ? c.border : c.brand }]}>
+              <View style={[styles.iconBox, { backgroundColor: "#FFFFFF" }]}><Ionicons name={ic.name} size={20} color={ic.tint} /></View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>{item.title}</Text>
+                {!!item.body && <Text style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }} numberOfLines={2}>{item.body}</Text>}
+                <Text style={{ color: c.muted, marginTop: 4, fontSize: 12 * scale }}>{relTime(item.created_at)}</Text>
+              </View>
+              {!item.read && <View style={[styles.dot, { backgroundColor: c.brandSecondary }]} />}
+            </Pressable>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  toolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 1 },
+  row: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 16, borderWidth: 1 },
+  iconBox: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  dot: { width: 10, height: 10, borderRadius: 5, marginLeft: 8 },
+});
