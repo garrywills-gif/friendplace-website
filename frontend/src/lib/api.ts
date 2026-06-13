@@ -71,6 +71,12 @@ export const api = {
   jigsawStats: (uid: string) => req(`/games/jigsaw/stats/${uid}`),
   jigsawRandom: () => req("/games/jigsaw/random"),
 
+  // unified games hub
+  gamesStats: (uid: string) => req(`/games/stats/${uid}`),
+  gamesDailies: () => req("/games/dailies"),
+  gameCheer: (fromId: string, toId: string, kind: "well_done" | "congrats" | "coffee" | "flutter") =>
+    req(`/games/cheer/${fromId}`, { method: "POST", body: JSON.stringify({ to_user_id: toId, kind }) }),
+
   // tables
   listTables: () => req("/tables"),
   createTable: (b: any) => req("/tables", { method: "POST", body: JSON.stringify(b) }),

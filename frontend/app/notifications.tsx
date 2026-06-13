@@ -16,7 +16,16 @@ const ICON: Record<string, { name: keyof typeof Ionicons.glyphMap; tint: string 
   table_join: { name: "cafe", tint: "#0F766E" },
   notice_comment: { name: "newspaper", tint: "#7C3AED" },
   flutter: { name: "sparkles", tint: "#DB2777" },
+  achievement: { name: "trophy", tint: "#B45309" },
+  cheer: { name: "heart", tint: "#DB2777" },
 };
+
+const CHEER_OPTIONS: { kind: "well_done" | "congrats" | "coffee" | "flutter"; emoji: string; label: string }[] = [
+  { kind: "well_done", emoji: "👏", label: "Well Done" },
+  { kind: "congrats",  emoji: "🎉", label: "Congratulations" },
+  { kind: "coffee",    emoji: "☕", label: "Let's celebrate in the Coffee Lounge" },
+  { kind: "flutter",   emoji: "🦋", label: "Flutter Sent" },
+];
 
 function relTime(iso?: string) {
   if (!iso) return "";
@@ -77,16 +86,41 @@ export default function Notifications() {
         )}
         renderItem={({ item }) => {
           const ic = ICON[item.type] || { name: "notifications", tint: c.brand };
+          const isAchievement = item.type === "achievement" && item.payload?.actor_id;
           return (
-            <Pressable testID={`notif-${item.id}`} onPress={() => onItemPress(item)} style={[styles.row, { backgroundColor: item.read ? c.surfaceSecondary : c.brandTertiary, borderColor: item.read ? c.border : c.brand }]}>
-              <View style={[styles.iconBox, { backgroundColor: "#FFFFFF" }]}><Ionicons name={ic.name} size={20} color={ic.tint} /></View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>{item.title}</Text>
-                {!!item.body && <Text style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }} numberOfLines={2}>{item.body}</Text>}
-                <Text style={{ color: c.muted, marginTop: 4, fontSize: 12 * scale }}>{relTime(item.created_at)}</Text>
-              </View>
-              {!item.read && <View style={[styles.dot, { backgroundColor: c.brandSecondary }]} />}
-            </Pressable>
+            <View>
+              <Pressable testID={`notif-${item.id}`} onPress={() => onItemPress(item)} style={[styles.row, { backgroundColor: item.read ? c.surfaceSecondary : c.brandTertiary, borderColor: item.read ? c.border : c.brand }]}>
+                <View style={[styles.iconBox, { backgroundColor: "#FFFFFF" }]}><Ionicons name={ic.name} size={20} color={ic.tint} /></View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>{item.title}</Text>
+                  {!!item.body && <Text style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }} numberOfLines={2}>{item.body}</Text>}
+                  <Text style={{ color: c.muted, marginTop: 4, fontSize: 12 * scale }}>{relTime(item.created_at)}</Text>
+                </View>
+                {!item.read && <View style={[styles.dot, { backgroundColor: c.brandSecondary }]} />}
+              </Pressable>
+              {isAchievement && user && (
+                <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  {CHEER_OPTIONS.map((opt) => (
+                    <Pressable
+                      key={opt.kind}
+                      testID={`cheer-${opt.kind}-${item.id}`}
+                      onPress={async () => {
+                        try {
+                          await api.gameCheer(user.id, item.payload.actor_id, opt.kind);
+                          show(`${opt.emoji} ${opt.label}`);
+                        } catch {
+                          show("Could not send cheer");
+                        }
+                      }}
+                      style={[styles.cheerBtn, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}
+                    >
+                      <Text style={{ fontSize: 20 }}>{opt.emoji}</Text>
+                      <Text style={{ color: c.brand, fontWeight: "800", fontSize: 12 * scale, textAlign: "center", marginTop: 2 }} numberOfLines={2}>{opt.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
           );
         }}
       />
@@ -99,4 +133,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 16, borderWidth: 1 },
   iconBox: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   dot: { width: 10, height: 10, borderRadius: 5, marginLeft: 8 },
+  cheerRow: { flexDirection: "row", gap: 6, padding: 8, borderTopWidth: 0, borderWidth: 1, borderRadius: 16, marginTop: -8, marginHorizontal: 4, marginBottom: 4 },
+  cheerBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 10, paddingHorizontal: 4, borderRadius: 14, borderWidth: 1, minHeight: 64 },
 });

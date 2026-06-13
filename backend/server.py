@@ -655,6 +655,189 @@ async def user_status(user_id: str):
     return _status_from(u.get("last_seen_at"), u.get("privacy", "everyone"))
 
 
+# ------------- Games (unified completion log + achievements) -------------
+ACHIEVEMENT_DEFS = {
+    "first_game":        {"title": "First step!",              "body": "You finished your first game. Welcome to the Games Hub.", "points": 10},
+    "expert":            {"title": "Expert Challenge!",        "body": "You completed an Expert difficulty puzzle.",              "points": 30},
+    "daily_challenge":   {"title": "Daily Challenge Done",     "body": "You finished today's Daily Challenge.",                    "points": 10},
+    "streak_7":          {"title": "7-Day Streak",             "body": "You've played 7 days in a row. Keep it going!",            "points": 25},
+    "streak_30":         {"title": "30-Day Streak",            "body": "A month of daily play — incredible!",                      "points": 80},
+    "century":           {"title": "100 Games Completed",      "body": "Wow! 100 games done. The community salutes you.",          "points": 100},
+}
+
+# Difficulties that DO trigger achievement notifications to friends.
+ANNOUNCE_DIFFICULTIES = {"challenging", "expert", "hard", "nightmare"}
+
+
+class GameCompletionBody(BaseModel):
+    game_type: str          # jigsaw | trivia | wordsearch | memory | bingo | sudoku | spot
+    difficulty: str         # easy | moderate | challenging | expert
+    title: Optional[str] = ""
+    duration_seconds: int = 0
+    score: int = 0
+    is_daily: bool = False
+
+
+async def _grant_achievement(user_id: str, key: str, ctx: Dict):
+    if key not in ACHIEVEMENT_DEFS:
+        return False
+    if await db.achievements.find_one({"user_id": user_id, "key": key}):
+        return False
+    a = ACHIEVEMENT_DEFS[key]
+    await db.achievements.insert_one({
+        "id": nid(), "user_id": user_id, "key": key,
+        "title": a["title"], "body": a["body"], "points": a["points"],
+        "context": ctx, "created_at": now_iso(),
+    })
+    await award_points(user_id, a["points"])
+    return True
+
+
+async def _daily_streak_for(user_id: str) -> int:
+    """Return current consecutive-day streak based on game_completions dates."""
+    docs = await db.game_completions.find({"user_id": user_id}, {"_id": 0, "created_at": 1}).sort("created_at", -1).to_list(2000)
+    days = sorted({d["created_at"][:10] for d in docs if d.get("created_at")}, reverse=True)
+    if not days:
+        return 0
+    today = datetime.now(timezone.utc).date()
+    streak = 0
+    for i, day in enumerate(days):
+        try:
+            dt = datetime.fromisoformat(day).date()
+        except Exception:
+            continue
+        expected = today - timedelta(days=i)
+        if dt == expected:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+@api.post("/games/complete/{user_id}")
+async def log_game_completion(user_id: str, body: GameCompletionBody):
+    """Single source-of-truth for finished games. Awards achievements/points
+    and broadcasts Achievement Flutters to friends for major wins."""
+    doc = {
+        "id": nid(), "user_id": user_id,
+        "game_type": body.game_type, "difficulty": body.difficulty.lower(),
+        "title": body.title or "", "duration_seconds": body.duration_seconds,
+        "score": body.score, "is_daily": body.is_daily,
+        "created_at": now_iso(),
+    }
+    await db.game_completions.insert_one(doc)
+
+    granted: List[str] = []
+    total = await db.game_completions.count_documents({"user_id": user_id})
+
+    if total == 1:
+        if await _grant_achievement(user_id, "first_game", {"game_type": body.game_type}):
+            granted.append("first_game")
+    if doc["difficulty"] in {"expert", "nightmare"}:
+        if await _grant_achievement(user_id, "expert", {"game_type": body.game_type, "title": body.title}):
+            granted.append("expert")
+    if body.is_daily:
+        # Only grant once per real calendar day
+        today = doc["created_at"][:10]
+        existing = await db.achievements.find_one({"user_id": user_id, "key": "daily_challenge", "context.date": today})
+        if not existing:
+            a = ACHIEVEMENT_DEFS["daily_challenge"]
+            await db.achievements.insert_one({"id": nid(), "user_id": user_id, "key": "daily_challenge", "title": a["title"], "body": a["body"], "points": a["points"], "context": {"game_type": body.game_type, "date": today}, "created_at": now_iso()})
+            await award_points(user_id, a["points"])
+            granted.append("daily_challenge")
+
+    streak = await _daily_streak_for(user_id)
+    if streak >= 30:
+        if await _grant_achievement(user_id, "streak_30", {"streak": streak}):
+            granted.append("streak_30")
+    elif streak >= 7:
+        if await _grant_achievement(user_id, "streak_7", {"streak": streak}):
+            granted.append("streak_7")
+    if total >= 100:
+        if await _grant_achievement(user_id, "century", {"count": total}):
+            granted.append("century")
+
+    # Broadcast an "Achievement Flutter" notification to friends for big wins.
+    notify_friends = bool(granted) and (doc["difficulty"] in ANNOUNCE_DIFFICULTIES or "century" in granted or "streak_30" in granted)
+    if notify_friends:
+        user = await db.users.find_one({"id": user_id}, {"first_name": 1, "avatar": 1, "friends": 1, "_id": 0}) or {}
+        uname = user.get("first_name") or "A friend"
+        avatar = user.get("avatar") or "🎉"
+        nice_game = {"jigsaw": "Jigsaw Puzzle", "trivia": "Trivia", "wordsearch": "Word Search", "memory": "Memory Match", "bingo": "Bingo", "sudoku": "Sudoku", "spot": "Spot the Difference"}.get(body.game_type, "game")
+        difficulty_label = body.difficulty.title()
+        title = f"{avatar} {uname} completed a {difficulty_label} {nice_game}"
+        body_text = "Send a Flutter to cheer them on?"
+        payload = {"actor_id": user_id, "actor_name": uname, "game_type": body.game_type, "difficulty": body.difficulty, "achievements": granted}
+        for fid in (user.get("friends") or []):
+            await push_notification(fid, "achievement", title, body_text, payload)
+
+    return {"completion": doc, "granted": granted, "streak": streak, "total_completed": total}
+
+
+class CheerBody(BaseModel):
+    to_user_id: str
+    kind: str   # well_done | congrats | coffee | flutter
+
+
+CHEER_TEXT = {
+    "well_done":  ("👏", "well done"),
+    "congrats":   ("🎉", "congratulations"),
+    "coffee":     ("☕", "let's celebrate in the Coffee Lounge"),
+    "flutter":    ("🦋", "sent a Flutter"),
+}
+
+
+@api.post("/games/cheer/{from_user_id}")
+async def send_cheer(from_user_id: str, body: CheerBody):
+    if body.kind not in CHEER_TEXT:
+        raise HTTPException(400, "Invalid cheer kind")
+    if from_user_id == body.to_user_id:
+        raise HTTPException(400, "Cannot cheer yourself")
+    sender = await db.users.find_one({"id": from_user_id}, {"first_name": 1, "avatar": 1, "_id": 0}) or {}
+    emoji, label = CHEER_TEXT[body.kind]
+    sname = sender.get("first_name") or "A friend"
+    savatar = sender.get("avatar") or "🦋"
+    await push_notification(
+        body.to_user_id, "cheer",
+        f"{savatar} {sname} says {emoji} {label}",
+        "Community Points awarded for kindness.",
+        {"from_id": from_user_id, "kind": body.kind},
+    )
+    # Award points for positive participation
+    await award_points(from_user_id, 3)
+    return {"ok": True}
+
+
+@api.get("/games/stats/{user_id}")
+async def games_stats(user_id: str):
+    total = await db.game_completions.count_documents({"user_id": user_id})
+    by_type: Dict[str, int] = {}
+    async for d in db.game_completions.find({"user_id": user_id}, {"_id": 0, "game_type": 1, "score": 1, "duration_seconds": 1}):
+        by_type[d["game_type"]] = by_type.get(d["game_type"], 0) + 1
+    streak = await _daily_streak_for(user_id)
+    achievements = await db.achievements.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # Personal best: lowest duration per (game_type, difficulty)
+    pbs: Dict[str, Dict] = {}
+    async for d in db.game_completions.find({"user_id": user_id}, {"_id": 0}):
+        key = f"{d['game_type']}_{d.get('difficulty','easy')}"
+        cur = pbs.get(key)
+        if not cur or (d.get("duration_seconds") or 0) < (cur.get("duration_seconds") or 9e9):
+            pbs[key] = d
+    return {"total_completed": total, "by_game": by_type, "streak": streak, "achievements": achievements, "personal_bests": pbs}
+
+
+@api.get("/games/dailies")
+async def dailies():
+    """Today's daily challenges across all game types (puzzle/trivia/wordsearch)."""
+    d = datetime.now(timezone.utc)
+    return {
+        "date": d.date().isoformat(),
+        "jigsaw": (await jigsaw_daily()),
+        "trivia": {"available": True, "title": "Daily Trivia: 10 mixed questions"},
+        "wordsearch": {"available": True, "title": "Daily Word Search: today's theme"},
+    }
+
+
 # ------------- Jigsaw (built-in catalogue) -------------
 from jigsaw_data import JIGSAW_CATALOGUE, CATEGORIES, DIFFICULTY_GRID  # noqa: E402
 
@@ -720,6 +903,22 @@ async def jigsaw_save_progress(user_id: str, body: JigsawProgressBody):
     await db.jigsaw_progress.update_one(key, {"$set": doc}, upsert=True)
     if body.completed:
         await award_points(user_id, points)
+        # Map jigsaw "nightmare" difficulty to Games-Hub "expert" for unified rules
+        unified_diff = {"easy": "easy", "moderate": "moderate", "hard": "challenging", "nightmare": "expert"}.get(body.difficulty, body.difficulty)
+        try:
+            # Daily-challenge detection: matches today's deterministic puzzle id
+            daily = await jigsaw_daily()
+            is_daily = (daily.get("puzzle", {}).get("id") == body.puzzle_id and daily.get("difficulty") == body.difficulty)
+        except Exception:
+            is_daily = False
+        try:
+            await log_game_completion(user_id, GameCompletionBody(
+                game_type="jigsaw", difficulty=unified_diff,
+                title=body.puzzle_id, duration_seconds=int(doc.get("duration_seconds") or 0),
+                score=points, is_daily=bool(is_daily),
+            ))
+        except Exception as e:
+            logger.warning("jigsaw->games unified log failed: %s", e)
     return doc
 
 
