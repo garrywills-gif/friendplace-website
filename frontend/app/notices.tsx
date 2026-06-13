@@ -97,11 +97,9 @@ export default function Notices() {
     } catch (e: any) { show("Only the author can do that"); }
   };
 
-  const onReport = async (n: any) => {
+  const onReport = (n: any) => {
     if (!user) return;
-    const ok = await confirm({ title: "Report notice?", message: "Send this to the moderation team. The notice will stay visible until reviewed.", confirmLabel: "Report", destructive: true });
-    if (!ok) return;
-    try { await api.reportNotice(n.id, user.id, "user_report"); show("Reported. Thank you."); } catch {}
+    setReportFor(n);
   };
 
   const onBlock = async (n: any) => {
@@ -120,18 +118,24 @@ export default function Notices() {
 
   const showActions = (n: any) => {
     if (!user) return;
-    const isMine = n.user_id === user.id;
+    setActionMenuFor(n);
+  };
+
+  // Renders actions list as a bottom-sheet modal for cross-platform reliability.
+  const actionMenu = actionMenuFor ? (() => {
+    const n = actionMenuFor;
+    const isMine = n.user_id === user?.id;
     const opts: { label: string; destructive?: boolean; onPress: () => void }[] = [];
     if (isMine) {
-      opts.push({ label: "Edit notice", onPress: () => startEdit(n) });
-      opts.push({ label: "Delete notice", destructive: true, onPress: () => onDelete(n) });
-      if (n.category === "Question") opts.push({ label: n.solved ? "Reopen question" : "Mark as solved", onPress: () => toggleSolved(n) });
+      opts.push({ label: "Edit notice", onPress: () => { setActionMenuFor(null); startEdit(n); } });
+      opts.push({ label: "Delete notice", destructive: true, onPress: () => { setActionMenuFor(null); onDelete(n); } });
+      if (n.category === "Question") opts.push({ label: n.solved ? "Reopen question" : "Mark as solved", onPress: () => { setActionMenuFor(null); toggleSolved(n); } });
     } else {
-      opts.push({ label: "Report notice", destructive: true, onPress: () => onReport(n) });
-      opts.push({ label: `Block ${n.user_name}`, destructive: true, onPress: () => onBlock(n) });
+      opts.push({ label: "Report notice", destructive: true, onPress: () => { setActionMenuFor(null); setReportFor(n); } });
+      opts.push({ label: `Block ${n.user_name}`, destructive: true, onPress: () => { setActionMenuFor(null); onBlock(n); } });
     }
-    Alert.alert("Notice options", undefined, [...opts.map((o) => ({ text: o.label, style: (o.destructive ? "destructive" : "default") as any, onPress: o.onPress })), { text: "Cancel", style: "cancel" }]);
-  };
+    return opts;
+  })() : null;
 
   // ------- rendering helpers -------
   const reactionCounts = (n: any) => {

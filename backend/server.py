@@ -383,6 +383,21 @@ async def demo_login(body: DemoLoginBody):
         raise HTTPException(404, "Demo user not found")
     if not u.get("is_demo"):
         raise HTTPException(400, "Not a demo account — use Log In with your password")
+    # Block banned / suspended demos as well — gives parity with /auth/login.
+    if u.get("banned"):
+        await _notify_admins({"type": "moderation_login_attempt", "title": "Banned user login attempt", "body": f"{u.get('username')} attempted to demo-log in.", "ref_user_id": u["id"]})
+        raise HTTPException(403, "This account has been banned.")
+    sus_until = u.get("suspended_until")
+    if sus_until:
+        try:
+            sus_dt = datetime.fromisoformat(sus_until)
+            if datetime.now(timezone.utc) < sus_dt:
+                await _notify_admins({"type": "moderation_login_attempt", "title": "Suspended user login attempt", "body": f"{u.get('username')} tried demo-login during suspension.", "ref_user_id": u["id"]})
+                raise HTTPException(403, f"This account is suspended until {sus_until}.")
+            else:
+                await db.users.update_one({"id": u["id"]}, {"$set": {"suspended_until": None, "restricted": False, "restricted_reason": ""}})
+        except (ValueError, TypeError):
+            pass
     return {"access_token": make_token(u["id"]), "token_type": "bearer", "user": _safe_user(u)}
 
 
