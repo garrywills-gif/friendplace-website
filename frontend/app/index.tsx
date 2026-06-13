@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -8,18 +8,24 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
-import PeopleO from "@/src/components/PeopleO";
 
-// A warm, well-lit photo of 3–4 friends chatting over coffee
+// Warm photo of 3 adults talking & smiling — sits behind the gradient as a soft watermark
 const COMMUNITY_BG =
-  "https://images.unsplash.com/photo-1582298538104-fe2e74c27f59?auto=format&fit=crop&w=1400&q=80";
+  "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1400&q=80";
+
+// Official YouBelong brand mark (butterfly + wordmark + people-in-O + tagline)
+const BRAND_LOGO = require("../assets/brand/youbelong-logo.png");
 
 export default function Welcome() {
   const router = useRouter();
-  const { c, scale } = useTheme();
+  const { scale } = useTheme();
   const { user, loading, login } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
+  const { width: winW } = useWindowDimensions();
+  // Logo card sized in PIXELS (aspectRatio is unreliable on web)
+  const cardW = Math.min(winW - 44, 360);
+  const cardH = Math.round((cardW * 853) / 1272); // preserve official aspect
 
   useEffect(() => {
     if (!loading && user) router.replace("/(tabs)/home");
@@ -27,7 +33,7 @@ export default function Welcome() {
 
   if (loading) {
     return (
-      <View style={[styles.full, { backgroundColor: "#5EEAD4", justifyContent: "center", alignItems: "center" }]}>
+      <View style={[styles.full, { backgroundColor: "#0D2A57", justifyContent: "center", alignItems: "center" }]}>
         <ActivityIndicator size="large" color="#FFFFFF" />
       </View>
     );
@@ -43,44 +49,42 @@ export default function Welcome() {
     }
   };
 
-  // word "YouBelong" — replace the 'o' in "long" with the PeopleO mark
-  const wordmarkSize = 52 * scale;
-  const oSize = wordmarkSize * 0.62;
-
   return (
     <View style={styles.full}>
-      {/* Warm photo of people sharing coffee & conversation */}
-      <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" blurRadius={2} />
-      {/* Teal-leaning overlay: less blue at top, more turquoise community colours */}
+      {/* Watermark photo behind everything */}
+      <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" />
+
+      {/* Navy → bright-teal diagonal brand gradient (semi-transparent so the photo
+          shows through as a subtle watermark, matching the brand sample) */}
       <LinearGradient
         colors={[
-          "rgba(13, 148, 136, 0.72)",
-          "rgba(20, 184, 166, 0.72)",
-          "rgba(45, 212, 191, 0.78)",
-          "rgba(94, 234, 212, 0.86)",
+          "rgba(13, 42, 87, 0.72)",   // deep navy, top-left
+          "rgba(30, 58, 127, 0.66)",  // navy
+          "rgba(46, 158, 226, 0.58)", // bright blue
+          "rgba(45, 212, 191, 0.66)", // teal
+          "rgba(64, 209, 124, 0.74)", // green-teal, bottom-right
         ]}
-        locations={[0, 0.38, 0.72, 1]}
+        locations={[0, 0.28, 0.55, 0.82, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
-        {/* Hero */}
+        {/* Hero — official logo card */}
         <View style={styles.hero}>
-          {/* Wordmark — two people form the 'o' in long */}
-          <View style={styles.wordmark} testID="welcome-brand">
-            <Text style={[styles.wordmarkText, { fontSize: wordmarkSize }]}>YouBel</Text>
-            <View style={{ marginHorizontal: 1, alignItems: "center", justifyContent: "center", height: wordmarkSize }}>
-              <PeopleO size={oSize} leftColor="#FFFFFF" rightColor="#5EEAD4" />
-            </View>
-            <Text style={[styles.wordmarkText, { fontSize: wordmarkSize }]}>ng</Text>
+          <View style={[styles.logoCard, { width: cardW, height: cardH }]} testID="welcome-brand">
+            <Image
+              source={BRAND_LOGO}
+              style={{ width: cardW, height: cardH }}
+              contentFit="contain"
+              transition={150}
+            />
           </View>
 
-          {/* Underline accent */}
-          <View style={styles.brandRule} />
-
           <Text style={[styles.tag1, { fontSize: 30.4 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
-          <Text style={[styles.tag2, { fontSize: 17 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
-          <Text style={[styles.welcomeMsg, { fontSize: 16 * scale }]} testID="welcome-message">
+          <Text style={[styles.tag2, { fontSize: 19 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
+          <Text style={[styles.welcomeMsg, { fontSize: 18 * scale }]} testID="welcome-message">
             A friendly place to meet people, join conversations and feel connected.
           </Text>
         </View>
@@ -104,8 +108,8 @@ export default function Welcome() {
             <Text style={[styles.socialText, { color: "#FFF", fontSize: 18 * scale }]}>Continue with Apple</Text>
           </Pressable>
           <Pressable testID="welcome-google" onPress={() => handleSocial("Google")} style={({ pressed }) => [styles.social, { backgroundColor: "#FFFFFF", opacity: pressed ? 0.85 : 1 }]}>
-            <Ionicons name="logo-google" size={24} color="#1E40AF" />
-            <Text style={[styles.socialText, { color: "#1E40AF", fontSize: 18 * scale }]}>Continue with Google</Text>
+            <Ionicons name="logo-google" size={24} color="#1E3A7F" />
+            <Text style={[styles.socialText, { color: "#1E3A7F", fontSize: 18 * scale }]}>Continue with Google</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -114,28 +118,30 @@ export default function Welcome() {
 }
 
 const styles = StyleSheet.create({
-  full: { flex: 1, backgroundColor: "#14B8A6" },
+  full: { flex: 1, backgroundColor: "#0D2A57" },
   content: { paddingHorizontal: 22, flexGrow: 1, justifyContent: "flex-start", gap: 14 },
-  hero: { alignItems: "center", marginTop: 32 },
-  butterfly: { color: "#FFFFFF", letterSpacing: 6, opacity: 0.95, textAlign: "center" },
-  wordmark: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 4,
+  hero: { alignItems: "center", marginTop: 18 },
+  logoCard: {
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  wordmarkText: {
-    color: "#FFFFFF",
-    fontWeight: "900",
-    letterSpacing: 0.5,
-    textShadowColor: "rgba(0,0,0,0.18)",
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 6,
-  },
-  brandRule: { width: 64, height: 3, borderRadius: 2, backgroundColor: "#FFFFFF", marginTop: 14, opacity: 0.9 },
   tag1: {
     fontWeight: "900",
     color: "#FFFFFF",
     textAlign: "center",
-    marginTop: 14,
+    marginTop: 22,
     letterSpacing: 0.3,
+    textShadowColor: "rgba(0,0,0,0.25)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
   },
   tag2: { color: "#CCFBF1", textAlign: "center", marginTop: 6, fontWeight: "700" },
   welcomeMsg: {
@@ -143,16 +149,16 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 14,
     paddingHorizontal: 8,
-    lineHeight: 24,
+    lineHeight: 26,
     fontWeight: "500",
   },
-  actions: { gap: 12, marginTop: 38, marginBottom: 16 },
+  actions: { gap: 12, marginTop: 28, marginBottom: 16 },
   btnPrimary: {
     minHeight: 62, borderRadius: 999, backgroundColor: "#FFFFFF",
     alignItems: "center", justifyContent: "center",
-    shadowColor: "#0F766E", shadowOpacity: 0.3, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6,
+    shadowColor: "#0D2A57", shadowOpacity: 0.32, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6,
   },
-  btnPrimaryText: { color: "#0F766E", fontWeight: "900", letterSpacing: 0.3 },
+  btnPrimaryText: { color: "#1E3A7F", fontWeight: "900", letterSpacing: 0.3 },
   btnOutline: {
     minHeight: 62, borderRadius: 999, borderWidth: 2, borderColor: "#FFFFFF",
     alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.12)",
