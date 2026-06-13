@@ -100,6 +100,37 @@ export const api = {
   bingoSessions: (uid: string) => req(`/games/bingo/sessions/${uid}`),
   bingoStats: (uid: string) => req(`/games/bingo/stats/${uid}`),
 
+  // safety + admin + support
+  safetyReasons: () => req("/safety/report-reasons"),
+  submitReport: (body: { reporter_id: string; target_user_id?: string; target_type?: string; target_id?: string; reason: string; notes?: string }) =>
+    req("/reports", { method: "POST", body: JSON.stringify(body) }),
+  submitSupportTicket: (body: { user_id?: string; user_email?: string; category: string; subject: string; message: string }) =>
+    req("/support/tickets", { method: "POST", body: JSON.stringify(body) }),
+
+  adminSummary: (admin_id: string) => req(`/admin/summary?admin_id=${admin_id}`),
+  adminReports: (admin_id: string, status = "all") => req(`/admin/reports?admin_id=${admin_id}&status=${status}`),
+  adminReport: (id: string, admin_id: string) => req(`/admin/reports/${id}?admin_id=${admin_id}`),
+  adminSetReportStatus: (id: string, status: string, body: { admin_id: string; note?: string }) =>
+    req(`/admin/reports/${id}/status?status=${status}`, { method: "POST", body: JSON.stringify(body) }),
+  adminWarn: (body: { admin_id: string; user_id: string; reason?: string; report_id?: string }) =>
+    req(`/admin/users/warn`, { method: "POST", body: JSON.stringify(body) }),
+  adminSuspend: (body: { admin_id: string; user_id: string; reason?: string; duration_hours?: number; report_id?: string }) =>
+    req(`/admin/users/suspend`, { method: "POST", body: JSON.stringify(body) }),
+  adminBan: (body: { admin_id: string; user_id: string; reason?: string; report_id?: string }) =>
+    req(`/admin/users/ban`, { method: "POST", body: JSON.stringify(body) }),
+  adminRestore: (body: { admin_id: string; user_id: string }) =>
+    req(`/admin/users/restore`, { method: "POST", body: JSON.stringify(body) }),
+  adminRemoveContent: (body: { admin_id: string; target_type: string; target_id: string; reason?: string; report_id?: string }) =>
+    req(`/admin/content/remove`, { method: "POST", body: JSON.stringify(body) }),
+  adminTickets: (admin_id: string, status = "all") => req(`/admin/support/tickets?admin_id=${admin_id}&status=${status}`),
+  adminResolveTicket: (id: string, body: { admin_id: string; note?: string }) =>
+    req(`/admin/support/tickets/${id}/resolve`, { method: "POST", body: JSON.stringify(body) }),
+
+  // profile / onboarding
+  updateProfile: (uid: string, body: any) => req(`/users/${uid}/profile`, { method: "PATCH", body: JSON.stringify(body) }),
+  updatePrivacySettings: (uid: string, body: any) => req(`/users/${uid}/privacy-settings`, { method: "PATCH", body: JSON.stringify(body) }),
+  completeOnboarding: (uid: string) => req(`/users/${uid}/onboarding-complete`, { method: "POST" }),
+
   // unified games hub
   gamesStats: (uid: string) => req(`/games/stats/${uid}`),
   gamesDailies: () => req("/games/dailies"),

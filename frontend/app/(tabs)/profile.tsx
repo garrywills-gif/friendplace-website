@@ -108,9 +108,17 @@ export default function Profile() {
         })}
       </View>
       <View style={{ height: 16 }} />
+      <Button label="Help & Support" variant="outline" onPress={() => router.push("/help")} testID="profile-help" />
+      <View style={{ height: 12 }} />
       <Button label="Accessibility Settings" variant="outline" onPress={() => router.push("/settings/accessibility")} testID="profile-accessibility" />
       <View style={{ height: 12 }} />
       <Button label="Settings" variant="ghost" onPress={() => router.push("/settings")} testID="profile-settings" />
+      {(user as any)?.is_admin && (
+        <>
+          <View style={{ height: 12 }} />
+          <Button label="🛡  Admin tools" variant="outline" onPress={() => router.push("/admin")} testID="profile-admin" />
+        </>
+      )}
       <View style={{ height: 12 }} />
       <Button testID="logout" label="Log Out" variant="ghost" onPress={async () => { await logout(); router.replace("/"); }} />
     </ScrollView>

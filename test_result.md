@@ -232,8 +232,121 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: |
-        BINGO BUILT (classic 75-ball). After the review-pass cleanup, the next
-        major deliverable for the Games Hub is live.
+        ADMIN MODERATION + SAFETY SUITE SHIPPED.
+
+        Per the user's strongly-emphasised requirements, the focus of this
+        session was the Safety / Admin Moderation system.
+
+        Backend
+        =======
+        Models extended on User: `is_admin`, `restricted`, `restricted_at`,
+        `restricted_reason`, `banned`, `suspended_until`, `privacy_settings`
+        (profile_visibility / friend_requests / show_in_find_friends),
+        `favourite_games`, `birthday`, `onboarding_completed`.
+        Startup migration now backfills these fields safely on existing users
+        and promotes `maggie` to `is_admin: true` (without overwriting on
+        subsequent restarts).
+
+        Endpoints added under `/api`:
+          - `POST /reports` — submit a report (user/notice/message/dm/profile),
+            auto-infers `target_user_id` when reporting content, returns the
+            friendly "Thank you. We've received your report and will review it."
+          - `GET /safety/report-reasons` — taxonomy (Spam, Harassment/Bullying,
+            Inappropriate Content, Fake Profile, Scam/Suspicious Behaviour, Other).
+          - Auto-restriction: 3 distinct reporters within 24 hours on the same
+            target → user marked restricted, their notices set `auto_hidden: true`
+            (hidden from public listing), open reports flagged urgent, admins
+            notified. Verified via curl: 3 reports → `auto_restricted: true`,
+            target now `restricted: true`, `restricted_reason: "Auto-restricted:
+            3+ reports in 24h"`.
+          - `POST /notices` rejects 403 if author is restricted/banned.
+          - `POST /auth/login` blocks banned + suspended users (notifies admins
+            on the attempt) and auto-clears expired suspensions.
+
+        Admin endpoints (gated by `_require_admin`, returns 403 otherwise):
+          - `GET /admin/summary` — counts: new / reviewing / urgent / resolved
+            reports + open/resolved support + total/restricted/banned users.
+          - `GET /admin/reports?status=…` — list (urgent first, then newest),
+            enriched with reporter + target user info.
+          - `GET /admin/reports/{id}` — full detail incl. related content
+            (notice / message), reporter, target user, and target's report history.
+          - `POST /admin/reports/{id}/status?status=…` — mark new / reviewing /
+            resolved / dismissed with admin_note.
+          - `POST /admin/users/warn|suspend|ban|restore` — pushes an in-app
+            notification to the user explaining the action and (when a report
+            is referenced) closes that report with `outcome=warned/suspended_24h
+            /banned/...`.
+          - `POST /admin/content/remove` — removes a notice or message
+            (text replaced with "[Removed by moderator]").
+          - `GET /admin/support/tickets`, `POST /admin/support/tickets/{id}/resolve`.
+
+        Support tickets:
+          - `POST /support/tickets` — user-facing endpoint; admins get a
+            "New support ticket" in-app notification.
+
+        Frontend
+        ========
+        New screens:
+          - `/admin/index.tsx` — gated admin home. Hero tiles for Urgent / New /
+            Reviewing / Resolved / Support open / Restricted. Tab switcher
+            between Reports and Support tickets. Status filter chips. Urgent
+            reports highlighted in red with the URGENT badge.
+          - `/admin/report/[id].tsx` — full report detail with reported user
+            card (status + restriction reason + warning of previous report
+            history), reporter info, related content (the actual notice/message
+            body), admin-note text field, and action buttons:
+              Status: Mark reviewing / Dismiss / Mark resolved
+              User actions: Warn user · Suspend 24h · Suspend 7 days · Ban user
+              (and Restore access when the user is already restricted/banned)
+              Content actions: Remove notice/message
+          - `/help.tsx` — Help Centre with searchable FAQ accordion (10
+            curated Q&As), Contact Support form (Account help / Suggestion /
+            Other categories), Report a Problem form. Tickets POST to
+            `/support/tickets`.
+
+        New component:
+          - `src/components/ReportSheet.tsx` — reusable structured-report
+            bottom sheet. Pulls reason taxonomy from `/safety/report-reasons`.
+            Two-stage flow: choose reason + add notes → "Thank you" view with
+            optional "Block this user" CTA + auto-restricted banner when
+            applicable. Wired into Notices kebab menu.
+
+        Profile screen now exposes:
+          - Help & Support entry (always)
+          - 🛡 Admin tools entry (only when `user.is_admin === true`)
+
+        Frontend safety enforcement:
+          - Notices feed filters out `removed: true` and `auto_hidden: true`
+            documents server-side.
+          - Restricted/banned users can't POST a notice (403 from backend).
+          - Restored users have their notices un-hidden in one click.
+
+        Test credentials
+        ================
+          - **maggie** (admin demo account) — use `/auth/demo-login { "username":
+            "maggie" }` then navigate to /admin or open Profile → Admin tools.
+
+        Curl smoke-tests confirmed:
+          - 3 reports from 3 different users within 24h auto-restrict the
+            target and mark all open reports urgent.
+          - Non-admin → 403 on every `/admin/*` endpoint.
+          - Admin → 200 on `/admin/summary`, full counts visible.
+
+        Test plan for the testing agent (next iteration):
+          - Backend: report submission, auto-restrict threshold, admin
+            permissions, status transitions, warn/suspend/ban/restore,
+            content removal, login blocked for banned/suspended users.
+          - Frontend: ReportSheet on a Notice kebab, end-to-end report flow,
+            Admin home renders for maggie only, report detail actions update
+            state and notifications fire to the reported user.
+
+        Carry-over for the next session (Phase A items not yet built):
+          - Onboarding 6-step tour (Coffee Lounge / Flutters / Butterfly
+            Points / Notice Board / Games Hub / Accessibility) — gated by
+            `onboarding_completed` flag (backend already supports it).
+          - Profile editing UI for avatar upload (base64), bio, interests,
+            favourite games, privacy settings (endpoints already exist).
+          - Wire ReportSheet into DMs and User Profiles (currently only Notices).
 
         Backend (`/api/games/bingo/*`):
           - `/catalog` — 4 difficulties with full meta (cols/rows/cards/free_center/pattern/points/auto_call_ms).

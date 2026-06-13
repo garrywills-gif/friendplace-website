@@ -1,0 +1,173 @@
+import React, { useCallback, useState } from "react";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, RefreshControl } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "@/src/lib/theme";
+import { useAuth } from "@/src/lib/auth";
+import { api } from "@/src/lib/api";
+import Header from "@/src/components/Header";
+
+type Summary = { reports: { new: number; reviewing: number; urgent: number; resolved: number }; support: { open: number; resolved: number }; users: { total: number; restricted: number; banned: number } };
+
+export default function AdminHome() {
+  const router = useRouter();
+  const { c, scale } = useTheme();
+  const { user } = useAuth();
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [reports, setReports] = useState<any[]>([]);
+  const [tickets, setTickets] = useState<any[]>([]);
+  const [tab, setTab] = useState<"reports" | "tickets">("reports");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      const [s, r, t]: any = await Promise.all([
+        api.adminSummary(user.id).catch(() => null),
+        api.adminReports(user.id, statusFilter).catch(() => ({ reports: [] })),
+        api.adminTickets(user.id, "open").catch(() => ({ tickets: [] })),
+      ]);
+      setSummary(s);
+      setReports(r?.reports || []);
+      setTickets(t?.tickets || []);
+    } finally { setLoading(false); }
+  }, [user?.id, statusFilter]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Hide for non-admins
+  if (!user) return <View style={{ flex: 1, backgroundColor: c.surface }}><Header title="Admin" /><Text style={{ padding: 16, color: c.onSurface }}>Please log in.</Text></View>;
+  if (!(user as any).is_admin) return (
+    <View style={{ flex: 1, backgroundColor: c.surface }}>
+      <Header title="Admin" />
+      <View style={{ padding: 24, alignItems: "center" }}>
+        <Ionicons name="lock-closed" size={48} color={c.muted} />
+        <Text style={{ color: c.onSurface, fontSize: 18 * scale, marginTop: 12, textAlign: "center" }}>Admin tools are only available to YouBelong moderators.</Text>
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: c.surface }}>
+      <Header title="Admin" />
+      <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 60 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
+        {loading && !summary ? <ActivityIndicator color={c.brand} /> : null}
+
+        {/* Summary tiles */}
+        {summary && (
+          <View>
+            <Text style={[styles.section, { color: c.onSurface, fontSize: 18 * scale }]}>Moderation overview</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              <Tile label="Urgent" value={summary.reports.urgent} icon="warning" tint="#DC2626" c={c} scale={scale} />
+              <Tile label="New reports" value={summary.reports.new} icon="flag" tint="#B45309" c={c} scale={scale} />
+              <Tile label="Reviewing" value={summary.reports.reviewing} icon="eye" tint="#2563EB" c={c} scale={scale} />
+              <Tile label="Resolved" value={summary.reports.resolved} icon="checkmark-done" tint="#0F766E" c={c} scale={scale} />
+              <Tile label="Support open" value={summary.support.open} icon="help-buoy" tint="#7C3AED" c={c} scale={scale} />
+              <Tile label="Restricted" value={summary.users.restricted} icon="hand-left" tint="#DC2626" c={c} scale={scale} />
+            </View>
+          </View>
+        )}
+
+        {/* Tabs */}
+        <View style={{ flexDirection: "row", marginTop: 18, gap: 8 }}>
+          <TabBtn label={`Reports${summary?.reports.urgent ? " \u26a0\ufe0f" : ""}`} active={tab === "reports"} onPress={() => setTab("reports")} c={c} scale={scale} />
+          <TabBtn label={`Support (${summary?.support.open || 0})`} active={tab === "tickets"} onPress={() => setTab("tickets")} c={c} scale={scale} />
+        </View>
+
+        {tab === "reports" && (
+          <View style={{ marginTop: 12 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 6 }}>
+              {["all", "new", "reviewing", "resolved", "dismissed"].map((s) => (
+                <Pressable key={s} onPress={() => setStatusFilter(s)} style={[styles.filterChip, { backgroundColor: statusFilter === s ? c.brand : c.surfaceSecondary, borderColor: statusFilter === s ? c.brand : c.border }]}>
+                  <Text style={{ color: statusFilter === s ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{s.charAt(0).toUpperCase() + s.slice(1)}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            {reports.length === 0 ? (
+              <Text style={{ color: c.muted, fontSize: 15 * scale, padding: 24, textAlign: "center" }}>No reports here. {"\u{1F389}"}</Text>
+            ) : (
+              <View style={{ gap: 10, marginTop: 6 }}>
+                {reports.map((r) => (
+                  <Pressable key={r.id} testID={`admin-report-${r.id}`} onPress={() => router.push(`/admin/report/${r.id}`)} style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: r.urgent ? "#DC2626" : c.border, borderWidth: r.urgent ? 2 : 1 }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      {r.urgent && <View style={[styles.badge, { backgroundColor: "#DC2626" }]}><Text style={styles.badgeText}>URGENT</Text></View>}
+                      <View style={[styles.badge, { backgroundColor: STATUS_TINT[r.status] || c.muted }]}><Text style={styles.badgeText}>{(r.status || "new").toUpperCase()}</Text></View>
+                      <Text style={{ color: c.muted, fontSize: 11 * scale, marginLeft: "auto" }}>{shortDate(r.created_at)}</Text>
+                    </View>
+                    <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale, marginTop: 6 }}>{r.reason}</Text>
+                    <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>
+                      <Text style={{ fontWeight: "700" }}>{r.target_user?.username || "\u2014"}</Text>
+                      {" "}reported by{" "}
+                      <Text style={{ fontWeight: "700" }}>{r.reporter?.username || "\u2014"}</Text>
+                    </Text>
+                    {!!r.related_text && <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 4, fontStyle: "italic" }} numberOfLines={2}>&ldquo;{r.related_text}&rdquo;</Text>}
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+        )}
+
+        {tab === "tickets" && (
+          <View style={{ marginTop: 12, gap: 10 }}>
+            {tickets.length === 0 ? (
+              <Text style={{ color: c.muted, fontSize: 15 * scale, padding: 24, textAlign: "center" }}>No open tickets.</Text>
+            ) : tickets.map((t: any) => (
+              <View key={t.id} style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                  <Text style={{ color: c.brand, fontWeight: "900", fontSize: 12 * scale }}>{(t.category || "").toUpperCase()}</Text>
+                  <Text style={{ color: c.muted, fontSize: 11 * scale }}>{shortDate(t.created_at)}</Text>
+                </View>
+                <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale, marginTop: 4 }}>{t.subject}</Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }} numberOfLines={3}>{t.message}</Text>
+                <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6 }}>From: {t.user?.first_name || t.user?.username || t.user_email || "Anonymous"}</Text>
+                <Pressable onPress={async () => { await api.adminResolveTicket(t.id, { admin_id: user.id }); load(); }} style={[styles.pillBtn, { backgroundColor: c.brand, marginTop: 10 }]}>
+                  <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale }}>Mark resolved</Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const STATUS_TINT: Record<string, string> = { new: "#B45309", reviewing: "#2563EB", resolved: "#0F766E", dismissed: "#475569" };
+
+function Tile({ label, value, icon, tint, c, scale }: any) {
+  return (
+    <View style={[styles.tile, { backgroundColor: `${tint}22`, borderColor: tint }]}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+        <Ionicons name={icon} size={18} color={tint} />
+        <Text style={{ color: tint, fontWeight: "900", fontSize: 26 * scale }}>{value}</Text>
+      </View>
+      <Text style={{ color: c.onSurface, fontSize: 12 * scale, marginTop: 4, fontWeight: "700" }}>{label}</Text>
+    </View>
+  );
+}
+
+function TabBtn({ label, active, onPress, c, scale }: any) {
+  return (
+    <Pressable onPress={onPress} style={{ paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, backgroundColor: active ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: active ? c.brand : c.border }}>
+      <Text style={{ color: active ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function shortDate(iso: string) {
+  try { const d = new Date(iso); return d.toLocaleDateString(undefined, { day: "numeric", month: "short" }) + " " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }); } catch { return iso; }
+}
+
+const styles = StyleSheet.create({
+  section: { fontWeight: "900", marginBottom: 8 },
+  tile: { width: "31%", padding: 12, borderRadius: 14, borderWidth: 1.5, minWidth: 110 },
+  row: { padding: 12, borderRadius: 14, borderWidth: 1 },
+  filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
+  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  badgeText: { color: "#FFF", fontWeight: "900", fontSize: 10, letterSpacing: 0.4 },
+  pillBtn: { alignSelf: "flex-start", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
+});

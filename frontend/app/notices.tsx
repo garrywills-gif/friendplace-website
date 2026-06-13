@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
+import ReportSheet from "@/src/components/ReportSheet";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
@@ -37,6 +38,7 @@ export default function Notices() {
   const [commentText, setCommentText] = useState("");
   const [replyTo, setReplyTo] = useState<{ commentId: string; userName: string } | null>(null);
   const [actionMenuFor, setActionMenuFor] = useState<any | null>(null);
+  const [reportFor, setReportFor] = useState<any | null>(null);
 
   const load = async () => {
     if (!user) return;
@@ -275,6 +277,19 @@ export default function Notices() {
           </View>
         )}
       />
+
+      {/* Structured report sheet */}
+      {reportFor && (
+        <ReportSheet
+          visible={!!reportFor}
+          onClose={() => setReportFor(null)}
+          target_type="notice"
+          target_id={reportFor.id}
+          target_user_id={reportFor.user_id}
+          target_user_name={reportFor.user_name}
+          onAfterReport={() => load()}
+        />
+      )}
 
       {/* Action sheet (cross-platform — Alert.alert is silent on web) */}
       <Modal visible={!!actionMenuFor} transparent animationType="fade" onRequestClose={() => setActionMenuFor(null)}>

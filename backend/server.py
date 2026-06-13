@@ -89,6 +89,12 @@ def nid() -> str:
 
 
 # ---------------- Models ----------------
+class UserPrivacySettings(BaseModel):
+    profile_visibility: str = "everyone"          # everyone | friends
+    friend_requests: str = "everyone"             # everyone | friends | off
+    show_in_find_friends: bool = True
+
+
 class User(BaseModel):
     id: str = Field(default_factory=nid)
     first_name: str = ""
@@ -96,15 +102,24 @@ class User(BaseModel):
     email: str = ""
     suburb: str = ""
     interests: List[str] = []
-    avatar: str = ""  # emoji or url
+    avatar: str = ""  # emoji, URL, or data:image/...;base64
     bio: str = ""
+    favourite_games: List[str] = []
+    birthday: str = ""                  # YYYY-MM-DD or MM-DD (year optional)
     points: int = 0
     badges: List[str] = []
     friends: List[str] = []
     blocked: List[str] = []
     is_demo: bool = False
-    # Privacy: who can see me / contact me
-    privacy: str = "everyone"  # everyone | friends | invisible
+    is_admin: bool = False
+    # Legacy privacy (online presence visibility): everyone | friends | invisible
+    privacy: str = "everyone"
+    # New granular privacy
+    privacy_settings: UserPrivacySettings = Field(default_factory=UserPrivacySettings)
+    onboarding_completed: bool = False
+    restricted: bool = False                      # auto-set after 3 reports / 24h
+    restricted_at: Optional[str] = None
+    restricted_reason: str = ""
     # Online presence
     last_seen_at: str = Field(default_factory=now_iso)
     created_at: str = Field(default_factory=now_iso)
@@ -335,6 +350,23 @@ async def login(body: LoginBody):
             update["failed_login_attempts"] = 0
         await db.users.update_one({"id": u["id"]}, {"$set": update})
         raise HTTPException(400, "Invalid credentials")
+
+    # Block banned / suspended users
+    if u.get("banned"):
+        await _notify_admins({"type": "moderation_login_attempt", "title": "Banned user login attempt", "body": f"{u.get('username')} attempted to log in.", "ref_user_id": u["id"]})
+        raise HTTPException(403, "Your account has been banned. Please contact support.")
+    sus_until = u.get("suspended_until")
+    if sus_until:
+        try:
+            sus_dt = datetime.fromisoformat(sus_until)
+            if now < sus_dt:
+                await _notify_admins({"type": "moderation_login_attempt", "title": "Suspended user login attempt", "body": f"{u.get('username')} tried to log in during suspension.", "ref_user_id": u["id"]})
+                raise HTTPException(403, f"Your account is suspended until {sus_until}.")
+            else:
+                # Suspension expired, clear it
+                await db.users.update_one({"id": u["id"]}, {"$set": {"suspended_until": None, "restricted": False, "restricted_reason": ""}})
+        except (ValueError, TypeError):
+            pass
 
     await db.users.update_one(
         {"id": u["id"]},
@@ -623,6 +655,61 @@ async def set_privacy(user_id: str, body: PrivacyBody):
         raise HTTPException(400, "Invalid privacy value")
     await db.users.update_one({"id": user_id}, {"$set": {"privacy": body.privacy}})
     return {"ok": True, "privacy": body.privacy}
+
+
+# ----- Profile update + privacy v2 + onboarding -----
+class ProfileUpdateBody(BaseModel):
+    first_name: Optional[str] = None
+    suburb: Optional[str] = None
+    bio: Optional[str] = None
+    avatar: Optional[str] = None      # emoji OR data:image/...;base64,...
+    interests: Optional[List[str]] = None
+    favourite_games: Optional[List[str]] = None
+    birthday: Optional[str] = None    # YYYY-MM-DD or MM-DD
+
+
+@api.patch("/users/{user_id}/profile")
+async def update_profile(user_id: str, body: ProfileUpdateBody):
+    update: Dict = {}
+    for f in ("first_name", "suburb", "bio", "avatar", "interests", "favourite_games", "birthday"):
+        v = getattr(body, f, None)
+        if v is not None:
+            update[f] = v
+    if update:
+        await db.users.update_one({"id": user_id}, {"$set": update})
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return {"ok": True, "user": u}
+
+
+class PrivacySettingsBody(BaseModel):
+    profile_visibility: Optional[str] = None    # everyone | friends
+    friend_requests: Optional[str] = None        # everyone | friends | off
+    show_in_find_friends: Optional[bool] = None
+
+
+@api.patch("/users/{user_id}/privacy-settings")
+async def update_privacy_settings(user_id: str, body: PrivacySettingsBody):
+    update: Dict = {}
+    if body.profile_visibility is not None:
+        if body.profile_visibility not in ("everyone", "friends"):
+            raise HTTPException(400, "Invalid profile_visibility")
+        update["privacy_settings.profile_visibility"] = body.profile_visibility
+    if body.friend_requests is not None:
+        if body.friend_requests not in ("everyone", "friends", "off"):
+            raise HTTPException(400, "Invalid friend_requests")
+        update["privacy_settings.friend_requests"] = body.friend_requests
+    if body.show_in_find_friends is not None:
+        update["privacy_settings.show_in_find_friends"] = bool(body.show_in_find_friends)
+    if update:
+        await db.users.update_one({"id": user_id}, {"$set": update})
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return {"ok": True, "user": u}
+
+
+@api.post("/users/{user_id}/onboarding-complete")
+async def onboarding_complete(user_id: str):
+    await db.users.update_one({"id": user_id}, {"$set": {"onboarding_completed": True}})
+    return {"ok": True}
 
 
 @api.post("/users/{user_id}/heartbeat")
@@ -1699,7 +1786,7 @@ REACTIONS = {"well_done", "support", "chat", "flutter", "congrats"}
 
 @api.get("/notices")
 async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, category: Optional[str] = None):
-    query: Dict = {}
+    query: Dict = {"removed": {"$ne": True}, "auto_hidden": {"$ne": True}}
     if category and category != "All":
         query["category"] = category
     if q:
@@ -1717,6 +1804,10 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
 
 @api.post("/notices")
 async def create_notice(body: Notice):
+    # Restricted/banned users can't post
+    u = await db.users.find_one({"id": body.user_id}, {"_id": 0, "restricted": 1, "banned": 1})
+    if u and (u.get("restricted") or u.get("banned")):
+        raise HTTPException(403, "Your account is currently restricted. Please contact support.")
     n = Notice(**body.dict())
     await db.notices.insert_one(n.dict())
     await award_points(body.user_id, 4)
@@ -1855,6 +1946,355 @@ async def block_user(user_id: str, other_id: str):
 async def unblock_user(user_id: str, other_id: str):
     await db.users.update_one({"id": user_id}, {"$pull": {"blocked": other_id}})
     return {"ok": True}
+
+
+# ============================ Safety & Moderation ============================
+REPORT_REASONS = ["Spam", "Harassment / Bullying", "Inappropriate Content", "Fake Profile", "Scam / Suspicious Behaviour", "Other"]
+SUPPORT_CATEGORIES = ["Bug / Technical issue", "Account help", "Suggestion / Feedback", "Other"]
+AUTO_RESTRICT_THRESHOLD = 3  # distinct reporters within 24h
+
+
+async def _require_admin(admin_id: str):
+    u = await db.users.find_one({"id": admin_id}, {"_id": 0, "is_admin": 1})
+    if not u or not u.get("is_admin"):
+        raise HTTPException(403, "Admin access required")
+    return u
+
+
+async def _notify_admins(notification: Dict):
+    """Insert a notification for every admin."""
+    admins = await db.users.find({"is_admin": True}, {"_id": 0, "id": 1}).to_list(50)
+    for a in admins:
+        doc = {"id": nid(), "user_id": a["id"], "read": False, "created_at": now_iso(), **notification}
+        await db.notifications.insert_one(doc)
+
+
+async def _maybe_auto_restrict(target_user_id: str) -> bool:
+    """If a user has been reported by >=3 unique reporters within 24h, restrict them."""
+    if not target_user_id:
+        return False
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    rs = await db.reports.find({"target_user_id": target_user_id, "created_at": {"$gte": since}}, {"_id": 0, "reporter_id": 1}).to_list(50)
+    unique_reporters = {r.get("reporter_id") for r in rs if r.get("reporter_id")}
+    if len(unique_reporters) < AUTO_RESTRICT_THRESHOLD:
+        return False
+    target = await db.users.find_one({"id": target_user_id}, {"_id": 0, "username": 1, "restricted": 1})
+    if not target:
+        return False
+    if target.get("restricted"):
+        # Already restricted but make sure recent reports get marked urgent
+        await db.reports.update_many(
+            {"target_user_id": target_user_id, "created_at": {"$gte": since}, "status": {"$ne": "resolved"}},
+            {"$set": {"urgent": True}},
+        )
+        return False
+    await db.users.update_one(
+        {"id": target_user_id},
+        {"$set": {"restricted": True, "restricted_at": now_iso(), "restricted_reason": "Auto-restricted: 3+ reports in 24h"}},
+    )
+    # Hide public posts (mark notices as auto-hidden) — they remain in DB so admins can review.
+    await db.notices.update_many({"user_id": target_user_id}, {"$set": {"auto_hidden": True}})
+    # Flag all open reports as urgent.
+    await db.reports.update_many(
+        {"target_user_id": target_user_id, "status": {"$ne": "resolved"}},
+        {"$set": {"urgent": True}},
+    )
+    await _notify_admins({
+        "type": "moderation_urgent",
+        "title": "Urgent: user auto-restricted",
+        "body": f"{target.get('username','?')} reached {AUTO_RESTRICT_THRESHOLD} reports in 24h.",
+        "ref_user_id": target_user_id,
+    })
+    return True
+
+
+class SubmitReportBody(BaseModel):
+    reporter_id: str
+    target_user_id: Optional[str] = None
+    target_type: str = "user"          # user | notice | message | dm | profile
+    target_id: Optional[str] = None     # id of the offending content
+    reason: str = "Other"
+    notes: str = ""
+
+
+@api.post("/reports")
+async def submit_report(body: SubmitReportBody):
+    if body.reason and body.reason not in REPORT_REASONS:
+        # Allow free-form but normalise to "Other" if completely off-list.
+        pass
+    # If reporting content, infer the author so we can aggregate against them.
+    target_user_id = body.target_user_id
+    related_text = ""
+    if not target_user_id and body.target_type == "notice" and body.target_id:
+        n = await db.notices.find_one({"id": body.target_id}, {"_id": 0, "user_id": 1, "title": 1, "body": 1})
+        if n:
+            target_user_id = n.get("user_id")
+            related_text = (n.get("title") or "") + " — " + (n.get("body") or "")[:200]
+    if not target_user_id and body.target_type in ("message", "dm") and body.target_id:
+        m = await db.messages.find_one({"id": body.target_id}, {"_id": 0, "user_id": 1, "text": 1})
+        if m:
+            target_user_id = m.get("user_id")
+            related_text = (m.get("text") or "")[:200]
+
+    rep = {
+        "id": nid(),
+        "reporter_id": body.reporter_id,
+        "target_user_id": target_user_id,
+        "target_type": body.target_type,
+        "target_id": body.target_id,
+        "reason": body.reason,
+        "notes": body.notes,
+        "related_text": related_text,
+        "status": "new",                # new | reviewing | resolved | dismissed
+        "urgent": False,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.reports.insert_one(rep)
+
+    # Notify admins (general new-report ping).
+    reporter = await db.users.find_one({"id": body.reporter_id}, {"_id": 0, "username": 1, "first_name": 1})
+    target = await db.users.find_one({"id": target_user_id}, {"_id": 0, "username": 1}) if target_user_id else None
+    await _notify_admins({
+        "type": "moderation_new",
+        "title": "New report",
+        "body": f"{(reporter or {}).get('first_name') or (reporter or {}).get('username','?')} reported {(target or {}).get('username','?')} for {body.reason}",
+        "ref_user_id": target_user_id or "",
+    })
+
+    # Auto-restriction trigger.
+    restricted = await _maybe_auto_restrict(target_user_id) if target_user_id else False
+    return {"ok": True, "report_id": rep["id"], "auto_restricted": restricted, "message": "Thank you. We've received your report and will review it."}
+
+
+@api.get("/safety/report-reasons")
+async def safety_report_reasons():
+    return {"reasons": REPORT_REASONS}
+
+
+# ----- Admin -----
+@api.get("/admin/reports")
+async def admin_list_reports(admin_id: str, status: str = "all"):
+    await _require_admin(admin_id)
+    q: Dict = {}
+    if status and status != "all":
+        q["status"] = status
+    rows = await db.reports.find(q, {"_id": 0}).sort([("urgent", -1), ("created_at", -1)]).to_list(500)
+    # Enrich with reporter + target user info
+    user_ids = list({r.get("reporter_id") for r in rows} | {r.get("target_user_id") for r in rows if r.get("target_user_id")})
+    users_map = {}
+    if user_ids:
+        async for u in db.users.find({"id": {"$in": list(filter(None, user_ids))}}, {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1, "restricted": 1, "is_admin": 1}):
+            users_map[u["id"]] = u
+    for r in rows:
+        r["reporter"] = users_map.get(r.get("reporter_id"))
+        r["target_user"] = users_map.get(r.get("target_user_id"))
+    counts = {
+        "new": await db.reports.count_documents({"status": "new"}),
+        "reviewing": await db.reports.count_documents({"status": "reviewing"}),
+        "urgent": await db.reports.count_documents({"urgent": True, "status": {"$ne": "resolved"}}),
+        "resolved": await db.reports.count_documents({"status": "resolved"}),
+        "dismissed": await db.reports.count_documents({"status": "dismissed"}),
+    }
+    return {"reports": rows, "counts": counts}
+
+
+@api.get("/admin/reports/{report_id}")
+async def admin_get_report(report_id: str, admin_id: str):
+    await _require_admin(admin_id)
+    r = await db.reports.find_one({"id": report_id}, {"_id": 0})
+    if not r:
+        raise HTTPException(404, "Report not found")
+    reporter = await db.users.find_one({"id": r.get("reporter_id")}, {"_id": 0, "password_hash": 0}) if r.get("reporter_id") else None
+    target = await db.users.find_one({"id": r.get("target_user_id")}, {"_id": 0, "password_hash": 0}) if r.get("target_user_id") else None
+    related = None
+    if r.get("target_type") == "notice" and r.get("target_id"):
+        related = await db.notices.find_one({"id": r["target_id"]}, {"_id": 0})
+    elif r.get("target_type") in ("message", "dm") and r.get("target_id"):
+        related = await db.messages.find_one({"id": r["target_id"]}, {"_id": 0})
+    history = []
+    if r.get("target_user_id"):
+        history = await db.reports.find({"target_user_id": r["target_user_id"], "id": {"$ne": report_id}}, {"_id": 0}).sort("created_at", -1).to_list(30)
+    return {"report": r, "reporter": reporter, "target_user": target, "related": related, "target_history": history}
+
+
+class AdminActionBody(BaseModel):
+    admin_id: str
+    note: str = ""
+
+
+@api.post("/admin/reports/{report_id}/status")
+async def admin_set_status(report_id: str, status: str, body: AdminActionBody):
+    await _require_admin(body.admin_id)
+    if status not in ("new", "reviewing", "resolved", "dismissed"):
+        raise HTTPException(400, "Invalid status")
+    await db.reports.update_one({"id": report_id}, {"$set": {"status": status, "updated_at": now_iso(), "admin_note": body.note}})
+    return {"ok": True, "status": status}
+
+
+class AdminUserActionBody(BaseModel):
+    admin_id: str
+    user_id: str
+    reason: str = ""
+    duration_hours: int = 0    # for suspend
+    report_id: Optional[str] = None
+
+
+@api.post("/admin/users/warn")
+async def admin_warn_user(body: AdminUserActionBody):
+    await _require_admin(body.admin_id)
+    target = await db.users.find_one({"id": body.user_id}, {"_id": 0, "username": 1, "first_name": 1, "avatar": 1})
+    if not target:
+        raise HTTPException(404, "User not found")
+    await db.users.update_one({"id": body.user_id}, {"$push": {"warnings": {"id": nid(), "reason": body.reason, "issued_at": now_iso(), "by": body.admin_id}}})
+    await db.notifications.insert_one({
+        "id": nid(), "user_id": body.user_id, "type": "moderation_warning",
+        "title": "Warning from the YouBelong team",
+        "body": body.reason or "Please review our community guidelines.",
+        "read": False, "created_at": now_iso(),
+    })
+    if body.report_id:
+        await db.reports.update_one({"id": body.report_id}, {"$set": {"status": "resolved", "outcome": "warned", "admin_note": body.reason, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
+@api.post("/admin/users/suspend")
+async def admin_suspend_user(body: AdminUserActionBody):
+    await _require_admin(body.admin_id)
+    hours = max(1, int(body.duration_hours or 24))
+    until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+    await db.users.update_one(
+        {"id": body.user_id},
+        {"$set": {"restricted": True, "suspended_until": until, "restricted_reason": body.reason or "Suspended by admin", "restricted_at": now_iso()}},
+    )
+    await db.notifications.insert_one({
+        "id": nid(), "user_id": body.user_id, "type": "moderation_suspension",
+        "title": "Your account has been suspended",
+        "body": f"Reason: {body.reason or 'See community guidelines'}. Lifted at {until}.",
+        "read": False, "created_at": now_iso(),
+    })
+    if body.report_id:
+        await db.reports.update_one({"id": body.report_id}, {"$set": {"status": "resolved", "outcome": f"suspended_{hours}h", "admin_note": body.reason, "updated_at": now_iso()}})
+    return {"ok": True, "suspended_until": until}
+
+
+@api.post("/admin/users/ban")
+async def admin_ban_user(body: AdminUserActionBody):
+    await _require_admin(body.admin_id)
+    await db.users.update_one(
+        {"id": body.user_id},
+        {"$set": {"banned": True, "restricted": True, "restricted_reason": body.reason or "Banned by admin", "restricted_at": now_iso()}},
+    )
+    if body.report_id:
+        await db.reports.update_one({"id": body.report_id}, {"$set": {"status": "resolved", "outcome": "banned", "admin_note": body.reason, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
+@api.post("/admin/users/restore")
+async def admin_restore_user(body: AdminUserActionBody):
+    await _require_admin(body.admin_id)
+    await db.users.update_one(
+        {"id": body.user_id},
+        {"$set": {"restricted": False, "banned": False, "suspended_until": None, "restricted_reason": ""},
+         "$unset": {"restricted_at": ""}},
+    )
+    await db.notices.update_many({"user_id": body.user_id}, {"$set": {"auto_hidden": False}})
+    return {"ok": True}
+
+
+class AdminRemoveContentBody(BaseModel):
+    admin_id: str
+    target_type: str    # notice | message
+    target_id: str
+    reason: str = ""
+    report_id: Optional[str] = None
+
+
+@api.post("/admin/content/remove")
+async def admin_remove_content(body: AdminRemoveContentBody):
+    await _require_admin(body.admin_id)
+    if body.target_type == "notice":
+        await db.notices.update_one({"id": body.target_id}, {"$set": {"removed": True, "removed_at": now_iso(), "removed_reason": body.reason}})
+    elif body.target_type in ("message", "dm"):
+        await db.messages.update_one({"id": body.target_id}, {"$set": {"removed": True, "removed_at": now_iso(), "removed_reason": body.reason, "text": "[Removed by moderator]"}})
+    else:
+        raise HTTPException(400, "Unsupported target type")
+    if body.report_id:
+        await db.reports.update_one({"id": body.report_id}, {"$set": {"status": "resolved", "outcome": "content_removed", "admin_note": body.reason, "updated_at": now_iso()}})
+    return {"ok": True}
+
+
+# ----- Support tickets -----
+class SupportTicketBody(BaseModel):
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    category: str = "Other"
+    subject: str
+    message: str
+
+
+@api.post("/support/tickets")
+async def submit_support_ticket(body: SupportTicketBody):
+    doc = {
+        "id": nid(), "user_id": body.user_id, "user_email": body.user_email,
+        "category": body.category, "subject": body.subject, "message": body.message,
+        "status": "open",                 # open | resolved
+        "created_at": now_iso(), "updated_at": now_iso(),
+    }
+    await db.support_tickets.insert_one(doc)
+    await _notify_admins({
+        "type": "support_new",
+        "title": "New support ticket",
+        "body": f"[{body.category}] {body.subject}",
+        "ref_ticket_id": doc["id"],
+    })
+    return {"ok": True, "ticket_id": doc["id"], "message": "Thank you. We've received your message and will get back to you soon."}
+
+
+@api.get("/admin/support/tickets")
+async def admin_list_tickets(admin_id: str, status: str = "all"):
+    await _require_admin(admin_id)
+    q: Dict = {}
+    if status and status != "all":
+        q["status"] = status
+    rows = await db.support_tickets.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    user_ids = [r.get("user_id") for r in rows if r.get("user_id")]
+    users_map = {}
+    if user_ids:
+        async for u in db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1}):
+            users_map[u["id"]] = u
+    for r in rows:
+        r["user"] = users_map.get(r.get("user_id"))
+    return {"tickets": rows}
+
+
+@api.post("/admin/support/tickets/{ticket_id}/resolve")
+async def admin_resolve_ticket(ticket_id: str, body: AdminActionBody):
+    await _require_admin(body.admin_id)
+    await db.support_tickets.update_one({"id": ticket_id}, {"$set": {"status": "resolved", "updated_at": now_iso(), "admin_note": body.note}})
+    return {"ok": True}
+
+
+@api.get("/admin/summary")
+async def admin_summary(admin_id: str):
+    await _require_admin(admin_id)
+    return {
+        "reports": {
+            "new": await db.reports.count_documents({"status": "new"}),
+            "reviewing": await db.reports.count_documents({"status": "reviewing"}),
+            "urgent": await db.reports.count_documents({"urgent": True, "status": {"$ne": "resolved"}}),
+            "resolved": await db.reports.count_documents({"status": "resolved"}),
+        },
+        "support": {
+            "open": await db.support_tickets.count_documents({"status": "open"}),
+            "resolved": await db.support_tickets.count_documents({"status": "resolved"}),
+        },
+        "users": {
+            "total": await db.users.count_documents({}),
+            "restricted": await db.users.count_documents({"restricted": True}),
+            "banned": await db.users.count_documents({"banned": True}),
+        },
+    }
 
 
 # ------------- Flutter (online ping) -------------
@@ -2112,6 +2552,17 @@ async def seed():
         {"password_hash": {"$exists": False}},
         {"$set": {"is_demo": True, "failed_login_attempts": 0, "lockout_until": None}},
     )
+    # Backfill new fields on existing users so Pydantic models hydrate cleanly.
+    await db.users.update_many(
+        {"privacy_settings": {"$exists": False}},
+        {"$set": {"privacy_settings": {"profile_visibility": "everyone", "friend_requests": "everyone", "show_in_find_friends": True},
+                  "favourite_games": [], "birthday": "", "onboarding_completed": True,
+                  "restricted": False, "restricted_at": None, "restricted_reason": ""}},
+    )
+    # Make sure every user has is_admin (default False) without overwriting existing True values.
+    await db.users.update_many({"is_admin": {"$exists": False}}, {"$set": {"is_admin": False}})
+    # Ensure 'maggie' is the admin demo account so moderation tools can be previewed.
+    await db.users.update_one({"username": "maggie"}, {"$set": {"is_admin": True}})
     users_count = await db.users.count_documents({})
     if users_count > 0:
         logger.info("Seed skipped — data already present (%s users)", users_count)
