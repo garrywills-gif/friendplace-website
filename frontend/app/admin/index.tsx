@@ -83,6 +83,14 @@ export default function AdminHome() {
           </View>
         )}
 
+        {/* Quick links */}
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+          <Pressable testID="admin-manage-events" onPress={() => router.push("/admin/events" as any)} style={[styles.quickLink, { backgroundColor: c.brand }]}>
+            <Ionicons name="calendar" size={16} color="#FFF" />
+            <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale, marginLeft: 6 }}>Manage events</Text>
+          </Pressable>
+        </View>
+
         {/* Tabs */}
         <View style={{ flexDirection: "row", marginTop: 18, gap: 8, flexWrap: "wrap" }}>
           <TabBtn label={`Reports${summary?.reports.urgent ? " ⚠️" : ""}`} active={tab === "reports"} onPress={() => setTab("reports")} c={c} scale={scale} />
@@ -224,4 +232,5 @@ const styles = StyleSheet.create({
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
   badgeText: { color: "#FFF", fontWeight: "900", fontSize: 10, letterSpacing: 0.4 },
   pillBtn: { alignSelf: "flex-start", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
+  quickLink: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999 },
 });

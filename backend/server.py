@@ -2793,7 +2793,7 @@ async def comment_group_post(post_id: str, body: dict):
 # ------------- Events -------------
 @api.get("/events")
 async def list_events():
-    return await db.events.find({}, {"_id": 0}).sort("date", 1).to_list(200)
+    return await db.events.find({"archived": {"$ne": True}}, {"_id": 0}).sort("date", 1).to_list(200)
 
 
 @api.post("/events")
@@ -2966,6 +2966,61 @@ async def restore_event(event_id: str, body: EventCancelBody):
 class AdminHardDeleteBody(BaseModel):
     admin_id: str
     reason: Optional[str] = None
+
+
+@api.get("/admin/events")
+async def admin_list_events(admin_id: str, status: str = "all"):
+    """Admin event management list. status = all | active | cancelled | archived."""
+    await _require_admin(admin_id)
+    q: Dict = {}
+    if status == "active":
+        q = {"cancelled": {"$ne": True}, "archived": {"$ne": True}}
+    elif status == "cancelled":
+        q = {"cancelled": True, "archived": {"$ne": True}}
+    elif status == "archived":
+        q = {"archived": True}
+    events = await db.events.find(q, {"_id": 0}).sort("date", -1).to_list(500)
+    # Enrich with host info + RSVP counts (already in doc)
+    host_ids = list({e.get("host_id") for e in events if e.get("host_id")})
+    hosts: Dict[str, Dict] = {}
+    if host_ids:
+        async for u in db.users.find({"id": {"$in": host_ids}}, {"_id": 0, "id": 1, "username": 1, "first_name": 1, "avatar": 1}):
+            hosts[u["id"]] = u
+    for e in events:
+        e["host"] = hosts.get(e.get("host_id") or "")
+        e["going_count"] = len(e.get("rsvps") or [])
+        e["maybe_count"] = len(e.get("rsvps_maybe") or [])
+        e["waitlist_count"] = len(e.get("waitlist") or [])
+    return {"events": events, "counts": {
+        "total": await db.events.count_documents({}),
+        "active": await db.events.count_documents({"cancelled": {"$ne": True}, "archived": {"$ne": True}}),
+        "cancelled": await db.events.count_documents({"cancelled": True, "archived": {"$ne": True}}),
+        "archived": await db.events.count_documents({"archived": True}),
+    }}
+
+
+@api.post("/admin/events/{event_id}/archive")
+async def admin_archive_event(event_id: str, body: AdminHardDeleteBody):
+    """Soft-archive — hidden from public list but kept in DB for audit."""
+    await _require_admin(body.admin_id)
+    ev = await db.events.find_one({"id": event_id}, {"_id": 0, "host_id": 1, "title": 1})
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    await db.events.update_one({"id": event_id}, {"$set": {"archived": True, "archived_at": now_iso(), "archived_by": body.admin_id, "archived_reason": (body.reason or "").strip()}})
+    if ev.get("host_id"):
+        await _log_moderation_action(
+            user_id=ev["host_id"], by=body.admin_id, action="content_removed",
+            reason=body.reason or f"Event '{ev.get('title','?')}' archived by admin",
+            target_type="event", target_id=event_id,
+        )
+    return {"ok": True}
+
+
+@api.post("/admin/events/{event_id}/unarchive")
+async def admin_unarchive_event(event_id: str, body: AdminHardDeleteBody):
+    await _require_admin(body.admin_id)
+    await db.events.update_one({"id": event_id}, {"$set": {"archived": False}, "$unset": {"archived_at": "", "archived_by": "", "archived_reason": ""}})
+    return {"ok": True}
 
 
 @api.delete("/admin/events/{event_id}")
@@ -3885,15 +3940,19 @@ async def admin_repeat_offenders(admin_id: str, days: int = MODERATION_WINDOW_DA
         {"$limit": 100},
     ]
     rows = await db.reports.aggregate(pipeline).to_list(100)
-    # Attach user summaries
+    # Attach user summaries — skip orphan/test reports whose targets no longer exist
     user_ids = [r["user_id"] for r in rows]
     users = await db.users.find(
         {"id": {"$in": user_ids}},
-        {"_id": 0, "id": 1, "username": 1, "first_name": 1, "avatar": 1, "restricted": 1, "flagged_for_review": 1, "banned": 1},
+        {"_id": 0, "id": 1, "username": 1, "first_name": 1, "avatar": 1, "restricted": 1, "flagged_for_review": 1, "banned": 1, "profile_hidden": 1},
     ).to_list(100)
     by_id = {u["id"]: u for u in users}
+    enriched: List[Dict] = []
     for r in rows:
-        u = by_id.get(r["user_id"], {})
+        u = by_id.get(r["user_id"])
+        if not u:
+            # Orphan report (target user deleted or seed/test data) — skip
+            continue
         r.update({
             "username": u.get("username", "?"),
             "first_name": u.get("first_name", ""),
@@ -3901,11 +3960,13 @@ async def admin_repeat_offenders(admin_id: str, days: int = MODERATION_WINDOW_DA
             "restricted": bool(u.get("restricted")),
             "flagged_for_review": bool(u.get("flagged_for_review")),
             "banned": bool(u.get("banned")),
+            "profile_hidden": bool(u.get("profile_hidden")),
         })
+        enriched.append(r)
     return {"window_days": days, "policy": {
         "flag_at": MODERATION_FLAG_THRESHOLD,
         "restrict_at": MODERATION_RESTRICT_THRESHOLD,
-    }, "users": rows}
+    }, "users": enriched}
 
 
 class ModerationLiftBody(BaseModel):

@@ -238,6 +238,12 @@ export const api = {
     req(`/events/${id}/restore`, { method: "POST", body: JSON.stringify(body) }),
   adminHardDeleteEvent: (id: string, admin_id: string, reason?: string) =>
     req(`/admin/events/${id}?admin_id=${admin_id}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`, { method: "DELETE" }),
+  adminListEvents: (admin_id: string, status: "all" | "active" | "cancelled" | "archived" = "all") =>
+    req(`/admin/events?admin_id=${admin_id}&status=${status}`),
+  adminArchiveEvent: (id: string, admin_id: string, reason?: string) =>
+    req(`/admin/events/${id}/archive`, { method: "POST", body: JSON.stringify({ admin_id, reason }) }),
+  adminUnarchiveEvent: (id: string, admin_id: string) =>
+    req(`/admin/events/${id}/unarchive`, { method: "POST", body: JSON.stringify({ admin_id }) }),
   adminHardDeleteNotice: (id: string, admin_id: string, reason?: string) =>
     req(`/admin/notices/${id}?admin_id=${admin_id}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`, { method: "DELETE" }),
   adminHardDeleteUser: (user_id: string, admin_id: string, reason?: string) =>

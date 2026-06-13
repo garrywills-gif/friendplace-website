@@ -226,11 +226,14 @@ export default function AdminUserReview() {
                 <Pressable testID="admin-ban" onPress={doBan} disabled={!!busyAction || u.banned} style={[styles.pill, { backgroundColor: "#7F1D1D", opacity: u.banned ? 0.5 : 1 }]}>
                   <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale }}>Ban</Text>
                 </Pressable>
-                {(u.restricted || u.banned || u.profile_hidden) && (
-                  <Pressable testID="admin-restore" onPress={doRestore} disabled={!!busyAction} style={[styles.pill, { backgroundColor: "#16A34A" }]}>
-                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale }}>Restore</Text>
-                  </Pressable>
-                )}
+                {(() => {
+                  const needsRestore = !!(u.restricted || u.banned || u.profile_hidden);
+                  return (
+                    <Pressable testID="admin-restore" onPress={doRestore} disabled={!!busyAction || !needsRestore} style={[styles.pill, { backgroundColor: "#16A34A", opacity: needsRestore ? 1 : 0.4 }]}>
+                      <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale }}>Restore</Text>
+                    </Pressable>
+                  );
+                })()}
               </View>
             </View>
 

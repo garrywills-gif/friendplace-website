@@ -1,0 +1,39 @@
+{
+  "summary": "Targeted re-test of iteration_16 fixes + new Admin Events panel. Both iteration_16 issues are RESOLVED and the new /admin/events feature works end-to-end. Backend pytest suite (9 tests) — 100% pass. UI flows verified at mobile viewport 390x844 on Expo web preview. FIX 1 (orphan repeat-offenders no longer 404): every user_id returned by /api/admin/repeat-offenders now resolves to /api/admin/users/{id}/moderation with 200 + populated data (user object, counts.reports_total>0, reports[], moderation_log[]). UI: clicking Review on a repeat-offender row opens a fully-rendered card — e.g. 'Dorothy @dot · 3 Reports / 3 Open / 0 Actions' with 3 URGENT/NEW report entries listed. FIX 2 (Restore button always visible): admin-restore testID is rendered on every /admin/user/[id] page; correctly greyed (opacity 0.4) when user is ACTIVE and enabled when restricted/banned/profile_hidden. NEW FEATURE /admin/events: admin-manage-events quick link routes correctly; 4 tabs (Active·8 / Cancelled·0 / Archived·0 / All·8) with live counts; cards render with ACTIVE/CANCELLED/ARCHIVED badge, emoji, title (line-through when cancelled), date+time, location, host, going/waitlist/maybe counts; per-card testIDs event-edit-{id} / event-cancel-{id} / event-archive-{id} / event-delete-{id} all present and functional; restore/unarchive buttons correctly conditional. Full lifecycle (create → list → patch → cancel → cancelled-tab → archive → archived-tab → unarchive → cancelled-tab → hard-delete → vanished-from-all-tabs) verified via backend pytest. Public /events confirmed to hide archived events (test_05 PASS). Edit screen uses testIDs `edit-title`, `edit-save`, `edit-cancel`, `admin-hard-delete` (note: not event-title/event-submit per spec — but they work).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "global (carried over from iter_16, still present)", "issue": "Console still emits 'shadow*' / 'textShadow*' / 'props.pointerEvents is deprecated' (React Native Web) warnings on every page render. Non-blocking but noisy."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter17.py",
+    "/app/test_reports/pytest/iter17.xml"
+  ],
+  "action_items": [
+    "OPTIONAL (low-priority polish): /events/edit/[id].tsx uses testIDs `edit-title`, `edit-save`, `edit-cancel`. The spec / earlier screens use `event-title`, `event-submit`. Consider aligning them for selector consistency (or document the divergence in the test plan).",
+    "OPTIONAL (low-priority polish): still some RN-Web deprecation warnings from iter_16 (shadow*, textShadow*, pointerEvents). Cleanup recommended but not blocking."
+  ],
+  "critical_code_review_comments": [
+    "server.py:3942-3965 — repeat-offender enrichment now skips orphans cleanly with `if not u: continue`. Good defensive pattern.",
+    "admin/user/[id].tsx:229-236 — Restore button is rendered unconditionally inside an IIFE; disabled state is driven by `u.restricted || u.banned || u.profile_hidden`. Clean.",
+    "admin/events.tsx — uses window.prompt / window.confirm on web, falls through to Alert on native. Works for QA but on native the prompt() returns def directly without a real text input — actual reason capture only works on web. Consider a proper React modal if/when this ships to mobile.",
+    "admin/events.tsx — Restore and Unarchive testIDs are conditional (only when cancelled/archived) — consistent with admin/user/[id]. Good.",
+    "events/edit/[id].tsx:34-36 — uses api.listEvents().find(...) instead of GET /api/events/{id}. Slower (200-doc fetch) but works. Long-term: add GET /api/events/{id}."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter17.py (new — pytest covering both fixes + full admin events lifecycle)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 tests passed)",
+    "frontend": "100% on the targeted flows — all testIDs render, navigation works, dialogs accept reasons, state propagates between tabs"
+  },
+  "seed_data_creation": "1 ephemeral event 'QA Test Event' / 'QA Test Event v2' was created during testing. Backend lifecycle test hard-deletes its own event. One UI test left 'QA Test Event v2' in the Active tab (id 92702e2d-8b00-44f7-8b1c-675657adeff4) — main agent can wipe via DELETE /api/admin/events/{id}?admin_id=<maggie> if desired.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both iter_16 majors are fixed. Backend tests at /app/backend/tests/test_iter17.py are reusable regression tests for the repeat-offender filter + admin events lifecycle. Re-run with: pytest backend/tests/test_iter17.py -v. The /events/edit/[id] page uses testIDs `edit-title` and `edit-save` (not `event-title`/`event-submit`).",
+  "rca_of_issue": "Both iter_16 issues resolved correctly. Root cause of FIX 1 was server-side: /api/admin/repeat-offenders aggregation was returning user_ids from orphaned seed reports against deleted target users; now filters them out post-aggregation by checking db.users membership. Root cause of FIX 2 was UI: the Restore Pressable was simply not rendered in the JSX; added as an unconditional Pressable with a `needsRestore` enable flag."
+}
