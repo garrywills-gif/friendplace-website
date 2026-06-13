@@ -232,22 +232,28 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: |
-        Implemented the YouBelong Trivia game end-to-end. Backend has the full
-        session lifecycle, ~150 curated questions across 7 categories × 4
-        difficulties, deterministic Daily Trivia, and proper Butterfly Points +
-        Achievement Flutter triggering ONLY on Hard/Nightmare completions
-        (legacy "expert" bug fixed).
+        REVIEW PASS COMPLETE — comprehensive sweep before Bingo build.
 
-        Please test:
-          1. Backend trivia endpoints (catalog, daily, full session flow with
-             correct + incorrect answers, lifelines fields, completion awards
-             expected points 5/10/20/35 and grants achievements appropriately).
-          2. Frontend: Games Hub now shows enabled Trivia tile + Daily Trivia
-             row. Trivia Hub renders categories + 4 difficulty rows + Daily
-             card. Player runs the round, supports 50/50 + Skip, shows
-             feedback + explanation, displays results with score + points.
-          3. Confirm log_game_completion grants "hard" achievement on a hard
-             completion and "nightmare" on a nightmare completion (this was
-             previously broken due to the "expert" key mismatch).
+        Fixes applied:
+          1. Deleted dead duplicate `/app/games/quiz.tsx` (superseded by full Trivia, no route pointed to it).
+          2. Removed `router.back()` buttons from all four tab roots (Home, Lounge, Friends, Profile) — they were nonsensical and risked sending freshly-logged-in users back to the welcome screen.
+          3. Replaced `Alert.alert` (silent on react-native-web) across the app with a new cross-platform `confirm()` API exposed from `ToastProvider`. Updated callers:
+             - `notices.tsx`: report / block / delete confirms + a brand-new bottom-sheet "Notice options" modal for the kebab menu.
+             - `games/jigsaw/[id].tsx`: restart confirm.
+             - (Trivia already uses its own modal from the previous iteration.)
+          4. Deduped `blockUser` in `src/lib/api.ts`.
+          5. Welcome screen "Continue with Apple/Google" no longer silently logs in as a demo user. Shows a clear "Coming soon" toast directing users to email signup.
+          6. Updated cheer copy "Let's celebrate in the Coffee Lounge" → "Join me in the Coffee Lounge" (matches the agreed wording for Bingo's congrats flow).
 
-        Demo accounts in /app/memory/test_credentials.md.
+        Other findings verified working:
+          - All Games Hub tile routes resolve (ready=true → game, ready=false → /games/coming-soon).
+          - Notifications screen routes per-type (friend_request → inbox, dm, table_join, flutter, event_invite, notice_comment) all valid.
+          - Friend request inbox (incoming/outgoing, accept/decline/cancel) is intact.
+          - Read-aloud (SpeakButton) honours `prefs.readMessagesAloud` on Home thought, Notices titles+comments+replies, Events, Trivia questions, Accessibility settings.
+          - Cheer kinds (well_done / congrats / coffee / flutter) already match the four reactions the user requested for Bingo winners.
+
+        Still open / future polish:
+          - `/settings.tsx` and `/settings/accessibility.tsx` both exist with overlapping toggles — could be merged into a single "Settings" hub with sub-pages. Non-urgent, not breaking anything.
+          - `games/wordsearch.tsx` placeholder is unreachable (hub routes to coming-soon). Will be replaced when Word Search is built.
+
+        Ready to build Bingo next.

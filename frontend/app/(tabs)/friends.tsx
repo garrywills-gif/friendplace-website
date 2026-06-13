@@ -58,9 +58,6 @@ export default function Friends() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headRow}>
-          <Pressable testID="friends-back" onPress={() => router.back()} style={[styles.backBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-            <Ionicons name="chevron-back" size={24} color={c.onSurface} />
-          </Pressable>
           <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>Find Friends</Text>
         </View>
         <View style={[styles.searchRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>

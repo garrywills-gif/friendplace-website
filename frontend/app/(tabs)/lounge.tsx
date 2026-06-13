@@ -49,9 +49,6 @@ export default function Lounge() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headRow}>
-          <Pressable testID="lounge-back" onPress={() => router.back()} style={[styles.backBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-            <Ionicons name="chevron-back" size={24} color={c.onSurface} />
-          </Pressable>
           <View style={{ flex: 1 }}>
             <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>Coffee Lounge ☕</Text>
             <Text style={[styles.sub, { color: c.muted, fontSize: 16 * scale }]}>Pull up a chair and join a chat</Text>

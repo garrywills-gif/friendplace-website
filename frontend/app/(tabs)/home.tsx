@@ -73,9 +73,7 @@ export default function Home() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: 24 }]}>
         <View style={styles.headerRow}>
-          <Pressable testID="home-back" onPress={() => router.back()} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-            <Ionicons name="chevron-back" size={26} color={c.onSurface} />
-          </Pressable>
+          <View style={[styles.iconBtn, { backgroundColor: "transparent", borderColor: "transparent" }]} />
           <Text style={[styles.brand, { color: c.brand, fontSize: 26 * scale }]}>YouBelong</Text>
           <Pressable testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border, marginRight: 8 }]}>
             <Ionicons name="notifications-outline" size={24} color={c.onSurface} />

@@ -35,6 +35,7 @@ export const api = {
   },
   getUser: (id: string) => req(`/users/${id}`),
   blockUser: (uid: string, other: string) => req(`/users/${uid}/block/${other}`, { method: "POST" }),
+  unblockUser: (uid: string, other: string) => req(`/users/${uid}/unblock/${other}`, { method: "POST" }),
   reportUser: (uid: string, other: string, reason = "") =>
     req(`/users/${uid}/report/${other}?reason=${encodeURIComponent(reason)}`, { method: "POST" }),
 
@@ -134,8 +135,6 @@ export const api = {
     req(`/notices/${id}/solve/${user_id}`, { method: "POST", body: JSON.stringify({ solved }) }),
   reportNotice: (id: string, user_id: string, reason: string) =>
     req(`/notices/${id}/report/${user_id}`, { method: "POST", body: JSON.stringify({ reason }) }),
-  blockUser: (uid: string, other: string) => req(`/users/${uid}/block/${other}`, { method: "POST" }),
-  unblockUser: (uid: string, other: string) => req(`/users/${uid}/unblock/${other}`, { method: "POST" }),
 
   // dm
   myConversations: (uid: string) => req(`/dm/${uid}/conversations`),

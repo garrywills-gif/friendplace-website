@@ -40,13 +40,7 @@ export default function Welcome() {
   }
 
   const handleSocial = async (provider: string) => {
-    try {
-      show(`Continuing with ${provider}… (demo)`);
-      await demoLogin("maggie");
-      router.replace("/(tabs)/home");
-    } catch {
-      show("Try Sign Up instead");
-    }
+    show(`${provider} sign-in is coming soon. Please sign up with email or use Log In for now.`);
   };
 
   return (

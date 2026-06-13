@@ -31,10 +31,6 @@ export default function Profile() {
 
   return (
     <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 16, backgroundColor: c.surface, paddingBottom: 100 }]}>
-      <Pressable testID="profile-back" onPress={() => router.back()} style={[styles.backBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-        <Ionicons name="chevron-back" size={22} color={c.onSurface} />
-        <Text style={{ color: c.onSurface, marginLeft: 4, fontWeight: "700", fontSize: 15 * scale }}>Back</Text>
-      </Pressable>
       <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
         <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary }]}><Text style={{ fontSize: 60 }}>{user.avatar || "🙂"}</Text></View>
         <Text style={[styles.name, { color: c.onSurface, fontSize: 30 * scale }]} testID="profile-name">{user.first_name}</Text>

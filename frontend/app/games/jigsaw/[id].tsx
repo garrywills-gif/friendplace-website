@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, useWindowDimensions, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,7 +29,7 @@ export default function JigsawPlayer() {
   const { id, d } = useLocalSearchParams<{ id: string; d?: string }>();
   const { c, scale } = useTheme();
   const { user } = useAuth();
-  const { show } = useToast();
+  const { show, confirm } = useToast();
   const { width: winW } = useWindowDimensions();
 
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
@@ -122,11 +122,9 @@ export default function JigsawPlayer() {
     setSelected(null);
   };
 
-  const restart = () => {
-    Alert.alert("Restart puzzle?", "Your current progress on this difficulty will be lost.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Restart", style: "destructive", onPress: () => grid && startFresh(difficulty, grid.cols, grid.rows) },
-    ]);
+  const restart = async () => {
+    const ok = await confirm({ title: "Restart puzzle?", message: "Your current progress on this difficulty will be lost.", confirmLabel: "Restart", destructive: true });
+    if (ok && grid) startFresh(difficulty, grid.cols, grid.rows);
   };
 
   if (!puzzle || !grid) {

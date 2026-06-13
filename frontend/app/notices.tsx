@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Alert } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -24,7 +24,7 @@ const REACTIONS = [
 export default function Notices() {
   const { c, scale, prefs } = useTheme();
   const { user } = useAuth();
-  const { show } = useToast();
+  const { show, confirm } = useToast();
   const [notices, setNotices] = useState<any[]>([]);
   const [category, setCategory] = useState("All");
   const [query, setQuery] = useState("");
@@ -36,6 +36,7 @@ export default function Notices() {
   const [openCommentsFor, setOpenCommentsFor] = useState<string | null>(null);
   const [commentText, setCommentText] = useState("");
   const [replyTo, setReplyTo] = useState<{ commentId: string; userName: string } | null>(null);
+  const [actionMenuFor, setActionMenuFor] = useState<any | null>(null);
 
   const load = async () => {
     if (!user) return;
@@ -94,28 +95,25 @@ export default function Notices() {
     } catch (e: any) { show("Only the author can do that"); }
   };
 
-  const onReport = (n: any) => {
+  const onReport = async (n: any) => {
     if (!user) return;
-    Alert.alert("Report notice?", "Send this to the moderation team. The notice will stay visible until reviewed.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Report", style: "destructive", onPress: async () => { try { await api.reportNotice(n.id, user.id, "user_report"); show("Reported. Thank you."); } catch {} } },
-    ]);
+    const ok = await confirm({ title: "Report notice?", message: "Send this to the moderation team. The notice will stay visible until reviewed.", confirmLabel: "Report", destructive: true });
+    if (!ok) return;
+    try { await api.reportNotice(n.id, user.id, "user_report"); show("Reported. Thank you."); } catch {}
   };
 
-  const onBlock = (n: any) => {
+  const onBlock = async (n: any) => {
     if (!user) return;
-    Alert.alert(`Block ${n.user_name}?`, "You won't see posts from this user any more.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Block", style: "destructive", onPress: async () => { try { await api.blockUser(user.id, n.user_id); show("User blocked"); load(); } catch {} } },
-    ]);
+    const ok = await confirm({ title: `Block ${n.user_name}?`, message: "You won't see posts from this user any more.", confirmLabel: "Block", destructive: true });
+    if (!ok) return;
+    try { await api.blockUser(user.id, n.user_id); show("User blocked"); load(); } catch {}
   };
 
-  const onDelete = (n: any) => {
+  const onDelete = async (n: any) => {
     if (!user) return;
-    Alert.alert("Delete this notice?", "This cannot be undone.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: async () => { try { await api.deleteNotice(n.id, user.id); show("Notice deleted"); load(); } catch {} } },
-    ]);
+    const ok = await confirm({ title: "Delete this notice?", message: "This cannot be undone.", confirmLabel: "Delete", destructive: true });
+    if (!ok) return;
+    try { await api.deleteNotice(n.id, user.id); show("Notice deleted"); load(); } catch {}
   };
 
   const showActions = (n: any) => {
@@ -278,6 +276,24 @@ export default function Notices() {
         )}
       />
 
+      {/* Action sheet (cross-platform — Alert.alert is silent on web) */}
+      <Modal visible={!!actionMenuFor} transparent animationType="fade" onRequestClose={() => setActionMenuFor(null)}>
+        <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }} onPress={() => setActionMenuFor(null)}>
+          <Pressable style={[styles.sheet, { backgroundColor: c.surface }]} onPress={() => {}}>
+            <Text style={{ color: c.muted, fontSize: 13 * scale, fontWeight: "800", letterSpacing: 0.4, textAlign: "center", marginBottom: 8 }}>NOTICE OPTIONS</Text>
+            {(actionMenu || []).map((o) => (
+              <Pressable key={o.label} onPress={o.onPress} style={[styles.sheetBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                <Text style={{ color: o.destructive ? c.error : c.onSurface, fontWeight: "800", fontSize: 16 * scale, textAlign: "center" }}>{o.label}</Text>
+              </Pressable>
+            ))}
+            <Pressable onPress={() => setActionMenuFor(null)} style={[styles.sheetBtn, { backgroundColor: c.surfaceTertiary, borderColor: c.border, marginTop: 4 }]}>
+              <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 16 * scale, textAlign: "center" }}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+
       <Modal visible={posting} animationType="slide" transparent onRequestClose={() => setPosting(false)}>
         <View style={styles.modalWrap}>
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, justifyContent: "flex-end" }}>
@@ -330,4 +346,6 @@ const styles = StyleSheet.create({
   modalSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, maxHeight: "85%" },
   modalHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   label: { fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
+  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 28, gap: 8 },
+  sheetBtn: { padding: 14, borderRadius: 14, borderWidth: 1 },
 });
