@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, useWindowDimensions, ActivityIndicator, Modal, PanResponder, Animated } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, useWindowDimensions, ActivityIndicator, Modal } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -9,7 +9,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 
-const HOW_TO = "Two pictures, almost the same. Tap on a difference in either picture to mark it. Use the magnifying glass to zoom in by dragging it around. Tap the hint button if you get stuck. Take your time.";
+const HOW_TO = "Two pictures, almost the same. Tap on a difference in either picture to mark it. Use the Zoom in/out buttons or tap Magnify to make everything bigger so the small details are easier to see. Tap the hint button if you get stuck. Take your time.";
 
 type Elem = { id: string; emoji: string; x: number; y: number; size: number };
 type Diff = { id: string; target: string; type: string; x: number; y: number; radius: number };
@@ -61,17 +61,6 @@ export default function SpotPlayer() {
   const [zoom, setZoom] = useState(1);
   const [magnify, setMagnify] = useState(false);
   const startedAt = useRef<number>(Date.now());
-
-  // Magnifying-glass position (Animated for smoothness)
-  const lensPos = useRef(new Animated.ValueXY({ x: 80, y: 80 })).current;
-  const lensResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, g) => {
-        lensPos.setValue({ x: Math.max(0, g.moveX - 50), y: Math.max(0, g.moveY - 200) });
-      },
-    })
-  ).current;
 
   useEffect(() => {
     let cancelled = false;
@@ -188,8 +177,8 @@ export default function SpotPlayer() {
           {prefs.readMessagesAloud && (<SpeakButton text={HOW_TO} color={c.brand} size={22} bg={c.brandTertiary} testID="std-speak" />)}
         </View>
 
-        <Scene elements={puzzle.scene_a} found={foundIds} sceneW={sceneW} sceneH={sceneH} zoom={zoom} onTap={onTapScene} foundDiffs={foundDiffs} hintCircle={hintCircle} testIDPrefix="std-a" />
-        <Scene elements={puzzle.scene_b} found={foundIds} sceneW={sceneW} sceneH={sceneH} zoom={zoom} onTap={onTapScene} foundDiffs={foundDiffs} hintCircle={hintCircle} testIDPrefix="std-b" />
+        <Scene elements={puzzle.scene_a} found={foundIds} sceneW={sceneW} sceneH={sceneH} zoom={magnify ? Math.max(zoom, 1.8) : zoom} onTap={onTapScene} foundDiffs={foundDiffs} hintCircle={hintCircle} testIDPrefix="std-a" />
+        <Scene elements={puzzle.scene_b} found={foundIds} sceneW={sceneW} sceneH={sceneH} zoom={magnify ? Math.max(zoom, 1.8) : zoom} onTap={onTapScene} foundDiffs={foundDiffs} hintCircle={hintCircle} testIDPrefix="std-b" />
 
         <View style={styles.actions}>
           <Pressable testID="std-zoom-out" onPress={() => setZoom(Math.max(1, zoom - 0.25))} style={[styles.actionBtn, { backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border }]}>
@@ -198,21 +187,21 @@ export default function SpotPlayer() {
           <Pressable testID="std-zoom-in" onPress={() => setZoom(Math.min(2.5, zoom + 0.25))} style={[styles.actionBtn, { backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border }]}>
             <Ionicons name="add" size={18} color={c.onSurface} /><Text style={{ color: c.onSurface, fontWeight: "900" }}>Zoom in</Text>
           </Pressable>
-          <Pressable testID="std-magnify" onPress={() => setMagnify(!magnify)} style={[styles.actionBtn, { backgroundColor: magnify ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: magnify ? c.brand : c.border }]}>
-            <Ionicons name="search" size={18} color={magnify ? "#FFF" : c.onSurface} /><Text style={{ color: magnify ? "#FFF" : c.onSurface, fontWeight: "900" }}>Magnify {magnify ? "ON" : "off"}</Text>
+          <Pressable
+            testID="std-magnify"
+            accessibilityRole="button"
+            accessibilityLabel={magnify ? "Turn off magnifier" : "Turn on magnifier"}
+            onPress={() => setMagnify(!magnify)}
+            style={[styles.actionBtn, { backgroundColor: magnify ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: magnify ? c.brand : c.border }]}
+          >
+            <Ionicons name="search" size={18} color={magnify ? "#FFF" : c.onSurface} />
+            <Text style={{ color: magnify ? "#FFF" : c.onSurface, fontWeight: "900" }}>Magnify {magnify ? "ON" : "off"}</Text>
           </Pressable>
           <Pressable testID="std-hint" onPress={onHint} disabled={hintsUsed >= (puzzle.hint_quota ?? 3) || completed} style={[styles.actionBtn, { backgroundColor: hintsUsed >= (puzzle.hint_quota ?? 3) || completed ? c.surfaceTertiary : "#F59E0B" }]}>
             <Ionicons name="bulb" size={18} color={hintsUsed >= (puzzle.hint_quota ?? 3) || completed ? c.muted : "#FFF"} /><Text style={{ color: hintsUsed >= (puzzle.hint_quota ?? 3) || completed ? c.muted : "#FFF", fontWeight: "900" }}>Hint ({(puzzle.hint_quota ?? 3) - hintsUsed})</Text>
           </Pressable>
         </View>
       </ScrollView>
-
-      {/* Magnifying glass lens */}
-      {magnify && (
-        <Animated.View {...lensResponder.panHandlers} style={[styles.lens, { transform: lensPos.getTranslateTransform() }]}>
-          <Ionicons name="search" size={48} color="#1E3A7F" />
-        </Animated.View>
-      )}
 
       <Modal visible={showHow} animationType="fade" transparent onRequestClose={() => setShowHow(false)}>
         <View style={styles.modalBg}>
