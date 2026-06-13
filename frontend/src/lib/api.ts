@@ -29,8 +29,8 @@ export const api = {
   me: (token: string) =>
     req("/auth/me", { headers: { Authorization: `Bearer ${token}` } }),
 
-  listUsers: (params: { suburb?: string; interest?: string; q?: string; viewer_id?: string } = {}) => {
-    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => !!v) as any).toString();
+  listUsers: (params: { suburb?: string; interest?: string; q?: string; viewer_id?: string; near_lat?: number; near_lng?: number; radius_km?: number } = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "") as any).toString();
     return req(`/users${qs ? `?${qs}` : ""}`);
   },
   getUser: (id: string) => req(`/users/${id}`),

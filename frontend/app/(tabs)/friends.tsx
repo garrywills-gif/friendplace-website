@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, TextInput, Pressable, ScrollView } from "react-native";
+import { View, Text, StyleSheet, FlatList, TextInput, Pressable, ScrollView, Modal, Platform, Linking } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,8 +7,9 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import * as Location from "expo-location";
 
-const SUBURB_FILTERS = ["All", "Bondi", "Manly", "Surry Hills", "Newtown", "Sydney CBD", "Parramatta"];
+const RADIUS_OPTIONS = [5, 10, 25, 50] as const;
 
 export default function Friends() {
   const { c, scale } = useTheme();
@@ -17,16 +18,64 @@ export default function Friends() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [q, setQ] = useState("");
-  const [suburb, setSuburb] = useState("All");
   const [users, setUsers] = useState<any[]>([]);
+  const [nearMe, setNearMe] = useState<{ lat: number; lng: number; suburb?: string } | null>(null);
+  const [radius, setRadius] = useState<number>(25);
+  const [askingLoc, setAskingLoc] = useState(false);
+  const [showRationale, setShowRationale] = useState(false);
+  const [showDeniedHelp, setShowDeniedHelp] = useState(false);
 
   const load = async () => {
     try {
-      const list = await api.listUsers({ q, suburb: suburb === "All" ? undefined : suburb, viewer_id: user?.id });
+      const params: any = { q, viewer_id: user?.id };
+      if (nearMe) {
+        params.near_lat = nearMe.lat;
+        params.near_lng = nearMe.lng;
+        params.radius_km = radius;
+      }
+      const list = await api.listUsers(params);
       setUsers((list as any[]).filter((u) => u.id !== user?.id));
     } catch { show("Failed to load"); }
   };
-  useFocusEffect(useCallback(() => { load(); }, [q, suburb, user?.id]));
+  useFocusEffect(useCallback(() => { load(); }, [q, user?.id, nearMe?.lat, nearMe?.lng, radius]));
+
+  const requestNearMe = async () => {
+    setShowRationale(false);
+    setAskingLoc(true);
+    try {
+      // Check permission state first — respect handle_permissions_contract
+      const current = await Location.getForegroundPermissionsAsync();
+      if (!current.granted) {
+        if (!current.canAskAgain) {
+          setShowDeniedHelp(true);
+          return;
+        }
+        const req = await Location.requestForegroundPermissionsAsync();
+        if (!req.granted) {
+          if (!req.canAskAgain) setShowDeniedHelp(true);
+          else show("Location not used — you can still search by suburb name");
+          return;
+        }
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Lowest });
+      // Reverse-lookup to nearest known suburb (we never store the device coords)
+      const nearest: any = await api.suburbsNearest(pos.coords.latitude, pos.coords.longitude);
+      const n = nearest?.nearest;
+      if (n) {
+        setNearMe({ lat: n.lat, lng: n.lng, suburb: n.name });
+        show(`Showing members near ${n.name}`);
+      } else {
+        setNearMe({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        show("Showing members near you");
+      }
+    } catch (e: any) {
+      show("Couldn't get your location — you can still search by suburb");
+    } finally {
+      setAskingLoc(false);
+    }
+  };
+
+  const clearNearMe = () => setNearMe(null);
 
   const sendReq = async (other: any) => {
     if (!user) return;
@@ -72,11 +121,23 @@ export default function Friends() {
           />
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-          {SUBURB_FILTERS.map((s) => (
-            <Pressable key={s} onPress={() => setSuburb(s)} style={[styles.chip, { backgroundColor: suburb === s ? c.brand : c.surfaceSecondary, borderColor: suburb === s ? c.brand : c.border }]}>
-              <Text style={{ color: suburb === s ? "#FFF" : c.onSurface, fontWeight: "700", fontSize: 14 * scale }}>{s}</Text>
+          <Pressable
+            testID="near-me"
+            onPress={() => (nearMe ? clearNearMe() : setShowRationale(true))}
+            style={[styles.chip, { backgroundColor: nearMe ? c.brand : c.surfaceSecondary, borderColor: nearMe ? c.brand : c.border, flexDirection: "row", alignItems: "center", gap: 6 }]}
+          >
+            <Ionicons name={nearMe ? "navigate" : "navigate-outline"} size={16} color={nearMe ? "#FFF" : c.onSurface} />
+            <Text style={{ color: nearMe ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>{nearMe ? (nearMe.suburb ? `Near ${nearMe.suburb}` : "Near Me") : "Near Me"}</Text>
+            {nearMe && <Ionicons name="close-circle" size={16} color="#FFFFFFCC" />}
+          </Pressable>
+          {nearMe && RADIUS_OPTIONS.map((r) => (
+            <Pressable key={r} testID={`radius-${r}`} onPress={() => setRadius(r)} style={[styles.chip, { backgroundColor: radius === r ? c.brand : c.surfaceSecondary, borderColor: radius === r ? c.brand : c.border }]}>
+              <Text style={{ color: radius === r ? "#FFF" : c.onSurface, fontWeight: "700", fontSize: 14 * scale }}>{r} km</Text>
             </Pressable>
           ))}
+          {!nearMe && (
+            <Text style={{ color: c.muted, fontSize: 13 * scale, alignSelf: "center", marginLeft: 8 }}>or type a suburb above</Text>
+          )}
         </ScrollView>
       </View>
       <Pressable testID="messages-btn" onPress={() => router.push("/messages")} style={[styles.inboxRow, { backgroundColor: c.brandTertiary }]}>
@@ -84,6 +145,44 @@ export default function Friends() {
         <Text style={[styles.inboxText, { color: c.brand, fontSize: 16 * scale }]}>My Messages</Text>
         <Ionicons name="chevron-forward" size={20} color={c.brand} />
       </Pressable>
+
+      {/* Pre-permission rationale (per YouBelong permission contract) */}
+      <Modal visible={showRationale} animationType="fade" transparent onRequestClose={() => setShowRationale(false)}>
+        <View style={modalStyles.bg}>
+          <View style={[modalStyles.card, { backgroundColor: c.surface }]}>
+            <Text style={{ fontSize: 40 }}>📍</Text>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale, marginTop: 6 }}>Find neighbours near you</Text>
+            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center", lineHeight: 22 }}>
+              We&apos;ll use your location once to find your suburb. We <Text style={{ fontWeight: "800" }}>never share your exact location</Text> — only your suburb name is shown to other members.
+            </Text>
+            <Pressable testID="loc-allow" onPress={requestNearMe} disabled={askingLoc} style={[modalStyles.primary, { backgroundColor: c.brand, opacity: askingLoc ? 0.6 : 1 }]}>
+              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Use my location</Text>
+            </Pressable>
+            <Pressable testID="loc-cancel" onPress={() => setShowRationale(false)} style={[modalStyles.secondary, { borderColor: c.border }]}>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Not now</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Permission denied / blocked — Open Settings */}
+      <Modal visible={showDeniedHelp} animationType="fade" transparent onRequestClose={() => setShowDeniedHelp(false)}>
+        <View style={modalStyles.bg}>
+          <View style={[modalStyles.card, { backgroundColor: c.surface }]}>
+            <Text style={{ fontSize: 40 }}>🔒</Text>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale, marginTop: 6 }}>Location is turned off</Text>
+            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center", lineHeight: 22 }}>
+              To use Near Me, open Settings and allow YouBelong to use your location. You can still search by suburb above.
+            </Text>
+            <Pressable testID="loc-open-settings" onPress={() => Linking.openSettings()} style={[modalStyles.primary, { backgroundColor: c.brand }]}>
+              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Open Settings</Text>
+            </Pressable>
+            <Pressable testID="loc-deny-close" onPress={() => setShowDeniedHelp(false)} style={[modalStyles.secondary, { borderColor: c.border }]}>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       <FlatList
         data={users}
@@ -97,7 +196,7 @@ export default function Friends() {
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={[styles.name, { color: c.onSurface, fontSize: 20 * scale }]}>{item.first_name}</Text>
-                <Text style={[styles.metaText, { color: c.muted, fontSize: 14 * scale }]}>📍 {item.suburb || "—"}</Text>
+                <Text style={[styles.metaText, { color: c.muted, fontSize: 14 * scale }]}>📍 {item.suburb || "—"}{item.distance_km != null ? ` · ${item.distance_km} km away` : ""}</Text>
                 <Text style={[styles.metaText, { color: c.muted, fontSize: 13 * scale }]} numberOfLines={1}>{(item.interests || []).join(" · ") || "No interests yet"}</Text>
               </View>
             </Pressable>
@@ -141,4 +240,11 @@ const styles = StyleSheet.create({
   actionRow: { flexDirection: "row", gap: 8 },
   actionBtn: { flex: 1, minHeight: 48, borderRadius: 999, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
   actionText: { color: "#FFF", fontWeight: "700", fontSize: 15 },
+});
+
+const modalStyles = StyleSheet.create({
+  bg: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", alignItems: "center", padding: 20 },
+  card: { width: "100%", maxWidth: 440, borderRadius: 20, padding: 24, alignItems: "center" },
+  primary: { paddingVertical: 14, borderRadius: 999, alignItems: "center", marginTop: 18, width: "100%" },
+  secondary: { paddingVertical: 12, borderRadius: 999, alignItems: "center", marginTop: 10, width: "100%", borderWidth: 1 },
 });
