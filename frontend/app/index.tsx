@@ -24,7 +24,7 @@ export default function Welcome() {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   // Logo card sized in PIXELS (aspectRatio is unreliable on web)
-  const cardW = Math.min(winW - 44, 360);
+  const cardW = Math.round(Math.min(winW - 44, 360) * 0.75); // -25%
   const cardH = Math.round((cardW * 853) / 1272); // preserve official aspect
 
   useEffect(() => {
@@ -120,7 +120,7 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#0D2A57" },
   content: { paddingHorizontal: 22, flexGrow: 1, justifyContent: "flex-start", gap: 14 },
-  hero: { alignItems: "center", marginTop: 18 },
+  hero: { alignItems: "center", marginTop: 4 },
   logoCard: {
     borderRadius: 22,
     backgroundColor: "#FFFFFF",
