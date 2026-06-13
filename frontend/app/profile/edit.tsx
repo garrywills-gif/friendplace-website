@@ -6,6 +6,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
+import SuburbField from "@/src/components/SuburbField";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 
@@ -115,8 +116,20 @@ export default function ProfileEdit() {
         <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           <Text style={[styles.section, { color: c.muted }]}>NAME</Text>
           <TextInput value={first_name} onChangeText={setFirstName} placeholder="Your first name" placeholderTextColor={c.muted} style={[styles.field, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceTertiary, fontSize: 16 * scale }]} />
-          <Text style={[styles.section, { color: c.muted, marginTop: 12 }]}>SUBURB / TOWN</Text>
-          <TextInput value={suburb} onChangeText={setSuburb} placeholder="e.g. Frankston, VIC" placeholderTextColor={c.muted} style={[styles.field, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceTertiary, fontSize: 16 * scale }]} />
+          <Text style={[styles.section, { color: c.muted, marginTop: 12 }]}>LOCATION (OPTIONAL)</Text>
+          <SuburbField
+            initialValue={suburb}
+            preferNotToSay={((user as any)?.location_visibility) === "private"}
+            onChange={async (m, pns) => {
+              if (pns) {
+                setSuburb("");
+                try { await api.setLocation(user.id, { prefer_not_to_say: true }); } catch {}
+              } else if (m) {
+                setSuburb(m.name);
+                try { await api.setLocation(user.id, { suburb: m.name }); } catch {}
+              }
+            }}
+          />
           <Text style={[styles.section, { color: c.muted, marginTop: 12 }]}>BIRTHDAY (OPTIONAL)</Text>
           <TextInput value={birthday} onChangeText={setBirthday} placeholder="YYYY-MM-DD or MM-DD" placeholderTextColor={c.muted} style={[styles.field, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceTertiary, fontSize: 16 * scale }]} />
         </View>

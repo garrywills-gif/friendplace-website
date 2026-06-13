@@ -23,6 +23,7 @@ from memory_match import THEMES as MM_THEMES, DIFFICULTIES as MM_DIFFS, list_the
 from sudoku import DIFFICULTIES as SD_DIFFS, generate_puzzle as sd_generate, daily_pick as sd_daily_pick, today_iso as sd_today_iso
 from spot_difference import THEMES as STD_THEMES, DIFFICULTIES as STD_DIFFS, list_themes as std_list_themes, generate_puzzle as std_generate, daily_pick as std_daily_pick, today_iso as std_today_iso
 from milestones import MILESTONES as ML_DEFS, evaluate as ml_evaluate
+from suburbs import search_suburbs as sb_search, by_postcode as sb_by_postcode, haversine_km as sb_haversine
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -141,6 +142,11 @@ class SignupBody(BaseModel):
     email: Optional[EmailStr] = None
     first_name: str = ""
     suburb: str = ""
+    suburb_postcode: Optional[str] = None
+    suburb_state: Optional[str] = None
+    suburb_lat: Optional[float] = None
+    suburb_lng: Optional[float] = None
+    location_visibility: str = "suburb"  # "suburb" (public name only) | "private" (Prefer not to say)
     interests: List[str] = []
     avatar: str = ""
     birthday: str = ""  # YYYY-MM-DD or MM-DD (optional)
@@ -502,9 +508,18 @@ async def list_users(
     interest: Optional[str] = None,
     q: Optional[str] = None,
     viewer_id: Optional[str] = None,
+    near_lat: Optional[float] = None,
+    near_lng: Optional[float] = None,
+    radius_km: Optional[float] = None,
 ):
     """List members. When `viewer_id` is provided, hides users blocked by or
-    who have blocked the viewer, and excludes banned/restricted users."""
+    who have blocked the viewer, and excludes banned users.
+
+    When `near_lat` + `near_lng` + `radius_km` are provided, only includes
+    members whose suburb falls within that radius. Coordinates are NEVER
+    returned to the client — only a friendly `distance_km` and the suburb
+    name. Users with `location_visibility=private` are excluded from radius
+    queries (they opted out of location matching)."""
     query: Dict = {"banned": {"$ne": True}}
     if suburb:
         query["suburb"] = {"$regex": suburb, "$options": "i"}
@@ -519,9 +534,33 @@ async def list_users(
         viewer = await db.users.find_one({"id": viewer_id}, {"_id": 0, "blocked": 1}) or {}
         blocked_by_me = viewer.get("blocked") or []
         query["id"] = {"$nin": blocked_by_me + [viewer_id]}
-        # Also exclude users who have blocked the viewer
         query["blocked"] = {"$ne": viewer_id}
+    if near_lat is not None and near_lng is not None and radius_km:
+        # Restrict to users who have lat/lng AND haven't opted out.
+        query["suburb_lat"] = {"$ne": None, "$exists": True}
+        query["suburb_lng"] = {"$ne": None, "$exists": True}
+        query["location_visibility"] = {"$ne": "private"}
     docs = await db.users.find(query, {"_id": 0}).to_list(500)
+    # Apply radius filter + attach distance, then strip coords before returning.
+    if near_lat is not None and near_lng is not None and radius_km:
+        out: List[Dict] = []
+        for u in docs:
+            lat = u.get("suburb_lat")
+            lng = u.get("suburb_lng")
+            if lat is None or lng is None:
+                continue
+            dist = sb_haversine(float(near_lat), float(near_lng), float(lat), float(lng))
+            if dist <= float(radius_km):
+                u["distance_km"] = round(dist, 1)
+                u.pop("suburb_lat", None)
+                u.pop("suburb_lng", None)
+                out.append(u)
+        out.sort(key=lambda x: x.get("distance_km", 9999))
+        return out
+    # Never leak raw coordinates in the public list response.
+    for u in docs:
+        u.pop("suburb_lat", None)
+        u.pop("suburb_lng", None)
     return docs
 
 
@@ -992,6 +1031,83 @@ async def set_user_status(user_id: str, body: StatusBody):
 async def status_options():
     """List the 5 selectable status options for the picker UI."""
     return {"options": list(STATUS_LABELS.values())}
+
+
+# ------------- Suburbs (AU) -------------
+class SetLocationBody(BaseModel):
+    suburb: Optional[str] = None     # display name
+    postcode: Optional[str] = None
+    state: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    prefer_not_to_say: bool = False
+
+
+@api.get("/suburbs/search")
+async def suburbs_search(q: str = "", limit: int = 10):
+    """Typeahead — returns up to `limit` matches by name or postcode."""
+    return {"results": sb_search(q, min(int(limit), 30))}
+
+
+@api.get("/suburbs/by-postcode/{postcode}")
+async def suburbs_by_postcode(postcode: str):
+    return {"results": sb_by_postcode(postcode)}
+
+
+@api.get("/suburbs/nearest")
+async def suburbs_nearest(lat: float, lng: float):
+    """Reverse-geocode-lite: returns the closest known suburb to lat/lng.
+    Used by 'Near Me' — we never store the user's exact coords, only the
+    matched suburb name + the suburb's centre lat/lng."""
+    from suburbs import SUBURBS as _ALL
+    best = None
+    best_d = 9e9
+    for name, postcode, state, slat, slng in _ALL:
+        d = sb_haversine(float(lat), float(lng), slat, slng)
+        if d < best_d:
+            best_d = d
+            best = {"name": name, "postcode": postcode, "state": state, "lat": slat, "lng": slng, "distance_km": round(d, 1)}
+    return {"nearest": best}
+
+
+@api.post("/users/{user_id}/location")
+async def set_user_location(user_id: str, body: SetLocationBody):
+    """Set the user's chosen suburb. If `prefer_not_to_say=True`, clears all
+    location fields and excludes the user from radius/near-me queries."""
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+    if not user:
+        raise HTTPException(404, "User not found")
+    if body.prefer_not_to_say:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"location_visibility": "private", "suburb": ""},
+             "$unset": {"suburb_postcode": "", "suburb_state": "", "suburb_lat": "", "suburb_lng": ""}},
+        )
+        return {"ok": True, "location_visibility": "private"}
+    # Validate the suburb against our dataset when possible.
+    matches = sb_search(body.suburb or "", limit=1) if body.suburb else []
+    chosen = matches[0] if matches else None
+    update: Dict = {"location_visibility": "suburb"}
+    if chosen:
+        update["suburb"] = chosen["name"]
+        update["suburb_postcode"] = chosen["postcode"]
+        update["suburb_state"] = chosen["state"]
+        update["suburb_lat"] = chosen["lat"]
+        update["suburb_lng"] = chosen["lng"]
+    else:
+        # Free-text fallback (no coords). Still safe — just no radius matching.
+        if body.suburb:
+            update["suburb"] = body.suburb.strip()
+        if body.postcode:
+            update["suburb_postcode"] = body.postcode
+        if body.state:
+            update["suburb_state"] = body.state
+        if body.lat is not None and body.lng is not None:
+            update["suburb_lat"] = float(body.lat)
+            update["suburb_lng"] = float(body.lng)
+    await db.users.update_one({"id": user_id}, {"$set": update})
+    public_keys = ["suburb", "suburb_postcode", "suburb_state", "location_visibility"]
+    return {"ok": True, **{k: update.get(k) for k in public_keys if k in update}}
 
 
 @api.get("/users/{user_id}/status")
