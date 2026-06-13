@@ -29,7 +29,7 @@ export const THOUGHTS: string[] = [
   "The world needs your stories.",
   "Connection is the simplest medicine.",
   "Wave to a neighbour today.",
-  "Coffee tastes better with company.",
+  "Coffee tastes better with a friend.",
   "A good listener is worth a thousand words.",
   "Even small communities make big differences.",
   "Try something new this week — friends often follow.",

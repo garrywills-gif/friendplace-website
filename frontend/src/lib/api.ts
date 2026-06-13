@@ -58,6 +58,9 @@ export const api = {
   // presence & privacy
   heartbeat: (uid: string) => req(`/users/${uid}/heartbeat`, { method: "POST" }),
   userStatus: (uid: string) => req(`/users/${uid}/status`),
+  statusOptions: () => req(`/status-options`),
+  setStatus: (uid: string, status: string | null) =>
+    req(`/users/${uid}/status`, { method: "POST", body: JSON.stringify({ status }) }),
   setPrivacy: (uid: string, privacy: "everyone" | "friends" | "invisible") =>
     req(`/users/${uid}/privacy`, { method: "PATCH", body: JSON.stringify({ privacy }) }),
 

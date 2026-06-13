@@ -41,6 +41,14 @@ export default function UserView() {
           <View style={[styles.av, { backgroundColor: c.surfaceSecondary }]}><Text style={{ fontSize: 60 }}>{u.avatar || "🙂"}</Text></View>
           <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{u.first_name}</Text>
           <Text style={{ color: c.muted, fontSize: 16 * scale }}>@{u.username} · 📍 {u.suburb || "—"}</Text>
+          {!!u.status && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, backgroundColor: c.surface, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 }}>
+              <Text style={{ fontSize: 14 }}>{u.status === "looking_to_chat" ? "🟢" : u.status === "in_coffee_lounge" ? "☕" : u.status === "happy_to_connect" ? "😊" : u.status === "busy" ? "🟡" : "⚫"}</Text>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>
+                {u.status === "looking_to_chat" ? "Looking to chat" : u.status === "in_coffee_lounge" ? "In the Coffee Lounge" : u.status === "happy_to_connect" ? "Happy to connect" : u.status === "busy" ? "Busy right now" : "Offline"}
+              </Text>
+            </View>
+          )}
           {!!u.bio && <Text style={{ color: c.onBrandTertiary, fontSize: 16 * scale, marginTop: 8, textAlign: "center" }}>{u.bio}</Text>}
         </View>
         <View style={styles.actions}>

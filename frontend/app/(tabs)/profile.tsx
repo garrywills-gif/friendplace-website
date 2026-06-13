@@ -9,6 +9,13 @@ import Button from "@/src/components/Button";
 import { api } from "@/src/lib/api";
 
 const ALL_BADGES = ["Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder"];
+const STATUS_OPTIONS: { key: string; emoji: string; label: string }[] = [
+  { key: "looking_to_chat",  emoji: "🟢", label: "Looking to chat" },
+  { key: "in_coffee_lounge", emoji: "☕", label: "In the Coffee Lounge" },
+  { key: "happy_to_connect", emoji: "😊", label: "Happy to connect" },
+  { key: "busy",             emoji: "🟡", label: "Busy right now" },
+  { key: "offline",          emoji: "⚫", label: "Offline" },
+];
 
 export default function Profile() {
   const { c, scale } = useTheme();
@@ -93,6 +100,29 @@ export default function Profile() {
       )}
 
       <View style={{ height: 24 }} />
+      <Text style={[styles.section, { color: c.onSurface, fontSize: 18 * scale }]}>💬 My status</Text>
+      <Text style={{ color: c.muted, fontSize: 13 * scale, marginBottom: 6 }}>Let neighbours know how you&apos;re feeling today.</Text>
+      <View style={styles.row}>
+        {STATUS_OPTIONS.map((s) => {
+          const active = (user as any).status === s.key;
+          return (
+            <Pressable
+              key={s.key}
+              testID={`status-${s.key}`}
+              onPress={async () => {
+                try {
+                  await api.setStatus(user.id, active ? null : s.key);
+                  await refresh();
+                } catch {}
+              }}
+              style={[styles.chip, { backgroundColor: active ? c.brand : c.surfaceSecondary, borderColor: active ? c.brand : c.border }]}
+            >
+              <Text style={{ color: active ? c.onBrandPrimary : c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>{s.emoji} {s.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={{ height: 12 }} />
       <Button label="Friend Requests" onPress={() => router.push("/friends/inbox")} testID="profile-friend-requests" />
       <View style={{ height: 8 }} />
       <Text style={[styles.section, { color: c.onSurface, fontSize: 18 * scale, marginTop: 4 }]}>🛡️ Privacy</Text>

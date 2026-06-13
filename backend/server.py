@@ -124,6 +124,10 @@ class User(BaseModel):
     restricted_reason: str = ""
     # Online presence
     last_seen_at: str = Field(default_factory=now_iso)
+    # User-selectable presence status. None → auto from last_seen_at.
+    # Allowed: "looking_to_chat" | "in_coffee_lounge" | "happy_to_connect" | "busy" | "offline"
+    status: Optional[str] = None
+    status_updated_at: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -893,33 +897,88 @@ async def heartbeat(user_id: str):
     return {"ok": True}
 
 
-def _status_from(last_seen: Optional[str], privacy: str = "everyone") -> Dict:
-    """Return {label, code} computed from the last-seen timestamp."""
+def _status_from(last_seen: Optional[str], privacy: str = "everyone", chosen: Optional[str] = None) -> Dict:
+    """Return {label, code, emoji} for a user.
+
+    Priority:
+      1. If privacy = invisible → always Offline.
+      2. If user picked a status AND was active in the last 30 min → use it.
+      3. Otherwise fall back to auto last-seen presence.
+    """
     if privacy == "invisible":
-        return {"label": "Offline", "code": "offline"}
-    if not last_seen:
-        return {"label": "Offline", "code": "offline"}
-    try:
-        ts = datetime.fromisoformat(last_seen)
-    except Exception:
-        return {"label": "Offline", "code": "offline"}
-    delta = datetime.now(timezone.utc) - (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc))
-    secs = int(delta.total_seconds())
-    if secs < 120:
-        return {"label": "Online now", "code": "online"}
-    if secs < 60 * 60 * 24:
-        return {"label": "Active today", "code": "active_today"}
-    if secs < 60 * 60 * 24 * 7:
-        return {"label": "Last seen recently", "code": "recent"}
-    return {"label": "Offline", "code": "offline"}
+        return {"label": "Offline", "code": "offline", "emoji": "⚫"}
+
+    # Compute auto-fallback first (used by both branches below)
+    def _auto() -> Dict:
+        if not last_seen:
+            return {"label": "Offline", "code": "offline", "emoji": "⚫"}
+        try:
+            ts = datetime.fromisoformat(last_seen)
+        except Exception:
+            return {"label": "Offline", "code": "offline", "emoji": "⚫"}
+        delta = datetime.now(timezone.utc) - (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc))
+        secs = int(delta.total_seconds())
+        if secs < 120:
+            return {"label": "Online now", "code": "online", "emoji": "🟢"}
+        if secs < 60 * 60 * 24:
+            return {"label": "Active today", "code": "active_today", "emoji": "🟢"}
+        if secs < 60 * 60 * 24 * 7:
+            return {"label": "Last seen recently", "code": "recent", "emoji": "⚪"}
+        return {"label": "Offline", "code": "offline", "emoji": "⚫"}
+
+    if chosen and chosen in STATUS_LABELS:
+        # Respect the user's choice only if they've been active recently.
+        # If they explicitly chose "offline", honour it regardless.
+        if chosen == "offline":
+            return STATUS_LABELS[chosen]
+        if last_seen:
+            try:
+                ts = datetime.fromisoformat(last_seen)
+                delta = datetime.now(timezone.utc) - (ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc))
+                if int(delta.total_seconds()) < 60 * 30:  # 30-min window
+                    return STATUS_LABELS[chosen]
+            except Exception:
+                pass
+    return _auto()
+
+
+# Member-selectable status codes (community / friendship — not dating).
+STATUS_LABELS: Dict[str, Dict] = {
+    "looking_to_chat":   {"label": "Looking to chat",      "code": "looking_to_chat",   "emoji": "🟢"},
+    "in_coffee_lounge":  {"label": "In the Coffee Lounge", "code": "in_coffee_lounge",  "emoji": "☕"},
+    "happy_to_connect":  {"label": "Happy to connect",     "code": "happy_to_connect",  "emoji": "😊"},
+    "busy":              {"label": "Busy right now",       "code": "busy",              "emoji": "🟡"},
+    "offline":           {"label": "Offline",              "code": "offline",           "emoji": "⚫"},
+}
+
+
+class StatusBody(BaseModel):
+    status: Optional[str] = None  # one of STATUS_LABELS keys, or null to clear
+
+
+@api.post("/users/{user_id}/status")
+async def set_user_status(user_id: str, body: StatusBody):
+    """Set the user's chosen presence status. Pass `status: null` to clear."""
+    val = body.status
+    if val is not None and val not in STATUS_LABELS:
+        raise HTTPException(400, f"Invalid status. Allowed: {', '.join(STATUS_LABELS.keys())} or null.")
+    update = {"status": val, "status_updated_at": now_iso(), "last_seen_at": now_iso()}
+    await db.users.update_one({"id": user_id}, {"$set": update})
+    return {"ok": True, "status": val, "status_label": STATUS_LABELS[val] if val else None}
+
+
+@api.get("/status-options")
+async def status_options():
+    """List the 5 selectable status options for the picker UI."""
+    return {"options": list(STATUS_LABELS.values())}
 
 
 @api.get("/users/{user_id}/status")
 async def user_status(user_id: str):
-    u = await db.users.find_one({"id": user_id}, {"_id": 0, "last_seen_at": 1, "privacy": 1})
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "last_seen_at": 1, "privacy": 1, "status": 1}) 
     if not u:
         raise HTTPException(404, "User not found")
-    return _status_from(u.get("last_seen_at"), u.get("privacy", "everyone"))
+    return _status_from(u.get("last_seen_at"), u.get("privacy", "everyone"), u.get("status"))
 
 
 # ------------- Games (unified completion log + achievements) -------------
@@ -2600,7 +2659,7 @@ class FlutterDoc(BaseModel):
     to_id: str
     from_name: str = ""
     from_avatar: str = ""
-    message: str = "wants to chat 🦋"
+    message: str = "would like to chat 🦋"
     read: bool = False
     created_at: str = Field(default_factory=now_iso)
 
@@ -2615,14 +2674,14 @@ async def send_flutter(body: dict):
         to_id=body["to_id"],
         from_name=sender.get("first_name", ""),
         from_avatar=sender.get("avatar", ""),
-        message=body.get("message", "wants to chat 🦋"),
+        message=body.get("message", "would like to chat 🦋"),
     )
     await db.flutters.insert_one(f.dict())
     await award_points(body["from_id"], 2)
     await push_notification(
         body["to_id"],
         "flutter",
-        f"{f.from_avatar} {f.from_name} is online and looking for company",
+        f"{f.from_avatar} {f.from_name} is looking to chat",
         f.message or "",
         {"from_id": body["from_id"], "flutter_id": f.id},
     )
@@ -2710,6 +2769,32 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
     await hub.connect(room, websocket)
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     await db.tables.update_one({"id": table_id}, {"$addToSet": {"seated": user_id}})
+    # Auto-update presence status when sitting at a Coffee Lounge table.
+    prior_status = (user or {}).get("status")
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"status": "in_coffee_lounge", "status_updated_at": now_iso(), "last_seen_at": now_iso()},
+         "$setOnInsert": {}},
+    )
+    if prior_status and prior_status != "in_coffee_lounge":
+        # Remember what they had so we can restore on leave.
+        await db.users.update_one({"id": user_id}, {"$set": {"status_prior": prior_status}})
+    # Notify friends a seat is open (only the first time the table fills below capacity)
+    try:
+        tbl = await db.tables.find_one({"id": table_id}, {"_id": 0, "name": 1, "seated": 1, "capacity": 1}) or {}
+        seated_count = len(tbl.get("seated") or [])
+        capacity = int(tbl.get("capacity") or 0)
+        if user and capacity and seated_count == 1:  # they just joined an otherwise empty table
+            friends = (user.get("friends") or [])
+            for fid in friends[:25]:
+                await push_notification(
+                    fid, "coffee_seat",
+                    f"☕ {user.get('first_name','A friend')} is in the Coffee Lounge and has a seat available",
+                    f"Table: {tbl.get('name','Coffee Lounge')} — pull up a chair!",
+                    {"table_id": table_id, "from_id": user_id},
+                )
+    except Exception:
+        pass
     await hub.broadcast(room, {"type": "presence", "event": "join", "user": user})
     try:
         while True:
@@ -2733,6 +2818,15 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
     finally:
         hub.disconnect(room, websocket)
         await db.tables.update_one({"id": table_id}, {"$pull": {"seated": user_id}})
+        # Restore prior status (if any) when leaving the Coffee Lounge.
+        u2 = await db.users.find_one({"id": user_id}, {"_id": 0, "status": 1, "status_prior": 1}) or {}
+        if u2.get("status") == "in_coffee_lounge":
+            restore = u2.get("status_prior")
+            await db.users.update_one(
+                {"id": user_id},
+                {"$set": {"status": restore, "status_updated_at": now_iso()},
+                 "$unset": {"status_prior": ""}},
+            )
         await hub.broadcast(room, {"type": "presence", "event": "leave", "user": user})
 
 
@@ -2930,7 +3024,7 @@ async def seed():
         flut = FlutterDoc(
             from_id=sender["id"], to_id=users[0]["id"],
             from_name=sender["first_name"], from_avatar=sender["avatar"],
-            message="wants to chat 🦋",
+            message="would like to chat 🦋",
         )
         await db.flutters.insert_one(flut.dict())
 
