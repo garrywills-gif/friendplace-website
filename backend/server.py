@@ -22,6 +22,7 @@ from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_them
 from memory_match import THEMES as MM_THEMES, DIFFICULTIES as MM_DIFFS, list_themes as mm_list_themes, generate_puzzle as mm_generate, daily_pick as mm_daily_pick, today_iso as mm_today_iso
 from sudoku import DIFFICULTIES as SD_DIFFS, generate_puzzle as sd_generate, daily_pick as sd_daily_pick, today_iso as sd_today_iso
 from spot_difference import THEMES as STD_THEMES, DIFFICULTIES as STD_DIFFS, list_themes as std_list_themes, generate_puzzle as std_generate, daily_pick as std_daily_pick, today_iso as std_today_iso
+from milestones import MILESTONES as ML_DEFS, evaluate as ml_evaluate
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -840,6 +841,7 @@ async def community_today(user_id: Optional[str] = None):
         "$or": [{"birthday": {"$regex": f"-{today_mmdd}$"}}, {"birthday": today_mmdd}],
         "banned": {"$ne": True},
         "restricted": {"$ne": True},
+        "birthday_visibility": {"$ne": "off"},
         "username": {"$not": {"$regex": "_[a-f0-9]{6,}$|^(TEST_|Priv_|test_)"}},
     }
     if user_id:
@@ -1662,6 +1664,141 @@ async def spot_personal_bests(user_id: str):
         if cur is None or (sec is not None and sec < cur["seconds"]):
             bests[k] = {"seconds": sec, "theme": d.get("theme"), "puzzle_id": d.get("puzzle_id")}
     return {"bests": bests, "total_completed": len(docs)}
+
+
+# ------------- Milestones -------------
+async def _user_stats(user_id: str) -> Dict:
+    """Aggregate counts driving milestone evaluation."""
+    games_completed = await db.game_completions.count_documents({"user_id": user_id})
+    lounge_visits = await db.table_visits.count_documents({"user_id": user_id}) if hasattr(db, "table_visits") else 0
+    try:
+        # If we don't track table_visits, infer from any historical seated record (best-effort)
+        if not lounge_visits:
+            lounge_visits = await db.tables.count_documents({"seated": user_id})
+    except Exception:
+        pass
+    events_attended = 0
+    try:
+        events_attended = await db.event_rsvps.count_documents({"user_id": user_id, "going": True})
+    except Exception:
+        pass
+    return {"games_completed": games_completed, "lounge_visits": lounge_visits, "events_attended": events_attended}
+
+
+@api.get("/milestones/{user_id}")
+async def get_milestones(user_id: str):
+    user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user:
+        raise HTTPException(404, "User not found")
+    stats = await _user_stats(user_id)
+    evaluated = ml_evaluate(user, stats)
+    # Track which keys we've already celebrated (so we only notify once each).
+    celebrated = set(user.get("milestones_celebrated") or [])
+    just_unlocked: List[Dict] = []
+    new_keys: List[str] = []
+    for m in evaluated["earned"]:
+        if m["key"] not in celebrated:
+            new_keys.append(m["key"])
+            just_unlocked.append(m)
+    if new_keys:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$addToSet": {"milestones_celebrated": {"$each": new_keys}}},
+        )
+        # Push a friendly in-app notification for each newly unlocked milestone
+        for m in just_unlocked:
+            await push_notification(
+                user_id,
+                "milestone",
+                f"{m['emoji']} {m['label']}",
+                m["message"],
+                {"milestone_key": m["key"]},
+            )
+    return {
+        "user_id": user_id,
+        "stats": stats,
+        "earned": evaluated["earned"],
+        "upcoming": evaluated["upcoming"],
+        "just_unlocked": just_unlocked,
+    }
+
+
+# ------------- Birthday visibility + Birthday Flutters -------------
+class BirthdayVisibilityBody(BaseModel):
+    visibility: str  # "on" | "off"
+
+
+@api.post("/users/{user_id}/birthday-visibility")
+async def set_birthday_visibility(user_id: str, body: BirthdayVisibilityBody):
+    if body.visibility not in ("on", "off"):
+        raise HTTPException(400, "visibility must be 'on' or 'off'")
+    await db.users.update_one({"id": user_id}, {"$set": {"birthday_visibility": body.visibility}})
+    return {"ok": True, "visibility": body.visibility}
+
+
+class BirthdayWishBody(BaseModel):
+    from_id: str
+    to_id: str
+    message: Optional[str] = None
+
+
+@api.post("/birthday/wishes/send")
+async def send_birthday_wish(body: BirthdayWishBody):
+    sender = await db.users.find_one({"id": body.from_id}, {"_id": 0, "first_name": 1, "avatar": 1})
+    recipient = await db.users.find_one({"id": body.to_id}, {"_id": 0, "blocked": 1, "birthday_visibility": 1, "first_name": 1, "birthday": 1})
+    if not sender or not recipient:
+        raise HTTPException(404, "User not found")
+    if body.from_id in (recipient.get("blocked") or []):
+        raise HTTPException(403, "Cannot send a wish to this user")
+    if recipient.get("birthday_visibility", "on") == "off":
+        raise HTTPException(403, "This member has turned off birthday celebrations")
+    if not recipient.get("birthday"):
+        raise HTTPException(400, "Recipient has no birthday set")
+    msg = body.message or f"🎂 Happy Birthday, {recipient.get('first_name','friend')}! Wishing you a lovely day."
+    f = FlutterDoc(
+        from_id=body.from_id, to_id=body.to_id,
+        from_name=sender.get("first_name", ""), from_avatar=sender.get("avatar", ""),
+        message=msg,
+    )
+    await db.flutters.insert_one(f.dict())
+    await push_notification(
+        body.to_id, "birthday_wish",
+        f"🎂 {sender.get('first_name','A friend')} sent you a birthday wish",
+        msg,
+        {"from_id": body.from_id, "flutter_id": f.id},
+    )
+    await award_points(body.from_id, 3)
+    return {"ok": True, "flutter_id": f.id}
+
+
+# ------------- "We've Missed You" -------------
+@api.post("/jobs/missed-you-check")
+async def missed_you_check(days_idle: int = 30):
+    """Notifies dormant users (no heartbeat in `days_idle` days) with a gentle
+    message. Idempotent for today — re-running won't double-notify.
+    Safe to call from a cron or admin tool."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days_idle))).isoformat()
+    today_tag = ws_today_iso()
+    candidates = await db.users.find(
+        {
+            "last_seen_at": {"$lt": cutoff},
+            "banned": {"$ne": True},
+            "missed_you_last_sent": {"$ne": today_tag},
+        },
+        {"_id": 0, "id": 1, "first_name": 1},
+    ).to_list(500)
+    sent = 0
+    for u in candidates:
+        await push_notification(
+            u["id"],
+            "missed_you",
+            "💛 We've missed you",
+            "Your friends at YouBelong would love to see you again.",
+            {"days_idle": int(days_idle)},
+        )
+        await db.users.update_one({"id": u["id"]}, {"$set": {"missed_you_last_sent": today_tag}})
+        sent += 1
+    return {"ok": True, "checked": len(candidates), "notified": sent, "days_idle": int(days_idle)}
 
 
 # ------------- Jigsaw (built-in catalogue) -------------
