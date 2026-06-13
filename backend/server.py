@@ -1754,6 +1754,12 @@ async def send_birthday_wish(body: BirthdayWishBody):
         raise HTTPException(403, "This member has turned off birthday celebrations")
     if not recipient.get("birthday"):
         raise HTTPException(400, "Recipient has no birthday set")
+    today_tag = ws_today_iso()
+    # Per-day dedupe so the points reward can't be farmed.
+    dedupe_key = f"{body.from_id}:{body.to_id}:{today_tag}"
+    if await db.birthday_wishes_sent.find_one({"_id": dedupe_key}):
+        raise HTTPException(409, "You've already sent a birthday wish today")
+    await db.birthday_wishes_sent.insert_one({"_id": dedupe_key, "created_at": now_iso()})
     msg = body.message or f"🎂 Happy Birthday, {recipient.get('first_name','friend')}! Wishing you a lovely day."
     f = FlutterDoc(
         from_id=body.from_id, to_id=body.to_id,
