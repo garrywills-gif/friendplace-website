@@ -8,14 +8,16 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
+import ReportSheet from "@/src/components/ReportSheet";
 
 export default function UserView() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { c, scale } = useTheme();
   const { user, refresh } = useAuth();
-  const { show } = useToast();
+  const { show, confirm } = useToast();
   const router = useRouter();
   const [u, setU] = useState<any>(null);
+  const [reporting, setReporting] = useState(false);
 
   useEffect(() => { if (id) api.getUser(id).then(setU).catch(() => {}); }, [id]);
   if (!u) return <View style={{ flex: 1, backgroundColor: c.surface }}><Header title="Profile" /></View>;
@@ -23,8 +25,13 @@ export default function UserView() {
   const send = async () => { if (!user) return; await api.sendFriendReq(user.id, u.id); show("Friend request sent 🦋"); await refresh(); };
   const flutter = async () => { if (!user) return; await api.sendFlutter(user.id, u.id); show(`🦋 Flutter sent to ${u.first_name}!`); };
   const message = async () => { if (!user) return; const conv = await api.startDm(user.id, u.id); router.push(`/dm/${conv.id}?other_id=${u.id}` as any); };
-  const block = async () => { if (!user) return; await api.blockUser(user.id, u.id); show("User blocked"); router.back(); };
-  const report = async () => { if (!user) return; await api.reportUser(user.id, u.id, "inappropriate"); show("Report sent to moderators"); };
+  const block = async () => {
+    if (!user) return;
+    const ok = await confirm({ title: `Block ${u.first_name}?`, message: "You won't see their posts and they can't message you.", confirmLabel: "Block", destructive: true });
+    if (!ok) return;
+    await api.blockUser(user.id, u.id); show("User blocked"); router.back();
+  };
+  const report = () => { if (!user) return; setReporting(true); };
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
@@ -56,6 +63,9 @@ export default function UserView() {
         <Pressable testID="user-report" onPress={report} style={[styles.danger, { borderColor: c.warning }]}><Ionicons name="flag" size={18} color={c.warning} /><Text style={{ color: c.warning, fontWeight: "700", fontSize: 16 * scale }}>Report user</Text></Pressable>
         <Pressable testID="user-block" onPress={block} style={[styles.danger, { borderColor: c.error }]}><Ionicons name="ban" size={18} color={c.error} /><Text style={{ color: c.error, fontWeight: "700", fontSize: 16 * scale }}>Block user</Text></Pressable>
       </ScrollView>
+      {reporting && (
+        <ReportSheet visible={reporting} onClose={() => setReporting(false)} target_type="user" target_user_id={u.id} target_user_name={u.first_name} />
+      )}
     </View>
   );
 }

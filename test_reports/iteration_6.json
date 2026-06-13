@@ -1,0 +1,49 @@
+{
+  "summary": "Phase A Launch Readiness — PASS. New regression file test_phase_a_regression.py (24 cases) exercises every spec item end-to-end against the public preview URL: signup→login→/auth/me + onboarding flag, lockout after 5 fails, full forgot/reset cycle (old pw fails, new pw works, lockout counter cleared), friends send→inbox→accept→both-sides friendship + 'friend_request' notification, friends decline removes pending, notifications count + read-all, flutters send → recipient list, tables list/join/leave/WS heartbeat, events RSVP toggle, jigsaw/trivia/bingo catalogs, reports for notice/user/message land in /api/admin/reports with right target_type, AUTO-PROTECTION (3 reporters/3 demo+signup accounts within 24h → restricted=true, urgent=true on open reports, victim's notice excluded from /api/notices, admin notification fired), onboarding-complete clears flag, PATCH /users/{id}/profile persists bio/avatar/interests/favourite_games/birthday, PATCH /users/{id}/privacy-settings persists profile_visibility/friend_requests/show_in_find_friends. ALL 24 phase-A cases pass. Full backend regression (phase_a + youbelong_api + admin_safety + demo_login_guard + trivia + bingo) = 90/91 (98.9%). The single failure (test_youbelong_api::test_friend_request) is test-script seed-pollution: it tries frankie→maggie which are already friends from prior runs and the API correctly returns 400 'Already friends' — not a product bug. Frontend smoke (mobile 390x844 web preview): landing → Log In screen → 'Try a demo account' sheet → tap Margaret → /home tab renders cleanly with welcome banner, flutters, Today's Thought, Butterfly Points (252), Coffee Lounge, Home/Lounge/Friends/Profile bottom-tabs. Only console messages are the pre-existing shadow*/textShadow* deprecation warnings (iteration-5 list, non-blocking). HIGHLIGHT — spec asked for PATCH /api/users/{uid}/preferences accepting {read_messages_aloud, text_scale, high_contrast}; that endpoint DOES NOT EXIST on the backend, and the client-side keys are largeText/highContrast/readMessagesAloud (boolean) not text_scale (number). Accessibility prefs currently persist ONLY in AsyncStorage via ThemeProvider — they will NOT sync across devices and there is no read_messages_aloud/text_scale/high_contrast field on the User document. Test test_preferences_endpoint_existence documents this gap (passes by asserting 404/405/422).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/users/{user_id}/preferences", "issue": "Endpoint missing — spec asked for backend persistence of accessibility prefs (read_messages_aloud, text_scale, high_contrast). Currently prefs live ONLY in AsyncStorage (frontend/src/lib/theme.tsx), key names differ (largeText vs text_scale), and they don't follow the user across devices."},
+      {"endpoint": "POST /api/friends/request", "issue": "/app/backend/tests/test_youbelong_api.py::test_friend_request expects fresh state but seed leaves frankie/maggie already friends → API returns 400. The test (not the API) needs a state-cleanup step before each run."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "Global styles", "issue": "Pre-existing console warning: '\"shadow*\" style props are deprecated. Use boxShadow.' (carried from iteration 5; app-wide)"},
+      {"component": "Global styles", "issue": "Pre-existing console warning: '\"textShadow*\" style props are deprecated. Use textShadow.' (carried from iteration 5)"}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase_a_regression.py (new — 24 cases, all passing)",
+    "/app/backend/tests/conftest.py (new — adds /app/backend to sys.path so test_trivia can import trivia_data)",
+    "/app/test_reports/pytest/regression_results.xml"
+  ],
+  "action_items": [
+    "Decide accessibility-prefs scope: either (a) add PATCH /api/users/{uid}/preferences (+ corresponding fields on User: read_messages_aloud, text_scale, high_contrast) and call it from ThemeProvider so prefs sync across devices, or (b) explicitly de-scope server-side persistence and update the Phase-A spec to say 'client-only via AsyncStorage'.",
+    "Optional housekeeping — fix legacy test /app/backend/tests/test_youbelong_api.py::test_friend_request to DELETE the friendship before sending the request, so it's idempotent across runs.",
+    "Optional — sweep shadow*/textShadow* deprecation warnings (long-standing, pre-existing)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:296-322 — /auth/signup writes onboarding_completed implicitly via the User model default; verified that GET /users/{id} on a fresh signup returns onboarding_completed in (False, None) and POST /users/{id}/onboarding-complete sets it to true. UI gating in /app/frontend/src/lib/auth.tsx should route based on this flag.",
+    "server.py:2035-2082 — /reports correctly hydrates target_user_id when target_type='notice' or 'message' from the resource doc, fires moderation_new admin notification, and triggers _maybe_auto_restrict. Verified end-to-end (3 distinct reporters → restricted=true, urgent=true, notice removed from /api/notices).",
+    "server.py:686-721 — profile + privacy-settings PATCH endpoints both return the updated user document; both verified persistent via subsequent GET.",
+    "Accessibility prefs gap: theme.tsx defines ThemePrefs with keys {largeText, highContrast, readMessagesAloud, ...} persisted to AsyncStorage. Spec key set (read_messages_aloud, text_scale, high_contrast) doesn't match — naming inconsistency between spec and implementation needs to be reconciled even if we keep prefs client-only."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (new — sys.path + default EXPO_PUBLIC_BACKEND_URL)",
+    "/app/backend/tests/test_phase_a_regression.py (new — 24 phase-A cases)",
+    "/app/backend/tests/test_youbelong_api.py (fixtures swapped to /auth/demo-login; signup duplicate test now sends a password)"
+  ],
+  "success_rate": {
+    "backend": "98.9% (90/91 pytest cases; phase_a 24/24, youbelong_api 32/33, admin_safety 16/16, demo_login_guard 3/3, trivia 10/10, bingo 16/16). The single failure is a legacy test_script seed-pollution issue, not an API bug.",
+    "frontend": "100% on smoke (landing → Log In → demo sheet → Margaret → /home renders cleanly, bottom-tabs present, no red screen, no new console errors beyond known pre-existing deprecation warnings)"
+  },
+  "seed_data_creation": "Phase-A tests create a small number of TEST_-prefixed real accounts via /auth/signup (Newbie_*, Locker_*, ResetMe_*, Onboard_*, Profile_*, Priv_*, Victim_*, Reporter_* — total ~10 per run) and one TEST_-prefixed notice + ~5 reports in the admin queue. All are easy to identify in Mongo (username LIKE 'Newbie_%' etc., notices.title='TEST_auto_protect' / 'TEST_report_target'). Safe to leave for replay or purge before launch.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL https://belong-together.preview.emergentagent.com. Full Phase-A regression: `export EXPO_PUBLIC_BACKEND_URL=https://belong-together.preview.emergentagent.com && pytest /app/backend/tests/ -v --tb=short` (~23s, 90/91 expected). To exercise the new spec-required PATCH /api/users/{uid}/preferences endpoint once implemented, flip the assertion in test_phase_a_regression.py::TestAccessibilityPreferences::test_preferences_endpoint_existence to expect 200 + verify user doc has read_messages_aloud/text_scale/high_contrast fields. Frontend mobile flow: viewport 390x844, landing → 'Log In' → 'Try a demo account' → tap any of Margaret/Frank/Dorothy → /home. ReportSheet entry-points to manually re-verify in the UI if needed: (a) /notices kebab → 'Report notice', (b) /user/[id] → 'Report user' button, (c) /dm/[id] header flag icon + long-press flag on non-mine messages — code review of /app/frontend/src/components/ReportSheet.tsx and the three host screens confirms wiring is in place; backend-side verified via test_report_notice_user_and_message_land_in_admin_queue (all three target_types land in /api/admin/reports).",
+  "rca_of_issue": "Single backend failure (test_youbelong_api::test_friend_request) RCA: the test sends POST /api/friends/request from frankie→maggie but doesn't first DELETE the friendship; previous successful runs (including the accept path in test_phase_a_regression.TestFriends) left them as friends, so the API correctly rejects with 400 'Already friends'. Fix is one line — `s.delete(f'{API}/friends/{frankie['id']}/{maggie['id']}')` before the POST. No product-side change needed. Spec gap (PATCH /preferences): no backend endpoint exists; theme prefs are AsyncStorage-only with mismatched key names. Main agent decision needed — implement vs de-scope."
+}

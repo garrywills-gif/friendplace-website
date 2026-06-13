@@ -9,6 +9,7 @@ import { useToast } from "@/src/lib/toast";
 import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import ReportSheet from "@/src/components/ReportSheet";
 
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
@@ -18,6 +19,7 @@ export default function DM() {
   const [messages, setMessages] = useState<any[]>([]);
   const [other, setOther] = useState<any>(null);
   const [text, setText] = useState("");
+  const [reportTarget, setReportTarget] = useState<null | { type: "user" } | { type: "message"; id: string }>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<FlatList>(null);
 
@@ -56,7 +58,11 @@ export default function DM() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title={other ? `${other.avatar} ${other.first_name}` : "Message"} />
+      <Header title={other ? `${other.avatar} ${other.first_name}` : "Message"} right={other_id ? (
+        <Pressable testID="dm-report-user" onPress={() => setReportTarget({ type: "user" })} hitSlop={8} style={{ padding: 6 }}>
+          <Ionicons name="flag-outline" size={22} color={c.warning} />
+        </Pressable>
+      ) : undefined} />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }} keyboardVerticalOffset={90}>
         <FlatList
           ref={listRef}
@@ -71,6 +77,11 @@ export default function DM() {
                 <View style={[{ padding: 12, borderRadius: 18, backgroundColor: mine ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderBottomRightRadius: mine ? 4 : 18, borderBottomLeftRadius: mine ? 18 : 4, flexShrink: 1 }]}>
                   <Text style={{ color: mine ? "#FFF" : c.onSurface, fontSize: 16 * scale }}>{item.text}</Text>
                 </View>
+                {!mine && (
+                  <Pressable testID={`dm-report-msg-${item.id}`} onLongPress={() => setReportTarget({ type: "message", id: item.id })} hitSlop={6} style={{ padding: 4 }}>
+                    <Ionicons name="flag-outline" size={14} color={c.muted} />
+                  </Pressable>
+                )}
                 {prefs.readMessagesAloud && (
                   <SpeakButton text={item.text} color={mine ? c.brand : c.muted} bg={c.surfaceTertiary} size={18} testID={`speak-msg-${item.id}`} />
                 )}
@@ -90,6 +101,16 @@ export default function DM() {
           <Pressable testID="dm-send" onPress={send} style={[styles.sendBtn, { backgroundColor: c.brand }]}><Ionicons name="send" size={20} color="#FFF" /></Pressable>
         </View>
       </KeyboardAvoidingView>
+      {reportTarget && (
+        <ReportSheet
+          visible={!!reportTarget}
+          onClose={() => setReportTarget(null)}
+          target_type={reportTarget.type === "user" ? "user" : "message"}
+          target_id={reportTarget.type === "message" ? reportTarget.id : undefined}
+          target_user_id={other_id}
+          target_user_name={other?.first_name}
+        />
+      )}
     </View>
   );
 }

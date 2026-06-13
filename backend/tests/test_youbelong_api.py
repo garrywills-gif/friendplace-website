@@ -20,16 +20,16 @@ def s():
 
 @pytest.fixture(scope="module")
 def maggie(s):
-    r = s.post(f"{API}/auth/login", json={"username": "maggie"})
+    r = s.post(f"{API}/auth/demo-login", json={"username": "maggie"})
     assert r.status_code == 200, r.text
-    return r.json()
+    return r.json().get("user", r.json())
 
 
 @pytest.fixture(scope="module")
 def frankie(s):
-    r = s.post(f"{API}/auth/login", json={"username": "frankie"})
+    r = s.post(f"{API}/auth/demo-login", json={"username": "frankie"})
     assert r.status_code == 200, r.text
-    return r.json()
+    return r.json().get("user", r.json())
 
 
 # ---- Health ----
@@ -49,12 +49,12 @@ def test_login_maggie(maggie):
 
 
 def test_login_missing_user(s):
-    r = s.post(f"{API}/auth/login", json={"username": "nobody_xyz_123"})
+    r = s.post(f"{API}/auth/demo-login", json={"username": "nobody_xyz_123"})
     assert r.status_code == 404
 
 
 def test_signup_duplicate(s):
-    r = s.post(f"{API}/auth/signup", json={"first_name": "X", "username": "maggie"})
+    r = s.post(f"{API}/auth/signup", json={"first_name": "X", "username": "maggie", "password": "secret123"})
     assert r.status_code == 400
 
 
