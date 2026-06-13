@@ -158,6 +158,11 @@ export const api = {
     req("/support/tickets", { method: "POST", body: JSON.stringify(body) }),
 
   adminSummary: (admin_id: string) => req(`/admin/summary?admin_id=${admin_id}`),
+  adminPolicy: () => req(`/admin/policy`),
+  adminRepeatOffenders: (admin_id: string, min_reporters = 2, days = 30) =>
+    req(`/admin/repeat-offenders?admin_id=${admin_id}&min_reporters=${min_reporters}&days=${days}`),
+  adminClearRestriction: (admin_id: string, target_user_id: string, clear_flag = true, notes = "") =>
+    req(`/admin/users/clear-restriction`, { method: "POST", body: JSON.stringify({ admin_id, target_user_id, clear_flag, notes }) }),
   adminReports: (admin_id: string, status = "all") => req(`/admin/reports?admin_id=${admin_id}&status=${status}`),
   adminReport: (id: string, admin_id: string) => req(`/admin/reports/${id}?admin_id=${admin_id}`),
   adminSetReportStatus: (id: string, status: string, body: { admin_id: string; note?: string }) =>

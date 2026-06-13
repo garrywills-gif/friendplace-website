@@ -7,7 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 
-type Summary = { reports: { new: number; reviewing: number; urgent: number; resolved: number }; support: { open: number; resolved: number }; users: { total: number; restricted: number; banned: number } };
+type Summary = { reports: { new: number; reviewing: number; urgent: number; resolved: number }; support: { open: number; resolved: number }; users: { total: number; flagged?: number; restricted: number; banned: number }; policy?: { flag_threshold: number; restrict_threshold: number; window_days: number; auto_ban: boolean } };
 
 export default function AdminHome() {
   const router = useRouter();
@@ -16,7 +16,8 @@ export default function AdminHome() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [reports, setReports] = useState<any[]>([]);
   const [tickets, setTickets] = useState<any[]>([]);
-  const [tab, setTab] = useState<"reports" | "tickets">("reports");
+  const [repeats, setRepeats] = useState<any[]>([]);
+  const [tab, setTab] = useState<"reports" | "tickets" | "repeats">("reports");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -25,14 +26,16 @@ export default function AdminHome() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const [s, r, t]: any = await Promise.all([
+      const [s, r, t, ro]: any = await Promise.all([
         api.adminSummary(user.id).catch(() => null),
         api.adminReports(user.id, statusFilter).catch(() => ({ reports: [] })),
         api.adminTickets(user.id, "open").catch(() => ({ tickets: [] })),
+        api.adminRepeatOffenders(user.id, 2, 30).catch(() => ({ users: [] })),
       ]);
       setSummary(s);
       setReports(r?.reports || []);
       setTickets(t?.tickets || []);
+      setRepeats(ro?.users || []);
     } finally { setLoading(false); }
   }, [user?.id, statusFilter]);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -63,16 +66,26 @@ export default function AdminHome() {
               <Tile label="Urgent" value={summary.reports.urgent} icon="warning" tint="#DC2626" c={c} scale={scale} />
               <Tile label="New reports" value={summary.reports.new} icon="flag" tint="#B45309" c={c} scale={scale} />
               <Tile label="Reviewing" value={summary.reports.reviewing} icon="eye" tint="#2563EB" c={c} scale={scale} />
+              <Tile label="Flagged" value={summary.users.flagged || 0} icon="alert-circle" tint="#F59E0B" c={c} scale={scale} />
+              <Tile label="Restricted" value={summary.users.restricted} icon="hand-left" tint="#DC2626" c={c} scale={scale} />
               <Tile label="Resolved" value={summary.reports.resolved} icon="checkmark-done" tint="#0F766E" c={c} scale={scale} />
               <Tile label="Support open" value={summary.support.open} icon="help-buoy" tint="#7C3AED" c={c} scale={scale} />
-              <Tile label="Restricted" value={summary.users.restricted} icon="hand-left" tint="#DC2626" c={c} scale={scale} />
             </View>
+            {summary.policy && (
+              <View style={[styles.policyCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+                <Text style={{ color: c.brand, fontWeight: "900", fontSize: 11 * scale, letterSpacing: 0.6 }}>POLICY</Text>
+                <Text style={{ color: c.onSurface, fontSize: 13 * scale, marginTop: 4, lineHeight: 18 }}>
+                  1 report → in queue · <Text style={{ fontWeight: "900" }}>{summary.policy.flag_threshold} unique</Text> in {summary.policy.window_days} days → flagged for review · <Text style={{ fontWeight: "900" }}>{summary.policy.restrict_threshold} unique</Text> → temporary restriction. Accounts are <Text style={{ fontWeight: "900" }}>never auto-banned</Text>.
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
         {/* Tabs */}
-        <View style={{ flexDirection: "row", marginTop: 18, gap: 8 }}>
-          <TabBtn label={`Reports${summary?.reports.urgent ? " \u26a0\ufe0f" : ""}`} active={tab === "reports"} onPress={() => setTab("reports")} c={c} scale={scale} />
+        <View style={{ flexDirection: "row", marginTop: 18, gap: 8, flexWrap: "wrap" }}>
+          <TabBtn label={`Reports${summary?.reports.urgent ? " ⚠️" : ""}`} active={tab === "reports"} onPress={() => setTab("reports")} c={c} scale={scale} />
+          <TabBtn label={`Repeat (${repeats.length})`} active={tab === "repeats"} onPress={() => setTab("repeats")} c={c} scale={scale} />
           <TabBtn label={`Support (${summary?.support.open || 0})`} active={tab === "tickets"} onPress={() => setTab("tickets")} c={c} scale={scale} />
         </View>
 
@@ -108,6 +121,42 @@ export default function AdminHome() {
                 ))}
               </View>
             )}
+          </View>
+        )}
+
+        {tab === "repeats" && (
+          <View style={{ marginTop: 12, gap: 10 }}>
+            {repeats.length === 0 ? (
+              <Text style={{ color: c.muted, fontSize: 15 * scale, padding: 24, textAlign: "center" }}>No repeat-reported users in the last 30 days. 🎉</Text>
+            ) : repeats.map((u: any) => {
+              const status = u.banned ? "BANNED" : u.restricted ? "RESTRICTED" : u.flagged_for_review ? "FLAGGED" : "WATCHING";
+              const tint = u.banned ? "#7F1D1D" : u.restricted ? "#DC2626" : u.flagged_for_review ? "#F59E0B" : "#2563EB";
+              return (
+                <View key={u.user_id} style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={{ fontSize: 24 }}>{u.avatar || "👤"}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 15 * scale }}>{u.first_name || "—"} <Text style={{ color: c.muted, fontWeight: "600" }}>@{u.username}</Text></Text>
+                      <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>{u.unique_reporters} unique reporters · {u.total_reports} reports · last {shortDate(u.last_reported_at)}</Text>
+                    </View>
+                    <View style={[styles.badge, { backgroundColor: tint }]}><Text style={styles.badgeText}>{status}</Text></View>
+                  </View>
+                  {!!(u.reasons || []).length && (
+                    <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6, fontStyle: "italic" }} numberOfLines={2}>Reasons: {(u.reasons || []).join(" · ")}</Text>
+                  )}
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+                    <Pressable onPress={() => router.push(`/user/${u.user_id}`)} style={[styles.pillBtn, { backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.border }]}>
+                      <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>View profile</Text>
+                    </Pressable>
+                    {u.restricted && (
+                      <Pressable testID={`admin-clear-${u.user_id}`} onPress={async () => { await api.adminClearRestriction(user.id, u.user_id, true, "Cleared via repeat-offender review"); load(); }} style={[styles.pillBtn, { backgroundColor: "#16A34A" }]}>
+                        <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale }}>Clear restriction</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -165,6 +214,7 @@ function shortDate(iso: string) {
 const styles = StyleSheet.create({
   section: { fontWeight: "900", marginBottom: 8 },
   tile: { width: "31%", padding: 12, borderRadius: 14, borderWidth: 1.5, minWidth: 110 },
+  policyCard: { marginTop: 10, padding: 12, borderRadius: 14, borderWidth: 1.5 },
   row: { padding: 12, borderRadius: 14, borderWidth: 1 },
   filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1 },
   badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },

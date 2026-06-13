@@ -1177,11 +1177,12 @@ async def games_stats(user_id: str):
 
 @api.get("/games/dailies")
 async def dailies():
-    """Today's daily challenges across all game types (jigsaw/trivia/wordsearch/memory/sudoku)."""
+    """Today's daily challenges across all game types."""
     d = datetime.now(timezone.utc)
     daily_ws = ws_daily_pick(ws_today_iso())
     daily_mm = mm_daily_pick(mm_today_iso())
     daily_sd = sd_daily_pick(sd_today_iso())
+    daily_std = std_daily_pick(std_today_iso())
     return {
         "date": d.date().isoformat(),
         "jigsaw": (await jigsaw_daily()),
@@ -1202,6 +1203,12 @@ async def dailies():
             "available": True,
             "title": f"Daily Sudoku · {SD_DIFFS[daily_sd['difficulty']]['label']}",
             "difficulty": daily_sd["difficulty"],
+        },
+        "spot": {
+            "available": True,
+            "title": f"Daily Spot the Difference · {STD_THEMES[daily_std['theme']]['label']}",
+            "theme": daily_std["theme"],
+            "difficulty": daily_std["difficulty"],
         },
     }
 
@@ -2674,7 +2681,15 @@ async def unblock_user(user_id: str, other_id: str):
 # ============================ Safety & Moderation ============================
 REPORT_REASONS = ["Spam", "Harassment / Bullying", "Inappropriate Content", "Fake Profile", "Scam / Suspicious Behaviour", "Other"]
 SUPPORT_CATEGORIES = ["Bug / Technical issue", "Account help", "Suggestion / Feedback", "Other"]
-AUTO_RESTRICT_THRESHOLD = 3  # distinct reporters within 24h
+
+# Moderation policy (per house rules — never auto-ban):
+#   1 unique report  → visible in moderation queue (default — no auto action)
+#   3 unique reports in MODERATION_WINDOW_DAYS → user is FLAGGED for review
+#   5 unique reports in MODERATION_WINDOW_DAYS → user is TEMPORARILY RESTRICTED until admin clears
+MODERATION_FLAG_THRESHOLD = 3
+MODERATION_RESTRICT_THRESHOLD = 5
+MODERATION_WINDOW_DAYS = 30
+AUTO_RESTRICT_THRESHOLD = MODERATION_RESTRICT_THRESHOLD  # legacy alias
 
 
 async def _require_admin(admin_id: str):
@@ -2692,43 +2707,87 @@ async def _notify_admins(notification: Dict):
         await db.notifications.insert_one(doc)
 
 
-async def _maybe_auto_restrict(target_user_id: str) -> bool:
-    """If a user has been reported by >=3 unique reporters within 24h, restrict them."""
+async def _apply_moderation_policy(target_user_id: str) -> Dict:
+    """Apply the YouBelong moderation policy (per house rules).
+
+    Counts unique reporters against the target within the last
+    MODERATION_WINDOW_DAYS. Returns a summary dict so callers (and the report
+    endpoint) can surface what happened.
+
+    Effects:
+      *  3 unique reporters → user is FLAGGED for admin review (no functional
+         restriction; just a badge that surfaces in the moderation dashboard).
+      *  5 unique reporters → user is TEMPORARILY RESTRICTED until an admin
+         reviews. Their notices are auto-hidden but kept for audit.
+      *  Never auto-banned.
+    """
+    out = {"unique_reporters": 0, "flagged": False, "restricted": False}
     if not target_user_id:
-        return False
-    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    rs = await db.reports.find({"target_user_id": target_user_id, "created_at": {"$gte": since}}, {"_id": 0, "reporter_id": 1}).to_list(50)
+        return out
+    since = (datetime.now(timezone.utc) - timedelta(days=MODERATION_WINDOW_DAYS)).isoformat()
+    rs = await db.reports.find(
+        {"target_user_id": target_user_id, "created_at": {"$gte": since}},
+        {"_id": 0, "reporter_id": 1},
+    ).to_list(500)
     unique_reporters = {r.get("reporter_id") for r in rs if r.get("reporter_id")}
-    if len(unique_reporters) < AUTO_RESTRICT_THRESHOLD:
-        return False
-    target = await db.users.find_one({"id": target_user_id}, {"_id": 0, "username": 1, "restricted": 1})
+    out["unique_reporters"] = len(unique_reporters)
+    if not unique_reporters:
+        return out
+
+    target = await db.users.find_one(
+        {"id": target_user_id},
+        {"_id": 0, "username": 1, "restricted": 1, "flagged_for_review": 1},
+    )
     if not target:
-        return False
-    if target.get("restricted"):
-        # Already restricted but make sure recent reports get marked urgent
+        return out
+
+    # 5 unique reporters → restrict (overrides flag)
+    if len(unique_reporters) >= MODERATION_RESTRICT_THRESHOLD and not target.get("restricted"):
+        await db.users.update_one(
+            {"id": target_user_id},
+            {"$set": {
+                "restricted": True,
+                "restricted_at": now_iso(),
+                "restricted_reason": f"Auto-restricted: {MODERATION_RESTRICT_THRESHOLD}+ unique reports in {MODERATION_WINDOW_DAYS} days. Requires admin review.",
+                "flagged_for_review": True,
+            }},
+        )
+        await db.notices.update_many({"user_id": target_user_id}, {"$set": {"auto_hidden": True}})
         await db.reports.update_many(
-            {"target_user_id": target_user_id, "created_at": {"$gte": since}, "status": {"$ne": "resolved"}},
+            {"target_user_id": target_user_id, "status": {"$ne": "resolved"}},
             {"$set": {"urgent": True}},
         )
-        return False
-    await db.users.update_one(
-        {"id": target_user_id},
-        {"$set": {"restricted": True, "restricted_at": now_iso(), "restricted_reason": "Auto-restricted: 3+ reports in 24h"}},
-    )
-    # Hide public posts (mark notices as auto-hidden) — they remain in DB so admins can review.
-    await db.notices.update_many({"user_id": target_user_id}, {"$set": {"auto_hidden": True}})
-    # Flag all open reports as urgent.
-    await db.reports.update_many(
-        {"target_user_id": target_user_id, "status": {"$ne": "resolved"}},
-        {"$set": {"urgent": True}},
-    )
-    await _notify_admins({
-        "type": "moderation_urgent",
-        "title": "Urgent: user auto-restricted",
-        "body": f"{target.get('username','?')} reached {AUTO_RESTRICT_THRESHOLD} reports in 24h.",
-        "ref_user_id": target_user_id,
-    })
-    return True
+        await _notify_admins({
+            "type": "moderation_urgent",
+            "title": "Urgent: user temporarily restricted",
+            "body": f"{target.get('username','?')} reached {MODERATION_RESTRICT_THRESHOLD} unique reports in {MODERATION_WINDOW_DAYS} days. Awaiting admin review.",
+            "ref_user_id": target_user_id,
+        })
+        out["restricted"] = True
+        out["flagged"] = True
+        return out
+
+    # 3 unique reporters → flag for review (visible-only; no functional restriction)
+    if len(unique_reporters) >= MODERATION_FLAG_THRESHOLD and not target.get("flagged_for_review"):
+        await db.users.update_one(
+            {"id": target_user_id},
+            {"$set": {"flagged_for_review": True, "flagged_at": now_iso(),
+                       "flagged_reason": f"{MODERATION_FLAG_THRESHOLD}+ unique reports in {MODERATION_WINDOW_DAYS} days"}},
+        )
+        await _notify_admins({
+            "type": "moderation_flagged",
+            "title": "User flagged for review",
+            "body": f"{target.get('username','?')} reached {MODERATION_FLAG_THRESHOLD} unique reports in {MODERATION_WINDOW_DAYS} days.",
+            "ref_user_id": target_user_id,
+        })
+        out["flagged"] = True
+    return out
+
+
+# Backwards-compatible alias for any code paths that still call the old name.
+async def _maybe_auto_restrict(target_user_id: str) -> bool:
+    res = await _apply_moderation_policy(target_user_id)
+    return bool(res.get("restricted"))
 
 
 class SubmitReportBody(BaseModel):
@@ -3014,9 +3073,115 @@ async def admin_summary(admin_id: str):
         },
         "users": {
             "total": await db.users.count_documents({}),
+            "flagged": await db.users.count_documents({"flagged_for_review": True, "restricted": {"$ne": True}, "banned": {"$ne": True}}),
             "restricted": await db.users.count_documents({"restricted": True}),
             "banned": await db.users.count_documents({"banned": True}),
         },
+        "policy": {
+            "flag_threshold": MODERATION_FLAG_THRESHOLD,
+            "restrict_threshold": MODERATION_RESTRICT_THRESHOLD,
+            "window_days": MODERATION_WINDOW_DAYS,
+            "auto_ban": False,
+        },
+    }
+
+
+@api.get("/admin/repeat-offenders")
+async def admin_repeat_offenders(admin_id: str, days: int = MODERATION_WINDOW_DAYS, min_reporters: int = 2):
+    """Users with multiple unique reporters in the window, sorted by unique-reporter count desc.
+    Drives the 'Reported Multiple Times' admin view."""
+    await _require_admin(admin_id)
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    pipeline = [
+        {"$match": {"target_user_id": {"$ne": None}, "created_at": {"$gte": since}}},
+        {"$group": {
+            "_id": "$target_user_id",
+            "unique_reporters": {"$addToSet": "$reporter_id"},
+            "total_reports": {"$sum": 1},
+            "last_reported_at": {"$max": "$created_at"},
+            "reasons": {"$addToSet": "$reason"},
+        }},
+        {"$project": {
+            "_id": 0,
+            "user_id": "$_id",
+            "unique_reporters": {"$size": "$unique_reporters"},
+            "total_reports": 1,
+            "last_reported_at": 1,
+            "reasons": 1,
+        }},
+        {"$match": {"unique_reporters": {"$gte": int(min_reporters)}}},
+        {"$sort": {"unique_reporters": -1, "total_reports": -1}},
+        {"$limit": 100},
+    ]
+    rows = await db.reports.aggregate(pipeline).to_list(100)
+    # Attach user summaries
+    user_ids = [r["user_id"] for r in rows]
+    users = await db.users.find(
+        {"id": {"$in": user_ids}},
+        {"_id": 0, "id": 1, "username": 1, "first_name": 1, "avatar": 1, "restricted": 1, "flagged_for_review": 1, "banned": 1},
+    ).to_list(100)
+    by_id = {u["id"]: u for u in users}
+    for r in rows:
+        u = by_id.get(r["user_id"], {})
+        r.update({
+            "username": u.get("username", "?"),
+            "first_name": u.get("first_name", ""),
+            "avatar": u.get("avatar", ""),
+            "restricted": bool(u.get("restricted")),
+            "flagged_for_review": bool(u.get("flagged_for_review")),
+            "banned": bool(u.get("banned")),
+        })
+    return {"window_days": days, "policy": {
+        "flag_at": MODERATION_FLAG_THRESHOLD,
+        "restrict_at": MODERATION_RESTRICT_THRESHOLD,
+    }, "users": rows}
+
+
+class ModerationLiftBody(BaseModel):
+    admin_id: str
+    target_user_id: str
+    clear_flag: bool = True
+    notes: str = ""
+
+
+@api.post("/admin/users/clear-restriction")
+async def admin_clear_restriction(body: ModerationLiftBody):
+    """Lift a temporary restriction after admin review. Optionally also clears
+    the 'flagged_for_review' badge. Unhides their notices."""
+    await _require_admin(body.admin_id)
+    target = await db.users.find_one({"id": body.target_user_id}, {"_id": 0, "username": 1})
+    if not target:
+        raise HTTPException(404, "User not found")
+    unset: Dict = {"restricted": "", "restricted_at": "", "restricted_reason": ""}
+    if body.clear_flag:
+        unset.update({"flagged_for_review": "", "flagged_at": "", "flagged_reason": ""})
+    await db.users.update_one({"id": body.target_user_id}, {"$unset": unset})
+    await db.notices.update_many({"user_id": body.target_user_id}, {"$unset": {"auto_hidden": ""}})
+    await db.admin_log.insert_one({
+        "id": nid(),
+        "admin_id": body.admin_id,
+        "target_user_id": body.target_user_id,
+        "action": "clear_restriction",
+        "notes": body.notes,
+        "created_at": now_iso(),
+    })
+    return {"ok": True, "user_id": body.target_user_id, "cleared_flag": bool(body.clear_flag)}
+
+
+@api.get("/admin/policy")
+async def admin_policy():
+    """Public-readable summary of YouBelong's moderation policy."""
+    return {
+        "flag_threshold": MODERATION_FLAG_THRESHOLD,
+        "restrict_threshold": MODERATION_RESTRICT_THRESHOLD,
+        "window_days": MODERATION_WINDOW_DAYS,
+        "auto_ban": False,
+        "rules": [
+            f"1 report → visible in the moderation queue",
+            f"{MODERATION_FLAG_THRESHOLD} unique reports in {MODERATION_WINDOW_DAYS} days → flagged for review",
+            f"{MODERATION_RESTRICT_THRESHOLD} unique reports in {MODERATION_WINDOW_DAYS} days → temporary restriction until admin clears",
+            "Accounts are never auto-banned. Bans require an admin decision.",
+        ],
     }
 
 
