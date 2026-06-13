@@ -663,7 +663,8 @@ async def user_status(user_id: str):
 # ------------- Games (unified completion log + achievements) -------------
 ACHIEVEMENT_DEFS = {
     "first_game":        {"title": "First step!",              "body": "You finished your first game. Welcome to the Games Hub.", "points": 10},
-    "expert":            {"title": "Expert Challenge!",        "body": "You completed an Expert difficulty puzzle.",              "points": 30},
+    "hard":              {"title": "Hard Challenge!",          "body": "You completed a Hard difficulty game.",                  "points": 30},
+    "nightmare":         {"title": "Nightmare Champion!",      "body": "You completed a Nightmare difficulty game.",              "points": 60},
     "daily_challenge":   {"title": "Daily Challenge Done",     "body": "You finished today's Daily Challenge.",                    "points": 10},
     "streak_7":          {"title": "7-Day Streak",             "body": "You've played 7 days in a row. Keep it going!",            "points": 25},
     "streak_30":         {"title": "30-Day Streak",            "body": "A month of daily play — incredible!",                      "points": 80},
@@ -671,12 +672,12 @@ ACHIEVEMENT_DEFS = {
 }
 
 # Difficulties that DO trigger achievement notifications to friends.
-ANNOUNCE_DIFFICULTIES = {"challenging", "expert", "hard", "nightmare"}
+ANNOUNCE_DIFFICULTIES = {"hard", "nightmare"}
 
 
 class GameCompletionBody(BaseModel):
     game_type: str          # jigsaw | trivia | wordsearch | memory | bingo | sudoku | spot
-    difficulty: str         # easy | moderate | challenging | expert
+    difficulty: str         # easy | moderate | hard | nightmare
     title: Optional[str] = ""
     duration_seconds: int = 0
     score: int = 0
@@ -738,9 +739,12 @@ async def log_game_completion(user_id: str, body: GameCompletionBody):
     if total == 1:
         if await _grant_achievement(user_id, "first_game", {"game_type": body.game_type}):
             granted.append("first_game")
-    if doc["difficulty"] in {"expert", "nightmare"}:
-        if await _grant_achievement(user_id, "expert", {"game_type": body.game_type, "title": body.title}):
-            granted.append("expert")
+    if doc["difficulty"] == "hard":
+        if await _grant_achievement(user_id, "hard", {"game_type": body.game_type, "title": body.title}):
+            granted.append("hard")
+    elif doc["difficulty"] == "nightmare":
+        if await _grant_achievement(user_id, "nightmare", {"game_type": body.game_type, "title": body.title}):
+            granted.append("nightmare")
     if body.is_daily:
         # Only grant once per real calendar day
         today = doc["created_at"][:10]
@@ -908,9 +912,8 @@ async def jigsaw_save_progress(user_id: str, body: JigsawProgressBody):
     await db.jigsaw_progress.update_one(key, {"$set": doc}, upsert=True)
     if body.completed:
         await award_points(user_id, points)
-        # Backend now uses the new vocabulary natively; keep a tolerant map for any
-        # legacy progress documents still labelled with old keys.
-        unified_diff = {"hard": "challenging", "nightmare": "expert"}.get(body.difficulty, body.difficulty)
+        # Pass the difficulty through unchanged — Easy/Moderate/Hard/Nightmare.
+        unified_diff = body.difficulty
         try:
             # Daily-challenge detection: matches today's deterministic puzzle id
             daily = await jigsaw_daily()
@@ -963,6 +966,301 @@ async def jigsaw_random():
     """A random rotating puzzle for the "Surprise me" button."""
     p = random.choice(JIGSAW_CATALOGUE)
     return {"puzzle": p, "difficulty": "easy"}
+
+
+# ------------- Trivia -------------
+from trivia_data import (  # noqa: E402
+    QUESTIONS as TRIVIA_QUESTIONS,
+    CATEGORIES as TRIVIA_CATEGORIES,
+    DIFFICULTIES as TRIVIA_DIFFICULTIES,
+    DIFFICULTY_META as TRIVIA_DIFFICULTY_META,
+    DIFFICULTY_POINTS as TRIVIA_POINTS,
+    question_count_for as trivia_question_count_for,
+    category_counts as trivia_category_counts,
+)
+
+
+def _trivia_pick_pool(category: Optional[str], difficulty: str) -> List[Dict]:
+    pool = [q for q in TRIVIA_QUESTIONS if q["difficulty"] == difficulty]
+    if category and category != "Mixed":
+        pool = [q for q in pool if q["category"] == category]
+    return pool
+
+
+def _trivia_strip_answer(q: Dict) -> Dict:
+    """Send to the client WITHOUT the correct answer / explanation."""
+    return {"id": q["id"], "category": q["category"], "difficulty": q["difficulty"],
+            "q": q["q"], "choices": q["choices"]}
+
+
+def _trivia_safe_questions(qs: List[Dict]) -> List[Dict]:
+    return [_trivia_strip_answer(q) for q in qs]
+
+
+def _trivia_lookup(qid: str) -> Optional[Dict]:
+    for q in TRIVIA_QUESTIONS:
+        if q["id"] == qid:
+            return q
+    return None
+
+
+@api.get("/games/trivia/catalog")
+async def trivia_catalog():
+    return {
+        "categories": TRIVIA_CATEGORIES,
+        "difficulties": TRIVIA_DIFFICULTIES,
+        "difficulty_meta": TRIVIA_DIFFICULTY_META,
+        "counts": trivia_category_counts(),
+    }
+
+
+@api.get("/games/trivia/daily")
+async def trivia_daily():
+    """Deterministic daily mix: 10 questions across difficulties, seeded by date."""
+    d = datetime.now(timezone.utc)
+    seed = d.year * 10000 + d.month * 100 + d.day
+    rnd = random.Random(seed)
+    desired = [("easy", 3), ("moderate", 4), ("hard", 2), ("nightmare", 1)]
+    qs: List[Dict] = []
+    for diff, n in desired:
+        pool = [q for q in TRIVIA_QUESTIONS if q["difficulty"] == diff]
+        rnd.shuffle(pool)
+        qs.extend(pool[:n])
+    rnd.shuffle(qs)
+    return {
+        "date": d.date().isoformat(),
+        "category": "Mixed",
+        "difficulty": "moderate",
+        "questions": _trivia_safe_questions(qs),
+        "question_ids": [q["id"] for q in qs],
+        "count": len(qs),
+        "points_on_complete": 15,
+        "is_daily": True,
+    }
+
+
+class TriviaStartBody(BaseModel):
+    category: Optional[str] = "Mixed"
+    difficulty: str = "easy"
+    daily: bool = False
+
+
+@api.post("/games/trivia/session/{user_id}")
+async def trivia_start_session(user_id: str, body: TriviaStartBody):
+    difficulty = body.difficulty.lower()
+    if difficulty not in TRIVIA_DIFFICULTIES:
+        raise HTTPException(400, "Invalid difficulty")
+
+    if body.daily:
+        daily = await trivia_daily()
+        qids = daily["question_ids"]
+        category = "Mixed"
+        difficulty = daily["difficulty"]
+    else:
+        pool = _trivia_pick_pool(body.category, difficulty)
+        if not pool:
+            raise HTTPException(400, "No questions available for that selection")
+        random.shuffle(pool)
+        count = trivia_question_count_for(difficulty)
+        qids = [q["id"] for q in pool[:count]]
+        category = body.category or "Mixed"
+
+    sid = nid()
+    doc = {
+        "id": sid,
+        "user_id": user_id,
+        "category": category,
+        "difficulty": difficulty,
+        "question_ids": qids,
+        "answers": [],            # list of {qid, picked, correct}
+        "current_index": 0,
+        "lifelines": {"fifty_used": False, "skip_used": False},
+        "score": 0,
+        "completed": False,
+        "is_daily": bool(body.daily),
+        "started_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.trivia_sessions.insert_one(doc)
+    qs = [_trivia_strip_answer(_trivia_lookup(q)) for q in qids if _trivia_lookup(q)]
+    return {
+        "session_id": sid,
+        "category": category,
+        "difficulty": difficulty,
+        "questions": qs,
+        "count": len(qs),
+        "lifelines": doc["lifelines"],
+        "is_daily": bool(body.daily),
+    }
+
+
+@api.get("/games/trivia/session/{user_id}/{session_id}")
+async def trivia_get_session(user_id: str, session_id: str):
+    doc = await db.trivia_sessions.find_one({"id": session_id, "user_id": user_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Session not found")
+    qs = [_trivia_strip_answer(_trivia_lookup(q)) for q in doc["question_ids"] if _trivia_lookup(q)]
+    return {**doc, "questions": qs}
+
+
+class TriviaAnswerBody(BaseModel):
+    qid: str
+    picked: int           # index into choices; use -1 for "skipped"
+    lifelines: Optional[Dict[str, bool]] = None
+    advance: bool = True
+
+
+@api.post("/games/trivia/session/{user_id}/{session_id}/answer")
+async def trivia_submit_answer(user_id: str, session_id: str, body: TriviaAnswerBody):
+    doc = await db.trivia_sessions.find_one({"id": session_id, "user_id": user_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Session not found")
+    if doc.get("completed"):
+        raise HTTPException(400, "Session already completed")
+    q = _trivia_lookup(body.qid)
+    if not q:
+        raise HTTPException(400, "Question not in catalogue")
+
+    skipped = body.picked == -1
+    is_correct = (not skipped) and (body.picked == q["answer"])
+    entry = {
+        "qid": body.qid,
+        "picked": body.picked,
+        "correct": is_correct,
+        "skipped": skipped,
+        "correct_answer": q["answer"],
+        "explain": q.get("explain", ""),
+        "answered_at": now_iso(),
+    }
+    answers = doc.get("answers", [])
+    answers = [a for a in answers if a["qid"] != body.qid]
+    answers.append(entry)
+    new_score = sum(1 for a in answers if a.get("correct"))
+    lifelines = doc.get("lifelines", {"fifty_used": False, "skip_used": False})
+    if body.lifelines:
+        lifelines = {**lifelines, **body.lifelines}
+    current_index = doc.get("current_index", 0)
+    if body.advance:
+        current_index = min(len(doc["question_ids"]) - 1, current_index + 1)
+    await db.trivia_sessions.update_one(
+        {"id": session_id},
+        {"$set": {
+            "answers": answers,
+            "score": new_score,
+            "lifelines": lifelines,
+            "current_index": current_index,
+            "updated_at": now_iso(),
+        }},
+    )
+    return {
+        "correct": is_correct,
+        "correct_answer": q["answer"],
+        "explain": q.get("explain", ""),
+        "score": new_score,
+        "current_index": current_index,
+    }
+
+
+@api.post("/games/trivia/session/{user_id}/{session_id}/complete")
+async def trivia_complete_session(user_id: str, session_id: str):
+    doc = await db.trivia_sessions.find_one({"id": session_id, "user_id": user_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Session not found")
+    if doc.get("completed"):
+        return {**doc, "already_completed": True}
+
+    diff = doc.get("difficulty", "easy")
+    score = doc.get("score", 0)
+    total = len(doc.get("question_ids", []))
+    # Pass mark = 60% correct OR all answered
+    answered = sum(1 for a in doc.get("answers", []) if a.get("picked", -2) != -2)
+    base_points = int(TRIVIA_POINTS.get(diff, 5))
+    # Pro-rate: full points if score >= 60%, otherwise scale by ratio (min 1).
+    ratio = (score / total) if total else 0
+    points = base_points if ratio >= 0.6 else max(1, int(round(base_points * max(0.2, ratio))))
+    started = doc.get("started_at")
+    try:
+        start_dt = datetime.fromisoformat(started) if started else datetime.now(timezone.utc)
+        duration = max(1, int((datetime.now(timezone.utc) - start_dt.replace(tzinfo=start_dt.tzinfo or timezone.utc)).total_seconds()))
+    except Exception:
+        duration = 0
+
+    await db.trivia_sessions.update_one(
+        {"id": session_id},
+        {"$set": {
+            "completed": True,
+            "completed_at": now_iso(),
+            "points_earned": points,
+            "duration_seconds": duration,
+            "final_score": score,
+            "total_questions": total,
+            "answered_count": answered,
+        }},
+    )
+    await award_points(user_id, points)
+
+    granted: List[str] = []
+    try:
+        nice_title = f"{doc.get('category', 'Mixed')} · {diff.title()}"
+        log = await log_game_completion(user_id, GameCompletionBody(
+            game_type="trivia",
+            difficulty=diff,
+            title=nice_title,
+            duration_seconds=duration,
+            score=score,
+            is_daily=bool(doc.get("is_daily")),
+        ))
+        granted = log.get("granted", []) if isinstance(log, dict) else []
+    except Exception as e:
+        logger.warning("trivia->games unified log failed: %s", e)
+
+    return {
+        "session_id": session_id,
+        "score": score,
+        "total": total,
+        "points_earned": points,
+        "duration_seconds": duration,
+        "granted": granted,
+        "difficulty": diff,
+        "category": doc.get("category", "Mixed"),
+        "is_daily": bool(doc.get("is_daily")),
+    }
+
+
+@api.get("/games/trivia/sessions/{user_id}")
+async def trivia_list_sessions(user_id: str):
+    """Returns active + recent completed sessions (last 20)."""
+    active = await db.trivia_sessions.find(
+        {"user_id": user_id, "completed": {"$ne": True}}, {"_id": 0}
+    ).sort("updated_at", -1).to_list(10)
+    recent = await db.trivia_sessions.find(
+        {"user_id": user_id, "completed": True}, {"_id": 0}
+    ).sort("completed_at", -1).to_list(20)
+    return {"active": active, "recent": recent}
+
+
+@api.get("/games/trivia/stats/{user_id}")
+async def trivia_stats(user_id: str):
+    docs = await db.trivia_sessions.find(
+        {"user_id": user_id, "completed": True}, {"_id": 0}
+    ).to_list(2000)
+    total_completed = len(docs)
+    total_points = sum(int(d.get("points_earned") or 0) for d in docs)
+    total_correct = sum(int(d.get("final_score") or 0) for d in docs)
+    total_qs = sum(int(d.get("total_questions") or 0) for d in docs)
+    accuracy = (total_correct / total_qs) if total_qs else 0
+    by_diff: Dict[str, int] = {}
+    for d in docs:
+        k = d.get("difficulty", "easy")
+        by_diff[k] = by_diff.get(k, 0) + 1
+    return {
+        "total_completed": total_completed,
+        "total_points": total_points,
+        "total_correct": total_correct,
+        "total_questions": total_qs,
+        "accuracy": round(accuracy * 100, 1),
+        "by_difficulty": by_diff,
+    }
 
 
 # ------------- Tables (Coffee Lounge) -------------

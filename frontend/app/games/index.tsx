@@ -11,7 +11,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 type GameTile = { key: string; title: string; sub: string; icon: keyof typeof Ionicons.glyphMap; tint: string; route: string; ready: boolean };
 const GAMES: GameTile[] = [
   { key: "jigsaw",     title: "Puzzle Centre",      sub: "8 categories · 4 levels",  icon: "grid",           tint: "#0F766E", route: "/games/jigsaw",     ready: true },
-  { key: "trivia",     title: "Trivia",             sub: "7 categories",            icon: "help-circle",    tint: "#7C3AED", route: "/games/trivia",     ready: false },
+  { key: "trivia",     title: "Trivia",             sub: "7 categories · 4 levels", icon: "help-circle",    tint: "#7C3AED", route: "/games/trivia",     ready: true },
   { key: "wordsearch", title: "Word Search",        sub: "6 themes",                icon: "search",         tint: "#B45309", route: "/games/wordsearch", ready: false },
   { key: "memory",     title: "Memory Match",       sub: "5 themes",                icon: "sparkles",       tint: "#DB2777", route: "/games/memory",     ready: false },
   { key: "bingo",      title: "Bingo",              sub: "Practice & live games",   icon: "apps",           tint: "#2E9EE2", route: "/games/bingo",      ready: false },
@@ -93,13 +93,14 @@ export default function GamesHub() {
               <Ionicons name="chevron-forward" size={20} color={c.muted} />
             </Pressable>
           )}
-          <View style={[styles.dailyRow, styles.dailyDisabled, { borderColor: c.border, backgroundColor: c.surfaceTertiary }]}>
+          <Pressable testID="daily-trivia" onPress={() => router.push("/games/trivia?daily=1")} style={[styles.dailyRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <View style={[styles.dailyIcon, { backgroundColor: "#7C3AED22" }]}><Ionicons name="help-circle" size={20} color={"#7C3AED"} /></View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Daily Trivia</Text>
-              <Text style={{ color: c.muted, fontSize: 13 * scale }}>Coming soon</Text>
+              <Text style={{ color: c.muted, fontSize: 13 * scale }}>10 mixed questions · 15 pts</Text>
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={20} color={c.muted} />
+          </Pressable>
           <View style={[styles.dailyRow, styles.dailyDisabled, { borderColor: c.border, backgroundColor: c.surfaceTertiary }]}>
             <View style={[styles.dailyIcon, { backgroundColor: "#B4530922" }]}><Ionicons name="search" size={20} color={"#B45309"} /></View>
             <View style={{ flex: 1, marginLeft: 12 }}>

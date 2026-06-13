@@ -71,6 +71,19 @@ export const api = {
   jigsawStats: (uid: string) => req(`/games/jigsaw/stats/${uid}`),
   jigsawRandom: () => req("/games/jigsaw/random"),
 
+  // trivia
+  triviaCatalog: () => req("/games/trivia/catalog"),
+  triviaDaily: () => req("/games/trivia/daily"),
+  triviaStart: (uid: string, body: { category?: string; difficulty: string; daily?: boolean }) =>
+    req(`/games/trivia/session/${uid}`, { method: "POST", body: JSON.stringify(body) }),
+  triviaGetSession: (uid: string, sid: string) => req(`/games/trivia/session/${uid}/${sid}`),
+  triviaAnswer: (uid: string, sid: string, body: { qid: string; picked: number; lifelines?: any; advance?: boolean }) =>
+    req(`/games/trivia/session/${uid}/${sid}/answer`, { method: "POST", body: JSON.stringify(body) }),
+  triviaComplete: (uid: string, sid: string) =>
+    req(`/games/trivia/session/${uid}/${sid}/complete`, { method: "POST" }),
+  triviaSessions: (uid: string) => req(`/games/trivia/sessions/${uid}`),
+  triviaStats: (uid: string) => req(`/games/trivia/stats/${uid}`),
+
   // unified games hub
   gamesStats: (uid: string) => req(`/games/stats/${uid}`),
   gamesDailies: () => req("/games/dailies"),

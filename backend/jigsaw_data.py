@@ -71,8 +71,8 @@ JIGSAW_CATALOGUE: List[Dict] = _CURATED + _GENERATED
 
 # Difficulty -> grid (cols, rows) + difficulty-scaled points
 DIFFICULTY_GRID: Dict[str, Dict] = {
-    "easy":        {"cols": 4, "rows": 3, "pieces": 12, "label": "Easy",        "points": 10},
-    "moderate":    {"cols": 6, "rows": 4, "pieces": 24, "label": "Moderate",    "points": 20},
-    "challenging": {"cols": 8, "rows": 6, "pieces": 48, "label": "Challenging", "points": 40},
-    "expert":      {"cols": 12, "rows": 8, "pieces": 96, "label": "Expert",     "points": 80},
+    "easy":      {"cols": 4, "rows": 3, "pieces": 12, "label": "Easy",      "points": 10},
+    "moderate":  {"cols": 6, "rows": 4, "pieces": 24, "label": "Moderate",  "points": 20},
+    "hard":      {"cols": 8, "rows": 6, "pieces": 48, "label": "Hard",      "points": 40},
+    "nightmare": {"cols": 12, "rows": 8, "pieces": 96, "label": "Nightmare", "points": 80},
 }
