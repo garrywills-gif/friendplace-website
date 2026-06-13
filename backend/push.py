@@ -95,6 +95,10 @@ async def send_push(
         raise ValueError("max 100 recipients per /trigger call; chunk before sending")
     if "title" not in data or "message" not in data:
         raise ValueError("data must include title and message")
+    # Scaffold mode — skip upstream call entirely
+    key = os.environ.get("EMERGENT_PUSH_KEY", "placeholder")
+    if not key or key == "placeholder":
+        return
     payload: dict = {"recipients": recipients, "data": data}
     if idempotency_key:
         payload["$idempotency_key"] = idempotency_key
@@ -104,7 +108,6 @@ async def send_push(
         logger.warning("send_push upstream error: %s", e)
         return
     if resp.status_code == 401:
-        # Treat missing key as non-fatal in scaffold mode — deploy will inject it
         logger.info("send_push skipped — EMERGENT_PUSH_KEY not set yet")
         return
     if resp.status_code >= 500:

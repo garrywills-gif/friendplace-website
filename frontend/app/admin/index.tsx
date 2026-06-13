@@ -7,7 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 
-type Summary = { reports: { new: number; reviewing: number; urgent: number; resolved: number }; support: { open: number; resolved: number }; users: { total: number; flagged?: number; restricted: number; banned: number }; policy?: { flag_threshold: number; restrict_threshold: number; window_days: number; auto_ban: boolean } };
+type Summary = { reports: { new: number; reviewing: number; urgent: number; resolved: number }; support: { open: number; resolved: number }; users: { total: number; flagged?: number; auto_hidden?: number; restricted: number; banned: number }; policy?: { flag_threshold: number; restrict_threshold: number; window_days: number; auto_ban: boolean } };
 
 export default function AdminHome() {
   const router = useRouter();
@@ -67,6 +67,7 @@ export default function AdminHome() {
               <Tile label="New reports" value={summary.reports.new} icon="flag" tint="#B45309" c={c} scale={scale} />
               <Tile label="Reviewing" value={summary.reports.reviewing} icon="eye" tint="#2563EB" c={c} scale={scale} />
               <Tile label="Flagged" value={summary.users.flagged || 0} icon="alert-circle" tint="#F59E0B" c={c} scale={scale} />
+              <Tile label="Auto-hidden" value={summary.users.auto_hidden || 0} icon="eye-off" tint="#B45309" c={c} scale={scale} />
               <Tile label="Restricted" value={summary.users.restricted} icon="hand-left" tint="#DC2626" c={c} scale={scale} />
               <Tile label="Resolved" value={summary.reports.resolved} icon="checkmark-done" tint="#0F766E" c={c} scale={scale} />
               <Tile label="Support open" value={summary.support.open} icon="help-buoy" tint="#7C3AED" c={c} scale={scale} />
@@ -144,8 +145,11 @@ export default function AdminHome() {
                   {!!(u.reasons || []).length && (
                     <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6, fontStyle: "italic" }} numberOfLines={2}>Reasons: {(u.reasons || []).join(" · ")}</Text>
                   )}
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
-                    <Pressable onPress={() => router.push(`/user/${u.user_id}`)} style={[styles.pillBtn, { backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.border }]}>
+                  <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                    <Pressable testID={`admin-review-${u.user_id}`} onPress={() => router.push(`/admin/user/${u.user_id}` as any)} style={[styles.pillBtn, { backgroundColor: c.brand }]}>
+                      <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale }}>Review</Text>
+                    </Pressable>
+                    <Pressable onPress={() => router.push(`/user/${u.user_id}` as any)} style={[styles.pillBtn, { backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.border }]}>
                       <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>View profile</Text>
                     </Pressable>
                     {u.restricted && (

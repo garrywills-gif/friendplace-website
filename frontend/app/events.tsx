@@ -19,15 +19,21 @@ export default function Events() {
   const load = async () => setEvents(await api.listEvents());
   useFocusEffect(useCallback(() => { load(); }, []));
 
-  const toggle = async (e: any) => {
+  const setRsvp = async (e: any, resp: "going" | "maybe" | "cant") => {
     if (!user) return;
-    const going = (e.rsvps || []).includes(user.id);
     try {
-      if (going) await api.unrsvpEvent(e.id, user.id);
-      else await api.rsvpEvent(e.id, user.id);
-      show(going ? "RSVP removed" : "🎉 You're going!");
+      const res: any = await api.rsvpEvent(e.id, user.id, resp);
+      if (res?.waitlisted) show(`Event is full — you're on the waitlist (#${res.waitlist_count})`);
+      else if (resp === "going") show("🎉 You're going!");
+      else if (resp === "maybe") show("Marked as Maybe");
+      else show("RSVP updated");
       await load(); await refresh();
     } catch { show("Try again"); }
+  };
+  const cancelRsvp = async (e: any) => {
+    if (!user) return;
+    try { await api.unrsvpEvent(e.id, user.id); show("RSVP cancelled"); await load(); await refresh(); }
+    catch { show("Try again"); }
   };
 
   return (
@@ -92,15 +98,53 @@ export default function Events() {
               )}
 
               <View style={styles.bottom}>
-                <Text style={[styles.count, { color: c.muted, fontSize: 14 * scale }]}>👥 {(item.rsvps || []).length} going</Text>
-                <Pressable
-                  testID={`rsvp-${item.id}`}
-                  onPress={() => toggle(item)}
-                  style={[styles.rsvp, { backgroundColor: going ? c.surfaceTertiary : c.brand, borderColor: going ? c.border : c.brand }]}
-                >
-                  <Ionicons name={going ? "checkmark-circle" : "calendar"} size={20} color={going ? c.brand : "#FFF"} />
-                  <Text style={[styles.rsvpTxt, { color: going ? c.brand : "#FFF", fontSize: 16 * scale }]}>{going ? "Going" : "RSVP"}</Text>
-                </Pressable>
+                {(() => {
+                  const goingCount = (item.rsvps || []).length;
+                  const cap = item.capacity;
+                  const onGoing = user && (item.rsvps || []).includes(user.id);
+                  const onMaybe = user && (item.rsvps_maybe || []).includes(user.id);
+                  const onCant = user && (item.rsvps_cant || []).includes(user.id);
+                  const onWaitlist = user && (item.waitlist || []).includes(user.id);
+                  const spotsLeft = cap != null ? Math.max(0, Number(cap) - goingCount) : null;
+                  return (
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.count, { color: c.muted, fontSize: 13 * scale, marginBottom: 8 }]}>
+                        👥 {goingCount}{cap != null ? ` / ${cap}` : ""} going
+                        {cap != null && spotsLeft! > 0 && spotsLeft! <= 3 ? ` · only ${spotsLeft} left!` : ""}
+                        {cap != null && spotsLeft === 0 ? " · full — waitlist open" : ""}
+                        {(item.waitlist || []).length > 0 ? ` · ${(item.waitlist || []).length} on waitlist` : ""}
+                      </Text>
+                      <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+                        <Pressable
+                          testID={`rsvp-going-${item.id}`}
+                          onPress={() => setRsvp(item, "going")}
+                          style={[styles.rsvpSmall, { backgroundColor: (onGoing || onWaitlist) ? c.brand : c.surfaceTertiary, borderColor: (onGoing || onWaitlist) ? c.brand : c.border }]}
+                        >
+                          <Text style={{ color: (onGoing || onWaitlist) ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{onWaitlist ? "🕒 Waitlist" : onGoing ? "✅ Going" : "Going"}</Text>
+                        </Pressable>
+                        <Pressable
+                          testID={`rsvp-maybe-${item.id}`}
+                          onPress={() => setRsvp(item, "maybe")}
+                          style={[styles.rsvpSmall, { backgroundColor: onMaybe ? "#F59E0B" : c.surfaceTertiary, borderColor: onMaybe ? "#F59E0B" : c.border }]}
+                        >
+                          <Text style={{ color: onMaybe ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{onMaybe ? "🤔 Maybe" : "Maybe"}</Text>
+                        </Pressable>
+                        <Pressable
+                          testID={`rsvp-cant-${item.id}`}
+                          onPress={() => setRsvp(item, "cant")}
+                          style={[styles.rsvpSmall, { backgroundColor: onCant ? c.muted : c.surfaceTertiary, borderColor: onCant ? c.muted : c.border }]}
+                        >
+                          <Text style={{ color: onCant ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{onCant ? "❌ Can't make it" : "Can't make it"}</Text>
+                        </Pressable>
+                        {(onGoing || onMaybe || onCant || onWaitlist) && (
+                          <Pressable testID={`rsvp-clear-${item.id}`} onPress={() => cancelRsvp(item)} style={[styles.rsvpSmall, { backgroundColor: "transparent", borderColor: c.border }]}>
+                            <Text style={{ color: c.muted, fontWeight: "700", fontSize: 12 * scale }}>Clear</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })()}
               </View>
             </View>
           );
@@ -126,8 +170,9 @@ const styles = StyleSheet.create({
   sponsorHint: { fontStyle: "italic" },
   revealBtn: { paddingVertical: 12, borderRadius: 999, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
   codeBox: { padding: 12, borderRadius: 12, borderWidth: 2, alignItems: "center" },
-  bottom: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
+  bottom: { marginTop: 4 },
   count: { fontWeight: "600" },
   rsvp: { flexDirection: "row", alignItems: "center", paddingHorizontal: 18, paddingVertical: 12, borderRadius: 999, borderWidth: 2, gap: 6 },
+  rsvpSmall: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1.5 },
   rsvpTxt: { fontWeight: "800" },
 });

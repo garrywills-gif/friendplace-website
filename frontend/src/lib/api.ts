@@ -186,6 +186,14 @@ export const api = {
   adminTickets: (admin_id: string, status = "all") => req(`/admin/support/tickets?admin_id=${admin_id}&status=${status}`),
   adminResolveTicket: (id: string, body: { admin_id: string; note?: string }) =>
     req(`/admin/support/tickets/${id}/resolve`, { method: "POST", body: JSON.stringify(body) }),
+  adminUserModeration: (user_id: string, admin_id: string) =>
+    req(`/admin/users/${user_id}/moderation?admin_id=${admin_id}`),
+  adminAddUserNote: (user_id: string, body: { admin_id: string; note: string }) =>
+    req(`/admin/users/${user_id}/notes`, { method: "POST", body: JSON.stringify(body) }),
+  sendChatAlert: (body: { user_id: string; audience: "friends" | "nearby" | "selected"; recipient_ids?: string[]; radius_km?: number; message?: string }) =>
+    req(`/community/chat-alert`, { method: "POST", body: JSON.stringify(body) }),
+  updatePreferences: (user_id: string, body: { read_messages_aloud?: boolean; text_scale?: number; high_contrast?: boolean; large_text?: boolean; nearby_chat_alerts?: boolean }) =>
+    req(`/users/${user_id}/preferences`, { method: "PATCH", body: JSON.stringify(body) }),
 
   // profile / onboarding
   updateProfile: (uid: string, body: any) => req(`/users/${uid}/profile`, { method: "PATCH", body: JSON.stringify(body) }),
@@ -217,8 +225,11 @@ export const api = {
 
   // events
   listEvents: () => req("/events"),
-  rsvpEvent: (id: string, uid: string) => req(`/events/${id}/rsvp/${uid}`, { method: "POST" }),
+  rsvpEvent: (id: string, uid: string, response: "going" | "maybe" | "cant" = "going") =>
+    req(`/events/${id}/rsvp/${uid}`, { method: "POST", body: JSON.stringify({ response }) }),
   unrsvpEvent: (id: string, uid: string) => req(`/events/${id}/unrsvp/${uid}`, { method: "POST" }),
+  createEvent: (body: { title: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; host_id?: string }) =>
+    req(`/events`, { method: "POST", body: JSON.stringify(body) }),
 
   // notices
   listNotices: (opts: { user_id?: string; q?: string; category?: string } = {}) => {

@@ -1,10 +1,11 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Modal, TextInput, ActivityIndicator } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
+import { useToast } from "@/src/lib/toast";
 import Button from "@/src/components/Button";
 import { api } from "@/src/lib/api";
 
@@ -20,9 +21,16 @@ const STATUS_OPTIONS: { key: string; emoji: string; label: string }[] = [
 export default function Profile() {
   const { c, scale } = useTheme();
   const { user, refresh, logout } = useAuth();
+  const { show } = useToast();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [friends, setFriends] = useState<any[]>([]);
+  const [alertOpen, setAlertOpen] = useState(false);
+  const [alertAudience, setAlertAudience] = useState<"friends" | "nearby" | "selected">("friends");
+  const [alertMsg, setAlertMsg] = useState("");
+  const [alertBusy, setAlertBusy] = useState(false);
+  const [alertSelected, setAlertSelected] = useState<string[]>([]);
+  const [nearbyOptedIn, setNearbyOptedIn] = useState<boolean>(((user as any)?.preferences?.nearby_chat_alerts) ?? false);
 
   useFocusEffect(useCallback(() => {
     (async () => {
@@ -122,6 +130,28 @@ export default function Profile() {
           );
         })}
       </View>
+      <View style={{ height: 10 }} />
+      <Pressable
+        testID="open-chat-alert"
+        onPress={() => setAlertOpen(true)}
+        style={[styles.chip, { backgroundColor: c.brand, borderColor: c.brand, alignSelf: "flex-start" }]}
+      >
+        <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 14 * scale }}>🦋 Send a &ldquo;Looking to chat&rdquo; alert</Text>
+      </Pressable>
+      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10, gap: 8 }}>
+        <Pressable
+          testID="toggle-nearby-opt-in"
+          onPress={async () => {
+            const next = !nearbyOptedIn;
+            setNearbyOptedIn(next);
+            try { await api.updatePreferences(user.id, { nearby_chat_alerts: next }); show(next ? "You'll get chat alerts from neighbours" : "Nearby alerts off"); } catch { setNearbyOptedIn(!next); }
+          }}
+          style={{ width: 22, height: 22, borderWidth: 2, borderRadius: 6, borderColor: c.brand, backgroundColor: nearbyOptedIn ? c.brand : "transparent", alignItems: "center", justifyContent: "center" }}
+        >
+          {nearbyOptedIn && <Ionicons name="checkmark" size={14} color="#FFF" />}
+        </Pressable>
+        <Text style={{ color: c.muted, fontSize: 13 * scale, flex: 1 }}>Let nearby neighbours send me chat alerts</Text>
+      </View>
       <View style={{ height: 12 }} />
       <Button label="Friend Requests" onPress={() => router.push("/friends/inbox")} testID="profile-friend-requests" />
       <View style={{ height: 8 }} />
@@ -153,6 +183,96 @@ export default function Profile() {
       )}
       <View style={{ height: 12 }} />
       <Button testID="logout" label="Log Out" variant="ghost" onPress={async () => { await logout(); router.replace("/"); }} />
+
+      {/* Looking-to-chat alert modal */}
+      <Modal visible={alertOpen} animationType="slide" transparent onRequestClose={() => setAlertOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}>
+          <View style={{ backgroundColor: c.surface, padding: 18, borderTopLeftRadius: 20, borderTopRightRadius: 20, gap: 12 }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 18 * scale, flex: 1 }}>🦋 Send a chat alert</Text>
+              <Pressable testID="close-alert" onPress={() => setAlertOpen(false)} hitSlop={10}><Ionicons name="close" size={24} color={c.muted} /></Pressable>
+            </View>
+            <Text style={{ color: c.muted, fontSize: 13 * scale }}>Choose who hears that you&apos;d like a chat right now.</Text>
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              {(["friends", "nearby", "selected"] as const).map((a) => {
+                const on = alertAudience === a;
+                const label = a === "friends" ? "My friends" : a === "nearby" ? "Nearby opt-ins" : "Choose people";
+                return (
+                  <Pressable
+                    key={a}
+                    testID={`audience-${a}`}
+                    onPress={() => setAlertAudience(a)}
+                    style={[styles.chip, { backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}
+                  >
+                    <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {alertAudience === "selected" && (
+              <View>
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginBottom: 6 }}>Pick from your friends ({alertSelected.length}/20)</Text>
+                {friends.length === 0 ? (
+                  <Text style={{ color: c.muted, fontSize: 13 * scale }}>No friends to choose from yet.</Text>
+                ) : (
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                    {friends.map((f: any) => {
+                      const on = alertSelected.includes(f.id);
+                      return (
+                        <Pressable
+                          key={f.id}
+                          testID={`pick-${f.id}`}
+                          onPress={() => setAlertSelected((prev) => on ? prev.filter((x) => x !== f.id) : (prev.length < 20 ? [...prev, f.id] : prev))}
+                          style={[styles.chip, { backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}
+                        >
+                          <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontWeight: "700", fontSize: 13 * scale }}>{f.avatar} {f.first_name}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            )}
+            <TextInput
+              testID="alert-message"
+              value={alertMsg}
+              onChangeText={setAlertMsg}
+              placeholder="Add a short message (optional)"
+              placeholderTextColor={c.muted}
+              multiline
+              maxLength={280}
+              style={{ color: c.onSurface, backgroundColor: c.surfaceSecondary, borderColor: c.border, borderWidth: 1.5, borderRadius: 12, padding: 12, minHeight: 70, textAlignVertical: "top", fontSize: 14 * scale }}
+            />
+            <Text style={{ color: c.muted, fontSize: 11 * scale }}>Alerts go to friends, nearby opt-ins, or the people you choose — never the whole community.</Text>
+            <Pressable
+              testID="send-alert"
+              disabled={alertBusy || (alertAudience === "selected" && alertSelected.length === 0)}
+              onPress={async () => {
+                setAlertBusy(true);
+                try {
+                  const res: any = await api.sendChatAlert({
+                    user_id: user.id,
+                    audience: alertAudience,
+                    message: alertMsg.trim() || undefined,
+                    recipient_ids: alertAudience === "selected" ? alertSelected : undefined,
+                    radius_km: alertAudience === "nearby" ? 10 : undefined,
+                  });
+                  show(res.delivered_to ? `Sent to ${res.delivered_to} ${res.delivered_to === 1 ? "neighbour" : "neighbours"}` : (res.message || "Nobody to send to"));
+                  setAlertOpen(false);
+                  setAlertMsg("");
+                  setAlertSelected([]);
+                } catch (e: any) {
+                  show(e?.message || "Could not send alert");
+                } finally { setAlertBusy(false); }
+              }}
+              style={{ backgroundColor: c.brand, paddingVertical: 14, borderRadius: 14, alignItems: "center", opacity: alertBusy ? 0.6 : 1 }}
+            >
+              {alertBusy ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 15 * scale }}>Send alert</Text>}
+            </Pressable>
+            <View style={{ height: insets.bottom }} />
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }

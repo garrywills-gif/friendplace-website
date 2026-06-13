@@ -230,8 +230,13 @@ class Event(BaseModel):
     location: str = ""
     date: str = ""
     time: str = ""
-    rsvps: List[str] = []
-    sponsor: Optional[dict] = None  # {name, message, discount_code}
+    rsvps: List[str] = []                # legacy "going" list — kept for compat
+    rsvps_maybe: List[str] = []
+    rsvps_cant: List[str] = []
+    waitlist: List[str] = []
+    capacity: Optional[int] = None       # None = unlimited
+    host_id: Optional[str] = None
+    sponsor: Optional[dict] = None       # {name, message, discount_code}
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -537,7 +542,7 @@ async def list_users(
     returned to the client — only a friendly `distance_km` and the suburb
     name. Users with `location_visibility=private` are excluded from radius
     queries (they opted out of location matching)."""
-    query: Dict = {"banned": {"$ne": True}}
+    query: Dict = {"banned": {"$ne": True}, "profile_hidden": {"$ne": True}}
     if suburb:
         query["suburb"] = {"$regex": suburb, "$options": "i"}
     if interest:
@@ -848,6 +853,7 @@ class PreferencesBody(BaseModel):
     text_scale: Optional[float] = None        # 0.85 – 1.6
     high_contrast: Optional[bool] = None
     large_text: Optional[bool] = None         # legacy compat
+    nearby_chat_alerts: Optional[bool] = None  # opt-in for /community/chat-alert (nearby audience)
 
 
 @api.patch("/users/{user_id}/preferences")
@@ -861,6 +867,8 @@ async def update_preferences(user_id: str, body: PreferencesBody):
         update["preferences.high_contrast"] = bool(body.high_contrast)
     if body.large_text is not None:
         update["preferences.large_text"] = bool(body.large_text)
+    if body.nearby_chat_alerts is not None:
+        update["preferences.nearby_chat_alerts"] = bool(body.nearby_chat_alerts)
     if update:
         await db.users.update_one({"id": user_id}, {"$set": update})
     u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
@@ -2795,17 +2803,120 @@ async def create_event(body: Event):
     return e.dict()
 
 
+class RsvpBody(BaseModel):
+    response: str  # "going" | "maybe" | "cant"
+
+
 @api.post("/events/{event_id}/rsvp/{user_id}")
-async def rsvp_event(event_id: str, user_id: str):
-    await db.events.update_one({"id": event_id}, {"$addToSet": {"rsvps": user_id}})
-    await award_points(user_id, 6)
-    return {"ok": True}
+async def rsvp_event(event_id: str, user_id: str, body: Optional[RsvpBody] = None):
+    """Three-state RSVP with capacity + waitlist.
+
+    Body shape: `{response: "going" | "maybe" | "cant"}`. If omitted (legacy
+    callers), defaults to "going" for backwards compatibility.
+    Capacity logic:
+      * If event.capacity is set AND going list is full AND response="going",
+        the user is added to the waitlist instead and returned `waitlisted=True`.
+      * When a "going" user later changes to "maybe"/"cant"/leaves, the top of
+        the waitlist is automatically promoted to "going" and notified.
+    """
+    response = (body.response if body else "going") or "going"
+    if response not in ("going", "maybe", "cant"):
+        raise HTTPException(400, "response must be one of: going, maybe, cant")
+    event = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(404, "Event not found")
+
+    going = list(event.get("rsvps") or [])
+    maybe = list(event.get("rsvps_maybe") or [])
+    cant = list(event.get("rsvps_cant") or [])
+    waitlist = list(event.get("waitlist") or [])
+    capacity = event.get("capacity")
+    # Remove the user from any list they're on first
+    for lst in (going, maybe, cant, waitlist):
+        if user_id in lst:
+            lst.remove(user_id)
+
+    waitlisted = False
+    if response == "going":
+        if capacity is not None and len(going) >= int(capacity):
+            waitlist.append(user_id)
+            waitlisted = True
+        else:
+            going.append(user_id)
+            await award_points(user_id, 6)
+    elif response == "maybe":
+        maybe.append(user_id)
+    else:  # cant
+        cant.append(user_id)
+
+    await db.events.update_one(
+        {"id": event_id},
+        {"$set": {"rsvps": going, "rsvps_maybe": maybe, "rsvps_cant": cant, "waitlist": waitlist}},
+    )
+    # If someone left "going" and capacity now has space, promote first waitlist entry
+    promoted: Optional[str] = None
+    if response != "going" and waitlist and (capacity is None or len(going) < int(capacity)):
+        promoted = waitlist.pop(0)
+        if promoted not in going:
+            going.append(promoted)
+        await db.events.update_one(
+            {"id": event_id},
+            {"$set": {"rsvps": going, "waitlist": waitlist}},
+        )
+        await award_points(promoted, 6)
+        try:
+            await push_notification(
+                promoted,
+                "event_invite",
+                f"You're in — {event.get('title','Event')}",
+                "A spot just opened up. You've been moved from the waitlist to Going.",
+                {"event_id": event_id},
+            )
+        except Exception:
+            pass
+
+    return {
+        "ok": True,
+        "response": "waitlist" if waitlisted else response,
+        "waitlisted": waitlisted,
+        "going_count": len(going),
+        "capacity": capacity,
+        "waitlist_count": len(waitlist),
+        "promoted_user_id": promoted,
+    }
 
 
 @api.post("/events/{event_id}/unrsvp/{user_id}")
 async def unrsvp_event(event_id: str, user_id: str):
-    await db.events.update_one({"id": event_id}, {"$pull": {"rsvps": user_id}})
-    return {"ok": True}
+    """Remove user from all RSVP lists, then promote waitlist if possible."""
+    event = await db.events.find_one({"id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(404, "Event not found")
+    going = [u for u in (event.get("rsvps") or []) if u != user_id]
+    maybe = [u for u in (event.get("rsvps_maybe") or []) if u != user_id]
+    cant = [u for u in (event.get("rsvps_cant") or []) if u != user_id]
+    waitlist = [u for u in (event.get("waitlist") or []) if u != user_id]
+    capacity = event.get("capacity")
+    promoted: Optional[str] = None
+    if waitlist and (capacity is None or len(going) < int(capacity)):
+        promoted = waitlist.pop(0)
+        going.append(promoted)
+        await award_points(promoted, 6)
+        try:
+            await push_notification(
+                promoted,
+                "event_invite",
+                f"You're in — {event.get('title','Event')}",
+                "A spot just opened up. You've been moved from the waitlist to Going.",
+                {"event_id": event_id},
+            )
+        except Exception:
+            pass
+    await db.events.update_one(
+        {"id": event_id},
+        {"$set": {"rsvps": going, "rsvps_maybe": maybe, "rsvps_cant": cant, "waitlist": waitlist}},
+    )
+    return {"ok": True, "promoted_user_id": promoted, "going_count": len(going), "waitlist_count": len(waitlist)}
 
 
 # ------------- Notice Board -------------
@@ -3005,6 +3116,44 @@ async def _notify_admins(notification: Dict):
         await db.notifications.insert_one(doc)
 
 
+async def _log_moderation_action(
+    *,
+    user_id: str,
+    by: str,
+    action: str,
+    reason: str = "",
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    report_id: Optional[str] = None,
+    extra: Optional[Dict] = None,
+) -> None:
+    """Append a single moderation log entry against a user.
+
+    Used for the admin-visible per-user history (warnings, suspensions, bans,
+    auto-hides, content removals, manual notes). `by` is "system" for automated
+    actions or an admin user_id for manual ones.
+    """
+    if not user_id or not action:
+        return
+    entry = {
+        "id": nid(),
+        "user_id": user_id,
+        "by": by or "system",
+        "action": action,
+        "reason": reason or "",
+        "target_type": target_type,
+        "target_id": target_id,
+        "report_id": report_id,
+        "created_at": now_iso(),
+    }
+    if extra:
+        entry.update(extra)
+    try:
+        await db.moderation_log.insert_one(entry)
+    except Exception as e:
+        logger.warning("moderation_log insert failed: %s", e)
+
+
 async def _apply_moderation_policy(target_user_id: str) -> Dict:
     """Apply the YouBelong moderation policy (per house rules).
 
@@ -3048,12 +3197,21 @@ async def _apply_moderation_policy(target_user_id: str) -> Dict:
                 "restricted_at": now_iso(),
                 "restricted_reason": f"Auto-restricted: {MODERATION_RESTRICT_THRESHOLD}+ unique reports in {MODERATION_WINDOW_DAYS} days. Requires admin review.",
                 "flagged_for_review": True,
+                "profile_hidden": True,
+                "profile_hidden_at": now_iso(),
+                "profile_hidden_reason": f"Auto-hidden after {MODERATION_RESTRICT_THRESHOLD}+ reports. Awaiting admin review.",
             }},
         )
         await db.notices.update_many({"user_id": target_user_id}, {"$set": {"auto_hidden": True}})
         await db.reports.update_many(
             {"target_user_id": target_user_id, "status": {"$ne": "resolved"}},
             {"$set": {"urgent": True}},
+        )
+        await _log_moderation_action(
+            user_id=target_user_id,
+            by="system",
+            action="auto_restrict",
+            reason=f"Reached {MODERATION_RESTRICT_THRESHOLD}+ unique reports in {MODERATION_WINDOW_DAYS} days",
         )
         await _notify_admins({
             "type": "moderation_urgent",
@@ -3063,22 +3221,38 @@ async def _apply_moderation_policy(target_user_id: str) -> Dict:
         })
         out["restricted"] = True
         out["flagged"] = True
+        out["profile_hidden"] = True
         return out
 
-    # 3 unique reporters → flag for review (visible-only; no functional restriction)
+    # 3 unique reporters → flag + AUTO-HIDE PROFILE pending admin review.
+    # Per policy: never auto-bans. Profile stays hidden from public listings
+    # until an admin reviews and clears it via /admin/users/restore.
     if len(unique_reporters) >= MODERATION_FLAG_THRESHOLD and not target.get("flagged_for_review"):
         await db.users.update_one(
             {"id": target_user_id},
-            {"$set": {"flagged_for_review": True, "flagged_at": now_iso(),
-                       "flagged_reason": f"{MODERATION_FLAG_THRESHOLD}+ unique reports in {MODERATION_WINDOW_DAYS} days"}},
+            {"$set": {
+                "flagged_for_review": True,
+                "flagged_at": now_iso(),
+                "flagged_reason": f"{MODERATION_FLAG_THRESHOLD}+ unique reports in {MODERATION_WINDOW_DAYS} days",
+                "profile_hidden": True,
+                "profile_hidden_at": now_iso(),
+                "profile_hidden_reason": f"Auto-hidden after {MODERATION_FLAG_THRESHOLD} reports. Awaiting admin review.",
+            }},
+        )
+        await _log_moderation_action(
+            user_id=target_user_id,
+            by="system",
+            action="auto_hide",
+            reason=f"Reached {MODERATION_FLAG_THRESHOLD} unique reports in {MODERATION_WINDOW_DAYS} days",
         )
         await _notify_admins({
             "type": "moderation_flagged",
-            "title": "User flagged for review",
-            "body": f"{target.get('username','?')} reached {MODERATION_FLAG_THRESHOLD} unique reports in {MODERATION_WINDOW_DAYS} days.",
+            "title": "Profile auto-hidden — review needed",
+            "body": f"{target.get('username','?')} reached {MODERATION_FLAG_THRESHOLD} unique reports in {MODERATION_WINDOW_DAYS} days. Profile is hidden from listings.",
             "ref_user_id": target_user_id,
         })
         out["flagged"] = True
+        out["profile_hidden"] = True
     return out
 
 
@@ -3235,6 +3409,7 @@ async def admin_warn_user(body: AdminUserActionBody):
     })
     if body.report_id:
         await db.reports.update_one({"id": body.report_id}, {"$set": {"status": "resolved", "outcome": "warned", "admin_note": body.reason, "updated_at": now_iso()}})
+    await _log_moderation_action(user_id=body.user_id, by=body.admin_id, action="warn", reason=body.reason, report_id=body.report_id)
     return {"ok": True}
 
 
@@ -3255,6 +3430,7 @@ async def admin_suspend_user(body: AdminUserActionBody):
     })
     if body.report_id:
         await db.reports.update_one({"id": body.report_id}, {"$set": {"status": "resolved", "outcome": f"suspended_{hours}h", "admin_note": body.reason, "updated_at": now_iso()}})
+    await _log_moderation_action(user_id=body.user_id, by=body.admin_id, action="suspend", reason=body.reason, report_id=body.report_id, extra={"duration_hours": hours, "until": until})
     return {"ok": True, "suspended_until": until}
 
 
@@ -3267,6 +3443,7 @@ async def admin_ban_user(body: AdminUserActionBody):
     )
     if body.report_id:
         await db.reports.update_one({"id": body.report_id}, {"$set": {"status": "resolved", "outcome": "banned", "admin_note": body.reason, "updated_at": now_iso()}})
+    await _log_moderation_action(user_id=body.user_id, by=body.admin_id, action="ban", reason=body.reason, report_id=body.report_id)
     return {"ok": True}
 
 
@@ -3275,10 +3452,14 @@ async def admin_restore_user(body: AdminUserActionBody):
     await _require_admin(body.admin_id)
     await db.users.update_one(
         {"id": body.user_id},
-        {"$set": {"restricted": False, "banned": False, "suspended_until": None, "restricted_reason": ""},
-         "$unset": {"restricted_at": ""}},
+        {"$set": {
+            "restricted": False, "banned": False, "suspended_until": None, "restricted_reason": "",
+            "profile_hidden": False, "flagged_for_review": False,
+        },
+         "$unset": {"restricted_at": "", "profile_hidden_at": "", "profile_hidden_reason": "", "flagged_at": "", "flagged_reason": ""}},
     )
     await db.notices.update_many({"user_id": body.user_id}, {"$set": {"auto_hidden": False}})
+    await _log_moderation_action(user_id=body.user_id, by=body.admin_id, action="restore", reason=body.reason)
     return {"ok": True}
 
 
@@ -3293,14 +3474,74 @@ class AdminRemoveContentBody(BaseModel):
 @api.post("/admin/content/remove")
 async def admin_remove_content(body: AdminRemoveContentBody):
     await _require_admin(body.admin_id)
+    target_user_id: Optional[str] = None
     if body.target_type == "notice":
+        n = await db.notices.find_one({"id": body.target_id}, {"_id": 0, "user_id": 1})
+        target_user_id = (n or {}).get("user_id")
         await db.notices.update_one({"id": body.target_id}, {"$set": {"removed": True, "removed_at": now_iso(), "removed_reason": body.reason}})
     elif body.target_type in ("message", "dm"):
+        m = await db.messages.find_one({"id": body.target_id}, {"_id": 0, "user_id": 1, "from_id": 1})
+        target_user_id = (m or {}).get("user_id") or (m or {}).get("from_id")
         await db.messages.update_one({"id": body.target_id}, {"$set": {"removed": True, "removed_at": now_iso(), "removed_reason": body.reason, "text": "[Removed by moderator]"}})
     else:
         raise HTTPException(400, "Unsupported target type")
     if body.report_id:
         await db.reports.update_one({"id": body.report_id}, {"$set": {"status": "resolved", "outcome": "content_removed", "admin_note": body.reason, "updated_at": now_iso()}})
+    if target_user_id:
+        await _log_moderation_action(
+            user_id=target_user_id, by=body.admin_id, action="content_removed",
+            reason=body.reason, target_type=body.target_type, target_id=body.target_id, report_id=body.report_id,
+        )
+    return {"ok": True}
+
+
+# ----- Admin: per-user moderation history + free-form notes -----
+class AdminNoteBody(BaseModel):
+    admin_id: str
+    note: str
+
+
+@api.get("/admin/users/{user_id}/moderation")
+async def admin_user_moderation(user_id: str, admin_id: str):
+    """Full moderation snapshot for one user — for the admin review screen."""
+    await _require_admin(admin_id)
+    user = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "password_hash": 0, "failed_login_attempts": 0, "lockout_until": 0, "suburb_lat": 0, "suburb_lng": 0},
+    )
+    if not user:
+        raise HTTPException(404, "User not found")
+    reports = await db.reports.find({"target_user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    log = await db.moderation_log.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # Enrich log entries with the acting admin's display name
+    admin_ids = list({e.get("by") for e in log if e.get("by") and e.get("by") != "system"})
+    admin_map: Dict[str, Dict] = {}
+    if admin_ids:
+        async for a in db.users.find({"id": {"$in": admin_ids}}, {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1}):
+            admin_map[a["id"]] = a
+    for e in log:
+        if e.get("by") and e.get("by") != "system":
+            e["by_user"] = admin_map.get(e["by"])
+    return {
+        "user": user,
+        "reports": reports,
+        "warnings": user.get("warnings", []),
+        "moderation_log": log,
+        "counts": {
+            "reports_total": len(reports),
+            "reports_open": sum(1 for r in reports if r.get("status") in ("new", "reviewing")),
+            "actions_total": len(log),
+        },
+    }
+
+
+@api.post("/admin/users/{user_id}/notes")
+async def admin_add_user_note(user_id: str, body: AdminNoteBody):
+    """Free-form note that admins can attach to a user's history."""
+    await _require_admin(body.admin_id)
+    if not (body.note or "").strip():
+        raise HTTPException(400, "Note cannot be empty")
+    await _log_moderation_action(user_id=user_id, by=body.admin_id, action="note", reason=body.note.strip())
     return {"ok": True}
 
 
@@ -3372,6 +3613,7 @@ async def admin_summary(admin_id: str):
         "users": {
             "total": await db.users.count_documents({}),
             "flagged": await db.users.count_documents({"flagged_for_review": True, "restricted": {"$ne": True}, "banned": {"$ne": True}}),
+            "auto_hidden": await db.users.count_documents({"profile_hidden": True, "banned": {"$ne": True}}),
             "restricted": await db.users.count_documents({"restricted": True}),
             "banned": await db.users.count_documents({"banned": True}),
         },
@@ -3539,6 +3781,139 @@ async def my_flutters(user_id: str):
 async def mark_flutter_read(flutter_id: str):
     await db.flutters.update_one({"id": flutter_id}, {"$set": {"read": True}})
     return {"ok": True}
+
+
+class ChatAlertBody(BaseModel):
+    user_id: str                          # sender
+    audience: str = "friends"             # friends | nearby | selected
+    recipient_ids: Optional[List[str]] = None  # required when audience=selected
+    radius_km: Optional[float] = 10.0     # only used when audience=nearby
+    message: Optional[str] = None
+
+
+@api.post("/community/chat-alert")
+async def send_chat_alert(body: ChatAlertBody):
+    """Broadcast a 'Looking to chat' alert to a chosen audience.
+
+    Privacy rules (per house policy — alerts are never sent to the whole community):
+      * `friends`  → all of the sender's friends (default).
+      * `nearby`   → users within `radius_km` of the sender's suburb who have
+                     opted in via preferences.nearby_chat_alerts (default off).
+      * `selected` → only the explicit `recipient_ids` (max 20).
+    Blocked users and the sender themselves are always excluded.
+    """
+    sender = await db.users.find_one({"id": body.user_id}, {"_id": 0})
+    if not sender:
+        raise HTTPException(404, "Sender not found")
+    if sender.get("banned") or sender.get("restricted"):
+        raise HTTPException(403, "Account temporarily restricted")
+    audience = (body.audience or "friends").lower()
+    if audience not in ("friends", "nearby", "selected"):
+        raise HTTPException(400, "audience must be one of: friends, nearby, selected")
+
+    msg = (body.message or "is looking for a chat 🦋").strip()
+    if len(msg) > 280:
+        raise HTTPException(400, "Message too long")
+
+    blocked_set = set(sender.get("blocked") or [])
+    sender_id = body.user_id
+    recipients: List[str] = []
+
+    if audience == "friends":
+        friend_ids = list(sender.get("friends") or [])
+        if not friend_ids:
+            return {"ok": True, "audience": audience, "delivered_to": 0, "message": "You don't have any friends yet — try sending a friend request first."}
+        # exclude blocked + self + anyone who blocked sender
+        cur = db.users.find(
+            {"id": {"$in": friend_ids}, "banned": {"$ne": True}, "blocked": {"$ne": sender_id}},
+            {"_id": 0, "id": 1},
+        )
+        async for u in cur:
+            if u["id"] != sender_id and u["id"] not in blocked_set:
+                recipients.append(u["id"])
+
+    elif audience == "selected":
+        ids = [i for i in (body.recipient_ids or []) if i and i != sender_id]
+        if not ids:
+            raise HTTPException(400, "recipient_ids required for 'selected' audience")
+        if len(ids) > 20:
+            raise HTTPException(400, "Maximum 20 recipients per alert")
+        cur = db.users.find(
+            {"id": {"$in": ids}, "banned": {"$ne": True}, "blocked": {"$ne": sender_id}},
+            {"_id": 0, "id": 1},
+        )
+        async for u in cur:
+            if u["id"] not in blocked_set:
+                recipients.append(u["id"])
+
+    elif audience == "nearby":
+        if not (sender.get("suburb_lat") and sender.get("suburb_lng")):
+            raise HTTPException(400, "Set your suburb first so we can find nearby members.")
+        radius = float(body.radius_km or 10.0)
+        if radius <= 0 or radius > 100:
+            raise HTTPException(400, "radius_km must be between 0 and 100")
+        lat = float(sender["suburb_lat"])
+        lng = float(sender["suburb_lng"])
+        # Only opted-in users — preferences.nearby_chat_alerts must be True.
+        cur = db.users.find(
+            {
+                "id": {"$ne": sender_id, "$nin": list(blocked_set)},
+                "banned": {"$ne": True},
+                "blocked": {"$ne": sender_id},
+                "location_visibility": {"$ne": "private"},
+                "suburb_lat": {"$ne": None, "$exists": True},
+                "suburb_lng": {"$ne": None, "$exists": True},
+                "preferences.nearby_chat_alerts": True,
+            },
+            {"_id": 0, "id": 1, "suburb_lat": 1, "suburb_lng": 1},
+        )
+        async for u in cur:
+            try:
+                d = sb_haversine(lat, lng, float(u["suburb_lat"]), float(u["suburb_lng"]))
+                if d <= radius:
+                    recipients.append(u["id"])
+            except (TypeError, ValueError):
+                continue
+
+    # Dedupe just in case
+    recipients = list(dict.fromkeys(recipients))
+    if not recipients:
+        return {"ok": True, "audience": audience, "delivered_to": 0, "message": "Nobody to send to right now."}
+
+    sender_name = sender.get("first_name") or sender.get("username") or "A neighbour"
+    sender_avatar = sender.get("avatar") or "🌸"
+    flutter_msg = msg if msg else "is looking for a chat 🦋"
+    now = now_iso()
+    flutter_docs: List[Dict] = []
+    for rid in recipients:
+        flutter_docs.append({
+            "id": nid(),
+            "from_id": sender_id,
+            "to_id": rid,
+            "from_name": sender_name,
+            "from_avatar": sender_avatar,
+            "message": flutter_msg,
+            "kind": "chat_alert",
+            "audience": audience,
+            "read": False,
+            "created_at": now,
+        })
+    if flutter_docs:
+        await db.flutters.insert_many(flutter_docs)
+    # Notify each recipient (in-app + device push). Wrapped per-user so one
+    # failure doesn't poison the rest of the broadcast.
+    for rid in recipients:
+        try:
+            await push_notification(
+                rid,
+                "looking_for_chat",
+                f"{sender_avatar} {sender_name} is looking to chat",
+                flutter_msg,
+                {"from_id": sender_id, "audience": audience},
+            )
+        except Exception as e:
+            logger.warning("chat-alert push to %s failed: %s", rid, e)
+    return {"ok": True, "audience": audience, "delivered_to": len(recipients)}
 
 
 # ------------- DM -------------
