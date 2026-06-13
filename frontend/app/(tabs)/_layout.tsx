@@ -1,14 +1,46 @@
 import React from "react";
+import { Pressable, Platform } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 
+/**
+ * Custom tab button — replaces the default expo-router/react-navigation tab
+ * button which on Web renders as an `<a href>` anchor. Anchors trigger
+ * iPadOS Safari's long-press preview ("Open in New Window / Tab") and can
+ * also be cmd/ctrl-clicked into a new window. We render a plain Pressable
+ * so the tab is a real button, not a navigable link.
+ */
+const TabBtn = (props: any) => {
+  const { onPress, onLongPress, accessibilityState, children, style } = props;
+  return (
+    <Pressable
+      // strip href so the underlying RNW renderer does NOT emit <a>
+      href={undefined as any}
+      // RNW: disable the iOS Safari context menu + text selection on the bar
+      // @ts-ignore — dataSet types
+      dataSet={Platform.OS === "web" ? { tabbarbtn: "true" } : undefined}
+      accessibilityRole="button"
+      accessibilityState={accessibilityState}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      android_ripple={{ borderless: true }}
+      style={({ pressed }) => [
+        style,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Platform.OS === "web" ? ({ WebkitTouchCallout: "none", WebkitUserSelect: "none", userSelect: "none", cursor: "pointer" } as any) : null,
+        { opacity: pressed ? 0.7 : 1 },
+      ]}
+    >
+      {children}
+    </Pressable>
+  );
+};
+
 export default function TabsLayout() {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
-  // Reserve room for the home-indicator on iPhone/iPad so touch targets aren't
-  // hidden under the system gesture zone. Min 8px on devices without an inset.
   const bottomPad = Math.max(insets.bottom, 8);
   const TAB_HEIGHT = 56;
   return (
@@ -18,6 +50,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: c.brand,
         tabBarInactiveTintColor: c.muted,
         tabBarHideOnKeyboard: true,
+        tabBarButton: (props) => <TabBtn {...props} />,
         tabBarStyle: {
           backgroundColor: c.surfaceSecondary,
           borderTopColor: c.border,
