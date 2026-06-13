@@ -1,0 +1,56 @@
+{
+  "summary": "Phase 1 Location backend tests: 21/22 PASS. One CRITICAL PRIVACY LEAK confirmed — GET /api/users/{user_id} returns raw user doc including suburb_lat & suburb_lng (lines 567-572 of server.py). Spec explicitly says single profile must strip coords. Additionally, GET /api/auth/me and the user payload returned by /auth/signup, /auth/login, /auth/demo-login (via _safe_user) all leak suburb_lat/suburb_lng. Public list /api/users (with and without radius) is SAFE — coords are stripped. Radius query returns distance_km (rounded 1dp), sorted ascending, excludes location_visibility=private users. /api/suburbs/search ranks prefix matches first (Mandurah, Manly before substring hits), handles empty q (empty list), clamps limit to 30 max, accepts postcode prefixes (2095→Manly). /api/suburbs/by-postcode/2026 returns both Bondi & Bondi Beach. /api/suburbs/nearest returns nearest known suburb with distance_km < 10 for Sydney coords. POST /users/{id}/location: 'Manly' persists suburb+postcode+state+coords+visibility=suburb (response body excludes coords ✓); unknown suburb falls back to free-text (no coords); prefer_not_to_say clears all location fields & sets visibility=private; 404 for unknown user. All regression endpoints green: /community/today, demo logins (frankie/maggie/joycey), /games/sudoku/daily, /games/spot/daily, /admin/policy.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/users/{user_id}",
+        "issue": "PRIVACY LEAK — returns suburb_lat & suburb_lng in the response. Spec says single-user profile must strip coords (publicly safe profile). Repro: POST /api/users/{frankie_id}/location {suburb:'Manly'} then GET /api/users/{frankie_id} → response contains 'suburb_lat': -33.7969, 'suburb_lng': 151.2871. Fix: server.py:567-572 — pop suburb_lat/suburb_lng before returning.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "GET /api/auth/me + POST /api/auth/{signup,login,demo-login}",
+        "issue": "PRIVACY LEAK — these endpoints return the user dict via _safe_user() (or current_user dep) which strips _id/password_hash/lockout fields but NOT suburb_lat/suburb_lng. Same coord values reachable through self-auth. Confirmed via curl: /auth/me for frankie returns suburb_lat=-33.7969, suburb_lng=151.2871. Fix: update _safe_user() at server.py:292-299 to also pop suburb_lat & suburb_lng (and apply same projection to current_user). Same dict is the canonical 'user' object shipped to the client on every login — if cached locally it persists raw coords on the device.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_location_privacy.py",
+    "/app/test_reports/pytest/location_privacy_results.xml"
+  ],
+  "action_items": [
+    "FIX (CRITICAL): /api/users/{user_id} must strip suburb_lat & suburb_lng before returning. Easiest: replace the find_one projection with a projection that excludes those fields, OR pop them post-fetch. Recommended: build a shared `strip_private_location(user)` helper and use it in BOTH list_users (loop) and get_user.",
+    "FIX (CRITICAL): _safe_user() should also pop suburb_lat & suburb_lng so /auth/me, /auth/signup, /auth/login, /auth/demo-login don't leak coords on the wire. Verify current_user dependency (server.py:71-80) projection too.",
+    "Suggested defence-in-depth: factor a `PUBLIC_USER_PROJECTION = {'_id':0,'password_hash':0,'suburb_lat':0,'suburb_lng':0,'failed_login_attempts':0,'lockout_until':0}` and reuse across every user fetch.",
+    "After fix, re-run pytest backend/tests/test_location_privacy.py — the failing test test_single_profile_does_not_leak_coords should turn green. Also add `assert 'suburb_lat' not in user` to /auth/me & /auth/login test paths in next pass.",
+    "Note: Frankie's location was set to 'Manly' during the test; teardown restores it. If the failing test interrupted teardown for some reason, run: POST /api/users/{frankie_id}/location with {prefer_not_to_say:true} to reset."
+  ],
+  "critical_code_review_comments": [
+    "server.py:567-572 (get_user) uses {'_id':0} projection only — every other user field including coords is returned. This is the root cause of the critical leak. Contrast with list_users (server.py:543-564) which explicitly pops suburb_lat/lng — that inconsistency is exactly the bug.",
+    "_safe_user (server.py:292-299) is the canonical sanitiser for auth response payloads but lacks coord stripping. Any new sensitive field added in future will hit the same hole; consider an allowlist projection rather than blocklist popping.",
+    "set_user_location response (server.py:1109-1110) correctly returns only the public_keys subset — good pattern; please mirror this on the get endpoints.",
+    "list_users radius branch (server.py:538-559) correctly: (a) requires suburb_lat/lng to be set, (b) excludes location_visibility=='private', (c) computes distance_km, (d) pops coords, (e) sorts by distance. Solid.",
+    "suburbs.py search_suburbs ranks prefix=0, postcode-prefix=1, name-contains=2, needle-contains-name=3 — verified prefix-first for 'man' (Mandurah & Manly).",
+    "suburbs/nearest does a linear O(N) scan over ~140 entries — fine at this scale. If the dataset grows, consider precomputing a KD-tree.",
+    "POST /users/{uid}/location validates suburb name against the dataset; unknown names fall back to free-text storage WITHOUT coords — verified, this prevents poisoning the radius index with arbitrary lat/lng from client."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_location_privacy.py (NEW — 22 cases, 21 pass, 1 critical fail surfacing the privacy leak)"
+  ],
+  "success_rate": {
+    "backend": "95.5% (21/22) — single failure is the intentional canary assertion that surfaced the documented privacy leak",
+    "frontend": "N/A — backend-only request"
+  },
+  "seed_data_creation": "Created 3 disposable signup users prefixed TEST_locpriv_<run-id>_ (Sydneyer / Bondian / Privater) for radius cross-check; the Privater one is flipped to prefer_not_to_say so it must NEVER appear in radius results. Frankie's pre-test location is snapshot in an autouse module fixture and restored to its original suburb at teardown. Maggie is briefly set to Glenelg then prefer_not_to_say to test the clear path. Joycey is set to 'NotARealPlace' to test the free-text fallback. No deletion endpoint exists for users — disposable users remain in DB but are forced to location_visibility=private at teardown so they cannot leak into any radius query. Main agent: consider adding an admin /users/{id} DELETE or a TEST_ prefix sweep cron.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Test file: /app/backend/tests/test_location_privacy.py. JUnit XML: /app/test_reports/pytest/location_privacy_results.xml. Run with: pytest backend/tests/test_location_privacy.py -v. Runtime ~3.3s. The one failing case (TestSingleUserProfilePrivacy::test_single_profile_does_not_leak_coords) is the canary for the open CRITICAL leak — once the fix lands, this should pass. After fix, also extend the test to assert no coord leak on /auth/me, /auth/login, /auth/demo-login. Demo users frankie/maggie/joycey have their suburbs/locations mutated during the run; the autouse fixture restores frankie at teardown; maggie ends up as prefer_not_to_say (private), joycey ends up with suburb='NotARealPlace' (free-text, no coords) — main agent may want to reset these via demo seed reload before the next iteration.",
+  "rca_of_issue": "ROOT CAUSE: get_user at server.py:567-572 does `db.users.find_one({'id': user_id}, {'_id': 0})` and returns the raw dict. No coord-stripping. Meanwhile list_users took the trouble to pop coords (line 543-564) and set_user_location returns a curated public_keys subset (line 1109-1110), so the privacy contract WAS understood — get_user was simply missed. Same root cause for _safe_user — it strips auth secrets but not the newly-added location fields. MITIGATION: Introduce one shared sanitiser used by all 'return a user to a client' code paths (list_users loop, get_user, _safe_user, current_user dep) that pops both legacy secrets and any future location fields. Allowlist projection is safer than blocklist for this class of bug."
+}
