@@ -213,6 +213,11 @@ class Notice(BaseModel):
     category: str = "Announcement"
     likes: List[str] = []
     comments: List[dict] = []
+    # Reaction map: { user_id -> "well_done" | "support" | "chat" | "flutter" | "congrats" }
+    reactions: Dict[str, str] = Field(default_factory=dict)
+    solved: bool = False
+    reports: List[dict] = Field(default_factory=list)
+    edited_at: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -1095,9 +1100,25 @@ async def unrsvp_event(event_id: str, user_id: str):
 
 
 # ------------- Notice Board -------------
+REACTIONS = {"well_done", "support", "chat", "flutter", "congrats"}
+
+
 @api.get("/notices")
-async def list_notices():
-    return await db.notices.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, category: Optional[str] = None):
+    query: Dict = {}
+    if category and category != "All":
+        query["category"] = category
+    if q:
+        query["$or"] = [{"title": {"$regex": q, "$options": "i"}}, {"body": {"$regex": q, "$options": "i"}}]
+    if user_id:
+        viewer = await db.users.find_one({"id": user_id}, {"blocked": 1, "_id": 0}) or {}
+        blocked = viewer.get("blocked") or []
+        if blocked:
+            query["user_id"] = {"$nin": blocked}
+    docs = await db.notices.find(query, {"_id": 0}).to_list(500)
+    # Unsolved first, then newest first; solved Q's sink below.
+    docs.sort(key=lambda d: (bool(d.get("solved")), -datetime.fromisoformat(d.get("created_at", now_iso())).timestamp()))
+    return docs
 
 
 @api.post("/notices")
@@ -1108,17 +1129,138 @@ async def create_notice(body: Notice):
     return n.dict()
 
 
+@api.patch("/notices/{notice_id}")
+async def edit_notice(notice_id: str, payload: dict):
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
+    if not n:
+        raise HTTPException(404, "Not found")
+    if payload.get("user_id") != n.get("user_id"):
+        raise HTTPException(403, "Only the author can edit")
+    update = {k: payload[k] for k in ("title", "body", "category") if k in payload}
+    update["edited_at"] = now_iso()
+    await db.notices.update_one({"id": notice_id}, {"$set": update})
+    return {**n, **update}
+
+
+@api.delete("/notices/{notice_id}")
+async def delete_notice(notice_id: str, user_id: str):
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
+    if not n:
+        return {"ok": True}
+    if n.get("user_id") != user_id:
+        raise HTTPException(403, "Only the author can delete")
+    await db.notices.delete_one({"id": notice_id})
+    return {"ok": True}
+
+
+@api.post("/notices/{notice_id}/react/{user_id}")
+async def react_notice(notice_id: str, user_id: str, body: dict):
+    """Set / toggle a single reaction per user (no negative reactions)."""
+    kind = (body or {}).get("kind", "")
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
+    if not n:
+        raise HTTPException(404, "Not found")
+    if kind and kind not in REACTIONS:
+        raise HTTPException(400, "Invalid reaction")
+    reactions = dict(n.get("reactions") or {})
+    if not kind or reactions.get(user_id) == kind:
+        reactions.pop(user_id, None)
+    else:
+        reactions[user_id] = kind
+    await db.notices.update_one({"id": notice_id}, {"$set": {"reactions": reactions}})
+    return {"reactions": reactions}
+
+
 @api.post("/notices/{notice_id}/like/{user_id}")
 async def like_notice(notice_id: str, user_id: str):
-    await db.notices.update_one({"id": notice_id}, {"$addToSet": {"likes": user_id}})
-    return {"ok": True}
+    # legacy compat — maps to the "well_done" reaction
+    return await react_notice(notice_id, user_id, {"kind": "well_done"})
 
 
 @api.post("/notices/{notice_id}/comment")
 async def comment_notice(notice_id: str, body: dict):
-    comment = {"id": nid(), "user_id": body.get("user_id"), "user_name": body.get("user_name", ""), "text": body.get("text", ""), "created_at": now_iso()}
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
+    if not n:
+        raise HTTPException(404, "Not found")
+    comment = {
+        "id": nid(), "user_id": body.get("user_id"), "user_name": body.get("user_name", ""),
+        "avatar": body.get("avatar", ""), "text": body.get("text", ""),
+        "replies": [], "created_at": now_iso(),
+    }
     await db.notices.update_one({"id": notice_id}, {"$push": {"comments": comment}})
+    if n.get("user_id") and n["user_id"] != comment["user_id"]:
+        sname = comment.get("user_name") or "Someone"
+        savatar = comment.get("avatar") or "💬"
+        await push_notification(
+            n["user_id"], "notice_comment",
+            f"{savatar} {sname} commented on your Notice",
+            (comment.get("text") or "")[:120],
+            {"notice_id": notice_id, "comment_id": comment["id"], "from_id": comment["user_id"]},
+        )
     return comment
+
+
+@api.post("/notices/{notice_id}/comment/{comment_id}/reply")
+async def reply_notice_comment(notice_id: str, comment_id: str, body: dict):
+    reply = {
+        "id": nid(), "user_id": body.get("user_id"), "user_name": body.get("user_name", ""),
+        "avatar": body.get("avatar", ""), "text": body.get("text", ""), "created_at": now_iso(),
+    }
+    res = await db.notices.update_one(
+        {"id": notice_id, "comments.id": comment_id},
+        {"$push": {"comments.$.replies": reply}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Comment not found")
+    # notify original commenter (best-effort)
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
+    parent = next((cm for cm in (n or {}).get("comments", []) if cm.get("id") == comment_id), None)
+    if parent and parent.get("user_id") and parent["user_id"] != reply["user_id"]:
+        rname = reply.get("user_name") or "Someone"
+        ravatar = reply.get("avatar") or "💬"
+        await push_notification(
+            parent["user_id"], "notice_comment",
+            f"{ravatar} {rname} replied to your comment",
+            (reply.get("text") or "")[:120],
+            {"notice_id": notice_id, "comment_id": comment_id, "from_id": reply["user_id"]},
+        )
+    return reply
+
+
+@api.post("/notices/{notice_id}/solve/{user_id}")
+async def solve_notice(notice_id: str, user_id: str, body: Optional[dict] = None):
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
+    if not n:
+        raise HTTPException(404, "Not found")
+    if n.get("user_id") != user_id:
+        raise HTTPException(403, "Only the author can mark as solved")
+    new_state = bool((body or {}).get("solved", not n.get("solved", False)))
+    await db.notices.update_one({"id": notice_id}, {"$set": {"solved": new_state}})
+    return {"solved": new_state}
+
+
+@api.post("/notices/{notice_id}/report/{user_id}")
+async def report_notice(notice_id: str, user_id: str, body: dict):
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
+    if not n:
+        raise HTTPException(404, "Not found")
+    report = {"user_id": user_id, "reason": (body or {}).get("reason", ""), "created_at": now_iso()}
+    await db.notices.update_one({"id": notice_id}, {"$push": {"reports": report}})
+    return {"ok": True}
+
+
+@api.post("/users/{user_id}/block/{other_id}")
+async def block_user(user_id: str, other_id: str):
+    if user_id == other_id:
+        raise HTTPException(400, "Cannot block yourself")
+    await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}})
+    return {"ok": True}
+
+
+@api.post("/users/{user_id}/unblock/{other_id}")
+async def unblock_user(user_id: str, other_id: str):
+    await db.users.update_one({"id": user_id}, {"$pull": {"blocked": other_id}})
+    return {"ok": True}
 
 
 # ------------- Flutter (online ping) -------------

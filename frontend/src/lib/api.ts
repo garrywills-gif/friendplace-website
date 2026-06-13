@@ -100,10 +100,29 @@ export const api = {
   unrsvpEvent: (id: string, uid: string) => req(`/events/${id}/unrsvp/${uid}`, { method: "POST" }),
 
   // notices
-  listNotices: () => req("/notices"),
+  listNotices: (opts: { user_id?: string; q?: string; category?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.user_id) params.set("user_id", opts.user_id);
+    if (opts.q) params.set("q", opts.q);
+    if (opts.category && opts.category !== "All") params.set("category", opts.category);
+    const qs = params.toString();
+    return req(`/notices${qs ? `?${qs}` : ""}`);
+  },
   createNotice: (b: any) => req("/notices", { method: "POST", body: JSON.stringify(b) }),
+  editNotice: (id: string, payload: any) => req(`/notices/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteNotice: (id: string, user_id: string) => req(`/notices/${id}?user_id=${user_id}`, { method: "DELETE" }),
+  reactNotice: (id: string, user_id: string, kind: string) =>
+    req(`/notices/${id}/react/${user_id}`, { method: "POST", body: JSON.stringify({ kind }) }),
   likeNotice: (id: string, uid: string) => req(`/notices/${id}/like/${uid}`, { method: "POST" }),
   commentNotice: (id: string, b: any) => req(`/notices/${id}/comment`, { method: "POST", body: JSON.stringify(b) }),
+  replyNoticeComment: (id: string, comment_id: string, b: any) =>
+    req(`/notices/${id}/comment/${comment_id}/reply`, { method: "POST", body: JSON.stringify(b) }),
+  solveNotice: (id: string, user_id: string, solved: boolean) =>
+    req(`/notices/${id}/solve/${user_id}`, { method: "POST", body: JSON.stringify({ solved }) }),
+  reportNotice: (id: string, user_id: string, reason: string) =>
+    req(`/notices/${id}/report/${user_id}`, { method: "POST", body: JSON.stringify({ reason }) }),
+  blockUser: (uid: string, other: string) => req(`/users/${uid}/block/${other}`, { method: "POST" }),
+  unblockUser: (uid: string, other: string) => req(`/users/${uid}/unblock/${other}`, { method: "POST" }),
 
   // dm
   myConversations: (uid: string) => req(`/dm/${uid}/conversations`),
