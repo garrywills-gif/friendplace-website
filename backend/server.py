@@ -290,12 +290,20 @@ async def award_points(user_id: str, amount: int, reason: str = ""):
 
 # ------------- Auth -------------
 def _safe_user(u: dict) -> dict:
-    """Return a user dict without sensitive fields."""
+    """Return a user dict without sensitive or location-precision fields.
+
+    Strips:
+      * MongoDB _id, password_hash, lockout state
+      * Precise location: suburb_lat / suburb_lng (publicly unsafe — only the
+        suburb name + postcode + state are ever exposed)
+    """
     u = dict(u or {})
     u.pop("_id", None)
     u.pop("password_hash", None)
     u.pop("failed_login_attempts", None)
     u.pop("lockout_until", None)
+    u.pop("suburb_lat", None)
+    u.pop("suburb_lng", None)
     return u
 
 
@@ -569,7 +577,7 @@ async def get_user(user_id: str):
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     if not user:
         raise HTTPException(404, "User not found")
-    return user
+    return _safe_user(user)
 
 
 @api.post("/users/{user_id}/block/{other_id}")
