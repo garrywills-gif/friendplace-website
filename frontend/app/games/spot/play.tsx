@@ -236,7 +236,7 @@ export default function SpotPlayer() {
             {(puzzle.difficulty === "hard" || puzzle.difficulty === "nightmare") && (
               <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, marginTop: 8, textAlign: "center" }}>🦋 Friends will see a celebration Flutter</Text>
             )}
-            <Pressable onPress={() => router.push("/games/spot")} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}><Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Pick another puzzle</Text></Pressable>
+            <Pressable onPress={() => { setShowWin(false); router.replace("/games/spot"); }} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}><Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Pick another puzzle</Text></Pressable>
           </View>
         </View>
       </Modal>

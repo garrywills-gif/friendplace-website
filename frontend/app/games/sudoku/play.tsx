@@ -369,7 +369,7 @@ export default function SudokuPlayer() {
             {(puzzle.difficulty === "hard" || puzzle.difficulty === "nightmare") && (
               <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, marginTop: 8, textAlign: "center" }}>🦋 Friends will see a celebration Flutter</Text>
             )}
-            <Pressable testID="sd-win-back" onPress={() => router.push("/games/sudoku")} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}>
+            <Pressable testID="sd-win-back" onPress={() => { setShowWin(false); router.replace("/games/sudoku"); }} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}>
               <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Pick another puzzle</Text>
             </Pressable>
           </View>
@@ -383,7 +383,7 @@ export default function SudokuPlayer() {
             <Text style={{ fontSize: 54 }}>😅</Text>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, marginTop: 8 }}>That&apos;s 3 mistakes</Text>
             <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center" }}>No worries — give it another go.{"\n"}Your progress so far has been saved.</Text>
-            <Pressable testID="sd-lose-back" onPress={() => { setShowLose(false); router.push("/games/sudoku"); }} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}>
+            <Pressable testID="sd-lose-back" onPress={() => { setShowLose(false); router.replace("/games/sudoku"); }} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}>
               <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Try another</Text>
             </Pressable>
           </View>

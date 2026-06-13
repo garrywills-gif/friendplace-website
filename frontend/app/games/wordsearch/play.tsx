@@ -381,7 +381,7 @@ export default function WordSearchPlayer() {
             {(puzzle.difficulty === "hard" || puzzle.difficulty === "nightmare") && (
               <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, marginTop: 8, textAlign: "center" }}>🦋 Friends will see a celebration Flutter</Text>
             )}
-            <Pressable testID="ws-win-back" onPress={() => router.push("/games/wordsearch")} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}>
+            <Pressable testID="ws-win-back" onPress={() => { setShowWin(false); router.replace("/games/wordsearch"); }} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}>
               <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Pick another puzzle</Text>
             </Pressable>
           </View>
