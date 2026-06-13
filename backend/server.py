@@ -4281,3 +4281,55 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+
+
+# -------------- Event reminder scheduler --------------
+async def _event_reminder_loop():
+    """Background loop — every 5 min, send 24h / 2h / start-time reminders to RSVPs.
+
+    Each reminder is idempotent: we set a `reminder_24h_sent` etc. flag on the
+    event document so duplicates are impossible across reloads/restarts.
+    """
+    REMINDERS = [
+        ("reminder_24h_sent", timedelta(hours=24), "Tomorrow", "is on tomorrow"),
+        ("reminder_2h_sent",  timedelta(hours=2),  "Starting soon", "starts in about 2 hours"),
+        ("reminder_now_sent", timedelta(minutes=0), "Starting now", "is starting now"),
+    ]
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            cur = db.events.find(
+                {"date": {"$ne": ""}, "time": {"$ne": ""}},
+                {"_id": 0},
+            )
+            async for ev in cur:
+                try:
+                    # Build the event datetime (assume local AEST for now; UTC-safe approx)
+                    dt = datetime.fromisoformat(f"{ev['date']}T{ev['time']}:00+00:00")
+                except (ValueError, KeyError):
+                    continue
+                going = list(ev.get("rsvps") or [])
+                if not going:
+                    continue
+                for flag, delta, title_prefix, body_phrase in REMINDERS:
+                    target_at = dt - delta
+                    # Trigger window: send if now is within the upcoming 6 min of target
+                    diff_s = (now - target_at).total_seconds()
+                    if ev.get(flag) or diff_s < 0 or diff_s > 360:
+                        continue
+                    title = f"{title_prefix}: {ev.get('emoji','🎉')} {ev.get('title','Event')}"
+                    body = f"{ev.get('title','Event')} {body_phrase} at {ev.get('time','?')} — {ev.get('location','')}".strip()
+                    for uid in going:
+                        try:
+                            await push_notification(uid, "event_reminder", title, body, {"event_id": ev["id"]})
+                        except Exception as e:
+                            logger.warning("event reminder push failed for %s: %s", uid, e)
+                    await db.events.update_one({"id": ev["id"]}, {"$set": {flag: now_iso()}})
+        except Exception as e:
+            logger.warning("event-reminder loop iteration failed: %s", e)
+        await asyncio.sleep(300)  # 5 minutes
+
+
+@app.on_event("startup")
+async def _start_event_reminders():
+    asyncio.create_task(_event_reminder_loop())

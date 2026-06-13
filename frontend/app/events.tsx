@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
@@ -13,6 +13,7 @@ export default function Events() {
   const { c, scale } = useTheme();
   const { user, refresh } = useAuth();
   const { show } = useToast();
+  const router = useRouter();
   const [events, setEvents] = useState<any[]>([]);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
 
@@ -39,6 +40,10 @@ export default function Events() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Local Events" />
+      <Pressable testID="event-new" onPress={() => router.push("/events/new" as any)} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 999, backgroundColor: c.brand }}>
+        <Ionicons name="add-circle" size={20} color="#FFF" />
+        <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Host a new event</Text>
+      </Pressable>
       <FlatList
         data={events}
         keyExtractor={(e) => e.id}
