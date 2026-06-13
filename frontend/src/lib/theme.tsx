@@ -2,17 +2,36 @@ import React, { createContext, useContext, useEffect, useState, useMemo } from "
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export type ThemePrefs = {
+  /** Larger text for older eyes. Scales fonts ~20%. */
   largeText: boolean;
+  /** Higher contrast palette for low vision. */
   highContrast: boolean;
+  /** Simplified mode — larger buttons, more padding, less clutter. */
+  simplified: boolean;
+  /** Show the speaker (read-aloud) icon beside messages, notices, events, thoughts. */
+  readMessagesAloud: boolean;
+  /** Auto-speak new incoming direct messages as they arrive. */
+  autoReadNewMessages: boolean;
+  /** Show the mic (voice-to-text) icon in message compose boxes. */
+  voiceInputEnabled: boolean;
 };
 
-const DEFAULT: ThemePrefs = { largeText: false, highContrast: false };
+const DEFAULT: ThemePrefs = {
+  largeText: false,
+  highContrast: false,
+  simplified: false,
+  readMessagesAloud: true,
+  autoReadNewMessages: false,
+  voiceInputEnabled: false,
+};
 
 type Ctx = {
   prefs: ThemePrefs;
   setPref: (k: keyof ThemePrefs, v: boolean) => void;
   c: typeof palette.normal;
-  scale: number; // font scale multiplier
+  scale: number;
+  /** Multiplier used by Simplified mode for button heights / paddings. */
+  size: number;
 };
 
 const palette = {
@@ -88,12 +107,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(KEY, JSON.stringify(next)).catch(() => {});
   };
 
-  const value = useMemo<Ctx>(() => ({
-    prefs,
-    setPref,
-    c: prefs.highContrast ? palette.high : palette.normal,
-    scale: prefs.largeText ? 1.2 : 1,
-  }), [prefs]);
+  const value = useMemo<Ctx>(() => {
+    const baseScale = prefs.largeText ? 1.2 : 1;
+    const simplifiedScale = prefs.simplified ? 1.1 : 1;
+    return {
+      prefs,
+      setPref,
+      c: prefs.highContrast ? palette.high : palette.normal,
+      scale: baseScale * simplifiedScale,
+      size: prefs.simplified ? 1.15 : 1,
+    };
+  }, [prefs]);
 
   return <ThemeCtx.Provider value={value}>{children}</ThemeCtx.Provider>;
 }

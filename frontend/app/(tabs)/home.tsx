@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,20 +8,35 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
-import { getThoughtForDate, getRandomThought } from "@/src/lib/thoughts";
+import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 
 type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; route: string; bg: string; full?: boolean };
 
 export default function Home() {
   const router = useRouter();
-  const { c, scale } = useTheme();
+  const { c, scale, prefs } = useTheme();
   const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const [flutters, setFlutters] = useState<any[]>([]);
   const [thought, setThought] = useState<string>(() => getThoughtForDate());
+  const [isFav, setIsFav] = useState<boolean>(false);
 
   const shuffleThought = () => setThought((t) => getRandomThought(t));
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const list = await loadFavourites();
+      if (!cancelled) setIsFav(list.includes(thought));
+    })();
+    return () => { cancelled = true; };
+  }, [thought]);
+
+  const toggleFav = async () => {
+    const r = await toggleFavourite(thought);
+    setIsFav(r.isFav);
+  };
 
   const loadFlutters = async () => {
     if (!user) return;
@@ -96,8 +111,13 @@ export default function Home() {
               <Text style={[styles.thoughtChipText, { color: c.brand, fontSize: 12 * scale }]}>TODAY'S THOUGHT</Text>
             </View>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              <SpeakButton text={thought} color={c.brand} size={22} testID="thought-speak" />
-              <Pressable testID="thought-shuffle" onPress={shuffleThought} hitSlop={6} style={[styles.thoughtIconBtn]}>
+              {prefs.readMessagesAloud && (
+                <SpeakButton text={thought} color={c.brand} size={22} testID="thought-speak" />
+              )}
+              <Pressable testID="thought-fav" onPress={toggleFav} hitSlop={6} style={styles.thoughtIconBtn} accessibilityLabel={isFav ? "Remove from favourites" : "Save to favourites"}>
+                <Ionicons name={isFav ? "heart" : "heart-outline"} size={22} color={isFav ? c.error : c.brand} />
+              </Pressable>
+              <Pressable testID="thought-shuffle" onPress={shuffleThought} hitSlop={6} style={styles.thoughtIconBtn} accessibilityLabel="Shuffle thought">
                 <Ionicons name="shuffle" size={22} color={c.brand} />
               </Pressable>
             </View>

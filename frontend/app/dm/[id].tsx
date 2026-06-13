@@ -2,16 +2,19 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView, Platform, Pressable } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as Speech from "expo-speech";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
+import { useToast } from "@/src/lib/toast";
 import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
-  const { c, scale } = useTheme();
+  const { c, scale, prefs } = useTheme();
   const { user } = useAuth();
+  const { show } = useToast();
   const [messages, setMessages] = useState<any[]>([]);
   const [other, setOther] = useState<any>(null);
   const [text, setText] = useState("");
@@ -32,15 +35,23 @@ export default function DM() {
       if (data.type === "message") {
         setMessages((m) => [...m, data.message]);
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+        // Auto-read incoming messages from the OTHER person if the user enabled it
+        if (prefs.autoReadNewMessages && data.message?.user_id !== user.id && data.message?.text) {
+          Speech.speak(String(data.message.text), { language: "en-US", rate: 0.95, pitch: 1.02 });
+        }
       }
     };
-    return () => ws.close();
-  }, [id, user?.id]);
+    return () => { ws.close(); Speech.stop(); };
+  }, [id, user?.id, prefs.autoReadNewMessages]);
 
   const send = () => {
     if (!text.trim() || wsRef.current?.readyState !== WebSocket.OPEN) return;
     wsRef.current.send(JSON.stringify({ text: text.trim() }));
     setText("");
+  };
+
+  const onMicPress = () => {
+    show("Voice input will be wired in the next backend update");
   };
 
   return (
@@ -60,12 +71,19 @@ export default function DM() {
                 <View style={[{ padding: 12, borderRadius: 18, backgroundColor: mine ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderBottomRightRadius: mine ? 4 : 18, borderBottomLeftRadius: mine ? 18 : 4, flexShrink: 1 }]}>
                   <Text style={{ color: mine ? "#FFF" : c.onSurface, fontSize: 16 * scale }}>{item.text}</Text>
                 </View>
-                <SpeakButton text={item.text} color={mine ? c.brand : c.muted} bg={c.surfaceTertiary} size={18} testID={`speak-msg-${item.id}`} />
+                {prefs.readMessagesAloud && (
+                  <SpeakButton text={item.text} color={mine ? c.brand : c.muted} bg={c.surfaceTertiary} size={18} testID={`speak-msg-${item.id}`} />
+                )}
               </View>
             );
           }}
         />
         <View style={[styles.composer, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          {prefs.voiceInputEnabled && (
+            <Pressable testID="dm-mic" onPress={onMicPress} accessibilityLabel="Voice input" style={[styles.micBtn, { backgroundColor: c.brandTertiary }]}>
+              <Ionicons name="mic" size={20} color={c.brand} />
+            </Pressable>
+          )}
           <TextInput
             testID="dm-input" value={text} onChangeText={setText} placeholder="Type a message…" placeholderTextColor={c.muted}
             style={{ flex: 1, color: c.onSurface, fontSize: 17 * scale, paddingVertical: 10, paddingHorizontal: 12 }} multiline />
@@ -79,4 +97,5 @@ export default function DM() {
 const styles = StyleSheet.create({
   composer: { flexDirection: "row", alignItems: "flex-end", padding: 8, borderTopWidth: 1, gap: 8 },
   sendBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  micBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
 });

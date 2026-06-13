@@ -108,7 +108,7 @@ export default function Lounge() {
 
               <View style={styles.bottom}>
                 <View style={[styles.joinBtn, { backgroundColor: c.brand }]}>
-                  <Text style={{ color: c.onBrandPrimary, fontWeight: "800", fontSize: 16 * scale }}>{seatedCount === 0 ? "Start a Chat" : "Join Table"}</Text>
+                  <Text style={{ color: c.onBrandPrimary, fontWeight: "800", fontSize: 16 * scale }}>{seatedCount === 0 ? "Start a Chat" : "Take a Seat"}</Text>
                 </View>
               </View>
             </Pressable>
