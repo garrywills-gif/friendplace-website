@@ -85,6 +85,21 @@ export const api = {
   triviaSessions: (uid: string) => req(`/games/trivia/sessions/${uid}`),
   triviaStats: (uid: string) => req(`/games/trivia/stats/${uid}`),
 
+  // bingo
+  bingoCatalog: () => req("/games/bingo/catalog"),
+  bingoDaily: () => req("/games/bingo/daily"),
+  bingoCommunityEvents: () => req("/games/bingo/community-events"),
+  bingoLeaderboard: (eid: string) => req(`/games/bingo/community-events/${eid}/leaderboard`),
+  bingoStart: (uid: string, body: { difficulty: string; daily?: boolean; event_id?: string }) =>
+    req(`/games/bingo/session/${uid}`, { method: "POST", body: JSON.stringify(body) }),
+  bingoGetSession: (uid: string, sid: string) => req(`/games/bingo/session/${uid}/${sid}`),
+  bingoUpdate: (uid: string, sid: string, body: { call_index?: number; marked?: any }) =>
+    req(`/games/bingo/session/${uid}/${sid}`, { method: "PUT", body: JSON.stringify(body) }),
+  bingoComplete: (uid: string, sid: string) =>
+    req(`/games/bingo/session/${uid}/${sid}/complete`, { method: "POST" }),
+  bingoSessions: (uid: string) => req(`/games/bingo/sessions/${uid}`),
+  bingoStats: (uid: string) => req(`/games/bingo/stats/${uid}`),
+
   // unified games hub
   gamesStats: (uid: string) => req(`/games/stats/${uid}`),
   gamesDailies: () => req("/games/dailies"),

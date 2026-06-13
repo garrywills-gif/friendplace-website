@@ -14,7 +14,7 @@ const GAMES: GameTile[] = [
   { key: "trivia",     title: "Trivia",             sub: "7 categories · 4 levels", icon: "help-circle",    tint: "#7C3AED", route: "/games/trivia",     ready: true },
   { key: "wordsearch", title: "Word Search",        sub: "6 themes",                icon: "search",         tint: "#B45309", route: "/games/wordsearch", ready: false },
   { key: "memory",     title: "Memory Match",       sub: "5 themes",                icon: "sparkles",       tint: "#DB2777", route: "/games/memory",     ready: false },
-  { key: "bingo",      title: "Bingo",              sub: "Practice & live games",   icon: "apps",           tint: "#2E9EE2", route: "/games/bingo",      ready: false },
+  { key: "bingo",      title: "Bingo",              sub: "75-ball · 4 levels · live events",   icon: "apps",           tint: "#2E9EE2", route: "/games/bingo",      ready: true },
   { key: "sudoku",     title: "Sudoku",             sub: "4 levels",                icon: "grid-outline",   tint: "#1E3A7F", route: "/games/sudoku",     ready: false },
   { key: "spot",       title: "Spot the Difference",sub: "Find what's changed",     icon: "eye",            tint: "#16A34A", route: "/games/spot",       ready: false },
 ];

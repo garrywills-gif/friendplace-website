@@ -1263,6 +1263,302 @@ async def trivia_stats(user_id: str):
     }
 
 
+# ------------- Bingo -------------
+# Difficulty config
+BINGO_DIFFICULTY_META = [
+    {"key": "easy",      "label": "Easy",      "cols": 4, "rows": 4, "cards": 1, "free_center": False, "pattern": "any_line",       "points": 5,  "auto_call_ms": 0,    "color": "#0F766E"},
+    {"key": "moderate",  "label": "Moderate",  "cols": 5, "rows": 5, "cards": 1, "free_center": True,  "pattern": "any_line",       "points": 10, "auto_call_ms": 0,    "color": "#2563EB"},
+    {"key": "hard",      "label": "Hard",      "cols": 5, "rows": 5, "cards": 1, "free_center": True,  "pattern": "two_lines_corners", "points": 20, "auto_call_ms": 4000, "color": "#B45309"},
+    {"key": "nightmare", "label": "Nightmare", "cols": 5, "rows": 5, "cards": 2, "free_center": True,  "pattern": "full_house",     "points": 35, "auto_call_ms": 3000, "color": "#7C3AED"},
+]
+BINGO_DIFFICULTIES = [d["key"] for d in BINGO_DIFFICULTY_META]
+
+
+def _bingo_meta(k: str) -> Optional[Dict]:
+    for m in BINGO_DIFFICULTY_META:
+        if m["key"] == k:
+            return m
+    return None
+
+
+def _bingo_card(cols: int, rows: int, free_center: bool, rnd: random.Random) -> List[List[int]]:
+    """Generate a card. For 5x5 use B(1-15), I(16-30), N(31-45), G(46-60), O(61-75).
+    For 4x4 use B,I,N,G only (skip O)."""
+    ranges = [(1, 15), (16, 30), (31, 45), (46, 60), (61, 75)]
+    pick_cols = cols  # 4 or 5
+    card: List[List[int]] = []
+    for ci in range(pick_cols):
+        lo, hi = ranges[ci]
+        pool = list(range(lo, hi + 1))
+        rnd.shuffle(pool)
+        col = pool[:rows]
+        card.append(col)
+    if free_center and rows == 5 and pick_cols == 5:
+        card[2][2] = 0  # free space
+    return card
+
+
+def _bingo_call_sequence(rnd: random.Random, pool_max: int = 75) -> List[int]:
+    seq = list(range(1, pool_max + 1))
+    rnd.shuffle(seq)
+    return seq
+
+
+def _bingo_seed_from_date(d: Optional[datetime] = None) -> int:
+    d = d or datetime.now(timezone.utc)
+    return d.year * 10000 + d.month * 100 + d.day
+
+
+def _bingo_check_win(cards: List[List[List[int]]], marked: List[List[List[bool]]], pattern: str, free_center: bool) -> bool:
+    """Returns True if the win pattern is satisfied on ANY card (for single card games)
+    or across ALL cards (for nightmare full_house)."""
+    def lines_for(card_marked: List[List[bool]]):
+        rows = len(card_marked)
+        cols = len(card_marked[0]) if rows else 0
+        lines = []
+        for r in range(rows):
+            lines.append([(c, r) for c in range(cols)])
+        for c in range(cols):
+            lines.append([(c, r) for r in range(rows)])
+        if rows == cols:
+            lines.append([(i, i) for i in range(rows)])
+            lines.append([(i, rows - 1 - i) for i in range(rows)])
+        return lines
+
+    def full_lines(card_marked):
+        return [ln for ln in lines_for(card_marked) if all(card_marked[r][c] for (c, r) in ln)]
+
+    def four_corners(card_marked):
+        rows = len(card_marked); cols = len(card_marked[0]) if rows else 0
+        return card_marked[0][0] and card_marked[0][cols-1] and card_marked[rows-1][0] and card_marked[rows-1][cols-1]
+
+    if pattern == "full_house":
+        # all cells marked across all cards (free centre is always marked)
+        for cm in marked:
+            for row in cm:
+                if not all(row):
+                    return False
+        return True
+
+    for cm in marked:
+        lines = full_lines(cm)
+        if pattern == "any_line":
+            if len(lines) >= 1:
+                return True
+        elif pattern == "two_lines_corners":
+            if len(lines) >= 2 and four_corners(cm):
+                return True
+    return False
+
+
+def _bingo_initial_marked(cards: List[List[List[int]]]) -> List[List[List[bool]]]:
+    out = []
+    for card in cards:
+        cm = [[False] * len(card[0]) for _ in card]
+        for ci, col in enumerate(card):
+            for ri, val in enumerate(col):
+                if val == 0:  # free centre
+                    cm[ri][ci] = True
+        out.append(cm)
+    return out
+
+
+# Community bingo events — seeded sample data
+COMMUNITY_BINGO_EVENTS = [
+    {"id": "evt-weekly-friday", "title": "Friday Night Bingo", "subtitle": "Async weekly comp · play any time", "difficulty": "moderate", "starts_iso": "2026-06-12T19:00:00+10:00", "ends_iso":   "2026-06-15T23:59:59+10:00", "seed": 99001, "points_on_complete": 25},
+    {"id": "evt-weekend-warmup", "title": "Weekend Warm-Up",   "subtitle": "Easy difficulty · open all weekend", "difficulty": "easy",     "starts_iso": "2026-06-13T08:00:00+10:00", "ends_iso":   "2026-06-14T23:59:59+10:00", "seed": 99002, "points_on_complete": 12},
+    {"id": "evt-nightmare-challenge", "title": "Nightmare Challenge", "subtitle": "For brave butterflies only", "difficulty": "nightmare","starts_iso": "2026-06-15T18:00:00+10:00","ends_iso":   "2026-06-21T23:59:59+10:00", "seed": 99003, "points_on_complete": 50},
+]
+
+
+def _community_event(eid: str) -> Optional[Dict]:
+    for e in COMMUNITY_BINGO_EVENTS:
+        if e["id"] == eid:
+            return e
+    return None
+
+
+@api.get("/games/bingo/catalog")
+async def bingo_catalog():
+    return {"difficulties": BINGO_DIFFICULTIES, "difficulty_meta": BINGO_DIFFICULTY_META}
+
+
+@api.get("/games/bingo/daily")
+async def bingo_daily():
+    """Today's daily Bingo card — moderate difficulty."""
+    rnd = random.Random(_bingo_seed_from_date())
+    meta = _bingo_meta("moderate")
+    cards = [_bingo_card(meta["cols"], meta["rows"], meta["free_center"], rnd) for _ in range(meta["cards"])]
+    return {"date": datetime.now(timezone.utc).date().isoformat(), "difficulty": "moderate", "points_on_complete": 15, "sample_card": cards[0]}
+
+
+@api.get("/games/bingo/community-events")
+async def bingo_community_events():
+    """All active/upcoming async Bingo events, plus most recent winners."""
+    out: List[Dict] = []
+    for e in COMMUNITY_BINGO_EVENTS:
+        winners = await db.bingo_sessions.find(
+            {"event_id": e["id"], "completed": True}, {"_id": 0, "user_id": 1, "duration_seconds": 1, "completed_at": 1}
+        ).sort("duration_seconds", 1).to_list(5)
+        out.append({**e, "winners": winners})
+    return {"events": out}
+
+
+@api.get("/games/bingo/community-events/{event_id}/leaderboard")
+async def bingo_community_leaderboard(event_id: str):
+    if not _community_event(event_id):
+        raise HTTPException(404, "Event not found")
+    rows = await db.bingo_sessions.find({"event_id": event_id, "completed": True}, {"_id": 0}).sort("duration_seconds", 1).to_list(50)
+    enriched = []
+    for r in rows:
+        u = await db.users.find_one({"id": r.get("user_id")}, {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1})
+        enriched.append({**r, "user": u})
+    return {"event_id": event_id, "leaderboard": enriched}
+
+
+class BingoStartBody(BaseModel):
+    difficulty: str = "easy"
+    daily: bool = False
+    event_id: Optional[str] = None
+
+
+@api.post("/games/bingo/session/{user_id}")
+async def bingo_start(user_id: str, body: BingoStartBody):
+    diff = body.difficulty.lower()
+    if diff not in BINGO_DIFFICULTIES:
+        raise HTTPException(400, "Invalid difficulty")
+    seed = None
+    event = None
+    if body.event_id:
+        event = _community_event(body.event_id)
+        if not event:
+            raise HTTPException(404, "Event not found")
+        diff = event["difficulty"]
+        seed = event["seed"]
+    elif body.daily:
+        seed = _bingo_seed_from_date()
+        diff = "moderate"
+    meta = _bingo_meta(diff)
+    rnd = random.Random(seed) if seed is not None else random.Random()
+    cards = [_bingo_card(meta["cols"], meta["rows"], meta["free_center"], rnd) for _ in range(meta["cards"])]
+    pool_max = 75 if meta["cols"] == 5 else 60
+    sequence = _bingo_call_sequence(rnd, pool_max)
+    marked = _bingo_initial_marked(cards)
+    sid = nid()
+    doc = {
+        "id": sid,
+        "user_id": user_id,
+        "difficulty": diff,
+        "cards": cards,
+        "marked": marked,
+        "sequence": sequence,
+        "call_index": 0,
+        "completed": False,
+        "is_daily": bool(body.daily and not body.event_id),
+        "event_id": body.event_id,
+        "started_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.bingo_sessions.insert_one(doc)
+    return {**{k: v for k, v in doc.items() if k != "_id"}, "session_id": sid, "meta": meta, "pool_max": pool_max}
+
+
+@api.get("/games/bingo/session/{user_id}/{session_id}")
+async def bingo_get(user_id: str, session_id: str):
+    doc = await db.bingo_sessions.find_one({"id": session_id, "user_id": user_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Session not found")
+    meta = _bingo_meta(doc["difficulty"])
+    pool_max = 75 if meta["cols"] == 5 else 60
+    return {**doc, "meta": meta, "pool_max": pool_max}
+
+
+class BingoUpdateBody(BaseModel):
+    call_index: Optional[int] = None  # new pointer into the call sequence
+    marked: Optional[List[List[List[bool]]]] = None  # full mark state
+
+
+@api.put("/games/bingo/session/{user_id}/{session_id}")
+async def bingo_update(user_id: str, session_id: str, body: BingoUpdateBody):
+    doc = await db.bingo_sessions.find_one({"id": session_id, "user_id": user_id})
+    if not doc or doc.get("completed"):
+        raise HTTPException(400, "Cannot update")
+    update: Dict = {"updated_at": now_iso()}
+    if body.call_index is not None:
+        update["call_index"] = max(0, min(len(doc["sequence"]), int(body.call_index)))
+    if body.marked is not None:
+        update["marked"] = body.marked
+    await db.bingo_sessions.update_one({"id": session_id}, {"$set": update})
+    return {"ok": True, **update}
+
+
+@api.post("/games/bingo/session/{user_id}/{session_id}/complete")
+async def bingo_complete(user_id: str, session_id: str):
+    doc = await db.bingo_sessions.find_one({"id": session_id, "user_id": user_id})
+    if not doc:
+        raise HTTPException(404, "Session not found")
+    if doc.get("completed"):
+        return {**{k: v for k, v in doc.items() if k != "_id"}, "already_completed": True}
+    meta = _bingo_meta(doc["difficulty"])
+    valid = _bingo_check_win(doc["cards"], doc["marked"], meta["pattern"], meta["free_center"])
+    if not valid:
+        raise HTTPException(400, "No winning pattern yet — keep playing!")
+    try:
+        start_dt = datetime.fromisoformat(doc["started_at"])
+        duration = max(1, int((datetime.now(timezone.utc) - start_dt.replace(tzinfo=start_dt.tzinfo or timezone.utc)).total_seconds()))
+    except Exception:
+        duration = 0
+    event = _community_event(doc.get("event_id") or "") if doc.get("event_id") else None
+    base_points = int(event["points_on_complete"]) if event else (15 if doc.get("is_daily") else int(meta["points"]))
+    await db.bingo_sessions.update_one({"id": session_id}, {"$set": {
+        "completed": True, "completed_at": now_iso(), "points_earned": base_points,
+        "duration_seconds": duration, "calls_used": doc.get("call_index", 0),
+    }})
+    await award_points(user_id, base_points)
+    granted: List[str] = []
+    try:
+        label = (event["title"] if event else (f"Daily Bingo" if doc.get("is_daily") else f"Bingo · {doc['difficulty'].title()}"))
+        log = await log_game_completion(user_id, GameCompletionBody(
+            game_type="bingo",
+            difficulty=doc["difficulty"],
+            title=label,
+            duration_seconds=duration,
+            is_daily=bool(doc.get("is_daily")),
+        ))
+        granted = log.get("granted", []) if isinstance(log, dict) else []
+    except Exception as e:
+        logger.warning("bingo->games unified log failed: %s", e)
+    return {
+        "session_id": session_id,
+        "difficulty": doc["difficulty"],
+        "points_earned": base_points,
+        "duration_seconds": duration,
+        "calls_used": doc.get("call_index", 0),
+        "granted": granted,
+        "is_daily": bool(doc.get("is_daily")),
+        "event_id": doc.get("event_id"),
+    }
+
+
+@api.get("/games/bingo/sessions/{user_id}")
+async def bingo_list(user_id: str):
+    active = await db.bingo_sessions.find({"user_id": user_id, "completed": {"$ne": True}}, {"_id": 0}).sort("updated_at", -1).to_list(10)
+    recent = await db.bingo_sessions.find({"user_id": user_id, "completed": True}, {"_id": 0}).sort("completed_at", -1).to_list(20)
+    return {"active": active, "recent": recent}
+
+
+@api.get("/games/bingo/stats/{user_id}")
+async def bingo_stats(user_id: str):
+    docs = await db.bingo_sessions.find({"user_id": user_id, "completed": True}, {"_id": 0}).to_list(2000)
+    fastest = min((int(d.get("duration_seconds") or 9_999_999) for d in docs), default=0)
+    return {
+        "total_completed": len(docs),
+        "total_points": sum(int(d.get("points_earned") or 0) for d in docs),
+        "fastest_seconds": fastest if fastest != 9_999_999 else 0,
+        "by_difficulty": {k: sum(1 for d in docs if d.get("difficulty") == k) for k in BINGO_DIFFICULTIES},
+    }
+
+
 # ------------- Tables (Coffee Lounge) -------------
 @api.get("/tables")
 async def list_tables():

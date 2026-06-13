@@ -232,7 +232,31 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: |
-        REVIEW PASS COMPLETE — comprehensive sweep before Bingo build.
+        BINGO BUILT (classic 75-ball). After the review-pass cleanup, the next
+        major deliverable for the Games Hub is live.
+
+        Backend (`/api/games/bingo/*`):
+          - `/catalog` — 4 difficulties with full meta (cols/rows/cards/free_center/pattern/points/auto_call_ms).
+          - `/daily` — deterministic daily card seeded by date.
+          - `/community-events`, `/community-events/{eid}/leaderboard` — 3 seeded async events with sorted leaderboards.
+          - `/session/{uid}` POST start, GET load, PUT update (call_index + marked), POST complete.
+          - `/sessions/{uid}`, `/stats/{uid}`.
+          - Win patterns enforced server-side: `any_line` (Easy/Moderate), `two_lines_corners` (Hard), `full_house` across all cards (Nightmare). Returns 400 when the player calls Bingo without a valid pattern.
+          - Points: Easy 5 / Moderate 10 / Hard 20 / Nightmare 35; Daily flat 15; events use their own point values (12/25/50).
+          - Calls `log_game_completion` with the real difficulty so Flutter notifications fire only on Hard/Nightmare (using the achievement-key fix from the last iteration).
+
+        Frontend:
+          - `/games/bingo/index.tsx` — instructions w/ SpeakButton, Daily Bingo card, Community Events list, Resume card, stats, 4 difficulty picker rows, Start CTA.
+          - `/games/bingo/player.tsx` — huge "LAST CALL" banner (B-7 style with letter prefix), one or two cards (Nightmare), tap-to-mark with validation against `calledSet`, auto-call timer for Hard (4s) / Nightmare (3s), TTS announcement of each call when `prefs.readMessagesAloud` is on, manual "Call next" button for Easy/Moderate, "Call BINGO!" submit, results screen with points + granted achievements, recent calls strip.
+          - Games Hub tile now `ready: true` with sub "75-ball · 4 levels · live events".
+
+        Curl smoke tests passed (start → update marked → complete on any-line win returns +5 pts; complete with no win returns 400).
+
+        Please test:
+          1. Backend Bingo endpoints — catalog, daily, community events list/leaderboard, session lifecycle, all 4 difficulties including correct pattern enforcement (full_house for nightmare requires every cell of every card; two_lines_corners requires 2 full lines + 4 corners on hard).
+          2. Frontend hub renders all sections, difficulty selection works, Daily/Event/Custom start each route to player with correct settings.
+          3. Player: card displays with letter row, tap-to-mark only works on called numbers, "Call next" advances and announces (TTS when read-aloud preference is on), auto-call works on Hard/Nightmare, "Call BINGO!" validates and shows results on a win.
+          4. Confirm achievements: completing Hard or Nightmare grants the respective achievement and Flutter notification; Easy/Moderate do NOT trigger Flutter.
 
         Fixes applied:
           1. Deleted dead duplicate `/app/games/quiz.tsx` (superseded by full Trivia, no route pointed to it).
