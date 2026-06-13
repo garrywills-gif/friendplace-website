@@ -16,6 +16,13 @@ export type User = {
   friends: string[];
   blocked: string[];
   is_demo?: boolean;
+  is_admin?: boolean;
+  onboarding_completed?: boolean;
+  favourite_games?: string[];
+  birthday?: string;
+  privacy_settings?: { profile_visibility: string; friend_requests: string; show_in_find_friends: boolean };
+  restricted?: boolean;
+  banned?: boolean;
 };
 
 type SignupBody = {

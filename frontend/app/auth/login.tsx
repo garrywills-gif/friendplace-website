@@ -40,6 +40,7 @@ export default function Login() {
       const msg = String(e?.message || "");
       if (msg.includes("429")) show("Too many attempts. Please wait a few minutes.");
       else if (msg.includes("Demo accounts")) show("Use 'Try a demo account' below");
+      else if (msg.includes("403") && (msg.toLowerCase().includes("banned") || msg.toLowerCase().includes("suspend"))) show("Your account is restricted. Please contact support.");
       else show("Invalid username or password");
     } finally { setBusy(false); }
   };

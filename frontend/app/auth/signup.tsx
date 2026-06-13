@@ -47,7 +47,7 @@ export default function Signup() {
         avatar,
       });
       show(`Welcome${firstName ? `, ${firstName.trim()}` : ""}! 🦋`);
-      router.replace("/(tabs)/home");
+      router.replace("/onboarding");
     } catch (e: any) {
       const msg = String(e?.message || "");
       if (msg.includes("Username already taken")) show("Username already taken");

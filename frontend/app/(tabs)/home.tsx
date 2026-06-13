@@ -25,6 +25,13 @@ export default function Home() {
 
   const shuffleThought = () => setThought((t) => getRandomThought(t));
 
+  // Gate: send brand-new users through the welcome tour first.
+  useEffect(() => {
+    if (user && (user as any).onboarding_completed === false) {
+      router.replace("/onboarding");
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {

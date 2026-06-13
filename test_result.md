@@ -232,7 +232,74 @@ test_plan:
 agent_communication:
     -agent: "main"
     -message: |
-        ADMIN MODERATION + SAFETY SUITE SHIPPED.
+        PHASE A WRAP-UP — Onboarding + Profile editing shipped.
+
+        Onboarding (`/app/onboarding.tsx`)
+        ==================================
+        Brand-new 7-step swipeable tour gated by `user.onboarding_completed`.
+        Steps: Welcome → Coffee Lounge → Flutters → Butterfly Points →
+        Community Notice Board → Games Hub → Accessibility. Each step has
+        a SpeakButton reading the title + body aloud. Skip button and
+        manual dot navigation supported. "Let's go" finalises via
+        `POST /api/users/{id}/onboarding-complete` + `refresh()` then
+        `replace('/(tabs)/home')`.
+
+        Routing changes:
+          - Signup now redirects to `/onboarding` instead of `/(tabs)/home`.
+          - Login error handling now surfaces "Your account is restricted"
+            for 403/banned/suspended.
+          - Home tab redirects to `/onboarding` if `user.onboarding_completed
+            === false` (defensive guard for any auth path that misses the
+            new redirect).
+
+        Profile edit (`/app/profile/edit.tsx`)
+        ======================================
+        Full editor backing the new backend fields:
+          - **Photo** — expo-image-picker for upload (stored as base64 data URI)
+            with permission-aware flow + 12-emoji avatar grid for non-uploaders.
+          - **Name + Suburb + Birthday** (YYYY-MM-DD or MM-DD).
+          - **About Me** — 500-char bio with live counter.
+          - **Interests** — 16 chip selector (toggle).
+          - **Favourite Games** — 7-chip selector.
+          - **Privacy settings** — three segmented controls + one toggle:
+            profile visibility (Everyone / Friends only), friend requests
+            (Everyone / Friends of friends / Off), show in Find Friends
+            (on/off).
+          - Save → `PATCH /api/users/{id}/profile` + `PATCH /api/users/{id}/privacy-settings` + refresh + back.
+
+        Auth context type extended with `is_admin`, `onboarding_completed`,
+        `favourite_games`, `birthday`, `privacy_settings`, `restricted`,
+        `banned` so type-checking is honest across the new screens.
+
+        Profile tab now exposes an **Edit Profile** button (above Help &
+        Support / Accessibility / Settings / 🛡 Admin tools).
+
+        Smoke-tested
+        ============
+          - Onboarding step 1 (Welcome) and step 4 (Butterfly Points)
+            render correctly with SpeakButton + Skip + Back/Next.
+          - Edit Profile shows the auth gate ("Please log in.") for
+            unauthenticated visitors.
+          - Bundle clean (no transform errors).
+
+        Test plan for the testing agent (next iteration)
+        ================================================
+          1. Backend regression: all previous 19 admin/safety + 16 bingo +
+             10 trivia tests still pass.
+          2. Backend: `PATCH /users/{id}/profile` with new fields
+             (bio/avatar/interests/favourite_games/birthday) persists and
+             returns the updated user.
+          3. Backend: `PATCH /users/{id}/privacy-settings` updates the
+             three sub-keys atomically; rejects invalid values.
+          4. Backend: `POST /users/{id}/onboarding-complete` flips the flag
+             so the home gate doesn't redirect any more.
+          5. Frontend: Onboarding swipes through all 7 steps, skip works,
+             finish flips the backend flag and lands on Home.
+          6. Frontend: Profile edit — pick an emoji avatar, edit bio,
+             toggle interests + favourite games, change privacy, Save
+             redirects back and the new values appear on the profile.
+          7. Frontend: A brand-new signup auto-routes to onboarding, then
+             the second login goes straight to Home.
 
         Per the user's strongly-emphasised requirements, the focus of this
         session was the Safety / Admin Moderation system.
