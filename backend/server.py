@@ -7,6 +7,7 @@ prototype feels alive on first launch.
 
 from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -1721,6 +1722,14 @@ async def spot_catalog():
     return {"themes": std_list_themes(), "difficulties": diffs}
 
 
+def _spot_bg_url(theme_key: str) -> Optional[str]:
+    """Return /api/static URL for the lifelike backdrop image if it exists on disk."""
+    p = ROOT_DIR / "static" / "spot_bg" / f"{theme_key}.jpg"
+    if p.exists():
+        return f"/api/static/spot_bg/{theme_key}.jpg"
+    return None
+
+
 @api.get("/games/spot/puzzle")
 async def spot_puzzle(theme: str, difficulty: str = "easy", seed: Optional[int] = None):
     if theme not in STD_THEMES:
@@ -1733,7 +1742,7 @@ async def spot_puzzle(theme: str, difficulty: str = "easy", seed: Optional[int] 
     else:
         use_seed = int(seed)
     puz = std_generate(theme, difficulty, use_seed)
-    return {**puz, "puzzle_id": f"std:{theme}:{difficulty}:{use_seed}"}
+    return {**puz, "puzzle_id": f"std:{theme}:{difficulty}:{use_seed}", "background_url": _spot_bg_url(theme)}
 
 
 @api.get("/games/spot/daily")
@@ -1741,7 +1750,7 @@ async def spot_daily():
     today = std_today_iso()
     pick = std_daily_pick(today)
     puz = std_generate(pick["theme"], pick["difficulty"], pick["seed"])
-    return {**puz, "puzzle_id": f"std:{pick['theme']}:{pick['difficulty']}:daily-{today}", "date": today, "is_daily": True}
+    return {**puz, "puzzle_id": f"std:{pick['theme']}:{pick['difficulty']}:daily-{today}", "date": today, "is_daily": True, "background_url": _spot_bg_url(pick["theme"])}
 
 
 @api.post("/games/spot/progress/{user_id}")
@@ -4560,6 +4569,13 @@ app.include_router(api)
 # Push notifications (Emergent-managed relay). Mounted under /api/.
 from push import router as push_router  # noqa: E402
 app.include_router(push_router, prefix="/api")
+
+# Static assets — currently used for Spot the Difference lifelike backdrops.
+# Files live at /app/backend/static/spot_bg/<theme>.jpg and are served under
+# /api/static/... so the Kubernetes ingress correctly proxies them to backend.
+_STATIC_DIR = ROOT_DIR / "static"
+_STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/api/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 app.add_middleware(
     CORSMiddleware,
