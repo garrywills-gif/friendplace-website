@@ -415,8 +415,118 @@ def _apply_diff(scene_b: List[Dict], d: Dict) -> Dict:
 # photorealistic transparent-PNG asset library for that theme. Themes not in
 # this map fall back to emoji rendering on the client.
 THEME_ASSETS: Dict[str, str] = {
-    "beaches": "beach",
+    "beaches":            "beach",
+    "australian_gardens": "garden",
+    "garden":             "garden",  # legacy alias
+    "cafes":              "coffee",
+    "coffee":             "coffee",  # legacy alias
+    "wildlife":           "wildlife",
+    "birds":              "wildlife",  # legacy alias
+    "kitchens":           "kitchens",
+    "house":              "kitchens",  # legacy alias
+    "country_towns":      "country_towns",
+    "classic_cars":       "classic_cars",
+    "parks_trails":       "parks_trails",
 }
+
+# For each theme, the slug of the PNG asset that represents each scene element
+# id. Used to inject ``asset`` slugs onto scene elements at generate-time so
+# scene definitions stay terse and emoji-only. Themes not listed here render
+# as emoji.
+ELEMENT_ASSETS: Dict[str, Dict[str, str]] = {
+    "garden": {
+        "sun": "sun", "cloud1": "cloud1", "cloud2": "cloud2", "tree": "tree",
+        "flower1": "flower1", "flower2": "flower2", "flower3": "flower3", "flower4": "flower4",
+        "bee": "bee", "butterfly": "butterfly", "watering": "watering", "bench": "bench",
+        "snail": "snail", "rabbit": "rabbit", "hedge": "hedge",
+    },
+    "coffee": {
+        "sign": "sign", "muffin": "muffin", "croissant": "croissant", "donut": "donut",
+        "cup1": "cup1", "cup2": "cup2", "cup3": "cup3", "cookie": "cookie",
+        "heart": "heart", "flowers": "flowers", "clock": "clock", "chair": "chair",
+        "newspaper": "newspaper", "cat": "cat", "music": "music",
+    },
+    "wildlife": {
+        "tree": "tree", "sun": "sun", "kookaburra": "kookaburra", "magpie": "magpie",
+        "parrot": "parrot", "owl": "owl", "robin": "robin", "nest": "nest",
+        "feather": "feather", "worm": "worm", "berries": "berries", "bee": "bee",
+        "flower": "flower", "cloud": "cloud", "ladybug": "ladybug",
+    },
+    "kitchens": {
+        "house": "house", "sun": "sun", "tv": "tv", "chair": "chair",
+        "lamp": "lamp", "clock": "clock", "rug": "rug", "plant": "plant",
+        "cat": "cat", "mug": "mug", "book": "book", "photo": "photo",
+        "candle": "candle", "phone": "phone", "window": "window",
+    },
+    "country_towns": {
+        "sun": "sun", "cloud": "cloud", "gum_tree": "gum_tree", "clock": "clock",
+        "flag": "flag", "mailbox": "mailbox", "bench": "bench", "bike": "bike",
+        "car": "car", "flowers": "flowers", "lamp": "lamp", "bird": "bird",
+    },
+    "classic_cars": {
+        "sun": "sun", "car_body": "car_body", "wheel_lf": "wheel_lf", "wheel_rf": "wheel_rf",
+        "key": "key", "hat": "hat", "tools": "tools", "fuel": "fuel",
+        "trophy": "trophy", "cloud": "cloud", "leaf": "leaf", "bird": "bird",
+    },
+    "parks_trails": {
+        "sun_ray": "sun_ray", "tree_l": "tree_l", "tree_r": "tree_r", "bench": "bench",
+        "hiker_hat": "hiker_hat", "stick": "stick", "bottle": "bottle", "leaf": "leaf",
+        "mushroom": "mushroom", "butterfly": "butterfly", "bird": "bird", "signpost": "signpost",
+    },
+}
+
+# Mapping from swap_emoji glyphs to the asset slug to use when that swap fires.
+# Indexed per theme so the same emoji can resolve to different art across
+# scenes (e.g. 🚩 country-town flag vs. 🚩 generic). Only swap targets that
+# the corresponding asset library actually ships a PNG for are listed; others
+# silently fall back to the emoji.
+SWAP_ASSETS: Dict[str, Dict[str, str]] = {
+    "garden": {
+        "🌺": "hibiscus", "🌸": "cherry", "🐢": "turtle",
+    },
+    "coffee": {
+        "🍰": "cake", "🥖": "baguette", "🌻": "sunflower", "🍷": "wine",
+    },
+    "wildlife": {
+        "🦩": "flamingo", "🦃": "turkey", "🪿": "goose",
+    },
+    "kitchens": {
+        "📻": "radio", "🔦": "torch", "🐕": "dog",
+    },
+    "country_towns": {
+        "🚩": "redflag", "🌷": "tulip", "💡": "bulb",
+    },
+    "classic_cars": {
+        "🧢": "cap", "🛢️": "oildrum", "⚪": "whitewheel",
+    },
+    "parks_trails": {
+        "🧢": "cap", "🥤": "sodacup", "📋": "clipboard",
+    },
+    "beach": {
+        "🦞": "lobster", "⚽": "soccerball", "🍧": "shavedice",
+    },
+}
+
+
+def _inject_assets(theme_key: str, scene: Dict) -> None:
+    """Patch ``asset`` slugs onto scene elements and swap diff entries based
+    on the lookup tables above. Idempotent — safe to call once at generate
+    time. The beach scene already declares ``asset`` inline; this function
+    only adds slugs where missing.
+    """
+    folder = THEME_ASSETS.get(theme_key)
+    if not folder:
+        return
+    el_map = ELEMENT_ASSETS.get(folder) or {}
+    for e in scene["elements"]:
+        if "asset" not in e and e["id"] in el_map:
+            e["asset"] = el_map[e["id"]]
+    swap_map = SWAP_ASSETS.get(folder) or {}
+    for d in scene.get("diff_pool", []):
+        if d.get("type") == "swap_emoji" and "asset" not in d:
+            slug = swap_map.get(d.get("emoji", ""))
+            if slug:
+                d["asset"] = slug
 
 
 def _attach_asset_urls(elements: List[Dict], theme_key: str) -> None:
@@ -437,6 +547,7 @@ def _attach_asset_urls(elements: List[Dict], theme_key: str) -> None:
 
 
 
+
 def generate_puzzle(theme_key: str, difficulty: str, seed: int) -> Dict:
     if theme_key not in THEMES:
         raise ValueError(f"Unknown theme: {theme_key}")
@@ -445,6 +556,7 @@ def generate_puzzle(theme_key: str, difficulty: str, seed: int) -> Dict:
     diff = DIFFICULTIES[difficulty]
     rng = random.Random(seed)
     scene_data = THEMES[theme_key]["scene"]()
+    _inject_assets(theme_key, scene_data)
     scene_a = [dict(e) for e in scene_data["elements"]]
     scene_b = [dict(e) for e in scene_data["elements"]]
     pool = list(scene_data["diff_pool"])
