@@ -7,6 +7,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import Button from "@/src/components/Button";
+import ShareYouBelong from "@/src/components/ShareYouBelong";
 import { api } from "@/src/lib/api";
 
 const ALL_BADGES = ["Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder"];
@@ -169,6 +170,8 @@ export default function Profile() {
       </View>
       <View style={{ height: 16 }} />
       <Button label="Edit Profile" variant="outline" onPress={() => router.push("/edit-profile")} testID="profile-edit" />
+      <View style={{ height: 12 }} />
+      <ShareYouBelong variant="ghost" testID="profile-share" />
       <View style={{ height: 12 }} />
       <Button label="Help & Support" variant="outline" onPress={() => router.push("/help")} testID="profile-help" />
       <View style={{ height: 12 }} />

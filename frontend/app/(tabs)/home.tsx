@@ -8,6 +8,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
+import ShareYouBelong from "@/src/components/ShareYouBelong";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 
 type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; route: string; bg: string; full?: boolean };
@@ -234,6 +235,10 @@ export default function Home() {
               {t.full && <Text style={[styles.tileSub, { fontSize: 14 * scale }]}>Pull up a chair & join a chat</Text>}
             </Pressable>
           ))}
+          {/* Share YouBelong tile — full-width invite to bring friends in. */}
+          <View style={{ width: "100%", marginTop: 4 }}>
+            <ShareYouBelong variant="tile" testID="home-share" />
+          </View>
         </View>
       </ScrollView>
     </View>
