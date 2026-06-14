@@ -286,11 +286,11 @@ export default function SpotPlayer() {
     );
   }
 
-  // Larger scenes for older eyes / fingers — cap a bit higher on tablets
-  // and use a taller aspect ratio (0.78 instead of 0.7) for more real estate.
+  // MUCH larger scenes so a real photograph can fill the screen on iPad &
+  // phone alike. Aspect 10:7 matches the cropped backdrop assets.
   const horizontalPad = 14 * 2;
-  const sceneW = Math.min(winW - horizontalPad, 620);
-  const sceneH = Math.round(sceneW * 0.78);
+  const sceneW = Math.min(winW - horizontalPad, 1100);
+  const sceneH = Math.round(sceneW * 0.7);
 
   const onTapScene = (x: number, y: number) => {
     if (completed) return;

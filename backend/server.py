@@ -1723,10 +1723,24 @@ async def spot_catalog():
 
 
 def _spot_bg_url(theme_key: str) -> Optional[str]:
-    """Return /api/static URL for the lifelike backdrop image if it exists on disk."""
-    p = ROOT_DIR / "static" / "spot_bg" / f"{theme_key}.jpg"
+    """Return /api/static URL for the lifelike backdrop image if it exists on disk.
+
+    Maps both the new theme keys (australian_gardens, beaches, …) and the
+    legacy keys (garden, beach, coffee_shop, birds, pets, around_house) onto
+    the same on-disk filenames so existing deep-links keep working after the
+    theme rename in this release."""
+    alias = {
+        "garden": "australian_gardens",
+        "beach": "beaches",
+        "coffee_shop": "cafes",
+        "birds": "wildlife",
+        "pets": "wildlife",
+        "around_house": "kitchens",
+    }
+    filename = alias.get(theme_key, theme_key)
+    p = ROOT_DIR / "static" / "spot_bg" / f"{filename}.jpg"
     if p.exists():
-        return f"/api/static/spot_bg/{theme_key}.jpg"
+        return f"/api/static/spot_bg/{filename}.jpg"
     return None
 
 

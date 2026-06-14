@@ -247,18 +247,87 @@ def _scene_house() -> Dict:
     return {"elements": elements, "diff_pool": diff_pool}
 
 
+def _scene_country_towns() -> Dict:
+    """A quintessential Australian country main street."""
+    elements = [
+        {"id": "sun",       "emoji": "☀️", "x": 86, "y": 10, "size": 32, "color": None},
+        {"id": "cloud",     "emoji": "☁️", "x": 30, "y": 12, "size": 26, "color": None},
+        {"id": "gum_tree",  "emoji": "🌳", "x": 14, "y": 56, "size": 50, "color": None},
+        {"id": "clock",     "emoji": "🕰️", "x": 48, "y": 30, "size": 30, "color": None},
+        {"id": "flag",      "emoji": "🏁", "x": 72, "y": 28, "size": 26, "color": None},
+        {"id": "mailbox",   "emoji": "📮", "x": 82, "y": 70, "size": 28, "color": None},
+        {"id": "bench",     "emoji": "🪑", "x": 36, "y": 82, "size": 28, "color": None},
+        {"id": "bike",      "emoji": "🚲", "x": 56, "y": 80, "size": 30, "color": None},
+        {"id": "car",       "emoji": "🚗", "x": 70, "y": 60, "size": 32, "color": None},
+        {"id": "flowers",   "emoji": "🌼", "x": 24, "y": 76, "size": 24, "color": None},
+        {"id": "lamp",      "emoji": "🪔", "x": 90, "y": 40, "size": 26, "color": None},
+        {"id": "bird",      "emoji": "🐦", "x": 58, "y": 14, "size": 22, "color": None},
+    ]
+    return {"elements": elements}
+
+
+def _scene_classic_cars() -> Dict:
+    """A vintage Australian classic car restoration scene."""
+    elements = [
+        {"id": "sun",        "emoji": "☀️", "x": 86, "y": 10, "size": 32, "color": None},
+        {"id": "car_body",   "emoji": "🚗", "x": 50, "y": 58, "size": 64, "color": None},
+        {"id": "wheel_lf",   "emoji": "⚙️", "x": 30, "y": 78, "size": 22, "color": None},
+        {"id": "wheel_rf",   "emoji": "⚙️", "x": 70, "y": 78, "size": 22, "color": None},
+        {"id": "key",        "emoji": "🔑", "x": 18, "y": 30, "size": 26, "color": None},
+        {"id": "hat",        "emoji": "🎩", "x": 28, "y": 42, "size": 26, "color": None},
+        {"id": "tools",      "emoji": "🧰", "x": 14, "y": 80, "size": 30, "color": None},
+        {"id": "fuel",       "emoji": "⛽", "x": 86, "y": 60, "size": 30, "color": None},
+        {"id": "trophy",     "emoji": "🏆", "x": 80, "y": 30, "size": 26, "color": None},
+        {"id": "cloud",      "emoji": "☁️", "x": 22, "y": 14, "size": 24, "color": None},
+        {"id": "leaf",       "emoji": "🍂", "x": 42, "y": 88, "size": 20, "color": None},
+        {"id": "bird",       "emoji": "🕊️", "x": 60, "y": 20, "size": 22, "color": None},
+    ]
+    return {"elements": elements}
+
+
+def _scene_parks_trails() -> Dict:
+    """A peaceful bushland walking trail through eucalypt forest."""
+    elements = [
+        {"id": "sun_ray",    "emoji": "🌤️", "x": 80, "y": 14, "size": 30, "color": None},
+        {"id": "tree_l",     "emoji": "🌳", "x": 14, "y": 50, "size": 56, "color": None},
+        {"id": "tree_r",     "emoji": "🌳", "x": 86, "y": 50, "size": 50, "color": None},
+        {"id": "bench",      "emoji": "🪑", "x": 32, "y": 82, "size": 28, "color": None},
+        {"id": "hiker_hat",  "emoji": "🎩", "x": 50, "y": 36, "size": 24, "color": None},
+        {"id": "stick",      "emoji": "🦯", "x": 60, "y": 76, "size": 28, "color": None},
+        {"id": "bottle",     "emoji": "🍶", "x": 70, "y": 80, "size": 24, "color": None},
+        {"id": "leaf",       "emoji": "🍃", "x": 44, "y": 24, "size": 22, "color": None},
+        {"id": "mushroom",   "emoji": "🍄", "x": 24, "y": 84, "size": 22, "color": None},
+        {"id": "butterfly",  "emoji": "🦋", "x": 56, "y": 50, "size": 22, "color": None},
+        {"id": "bird",       "emoji": "🐦", "x": 36, "y": 18, "size": 22, "color": None},
+        {"id": "signpost",   "emoji": "🪧", "x": 80, "y": 78, "size": 26, "color": None},
+    ]
+    return {"elements": elements}
+
+
 THEMES: Dict[str, Dict] = {
-    "garden":      {"label": "Garden",         "emoji": "🌷", "scene": _scene_garden},
-    "coffee_shop": {"label": "Coffee Shop",    "emoji": "☕", "scene": _scene_coffee},
-    "beach":       {"label": "Beach Day",      "emoji": "🏖️", "scene": _scene_beach},
-    "pets":        {"label": "Pets",           "emoji": "🐕", "scene": _scene_pets},
-    "birds":       {"label": "Birds",          "emoji": "🦜", "scene": _scene_birds},
-    "around_house":{"label": "Around the House","emoji": "🏠", "scene": _scene_house},
+    "australian_gardens": {"label": "Australian Gardens", "emoji": "🌷", "scene": _scene_garden},
+    "beaches":            {"label": "Beaches",            "emoji": "🏖️", "scene": _scene_beach},
+    "cafes":              {"label": "Cafés",              "emoji": "☕", "scene": _scene_coffee},
+    "wildlife":           {"label": "Wildlife",           "emoji": "🦜", "scene": _scene_birds},
+    "country_towns":      {"label": "Country Towns",      "emoji": "🏘️", "scene": _scene_country_towns},
+    "classic_cars":       {"label": "Classic Cars",       "emoji": "🚗", "scene": _scene_classic_cars},
+    "kitchens":           {"label": "Kitchens",           "emoji": "🍳", "scene": _scene_house},
+    "parks_trails":       {"label": "Parks & Trails",     "emoji": "🌲", "scene": _scene_parks_trails},
+    # Legacy aliases — keep the old theme keys working so existing progress &
+    # daily-puzzle deep links don't 404 after the rename.
+    "garden":       {"label": "Australian Gardens", "emoji": "🌷", "scene": _scene_garden,        "_alias_of": "australian_gardens"},
+    "beach":        {"label": "Beaches",            "emoji": "🏖️", "scene": _scene_beach,        "_alias_of": "beaches"},
+    "coffee_shop":  {"label": "Cafés",              "emoji": "☕", "scene": _scene_coffee,       "_alias_of": "cafes"},
+    "birds":        {"label": "Wildlife",           "emoji": "🦜", "scene": _scene_birds,        "_alias_of": "wildlife"},
+    "pets":         {"label": "Wildlife",           "emoji": "🦜", "scene": _scene_birds,        "_alias_of": "wildlife"},
+    "around_house": {"label": "Kitchens",           "emoji": "🍳", "scene": _scene_house,        "_alias_of": "kitchens"},
 }
 
 
 def list_themes() -> List[Dict]:
-    return [{"key": k, "label": t["label"], "emoji": t["emoji"]} for k, t in THEMES.items()]
+    # Don't expose legacy alias keys in the picker — they exist only so deep
+    # links + saved progress from earlier theme names still work.
+    return [{"key": k, "label": t["label"], "emoji": t["emoji"]} for k, t in THEMES.items() if "_alias_of" not in t]
 
 
 def today_iso() -> str:
