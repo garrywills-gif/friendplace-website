@@ -11,7 +11,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 
 const HOW_TO = "Two pictures, almost the same. Tap on a difference in either picture to mark it. Use the Zoom in/out buttons or tap Magnify to make everything bigger so the small details are easier to see. When zoomed in, drag the picture to look at the edges. Tap the hint button if you get stuck. Take your time.";
 
-type Elem = { id: string; emoji: string; x: number; y: number; size: number };
+type Elem = { id: string; emoji: string; asset_url?: string | null; x: number; y: number; size: number };
 type Diff = { id: string; target: string; type: string; x: number; y: number; radius: number };
 
 function Scene({ elements, sceneW, sceneH, zoom, onTap, foundDiffs, hintCircle, testIDPrefix, backgroundUrl }: any) {
@@ -71,23 +71,47 @@ function Scene({ elements, sceneW, sceneH, zoom, onTap, foundDiffs, hintCircle, 
           resizeMode="cover"
         />
       ) : null}
-      {elements.map((el: Elem) => (
-        <Text
-          key={el.id}
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: (el.x / 100) * innerW - (el.size * zoom) / 2,
-            top: (el.y / 100) * innerH - (el.size * zoom) / 2,
-            fontSize: el.size * zoom,
-            textShadowColor: "rgba(255,255,255,0.85)",
-            textShadowOffset: { width: 0, height: 0 },
-            textShadowRadius: 6,
-          }}
-        >
-          {el.emoji}
-        </Text>
-      ))}
+      {elements.map((el: Elem) => {
+        // Photoreal PNG assets render at ~2.4x the legacy emoji size so the
+        // object fills a similar visual footprint (emoji glyphs include lots
+        // of internal padding; PNGs are tightly cropped).
+        if (el.asset_url) {
+          const backendBase = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+          const imgSize = el.size * zoom * 2.4;
+          return (
+            <Image
+              key={el.id}
+              source={{ uri: `${backendBase}${el.asset_url}` }}
+              pointerEvents="none"
+              resizeMode="contain"
+              style={{
+                position: "absolute",
+                left: (el.x / 100) * innerW - imgSize / 2,
+                top: (el.y / 100) * innerH - imgSize / 2,
+                width: imgSize,
+                height: imgSize,
+              }}
+            />
+          );
+        }
+        return (
+          <Text
+            key={el.id}
+            pointerEvents="none"
+            style={{
+              position: "absolute",
+              left: (el.x / 100) * innerW - (el.size * zoom) / 2,
+              top: (el.y / 100) * innerH - (el.size * zoom) / 2,
+              fontSize: el.size * zoom,
+              textShadowColor: "rgba(255,255,255,0.85)",
+              textShadowOffset: { width: 0, height: 0 },
+              textShadowRadius: 6,
+            }}
+          >
+            {el.emoji}
+          </Text>
+        );
+      })}
       {foundDiffs.map((d: Diff) => {
         const r = 20 * zoom;
         return (
@@ -211,13 +235,13 @@ export default function SpotPlayer() {
         result = result.filter((e) => e.id !== diff.target);
       } else if (type === "resize" && targetA) {
         result = result.map((e) => (e.id === diff.target ? { ...e, size: targetA.size } : e));
-      } else if (type === "swap" && targetA) {
-        result = result.map((e) => (e.id === diff.target ? { ...e, emoji: targetA.emoji } : e));
+      } else if ((type === "swap" || type === "swap_emoji") && targetA) {
+        result = result.map((e) => (e.id === diff.target ? { ...e, emoji: targetA.emoji, asset_url: targetA.asset_url } : e));
       } else if (type === "move" && targetA) {
         result = result.map((e) => (e.id === diff.target ? { ...e, x: targetA.x, y: targetA.y } : e));
       } else if (type === "color" && targetA) {
         // Color/style diffs swap the emoji to match (emoji-based palettes encode colour)
-        result = result.map((e) => (e.id === diff.target ? { ...e, emoji: targetA.emoji } : e));
+        result = result.map((e) => (e.id === diff.target ? { ...e, emoji: targetA.emoji, asset_url: targetA.asset_url } : e));
       }
     }
     return result;

@@ -107,23 +107,29 @@ def _scene_coffee() -> Dict:
 
 
 def _scene_beach() -> Dict:
-    """A sunny day at the beach."""
+    """A sunny day at the beach.
+
+    Each element carries an ``asset`` slug that, when paired with a theme that
+    has a transparent-PNG asset library (see THEME_ASSETS below), is converted
+    to an ``asset_url`` in ``generate_puzzle``. Themes without a PNG library
+    fall back to the emoji.
+    """
     elements = [
-        {"id": "sun",      "emoji": "🌞", "x": 12, "y": 16, "size": 40},
-        {"id": "cloud",    "emoji": "⛅", "x": 50, "y": 12, "size": 28},
-        {"id": "palm1",    "emoji": "🌴", "x": 18, "y": 50, "size": 50},
-        {"id": "palm2",    "emoji": "🌴", "x": 82, "y": 50, "size": 50},
-        {"id": "wave",     "emoji": "🌊", "x": 50, "y": 56, "size": 30},
-        {"id": "boat",     "emoji": "⛵", "x": 72, "y": 28, "size": 30},
-        {"id": "umbrella", "emoji": "🏖️", "x": 38, "y": 70, "size": 36},
-        {"id": "ball",     "emoji": "🏐", "x": 60, "y": 78, "size": 24},
-        {"id": "starfish", "emoji": "⭐", "x": 26, "y": 88, "size": 22},
-        {"id": "crab",     "emoji": "🦀", "x": 50, "y": 90, "size": 24},
-        {"id": "shell",    "emoji": "🐚", "x": 74, "y": 90, "size": 22},
-        {"id": "seagull",  "emoji": "🕊️", "x": 36, "y": 22, "size": 22},
-        {"id": "icecream", "emoji": "🍦", "x": 86, "y": 76, "size": 24},
-        {"id": "fish",     "emoji": "🐟", "x": 14, "y": 78, "size": 22},
-        {"id": "kite",     "emoji": "🪁", "x": 64, "y": 16, "size": 22},
+        {"id": "sun",      "emoji": "🌞", "asset": "sun",      "x": 12, "y": 16, "size": 40},
+        {"id": "cloud",    "emoji": "⛅", "asset": "cloud",    "x": 50, "y": 12, "size": 28},
+        {"id": "palm1",    "emoji": "🌴", "asset": "palm1",    "x": 18, "y": 50, "size": 50},
+        {"id": "palm2",    "emoji": "🌴", "asset": "palm2",    "x": 82, "y": 50, "size": 50},
+        {"id": "wave",     "emoji": "🌊", "asset": "wave",     "x": 50, "y": 56, "size": 30},
+        {"id": "boat",     "emoji": "⛵", "asset": "boat",     "x": 72, "y": 28, "size": 30},
+        {"id": "umbrella", "emoji": "🏖️", "asset": "umbrella", "x": 38, "y": 70, "size": 36},
+        {"id": "ball",     "emoji": "🏐", "asset": "ball",     "x": 60, "y": 78, "size": 24},
+        {"id": "starfish", "emoji": "⭐", "asset": "starfish", "x": 26, "y": 88, "size": 22},
+        {"id": "crab",     "emoji": "🦀", "asset": "crab",     "x": 50, "y": 90, "size": 24},
+        {"id": "shell",    "emoji": "🐚", "asset": "shell",    "x": 74, "y": 90, "size": 22},
+        {"id": "seagull",  "emoji": "🕊️", "asset": "seagull",  "x": 36, "y": 22, "size": 22},
+        {"id": "icecream", "emoji": "🍦", "asset": "icecream", "x": 86, "y": 76, "size": 24},
+        {"id": "fish",     "emoji": "🐟", "asset": "fish",     "x": 14, "y": 78, "size": 22},
+        {"id": "kite",     "emoji": "🪁", "asset": "kite",     "x": 64, "y": 16, "size": 22},
     ]
     diff_pool = [
         {"target": "cloud",   "type": "remove"},
@@ -131,9 +137,9 @@ def _scene_beach() -> Dict:
         {"target": "kite",    "type": "remove"},
         {"target": "fish",    "type": "remove"},
         {"target": "shell",   "type": "remove"},
-        {"target": "crab",    "type": "swap_emoji", "emoji": "🦞"},
-        {"target": "ball",    "type": "swap_emoji", "emoji": "⚽"},
-        {"target": "icecream","type": "swap_emoji", "emoji": "🍧"},
+        {"target": "crab",    "type": "swap_emoji", "emoji": "🦞", "asset": "lobster"},
+        {"target": "ball",    "type": "swap_emoji", "emoji": "⚽", "asset": "soccerball"},
+        {"target": "icecream","type": "swap_emoji", "emoji": "🍧", "asset": "shavedice"},
         {"target": "seagull", "type": "move",   "dx": 8,  "dy": -4},
         {"target": "starfish","type": "move",   "dx": -6, "dy": 2},
         {"target": "sun",     "type": "resize", "size": 28},
@@ -384,6 +390,8 @@ def _apply_diff(scene_b: List[Dict], d: Dict) -> Dict:
         scene_b.remove(elem)
     elif d["type"] == "swap_emoji":
         elem["emoji"] = d["emoji"]
+        if "asset" in d:
+            elem["asset"] = d["asset"]
     elif d["type"] == "move":
         elem["x"] = elem["x"] + d.get("dx", 0)
         elem["y"] = elem["y"] + d.get("dy", 0)
@@ -401,6 +409,32 @@ def _apply_diff(scene_b: List[Dict], d: Dict) -> Dict:
         # A generous tap region (percent of board) so older users can find them.
         "radius": 10,
     }
+
+
+# Theme → folder under /app/backend/static/spot_objects/ that holds the
+# photorealistic transparent-PNG asset library for that theme. Themes not in
+# this map fall back to emoji rendering on the client.
+THEME_ASSETS: Dict[str, str] = {
+    "beaches": "beach",
+}
+
+
+def _attach_asset_urls(elements: List[Dict], theme_key: str) -> None:
+    """For each element with an ``asset`` slug, set ``asset_url`` if a PNG
+    file actually exists on disk for the theme's asset library.
+    """
+    folder = THEME_ASSETS.get(theme_key)
+    if not folder:
+        return
+    from pathlib import Path as _P
+    base_dir = _P(__file__).parent / "static" / "spot_objects" / folder
+    for e in elements:
+        slug = e.get("asset")
+        if not slug:
+            continue
+        if (base_dir / f"{slug}.png").exists():
+            e["asset_url"] = f"/api/static/spot_objects/{folder}/{slug}.png"
+
 
 
 def generate_puzzle(theme_key: str, difficulty: str, seed: int) -> Dict:
@@ -426,6 +460,10 @@ def generate_puzzle(theme_key: str, difficulty: str, seed: int) -> Dict:
             differences.append(out)
             used_targets.add(d["target"])
 
+    # Resolve transparent-PNG asset URLs (if any) for both scenes.
+    _attach_asset_urls(scene_a, theme_key)
+    _attach_asset_urls(scene_b, theme_key)
+
     return {
         "theme": theme_key,
         "theme_label": THEMES[theme_key]["label"],
@@ -450,3 +488,4 @@ def daily_pick(date_iso: str) -> Dict:
     theme_key = rng.choice(list(THEMES.keys()))
     difficulty = rng.choice(["easy", "moderate", "moderate", "hard"])
     return {"theme": theme_key, "difficulty": difficulty, "seed": seed}
+
