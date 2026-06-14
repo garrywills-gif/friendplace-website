@@ -11,6 +11,18 @@ import PasswordField from "@/src/components/PasswordField";
 
 type DemoAccount = { username: string; first_name: string; avatar: string; suburb: string };
 
+// expo-router's router.replace("/home") silently no-ops on iPad Safari when
+// the destination is a tab screen. Use a hard URL change there, fall back to
+// router.replace on native.
+function goHome(router: ReturnType<typeof useRouter>) {
+  if (Platform.OS === "web") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).location.assign("/home");
+  } else {
+    router.replace("/home" as any);
+  }
+}
+
 export default function Login() {
   const router = useRouter();
   const { c, scale } = useTheme();
@@ -35,7 +47,7 @@ export default function Login() {
     setBusy(true);
     try {
       await login(id, pw);
-      router.replace("/(tabs)/home");
+      goHome(router);
     } catch (e: any) {
       const msg = String(e?.message || "");
       if (msg.includes("429")) show("Too many attempts. Please wait a few minutes.");
@@ -49,7 +61,7 @@ export default function Login() {
     setBusy(true);
     try {
       await demoLogin(u);
-      router.replace("/(tabs)/home");
+      goHome(router);
     } catch {
       show("Demo unavailable. Try again.");
     } finally { setBusy(false); }

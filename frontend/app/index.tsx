@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, useWindowDimensions, Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -28,7 +28,16 @@ export default function Welcome() {
   const cardH = Math.round((cardW * 853) / 1272); // preserve official aspect
 
   useEffect(() => {
-    if (!loading && user) router.replace("/(tabs)/home");
+    if (!loading && user) {
+      // Same workaround as /auth/login — router.replace silently no-ops on
+      // iPad Safari for tab destinations.
+      if (Platform.OS === "web") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).location.assign("/home");
+      } else {
+        router.replace("/home" as any);
+      }
+    }
   }, [loading, user]);
 
   if (loading) {
