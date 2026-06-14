@@ -173,13 +173,14 @@ function Scene({ elements, sceneW, sceneH, zoom, onTap, foundDiffs, hintCircle, 
 
 export default function SpotPlayer() {
   const router = useRouter();
-  const { theme, difficulty, daily, btc } = useLocalSearchParams<{ theme: string; difficulty: string; daily?: string; btc?: string }>();
+  const { theme, difficulty, daily, btc, lib } = useLocalSearchParams<{ theme?: string; difficulty?: string; daily?: string; btc?: string; lib?: string }>();
   const { c, scale, prefs } = useTheme();
   const { user } = useAuth();
   const { show } = useToast();
   const { width: winW } = useWindowDimensions();
   const isDaily = daily === "1";
   const beatClock = btc === "1";
+  const libId = typeof lib === "string" && lib.length > 0 ? lib : null;
 
   const [puzzle, setPuzzle] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -227,7 +228,11 @@ export default function SpotPlayer() {
     (async () => {
       setLoading(true);
       try {
-        const puz: any = isDaily ? await api.stdDaily() : await api.stdPuzzle(theme as string, difficulty as string);
+        const puz: any = libId
+          ? await api.stdLibraryPuzzle(libId)
+          : isDaily
+          ? await api.stdDaily()
+          : await api.stdPuzzle(theme as string, difficulty as string);
         if (cancelled) return;
         setPuzzle(puz);
         if (user) {
@@ -249,7 +254,7 @@ export default function SpotPlayer() {
       }
     })();
     return () => { cancelled = true; };
-  }, [theme, difficulty, isDaily, user?.id]);
+  }, [theme, difficulty, isDaily, libId, user?.id]);
 
   useEffect(() => {
     if (completed) return;
@@ -336,7 +341,7 @@ export default function SpotPlayer() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title={`${puzzle.theme_emoji} ${puzzle.theme_label}`} />
+      <Header title={puzzle.title ? puzzle.title : `${puzzle.theme_emoji} ${puzzle.theme_label}`} />
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 60, gap: 10 }}>
         <View style={[styles.topBar, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           <View style={{ flex: 1 }}>
@@ -411,7 +416,7 @@ export default function SpotPlayer() {
           <View style={[styles.modalCard, { backgroundColor: c.surface, alignItems: "center" }]}>
             <Text style={{ fontSize: 54 }}>🎉</Text>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, marginTop: 8 }}>You found them all!</Text>
-            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center" }}>{puzzle.theme_label} · {puzzle.difficulty_label} · {m}:{s.toString().padStart(2, "0")}{puzzle.points > 0 ? `\n+${puzzle.points} Community Points` : ""}{beatClock && btcDef && seconds <= btcDef.seconds && puzzle.points > 0 ? `\n+${btcDef.bonus} Beat the Clock bonus!` : ""}</Text>
+            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center" }}>{puzzle.title || puzzle.theme_label} · {puzzle.difficulty_label} · {m}:{s.toString().padStart(2, "0")}{puzzle.points > 0 ? `\n+${puzzle.points} Community Points` : ""}{beatClock && btcDef && seconds <= btcDef.seconds && puzzle.points > 0 ? `\n+${btcDef.bonus} Beat the Clock bonus!` : ""}</Text>
             {(puzzle.difficulty === "hard" || puzzle.difficulty === "nightmare") && (
               <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, marginTop: 8, textAlign: "center" }}>🦋 Friends will see a celebration Flutter</Text>
             )}

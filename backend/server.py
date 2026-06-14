@@ -23,6 +23,7 @@ from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_them
 from memory_match import THEMES as MM_THEMES, DIFFICULTIES as MM_DIFFS, list_themes as mm_list_themes, generate_puzzle as mm_generate, daily_pick as mm_daily_pick, today_iso as mm_today_iso
 from sudoku import DIFFICULTIES as SD_DIFFS, generate_puzzle as sd_generate, daily_pick as sd_daily_pick, today_iso as sd_today_iso
 from spot_difference import THEMES as STD_THEMES, DIFFICULTIES as STD_DIFFS, list_themes as std_list_themes, generate_puzzle as std_generate, daily_pick as std_daily_pick, today_iso as std_today_iso
+from spot_library import list_active_puzzles as lib_active, get_puzzle as lib_get, public_card as lib_card  # noqa: E402
 from milestones import MILESTONES as ML_DEFS, evaluate as ml_evaluate
 from suburbs import search_suburbs as sb_search, by_postcode as sb_by_postcode, haversine_km as sb_haversine
 
@@ -1762,9 +1763,56 @@ async def spot_puzzle(theme: str, difficulty: str = "easy", seed: Optional[int] 
     return {**puz, "puzzle_id": f"std:{theme}:{difficulty}:{use_seed}", "background_url": _spot_bg_url(theme)}
 
 
+@api.get("/games/spot/library")
+async def spot_library_list():
+    """Curated puzzle library — only puzzles active for today's date."""
+    return {"puzzles": [lib_card(p) for p in lib_active()]}
+
+
+@api.get("/games/spot/library/{puzzle_id}")
+async def spot_library_get(puzzle_id: str, seed: Optional[int] = None):
+    """Return a full playable puzzle from the curated library.
+
+    The element layout comes from the linked theme's scene catalogue; the
+    photo is the puzzle's own. Difference picks are deterministic on the
+    puzzle id so a returning player gets the same puzzle until the library
+    refresh."""
+    p = lib_get(puzzle_id)
+    if not p:
+        raise HTTPException(404, "Puzzle not found")
+    if seed is None:
+        use_seed = abs(hash(f"lib|{puzzle_id}|{std_today_iso()}")) % (10 ** 9)
+    else:
+        use_seed = int(seed)
+    # Build a puzzle using the puzzle's theme + difficulty, then override the
+    # background URL to the puzzle's own photo and the title.
+    puz = std_generate(p["theme"], p["difficulty"], use_seed)
+    puz["puzzle_id"] = f"lib:{puzzle_id}:{use_seed}"
+    puz["background_url"] = f"/api/static/spot_bg/library/{p['photo']}"
+    puz["title"] = p["title"]
+    puz["season"] = p.get("season")
+    return puz
+
+
 @api.get("/games/spot/daily")
 async def spot_daily():
+    """Today's recommended puzzle — preferred from the curated library."""
     today = std_today_iso()
+    active = lib_active()
+    if active:
+        # Stable rotation: pick by today's ordinal so it shifts each day.
+        idx = abs(hash(f"daily|{today}")) % len(active)
+        p = active[idx]
+        use_seed = abs(hash(f"lib|{p['id']}|{today}")) % (10 ** 9)
+        puz = std_generate(p["theme"], p["difficulty"], use_seed)
+        puz["puzzle_id"] = f"lib:{p['id']}:daily-{today}"
+        puz["background_url"] = f"/api/static/spot_bg/library/{p['photo']}"
+        puz["title"] = p["title"]
+        puz["date"] = today
+        puz["is_daily"] = True
+        puz["season"] = p.get("season")
+        return puz
+    # Fallback to legacy theme picker if no library puzzles are active today.
     pick = std_daily_pick(today)
     puz = std_generate(pick["theme"], pick["difficulty"], pick["seed"])
     return {**puz, "puzzle_id": f"std:{pick['theme']}:{pick['difficulty']}:daily-{today}", "date": today, "is_daily": True, "background_url": _spot_bg_url(pick["theme"])}

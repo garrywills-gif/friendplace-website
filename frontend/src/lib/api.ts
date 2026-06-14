@@ -148,6 +148,9 @@ export const api = {
   stdPuzzle: (theme: string, difficulty: string, seed?: number) =>
     req(`/games/spot/puzzle?theme=${encodeURIComponent(theme)}&difficulty=${encodeURIComponent(difficulty)}${seed !== undefined ? `&seed=${seed}` : ""}`),
   stdDaily: () => req("/games/spot/daily"),
+  stdLibrary: () => req("/games/spot/library"),
+  stdLibraryPuzzle: (puzzle_id: string, seed?: number) =>
+    req(`/games/spot/library/${encodeURIComponent(puzzle_id)}${seed !== undefined ? `?seed=${seed}` : ""}`),
   stdGetProgress: (uid: string, puzzle_id: string) =>
     req(`/games/spot/progress/${uid}?puzzle_id=${encodeURIComponent(puzzle_id)}`),
   stdSaveProgress: (uid: string, body: { puzzle_id: string; theme: string; difficulty: string; found_ids: string[]; hints_used: number; seconds: number; completed: boolean; is_daily?: boolean; beat_the_clock?: boolean }) =>

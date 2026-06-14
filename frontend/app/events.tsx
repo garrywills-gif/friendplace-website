@@ -97,27 +97,31 @@ export default function Events() {
         <Ionicons name="add-circle" size={20} color="#FFF" />
         <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Host a new event</Text>
       </Pressable>
-      {/* Month filter pills — older eyes can quickly jump to "This month" / "Next month". */}
-      <ScrollView
-        testID="event-month-pills"
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 8 }}
-      >
-        {monthOptions.map((m) => {
-          const on = monthFilter === m.value;
-          return (
-            <Pressable
-              key={m.value}
-              testID={`month-pill-${m.value}`}
-              onPress={() => setMonthFilter(m.value)}
-              style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? c.brand : c.surfaceSecondary, borderWidth: 1.5, borderColor: on ? c.brand : c.border }}
-            >
-              <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{m.label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {/* Month filter pills — older eyes can quickly jump to "This month" / "Next month".
+          The ScrollView gets an explicit height so its pill row can never get
+          clipped or overlapped by the Host button above. */}
+      <View style={{ height: 56, marginTop: 8 }}>
+        <ScrollView
+          testID="event-month-pills"
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, alignItems: "center", gap: 8 }}
+        >
+          {monthOptions.map((m) => {
+            const on = monthFilter === m.value;
+            return (
+              <Pressable
+                key={m.value}
+                testID={`month-pill-${m.value}`}
+                onPress={() => setMonthFilter(m.value)}
+                style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? c.brand : c.surfaceSecondary, borderWidth: 1.5, borderColor: on ? c.brand : c.border }}
+              >
+                <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{m.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
       <FlatList
         data={visibleEvents}
         keyExtractor={(e) => e.id}
