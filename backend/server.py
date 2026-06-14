@@ -1734,8 +1734,11 @@ def _spot_bg_url(theme_key: str) -> Optional[str]:
 async def spot_puzzle(theme: str, difficulty: str = "easy", seed: Optional[int] = None):
     if theme not in STD_THEMES:
         raise HTTPException(404, "Unknown theme")
-    if difficulty not in STD_DIFFS:
-        raise HTTPException(400, "Unknown difficulty")
+    # Be lenient about an unset/garbled difficulty — fall back to "easy" rather
+    # than 400, so a slightly malformed Expo Router URL like
+    # `?theme=garden&difficulty=undefined` still loads a playable puzzle.
+    if not difficulty or difficulty not in STD_DIFFS:
+        difficulty = "easy"
     if seed is None:
         stable_key = f"std|{theme}|{difficulty}|{std_today_iso()}"
         use_seed = abs(hash(stable_key)) % (10 ** 9)
@@ -4523,8 +4526,10 @@ async def dm_messages(conv_id: str):
 
 @api.post("/dm/start")
 async def start_dm(body: dict):
-    a = body["user_id"]
-    b = body["other_id"]
+    a = body.get("user_id")
+    b = body.get("other_id")
+    if not a or not b:
+        raise HTTPException(400, "user_id and other_id are required")
     cid = dm_conv_id(a, b)
     existing = await db.dm_conversations.find_one({"id": cid}, {"_id": 0})
     if not existing:
