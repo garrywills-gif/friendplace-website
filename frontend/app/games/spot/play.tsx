@@ -286,16 +286,20 @@ export default function SpotPlayer() {
     );
   }
 
+  // Larger scenes for older eyes / fingers — cap a bit higher on tablets
+  // and use a taller aspect ratio (0.78 instead of 0.7) for more real estate.
   const horizontalPad = 14 * 2;
-  const sceneW = Math.min(winW - horizontalPad, 460);
-  const sceneH = Math.round(sceneW * 0.7);
+  const sceneW = Math.min(winW - horizontalPad, 620);
+  const sceneH = Math.round(sceneW * 0.78);
 
   const onTapScene = (x: number, y: number) => {
     if (completed) return;
     setHintCircle(null);
-    // Find any unfound difference where (x,y) is within radius
+    // Find any unfound difference where (x,y) is within radius. The diff
+    // radius is generously expanded (+50%) so older fingers on tablets can
+    // reliably tap a diff without pixel-precise aim.
     const unfound = (puzzle.differences as Diff[]).filter((d) => !foundIds.includes(d.id));
-    const hit = unfound.find((d) => Math.hypot(d.x - x, d.y - y) <= d.radius);
+    const hit = unfound.find((d) => Math.hypot(d.x - x, d.y - y) <= d.radius * 1.5);
     if (hit) {
       const next = [...foundIds, hit.id];
       setFoundIds(next);

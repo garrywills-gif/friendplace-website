@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import { View, Text, StyleSheet, FlatList, Pressable, ScrollView } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -34,9 +34,44 @@ export default function Events() {
   const router = useRouter();
   const [events, setEvents] = useState<any[]>([]);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  // Month filter — "all" | "YYYY-MM"
+  const [monthFilter, setMonthFilter] = useState<string>("all");
 
   const load = async () => setEvents(await api.listEvents());
   useFocusEffect(useCallback(() => { load(); }, []));
+
+  // Build the list of months that actually have events, anchored on the
+  // current calendar month + next month for predictability — older users
+  // shouldn't have to scroll a year of empty months.
+  const monthOptions = useMemo(() => {
+    const now = new Date();
+    const ym = (y: number, m: number) => `${y}-${String(m + 1).padStart(2, "0")}`;
+    const label = (y: number, m: number) => new Date(y, m, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    const cur = { value: ym(now.getFullYear(), now.getMonth()), label: "This month" };
+    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const nxt = { value: ym(next.getFullYear(), next.getMonth()), label: "Next month" };
+    // Any other months present in events.
+    const seen = new Set<string>([cur.value, nxt.value]);
+    const extras: { value: string; label: string }[] = [];
+    for (const e of events) {
+      const m = /^(\d{4})-(\d{2})/.exec(e?.date || "");
+      if (!m) continue;
+      const v = `${m[1]}-${m[2]}`;
+      if (seen.has(v)) continue;
+      seen.add(v);
+      const y = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10) - 1;
+      extras.push({ value: v, label: label(y, mm) });
+    }
+    // Sort extras by chronological order.
+    extras.sort((a, b) => (a.value < b.value ? -1 : 1));
+    return [{ value: "all", label: "All upcoming" }, cur, nxt, ...extras];
+  }, [events]);
+
+  const visibleEvents = useMemo(() => {
+    if (monthFilter === "all") return events;
+    return events.filter((e) => (e.date || "").startsWith(monthFilter));
+  }, [events, monthFilter]);
 
   const setRsvp = async (e: any, resp: "going" | "maybe" | "cant") => {
     if (!user) return;
@@ -62,8 +97,29 @@ export default function Events() {
         <Ionicons name="add-circle" size={20} color="#FFF" />
         <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Host a new event</Text>
       </Pressable>
+      {/* Month filter pills — older eyes can quickly jump to "This month" / "Next month". */}
+      <ScrollView
+        testID="event-month-pills"
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4, gap: 8 }}
+      >
+        {monthOptions.map((m) => {
+          const on = monthFilter === m.value;
+          return (
+            <Pressable
+              key={m.value}
+              testID={`month-pill-${m.value}`}
+              onPress={() => setMonthFilter(m.value)}
+              style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? c.brand : c.surfaceSecondary, borderWidth: 1.5, borderColor: on ? c.brand : c.border }}
+            >
+              <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{m.label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
       <FlatList
-        data={events}
+        data={visibleEvents}
         keyExtractor={(e) => e.id}
         contentContainerStyle={{ padding: 16, gap: 12 }}
         renderItem={({ item }) => {

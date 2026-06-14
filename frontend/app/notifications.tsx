@@ -56,9 +56,18 @@ export default function Notifications() {
     if (n.type === "friend_request" || n.type === "friend_accepted") return router.push("/friends/inbox");
     if (n.type === "dm" && n.payload?.dm_id) return router.push(`/dm/${n.payload.dm_id}?other_id=${n.payload.from_id || ""}`);
     if (n.type === "table_join" && n.payload?.table_id) return router.push(`/table/${n.payload.table_id}`);
-    if (n.type === "flutter") return router.push("/(tabs)/home");
+    if (n.type === "flutter") return router.push("/home");
     if (n.type === "event_invite") return router.push("/events");
     if (n.type === "notice_comment") return router.push("/notices");
+    if (n.type === "recipe_comment" && n.ref_id) return router.push(`/recipes/${n.ref_id}` as any);
+  };
+
+  const dismissOne = async (n: any) => {
+    try {
+      if (!n.read) await api.readNotification(n.id);
+      // Optimistic: mark as read locally; user can refresh to fully clear.
+      setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+    } catch {}
   };
 
   const markAll = async () => { if (!user) return; await api.readAllNotifications(user.id); load(); show("Marked all as read"); };
@@ -87,17 +96,42 @@ export default function Notifications() {
         renderItem={({ item }) => {
           const ic = ICON[item.type] || { name: "notifications", tint: c.brand };
           const isAchievement = item.type === "achievement" && item.payload?.actor_id;
+          const isDm = item.type === "dm";
           return (
             <View>
               <Pressable testID={`notif-${item.id}`} onPress={() => onItemPress(item)} style={[styles.row, { backgroundColor: item.read ? c.surfaceSecondary : c.brandTertiary, borderColor: item.read ? c.border : c.brand }]}>
                 <View style={[styles.iconBox, { backgroundColor: "#FFFFFF" }]}><Ionicons name={ic.name} size={20} color={ic.tint} /></View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>{item.title}</Text>
-                  {!!item.body && <Text style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }} numberOfLines={2}>{item.body}</Text>}
+                  {!!item.body && <Text style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }} numberOfLines={isDm ? 3 : 2}>{isDm ? `“${item.body}”` : item.body}</Text>}
                   <Text style={{ color: c.muted, marginTop: 4, fontSize: 12 * scale }}>{relTime(item.created_at)}</Text>
                 </View>
                 {!item.read && <View style={[styles.dot, { backgroundColor: c.brandSecondary }]} />}
               </Pressable>
+
+              {/* Message preview actions — only for direct messages. Chat opens the
+                  conversation; Dismiss marks the notification as read in place. */}
+              {isDm && (
+                <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  <Pressable
+                    testID={`dm-chat-${item.id}`}
+                    onPress={() => onItemPress(item)}
+                    style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
+                  >
+                    <Ionicons name="chatbubble" size={18} color="#FFF" />
+                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale, marginLeft: 6 }}>Chat</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`dm-dismiss-${item.id}`}
+                    onPress={() => dismissOne(item)}
+                    style={[styles.dmActionBtn, { backgroundColor: c.surface, borderColor: c.border, flex: 1 }]}
+                  >
+                    <Ionicons name="close-circle" size={18} color={c.muted} />
+                    <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale, marginLeft: 6 }}>Dismiss</Text>
+                  </Pressable>
+                </View>
+              )}
+
               {isAchievement && user && (
                 <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
                   {CHEER_OPTIONS.map((opt) => (
@@ -135,4 +169,5 @@ const styles = StyleSheet.create({
   dot: { width: 10, height: 10, borderRadius: 5, marginLeft: 8 },
   cheerRow: { flexDirection: "row", gap: 6, padding: 8, borderTopWidth: 0, borderWidth: 1, borderRadius: 16, marginTop: -8, marginHorizontal: 4, marginBottom: 4 },
   cheerBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 10, paddingHorizontal: 4, borderRadius: 14, borderWidth: 1, minHeight: 64 },
+  dmActionBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 12, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1.5 },
 });
