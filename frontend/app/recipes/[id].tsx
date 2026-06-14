@@ -84,7 +84,7 @@ export default function RecipeView() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Recipe" right={<SpeakButton text={speakText} color={c.brand} size={24} testID="recipe-speak" />} />
+      <Header title="Recipe" backHref="/recipes" right={<SpeakButton text={speakText} color={c.brand} size={24} testID="recipe-speak" />} />
       <ScrollView contentContainerStyle={{ paddingBottom: 100 }} keyboardShouldPersistTaps="handled">
         {rec.photo ? (
           <Image source={{ uri: rec.photo }} style={{ width: "100%", height: 260 }} resizeMode="cover" />

@@ -1,14 +1,41 @@
 import React from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import { View, Text, Pressable, StyleSheet, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../lib/theme";
 
-export default function Header({ title, right, back = true }: { title: string; right?: React.ReactNode; back?: boolean }) {
+export default function Header({ title, right, back = true, backHref }: { title: string; right?: React.ReactNode; back?: boolean; backHref?: string }) {
   const router = useRouter();
   const { c, scale } = useTheme();
   const insets = useSafeAreaInsets();
+
+  /**
+   * Smart Back handler.
+   *
+   * On iPad Safari (web) `router.back()` silently no-ops when expo-router's
+   * internal history is empty — which happens any time we reached the current
+   * screen via `window.location.assign(...)`. So on web we first try the real
+   * browser history (which always remembers), and only fall back to a hard
+   * navigation to the explicit `backHref` (or `/home`) when there is genuinely
+   * nothing to go back to.
+   */
+  const handleBack = () => {
+    if (Platform.OS === "web") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const w: any = (typeof window !== "undefined" ? window : null);
+      if (w && w.history && w.history.length > 1) {
+        try { w.history.back(); return; } catch {}
+      }
+      if (w && backHref) { w.location.assign(backHref); return; }
+      if (w) { w.location.assign("/home"); return; }
+    }
+    // Native: prefer expo-router back; if not possible, use backHref or /home.
+    if (router.canGoBack && router.canGoBack()) { router.back(); return; }
+    if (backHref) { router.replace(backHref as any); return; }
+    router.replace("/home" as any);
+  };
+
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + 8, backgroundColor: c.surface, borderBottomColor: c.border }]}>
       <View style={styles.row}>
@@ -17,7 +44,7 @@ export default function Header({ title, right, back = true }: { title: string; r
             testID="header-back"
             accessibilityRole="button"
             accessibilityLabel="Back"
-            onPress={() => router.back()}
+            onPress={handleBack}
             hitSlop={10}
             style={({ pressed }) => [styles.backBtn, { borderColor: c.border, backgroundColor: pressed ? c.surfaceTertiary : c.surfaceSecondary }]}
           >

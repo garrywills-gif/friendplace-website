@@ -56,7 +56,7 @@ export default function RecipesList() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Recipes" right={(
+      <Header title="Recipes" backHref="/home" right={(
         <Pressable testID="new-recipe" onPress={() => router.push("/recipes/new" as any)} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brand, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
           <Ionicons name="add" size={20} color="#FFF" />
           <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale }}>Post Recipe</Text>

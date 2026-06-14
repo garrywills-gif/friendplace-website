@@ -65,7 +65,7 @@ export default function NewRecipe() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Post your recipe" />
+      <Header title="Post your recipe" backHref="/recipes" />
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 100 }} keyboardShouldPersistTaps="handled">
         {/* Photo */}
         <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Photo</Text>
