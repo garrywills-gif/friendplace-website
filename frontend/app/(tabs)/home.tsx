@@ -69,13 +69,13 @@ export default function Home() {
   };
 
   const tiles: Tile[] = [
-    { key: "lounge", title: "Coffee Lounge", icon: "cafe", route: "/(tabs)/lounge", bg: "#0F766E", full: true },
-    { key: "friends", title: "Find Friends", icon: "people", route: "/(tabs)/friends", bg: "#0369A1" },
+    { key: "lounge", title: "Coffee Lounge", icon: "cafe", route: "/lounge", bg: "#0F766E", full: true },
+    { key: "friends", title: "Find Friends", icon: "people", route: "/friends", bg: "#0369A1" },
     { key: "events", title: "Local Events", icon: "calendar", route: "/events", bg: "#0EA5E9" },
     { key: "groups", title: "Community Groups", icon: "earth", route: "/groups", bg: "#14B8A6" },
     { key: "notices", title: "Notice Board", icon: "newspaper", route: "/notices", bg: "#0891B2" },
     { key: "games", title: "Games", icon: "game-controller", route: "/games", bg: "#0284C7" },
-    { key: "profile", title: "My Profile", icon: "person-circle", route: "/(tabs)/profile", bg: "#475569" },
+    { key: "profile", title: "My Profile", icon: "person-circle", route: "/profile", bg: "#475569" },
   ];
 
   return (
@@ -143,7 +143,7 @@ export default function Home() {
           <Text style={[styles.thoughtText, { color: c.onSurface, fontSize: 18 * scale }]}>{thought}</Text>
         </View>
 
-        <Pressable testID="home-points-card" onPress={() => router.push("/(tabs)/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+        <Pressable testID="home-points-card" onPress={() => router.push("/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
           <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
             <Text numberOfLines={1} style={[styles.pointsLabel, { color: c.brand, fontSize: 12 * scale }]}>COMMUNITY POINTS</Text>
             <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling minimumFontScale={0.6} style={[styles.pointsNum, { color: c.onSurface, fontSize: 34 * scale }]}>{user?.points ?? 0}</Text>
@@ -182,7 +182,7 @@ export default function Home() {
               </Pressable>
             ))}
             {community.new_members?.length > 0 && (
-              <Pressable testID="new-members-row" onPress={() => router.push("/(tabs)/friends" as any)} style={styles.commRow}>
+              <Pressable testID="new-members-row" onPress={() => router.push("/friends" as any)} style={styles.commRow}>
                 <Text style={styles.commEmoji}>👋</Text>
                 <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
                   Say hello to {community.new_members.length} new {community.new_members.length === 1 ? "neighbour" : "neighbours"} this week
