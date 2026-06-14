@@ -22,9 +22,39 @@ export default function UserView() {
   useEffect(() => { if (id) api.getUser(id).then(setU).catch(() => {}); }, [id]);
   if (!u) return <View style={{ flex: 1, backgroundColor: c.surface }}><Header title="Profile" /></View>;
 
-  const send = async () => { if (!user) return; await api.sendFriendReq(user.id, u.id); show("Friend request sent 🦋"); await refresh(); };
-  const flutter = async () => { if (!user) return; await api.sendFlutter(user.id, u.id); show(`🦋 Flutter sent to ${u.first_name}!`); };
-  const message = async () => { if (!user) return; const conv = await api.startDm(user.id, u.id); router.push(`/dm/${conv.id}?other_id=${u.id}` as any); };
+  const send = async () => {
+    if (!user) return;
+    try {
+      await api.sendFriendReq(user.id, u.id);
+      show("Friend request sent 🦋");
+      await refresh();
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (msg.includes("Already friends")) show(`You're already friends with ${u.first_name}`);
+      else if (msg.includes("already") || msg.includes("Already")) show(`Friend request already sent to ${u.first_name}`);
+      else show("Couldn't send friend request — please try again");
+    }
+  };
+  const flutter = async () => {
+    if (!user) return;
+    try {
+      await api.sendFlutter(user.id, u.id);
+      show(`🦋 Flutter sent to ${u.first_name}!`);
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (msg.includes("rate") || msg.includes("recent")) show("You've sent a Flutter recently — try again in a bit");
+      else show("Couldn't send Flutter — please try again");
+    }
+  };
+  const message = async () => {
+    if (!user) return;
+    try {
+      const conv = await api.startDm(user.id, u.id);
+      router.push(`/dm/${conv.id}?other_id=${u.id}` as any);
+    } catch {
+      show("Couldn't start the conversation — please try again");
+    }
+  };
   const block = async () => {
     if (!user) return;
     const ok = await confirm({ title: `Block ${u.first_name}?`, message: "You won't see their posts and they can't message you.", confirmLabel: "Block", destructive: true });

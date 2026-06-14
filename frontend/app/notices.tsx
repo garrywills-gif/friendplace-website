@@ -250,7 +250,10 @@ export default function Notices() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Notice Board" right={(
-        <Pressable testID="new-notice" onPress={startCreate} hitSlop={6}><Ionicons name="add-circle" size={28} color={c.brand} /></Pressable>
+        <Pressable testID="new-notice" onPress={startCreate} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brand, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
+          <Ionicons name="add" size={20} color="#FFF" />
+          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale }}>Add Post</Text>
+        </Pressable>
       )} />
       <View style={[styles.searchBar, { borderColor: c.border, backgroundColor: c.surfaceSecondary }]}>
         <Ionicons name="search" size={18} color={c.muted} />

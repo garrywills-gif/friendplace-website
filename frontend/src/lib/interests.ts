@@ -14,6 +14,7 @@ export const INTERESTS: string[] = [
   "Camping",
   // Hands-on
   "BBQ & Grilling",
+  "Cooking",
   "DIY & Home Improvement",
   "Woodworking",
   "Men's Shed",

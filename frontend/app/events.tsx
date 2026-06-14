@@ -9,6 +9,24 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 
+/** Format "YYYY-MM-DD" → "Sat 14 Jun 2026" — friendly for older eyes. */
+function formatPrettyDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!m) return iso || "";
+  const d = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+/** Format "HH:MM" (24h) → "9:30 AM" — 12h with capitalised AM/PM. */
+function formatPrettyTime(t: string): string {
+  const m = /^(\d{2}):(\d{2})$/.exec(t || "");
+  if (!m) return t || "";
+  const h = parseInt(m[1], 10);
+  const mins = m[2];
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${mins} ${period}`;
+}
+
 export default function Events() {
   const { c, scale } = useTheme();
   const { user, refresh } = useAuth();
@@ -63,7 +81,17 @@ export default function Events() {
                 <View style={[styles.emojiBox, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 36 }}>{item.emoji}</Text></View>
                 <View style={{ flex: 1, marginLeft: 14 }}>
                   <Text style={[styles.title, { color: c.onSurface, fontSize: 20 * scale, textDecorationLine: item.cancelled ? "line-through" : "none" }]}>{item.title}</Text>
-                  <Text style={[styles.meta, { color: c.muted, fontSize: 14 * scale }]}>📅 {item.date}  🕐 {item.time}</Text>
+                  {/* Date & time prominent for older eyes — bold, brand colour, larger size. */}
+                  <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 6, marginBottom: 4 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brandTertiary, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 }}>
+                      <Ionicons name="calendar" size={16} color={c.brand} />
+                      <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>{formatPrettyDate(item.date)}</Text>
+                    </View>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brandTertiary, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 }}>
+                      <Ionicons name="time" size={16} color={c.brand} />
+                      <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>{formatPrettyTime(item.time)}</Text>
+                    </View>
+                  </View>
                   <Text style={[styles.meta, { color: c.muted, fontSize: 14 * scale }]}>📍 {item.location}</Text>
                 </View>
                 <View style={{ alignItems: "flex-end", gap: 6 }}>

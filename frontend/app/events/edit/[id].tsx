@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
+import { DateField, TimeField } from "@/src/components/DateTimePicker";
 
 const EMOJIS = ["☕", "🍰", "🚌", "🏞️", "🎲", "🎵", "📚", "🌳", "🎨", "🍵", "🥖", "🦋", "🌷"];
 
@@ -162,11 +163,11 @@ export default function EditEvent() {
           <View style={{ flexDirection: "row", gap: 10 }}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Date</Text>
-              <TextInput value={date} onChangeText={(t) => setDate(t.replace(/[^0-9-]/g, "").slice(0, 10))} placeholder="YYYY-MM-DD" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+              <DateField value={date} onChange={setDate} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Time</Text>
-              <TextInput value={time} onChangeText={(t) => setTime(t.replace(/[^0-9:]/g, "").slice(0, 5))} placeholder="HH:MM" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+              <TimeField value={time} onChange={setTime} />
             </View>
           </View>
 

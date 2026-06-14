@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
+import { DateField, TimeField } from "@/src/components/DateTimePicker";
 
 const EMOJIS = ["☕", "🍰", "🚌", "🏞️", "🎲", "🎵", "📚", "🌳", "🎨", "🍵", "🥖", "🦋", "🌷"];
 const CAPACITY_PRESETS = [
@@ -87,11 +88,11 @@ export default function NewEvent() {
           <View style={{ flexDirection: "row", gap: 10 }}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Date <Text style={{ color: c.error }}>*</Text></Text>
-              <TextInput testID="event-date" value={date} onChangeText={(t) => setDate(t.replace(/[^0-9-]/g, "").slice(0, 10))} placeholder="YYYY-MM-DD" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+              <DateField value={date} onChange={setDate} testID="event-date" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Time <Text style={{ color: c.error }}>*</Text></Text>
-              <TextInput testID="event-time" value={time} onChangeText={(t) => setTime(t.replace(/[^0-9:]/g, "").slice(0, 5))} placeholder="HH:MM (24h)" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+              <TimeField value={time} onChange={setTime} testID="event-time" />
             </View>
           </View>
 
