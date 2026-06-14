@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl, Modal, TextInput, KeyboardAvoidingView, Platform } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,9 +12,23 @@ import Button from "@/src/components/Button";
 function occupancyLabel(seated: number): { label: string; color: string; icon: keyof typeof Ionicons.glyphMap } {
   if (seated === 0) return { label: "Empty Table", color: "#94A3B8", icon: "ellipse-outline" };
   if (seated === 1) return { label: "1 Person", color: "#0EA5E9", icon: "person" };
-  if (seated <= 4) return { label: `${seated} People`, color: "#0F766E", icon: "people" };
   if (seated <= 7) return { label: `${seated} People`, color: "#0F766E", icon: "people" };
   return { label: "Full Table", color: "#B45309", icon: "people-circle" };
+}
+
+/** Lightweight relative-time label — small enough to feel like polish without
+ *  pulling in date-fns. Always rounds toward the most useful unit. */
+function timeAgo(iso?: string): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (!then) return "";
+  const mins = Math.max(0, Math.floor((Date.now() - then) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
 }
 
 export default function Lounge() {
@@ -26,6 +40,7 @@ export default function Lounge() {
   const [tables, setTables] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("☕");
   const [desc, setDesc] = useState("");
@@ -50,11 +65,28 @@ export default function Lounge() {
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headRow}>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>Coffee Lounge ☕</Text>
-            <Text style={[styles.sub, { color: c.muted, fontSize: 16 * scale }]}>Pull up a chair and join a chat</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>Coffee Lounge ☕</Text>
+              <Pressable
+                testID="lounge-info-btn"
+                onPress={() => setShowHelp(true)}
+                hitSlop={12}
+                accessibilityLabel="How Coffee Lounge works"
+                style={({ pressed }) => [styles.infoBtn, { backgroundColor: c.brandTertiary, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Ionicons name="information-circle" size={26} color={c.brand} />
+              </Pressable>
+            </View>
+            <Pressable testID="lounge-how-link" onPress={() => setShowHelp(true)} hitSlop={6}>
+              <Text style={[styles.sub, { color: c.muted, fontSize: 16 * scale }]}>
+                Pull up a chair and join a chat ·{" "}
+                <Text style={{ color: c.brand, fontWeight: "800", textDecorationLine: "underline" }}>How it works</Text>
+              </Text>
+            </Pressable>
           </View>
         </View>
       </View>
+
       <FlatList
         data={tables}
         keyExtractor={(t) => t.id}
@@ -64,6 +96,7 @@ export default function Lounge() {
           const seatedCount = (item.seated || []).length;
           const occ = occupancyLabel(seatedCount);
           const active = seatedCount >= 2;
+          const ago = timeAgo(item.last_activity_at || item.created_at);
           return (
             <Pressable
               testID={`table-${item.id}`}
@@ -83,6 +116,9 @@ export default function Lounge() {
                     )}
                   </View>
                   {!!item.description && <Text style={[styles.cardDesc, { color: c.muted, fontSize: 15 * scale }]} numberOfLines={2}>{item.description}</Text>}
+                  {!active && !!ago && (
+                    <Text style={[styles.agoText, { color: c.muted, fontSize: 12 * scale }]}>Active {ago}</Text>
+                  )}
                 </View>
                 {item.visibility === "friends" && (
                   <View style={[styles.lock, { backgroundColor: c.brandTertiary }]}>
@@ -112,10 +148,32 @@ export default function Lounge() {
           );
         }}
       />
+
       <Pressable testID="create-table-fab" onPress={() => setCreating(true)} style={[styles.fab, { backgroundColor: c.brand, bottom: 96 + insets.bottom }]}>
         <Ionicons name="add" size={28} color="#FFF" />
-        <Text style={[styles.fabText]}>Create Table</Text>
+        <Text style={styles.fabText}>Create Table</Text>
       </Pressable>
+
+      {/* How-it-works modal — single, dismissible. Mirrors the user-approved
+          wording. Pre-existing tables stay; only inactive ones get pruned. */}
+      <Modal visible={showHelp} animationType="fade" transparent onRequestClose={() => setShowHelp(false)}>
+        <Pressable style={styles.helpBackdrop} onPress={() => setShowHelp(false)}>
+          <Pressable style={[styles.helpSheet, { backgroundColor: c.surface }]} onPress={(e: any) => e.stopPropagation && e.stopPropagation()}>
+            <View style={[styles.helpIconWrap, { backgroundColor: c.brandTertiary }]}>
+              <Ionicons name="information-circle" size={40} color={c.brand} />
+            </View>
+            <Text style={[styles.helpTitle, { color: c.onSurface, fontSize: 22 * scale }]}>How Coffee Lounge Works</Text>
+            <Text style={[styles.helpBody, { color: c.onSurface, fontSize: 16 * scale }]}>
+              Coffee Lounge is designed for casual conversations.{"\n\n"}
+              <Text style={{ fontWeight: "700" }}>Tables and chat history that remain inactive for 24 hours are automatically removed.</Text>{"\n\n"}
+              Active conversations stay near the top, so you&apos;ll always find what&apos;s lively first.
+            </Text>
+            <Pressable testID="lounge-help-close" onPress={() => setShowHelp(false)} style={[styles.helpBtn, { backgroundColor: c.brand }]}>
+              <Text style={{ color: c.onBrandPrimary, fontWeight: "800", fontSize: 17 * scale }}>Got it</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={creating} animationType="slide" transparent onRequestClose={() => setCreating(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
@@ -153,13 +211,14 @@ export default function Lounge() {
 const styles = StyleSheet.create({
   head: { paddingHorizontal: 16, paddingBottom: 8 },
   headRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  backBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   title: { fontWeight: "900" },
-  sub: { fontWeight: "600", marginTop: 2 },
+  sub: { fontWeight: "600", marginTop: 4 },
+  infoBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   card: { borderRadius: 20, padding: 16, shadowColor: "#0F172A", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2, gap: 10 },
   topRow: { flexDirection: "row", alignItems: "center" },
   cardTitle: { fontWeight: "800" },
   cardDesc: { marginTop: 2, fontWeight: "500" },
+  agoText: { marginTop: 4, fontWeight: "600" },
   lock: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   activeBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, gap: 5 },
   activeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#FFFFFF" },
@@ -172,6 +231,12 @@ const styles = StyleSheet.create({
   emojiRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   fab: { position: "absolute", right: 16, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 999, shadowColor: "#0F172A", shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   fabText: { color: "#FFFFFF", fontWeight: "800", fontSize: 16 },
+  helpBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: 24 },
+  helpSheet: { width: "100%", maxWidth: 460, borderRadius: 24, padding: 24, alignItems: "center", gap: 14 },
+  helpIconWrap: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center" },
+  helpTitle: { fontWeight: "900", textAlign: "center" },
+  helpBody: { lineHeight: 24, textAlign: "center" },
+  helpBtn: { marginTop: 4, alignSelf: "stretch", alignItems: "center", paddingVertical: 14, borderRadius: 999, minHeight: 48 },
   modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   modalSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, gap: 12 },
   modalHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

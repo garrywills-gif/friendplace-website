@@ -182,6 +182,11 @@ class Table(BaseModel):
     host_id: str = ""
     seated: List[str] = []  # user ids
     created_at: str = Field(default_factory=now_iso)
+    # Updated on every message / join — drives "most-recent-activity" sort and
+    # the 24-hour idle auto-prune. Seed tables get marked persistent=True so
+    # they don't disappear even when quiet.
+    last_activity_at: str = Field(default_factory=now_iso)
+    persistent: bool = False
 
 
 class CreateTableBody(BaseModel):
@@ -2757,9 +2762,53 @@ async def bingo_stats(user_id: str):
 
 
 # ------------- Tables (Coffee Lounge) -------------
+async def _prune_idle_tables() -> None:
+    """Delete non-persistent tables (and their messages) that have had no
+    activity for 24 hours. Keeps the Coffee Lounge tidy without a separate
+    cron job — fast enough to run inline on each /tables GET.
+    """
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    cutoff = (_dt.now(_tz.utc) - _td(hours=24)).isoformat().replace("+00:00", "Z")
+    stale = await db.tables.find(
+        {"persistent": {"$ne": True}, "last_activity_at": {"$lt": cutoff}},
+        {"id": 1, "_id": 0},
+    ).to_list(500)
+    if not stale:
+        return
+    stale_ids = [t["id"] for t in stale]
+    await db.messages.delete_many({"table_id": {"$in": stale_ids}})
+    await db.tables.delete_many({"id": {"$in": stale_ids}})
+
+
+async def _migrate_table_metadata() -> None:
+    """One-shot migration: backfill `last_activity_at`, mark seed tables as
+    persistent so they survive the auto-prune, and remove the leftover
+    TEST_Table* rows from earlier QA. Idempotent — safe to run on every call.
+    """
+    seed_names = {"Morning Coffee", "Gardening Chat", "Men's Shed", "Book Club",
+                  "Pet Lovers", "New Friends", "Sydney Locals"}
+    await db.tables.update_many(
+        {"name": {"$in": list(seed_names)}, "persistent": {"$ne": True}},
+        {"$set": {"persistent": True}},
+    )
+    # Backfill last_activity_at on any pre-migration rows that lack it.
+    async for t in db.tables.find({"last_activity_at": {"$exists": False}}, {"id": 1, "created_at": 1, "_id": 0}):
+        await db.tables.update_one(
+            {"id": t["id"]},
+            {"$set": {"last_activity_at": t.get("created_at", now_iso())}},
+        )
+    # Remove the four/five TEST_Table rows that piled up during manual QA.
+    test_ids = [t["id"] async for t in db.tables.find({"name": "TEST_Table"}, {"id": 1, "_id": 0})]
+    if test_ids:
+        await db.messages.delete_many({"table_id": {"$in": test_ids}})
+        await db.tables.delete_many({"id": {"$in": test_ids}})
+
+
 @api.get("/tables")
 async def list_tables():
-    docs = await db.tables.find({}, {"_id": 0}).to_list(500)
+    await _migrate_table_metadata()
+    await _prune_idle_tables()
+    docs = await db.tables.find({}, {"_id": 0}).sort("last_activity_at", -1).to_list(500)
     return docs
 
 
@@ -2788,7 +2837,10 @@ async def join_table(table_id: str, user_id: str):
         raise HTTPException(404, "Table not found")
     if user_id in (t.get("seated") or []):
         return {"ok": True}
-    await db.tables.update_one({"id": table_id}, {"$addToSet": {"seated": user_id}})
+    await db.tables.update_one(
+        {"id": table_id},
+        {"$addToSet": {"seated": user_id}, "$set": {"last_activity_at": now_iso()}},
+    )
     host_id = t.get("host_id")
     if host_id and host_id != user_id:
         joiner = await db.users.find_one({"id": user_id}, {"first_name": 1, "avatar": 1, "_id": 0}) or {}
@@ -4677,6 +4729,7 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
                 text=text,
             )
             await db.messages.insert_one(msg.dict())
+            await db.tables.update_one({"id": table_id}, {"$set": {"last_activity_at": now_iso()}})
             await award_points(user_id, 1)
             await hub.broadcast(room, {"type": "message", "message": msg.dict()})
     except WebSocketDisconnect:
