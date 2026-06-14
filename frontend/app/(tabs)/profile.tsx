@@ -168,7 +168,7 @@ export default function Profile() {
         })}
       </View>
       <View style={{ height: 16 }} />
-      <Button label="Edit Profile" variant="outline" onPress={() => router.push("/profile/edit")} testID="profile-edit" />
+      <Button label="Edit Profile" variant="outline" onPress={() => router.push("/edit-profile")} testID="profile-edit" />
       <View style={{ height: 12 }} />
       <Button label="Help & Support" variant="outline" onPress={() => router.push("/help")} testID="profile-help" />
       <View style={{ height: 12 }} />

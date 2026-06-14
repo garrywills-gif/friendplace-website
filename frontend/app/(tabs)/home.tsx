@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,6 +25,21 @@ export default function Home() {
   const [community, setCommunity] = useState<any>(null);
 
   const shuffleThought = () => setThought((t) => getRandomThought(t));
+
+  /**
+   * Switch to a sibling tab (or push a stack route). expo-router's
+   * router.push/replace/navigate silently no-ops when switching between
+   * sibling tabs on web (iPad Safari), so we fall back to a hard URL
+   * change there. On native, router.replace works correctly.
+   */
+  const goTo = useCallback((href: string) => {
+    if (Platform.OS === "web") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).location.assign(href);
+    } else {
+      router.replace(href as any);
+    }
+  }, [router]);
 
   // Gate: send brand-new users through the welcome tour first.
   useEffect(() => {
@@ -143,7 +158,7 @@ export default function Home() {
           <Text style={[styles.thoughtText, { color: c.onSurface, fontSize: 18 * scale }]}>{thought}</Text>
         </View>
 
-        <Pressable testID="home-points-card" onPress={() => router.push("/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+        <Pressable testID="home-points-card" onPress={() => goTo("/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
           <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
             <Text numberOfLines={1} style={[styles.pointsLabel, { color: c.brand, fontSize: 12 * scale }]}>COMMUNITY POINTS</Text>
             <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling minimumFontScale={0.6} style={[styles.pointsNum, { color: c.onSurface, fontSize: 34 * scale }]}>{user?.points ?? 0}</Text>
@@ -182,7 +197,7 @@ export default function Home() {
               </Pressable>
             ))}
             {community.new_members?.length > 0 && (
-              <Pressable testID="new-members-row" onPress={() => router.push("/friends" as any)} style={styles.commRow}>
+              <Pressable testID="new-members-row" onPress={() => goTo("/friends")} style={styles.commRow}>
                 <Text style={styles.commEmoji}>👋</Text>
                 <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
                   Say hello to {community.new_members.length} new {community.new_members.length === 1 ? "neighbour" : "neighbours"} this week
@@ -207,7 +222,7 @@ export default function Home() {
             <Pressable
               key={t.key}
               testID={`tile-${t.key}`}
-              onPress={() => router.push(t.route as any)}
+              onPress={() => goTo(t.route)}
               style={({ pressed }) => [
                 styles.tile,
                 { backgroundColor: t.bg, width: t.full ? "100%" : "48%", minHeight: t.full ? 130 : 150, opacity: pressed ? 0.85 : 1 },
