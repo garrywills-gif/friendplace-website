@@ -286,10 +286,12 @@ export default function SpotPlayer() {
     );
   }
 
-  // MUCH larger scenes so a real photograph can fill the screen on iPad &
-  // phone alike. Aspect 10:7 matches the cropped backdrop assets.
+  // Balanced scene size — big enough to enjoy on iPad, small enough that
+  // both Master and Workspace fit on screen for side-by-side comparison
+  // without excessive scrolling. Users can still pinch-zoom or use the
+  // Magnify button for closer inspection.
   const horizontalPad = 14 * 2;
-  const sceneW = Math.min(winW - horizontalPad, 1100);
+  const sceneW = Math.min(winW - horizontalPad, 720);
   const sceneH = Math.round(sceneW * 0.7);
 
   const onTapScene = (x: number, y: number) => {

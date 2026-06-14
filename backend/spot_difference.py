@@ -263,7 +263,19 @@ def _scene_country_towns() -> Dict:
         {"id": "lamp",      "emoji": "🪔", "x": 90, "y": 40, "size": 26, "color": None},
         {"id": "bird",      "emoji": "🐦", "x": 58, "y": 14, "size": 22, "color": None},
     ]
-    return {"elements": elements}
+    diff_pool = [
+        {"target": "clock",   "type": "remove"},
+        {"target": "bird",    "type": "remove"},
+        {"target": "bike",    "type": "remove"},
+        {"target": "flag",    "type": "swap_emoji", "emoji": "🚩"},
+        {"target": "flowers", "type": "swap_emoji", "emoji": "🌷"},
+        {"target": "mailbox", "type": "move", "dx": -8, "dy": 0},
+        {"target": "car",     "type": "move", "dx": 10, "dy": 0},
+        {"target": "lamp",    "type": "swap_emoji", "emoji": "💡"},
+        {"target": "gum_tree","type": "resize", "size": 44},
+        {"target": "cloud",   "type": "move", "dx": 14, "dy": 0},
+    ]
+    return {"elements": elements, "diff_pool": diff_pool}
 
 
 def _scene_classic_cars() -> Dict:
@@ -282,7 +294,19 @@ def _scene_classic_cars() -> Dict:
         {"id": "leaf",       "emoji": "🍂", "x": 42, "y": 88, "size": 20, "color": None},
         {"id": "bird",       "emoji": "🕊️", "x": 60, "y": 20, "size": 22, "color": None},
     ]
-    return {"elements": elements}
+    diff_pool = [
+        {"target": "key",     "type": "remove"},
+        {"target": "trophy",  "type": "remove"},
+        {"target": "bird",    "type": "remove"},
+        {"target": "leaf",    "type": "remove"},
+        {"target": "hat",     "type": "swap_emoji", "emoji": "🧢"},
+        {"target": "fuel",    "type": "swap_emoji", "emoji": "🛢️"},
+        {"target": "wheel_lf","type": "swap_emoji", "emoji": "⚪"},
+        {"target": "tools",   "type": "move", "dx": 8, "dy": 0},
+        {"target": "car_body","type": "move", "dx": -4, "dy": 0},
+        {"target": "cloud",   "type": "resize", "size": 30},
+    ]
+    return {"elements": elements, "diff_pool": diff_pool}
 
 
 def _scene_parks_trails() -> Dict:
@@ -301,7 +325,19 @@ def _scene_parks_trails() -> Dict:
         {"id": "bird",       "emoji": "🐦", "x": 36, "y": 18, "size": 22, "color": None},
         {"id": "signpost",   "emoji": "🪧", "x": 80, "y": 78, "size": 26, "color": None},
     ]
-    return {"elements": elements}
+    diff_pool = [
+        {"target": "mushroom",  "type": "remove"},
+        {"target": "leaf",      "type": "remove"},
+        {"target": "bird",      "type": "remove"},
+        {"target": "butterfly", "type": "remove"},
+        {"target": "hiker_hat", "type": "swap_emoji", "emoji": "🧢"},
+        {"target": "bottle",    "type": "swap_emoji", "emoji": "🥤"},
+        {"target": "bench",     "type": "move", "dx": 8, "dy": 0},
+        {"target": "stick",     "type": "move", "dx": -8, "dy": 0},
+        {"target": "tree_r",    "type": "resize", "size": 44},
+        {"target": "signpost",  "type": "swap_emoji", "emoji": "📋"},
+    ]
+    return {"elements": elements, "diff_pool": diff_pool}
 
 
 THEMES: Dict[str, Dict] = {
