@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -24,7 +24,7 @@ export default function AdminPromote() {
   const router = useRouter();
   const { c, scale } = useTheme();
   const { user } = useAuth();
-  const { show } = useToast();
+  const { show, confirm } = useToast();
 
   const [admins, setAdmins] = useState<Admin[]>([]);
   const [q, setQ] = useState("");
@@ -70,20 +70,21 @@ export default function AdminPromote() {
   // correct toggle even if the user just promoted/demoted someone.
   const adminIdSet = useMemo(() => new Set(admins.map((a) => a.id)), [admins]);
 
-  const confirmAndToggle = (target: Result, makeAdmin: boolean) => {
+  const confirmAndToggle = async (target: Result, makeAdmin: boolean) => {
     const niceName = `${target.first_name || ""} @${target.username}`.trim();
     const verb = makeAdmin ? "Promote" : "Remove admin from";
     const longBody = makeAdmin
       ? `Give ${niceName} full moderator access? They will be able to view reports, warn / suspend / ban users, and manage events.`
       : `Remove moderator access from ${niceName}? They will lose access to the Admin section immediately.`;
-    Alert.alert(`${verb}?`, longBody, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: makeAdmin ? "Promote" : "Remove",
-        style: makeAdmin ? "default" : "destructive",
-        onPress: () => doToggle(target, makeAdmin),
-      },
-    ]);
+    const ok = await confirm({
+      title: `${verb}?`,
+      message: longBody,
+      confirmLabel: makeAdmin ? "Promote" : "Remove",
+      cancelLabel: "Cancel",
+      destructive: !makeAdmin,
+    });
+    if (!ok) return;
+    await doToggle(target, makeAdmin);
   };
 
   const doToggle = async (target: Result, makeAdmin: boolean) => {
@@ -101,7 +102,7 @@ export default function AdminPromote() {
         : (e?.message || "").includes("At least one admin")
         ? "At least one admin must remain. Promote someone else first."
         : e?.message || "Couldn't update. Please try again.";
-      Alert.alert("Sorry", msg);
+      show(msg);
     } finally {
       setBusyId(null);
     }
