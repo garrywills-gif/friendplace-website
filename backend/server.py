@@ -4111,6 +4111,202 @@ async def admin_set_admin_flag(body: AdminPromoteBody):
     return {"ok": True, "is_admin": desired}
 
 
+# ------------- Recipes (community cookbook) -------------
+class RecipeBody(BaseModel):
+    user_id: str
+    title: str
+    ingredients: str = ""
+    instructions: str = ""
+    tips: str = ""
+    photo: str = ""  # base64 data URI or empty
+
+
+class RecipeCommentBody(BaseModel):
+    user_id: str
+    body: str
+
+
+def _recipe_shape(rec: dict, viewer_id: Optional[str] = None) -> dict:
+    """Trim a recipe document to what the client needs."""
+    out = {k: rec.get(k, "") for k in ("id", "title", "ingredients", "instructions", "tips", "photo")}
+    out["author_id"] = rec.get("author_id", "")
+    out["author_name"] = rec.get("author_name", "")
+    out["author_avatar"] = rec.get("author_avatar", "👤")
+    out["created_at"] = rec.get("created_at")
+    out["comments_count"] = len(rec.get("comments", []) or [])
+    out["likes"] = list(rec.get("likes", []) or [])
+    out["liked_by_me"] = bool(viewer_id and viewer_id in (rec.get("likes") or []))
+    return out
+
+
+@api.get("/recipes")
+async def list_recipes(viewer_id: Optional[str] = None, q: str = ""):
+    """Newest-first list. Lightweight (no comments, only photo thumbnail)."""
+    query: dict = {}
+    if q:
+        safe = re.escape(q.strip())
+        if safe:
+            rx = {"$regex": safe, "$options": "i"}
+            query["$or"] = [{"title": rx}, {"ingredients": rx}, {"author_name": rx}]
+    rows = await db.recipes.find(query, {"_id": 0, "comments": 0}).sort("created_at", -1).limit(200).to_list(200)
+    return {"recipes": [_recipe_shape(r, viewer_id) for r in rows]}
+
+
+@api.get("/recipes/{recipe_id}")
+async def get_recipe(recipe_id: str, viewer_id: Optional[str] = None):
+    rec = await db.recipes.find_one({"id": recipe_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(404, "Recipe not found")
+    out = _recipe_shape(rec, viewer_id)
+    # Comments rendered with author names + avatars baked-in.
+    comments = rec.get("comments", []) or []
+    out["comments"] = comments
+    return out
+
+
+@api.post("/recipes")
+async def create_recipe(body: RecipeBody):
+    author = await db.users.find_one({"id": body.user_id}, {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1})
+    if not author:
+        raise HTTPException(404, "User not found")
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(400, "Title required")
+    if len(title) > 120:
+        raise HTTPException(400, "Title too long")
+    rec = {
+        "id": nid(),
+        "author_id": body.user_id,
+        "author_name": author.get("first_name") or author.get("username") or "Someone",
+        "author_avatar": author.get("avatar") or "👤",
+        "title": title,
+        "ingredients": (body.ingredients or "").strip()[:6000],
+        "instructions": (body.instructions or "").strip()[:12000],
+        "tips": (body.tips or "").strip()[:4000],
+        "photo": body.photo or "",
+        "comments": [],
+        "likes": [],
+        "created_at": now_iso(),
+    }
+    await db.recipes.insert_one(rec)
+    # Reward the author with the same milestone points used elsewhere.
+    try:
+        await _award_points(body.user_id, 8, "recipe_shared", "Shared a recipe")
+    except Exception:
+        pass
+    return _recipe_shape(rec, body.user_id)
+
+
+class RecipePatch(BaseModel):
+    user_id: str
+    title: Optional[str] = None
+    ingredients: Optional[str] = None
+    instructions: Optional[str] = None
+    tips: Optional[str] = None
+    photo: Optional[str] = None
+
+
+@api.patch("/recipes/{recipe_id}")
+async def update_recipe(recipe_id: str, body: RecipePatch):
+    rec = await db.recipes.find_one({"id": recipe_id}, {"_id": 0, "author_id": 1})
+    if not rec:
+        raise HTTPException(404, "Recipe not found")
+    actor = await db.users.find_one({"id": body.user_id}, {"_id": 0, "id": 1, "is_admin": 1})
+    if not actor or (rec.get("author_id") != body.user_id and not actor.get("is_admin")):
+        raise HTTPException(403, "Only the author or an admin can edit this recipe")
+    set_ops: dict = {}
+    for key in ("title", "ingredients", "instructions", "tips", "photo"):
+        v = getattr(body, key)
+        if v is not None:
+            set_ops[key] = v.strip() if isinstance(v, str) else v
+    if not set_ops:
+        return {"ok": True}
+    set_ops["updated_at"] = now_iso()
+    await db.recipes.update_one({"id": recipe_id}, {"$set": set_ops})
+    return {"ok": True}
+
+
+@api.delete("/recipes/{recipe_id}")
+async def delete_recipe(recipe_id: str, user_id: str):
+    rec = await db.recipes.find_one({"id": recipe_id}, {"_id": 0, "author_id": 1})
+    if not rec:
+        raise HTTPException(404, "Recipe not found")
+    actor = await db.users.find_one({"id": user_id}, {"_id": 0, "is_admin": 1})
+    if not actor or (rec.get("author_id") != user_id and not actor.get("is_admin")):
+        raise HTTPException(403, "Only the author or an admin can delete this recipe")
+    await db.recipes.delete_one({"id": recipe_id})
+    return {"ok": True}
+
+
+@api.post("/recipes/{recipe_id}/comments")
+async def add_recipe_comment(recipe_id: str, body: RecipeCommentBody):
+    rec = await db.recipes.find_one({"id": recipe_id}, {"_id": 0, "id": 1, "author_id": 1})
+    if not rec:
+        raise HTTPException(404, "Recipe not found")
+    author = await db.users.find_one({"id": body.user_id}, {"_id": 0, "first_name": 1, "username": 1, "avatar": 1})
+    if not author:
+        raise HTTPException(404, "User not found")
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(400, "Comment is empty")
+    comment = {
+        "id": nid(),
+        "user_id": body.user_id,
+        "user_name": author.get("first_name") or author.get("username") or "Someone",
+        "user_avatar": author.get("avatar") or "👤",
+        "body": text[:1500],
+        "created_at": now_iso(),
+    }
+    await db.recipes.update_one({"id": recipe_id}, {"$push": {"comments": comment}})
+    # Notify the author (if it's not their own comment).
+    if rec.get("author_id") and rec["author_id"] != body.user_id:
+        await db.notifications.insert_one({
+            "id": nid(),
+            "user_id": rec["author_id"],
+            "type": "recipe_comment",
+            "title": f"{comment['user_name']} commented on your recipe",
+            "body": text[:140],
+            "ref_id": recipe_id,
+            "read": False,
+            "created_at": now_iso(),
+        })
+    return comment
+
+
+@api.delete("/recipes/{recipe_id}/comments/{comment_id}")
+async def delete_recipe_comment(recipe_id: str, comment_id: str, user_id: str):
+    rec = await db.recipes.find_one({"id": recipe_id}, {"_id": 0, "comments": 1, "author_id": 1})
+    if not rec:
+        raise HTTPException(404, "Recipe not found")
+    actor = await db.users.find_one({"id": user_id}, {"_id": 0, "is_admin": 1})
+    if not actor:
+        raise HTTPException(404, "User not found")
+    target = next((c for c in (rec.get("comments") or []) if c.get("id") == comment_id), None)
+    if not target:
+        raise HTTPException(404, "Comment not found")
+    # Comment author, recipe author, or admin can delete.
+    if target.get("user_id") != user_id and rec.get("author_id") != user_id and not actor.get("is_admin"):
+        raise HTTPException(403, "Not allowed")
+    await db.recipes.update_one({"id": recipe_id}, {"$pull": {"comments": {"id": comment_id}}})
+    return {"ok": True}
+
+
+@api.post("/recipes/{recipe_id}/like")
+async def toggle_recipe_like(recipe_id: str, body: dict):
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(400, "user_id required")
+    rec = await db.recipes.find_one({"id": recipe_id}, {"_id": 0, "likes": 1})
+    if not rec:
+        raise HTTPException(404, "Recipe not found")
+    likes = rec.get("likes") or []
+    if user_id in likes:
+        await db.recipes.update_one({"id": recipe_id}, {"$pull": {"likes": user_id}})
+        return {"liked": False, "count": len(likes) - 1}
+    await db.recipes.update_one({"id": recipe_id}, {"$addToSet": {"likes": user_id}})
+    return {"liked": True, "count": len(likes) + 1}
+
+
 # ------------- Flutter (online ping) -------------
 class FlutterDoc(BaseModel):
     id: str = Field(default_factory=nid)

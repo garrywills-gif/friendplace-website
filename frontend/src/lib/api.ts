@@ -286,6 +286,24 @@ export const api = {
   sendFlutter: (from_id: string, to_id: string) => req("/flutters/send", { method: "POST", body: JSON.stringify({ from_id, to_id }) }),
   myFlutters: (uid: string) => req(`/flutters/${uid}`),
   markFlutterRead: (fid: string) => req(`/flutters/${fid}/read`, { method: "POST" }),
+
+  // recipes
+  listRecipes: (viewer_id?: string, q?: string) =>
+    req(`/recipes?${viewer_id ? `viewer_id=${viewer_id}` : ""}${q ? `&q=${encodeURIComponent(q)}` : ""}`),
+  getRecipe: (id: string, viewer_id?: string) =>
+    req(`/recipes/${id}${viewer_id ? `?viewer_id=${viewer_id}` : ""}`),
+  createRecipe: (body: { user_id: string; title: string; ingredients?: string; instructions?: string; tips?: string; photo?: string }) =>
+    req(`/recipes`, { method: "POST", body: JSON.stringify(body) }),
+  updateRecipe: (id: string, body: any) =>
+    req(`/recipes/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteRecipe: (id: string, user_id: string) =>
+    req(`/recipes/${id}?user_id=${user_id}`, { method: "DELETE" }),
+  addRecipeComment: (id: string, user_id: string, body: string) =>
+    req(`/recipes/${id}/comments`, { method: "POST", body: JSON.stringify({ user_id, body }) }),
+  deleteRecipeComment: (id: string, cid: string, user_id: string) =>
+    req(`/recipes/${id}/comments/${cid}?user_id=${user_id}`, { method: "DELETE" }),
+  toggleRecipeLike: (id: string, user_id: string) =>
+    req(`/recipes/${id}/like`, { method: "POST", body: JSON.stringify({ user_id }) }),
 };
 
 export function wsUrl(path: string): string {

@@ -87,6 +87,7 @@ export default function Home() {
     { key: "lounge", title: "Coffee Lounge", icon: "cafe", route: "/lounge", bg: "#0F766E", full: true },
     { key: "friends", title: "Find Friends", icon: "people", route: "/friends", bg: "#0369A1" },
     { key: "events", title: "Local Events", icon: "calendar", route: "/events", bg: "#0EA5E9" },
+    { key: "recipes", title: "Post Your Recipe", icon: "restaurant", route: "/recipes", bg: "#B45309" },
     { key: "groups", title: "Community Groups", icon: "earth", route: "/groups", bg: "#14B8A6" },
     { key: "notices", title: "Notice Board", icon: "newspaper", route: "/notices", bg: "#0891B2" },
     { key: "games", title: "Games", icon: "game-controller", route: "/games", bg: "#0284C7" },
