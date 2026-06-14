@@ -190,6 +190,11 @@ export const api = {
     req(`/admin/users/${user_id}/moderation?admin_id=${admin_id}`),
   adminAddUserNote: (user_id: string, body: { admin_id: string; note: string }) =>
     req(`/admin/users/${user_id}/notes`, { method: "POST", body: JSON.stringify(body) }),
+  adminListAdmins: (admin_id: string) => req(`/admin/admins?admin_id=${admin_id}`),
+  adminSearchUsers: (admin_id: string, q: string, limit = 25) =>
+    req(`/admin/users/search?admin_id=${admin_id}&q=${encodeURIComponent(q)}&limit=${limit}`),
+  adminSetAdminFlag: (body: { admin_id: string; target_user_id: string; make_admin: boolean; reason?: string }) =>
+    req(`/admin/users/admin-flag`, { method: "POST", body: JSON.stringify(body) }),
   sendChatAlert: (body: { user_id: string; audience: "friends" | "nearby" | "selected"; recipient_ids?: string[]; radius_km?: number; message?: string }) =>
     req(`/community/chat-alert`, { method: "POST", body: JSON.stringify(body) }),
   updatePreferences: (user_id: string, body: { read_messages_aloud?: boolean; text_scale?: number; high_contrast?: boolean; large_text?: boolean; nearby_chat_alerts?: boolean }) =>

@@ -4026,6 +4026,91 @@ async def admin_policy():
     }
 
 
+# ------------- Admin: promote / demote moderators -------------
+@api.get("/admin/admins")
+async def admin_list_admins(admin_id: str):
+    """Return every user currently flagged as admin. Visible to admins only."""
+    await _require_admin(admin_id)
+    rows = await db.users.find(
+        {"is_admin": True},
+        {"_id": 0, "id": 1, "username": 1, "first_name": 1, "avatar": 1, "suburb": 1},
+    ).sort("username", 1).to_list(200)
+    return {"admins": rows}
+
+
+@api.get("/admin/users/search")
+async def admin_search_users(admin_id: str, q: str = "", limit: int = 25):
+    """Lightweight user search for admin tooling. Matches username, first
+    name, or last name (case-insensitive, substring). Returns the bits an
+    admin needs to identify the person + their current admin/restricted
+    status."""
+    await _require_admin(admin_id)
+    q = (q or "").strip()
+    if not q:
+        return {"results": []}
+    safe = re.escape(q)
+    rx = {"$regex": safe, "$options": "i"}
+    rows = await db.users.find(
+        {"$or": [{"username": rx}, {"first_name": rx}, {"last_name": rx}]},
+        {"_id": 0, "id": 1, "username": 1, "first_name": 1, "last_name": 1, "avatar": 1, "suburb": 1, "is_admin": 1, "restricted": 1, "banned": 1},
+    ).limit(max(1, min(int(limit or 25), 50))).to_list(50)
+    rows.sort(key=lambda r: (not r.get("is_admin", False), (r.get("username") or "").lower()))
+    return {"results": rows}
+
+
+class AdminPromoteBody(BaseModel):
+    admin_id: str
+    target_user_id: str
+    make_admin: bool
+    reason: str = ""
+
+
+@api.post("/admin/users/admin-flag")
+async def admin_set_admin_flag(body: AdminPromoteBody):
+    """Toggle a user's `is_admin` flag. Admins only. We refuse to let an
+    admin remove their *own* admin rights (so the platform always has at
+    least the actor as admin), and refuse to demote the last remaining
+    admin to avoid bricking the moderator tooling."""
+    actor = await _require_admin(body.admin_id)
+    target = await db.users.find_one({"id": body.target_user_id}, {"_id": 0, "id": 1, "username": 1, "first_name": 1, "is_admin": 1})
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    desired = bool(body.make_admin)
+    current = bool(target.get("is_admin"))
+    if desired == current:
+        return {"ok": True, "unchanged": True, "is_admin": current}
+
+    # Safety rails for demotion.
+    if not desired:
+        if body.target_user_id == body.admin_id:
+            raise HTTPException(400, "You cannot remove your own admin access.")
+        remaining = await db.users.count_documents({"is_admin": True})
+        if remaining <= 1:
+            raise HTTPException(400, "At least one admin must remain.")
+
+    await db.users.update_one({"id": body.target_user_id}, {"$set": {"is_admin": desired}})
+
+    # Notify the target user so they know about the change.
+    await db.notifications.insert_one({
+        "id": nid(),
+        "user_id": body.target_user_id,
+        "type": "admin_role_change",
+        "title": "You're now a YouBelong moderator" if desired else "Your moderator access was removed",
+        "body": body.reason or ("You can now access Admin tools from your Profile." if desired else "An admin has removed your moderator role."),
+        "read": False,
+        "created_at": now_iso(),
+    })
+    await _log_moderation_action(
+        user_id=body.target_user_id,
+        by=body.admin_id,
+        action=("promote_admin" if desired else "demote_admin"),
+        reason=body.reason,
+        extra={"by_username": actor.get("username")},
+    )
+    return {"ok": True, "is_admin": desired}
+
+
 # ------------- Flutter (online ping) -------------
 class FlutterDoc(BaseModel):
     id: str = Field(default_factory=nid)
