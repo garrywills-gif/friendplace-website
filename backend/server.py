@@ -1166,14 +1166,20 @@ async def onboarding_complete_full(body: OnboardingCompleteBody):
     if body.avatar:
         update["avatar"] = body.avatar
 
-    # Award a small badge so the wizard feels rewarding. Idempotent.
+    # Award a small badge + points so the wizard feels rewarding. Both are
+    # idempotent — repeat calls to /onboarding/complete (e.g. user closes and
+    # re-opens the wizard) won't keep inflating their points or duplicate
+    # badges. We gate the points award on whether the user has already been
+    # marked `onboarding_completed` previously.
     badges = list(u.get("badges") or [])
     if "Welcome Aboard" not in badges:
         badges.append("Welcome Aboard")
     if body.joined_all and "Community Joiner" not in badges:
         badges.append("Community Joiner")
     update["badges"] = badges
-    update["points"] = int(u.get("points") or 0) + (15 if body.joined_all else 10)
+    already_done = bool(u.get("onboarding_completed"))
+    if not already_done:
+        update["points"] = int(u.get("points") or 0) + (15 if body.joined_all else 10)
 
     await db.users.update_one({"id": body.user_id}, {"$set": update})
 
