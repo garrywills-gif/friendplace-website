@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
@@ -33,6 +34,18 @@ export default function Signup() {
   const [bdayDay, setBdayDay] = useState<string>("");
   const [bdayYear, setBdayYear] = useState<string>("");
   const [busy, setBusy] = useState(false);
+  const [referrerId, setReferrerId] = useState<string | null>(null);
+
+  // Pick up an invite token (?ref=<user_id>) the welcome page stashed in
+  // storage so we can attribute this signup to the friend who shared.
+  useEffect(() => {
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem("youbelong.invite.ref");
+        if (stored) setReferrerId(stored);
+      } catch {}
+    })();
+  }, []);
 
   const birthdayString = useMemo(() => {
     if (!bdayMonth || !bdayDay) return "";
@@ -64,7 +77,10 @@ export default function Signup() {
         interests,
         avatar,
         birthday: birthdayString || undefined,
+        referrer_id: referrerId || undefined,
       });
+      // Clear the stored ref so it doesn't leak across accounts.
+      try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch {}
       show(`Welcome${firstName ? `, ${firstName.trim()}` : ""}! 🦋`);
       router.replace("/onboarding");
     } catch (e: any) {

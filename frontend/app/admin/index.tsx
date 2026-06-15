@@ -89,6 +89,10 @@ export default function AdminHome() {
             <Ionicons name="calendar" size={16} color="#FFF" />
             <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale, marginLeft: 6 }}>Manage events</Text>
           </Pressable>
+          <Pressable testID="admin-invite-flyer" onPress={() => router.push("/admin/flyer" as any)} style={[styles.quickLink, { backgroundColor: "#7C3AED" }]}>
+            <Ionicons name="print" size={16} color="#FFF" />
+            <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale, marginLeft: 6 }}>Invite flyer</Text>
+          </Pressable>
           <Pressable testID="admin-manage-mods" onPress={() => router.push("/admin/promote" as any)} style={[styles.quickLink, { backgroundColor: c.brand }]}>
             <Ionicons name="shield-checkmark" size={16} color="#FFF" />
             <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale, marginLeft: 6 }}>Moderators</Text>

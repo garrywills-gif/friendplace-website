@@ -135,6 +135,11 @@ class User(BaseModel):
     # Allowed: "looking_to_chat" | "in_coffee_lounge" | "happy_to_connect" | "busy" | "offline"
     status: Optional[str] = None
     status_updated_at: Optional[str] = None
+    # Set when this user joined via someone else's invite link (?ref=<id>).
+    # Powers the Profile "Invites" tile and lets a future leaderboard credit
+    # community-builders. Never exposed back to the inviter as a clickable
+    # identity — we only expose count + display name.
+    invited_by: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -152,6 +157,8 @@ class SignupBody(BaseModel):
     interests: List[str] = []
     avatar: str = ""
     birthday: str = ""  # YYYY-MM-DD or MM-DD (optional)
+    # Optional referrer id captured from a ?ref=<user_id> share-link.
+    referrer_id: Optional[str] = None
 
 
 class LoginBody(BaseModel):
@@ -375,6 +382,28 @@ async def signup(body: SignupBody):
     doc["password_hash"] = hash_pw(body.password)
     doc["failed_login_attempts"] = 0
     doc["lockout_until"] = None
+
+    # Invitation attribution: link the new user back to whoever shared the
+    # link (?ref=<id>) so the inviter can see the count on their profile.
+    # We validate the referrer exists and isn't the same person, then notify
+    # them so they get a small thrill from each successful invite.
+    if body.referrer_id and body.referrer_id != user.id:
+        referrer = await db.users.find_one(
+            {"id": body.referrer_id},
+            {"id": 1, "_id": 0},
+        )
+        if referrer:
+            doc["invited_by"] = referrer["id"]
+            await db.notifications.insert_one({
+                "id": nid(),
+                "user_id": referrer["id"],
+                "type": "invite_accepted",
+                "title": "Your invite worked!",
+                "body": f"{user.first_name or user.username} just joined YouBelong through your share link. Welcome them in!",
+                "data": {"user_id": user.id},
+                "read": False,
+                "created_at": now_iso(),
+            })
     await db.users.insert_one(doc)
     # Welcome notification to the new user themselves
     await db.notifications.insert_one({
@@ -611,6 +640,24 @@ async def get_user(user_id: str):
     if not user:
         raise HTTPException(404, "User not found")
     return _safe_user(user)
+
+
+@api.get("/users/{user_id}/invite-stats")
+async def invite_stats(user_id: str, limit: int = 10):
+    """How many real (non-demo) users joined YouBelong via this user's share
+    link, plus a few recent first names so the inviter can see who arrived.
+    """
+    if not await db.users.find_one({"id": user_id}, {"id": 1, "_id": 0}):
+        raise HTTPException(404, "User not found")
+    cur = db.users.find(
+        {"invited_by": user_id, "is_demo": {"$ne": True}},
+        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(max(1, min(50, limit)))
+    invited = await cur.to_list(50)
+    return {
+        "count": len(invited),
+        "recent": invited,
+    }
 
 
 @api.post("/users/{user_id}/block/{other_id}")
@@ -3107,9 +3154,117 @@ class AdminHardDeleteBody(BaseModel):
     reason: Optional[str] = None
 
 
+@api.get("/admin/invite-flyer")
+async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
+    """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
+    for printing and pinning up at community centres, retirement villages,
+    libraries and clubs. Includes a large QR code, headline, message, and an
+    optional venue name printed at the bottom.
+    """
+    await _require_admin(admin_id)
+    import io
+    import qrcode
+    from PIL import Image, ImageDraw, ImageFont
+    from fastapi.responses import Response
+
+    target_url = (url or "").strip() or "https://youbelong.app"
+    venue = (venue or "").strip()[:80]
+
+    # A4 portrait at ~150 dpi
+    W, H = 1240, 1754
+    img = Image.new("RGB", (W, H), "#FFFFFF")
+    d = ImageDraw.Draw(img)
+
+    # Brand stripe at top + bottom for a printed, finished feel.
+    d.rectangle([0, 0, W, 130], fill="#0F3D6E")
+    d.rectangle([0, H - 90, W, H], fill="#0F3D6E")
+
+    def font(size: int) -> ImageFont.FreeTypeFont:
+        for cand in (
+            "/usr/share/fonts/truetype/dejavu/DejaVu-Sans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ):
+            try:
+                return ImageFont.truetype(cand, size)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
+    def font_reg(size: int) -> ImageFont.FreeTypeFont:
+        for cand in (
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ):
+            try:
+                return ImageFont.truetype(cand, size)
+            except Exception:
+                continue
+        return ImageFont.load_default()
+
+    def centre(text: str, y: int, fnt: ImageFont.FreeTypeFont, fill: str = "#0F172A"):
+        bbox = d.textbbox((0, 0), text, font=fnt)
+        d.text(((W - (bbox[2] - bbox[0])) / 2, y), text, font=fnt, fill=fill)
+
+    # Header copy
+    centre("YouBelong", 32, font(64), "#FFFFFF")
+    centre("Find Your People", 175, font(60), "#0F3D6E")
+    centre("Because You Belong Too", 250, font_reg(38), "#0F766E")
+
+    # Body line
+    body = (
+        "A friendly Australian community for older adults, retirees,\n"
+        "and anyone looking for connection. Meet neighbours, join\n"
+        "local events, chat in the Coffee Lounge — all in one app."
+    )
+    y = 350
+    for line in body.split("\n"):
+        centre(line, y, font_reg(34), "#334155")
+        y += 50
+
+    # Generate QR — big and high error-correction so it still scans on a
+    # photocopied or laminated flyer.
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10, border=2,
+    )
+    qr.add_data(target_url)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="#0F172A", back_color="#FFFFFF").convert("RGB")
+    qr_size = 720
+    qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
+    qr_x = (W - qr_size) // 2
+    qr_y = 580
+    img.paste(qr_img, (qr_x, qr_y))
+    # Soft frame around QR.
+    d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14], outline="#0F3D6E", width=4)
+
+    # Call to action under QR.
+    cta_y = qr_y + qr_size + 60
+    centre("Scan with your phone camera to join YouBelong", cta_y, font(38), "#0F3D6E")
+    centre(target_url, cta_y + 56, font_reg(28), "#475569")
+
+    # Optional venue / poster owner line.
+    footer_y = H - 70
+    if venue:
+        centre(f"Hosted by {venue}", footer_y + 8, font(28), "#FFFFFF")
+    else:
+        centre("youbelong.app  ·  Print, post, share — bring a friend", footer_y + 8, font_reg(26), "#FFFFFF")
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="youbelong-flyer.png"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @api.get("/admin/events")
 async def admin_list_events(admin_id: str, status: str = "all"):
-    """Admin event management list. status = all | active | cancelled | archived."""
     await _require_admin(admin_id)
     q: Dict = {}
     if status == "active":

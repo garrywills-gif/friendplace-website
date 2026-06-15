@@ -25,12 +25,15 @@ import * as Clipboard from "expo-clipboard";
 import QRCode from "react-native-qrcode-svg";
 import { useTheme } from "@/src/lib/theme";
 import { useToast } from "@/src/lib/toast";
+import { useAuth } from "@/src/lib/auth";
 
-export const SHARE_URL: string =
+const BASE_SHARE_URL: string =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (process.env as any).EXPO_PUBLIC_SHARE_URL ||
   process.env.EXPO_PUBLIC_BACKEND_URL ||
   "https://youbelong.app";
+
+export const SHARE_URL = BASE_SHARE_URL;
 
 export const SHARE_MESSAGE =
   "Join me on YouBelong – a friendly community where you can meet people, " +
@@ -51,15 +54,24 @@ export default function ShareYouBelong({
 }) {
   const { c, scale } = useTheme();
   const { show } = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [showQR, setShowQR] = useState(false);
+
+  // Personalised share URL — every share gets `?ref=<user_id>` appended so
+  // we can credit this user when a new signup comes through their invite.
+  const sharedUrl = useMemo(
+    () => (user?.id ? `${BASE_SHARE_URL}?ref=${encodeURIComponent(user.id)}` : BASE_SHARE_URL),
+    [user?.id],
+  );
+  const fullBody = `${SHARE_MESSAGE}\n\n${sharedUrl}`;
 
   // Encode helpers — kept as memos so re-encoding doesn't happen on every render.
   const encoded = useMemo(() => {
     const body = encodeURIComponent(fullBody);
     const subject = encodeURIComponent(SHARE_SUBJECT);
     return { body, subject };
-  }, []);
+  }, [fullBody]);
 
   const openSms = async () => {
     // iOS uses `&`, Android uses `?` for the body parameter. Linking handles
@@ -194,13 +206,13 @@ export default function ShareYouBelong({
             {showQR ? (
               <ScrollView contentContainerStyle={styles.qrWrap}>
                 <View style={[styles.qrCard, { backgroundColor: "#FFFFFF" }]}>
-                  <QRCode value={SHARE_URL} size={240} backgroundColor="#FFFFFF" color="#0F172A" />
+                  <QRCode value={sharedUrl} size={240} backgroundColor="#FFFFFF" color="#0F172A" />
                 </View>
                 <Text style={[styles.qrCaption, { color: c.onSurface, fontSize: 16 * scale }]}>
                   Point a phone camera at this code to open YouBelong.
                 </Text>
                 <Text selectable style={[styles.qrUrl, { color: c.muted, fontSize: 13 * scale }]} numberOfLines={2}>
-                  {SHARE_URL}
+                  {sharedUrl}
                 </Text>
                 <Pressable
                   testID="share-qr-back"

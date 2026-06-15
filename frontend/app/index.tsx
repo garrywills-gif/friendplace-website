@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, useWindowDimensions, Platform } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -26,6 +27,24 @@ export default function Welcome() {
   // Logo card sized in PIXELS (aspectRatio is unreliable on web)
   const cardW = Math.round(Math.min(winW - 44, 360) * 0.75); // -25%
   const cardH = Math.round((cardW * 853) / 1272); // preserve official aspect
+
+  useEffect(() => {
+    // Capture an invitation token (?ref=<user_id>) into AsyncStorage so the
+    // signup screen can attribute the new user back to their inviter. Runs
+    // on web only — the QR / link share flow doesn't apply to native deep
+    // links here (those would go through a different scheme).
+    if (Platform.OS === "web") {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const w: any = window;
+        const params = new URLSearchParams(w?.location?.search || "");
+        const ref = params.get("ref");
+        if (ref && /^[A-Za-z0-9_-]{6,64}$/.test(ref)) {
+          AsyncStorage.setItem("youbelong.invite.ref", ref).catch(() => {});
+        }
+      } catch {}
+    }
+  }, []);
 
   useEffect(() => {
     if (!loading && user) {

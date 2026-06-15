@@ -145,6 +145,10 @@ export const api = {
 
   // spot the difference
   stdCatalog: () => req("/games/spot/catalog"),
+  // Invitation analytics + admin flyer (Share YouBelong follow-ons)
+  inviteStats: (user_id: string) => req(`/users/${user_id}/invite-stats`),
+  inviteFlyerUrl: (admin_id: string, venue: string, url: string) =>
+    `${BASE}/api/admin/invite-flyer?admin_id=${encodeURIComponent(admin_id)}&venue=${encodeURIComponent(venue)}&url=${encodeURIComponent(url)}`,
   stdPuzzle: (theme: string, difficulty: string, seed?: number) =>
     req(`/games/spot/puzzle?theme=${encodeURIComponent(theme)}&difficulty=${encodeURIComponent(difficulty)}${seed !== undefined ? `&seed=${seed}` : ""}`),
   stdDaily: () => req("/games/spot/daily"),

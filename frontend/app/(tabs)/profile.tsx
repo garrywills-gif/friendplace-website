@@ -32,6 +32,7 @@ export default function Profile() {
   const [alertBusy, setAlertBusy] = useState(false);
   const [alertSelected, setAlertSelected] = useState<string[]>([]);
   const [nearbyOptedIn, setNearbyOptedIn] = useState<boolean>(((user as any)?.preferences?.nearby_chat_alerts) ?? false);
+  const [inviteCount, setInviteCount] = useState<number>(0);
 
   useFocusEffect(useCallback(() => {
     (async () => {
@@ -40,6 +41,12 @@ export default function Profile() {
         const arr = await Promise.all(user.friends.map((id) => api.getUser(id).catch(() => null)));
         setFriends(arr.filter(Boolean));
       } else setFriends([]);
+      if (user?.id) {
+        try {
+          const s: any = await api.inviteStats(user.id);
+          setInviteCount(s?.count || 0);
+        } catch {}
+      }
     })();
   }, [user?.id]));
 
@@ -68,6 +75,11 @@ export default function Profile() {
         <View style={styles.statBox}>
           <Text style={[styles.statNum, { color: c.brand, fontSize: 32 * scale }]}>{user.badges?.length || 0}</Text>
           <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Badges</Text>
+        </View>
+        <View style={[styles.divider, { backgroundColor: c.border }]} />
+        <View style={styles.statBox} testID="profile-invites-stat">
+          <Text style={[styles.statNum, { color: c.brand, fontSize: 32 * scale }]}>{inviteCount}</Text>
+          <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Invites</Text>
         </View>
       </View>
 
