@@ -18,6 +18,8 @@ export const api = {
     req("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
   demoLogin: (username: string) =>
     req("/auth/demo-login", { method: "POST", body: JSON.stringify({ username }) }),
+  googleAuth: (session_id: string, referrer_id?: string | null) =>
+    req("/auth/google", { method: "POST", body: JSON.stringify({ session_id, referrer_id: referrer_id || null }) }),
   demoAccounts: () => req("/auth/demo-accounts"),
   forgot: (identifier: string) =>
     req("/auth/forgot-password", { method: "POST", body: JSON.stringify({ identifier }) }),

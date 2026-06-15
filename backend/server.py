@@ -497,6 +497,122 @@ async def demo_login(body: DemoLoginBody):
     return {"access_token": make_token(u["id"]), "token_type": "bearer", "user": _safe_user(u)}
 
 
+class GoogleAuthBody(BaseModel):
+    # One-time session id returned in the Emergent Google redirect URL fragment.
+    session_id: str
+    # Optional invite attribution captured at sign-up time on web.
+    referrer_id: Optional[str] = None
+
+
+@api.post("/auth/google")
+async def auth_google(body: GoogleAuthBody):
+    """Exchange an Emergent Google OAuth session_id for a YouBelong JWT.
+
+    Emergent issues a one-time `session_id` in the redirect URL. We swap that
+    server-side for the verified user profile (email/name/picture) and either
+    link to an existing YouBelong account (matched by email) or create a brand
+    new account. Returns the same envelope as `/auth/login` so the existing
+    auth context on the client keeps working unchanged.
+    """
+    import httpx as _httpx
+    sid = (body.session_id or "").strip()
+    if not sid:
+        raise HTTPException(400, "Missing session_id")
+    try:
+        async with _httpx.AsyncClient(timeout=15.0) as http:
+            r = await http.get(
+                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+                headers={"X-Session-ID": sid},
+            )
+            if r.status_code != 200:
+                raise HTTPException(401, "Google sign-in could not be verified. Please try again.")
+            data = r.json() or {}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("google session-data fetch failed: %s", e)
+        raise HTTPException(503, "Could not reach Google sign-in right now. Please try again.")
+
+    email = (data.get("email") or "").strip().lower()
+    name = (data.get("name") or "").strip()
+    picture = (data.get("picture") or "").strip()
+    if not email:
+        raise HTTPException(401, "Google did not return an email address.")
+
+    # Existing account? Just log them in.
+    existing = await db.users.find_one({"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}})
+    if existing:
+        if existing.get("banned"):
+            raise HTTPException(403, "Your account has been banned. Please contact support.")
+        sus_until = existing.get("suspended_until")
+        if sus_until:
+            try:
+                if datetime.now(timezone.utc) < datetime.fromisoformat(sus_until):
+                    raise HTTPException(403, f"Your account is suspended until {sus_until}.")
+            except (ValueError, TypeError):
+                pass
+        # Backfill avatar/oauth provider if missing
+        patch = {"last_login_at": now_iso(), "failed_login_attempts": 0, "lockout_until": None, "oauth_provider": existing.get("oauth_provider") or "google"}
+        if (not existing.get("avatar")) and picture:
+            patch["avatar"] = picture
+        if (not existing.get("first_name")) and name:
+            patch["first_name"] = name.split(" ")[0]
+        await db.users.update_one({"id": existing["id"]}, {"$set": patch})
+        merged = {**existing, **patch}
+        return {"access_token": make_token(existing["id"]), "token_type": "bearer", "user": _safe_user(merged), "is_new": False}
+
+    # ---- New account: generate a username from email local-part ----
+    base_uname = re.sub(r"[^A-Za-z0-9_.\-]", "", email.split("@", 1)[0])[:24] or f"friend{random.randint(100, 999)}"
+    uname = base_uname
+    n = 1
+    while await db.users.find_one({"username": {"$regex": f"^{re.escape(uname)}$", "$options": "i"}}):
+        n += 1
+        uname = f"{base_uname}{n}"
+        if n > 50:
+            uname = f"{base_uname}{random.randint(1000, 9999)}"
+            break
+
+    first_name = name.split(" ")[0] if name else ""
+    user = User(
+        first_name=first_name,
+        username=uname,
+        email=email,
+        avatar=picture,
+        points=5,
+        badges=["Friendly Member"],
+    )
+    doc = user.dict()
+    doc["oauth_provider"] = "google"
+    doc["password_hash"] = ""  # OAuth-only account — password login disabled
+    doc["failed_login_attempts"] = 0
+    doc["lockout_until"] = None
+    doc["onboarding_completed"] = False
+    doc["location_visibility"] = "suburb"
+
+    # Invite attribution from ?ref=<id> captured at sign-up time
+    if body.referrer_id and body.referrer_id != user.id:
+        referrer = await db.users.find_one({"id": body.referrer_id}, {"id": 1, "_id": 0})
+        if referrer:
+            doc["invited_by"] = referrer["id"]
+            await db.notifications.insert_one({
+                "id": nid(), "user_id": referrer["id"], "type": "invite_accepted",
+                "title": "Your invite worked!",
+                "body": f"{user.first_name or user.username} just joined YouBelong through your share link. Welcome them in!",
+                "data": {"user_id": user.id}, "read": False, "created_at": now_iso(),
+            })
+
+    await db.users.insert_one(doc)
+    await db.notifications.insert_one({
+        "id": nid(), "user_id": user.id, "type": "welcome",
+        "title": "Welcome to YouBelong!",
+        "body": "We're so glad you're here. Take a moment to add your interests and join a few groups.",
+        "read": False, "created_at": now_iso(),
+    })
+    try: await _broadcast_new_member(doc)
+    except Exception as e: logger.warning("new-member broadcast failed: %s", e)
+    return {"access_token": make_token(user.id), "token_type": "bearer", "user": _safe_user(doc), "is_new": True}
+
+
 @api.get("/auth/me")
 async def auth_me(user=Depends(current_user)):
     return _safe_user(user)

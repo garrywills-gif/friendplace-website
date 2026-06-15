@@ -46,6 +46,7 @@ type Ctx = {
   loading: boolean;
   signup: (b: SignupBody) => Promise<void>;
   login: (identifier: string, password: string) => Promise<void>;
+  loginWithGoogle: (session_id: string, referrer_id?: string | null) => Promise<{ isNew: boolean }>;
   demoLogin: (username: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -104,6 +105,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const r: any = await api.login(identifier, password);
           await persist(r.user as User, r.access_token as string);
           registerForPush(r.user?.id).catch(() => {});
+        },
+        loginWithGoogle: async (session_id, referrer_id) => {
+          const r: any = await api.googleAuth(session_id, referrer_id || null);
+          await persist(r.user as User, r.access_token as string);
+          registerForPush(r.user?.id).catch(() => {});
+          return { isNew: !!r.is_new };
         },
         demoLogin: async (username) => {
           const r: any = await api.demoLogin(username);

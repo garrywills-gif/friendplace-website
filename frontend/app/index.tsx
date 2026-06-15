@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, useWindowDimensions, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
+import { startGoogleSignIn, consumePendingSession } from "@/src/lib/googleSignIn";
 
 // Warm photo of 3 adults talking & smiling — sits behind the gradient as a soft watermark
 const COMMUNITY_BG =
@@ -21,10 +22,14 @@ const BRAND_LOGO = require("../assets/brand/youbelong-logo-bold.png");
 export default function Welcome() {
   const router = useRouter();
   const { scale } = useTheme();
-  const { user, loading, demoLogin } = useAuth();
+  const { user, loading, loginWithGoogle } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
+  // True while we're swapping a Google session_id for a JWT — also true while
+  // the Emergent OAuth tab/redirect is in flight on web so the buttons stay
+  // disabled and the user gets a spinner.
+  const [authBusy, setAuthBusy] = useState(false);
   // Logo card sized in PIXELS (aspectRatio is unreliable on web)
   // The bold variant ships with a baked-in navy halo + white outer glow so the
   // wordmark stays crisp on the photo backdrop. PNG is 1066×326 → aspect ≈3.27.
@@ -51,6 +56,37 @@ export default function Welcome() {
     }
   }, []);
 
+  // Process an Emergent Google session_id that may already be in the URL
+  // (web hash fragment after redirect, or initial deep-link on native).
+  // Has to run before any auto-redirect to /home so we don't lose the token.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setAuthBusy(true);
+        const r = await consumePendingSession(loginWithGoogle);
+        if (cancelled) return;
+        if (r.handled) {
+          show(r.isNew ? "Welcome to YouBelong!" : "Welcome back!");
+          // Send brand new users through the onboarding wizard once it lands;
+          // for now both branches go to /home and onboarding kicks in there.
+          if (Platform.OS === "web") {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (window as any).location.assign("/home");
+          } else {
+            router.replace("/home" as any);
+          }
+        }
+      } catch (e: any) {
+        if (!cancelled) show(e?.message?.includes("401") ? "Google sign-in expired. Please try again." : "Sign-in failed. Please try again.");
+      } finally {
+        if (!cancelled) setAuthBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (!loading && user) {
       // Same workaround as /auth/login — router.replace silently no-ops on
@@ -73,6 +109,26 @@ export default function Welcome() {
   }
 
   const handleSocial = async (provider: string) => {
+    if (provider === "Google") {
+      try {
+        setAuthBusy(true);
+        const sid = await startGoogleSignIn();
+        // On web, the page navigates away — control never reaches here.
+        // On native, sid is the freshly returned session_id (or null on cancel).
+        if (sid) {
+          const r = await loginWithGoogle(sid, null);
+          show(r.isNew ? "Welcome to YouBelong!" : "Welcome back!");
+          router.replace("/home" as any);
+        } else if (Platform.OS !== "web") {
+          // user cancelled the in-app browser
+          setAuthBusy(false);
+        }
+      } catch (e: any) {
+        setAuthBusy(false);
+        show("Google sign-in failed. Please try again or use email.");
+      }
+      return;
+    }
     show(`${provider} sign-in is coming soon. Please sign up with email or use Log In for now.`);
   };
 
@@ -129,13 +185,19 @@ export default function Welcome() {
             <View style={styles.line} />
           </View>
 
-          <Pressable testID="welcome-apple" onPress={() => handleSocial("Apple")} style={({ pressed }) => [styles.social, { backgroundColor: "#000", opacity: pressed ? 0.85 : 1 }]}>
+          <Pressable testID="welcome-apple" disabled={authBusy} onPress={() => handleSocial("Apple")} style={({ pressed }) => [styles.social, { backgroundColor: "#000", opacity: authBusy ? 0.5 : (pressed ? 0.85 : 1) }]}>
             <Ionicons name="logo-apple" size={26} color="#FFF" />
             <Text style={[styles.socialText, { color: "#FFF", fontSize: 18 * scale }]}>Continue with Apple</Text>
           </Pressable>
-          <Pressable testID="welcome-google" onPress={() => handleSocial("Google")} style={({ pressed }) => [styles.social, { backgroundColor: "#FFFFFF", opacity: pressed ? 0.85 : 1 }]}>
-            <Ionicons name="logo-google" size={24} color="#1E3A7F" />
-            <Text style={[styles.socialText, { color: "#1E3A7F", fontSize: 18 * scale }]}>Continue with Google</Text>
+          <Pressable testID="welcome-google" disabled={authBusy} onPress={() => handleSocial("Google")} style={({ pressed }) => [styles.social, { backgroundColor: "#FFFFFF", opacity: authBusy ? 0.6 : (pressed ? 0.85 : 1) }]}>
+            {authBusy ? (
+              <ActivityIndicator size="small" color="#1E3A7F" />
+            ) : (
+              <Ionicons name="logo-google" size={24} color="#1E3A7F" />
+            )}
+            <Text style={[styles.socialText, { color: "#1E3A7F", fontSize: 18 * scale }]}>
+              {authBusy ? "Signing in…" : "Continue with Google"}
+            </Text>
           </Pressable>
         </View>
       </ScrollView>
