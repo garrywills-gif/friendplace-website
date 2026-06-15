@@ -14,8 +14,9 @@ import { useToast } from "@/src/lib/toast";
 const COMMUNITY_BG =
   "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1400&q=80";
 
-// Official YouBelong brand mark (butterfly + wordmark + people-in-O + tagline)
-const BRAND_LOGO = require("../assets/brand/youbelong-logo-tight.png");
+// Official YouBelong brand mark — bold variant with baked-in white glow +
+// navy halo so the wordmark stays crisp/readable on any photo background.
+const BRAND_LOGO = require("../assets/brand/youbelong-logo-bold.png");
 
 export default function Welcome() {
   const router = useRouter();
@@ -25,11 +26,10 @@ export default function Welcome() {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   // Logo card sized in PIXELS (aspectRatio is unreliable on web)
-  // Logo sizing — butterfly stays in colour, YOUBELONG is now white, and the
-  // small "Find your people." subtitle has been cropped out so the headline
-  // below does the talking. The cropped logo aspect is roughly 3.7:1.
-  const LOGO_ASPECT = 1010 / 270;
-  const cardW = Math.round(Math.min(winW - 36, 460));
+  // The bold variant ships with a baked-in navy halo + white outer glow so the
+  // wordmark stays crisp on the photo backdrop. PNG is 1066×326 → aspect ≈3.27.
+  const LOGO_ASPECT = 1066 / 326;
+  const cardW = Math.round(Math.min(winW - 36, 480));
   const cardH = Math.round(cardW / LOGO_ASPECT);
 
   useEffect(() => {
@@ -80,15 +80,15 @@ export default function Welcome() {
       {/* Watermark photo behind everything */}
       <Image source={COMMUNITY_BG} style={StyleSheet.absoluteFillObject} contentFit="cover" />
 
-      {/* Navy → bright-teal diagonal brand gradient (semi-transparent so the photo
-          shows through as a subtle watermark, matching the brand sample) */}
+      {/* Navy → bright-teal diagonal brand gradient — pushed a touch darker so the
+          logo, headline and buttons become the main focus on the photo backdrop. */}
       <LinearGradient
         colors={[
-          "rgba(7, 22, 50, 0.86)",    // very deep navy, top-left
-          "rgba(18, 41, 92, 0.82)",   // dark navy
-          "rgba(28, 95, 142, 0.78)",  // dim blue-teal
-          "rgba(20, 120, 110, 0.82)", // muted teal
-          "rgba(15, 90, 75, 0.88)",   // deep teal-green, bottom-right
+          "rgba(4, 14, 34, 0.92)",   // near-black navy, top-left
+          "rgba(10, 28, 64, 0.90)",  // deep navy
+          "rgba(18, 70, 110, 0.86)", // dim blue-teal
+          "rgba(14, 95, 90, 0.90)",  // muted teal
+          "rgba(8, 60, 55, 0.94)",   // deep teal-green, bottom-right
         ]}
         locations={[0, 0.28, 0.55, 0.82, 1]}
         start={{ x: 0, y: 0 }}
@@ -108,14 +108,9 @@ export default function Welcome() {
             />
           </View>
 
-          <Text style={[styles.miniTag, { fontSize: 12 * scale }]} testID="welcome-mini-tag">
-            Friendship  ·  Community  ·  Connection
-          </Text>
-
           <Text style={[styles.tag1, { fontSize: 30.4 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
-          <Text style={[styles.tag2, { fontSize: 22 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
           <Text style={[styles.welcomeMsg, { fontSize: 14 * scale }]} testID="welcome-message">
-            Meet new friends, join local events and chat with people who share your interests.
+            Meet new friends, join local events and feel connected.
           </Text>
         </View>
 
@@ -162,6 +157,9 @@ const styles = StyleSheet.create({
   logoWrap: {
     alignItems: "center",
     justifyContent: "center",
+    // No JS-level shadow/box — the bold PNG ships with a baked-in white outer
+    // glow + soft navy halo so the wordmark blends straight onto the photo.
+    backgroundColor: "transparent",
   },
   tag1: {
     fontWeight: "900",
