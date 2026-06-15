@@ -25,11 +25,11 @@ export default function Welcome() {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   // Logo card sized in PIXELS (aspectRatio is unreliable on web)
-  // Logo sizing — the cropped, transparent wordmark sits directly on the
-  // photo backdrop now (no white card), so we can let it claim more width
-  // for the same vertical footprint. Aspect is 2.5:1 after the crop.
-  const LOGO_ASPECT = 1002 / 400;
-  const cardW = Math.round(Math.min(winW - 36, 480));
+  // Logo sizing — butterfly stays in colour, YOUBELONG is now white, and the
+  // small "Find your people." subtitle has been cropped out so the headline
+  // below does the talking. The cropped logo aspect is roughly 3.7:1.
+  const LOGO_ASPECT = 1010 / 270;
+  const cardW = Math.round(Math.min(winW - 36, 460));
   const cardH = Math.round(cardW / LOGO_ASPECT);
 
   useEffect(() => {
