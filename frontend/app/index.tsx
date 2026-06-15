@@ -15,7 +15,7 @@ const COMMUNITY_BG =
   "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1400&q=80";
 
 // Official YouBelong brand mark (butterfly + wordmark + people-in-O + tagline)
-const BRAND_LOGO = require("../assets/brand/youbelong-logo.png");
+const BRAND_LOGO = require("../assets/brand/youbelong-logo-tight.png");
 
 export default function Welcome() {
   const router = useRouter();
@@ -25,10 +25,12 @@ export default function Welcome() {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   // Logo card sized in PIXELS (aspectRatio is unreliable on web)
-  // Logo card sizing — the brand mark dominates the top of the welcome
-  // screen, so we let it claim more of the safe area than before.
-  const cardW = Math.round(Math.min(winW - 36, 460));
-  const cardH = Math.round((cardW * 853) / 1272);
+  // Logo sizing — the cropped, transparent wordmark sits directly on the
+  // photo backdrop now (no white card), so we can let it claim more width
+  // for the same vertical footprint. Aspect is 2.5:1 after the crop.
+  const LOGO_ASPECT = 1002 / 400;
+  const cardW = Math.round(Math.min(winW - 36, 480));
+  const cardH = Math.round(cardW / LOGO_ASPECT);
 
   useEffect(() => {
     // Capture an invitation token (?ref=<user_id>) into AsyncStorage so the
@@ -97,7 +99,7 @@ export default function Welcome() {
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
         {/* Hero — official logo card */}
         <View style={styles.hero}>
-          <View style={[styles.logoCard, { width: cardW, height: cardH }]} testID="welcome-brand">
+          <View style={[styles.logoWrap, { width: cardW, height: cardH }]} testID="welcome-brand">
             <Image
               source={BRAND_LOGO}
               style={{ width: cardW, height: cardH }}
@@ -157,15 +159,7 @@ const styles = StyleSheet.create({
     letterSpacing: 2.4,
     textTransform: "uppercase",
   },
-  logoCard: {
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
+  logoWrap: {
     alignItems: "center",
     justifyContent: "center",
   },
