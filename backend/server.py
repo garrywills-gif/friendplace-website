@@ -405,6 +405,10 @@ async def signup(body: SignupBody):
                 "created_at": now_iso(),
             })
     await db.users.insert_one(doc)
+    # Award any new milestone badges to the inviter now that the new account
+    # is committed and `invited_by` is on file.
+    if doc.get("invited_by"):
+        await _check_invite_milestones(doc["invited_by"])
     # Welcome notification to the new user themselves
     await db.notifications.insert_one({
         "id": nid(), "user_id": user.id, "type": "welcome",
@@ -602,6 +606,9 @@ async def auth_google(body: GoogleAuthBody):
             })
 
     await db.users.insert_one(doc)
+    # Award invite-milestone badges to the inviter (idempotent).
+    if doc.get("invited_by"):
+        await _check_invite_milestones(doc["invited_by"])
     await db.notifications.insert_one({
         "id": nid(), "user_id": user.id, "type": "welcome",
         "title": "Welcome to YouBelong!",
@@ -774,6 +781,69 @@ async def invite_stats(user_id: str, limit: int = 10):
         "count": len(invited),
         "recent": invited,
     }
+
+
+@api.get("/users/{user_id}/inviter")
+async def get_inviter(user_id: str):
+    """Display info about the user who invited this person, if any. Returns
+    just enough to show "You joined because Garry invited you" — never exposes
+    private data about the inviter beyond their public profile fields.
+    """
+    me = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "invited_by": 1})
+    if not me:
+        raise HTTPException(404, "User not found")
+    referrer_id = me.get("invited_by")
+    if not referrer_id:
+        return {"inviter": None}
+    inv = await db.users.find_one(
+        {"id": referrer_id},
+        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1, "suburb": 1, "is_demo": 1},
+    )
+    if not inv:
+        return {"inviter": None}
+    return {"inviter": inv}
+
+
+# Invite milestone badges — order matters so the title progresses naturally.
+INVITE_BADGES = [
+    (1,  "First Invite"),
+    (3,  "Community Builder"),
+    (10, "Connector"),
+    (25, "Ambassador"),
+    (50, "Founder Friend"),
+]
+
+
+async def _check_invite_milestones(referrer_id: str) -> None:
+    """Award any new invite-count badges the referrer has unlocked. Safe to
+    call after every successful invite — idempotent because we only $addToSet."""
+    if not referrer_id:
+        return
+    try:
+        count = await db.users.count_documents({"invited_by": referrer_id, "is_demo": {"$ne": True}})
+        unlocked = [name for threshold, name in INVITE_BADGES if count >= threshold]
+        if not unlocked:
+            return
+        existing = await db.users.find_one({"id": referrer_id}, {"_id": 0, "badges": 1}) or {}
+        have = set(existing.get("badges") or [])
+        newly = [b for b in unlocked if b not in have]
+        if not newly:
+            return
+        await db.users.update_one({"id": referrer_id}, {"$addToSet": {"badges": {"$each": newly}}})
+        # Award a small points bonus + tell them about the new badge
+        bonus = 15 * len(newly)
+        await db.users.update_one({"id": referrer_id}, {"$inc": {"points": bonus}})
+        # Pick the highest tier they just unlocked for the celebratory toast
+        latest = newly[-1]
+        await push_notification(
+            referrer_id,
+            "achievement",
+            f"🏆 New badge: {latest}",
+            f"You've earned the {latest} badge — thanks for growing the YouBelong community!",
+            {"badge": latest, "invite_count": count},
+        )
+    except Exception as e:
+        logger.warning("invite milestone check failed: %s", e)
 
 
 @api.post("/users/{user_id}/block/{other_id}")

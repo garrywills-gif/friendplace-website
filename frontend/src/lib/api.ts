@@ -149,6 +149,7 @@ export const api = {
   stdCatalog: () => req("/games/spot/catalog"),
   // Invitation analytics + admin flyer (Share YouBelong follow-ons)
   inviteStats: (user_id: string) => req(`/users/${user_id}/invite-stats`),
+  inviter: (user_id: string) => req(`/users/${user_id}/inviter`),
   inviteFlyerUrl: (admin_id: string, venue: string, url: string) =>
     `${BASE}/api/admin/invite-flyer?admin_id=${encodeURIComponent(admin_id)}&venue=${encodeURIComponent(venue)}&url=${encodeURIComponent(url)}`,
   stdPuzzle: (theme: string, difficulty: string, seed?: number) =>

@@ -10,7 +10,13 @@ import Button from "@/src/components/Button";
 import ShareYouBelong from "@/src/components/ShareYouBelong";
 import { api } from "@/src/lib/api";
 
-const ALL_BADGES = ["Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder"];
+const ALL_BADGES = [
+  "Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder",
+  // Invite-milestone badges — unlocked at 1, 3, 10, 25, 50 successful invites.
+  "First Invite", "Connector", "Ambassador", "Founder Friend",
+  // Onboarding wizard badges
+  "Welcome Aboard", "Community Joiner",
+];
 const STATUS_OPTIONS: { key: string; emoji: string; label: string }[] = [
   { key: "looking_to_chat",  emoji: "🟢", label: "Looking to chat" },
   { key: "in_coffee_lounge", emoji: "☕", label: "In the Coffee Lounge" },
@@ -33,6 +39,9 @@ export default function Profile() {
   const [alertSelected, setAlertSelected] = useState<string[]>([]);
   const [nearbyOptedIn, setNearbyOptedIn] = useState<boolean>(((user as any)?.preferences?.nearby_chat_alerts) ?? false);
   const [inviteCount, setInviteCount] = useState<number>(0);
+  // Who invited me here? Shown as a friendly "You joined because Garry
+  // invited you" card under the hero. null means nobody (organic signup).
+  const [inviter, setInviter] = useState<any | null>(null);
 
   useFocusEffect(useCallback(() => {
     (async () => {
@@ -45,6 +54,10 @@ export default function Profile() {
         try {
           const s: any = await api.inviteStats(user.id);
           setInviteCount(s?.count || 0);
+        } catch {}
+        try {
+          const r: any = await api.inviter(user.id);
+          setInviter(r?.inviter || null);
         } catch {}
       }
     })();
@@ -60,6 +73,30 @@ export default function Profile() {
         <Text style={[styles.user, { color: c.muted, fontSize: 16 * scale }]}>@{user.username} · 📍 {user.suburb || "—"}</Text>
         {!!user.bio && <Text style={[styles.bio, { color: c.onSurface, fontSize: 16 * scale }]}>{user.bio}</Text>}
       </View>
+
+      {/* "You joined because X invited you" card — only shown when this user
+          arrived via someone's share link. Tappable so they can drop into
+          DMs with their inviter and say thanks. */}
+      {inviter && (
+        <Pressable
+          testID="profile-inviter-card"
+          onPress={() => router.push(`/profile/${inviter.id}` as any)}
+          style={({ pressed }) => [styles.inviterCard, {
+            backgroundColor: c.surfaceSecondary,
+            borderColor: c.border,
+            opacity: pressed ? 0.85 : 1,
+          }]}
+        >
+          <Text style={{ fontSize: 28 }}>🦋</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "700", letterSpacing: 0.5 }}>YOU JOINED BECAUSE</Text>
+            <Text style={{ color: c.onSurface, fontSize: 16 * scale, fontWeight: "800", marginTop: 2 }}>
+              {inviter.avatar ? `${inviter.avatar} ` : ""}{inviter.first_name || inviter.username} invited you
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color={c.muted} />
+        </Pressable>
+      )}
 
       <View style={[styles.statsCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
         <View style={styles.statBox}>
@@ -296,6 +333,11 @@ const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 12 },
   backBtn: { flexDirection: "row", alignItems: "center", alignSelf: "flex-start", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 1 },
   hero: { alignItems: "center", padding: 20, borderRadius: 24, gap: 8 },
+  inviterCard: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingVertical: 12, paddingHorizontal: 16,
+    borderRadius: 14, borderWidth: 1, marginTop: 12,
+  },
   avatar: { width: 110, height: 110, borderRadius: 55, alignItems: "center", justifyContent: "center" },
   name: { fontWeight: "900", marginTop: 8 },
   user: { fontWeight: "600" },

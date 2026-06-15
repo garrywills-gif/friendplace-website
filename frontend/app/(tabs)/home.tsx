@@ -25,6 +25,7 @@ export default function Home() {
   const [thought, setThought] = useState<string>(() => getThoughtForDate());
   const [isFav, setIsFav] = useState<boolean>(false);
   const [community, setCommunity] = useState<any>(null);
+  const [invitedCount, setInvitedCount] = useState<number>(0);
 
   const shuffleThought = () => setThought((t) => getRandomThought(t));
 
@@ -70,6 +71,10 @@ export default function Home() {
     try { const r: any = await api.notificationCount(user.id); setUnread(r?.unread || 0); } catch {}
     try { await api.heartbeat(user.id); } catch {}
     try { setCommunity(await api.communityToday(user.id)); } catch {}
+    try {
+      const s: any = await api.inviteStats(user.id);
+      setInvitedCount(Number(s?.count) || 0);
+    } catch {}
   };
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
 
@@ -188,6 +193,11 @@ export default function Home() {
           )}
         </Pressable>
 
+        {/* Prominent invite card — sits above-the-fold so growth is one tap away. */}
+        <View style={{ marginTop: 4 }}>
+          <ShareYouBelong variant="highlight" testID="home-invite-highlight" invitedCount={invitedCount} />
+        </View>
+
         {community && (community.birthdays?.length || community.new_members?.length || community.anniversaries?.length || community.milestones?.last_reached) ? (
           <View style={[styles.communityCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]} testID="community-card">
             <Text style={[styles.communityHead, { color: c.brand, fontSize: 12 * scale }]}>COMMUNITY TODAY</Text>
@@ -246,10 +256,6 @@ export default function Home() {
               {t.full && <Text style={[styles.tileSub, { fontSize: 14 * scale }]}>Pull up a chair & join a chat</Text>}
             </Pressable>
           ))}
-          {/* Share YouBelong tile — full-width invite to bring friends in. */}
-          <View style={{ width: "100%", marginTop: 4 }}>
-            <ShareYouBelong variant="tile" testID="home-share" />
-          </View>
         </View>
       </ScrollView>
     </View>

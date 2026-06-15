@@ -43,14 +43,18 @@ export const SHARE_SUBJECT = "Join me on YouBelong";
 
 const fullBody = `${SHARE_MESSAGE}\n\n${SHARE_URL}`;
 
-type Variant = "primary" | "ghost" | "tile";
+type Variant = "primary" | "ghost" | "tile" | "highlight";
 
 export default function ShareYouBelong({
   variant = "primary",
   testID = "share-youbelong",
+  invitedCount,
 }: {
   variant?: Variant;
   testID?: string;
+  /** Optional — when supplied (and variant === "highlight") shows a small
+   * "X friends have joined through you" badge inside the card. */
+  invitedCount?: number;
 }) {
   const { c, scale } = useTheme();
   const { show } = useToast();
@@ -138,6 +142,33 @@ export default function ShareYouBelong({
 
   // ── Button variants ────────────────────────────────────────────────────
   const TriggerButton = () => {
+    if (variant === "highlight") {
+      const count = invitedCount ?? 0;
+      const sub =
+        count > 0
+          ? `${count} ${count === 1 ? "friend has" : "friends have"} joined through you 🎉`
+          : "Help grow your community — earn badges as friends join";
+      return (
+        <Pressable
+          testID={testID}
+          onPress={() => setOpen(true)}
+          style={({ pressed }) => [styles.highlight, { opacity: pressed ? 0.92 : 1 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Invite a friend to YouBelong"
+        >
+          <View style={styles.highlightIconWrap}>
+            <Ionicons name="gift" size={30} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={[styles.highlightTitle, { fontSize: 20 * scale }]}>Invite a Friend</Text>
+            <Text style={[styles.highlightSub, { fontSize: 13 * scale }]} numberOfLines={2}>
+              {sub}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color="rgba(255,255,255,0.9)" />
+        </Pressable>
+      );
+    }
     if (variant === "tile") {
       return (
         <Pressable
@@ -337,6 +368,32 @@ const styles = StyleSheet.create({
   },
   tileTitle: { color: "#FFFFFF", fontWeight: "900" },
   tileSub: { color: "rgba(255,255,255,0.85)", fontWeight: "600", marginTop: 2 },
+  highlight: {
+    width: "100%",
+    minHeight: 84,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#7C3AED",
+    // Soft glow so the card visibly "lifts" off the page.
+    shadowColor: "#7C3AED",
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  highlightIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  highlightTitle: { color: "#FFFFFF", fontWeight: "900", letterSpacing: 0.2 },
+  highlightSub: { color: "rgba(255,255,255,0.92)", fontWeight: "600", marginTop: 3, lineHeight: 18 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 28 },
   handle: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, backgroundColor: "#CBD5E1", marginVertical: 8 },
