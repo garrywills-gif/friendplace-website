@@ -4740,7 +4740,10 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
             # Client should be shipping resized JPEGs ≤200 KB; we cap at 600 KB
             # of base64 just in case.
             if image and len(image) > 600_000:
-                await websocket.send_json({"type": "error", "message": "Photo too large — please try a smaller image."})
+                try:
+                    await websocket.send_json({"type": "error", "message": "Photo too large — please try a smaller image."})
+                except Exception:
+                    pass
                 continue
             msg = Message(
                 table_id=table_id,
