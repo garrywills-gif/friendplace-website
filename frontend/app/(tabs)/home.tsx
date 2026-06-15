@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,6 +21,7 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const [flutters, setFlutters] = useState<any[]>([]);
   const [unread, setUnread] = useState<number>(0);
+  const [refreshing, setRefreshing] = useState(false);
   const [thought, setThought] = useState<string>(() => getThoughtForDate());
   const [isFav, setIsFav] = useState<boolean>(false);
   const [community, setCommunity] = useState<any>(null);
@@ -97,7 +98,17 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: 24 }]}>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: 24 }]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => { setRefreshing(true); await loadFlutters(); setRefreshing(false); }}
+            tintColor={c.brand}
+            colors={[c.brand]}
+          />
+        }
+      >
         <View style={styles.headerRow}>
           <View style={[styles.iconBtn, { backgroundColor: "transparent", borderColor: "transparent" }]} />
           <Text style={[styles.brand, { color: c.brand, fontSize: 26 * scale }]}>YouBelong</Text>

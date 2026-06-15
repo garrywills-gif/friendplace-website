@@ -1,0 +1,38 @@
+{
+  "summary": "Tested 'newest on top' sorting fixes. Created /app/backend/tests/test_newest_on_top_sorting.py with 14 tests covering GET /api/users default + Near-Me + search-q ordering, POST users -> index 0, GET /api/groups + POST groups -> index 0, plus regression on flutters/notices/dm/notifications/recipes/tables/group-posts. Result: 11 PASSED, 3 SKIPPED (skips only because of insufficient seed data: only 1 'Bill' user, no user with >=2 unread flutters, no user with >=2 DM conversations — the 'broad q' fallback test passes confirming q-filtered ordering works). Frontend smoke confirmed /groups screen visibly shows the two TEST groups created during the test run at indices 0 and 1, ahead of the original seeded groups, proving newest-first ordering end-to-end. Home.tsx pull-to-refresh wiring is correct — RefreshControl is attached to the ScrollView, and onRefresh awaits loadFlutters() which re-fetches flutters, notification count, heartbeat, and community-today (matches the request).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_newest_on_top_sorting.py",
+    "/app/test_reports/pytest/newest_on_top_results.xml"
+  ],
+  "action_items": [
+    "(Optional, cleanup) Two TEST_sort_group_* groups and one TEST signup user were created during testing and persist in MongoDB. Safe to leave (test data is prefixed TEST_) but can be pruned if desired.",
+    "(Pre-existing, not blocking) Backend log shows passlib bcrypt version warning ('module bcrypt has no attribute __about__'). Unrelated to this change; consider pinning bcrypt<4.1 or upgrading passlib in a future iteration."
+  ],
+  "critical_code_review_comments": [
+    "GET /api/users default sort uses [('created_at', -1), ('id', -1)] with id as deterministic tiebreaker — correctly avoids non-deterministic ordering when timestamps are identical (e.g., seeded data).",
+    "Distance branch in /api/users keeps its own Python-side sort by distance_km (line 595 in server.py) and is unaffected by the new default sort — verified by test_users_near_me_still_distance_sorted.",
+    "home.tsx onRefresh handler correctly sets refreshing=true, awaits loadFlutters() (which fetches flutters + notifications count + heartbeat + community-today), then sets refreshing=false. Matches the task spec exactly."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_newest_on_top_sorting.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 executed tests passed; 3 skipped due to insufficient seed data, not failures)",
+    "frontend": "smoke only — /groups visibly newest-first; pull-to-refresh code-reviewed and confirmed wired"
+  },
+  "seed_data_creation": "Test created 1 user (TESTsortuser<hex>) and 2 groups (TEST_sort_group_<hex>) via the public API during the run. They remain in MongoDB and are visible at the top of /api/users and /api/groups (which confirms the sorting fix end-to-end).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Re-run with: pytest /app/backend/tests/test_newest_on_top_sorting.py -v --tb=short. Skipped tests will start running once the corresponding data exists (seed a user with >=2 unread flutters, etc.). The same test file doubles as a regression check for all the documented newest-first endpoints.",
+  "rca_of_issue": "Not a bug — feature verification only. Sorting fix verified at three layers: (1) MongoDB query .sort() on the right field — code-reviewed in server.py lines 580 (users), 2883 (groups); (2) API response order — verified by pytest assertions on returned timestamps; (3) UI — verified visually on /groups where freshly-created TEST groups appear at the top of the list."
+}

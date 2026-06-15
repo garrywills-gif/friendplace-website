@@ -569,7 +569,15 @@ async def list_users(
         query["suburb_lat"] = {"$ne": None, "$exists": True}
         query["suburb_lng"] = {"$ne": None, "$exists": True}
         query["location_visibility"] = {"$ne": "private"}
-    docs = await db.users.find(query, {"_id": 0}).to_list(500)
+    if near_lat is not None and near_lng is not None and radius_km:
+        # Distance-based sort below is the natural one for "Near Me" — newest
+        # members are surfaced via the default sort instead.
+        docs = await db.users.find(query, {"_id": 0}).to_list(500)
+    else:
+        # Default Find Friends ordering: newest members first so people are
+        # rewarded for joining and so longtime members see fresh faces. Falls
+        # back to id when created_at is identical to keep the order stable.
+        docs = await db.users.find(query, {"_id": 0}).sort([("created_at", -1), ("id", -1)]).to_list(500)
     # Apply radius filter + attach distance, then strip coords before returning.
     if near_lat is not None and near_lng is not None and radius_km:
         out: List[Dict] = []
@@ -2871,7 +2879,8 @@ async def table_messages(table_id: str):
 # ------------- Groups -------------
 @api.get("/groups")
 async def list_groups():
-    return await db.groups.find({}, {"_id": 0}).to_list(200)
+    # Newest groups first so new communities are discoverable.
+    return await db.groups.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 
 @api.post("/groups")
