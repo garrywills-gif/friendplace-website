@@ -813,6 +813,7 @@ async def push_notification(user_id: str, n_type: str, title: str, body: str = "
             "friend_accepted": "/friends",
             "dm": "/messages",
             "table_join": "/coffee",
+            "table_invite": "/coffee",
             "event_invite": "/events",
             "event_reminder": "/events",
             "notice_comment": "/notices",
@@ -3166,6 +3167,29 @@ async def create_table(body: CreateTableBody):
     t = Table(**body.dict(), seated=[body.host_id])
     await db.tables.insert_one(t.dict())
     await award_points(body.host_id, 10)
+    # Notify the host's friends that there's a new table to join. We send to
+    # the host's confirmed friends only (not the whole community) so this stays
+    # a warm invitation rather than spam. Visibility="friends" already implies
+    # this, but we also fire for public tables so friends still hear about it.
+    try:
+        host = await db.users.find_one({"id": body.host_id}, {"_id": 0}) or {}
+        friend_ids = [fid for fid in (host.get("friends") or []) if fid and fid != body.host_id]
+        if friend_ids:
+            hname = host.get("first_name") or host.get("username") or "Someone"
+            havatar = host.get("avatar") or "☕"
+            emoji = body.emoji or "☕"
+            title = f"{emoji} {hname} just opened a Coffee Lounge table"
+            body_text = f"{havatar} \u201c{body.name}\u201d — come pull up a chair and say hi."
+            for fid in friend_ids[:100]:
+                await push_notification(
+                    fid,
+                    "table_invite",
+                    title,
+                    body_text,
+                    {"table_id": t.id, "host_id": body.host_id},
+                )
+    except Exception as e:
+        logger.warning("table create notify failed: %s", e)
     return t.dict()
 
 
