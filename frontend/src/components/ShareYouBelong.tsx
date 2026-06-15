@@ -133,9 +133,12 @@ export default function ShareYouBelong({
           onPress={() => setOpen(true)}
           style={({ pressed }) => [styles.tile, { backgroundColor: "#7C3AED", opacity: pressed ? 0.85 : 1 }]}
         >
-          <Ionicons name="share-social" size={36} color="#FFFFFF" />
-          <Text style={[styles.tileTitle, { fontSize: 18 * scale }]}>Share YouBelong</Text>
-          <Text style={[styles.tileSub, { fontSize: 13 * scale }]}>Invite friends & family</Text>
+          <Ionicons name="share-social" size={28} color="#FFFFFF" />
+          <View style={{ flex: 1, marginLeft: 14 }}>
+            <Text style={[styles.tileTitle, { fontSize: 18 * scale }]}>Share YouBelong</Text>
+            <Text style={[styles.tileSub, { fontSize: 13 * scale }]}>Invite friends & family</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color="rgba(255,255,255,0.85)" />
         </Pressable>
       );
     }
@@ -176,7 +179,7 @@ export default function ShareYouBelong({
             <View style={styles.handle} />
             <View style={styles.headRow}>
               <Text style={[styles.title, { color: c.onSurface, fontSize: 22 * scale }]}>
-                {showQR ? "Scan to join" : "Invite to YouBelong"}
+                {showQR ? "Scan to join" : "Invite Friends to YouBelong"}
               </Text>
               <Pressable
                 testID="share-close"
@@ -214,6 +217,14 @@ export default function ShareYouBelong({
                   {SHARE_MESSAGE}
                 </Text>
                 <ShareOption
+                  testID="share-qr"
+                  icon="qr-code"
+                  tint="#B45309"
+                  label="Show QR Code"
+                  sub="Let someone scan it with their phone camera"
+                  onPress={() => setShowQR(true)}
+                />
+                <ShareOption
                   testID="share-sms"
                   icon="chatbubble-ellipses"
                   tint="#0F766E"
@@ -236,14 +247,6 @@ export default function ShareYouBelong({
                   label="Copy Link"
                   sub="Copy the invite to paste into any app"
                   onPress={copyLink}
-                />
-                <ShareOption
-                  testID="share-qr"
-                  icon="qr-code"
-                  tint="#B45309"
-                  label="Show QR Code"
-                  sub="Let someone scan it with their phone camera"
-                  onPress={() => setShowQR(true)}
                 />
               </View>
             )}
@@ -313,14 +316,15 @@ const styles = StyleSheet.create({
   },
   tile: {
     width: "100%",
-    minHeight: 130,
-    borderRadius: 20,
-    padding: 18,
-    justifyContent: "center",
-    gap: 6,
+    minHeight: 72,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
   },
   tileTitle: { color: "#FFFFFF", fontWeight: "900" },
-  tileSub: { color: "rgba(255,255,255,0.85)", fontWeight: "600" },
+  tileSub: { color: "rgba(255,255,255,0.85)", fontWeight: "600", marginTop: 2 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingTop: 8, paddingBottom: 28 },
   handle: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, backgroundColor: "#CBD5E1", marginVertical: 8 },
