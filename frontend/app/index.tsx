@@ -25,8 +25,10 @@ export default function Welcome() {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
   // Logo card sized in PIXELS (aspectRatio is unreliable on web)
-  const cardW = Math.round(Math.min(winW - 44, 360) * 0.75); // -25%
-  const cardH = Math.round((cardW * 853) / 1272); // preserve official aspect
+  // Logo card sizing — the brand mark dominates the top of the welcome
+  // screen, so we let it claim more of the safe area than before.
+  const cardW = Math.round(Math.min(winW - 36, 460));
+  const cardH = Math.round((cardW * 853) / 1272);
 
   useEffect(() => {
     // Capture an invitation token (?ref=<user_id>) into AsyncStorage so the
@@ -80,11 +82,11 @@ export default function Welcome() {
           shows through as a subtle watermark, matching the brand sample) */}
       <LinearGradient
         colors={[
-          "rgba(13, 42, 87, 0.72)",   // deep navy, top-left
-          "rgba(30, 58, 127, 0.66)",  // navy
-          "rgba(46, 158, 226, 0.58)", // bright blue
-          "rgba(45, 212, 191, 0.66)", // teal
-          "rgba(64, 209, 124, 0.74)", // green-teal, bottom-right
+          "rgba(7, 22, 50, 0.86)",    // very deep navy, top-left
+          "rgba(18, 41, 92, 0.82)",   // dark navy
+          "rgba(28, 95, 142, 0.78)",  // dim blue-teal
+          "rgba(20, 120, 110, 0.82)", // muted teal
+          "rgba(15, 90, 75, 0.88)",   // deep teal-green, bottom-right
         ]}
         locations={[0, 0.28, 0.55, 0.82, 1]}
         start={{ x: 0, y: 0 }}
@@ -104,10 +106,14 @@ export default function Welcome() {
             />
           </View>
 
+          <Text style={[styles.miniTag, { fontSize: 12 * scale }]} testID="welcome-mini-tag">
+            Friendship  ·  Community  ·  Connection
+          </Text>
+
           <Text style={[styles.tag1, { fontSize: 30.4 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.tag2, { fontSize: 22 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
-          <Text style={[styles.welcomeMsg, { fontSize: 13 * scale }]} testID="welcome-message">
-            A friendly place to meet people, join conversations and feel connected.
+          <Text style={[styles.welcomeMsg, { fontSize: 14 * scale }]} testID="welcome-message">
+            Meet new friends, join local events and chat with people who share your interests.
           </Text>
         </View>
 
@@ -143,6 +149,14 @@ const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#0D2A57" },
   content: { paddingHorizontal: 22, flexGrow: 1, justifyContent: "flex-start", gap: 14 },
   hero: { alignItems: "center", marginTop: 4 },
+  miniTag: {
+    color: "rgba(255,255,255,0.78)",
+    textAlign: "center",
+    marginTop: 12,
+    fontWeight: "700",
+    letterSpacing: 2.4,
+    textTransform: "uppercase",
+  },
   logoCard: {
     borderRadius: 22,
     backgroundColor: "#FFFFFF",
