@@ -89,7 +89,7 @@ export default function InviteFlyer() {
           </View>
           <Text style={{ color: c.onSurface, fontSize: 14 * scale, marginTop: 6, lineHeight: 20 }}>
             Generate an A4 portrait poster with a large QR code that takes scanners straight to YouBelong.
-            Pin it up at community centres, retirement villages, libraries, men&apos;s sheds and clubs.
+            Pin it up at community centres, libraries, cafés, clubs and anywhere people gather.
             New signups through your poster will be credited to your admin account.
           </Text>
         </View>
