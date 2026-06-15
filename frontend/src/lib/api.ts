@@ -214,6 +214,21 @@ export const api = {
   updatePrivacySettings: (uid: string, body: any) => req(`/users/${uid}/privacy-settings`, { method: "PATCH", body: JSON.stringify(body) }),
   completeOnboarding: (uid: string) => req(`/users/${uid}/onboarding-complete`, { method: "POST" }),
 
+  // Onboarding wizard (data-collection — interests, suburb, photo, groups)
+  onboardingSuggestedGroups: (uid: string) =>
+    req(`/onboarding/suggested-groups?user_id=${encodeURIComponent(uid)}`),
+  onboardingFinish: (body: {
+    user_id: string;
+    interests?: string[];
+    suburb?: string;
+    suburb_postcode?: string;
+    suburb_state?: string;
+    location_visibility?: "suburb" | "private";
+    avatar?: string;
+    group_ids?: string[];
+    joined_all?: boolean;
+  }) => req("/onboarding/complete", { method: "POST", body: JSON.stringify(body) }),
+
   // unified games hub
   gamesStats: (uid: string) => req(`/games/stats/${uid}`),
   gamesDailies: () => req("/games/dailies"),

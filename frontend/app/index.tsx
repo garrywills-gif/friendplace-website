@@ -68,13 +68,15 @@ export default function Welcome() {
         if (cancelled) return;
         if (r.handled) {
           show(r.isNew ? "Welcome to YouBelong!" : "Welcome back!");
-          // Send brand new users through the onboarding wizard once it lands;
-          // for now both branches go to /home and onboarding kicks in there.
+          // Brand-new users go straight into the onboarding wizard; returning
+          // users land on /home. The home tab also has a guard that catches
+          // any non-onboarded user as a safety net.
+          const dest = r.isNew ? "/onboarding" : "/home";
           if (Platform.OS === "web") {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (window as any).location.assign("/home");
+            (window as any).location.assign(dest);
           } else {
-            router.replace("/home" as any);
+            router.replace(dest as any);
           }
         }
       } catch (e: any) {

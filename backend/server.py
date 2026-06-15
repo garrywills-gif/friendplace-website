@@ -1030,6 +1030,174 @@ async def onboarding_complete(user_id: str):
     return {"ok": True}
 
 
+# ---------------- Onboarding wizard ----------------
+# A small, curated list of starter community groups that brand-new YouBelong
+# members can join with a single tap during the post-signup wizard. Sydney/AU
+# leaning to match the seed dataset. The wizard mixes these with the existing
+# seeded groups (Walking, Garden Club, etc.) — interest-matched first.
+STARTER_GROUPS = [
+    {"name": "Sydney Locals", "emoji": "🏙️", "description": "For everyone who calls Sydney home — share favourite spots, meetups and neighbourhood news.",
+     "tags": ["local", "sydney", "meetups", "neighbourhood"]},
+    {"name": "New Friends", "emoji": "👋", "description": "Brand new to YouBelong? Say hello and meet other members who just joined.",
+     "tags": ["new", "introductions", "welcome"]},
+    {"name": "Pet Lovers", "emoji": "🐾", "description": "Cats, dogs, chooks, fish — share pet stories, photos and walking buddies.",
+     "tags": ["pets", "dogs", "cats", "animals"]},
+    {"name": "Classic Cars", "emoji": "🚗", "description": "Restorations, cruises and Sunday-morning meetups for car enthusiasts.",
+     "tags": ["cars", "classic cars", "vehicles", "motoring"]},
+    {"name": "Gardening", "emoji": "🌱", "description": "Vegetable patches, balcony gardens, plant swaps and questions welcome.",
+     "tags": ["gardening", "plants", "garden"]},
+    {"name": "Walking & Trails", "emoji": "🥾", "description": "Bushwalks, beach strolls, and gentle daily walks — find a walking buddy.",
+     "tags": ["walking", "fitness", "hiking", "outdoors"]},
+    {"name": "Coffee Lounge Crew", "emoji": "☕", "description": "Regulars who love a virtual cuppa in the Coffee Lounge — chat anytime.",
+     "tags": ["coffee", "chat", "lounge", "social"]},
+]
+
+
+async def _ensure_starter_groups() -> List[Dict]:
+    """Idempotently create the starter groups if they don't already exist and
+    return the canonical list (with `id` populated). Safe to call on every
+    suggested-groups request — early-exits once they exist."""
+    out: List[Dict] = []
+    for g in STARTER_GROUPS:
+        existing = await db.groups.find_one({"name": g["name"]}, {"_id": 0})
+        if existing:
+            # Backfill tags if we added them after the initial seed
+            if not existing.get("tags"):
+                await db.groups.update_one({"id": existing["id"]}, {"$set": {"tags": g["tags"]}})
+                existing["tags"] = g["tags"]
+            out.append(existing)
+            continue
+        grp = Group(name=g["name"], emoji=g["emoji"], description=g["description"])
+        doc = grp.dict()
+        doc["tags"] = g["tags"]
+        doc["is_starter"] = True
+        await db.groups.insert_one(doc)
+        out.append(doc)
+    return out
+
+
+@api.get("/onboarding/suggested-groups")
+async def onboarding_suggested_groups(user_id: str):
+    """Return a curated list of suggested groups for the onboarding wizard,
+    interest-matched first then the rest. Auto-creates the 7 starter groups on
+    first call. Each item includes a `match` count so the UI can highlight a
+    "great match" badge for groups that align with what the user just picked."""
+    u = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "User not found")
+    starters = await _ensure_starter_groups()
+    # Also include any existing seeded groups (Walking Group, Garden Club, …)
+    # but only if they aren't starters already.
+    starter_ids = {g["id"] for g in starters}
+    other = await db.groups.find({"id": {"$nin": list(starter_ids)}}, {"_id": 0}).to_list(50)
+    all_groups = starters + other
+
+    interests = [i.lower() for i in (u.get("interests") or [])]
+
+    def score(g: Dict) -> int:
+        tags = [t.lower() for t in (g.get("tags") or [])]
+        name = (g.get("name") or "").lower()
+        desc = (g.get("description") or "").lower()
+        hits = 0
+        for i in interests:
+            if i in tags or i in name or i in desc:
+                hits += 1
+        return hits
+
+    enriched = []
+    for g in all_groups:
+        enriched.append({
+            "id": g["id"],
+            "name": g["name"],
+            "emoji": g.get("emoji", "👥"),
+            "description": g.get("description", ""),
+            "member_count": len(g.get("members") or []),
+            "is_starter": bool(g.get("is_starter")) or g["id"] in starter_ids,
+            "match": score(g),
+        })
+    # Sort: interest-match desc, then starter status, then member_count desc
+    enriched.sort(key=lambda x: (-x["match"], 0 if x["is_starter"] else 1, -x["member_count"]))
+    return {"groups": enriched}
+
+
+class OnboardingCompleteBody(BaseModel):
+    user_id: str
+    interests: List[str] = []
+    suburb: Optional[str] = None
+    suburb_postcode: Optional[str] = None
+    suburb_state: Optional[str] = None
+    location_visibility: Optional[str] = None  # "suburb" | "private"
+    avatar: Optional[str] = None  # base64 data URI or emoji or URL
+    group_ids: List[str] = []
+    # If True the user tapped the big "Join All Suggested Groups" button —
+    # we award an extra welcome badge so it feels rewarding.
+    joined_all: bool = False
+
+
+@api.post("/onboarding/complete")
+async def onboarding_complete_full(body: OnboardingCompleteBody):
+    u = await db.users.find_one({"id": body.user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "User not found")
+
+    update: Dict = {"onboarding_completed": True, "onboarded_at": now_iso()}
+    if body.interests:
+        # Dedup + trim, keep order, cap at 16 to match the chip set
+        seen: set = set()
+        clean: List[str] = []
+        for i in body.interests:
+            t = (i or "").strip()
+            k = t.lower()
+            if t and k not in seen:
+                seen.add(k); clean.append(t)
+            if len(clean) >= 16:
+                break
+        update["interests"] = clean
+    if body.suburb is not None:
+        update["suburb"] = body.suburb.strip()
+    if body.suburb_postcode is not None:
+        update["suburb_postcode"] = body.suburb_postcode.strip()
+    if body.suburb_state is not None:
+        update["suburb_state"] = body.suburb_state.strip()
+    if body.location_visibility in {"suburb", "private"}:
+        update["location_visibility"] = body.location_visibility
+        if body.location_visibility == "private":
+            update["suburb"] = ""
+    if body.avatar:
+        update["avatar"] = body.avatar
+
+    # Award a small badge so the wizard feels rewarding. Idempotent.
+    badges = list(u.get("badges") or [])
+    if "Welcome Aboard" not in badges:
+        badges.append("Welcome Aboard")
+    if body.joined_all and "Community Joiner" not in badges:
+        badges.append("Community Joiner")
+    update["badges"] = badges
+    update["points"] = int(u.get("points") or 0) + (15 if body.joined_all else 10)
+
+    await db.users.update_one({"id": body.user_id}, {"$set": update})
+
+    # Join requested groups (deduped). Each call also awards 3 points via
+    # the existing /groups/{id}/join handler; we batch-add here directly so
+    # we don't blow up the points total disproportionately during onboarding.
+    joined: List[str] = []
+    for gid in (body.group_ids or [])[:20]:
+        r = await db.groups.update_one({"id": gid}, {"$addToSet": {"members": body.user_id}})
+        if r.matched_count:
+            joined.append(gid)
+
+    # Welcome notification — phrased to push the user into Coffee Lounge first
+    await db.notifications.insert_one({
+        "id": nid(), "user_id": body.user_id, "type": "onboarding_done",
+        "title": "You're all set up!",
+        "body": f"Welcome aboard! You've joined {len(joined)} group{'s' if len(joined) != 1 else ''}. Why not pop into the Coffee Lounge and say hello?",
+        "read": False, "created_at": now_iso(),
+    })
+
+    fresh = await db.users.find_one({"id": body.user_id}, {"_id": 0, "password_hash": 0})
+    return {"ok": True, "joined_group_ids": joined, "user": _safe_user(fresh or u)}
+
+
 class PreferencesBody(BaseModel):
     read_messages_aloud: Optional[bool] = None
     text_scale: Optional[float] = None        # 0.85 – 1.6
