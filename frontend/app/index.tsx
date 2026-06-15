@@ -29,7 +29,8 @@ export default function Welcome() {
   // The bold variant ships with a baked-in navy halo + white outer glow so the
   // wordmark stays crisp on the photo backdrop. PNG is 1066×326 → aspect ≈3.27.
   const LOGO_ASPECT = 1066 / 326;
-  const cardW = Math.round(Math.min(winW - 36, 480));
+  // +13% larger than the previous 480px cap so the brand mark stands out more.
+  const cardW = Math.round(Math.min(winW - 28, 545));
   const cardH = Math.round(cardW / LOGO_ASPECT);
 
   useEffect(() => {
