@@ -117,7 +117,7 @@ export default function ShareYouBelong({
   const copyLink = async () => {
     try {
       await Clipboard.setStringAsync(fullBody);
-      show("Invite copied to clipboard 📋");
+      show("Link copied successfully");
       setOpen(false);
     } catch {
       show("Could not copy");
@@ -342,3 +342,4 @@ const styles = StyleSheet.create({
   qrUrl: { fontWeight: "500", textAlign: "center", paddingHorizontal: 20 },
   qrBack: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 18, paddingVertical: 12, borderRadius: 999, borderWidth: 1, marginTop: 8 },
 });
+
