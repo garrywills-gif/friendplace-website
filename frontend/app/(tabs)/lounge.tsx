@@ -64,6 +64,15 @@ export default function Lounge() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <View style={[styles.head, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headRow}>
+          <Pressable
+            testID="lounge-back"
+            onPress={() => { try { router.back(); } catch { router.replace("/home" as any); } }}
+            hitSlop={12}
+            accessibilityLabel="Back to Home"
+            style={({ pressed }) => [styles.backBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Ionicons name="chevron-back" size={26} color={c.onSurface} />
+          </Pressable>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>Coffee Lounge ☕</Text>
@@ -214,6 +223,7 @@ const styles = StyleSheet.create({
   title: { fontWeight: "900" },
   sub: { fontWeight: "600", marginTop: 4 },
   infoBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  backBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   card: { borderRadius: 20, padding: 16, shadowColor: "#0F172A", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2, gap: 10 },
   topRow: { flexDirection: "row", alignItems: "center" },
   cardTitle: { fontWeight: "800" },
