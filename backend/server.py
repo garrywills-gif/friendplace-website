@@ -205,6 +205,10 @@ class Message(BaseModel):
     user_name: str = ""
     avatar: str = ""
     text: str
+    # Optional base64 data URI for an attached photo. Stored inline so messages
+    # remain a single document — fine for the resized previews (≤200 KB) the
+    # client uploads from the Coffee Lounge image picker.
+    image: str = ""
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -4728,7 +4732,15 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
             data = await websocket.receive_text()
             payload = json.loads(data)
             text = (payload.get("text") or "").strip()
-            if not text:
+            image = (payload.get("image") or "").strip()
+            # Require either text or a photo.
+            if not text and not image:
+                continue
+            # Reject oversized payloads up-front to protect Mongo + bandwidth.
+            # Client should be shipping resized JPEGs ≤200 KB; we cap at 600 KB
+            # of base64 just in case.
+            if image and len(image) > 600_000:
+                await websocket.send_json({"type": "error", "message": "Photo too large — please try a smaller image."})
                 continue
             msg = Message(
                 table_id=table_id,
@@ -4736,6 +4748,7 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
                 user_name=user.get("first_name", "") if user else "",
                 avatar=user.get("avatar", "") if user else "",
                 text=text,
+                image=image,
             )
             await db.messages.insert_one(msg.dict())
             await db.tables.update_one({"id": table_id}, {"$set": {"last_activity_at": now_iso()}})

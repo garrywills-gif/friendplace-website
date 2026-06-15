@@ -11,7 +11,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Find neighbours near your suburb"
+        "NSLocationWhenInUseUsageDescription": "Find neighbours near your suburb",
+        "NSPhotoLibraryUsageDescription": "Share photos in the Coffee Lounge"
       }
     },
     "android": {
@@ -20,7 +21,7 @@
         "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
-      "permissions": ["ACCESS_COARSE_LOCATION"],
+      "permissions": ["ACCESS_COARSE_LOCATION", "READ_MEDIA_IMAGES"],
       "googleServicesFile": "./google-services.json"
     },
     "web": {

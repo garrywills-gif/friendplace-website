@@ -1,0 +1,36 @@
+{
+  "summary": "Tested the Coffee Lounge photo-message feature + Welcome-page copy refresh. Backend: 7/7 new WebSocket photo tests pass — Message Pydantic model accepts image-only (empty text), WS broadcasts image-only / text-only / text+image, empty payload silently ignored, oversized (>600KB) payload rejected (no broadcast, no Mongo row), images persist to /api/tables/{id}/messages with the image field. Lounge regression test_lounge_prune.py: 10/10 pass. Frontend smoke: Welcome page tagline 'Because You Belong Too.' renders italic at 22px (testID welcome-tag-secondary); message renders at 13px (testID welcome-message). Demo-login as frankie works; /lounge → table screen shows the 📷 photo button (testID table-photo) at 48×48 to the left of the composer.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "WS /api/ws/table/{id}", "issue": "When the oversize error frame is sent right as the client closes the socket, the handler raises websockets.exceptions.ConnectionClosedOK (visible in backend.err.log). Behaviour from the client is still correct (no broadcast, no DB row), but the exception should be caught / suppressed inside the receive loop for cleanliness."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lounge_photo.py",
+    "/app/test_reports/pytest/iter24_lounge_photo.xml",
+    "/app/test_reports/pytest/iter24_lounge_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 5067 lines — well past the 700-line guideline. Splitting into routers (auth, lounge/ws, games, community, admin) would improve maintainability. Not blocking this feature.",
+    "WebSocket oversize-error frame is sent before the `continue`, which is correct, but there is no rate-limit on how many oversized frames a client can spam. Consider a per-connection counter that closes the socket after N bad frames."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_lounge_photo.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (7/7 new + 10/10 lounge regression)",
+    "frontend": "100% smoke (welcome copy + photo button visible)"
+  },
+  "seed_data_creation": "No new seed data — used existing demo user 'frankie' and an existing Coffee Lounge table. Test messages prefixed with 'TEST_'.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "WS test file at /app/backend/tests/test_lounge_photo.py covers Message model + photo WS contract. Uses websockets lib (already installed). The empty-payload test verifies silent-ignore by sending an empty frame followed by a marker frame and asserting the marker arrives. Oversize test snapshots message ids via REST before sending. Welcome italic + font size verified via getComputedStyle in playwright. No image-picker flow tested (it opens native picker on web preview — out of scope per request)."
+}

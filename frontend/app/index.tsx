@@ -86,8 +86,8 @@ export default function Welcome() {
           </View>
 
           <Text style={[styles.tag1, { fontSize: 30.4 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
-          <Text style={[styles.tag2, { fontSize: 19 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
-          <Text style={[styles.welcomeMsg, { fontSize: 18 * scale }]} testID="welcome-message">
+          <Text style={[styles.tag2, { fontSize: 22 * scale }]} testID="welcome-tag-secondary">Because You Belong Too.</Text>
+          <Text style={[styles.welcomeMsg, { fontSize: 13 * scale }]} testID="welcome-message">
             A friendly place to meet people, join conversations and feel connected.
           </Text>
         </View>
@@ -146,13 +146,20 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 6,
   },
-  tag2: { color: "#CCFBF1", textAlign: "center", marginTop: 6, fontWeight: "700" },
-  welcomeMsg: {
-    color: "rgba(255,255,255,0.96)",
+  tag2: {
+    color: "#CCFBF1",
     textAlign: "center",
-    marginTop: 14,
-    paddingHorizontal: 8,
-    lineHeight: 26,
+    marginTop: 6,
+    fontWeight: "700",
+    fontStyle: "italic",
+    letterSpacing: 0.3,
+  },
+  welcomeMsg: {
+    color: "rgba(255,255,255,0.92)",
+    textAlign: "center",
+    marginTop: 10,
+    paddingHorizontal: 14,
+    lineHeight: 19,
     fontWeight: "500",
   },
   actions: { gap: 12, marginTop: 28, marginBottom: 16 },

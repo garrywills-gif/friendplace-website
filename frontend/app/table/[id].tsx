@@ -1,21 +1,41 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView, Platform, Pressable } from "react-native";
+import {
+  View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView,
+  Platform, Pressable, Image, ActivityIndicator, Modal, Linking,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
+import { useToast } from "@/src/lib/toast";
 import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+
+type Msg = {
+  id: string;
+  user_id: string;
+  user_name?: string;
+  avatar?: string;
+  text?: string;
+  image?: string;
+};
 
 export default function TableChat() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { c, scale } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
+  const { show } = useToast();
   const [table, setTable] = useState<any>(null);
-  const [messages, setMessages] = useState<any[]>([]);
+  const [messages, setMessages] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [seated, setSeated] = useState<any[]>([]);
+  const [draftImage, setDraftImage] = useState<string | null>(null); // base64 preview before sending
+  const [picking, setPicking] = useState(false);
+  const [zoom, setZoom] = useState<string | null>(null); // full-screen image viewer
+  const [permBlocked, setPermBlocked] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<FlatList>(null);
 
@@ -37,18 +57,81 @@ export default function TableChat() {
       } else if (data.type === "presence") {
         setSeated((s) => {
           if (!data.user) return s;
-          if (data.event === "join") return s.find((u) => u.id === data.user.id) ? s : [...s, data.user];
-          return s.filter((u) => u.id !== data.user.id);
+          if (data.event === "join") return s.find((u: any) => u.id === data.user.id) ? s : [...s, data.user];
+          return s.filter((u: any) => u.id !== data.user.id);
         });
+      } else if (data.type === "error") {
+        show(data.message || "Send failed");
       }
     };
     return () => { ws.close(); if (user && id) api.leaveTable(id, user.id).catch(() => {}); };
   }, [id, user?.id]);
 
   const send = () => {
-    if (!text.trim() || wsRef.current?.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ text: text.trim() }));
-    setText("");
+    const t = text.trim();
+    if ((!t && !draftImage) || wsRef.current?.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ text: t, image: draftImage || "" }));
+    setText(""); setDraftImage(null);
+  };
+
+  /**
+   * Open the device photo library, compress the picked image to a small JPEG
+   * data-URI, and stage it as a draft so the user can review (and optionally
+   * add a caption) before sending. Follows the YouBelong permission contract:
+   * pre-request explanation is handled by the OS picker prompt for photos —
+   * we only ever need read-only access to a single picked item, which is the
+   * "ph_picker"-grade permission on iOS 14+ and Android 13+.
+   */
+  const pickPhoto = async () => {
+    if (picking) return;
+    setPicking(true);
+    try {
+      // On web Image Picker doesn't need permissions; on native it asks.
+      if (Platform.OS !== "web") {
+        const p = await ImagePicker.getMediaLibraryPermissionsAsync();
+        if (p.status !== "granted") {
+          const r = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (r.status !== "granted") {
+            if (!r.canAskAgain) setPermBlocked(true);
+            else show("Photo permission needed to share images");
+            return;
+          }
+        }
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.9,
+        base64: false,
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const asset = res.assets[0];
+      // Resize to a max long-edge of 1200 and re-encode as JPEG ~70% so we
+      // stay well under the backend's 600 KB cap on base64 payloads.
+      const longEdge = Math.max(asset.width || 1, asset.height || 1);
+      const targetW = (asset.width && (asset.width >= asset.height) && longEdge > 1200) ? 1200 : undefined;
+      const targetH = (asset.height && (asset.height > (asset.width || 0)) && longEdge > 1200) ? 1200 : undefined;
+      const actions: ImageManipulator.Action[] = [];
+      if (targetW) actions.push({ resize: { width: targetW } });
+      else if (targetH) actions.push({ resize: { height: targetH } });
+      const out = await ImageManipulator.manipulateAsync(asset.uri, actions, {
+        compress: 0.7,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      });
+      if (!out.base64) { show("Couldn't read photo"); return; }
+      const dataUri = `data:image/jpeg;base64,${out.base64}`;
+      // Guard against any too-large outliers (10:1 base64 vs file is the worst-case).
+      if (dataUri.length > 580_000) {
+        show("Photo too large — try a smaller one");
+        return;
+      }
+      setDraftImage(dataUri);
+    } catch (e) {
+      show("Couldn't open photo library");
+    } finally {
+      setPicking(false);
+    }
   };
 
   return (
@@ -74,23 +157,55 @@ export default function TableChat() {
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => {
             const mine = item.user_id === user?.id;
+            const hasImg = !!item.image;
             return (
               <View style={[styles.msgRow, { justifyContent: mine ? "flex-end" : "flex-start" }]}>
                 {!mine && <Text style={styles.av}>{item.avatar || "🙂"}</Text>}
-                <View style={[styles.bubble, { backgroundColor: mine ? c.brand : c.surfaceSecondary, borderColor: c.border, borderBottomLeftRadius: mine ? 18 : 4, borderBottomRightRadius: mine ? 4 : 18 }]}>
-                  {!mine && <Text style={[styles.author, { color: c.muted, fontSize: 13 * scale }]}>{item.user_name}</Text>}
-                  <Text style={[styles.body, { color: mine ? "#FFF" : c.onSurface, fontSize: 16 * scale }]}>{item.text}</Text>
+                <View style={[styles.bubble, { backgroundColor: mine ? c.brand : c.surfaceSecondary, borderColor: c.border, borderBottomLeftRadius: mine ? 18 : 4, borderBottomRightRadius: mine ? 4 : 18, padding: hasImg ? 6 : 12 }]}>
+                  {!mine && !hasImg && <Text style={[styles.author, { color: c.muted, fontSize: 13 * scale }]}>{item.user_name}</Text>}
+                  {hasImg && (
+                    <Pressable testID={`msg-img-${item.id}`} onPress={() => setZoom(item.image!)}>
+                      {!mine && <Text style={[styles.authorOnImg, { fontSize: 13 * scale }]}>{item.user_name}</Text>}
+                      <Image source={{ uri: item.image! }} style={styles.msgImage} resizeMode="cover" />
+                    </Pressable>
+                  )}
+                  {!!item.text && (
+                    <Text style={[styles.body, { color: mine ? "#FFF" : c.onSurface, fontSize: 16 * scale, paddingHorizontal: hasImg ? 6 : 0, paddingTop: hasImg ? 6 : 0, paddingBottom: hasImg ? 4 : 0 }]}>{item.text}</Text>
+                  )}
                 </View>
               </View>
             );
           }}
         />
+
+        {draftImage && (
+          <View style={[styles.draftBar, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Image source={{ uri: draftImage }} style={styles.draftThumb} resizeMode="cover" />
+            <View style={{ flex: 1, marginLeft: 10 }}>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Photo ready to send</Text>
+              <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>Add a caption below (optional)</Text>
+            </View>
+            <Pressable testID="draft-remove" onPress={() => setDraftImage(null)} hitSlop={10} style={[styles.draftClose, { backgroundColor: c.error }]}>
+              <Ionicons name="close" size={18} color="#FFF" />
+            </Pressable>
+          </View>
+        )}
+
         <View style={[styles.composer, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <Pressable
+            testID="table-photo"
+            onPress={pickPhoto}
+            disabled={picking}
+            accessibilityLabel="Add a photo"
+            style={({ pressed }) => [styles.photoBtn, { backgroundColor: c.surfaceTertiary, opacity: pressed || picking ? 0.6 : 1 }]}
+          >
+            {picking ? <ActivityIndicator color={c.brand} size="small" /> : <Ionicons name="image" size={24} color={c.brand} />}
+          </Pressable>
           <TextInput
             testID="table-input"
             value={text}
             onChangeText={setText}
-            placeholder="Say something kind…"
+            placeholder={draftImage ? "Add a caption…" : "Say something kind…"}
             placeholderTextColor={c.muted}
             style={{ flex: 1, color: c.onSurface, fontSize: 17 * scale, paddingVertical: 10, paddingHorizontal: 12 }}
             multiline
@@ -101,6 +216,35 @@ export default function TableChat() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Full-screen image viewer */}
+      <Modal visible={!!zoom} transparent animationType="fade" onRequestClose={() => setZoom(null)}>
+        <Pressable style={styles.zoomBg} onPress={() => setZoom(null)}>
+          {zoom && <Image source={{ uri: zoom }} style={styles.zoomImg} resizeMode="contain" />}
+          <Pressable onPress={() => setZoom(null)} style={styles.zoomClose} hitSlop={10}>
+            <Ionicons name="close-circle" size={42} color="#FFFFFFEE" />
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Permanent-deny → open device Settings */}
+      <Modal visible={permBlocked} transparent animationType="fade" onRequestClose={() => setPermBlocked(false)}>
+        <View style={styles.permBg}>
+          <View style={[styles.permCard, { backgroundColor: c.surface }]}>
+            <Text style={{ fontSize: 36 }}>📷</Text>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale, marginTop: 6, textAlign: "center" }}>Photo access blocked</Text>
+            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center", lineHeight: 22 }}>
+              To share photos in the Coffee Lounge, allow YouBelong access to your photos in Settings.
+            </Text>
+            <Pressable onPress={() => { setPermBlocked(false); Linking.openSettings(); }} style={[styles.permBtn, { backgroundColor: c.brand }]}>
+              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Open Settings</Text>
+            </Pressable>
+            <Pressable onPress={() => setPermBlocked(false)} style={[styles.permBtn, { borderColor: c.border, borderWidth: 1.5, marginTop: 6 }]}>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Not now</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -110,9 +254,21 @@ const styles = StyleSheet.create({
   seatChip: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", borderWidth: 2 },
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 6 },
   av: { fontSize: 24 },
-  bubble: { maxWidth: "76%", borderRadius: 18, padding: 12, borderWidth: 1 },
+  bubble: { maxWidth: "76%", borderRadius: 18, borderWidth: 1, overflow: "hidden" },
   author: { fontWeight: "700", marginBottom: 2 },
+  authorOnImg: { fontWeight: "700", marginBottom: 4, marginTop: 2, marginLeft: 6, color: "#475569" },
   body: { fontWeight: "500" },
+  msgImage: { width: 240, height: 240, borderRadius: 12, backgroundColor: "#E2E8F0" },
   composer: { flexDirection: "row", alignItems: "flex-end", padding: 8, borderTopWidth: 1, gap: 8 },
+  photoBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   sendBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  draftBar: { flexDirection: "row", alignItems: "center", padding: 10, borderTopWidth: 1, gap: 6 },
+  draftThumb: { width: 56, height: 56, borderRadius: 10, backgroundColor: "#E2E8F0" },
+  draftClose: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  zoomBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center" },
+  zoomImg: { width: "100%", height: "100%" },
+  zoomClose: { position: "absolute", top: 40, right: 18 },
+  permBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
+  permCard: { width: "100%", maxWidth: 420, borderRadius: 20, padding: 22, alignItems: "center" },
+  permBtn: { marginTop: 14, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 999, minHeight: 48, alignItems: "center", justifyContent: "center", alignSelf: "stretch" },
 });
