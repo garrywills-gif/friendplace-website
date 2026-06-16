@@ -114,3 +114,15 @@ On first startup the backend seeds 8 demo users, 7 tables (with starter messages
 - `/app/frontend/app/games/{index,bingo,trivia,wordsearch,jigsaw,quiz}.tsx`
 - `/app/frontend/src/lib/{theme,auth,api,toast}.tsx`
 - `/app/frontend/src/components/{Button,Header}.tsx`
+
+## Future / Backlog (parked — not building yet)
+
+### Local Business Sponsorships (V2 — after user growth)
+- **Why parked**: Need a critical mass of engaged members before ad inventory is valuable to local businesses. Build the audience first, monetisation second.
+- **Concept**: Local cafés, libraries, RSL clubs, fitness studios pay (or free for charities) to host/sponsor real-world events. Returns: sponsor profile card, branded event tile, member perks (e.g. "10% off"), map pin in "Friendly Places Near Me", optional Sponsor-of-the-Week spotlight.
+- **Tiers**: Free Community (libraries/charities) · Local ~$15–30/mo · Partner ~$80/mo.
+- **"First Post Free" hook**: When auto-detector flags commercial content from a non-sponsor, show friendly modal — "Your first post is on us 🎁" — then prompt to subscribe. One-shot per email+phone, 7-day expiry, still wears "Sponsored" chip, still moderated by Maggie. Acts as both growth funnel AND moderation tool (same keyword detector powers both).
+- **Anti-promotion guardrails to build alongside**: Community Rules screen + signup tickbox · "Promoting a business" report reason · Auto-flag URLs/prices/commercial keywords → admin queue · Rate-limits for new accounts (2 posts/day, 1 event/week for first 48 hrs) · Business-name detection on profiles.
+- **Tech**: New `sponsors` collection · `events.sponsor_id` linkage · Stripe Subscriptions (test key already in pod) · Admin approval queue in existing Maggie dashboard.
+- **Trust**: All sponsors manually approved · No DMs to members · No tracking pixels · Clear "Sponsored" labels.
+- **Trigger to revisit**: When DAU > ~500 or specific local businesses start asking how they can promote.
