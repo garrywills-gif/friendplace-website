@@ -404,6 +404,16 @@ async def signup(body: SignupBody):
                 "read": False,
                 "created_at": now_iso(),
             })
+            # Also drop a celebratory Flutter on the inviter's Home feed —
+            # more visible than the bell-icon counter and feels like a real
+            # "hello from your new friend".
+            await db.flutters.insert_one(FlutterDoc(
+                from_id=user.id,
+                to_id=referrer["id"],
+                from_name=user.first_name or user.username,
+                from_avatar=doc.get("avatar") or "🦋",
+                message="🎉 Just joined through your invite — say hi!",
+            ).dict())
     await db.users.insert_one(doc)
     # Award any new milestone badges to the inviter now that the new account
     # is committed and `invited_by` is on file.
@@ -604,6 +614,15 @@ async def auth_google(body: GoogleAuthBody):
                 "body": f"{user.first_name or user.username} just joined YouBelong through your share link. Welcome them in!",
                 "data": {"user_id": user.id}, "read": False, "created_at": now_iso(),
             })
+            # Drop a Flutter on the inviter's Home feed — more visible than
+            # the bell counter, makes the moment feel like a real "hello".
+            await db.flutters.insert_one(FlutterDoc(
+                from_id=user.id,
+                to_id=referrer["id"],
+                from_name=user.first_name or user.username,
+                from_avatar=doc.get("avatar") or "🦋",
+                message="🎉 Just joined through your invite — say hi!",
+            ).dict())
 
     await db.users.insert_one(doc)
     # Award invite-milestone badges to the inviter (idempotent).

@@ -50,7 +50,14 @@ export default function Lounge() {
   const load = async () => {
     try { setTables(await api.listTables(user?.id)); } catch (e) { show("Failed to load lounge"); }
   };
-  useFocusEffect(useCallback(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user?.id]));
+  // Refresh on focus AND every 30s while the screen is in view so presence
+  // (active-now, friends-here) feels live without a manual pull-to-refresh.
+  useFocusEffect(useCallback(() => {
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [user?.id]));
 
   const create = async () => {
     if (!user || !name.trim()) { show("Give your table a name"); return; }
