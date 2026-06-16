@@ -10,6 +10,7 @@ import SuburbField from "@/src/components/SuburbField";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import PeopleAvatarPicker from "@/src/components/PeopleAvatarPicker";
 
 const EMOJI_AVATARS = ["\uD83E\uDD8B", "\uD83C\uDF38", "\uD83C\uDF3A", "\u2615\uFE0F", "\uD83C\uDFA8", "\uD83C\uDFB5", "\uD83C\uDFB2", "\uD83C\uDF31", "\uD83D\uDC15", "\uD83D\uDC08", "\uD83C\uDF55", "\uD83C\uDF70"];
 const INTERESTS = ["Gardening", "Cooking", "Reading", "Travel", "Movies", "Music", "Walking", "Pets", "History", "Art", "Crafts", "Sports", "Family", "Volunteering", "Photography", "Bird watching"];
@@ -103,7 +104,10 @@ export default function ProfileEdit() {
               </Pressable>
             </View>
           </View>
-          <Text style={[styles.section, { color: c.muted, marginTop: 14 }]}>OR PICK AN EMOJI</Text>
+          <Text style={[styles.section, { color: c.muted, marginTop: 14 }]}>OR PICK A FACE</Text>
+          <PeopleAvatarPicker value={avatar} onChange={setAvatar} previewSize={84} compact />
+
+          <Text style={[styles.section, { color: c.muted, marginTop: 18 }]}>OR PICK A FUN EMOJI</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             {EMOJI_AVATARS.map((e) => (
               <Pressable key={e} onPress={() => setAvatar(e)} style={[styles.emojiBtn, { backgroundColor: avatar === e ? c.brand : c.surfaceTertiary, borderColor: avatar === e ? c.brand : c.border }]}>

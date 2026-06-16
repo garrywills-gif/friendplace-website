@@ -26,6 +26,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import SuburbField from "@/src/components/SuburbField";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import PeopleAvatarPicker from "@/src/components/PeopleAvatarPicker";
 
 // Interest chip set — kept friendly and Australia-leaning to match the seed
 // data. 16 keeps the grid balanced on phone widths.
@@ -258,11 +259,14 @@ export default function OnboardingWizard() {
         Pick a profile picture
       </Text>
       <Text style={[styles.body, { color: c.muted, fontSize: 15 * scale }]}>
-        Choose an emoji that feels like you. You can swap it for a real photo later.
+        Build a friendly face — or pick a fun emoji further down.
       </Text>
-      <View style={[styles.avatarPreviewWrap, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
-        <AvatarBubble value={avatar} size={72} fallback="🦋" />
+      <View style={{ marginTop: 8 }}>
+        <PeopleAvatarPicker value={avatar} onChange={setAvatar} previewSize={92} />
       </View>
+      <Text style={[styles.body, { color: c.muted, fontSize: 13 * scale, marginTop: 14 }]}>
+        Or pick a fun emoji
+      </Text>
       <View style={styles.avatarGrid}>
         {AVATARS.map((a) => (
           <Pressable
