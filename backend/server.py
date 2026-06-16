@@ -3609,9 +3609,23 @@ class AdminHardDeleteBody(BaseModel):
 @api.get("/admin/invite-flyer")
 async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
-    for printing and pinning up at community centres, libraries and clubs.
-    The design leads with a large YOU BELONG wordmark, a warm headline, four
-    feature-icon chips, a centred QR code, and an optional venue line.
+    for printing and pinning up at noticeboards. The layout is intentionally
+    BOLD and TYPOGRAPHIC so it works at a glance from across a room:
+
+        ┌────────────────────────────┐
+        │     YOUBELONG (huge)       │  ← navy banner, fills top
+        ├────────────────────────────┤
+        │  FIND YOUR PEOPLE.         │  ← big bold headline
+        │                            │
+        │  Lead description (large)  │
+        │  Sub description (medium)  │
+        │                            │
+        │     [ Large QR code ]      │  ← higher on page
+        │     Scan to Join Free      │
+        │     youbelongapp.com       │
+        │                            │
+        │ Because You Belong Too.    │  ← footer line
+        └────────────────────────────┘
     """
     await _require_admin(admin_id)
     import io
@@ -3619,7 +3633,7 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     from PIL import Image, ImageDraw, ImageFont
     from fastapi.responses import Response
 
-    target_url = (url or "").strip() or "https://youbelong.app"
+    target_url = (url or "").strip() or "https://youbelongapp.com"
     venue = (venue or "").strip()[:80]
 
     # A4 portrait at ~150 dpi
@@ -3628,41 +3642,77 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     TEAL = "#0F766E"
     INK = "#0F172A"
     SLATE = "#475569"
-    SKY_LIGHT = "#E0F2FE"
     img = Image.new("RGB", (W, H), "#FFFFFF")
     d = ImageDraw.Draw(img)
 
-    # Top banner — wraps the wordmark in a rich navy block.
-    BANNER_H = 280
-    d.rectangle([0, 0, W, BANNER_H], fill=NAVY)
-    # Bottom footer stripe.
-    FOOTER_H = 90
-    d.rectangle([0, H - FOOTER_H, W, H], fill=NAVY)
-
-    def font(size: int, bold: bool = True) -> ImageFont.FreeTypeFont:
-        for cand in (
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        ):
+    def font(size: int, bold: bool = True, italic: bool = False,
+             condensed: bool = False) -> ImageFont.FreeTypeFont:
+        bases: list[str] = []
+        if condensed:
+            # Condensed variant lets the wordmark grow significantly without
+            # blowing past the page margins (regular Bold tops out around 180pt
+            # for "YOUBELONG"; condensed bold easily reaches ~250pt).
+            if bold and italic:
+                bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-BoldOblique.ttf")
+            elif bold:
+                bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf")
+            elif italic:
+                bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Oblique.ttf")
+            else:
+                bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf")
+        if italic and bold:
+            bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf")
+        elif italic:
+            bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf")
+        elif bold:
+            bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+        bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+        for cand in bases:
             try:
                 return ImageFont.truetype(cand, size)
             except Exception:
                 continue
         return ImageFont.load_default()
 
-    def centre(text: str, y: int, fnt: ImageFont.FreeTypeFont, fill: str = INK):
-        bbox = d.textbbox((0, 0), text, font=fnt)
-        d.text(((W - (bbox[2] - bbox[0])) / 2, y), text, font=fnt, fill=fill)
+    def text_w(text: str, fnt: ImageFont.FreeTypeFont) -> int:
+        b = d.textbbox((0, 0), text, font=fnt)
+        return b[2] - b[0]
 
-    def wrap_centre(text: str, y: int, fnt: ImageFont.FreeTypeFont, fill: str, max_w: int, line_gap: int = 8) -> int:
-        """Word-wrap to fit max_w; returns the y after the final line."""
+    def text_h(text: str, fnt: ImageFont.FreeTypeFont) -> int:
+        b = d.textbbox((0, 0), text, font=fnt)
+        return b[3] - b[1]
+
+    def centre(text: str, y: int, fnt: ImageFont.FreeTypeFont, fill: str = INK) -> int:
+        """Draw `text` centred horizontally at vertical `y`. Returns the
+        baseline-bottom y so callers can chain calls easily."""
+        b = d.textbbox((0, 0), text, font=fnt)
+        d.text(((W - (b[2] - b[0])) / 2, y), text, font=fnt, fill=fill)
+        return y + (b[3] - b[1])
+
+    def fit_centred(text: str, y: int, max_w: int, start_size: int,
+                    min_size: int, fill: str, bold: bool = True,
+                    condensed: bool = False) -> tuple[int, int]:
+        """Pick the largest font size in [min_size .. start_size] that fits
+        `text` within `max_w`, then draw it centred. Returns (bottom_y, size_used).
+        """
+        size = start_size
+        while size > min_size:
+            f = font(size, bold=bold, condensed=condensed)
+            if text_w(text, f) <= max_w:
+                break
+            size -= 6
+        f = font(size, bold=bold, condensed=condensed)
+        bottom = centre(text, y, f, fill)
+        return bottom, size
+
+    def wrap_centre(text: str, y: int, fnt: ImageFont.FreeTypeFont, fill: str,
+                    max_w: int, line_gap: int = 12) -> int:
         words = text.split()
         lines: list[str] = []
         cur = ""
         for w_ in words:
             cand = (cur + " " + w_).strip()
-            bbox = d.textbbox((0, 0), cand, font=fnt)
-            if bbox[2] - bbox[0] <= max_w:
+            if text_w(cand, fnt) <= max_w:
                 cur = cand
             else:
                 if cur:
@@ -3671,96 +3721,38 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
         if cur:
             lines.append(cur)
         for line in lines:
-            bbox = d.textbbox((0, 0), line, font=fnt)
-            d.text(((W - (bbox[2] - bbox[0])) / 2, y), line, font=fnt, fill=fill)
-            y += (bbox[3] - bbox[1]) + line_gap
+            b = d.textbbox((0, 0), line, font=fnt)
+            d.text(((W - (b[2] - b[0])) / 2, y), line, font=fnt, fill=fill)
+            y += (b[3] - b[1]) + line_gap
         return y
 
-    # ─── Top banner: YOU BELONG ──────────────────────────────────────────
-    centre("YOU BELONG.", 60, font(150), "#FFFFFF")
-    centre("a friendly community & friendship app", 220, font(34, bold=False), "#CCFBF1")
+    # ─── Top banner: YOUBELONG — the dominant brand-mark on the flyer. ─────
+    # Use the Condensed Bold cut so the wordmark can grow to ~190pt and span
+    # almost the full page width — about 3× bigger than the previous flyer.
+    BANNER_H = 280
+    d.rectangle([0, 0, W, BANNER_H], fill=NAVY)
+    SIDE = 100  # body-text margin used elsewhere on the page
+    fit_centred("YOUBELONG", 70, W - 60, start_size=200, min_size=160,
+                fill="#FFFFFF", bold=True, condensed=True)
 
     # ─── Headline ────────────────────────────────────────────────────────
-    centre("Meet People. Make Friends.", 330, font(64), NAVY)
-    centre("Feel Connected.", 410, font(64), TEAL)
+    HEAD_Y = BANNER_H + 60
+    fit_centred("FIND YOUR PEOPLE.", HEAD_Y, W - 2 * SIDE,
+                start_size=110, min_size=72, fill=NAVY, bold=True)
 
-    # ─── Description (wrapped) ───────────────────────────────────────────
-    desc = ("Join local events, chat in the Coffee Lounge, discover community "
-            "groups, share interests and make new friends.")
-    wrap_centre(desc, 500, font(34, bold=False), SLATE, max_w=W - 160, line_gap=10)
+    # ─── Lead description ────────────────────────────────────────────────
+    lead = ("Meet new friends, join local events, chat in the Coffee Lounge, "
+            "and connect with people who share your interests.")
+    lead_y = wrap_centre(lead, HEAD_Y + 150, font(38, bold=False), INK,
+                         max_w=W - 2 * SIDE, line_gap=12)
 
-    # ─── Feature icon row ────────────────────────────────────────────────
-    # Draw simple, friendly icons inside circular tinted badges so the flyer
-    # reads as warm + community-oriented without needing colour-emoji fonts.
-    ICON_Y = 690
-    ICON_SIZE = 110  # diameter of the tinted circle
-    LABEL_Y = ICON_Y + ICON_SIZE + 22
-    cols = 4
-    pad = 30
-    col_w = (W - 2 * pad) // cols
+    sub = ("Whether you're new to the area, looking to expand your social "
+           "circle, or simply want to feel more connected, YouBelong helps "
+           "bring people together through friendship, community, and belonging.")
+    wrap_centre(sub, lead_y + 24, font(30, bold=False), SLATE,
+                max_w=W - 2 * SIDE, line_gap=10)
 
-    def draw_chip(idx: int, tint: str, label: str, draw_icon):
-        cx = pad + col_w * idx + col_w // 2
-        cy = ICON_Y + ICON_SIZE // 2
-        d.ellipse([cx - ICON_SIZE // 2, cy - ICON_SIZE // 2,
-                   cx + ICON_SIZE // 2, cy + ICON_SIZE // 2], fill=tint)
-        draw_icon(cx, cy)
-        # Label: two lines centred under the chip.
-        fnt = font(26)
-        words = label.split()
-        if len(words) == 2:
-            for i, w_ in enumerate(words):
-                bbox = d.textbbox((0, 0), w_, font=fnt)
-                d.text((cx - (bbox[2] - bbox[0]) / 2, LABEL_Y + i * 34), w_, font=fnt, fill=INK)
-        else:
-            bbox = d.textbbox((0, 0), label, font=fnt)
-            d.text((cx - (bbox[2] - bbox[0]) / 2, LABEL_Y), label, font=fnt, fill=INK)
-
-    def icon_coffee(cx, cy):
-        # White mug body
-        d.rounded_rectangle([cx - 32, cy - 18, cx + 22, cy + 28], radius=10, fill="#FFFFFF")
-        # Handle
-        d.ellipse([cx + 14, cy - 8, cx + 38, cy + 18], outline="#FFFFFF", width=6)
-        # Steam (3 short lines)
-        for off in (-18, -4, 10):
-            d.line([cx + off, cy - 36, cx + off + 4, cy - 22], fill="#FFFFFF", width=4)
-
-    def icon_calendar(cx, cy):
-        # Sheet
-        d.rounded_rectangle([cx - 34, cy - 26, cx + 34, cy + 30], radius=8, fill="#FFFFFF")
-        # Top red strip
-        d.rectangle([cx - 34, cy - 26, cx + 34, cy - 10], fill="#DC2626")
-        d.rounded_rectangle([cx - 34, cy - 26, cx + 34, cy - 22], radius=4, fill="#DC2626")
-        # Hanger ticks
-        d.rectangle([cx - 22, cy - 34, cx - 14, cy - 18], fill="#0F172A")
-        d.rectangle([cx + 14, cy - 34, cx + 22, cy - 18], fill="#0F172A")
-        # A few day-dots
-        for r in range(2):
-            for col_i in range(3):
-                d.ellipse([cx - 22 + col_i * 18, cy - 2 + r * 14,
-                           cx - 14 + col_i * 18, cy + 6 + r * 14], fill="#94A3B8")
-
-    def icon_people(cx, cy):
-        # Two heads + shoulders silhouettes (white on tint)
-        for off, sc in ((-18, 1.0), (18, 1.0)):
-            d.ellipse([cx + off - 16, cy - 28, cx + off + 16, cy + 4], fill="#FFFFFF")
-            d.chord([cx + off - 26, cy + 6, cx + off + 26, cy + 50], 180, 360, fill="#FFFFFF")
-
-    def icon_globe(cx, cy):
-        d.ellipse([cx - 36, cy - 36, cx + 36, cy + 36], fill="#FFFFFF")
-        # Latitude lines
-        d.arc([cx - 36, cy - 36, cx + 36, cy + 36], 0, 360, fill="#10B981", width=4)
-        d.line([cx - 34, cy, cx + 34, cy], fill="#10B981", width=4)
-        # Vertical meridian
-        d.arc([cx - 14, cy - 36, cx + 14, cy + 36], 0, 360, fill="#10B981", width=4)
-        d.line([cx, cy - 34, cx, cy + 34], fill="#10B981", width=4)
-
-    draw_chip(0, "#92400E", "Coffee Lounge", icon_coffee)
-    draw_chip(1, "#0369A1", "Local Events", icon_calendar)
-    draw_chip(2, "#7C3AED", "Make Friends", icon_people)
-    draw_chip(3, "#0F766E", "Community Groups", icon_globe)
-
-    # ─── QR code section (slightly reduced from 720→520 so branding leads) ──
+    # ─── QR code (large, positioned high on page so it's easy to scan) ──
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -3769,25 +3761,28 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     qr.add_data(target_url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color=INK, back_color="#FFFFFF").convert("RGB")
-    qr_size = 520
+    qr_size = 600
     qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
     qr_x = (W - qr_size) // 2
-    qr_y = 920
+    qr_y = 880
     img.paste(qr_img, (qr_x, qr_y))
-    # Soft frame.
-    d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14], outline=NAVY, width=4)
+    d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14],
+                outline=NAVY, width=4)
 
-    # ─── CTA + URL ────────────────────────────────────────────────────────
-    cta_y = qr_y + qr_size + 50
-    centre("Scan to join today", cta_y, font(56), NAVY)
-    centre(target_url, cta_y + 80, font(28, bold=False), SLATE)
+    # ─── CTA + URL + closing line ─────────────────────────────────────────
+    # Stack three lines tightly so they all fit within page-height (1754):
+    #   1. Scan to Join Free (large)
+    #   2. youbelongapp.com (medium)
+    #   3. Because You Belong Too. (italic, brand colour)
+    cta_y = qr_y + qr_size + 30  # 1580
+    centre("Scan to Join Free", cta_y, font(56), NAVY)
+    centre(target_url.replace("https://", "").replace("http://", ""),
+           cta_y + 70, font(30, bold=False), SLATE)
+    centre("Because You Belong Too.", cta_y + 116, font(40, italic=True), TEAL)
 
-    # ─── Footer stripe ────────────────────────────────────────────────────
-    footer_y = H - FOOTER_H + 12
+    # Optional small venue line — squeezed between QR and CTA when supplied.
     if venue:
-        centre(f"Hosted by {venue}", footer_y + 16, font(30), "#FFFFFF")
-    else:
-        centre("youbelong.app  ·  Print, pin up, bring a friend", footer_y + 16, font(28, bold=False), "#FFFFFF")
+        centre(f"Posted by {venue}", qr_y - 38, font(22, bold=False), SLATE)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
