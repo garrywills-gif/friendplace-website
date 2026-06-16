@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 type Comment = { id: string; user_id: string; user_name: string; user_avatar: string; body: string; created_at: string };
 
@@ -96,7 +97,7 @@ export default function RecipeView() {
         <View style={{ padding: 16 }}>
           <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 24 * scale }}>{rec.title}</Text>
           <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8, gap: 8 }}>
-            <Text style={{ fontSize: 24 }}>{rec.author_avatar}</Text>
+            <AvatarBubble value={rec.author_avatar} size={24} />
             <Text style={{ color: c.muted, fontSize: 14 * scale }}>by {rec.author_name}</Text>
           </View>
 
@@ -143,7 +144,7 @@ export default function RecipeView() {
           <View style={{ gap: 8, marginTop: 8 }}>
             {(rec.comments||[]).map((cm: Comment) => (
               <View key={cm.id} style={[styles.comment, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-                <Text style={{ fontSize: 22 }}>{cm.user_avatar}</Text>
+                <AvatarBubble value={cm.user_avatar} size={22} />
                 <View style={{ flex: 1, marginLeft: 10 }}>
                   <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 14 * scale }}>{cm.user_name}</Text>
                   <Text style={{ color: c.onSurface, fontSize: 14 * scale, marginTop: 2 }}>{cm.body}</Text>

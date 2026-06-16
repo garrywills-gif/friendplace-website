@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 type Admin = { id: string; username: string; first_name?: string; avatar?: string; suburb?: string };
 type Result = Admin & { last_name?: string; is_admin?: boolean; restricted?: boolean; banned?: boolean };
@@ -144,7 +145,7 @@ export default function AdminPromote() {
           <View style={{ gap: 8 }}>
             {admins.map((a) => (
               <View key={a.id} style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-                <Text style={{ fontSize: 28 }}>{a.avatar || "👤"}</Text>
+                <AvatarBubble value={a.avatar} size={28} fallback="👤" />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 15 * scale }}>
                     {a.first_name || ""} <Text style={{ color: c.muted, fontWeight: "600" }}>@{a.username}</Text>
@@ -209,7 +210,7 @@ export default function AdminPromote() {
             const isAdmin = r.is_admin || adminIdSet.has(r.id);
             return (
               <View key={r.id} style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-                <Text style={{ fontSize: 28 }}>{r.avatar || "👤"}</Text>
+                <AvatarBubble value={r.avatar} size={28} fallback="👤" />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 15 * scale }}>
                     {r.first_name || ""} {r.last_name || ""} <Text style={{ color: c.muted, fontWeight: "600" }}>@{r.username}</Text>

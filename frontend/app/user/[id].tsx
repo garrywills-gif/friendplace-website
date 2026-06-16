@@ -9,6 +9,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import ReportSheet from "@/src/components/ReportSheet";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 export default function UserView() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -68,7 +69,7 @@ export default function UserView() {
       <Header title={u.first_name} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
         <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
-          <View style={[styles.av, { backgroundColor: c.surfaceSecondary }]}><Text style={{ fontSize: 60 }}>{u.avatar || "🙂"}</Text></View>
+          <View style={[styles.av, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}><AvatarBubble value={u.avatar} size={u.avatar && /^https?:\/\//i.test(u.avatar) ? 110 : 70} fallback="🙂" /></View>
           <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{u.first_name}</Text>
           <Text style={{ color: c.muted, fontSize: 16 * scale }}>@{u.username} · 📍 {u.suburb || "—"}</Text>
           {!!u.status && (

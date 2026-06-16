@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 type Req = { id: string; from_id: string; to_id: string; status: string; created_at: string; other?: { id: string; first_name: string; username: string; avatar: string; suburb: string } };
 
@@ -60,7 +61,7 @@ export default function FriendsInbox() {
         renderItem={({ item }) => (
           <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <View style={styles.cardHead}>
-              <Text style={{ fontSize: 40 }}>{item.other?.avatar || "🙂"}</Text>
+              <AvatarBubble value={item.other?.avatar} size={40} fallback="🙂" />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>{item.other?.first_name || item.other?.username || "Someone"}</Text>
                 <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>@{item.other?.username}{item.other?.suburb ? `  ·  ${item.other.suburb}` : ""}</Text>

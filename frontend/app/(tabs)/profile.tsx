@@ -9,6 +9,7 @@ import { useToast } from "@/src/lib/toast";
 import Button from "@/src/components/Button";
 import ShareYouBelong from "@/src/components/ShareYouBelong";
 import { api } from "@/src/lib/api";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 const ALL_BADGES = [
   "Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder",
@@ -68,7 +69,7 @@ export default function Profile() {
   return (
     <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 16, backgroundColor: c.surface, paddingBottom: 100 }]}>
       <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
-        <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary }]}><Text style={{ fontSize: 60 }}>{user.avatar || "🙂"}</Text></View>
+        <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}><AvatarBubble value={user.avatar} size={user.avatar && /^https?:\/\//i.test(user.avatar) ? 110 : 70} fallback="🙂" /></View>
         <Text style={[styles.name, { color: c.onSurface, fontSize: 30 * scale }]} testID="profile-name">{user.first_name}</Text>
         <Text style={[styles.user, { color: c.muted, fontSize: 16 * scale }]}>@{user.username} · 📍 {user.suburb || "—"}</Text>
         {!!user.bio && <Text style={[styles.bio, { color: c.onSurface, fontSize: 16 * scale }]}>{user.bio}</Text>}
@@ -88,11 +89,16 @@ export default function Profile() {
           }]}
         >
           <Text style={{ fontSize: 28 }}>🦋</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "700", letterSpacing: 0.5 }}>YOU JOINED BECAUSE</Text>
-            <Text style={{ color: c.onSurface, fontSize: 16 * scale, fontWeight: "800", marginTop: 2 }}>
-              {inviter.avatar ? `${inviter.avatar} ` : ""}{inviter.first_name || inviter.username} invited you
-            </Text>
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View>
+              <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "700", letterSpacing: 0.5 }}>YOU JOINED BECAUSE</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
+                {inviter.avatar ? <AvatarBubble value={inviter.avatar} size={20} /> : null}
+                <Text style={{ color: c.onSurface, fontSize: 16 * scale, fontWeight: "800" }}>
+                  {inviter.first_name || inviter.username} invited you
+                </Text>
+              </View>
+            </View>
           </View>
           <Ionicons name="chevron-forward" size={22} color={c.muted} />
         </Pressable>
@@ -150,7 +156,7 @@ export default function Profile() {
         <View style={styles.row}>
           {friends.map((f) => (
             <Pressable key={f.id} onPress={() => router.push(`/user/${f.id}` as any)} style={[styles.friendDot, { backgroundColor: c.brandTertiary }]}>
-              <Text style={{ fontSize: 28 }}>{f.avatar || "🙂"}</Text>
+              <AvatarBubble value={f.avatar} size={28} fallback="🙂" />
               <Text style={{ color: c.onBrandTertiary, fontWeight: "700", fontSize: 13 * scale, marginTop: 4 }}>{f.first_name}</Text>
             </Pressable>
           ))}
@@ -277,7 +283,10 @@ export default function Profile() {
                           onPress={() => setAlertSelected((prev) => on ? prev.filter((x) => x !== f.id) : (prev.length < 20 ? [...prev, f.id] : prev))}
                           style={[styles.chip, { backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}
                         >
-                          <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontWeight: "700", fontSize: 13 * scale }}>{f.avatar} {f.first_name}</Text>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                            <AvatarBubble value={f.avatar} size={16} />
+                            <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontWeight: "700", fontSize: 13 * scale }}>{f.first_name}</Text>
+                          </View>
                         </Pressable>
                       );
                     })}

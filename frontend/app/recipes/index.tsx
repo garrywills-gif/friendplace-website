@@ -6,6 +6,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 type Recipe = {
   id: string;
@@ -112,7 +113,7 @@ export default function RecipesList() {
               <View style={{ padding: 12 }}>
                 <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 18 * scale }}>{r.title}</Text>
                 <View style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 6 }}>
-                  <Text style={{ fontSize: 20 }}>{r.author_avatar}</Text>
+                  <AvatarBubble value={r.author_avatar} size={20} />
                   <Text style={{ color: c.muted, fontSize: 13 * scale }}>by {r.author_name}</Text>
                 </View>
                 {!!r.ingredients && (

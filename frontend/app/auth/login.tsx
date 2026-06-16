@@ -8,6 +8,7 @@ import { api } from "@/src/lib/api";
 import Button from "@/src/components/Button";
 import Header from "@/src/components/Header";
 import PasswordField from "@/src/components/PasswordField";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 type DemoAccount = { username: string; first_name: string; avatar: string; suburb: string };
 
@@ -109,7 +110,7 @@ export default function Login() {
               <View style={styles.demoRow}>
                 {demos.map((d) => (
                   <Pressable key={d.username} testID={`demo-${d.username}`} onPress={() => useDemo(d.username)} style={[styles.demoBtn, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
-                    <Text style={{ fontSize: 28 }}>{d.avatar || "🙂"}</Text>
+                    <AvatarBubble value={d.avatar} size={28} fallback="🙂" />
                     <Text style={{ color: c.onBrandTertiary, fontSize: 15 * scale, fontWeight: "800", marginTop: 4 }}>{d.first_name || d.username}</Text>
                     <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>@{d.username}</Text>
                   </Pressable>

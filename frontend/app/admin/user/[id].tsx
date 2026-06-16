@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 const ACTION_TINT: Record<string, string> = {
   warn: "#F59E0B",
@@ -162,7 +163,7 @@ export default function AdminUserReview() {
             {/* Header card */}
             <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
-                <Text style={{ fontSize: 38 }}>{u.avatar || "👤"}</Text>
+                <AvatarBubble value={u.avatar} size={38} fallback="👤" />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 18 * scale }}>{u.first_name || "—"} <Text style={{ color: c.muted, fontWeight: "600" }}>@{u.username}</Text></Text>
                   <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>{u.suburb || "Suburb hidden"} · joined {shortDate(u.created_at)}</Text>

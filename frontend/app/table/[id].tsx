@@ -12,6 +12,8 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import CoffeeTableSeating from "@/src/components/CoffeeTableSeating";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 type Msg = {
   id: string;
@@ -137,17 +139,11 @@ export default function TableChat() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title={table ? `${table.emoji} ${table.name}` : "Table"} />
-      <View style={[styles.seatedBar, { backgroundColor: c.brandTertiary }]}>
-        <Ionicons name="people" size={18} color={c.brand} />
-        <Text style={{ color: c.brand, fontWeight: "700", marginLeft: 6, fontSize: 14 * scale }}>{seated.length} seated</Text>
-        <View style={{ flex: 1, flexDirection: "row", justifyContent: "flex-end" }}>
-          {seated.slice(0, 5).map((u, i) => (
-            <View key={u.id} style={[styles.seatChip, { backgroundColor: c.surfaceSecondary, marginLeft: i === 0 ? 0 : -8, borderColor: c.brandTertiary }]}>
-              <Text style={{ fontSize: 16 }}>{u.avatar || "🙂"}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
+      <CoffeeTableSeating
+        seated={seated}
+        tableEmoji={table?.emoji || "☕"}
+        testID="table-seating"
+      />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }} keyboardVerticalOffset={90}>
         <FlatList
           ref={listRef}
@@ -160,7 +156,7 @@ export default function TableChat() {
             const hasImg = !!item.image;
             return (
               <View style={[styles.msgRow, { justifyContent: mine ? "flex-end" : "flex-start" }]}>
-                {!mine && <Text style={styles.av}>{item.avatar || "🙂"}</Text>}
+                {!mine && <AvatarBubble value={item.avatar} size={24} fallback="🙂" />}
                 <View style={[styles.bubble, { backgroundColor: mine ? c.brand : c.surfaceSecondary, borderColor: c.border, borderBottomLeftRadius: mine ? 18 : 4, borderBottomRightRadius: mine ? 4 : 18, padding: hasImg ? 6 : 12 }]}>
                   {!mine && !hasImg && <Text style={[styles.author, { color: c.muted, fontSize: 13 * scale }]}>{item.user_name}</Text>}
                   {hasImg && (
@@ -250,8 +246,6 @@ export default function TableChat() {
 }
 
 const styles = StyleSheet.create({
-  seatedBar: { flexDirection: "row", alignItems: "center", padding: 10, paddingHorizontal: 16 },
-  seatChip: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", borderWidth: 2 },
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 6 },
   av: { fontSize: 24 },
   bubble: { maxWidth: "76%", borderRadius: 18, borderWidth: 1, overflow: "hidden" },

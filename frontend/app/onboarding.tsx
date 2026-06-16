@@ -25,6 +25,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import SuburbField from "@/src/components/SuburbField";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 // Interest chip set — kept friendly and Australia-leaning to match the seed
 // data. 16 keeps the grid balanced on phone widths.
@@ -260,7 +261,7 @@ export default function OnboardingWizard() {
         Choose an emoji that feels like you. You can swap it for a real photo later.
       </Text>
       <View style={[styles.avatarPreviewWrap, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
-        <Text style={{ fontSize: 72 }}>{avatar || "🦋"}</Text>
+        <AvatarBubble value={avatar} size={72} fallback="🦋" />
       </View>
       <View style={styles.avatarGrid}>
         {AVATARS.map((a) => (

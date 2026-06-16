@@ -6,6 +6,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 type Summary = { reports: { new: number; reviewing: number; urgent: number; resolved: number }; support: { open: number; resolved: number }; users: { total: number; flagged?: number; auto_hidden?: number; restricted: number; banned: number }; policy?: { flag_threshold: number; restrict_threshold: number; window_days: number; auto_ban: boolean } };
 
@@ -151,7 +152,7 @@ export default function AdminHome() {
               return (
                 <View key={u.user_id} style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Text style={{ fontSize: 24 }}>{u.avatar || "👤"}</Text>
+                    <AvatarBubble value={u.avatar} size={24} fallback="👤" />
                     <View style={{ flex: 1 }}>
                       <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 15 * scale }}>{u.first_name || "—"} <Text style={{ color: c.muted, fontWeight: "600" }}>@{u.username}</Text></Text>
                       <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>{u.unique_reporters} unique reporters · {u.total_reports} reports · last {shortDate(u.last_reported_at)}</Text>

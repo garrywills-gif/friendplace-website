@@ -8,6 +8,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
+import AvatarBubble from "@/src/components/AvatarBubble";
 import ShareYouBelong from "@/src/components/ShareYouBelong";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 
@@ -140,7 +141,7 @@ export default function Home() {
             </View>
             {flutters.slice(0, 3).map((f) => (
               <View key={f.id} style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#EDE9FE" }]}>
-                <Text style={{ fontSize: 22 }}>{f.from_avatar || "🙂"}</Text>
+                <AvatarBubble value={f.from_avatar} size={22} fallback="🙂" />
                 <Text style={{ color: "#1E293B", flex: 1, marginLeft: 8, fontSize: 15 * scale }} numberOfLines={2}>
                   <Text style={{ fontWeight: "800" }}>{f.from_name}</Text> {f.message}
                 </Text>

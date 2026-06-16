@@ -8,6 +8,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import * as Location from "expo-location";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 const RADIUS_OPTIONS = [5, 10, 25, 50] as const;
 
@@ -201,7 +202,7 @@ export default function Friends() {
           <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <Pressable onPress={() => router.push(`/user/${item.id}` as any)} style={styles.userRow}>
               <View style={[styles.avatar, { backgroundColor: c.brandTertiary }]}>
-                <Text style={{ fontSize: 28 }}>{item.avatar || "🙂"}</Text>
+                <AvatarBubble value={item.avatar} size={28} fallback="🙂" />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={[styles.name, { color: c.onSurface, fontSize: 20 * scale }]}>{item.first_name}</Text>

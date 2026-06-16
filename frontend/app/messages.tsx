@@ -6,6 +6,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 export default function Messages() {
   const { c, scale } = useTheme();
@@ -32,7 +33,7 @@ export default function Messages() {
             onPress={() => router.push(`/dm/${item.id}?other_id=${item.other?.id}` as any)}
             style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
           >
-            <View style={[styles.av, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 24 }}>{item.other?.avatar || "🙂"}</Text></View>
+            <View style={[styles.av, { backgroundColor: c.brandTertiary }]}><AvatarBubble value={item.other?.avatar} size={24} fallback="🙂" /></View>
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={[styles.n, { color: c.onSurface, fontSize: 18 * scale }]}>{item.other?.first_name || "Friend"}</Text>
               <Text numberOfLines={1} style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }}>{item.last?.text || "Start a conversation"}</Text>

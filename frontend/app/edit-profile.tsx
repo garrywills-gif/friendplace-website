@@ -9,6 +9,7 @@ import { useToast } from "@/src/lib/toast";
 import SuburbField from "@/src/components/SuburbField";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 const EMOJI_AVATARS = ["\uD83E\uDD8B", "\uD83C\uDF38", "\uD83C\uDF3A", "\u2615\uFE0F", "\uD83C\uDFA8", "\uD83C\uDFB5", "\uD83C\uDFB2", "\uD83C\uDF31", "\uD83D\uDC15", "\uD83D\uDC08", "\uD83C\uDF55", "\uD83C\uDF70"];
 const INTERESTS = ["Gardening", "Cooking", "Reading", "Travel", "Movies", "Music", "Walking", "Pets", "History", "Art", "Crafts", "Sports", "Family", "Volunteering", "Photography", "Bird watching"];
@@ -93,7 +94,7 @@ export default function ProfileEdit() {
               {avatar?.startsWith("data:") || avatar?.startsWith("http") ? (
                 <Image source={{ uri: avatar }} style={{ width: 92, height: 92, borderRadius: 46 }} />
               ) : (
-                <Text style={{ fontSize: 52 }}>{avatar}</Text>
+                <AvatarBubble value={avatar} size={52} />
               )}
             </View>
             <View style={{ flex: 1, gap: 8 }}>

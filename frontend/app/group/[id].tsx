@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 export default function GroupDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -44,7 +45,7 @@ export default function GroupDetail() {
           return (
             <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text style={{ fontSize: 26 }}>{item.avatar || "🙂"}</Text>
+                <AvatarBubble value={item.avatar} size={26} fallback="🙂" />
                 <Text style={{ color: c.onSurface, fontWeight: "700", marginLeft: 8, fontSize: 16 * scale }}>{item.user_name}</Text>
               </View>
               <Text style={{ color: c.onSurfaceSecondary, fontSize: 16 * scale, marginTop: 6 }}>{item.text}</Text>

@@ -10,6 +10,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import SpeakButton from "@/src/components/SpeakButton";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 const CATS = ["All", "Announcement", "Question", "Looking For", "Recommendation", "Local Event", "Success Story", "Community Help"];
 const POST_CATS = CATS.filter((c) => c !== "All");
@@ -152,7 +153,7 @@ export default function Notices() {
     return (
       <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border, opacity: n.solved ? 0.85 : 1 }]}>
         <View style={styles.head}>
-          <Text style={{ fontSize: 28 }}>{n.avatar || "🙂"}</Text>
+          <AvatarBubble value={n.avatar} size={28} fallback="🙂" />
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={[styles.author, { color: c.onSurface, fontSize: 16 * scale }]} numberOfLines={1}>{n.user_name}</Text>
             <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
@@ -204,7 +205,7 @@ export default function Notices() {
             {(n.comments || []).map((cm: any) => (
               <View key={cm.id} style={[styles.commentBox, { backgroundColor: c.surfaceTertiary, borderColor: c.border }]}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Text style={{ fontSize: 16 }}>{cm.avatar || "🙂"}</Text>
+                  <AvatarBubble value={cm.avatar} size={16} fallback="🙂" />
                   <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale, flex: 1 }}>{cm.user_name}</Text>
                   {prefs.readMessagesAloud && <SpeakButton text={cm.text} color={c.brand} size={18} />}
                 </View>
@@ -215,7 +216,7 @@ export default function Notices() {
                 {(cm.replies || []).map((rp: any) => (
                   <View key={rp.id} style={[styles.replyBox, { borderLeftColor: c.brand }]}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Text style={{ fontSize: 14 }}>{rp.avatar || "🙂"}</Text>
+                      <AvatarBubble value={rp.avatar} size={14} fallback="🙂" />
                       <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, flex: 1 }}>{rp.user_name}</Text>
                       {prefs.readMessagesAloud && <SpeakButton text={rp.text} color={c.brand} size={16} />}
                     </View>
