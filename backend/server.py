@@ -3726,36 +3726,43 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
             y += (b[3] - b[1]) + line_gap
         return y
 
-    # ─── Top banner: butterfly + YOUBELONG wordmark ────────────────────────
-    # Banner stacks a stylised butterfly logo above the wordmark so the eye
-    # reads "icon + brand" instantly from across a noticeboard.
-    BANNER_H = 360
+    # ─── Top banner: official YouBelong brand mark (matches the Welcome
+    # screen). The PNG ships with a baked-in white outer glow + navy halo so
+    # the wordmark sits crisply on the navy banner exactly the same way it
+    # does on the photo backdrop in-app — keeping print + app branding 1:1.
+    BANNER_H = 320
     d.rectangle([0, 0, W, BANNER_H], fill=NAVY)
+    SIDE = 100  # body-text margin used elsewhere on the page
 
-    def draw_butterfly(cx: int, cy: int, scale: float = 1.0, color: str = "#FFFFFF"):
-        """Stylised 4-wing butterfly drawn with PIL primitives so we don't
-        depend on a colour-emoji font. Coordinates are anchored on (cx, cy)
-        with `scale` controlling overall size (1.0 ≈ 120px tall)."""
-        s = scale
-        # Upper wings — two ellipses meeting in the middle
-        d.ellipse([cx - 60 * s, cy - 55 * s, cx - 2 * s, cy + 8 * s], fill=color)
-        d.ellipse([cx + 2 * s, cy - 55 * s, cx + 60 * s, cy + 8 * s], fill=color)
-        # Lower wings — smaller, droplet-shaped
-        d.ellipse([cx - 46 * s, cy + 2 * s, cx - 4 * s, cy + 55 * s], fill=color)
-        d.ellipse([cx + 4 * s, cy + 2 * s, cx + 46 * s, cy + 55 * s], fill=color)
-        # Body — slim ellipse drawn on top to define the centre line
-        d.ellipse([cx - 5 * s, cy - 50 * s, cx + 5 * s, cy + 52 * s], fill=NAVY)
-        # Antennae — two short curves leaving the head
-        d.line([cx - 3 * s, cy - 48 * s, cx - 16 * s, cy - 70 * s], fill=color, width=int(4 * s))
-        d.line([cx + 3 * s, cy - 48 * s, cx + 16 * s, cy - 70 * s], fill=color, width=int(4 * s))
-        # Antennae tips — tiny dots
-        d.ellipse([cx - 20 * s, cy - 74 * s, cx - 12 * s, cy - 66 * s], fill=color)
-        d.ellipse([cx + 12 * s, cy - 74 * s, cx + 20 * s, cy - 66 * s], fill=color)
-
-    draw_butterfly(W // 2, 100, scale=0.95, color="#FFFFFF")
-    SIDE = 100
-    fit_centred("YOUBELONG", 200, W - 60, start_size=200, min_size=160,
-                fill="#FFFFFF", bold=True, condensed=True)
+    import os as _os
+    BRAND_LOGO_PATH = _os.path.join(_os.path.dirname(__file__), "assets",
+                                    "youbelong-logo-bold.png")
+    try:
+        brand_logo = Image.open(BRAND_LOGO_PATH).convert("RGBA")
+        # Fit the wordmark to a generous portion of the banner. The asset is
+        # 1066×326 (aspect ≈3.27); cap by width so the brand mark dominates.
+        target_w = min(W - 2 * SIDE, 980)
+        scale = target_w / brand_logo.width
+        target_h = int(brand_logo.height * scale)
+        brand_logo = brand_logo.resize((target_w, target_h), Image.LANCZOS)
+        lx = (W - target_w) // 2
+        ly = (BANNER_H - target_h) // 2
+        # Paste with alpha so the baked-in glow/halo blends onto the navy.
+        img.paste(brand_logo, (lx, ly), brand_logo)
+    except Exception:
+        # Fallback: condensed-bold wordmark if the brand PNG is missing for
+        # any reason (keeps the endpoint resilient in dev/test environments).
+        text = "YOUBELONG"
+        size = 200
+        while size > 160:
+            f_logo = font(size, bold=True, condensed=True)
+            if text_w(text, f_logo) <= W - 60:
+                break
+            size -= 6
+        f_logo = font(size, bold=True, condensed=True)
+        tw = text_w(text, f_logo); th = text_h(text, f_logo)
+        d.text(((W - tw) // 2, (BANNER_H - th) // 2 - 6), text,
+               font=f_logo, fill="#FFFFFF")
 
     # ─── Headline ────────────────────────────────────────────────────────
     HEAD_Y = BANNER_H + 50
