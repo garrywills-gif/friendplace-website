@@ -28,12 +28,10 @@ type Skin = { key: string; label: string; modifier: string | null; swatch: strin
 type Hair = { key: string; label: string; suffix: string | null };
 
 const FACES: Face[] = [
-  { key: "person",   label: "Person",        emoji: "🧑" },
-  { key: "man",      label: "Man",           emoji: "👨" },
-  { key: "woman",    label: "Woman",         emoji: "👩" },
-  { key: "older_man",   label: "Older Man",   emoji: "👴" },
-  { key: "older_woman", label: "Older Woman", emoji: "👵" },
-  { key: "man_beard",   label: "Man (beard)", emoji: "🧔" },
+  { key: "person",     label: "Person",       emoji: "🧑" },
+  { key: "man",        label: "Man",          emoji: "👨" },
+  { key: "woman",      label: "Woman",        emoji: "👩" },
+  { key: "man_beard",  label: "Man (beard)",  emoji: "🧔" },
 ];
 
 const SKIN: Skin[] = [
@@ -59,13 +57,11 @@ function build(faceKey: string, skinKey: string, hairKey: string): string {
   const face = FACE_BY_KEY[faceKey] || FACES[0];
   const skin = SKIN.find((s) => s.key === skinKey) || SKIN[0];
   const hair = HAIR.find((h) => h.key === hairKey) || HAIR[0];
-  // 👴/👵/👶 don't blend cleanly with hair modifiers; respect the user's
-  // selection but skip the suffix on those bases so rendering stays clean.
-  const allowHair = !["older_man", "older_woman"].includes(face.key);
+  // All remaining face bases support hair modifiers cleanly on iOS / Android.
   return (
     face.emoji +
     (skin.modifier || "") +
-    (allowHair && hair.suffix ? hair.suffix : "")
+    (hair.suffix || "")
   );
 }
 
