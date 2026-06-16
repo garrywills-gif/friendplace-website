@@ -10,6 +10,7 @@ import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import ReportSheet from "@/src/components/ReportSheet";
+import { parseAvatar } from "@/src/components/AvatarBubble";
 
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
@@ -58,7 +59,7 @@ export default function DM() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title={other ? `${other.avatar} ${other.first_name}` : "Message"} right={other_id ? (
+      <Header title={other ? `${parseAvatar(other.avatar).base ?? ""} ${other.first_name}` : "Message"} right={other_id ? (
         <Pressable testID="dm-report-user" onPress={() => setReportTarget({ type: "user" })} hitSlop={8} style={{ padding: 6 }}>
           <Ionicons name="flag-outline" size={22} color={c.warning} />
         </Pressable>

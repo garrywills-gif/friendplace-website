@@ -1,6 +1,6 @@
 /**
  * PeopleAvatarPicker — a friendly avatar builder for older adults that
- * combines an emoji face with optional skin tone and hair colour.
+ * combines an emoji face with optional skin tone, hair colour, and glasses.
  *
  * Why emoji and not illustrated avatars?
  *   • Ships with the OS — no image hosting, no licensing, looks native on
@@ -9,11 +9,18 @@
  *     emoji avatar (e.g. 🎨 🔨) continues to render unchanged.
  *
  * How combinations are built:
- *   - Base face: 👨 / 👩 / 🧑 / 👴 / 👵 / 👶
+ *   - Base face: 🧑 / 👨 / 👩 / 🧔
  *   - Optional skin tone (Fitzpatrick modifier 🏻🏼🏽🏾🏿)
  *   - Optional hair colour via Zero-Width-Joiner (ZWJ) sequences:
- *       red 🦰   curly 🦱   white 🦳   bald 🦲
- *   Example:    "👩" + "🏽" + "\u200D" + "🦰"  →  👩🏽‍🦰
+ *       Black = default (no modifier; iOS/Android default render is dark)
+ *       Brown = 🦱 (the curly emoji renders brown on Apple/Google)
+ *       Red   = 🦰
+ *       Grey  = 🦳
+ *       Bald  = 🦲
+ *   - Optional glasses: appended `::g` marker is interpreted by AvatarBubble
+ *     which overlays a small 👓 badge over the eyes. Works on any face/
+ *     skin/hair combination.
+ *   Example:    "👩" + "🏽" + "\u200D" + "🦰" + "::g"  →  👩🏽‍🦰 with glasses
  *
  * NOTE: not every base supports every modifier (e.g. baby 👶 ignores hair),
  * but unsupported pairs simply render the base unchanged on modern systems.
@@ -22,6 +29,7 @@ import React, { useMemo, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
+import AvatarBubble, { parseAvatar } from "./AvatarBubble";
 
 type Face = { key: string; label: string; emoji: string };
 type Skin = { key: string; label: string; modifier: string | null; swatch: string };
@@ -43,26 +51,28 @@ const SKIN: Skin[] = [
   { key: "dark",    label: "Dark",        modifier: "\u{1F3FF}", swatch: "🏿" },
 ];
 
+// Black = platform default (no suffix). Brown ≈ 🦱 (typically rendered as
+// brown curly hair on Apple/Google — the closest Unicode gives us to a
+// "brown hair" option). Red / Grey / Bald are official ZWJ modifiers.
 const HAIR: Hair[] = [
-  { key: "default", label: "Default", suffix: null },
+  { key: "black",   label: "Black",   suffix: null },
+  { key: "brown",   label: "Brown",   suffix: "\u200D\u{1F9B1}" }, // 🦱
   { key: "red",     label: "Red",     suffix: "\u200D\u{1F9B0}" }, // 🦰
-  { key: "curly",   label: "Curly",   suffix: "\u200D\u{1F9B1}" }, // 🦱
   { key: "white",   label: "Grey",    suffix: "\u200D\u{1F9B3}" }, // 🦳
   { key: "bald",    label: "Bald",    suffix: "\u200D\u{1F9B2}" }, // 🦲
 ];
 
 const FACE_BY_KEY: Record<string, Face> = Object.fromEntries(FACES.map((f) => [f.key, f]));
 
-function build(faceKey: string, skinKey: string, hairKey: string): string {
+function build(faceKey: string, skinKey: string, hairKey: string, glasses: boolean): string {
   const face = FACE_BY_KEY[faceKey] || FACES[0];
   const skin = SKIN.find((s) => s.key === skinKey) || SKIN[0];
   const hair = HAIR.find((h) => h.key === hairKey) || HAIR[0];
-  // All remaining face bases support hair modifiers cleanly on iOS / Android.
-  return (
+  const base =
     face.emoji +
     (skin.modifier || "") +
-    (hair.suffix || "")
-  );
+    (hair.suffix || "");
+  return glasses ? `${base}::g` : base;
 }
 
 type Props = {
@@ -87,8 +97,15 @@ export default function PeopleAvatarPicker({
   const [faceKey, setFaceKey] = useState<string>(FACES[0].key);
   const [skinKey, setSkinKey] = useState<string>(SKIN[0].key);
   const [hairKey, setHairKey] = useState<string>(HAIR[0].key);
+  // Seed initial glasses state from value so re-opening the picker keeps
+  // the previously-chosen accessory toggled on without needing the full
+  // base-emoji decoder (which would be brittle across platforms).
+  const [glasses, setGlasses] = useState<boolean>(() => parseAvatar(value).glasses);
 
-  const current = useMemo(() => build(faceKey, skinKey, hairKey), [faceKey, skinKey, hairKey]);
+  const current = useMemo(
+    () => build(faceKey, skinKey, hairKey, glasses),
+    [faceKey, skinKey, hairKey, glasses],
+  );
 
   // Keep emitted value in sync with the live combination — debounced via
   // React state so consumers don't see intermediate flickers.
@@ -116,7 +133,9 @@ export default function PeopleAvatarPicker({
             },
           ]}
         >
-          <Text style={{ fontSize: Math.round(previewSize * 0.62) }}>{current}</Text>
+          {/* Use AvatarBubble so the glasses overlay renders exactly as it
+              will everywhere else in the app — keeps the preview honest. */}
+          <AvatarBubble value={current} size={previewSize - 16} textSize={Math.round(previewSize * 0.62)} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={[styles.label, { color: c.muted, fontSize: 12 * scale }]}>YOUR LOOK</Text>
@@ -125,6 +144,7 @@ export default function PeopleAvatarPicker({
           </Text>
           <Text style={[styles.previewSub, { color: c.muted, fontSize: 13 * scale }]} numberOfLines={1}>
             {SKIN.find((s) => s.key === skinKey)?.label} skin · {HAIR.find((h) => h.key === hairKey)?.label} hair
+            {glasses ? " · glasses" : ""}
           </Text>
         </View>
       </View>
@@ -191,7 +211,9 @@ export default function PeopleAvatarPicker({
         <View style={[styles.row, { gap: 6, flexWrap: "wrap" }]}>
           {HAIR.map((h) => {
             const on = h.key === hairKey;
-            const preview = build(faceKey, skinKey, h.key);
+            // Preview without glasses so the hair chip stays focused on the
+            // colour decision — glasses get their own toggle right below.
+            const preview = build(faceKey, skinKey, h.key, false);
             return (
               <Pressable
                 key={h.key}
@@ -218,6 +240,46 @@ export default function PeopleAvatarPicker({
               </Pressable>
             );
           })}
+        </View>
+      </Section>
+
+      {/* Glasses toggle — works on any face/skin/hair combination. The
+       * overlay lives in AvatarBubble so the badge follows the user
+       * everywhere their avatar is rendered. */}
+      <Section title="GLASSES" muted={c.muted} scale={scale}>
+        <View style={[styles.row, { gap: 6 }]}>
+          <Pressable
+            testID="avatar-glasses-off"
+            onPress={() => setGlasses(false)}
+            style={[
+              styles.hairChip,
+              {
+                backgroundColor: !glasses ? c.brand : c.surfaceTertiary,
+                borderColor: !glasses ? c.brand : c.border,
+              },
+            ]}
+          >
+            <Text style={{ fontSize: 18 }}>—</Text>
+            <Text style={{ color: !glasses ? c.onBrandPrimary : c.onSurface, fontWeight: "700", fontSize: 13 * scale }}>
+              No
+            </Text>
+          </Pressable>
+          <Pressable
+            testID="avatar-glasses-on"
+            onPress={() => setGlasses(true)}
+            style={[
+              styles.hairChip,
+              {
+                backgroundColor: glasses ? c.brand : c.surfaceTertiary,
+                borderColor: glasses ? c.brand : c.border,
+              },
+            ]}
+          >
+            <Text style={{ fontSize: 22 }}>👓</Text>
+            <Text style={{ color: glasses ? c.onBrandPrimary : c.onSurface, fontWeight: "700", fontSize: 13 * scale }}>
+              Glasses
+            </Text>
+          </Pressable>
         </View>
       </Section>
 

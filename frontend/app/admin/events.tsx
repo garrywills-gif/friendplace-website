@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import { parseAvatar } from "@/src/components/AvatarBubble";
 
 type Status = "all" | "active" | "cancelled" | "archived";
 
@@ -121,7 +122,7 @@ export default function AdminEvents() {
                   <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale, marginTop: 4, textDecorationLine: e.cancelled ? "line-through" : "none" }}>{e.title}</Text>
                   <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>📍 {e.location || "—"}</Text>
                   <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 4 }}>
-                    Host: {e.host ? `${e.host.avatar || ""} ${e.host.first_name || e.host.username}` : "—"} ·
+                    Host: {e.host ? `${parseAvatar(e.host.avatar).base || ""} ${e.host.first_name || e.host.username}` : "—"} ·
                     {" "}👥 {e.going_count}{e.capacity != null ? `/${e.capacity}` : ""} going
                     {e.waitlist_count ? ` · 🕒 ${e.waitlist_count} waitlist` : ""}
                     {e.maybe_count ? ` · 🤔 ${e.maybe_count} maybe` : ""}
