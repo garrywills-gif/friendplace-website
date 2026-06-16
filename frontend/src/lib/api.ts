@@ -237,7 +237,7 @@ export const api = {
     req(`/games/cheer/${fromId}`, { method: "POST", body: JSON.stringify({ to_user_id: toId, kind }) }),
 
   // tables
-  listTables: () => req("/tables"),
+  listTables: (user_id?: string) => req(user_id ? `/tables?user_id=${encodeURIComponent(user_id)}` : "/tables"),
   createTable: (b: any) => req("/tables", { method: "POST", body: JSON.stringify(b) }),
   getTable: (id: string) => req(`/tables/${id}`),
   tableMessages: (id: string) => req(`/tables/${id}/messages`),

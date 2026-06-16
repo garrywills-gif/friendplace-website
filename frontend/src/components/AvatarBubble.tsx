@@ -18,8 +18,13 @@ import { Image, Text, StyleProp, TextStyle, ImageStyle } from "react-native";
 
 type Props = {
   value?: string | null;
-  /** Visual size in points (square). Defaults to 32. */
+  /** Visual size in points (square). Defaults to 32. Used for Image sizing
+   * and — unless `textSize` is provided — also drives the emoji font size. */
   size?: number;
+  /** Optional separate emoji glyph size. Useful when the container is a
+   * larger circle (e.g. a coffee-table chair) and we want the image to
+   * fill it while keeping the emoji visually proportional. */
+  textSize?: number;
   /** Emoji to show if `value` is empty. */
   fallback?: string;
   /** Optional style overrides applied to the rendered element. */
@@ -32,6 +37,7 @@ const URL_RE = /^https?:\/\//i;
 export default function AvatarBubble({
   value,
   size = 32,
+  textSize,
   fallback = "🙂",
   textStyle,
   imageStyle,
@@ -50,8 +56,9 @@ export default function AvatarBubble({
     );
   }
   // Match the previous in-app convention of ~70% glyph fill inside the circle.
+  const fs = textSize ?? Math.round(size * 0.7);
   return (
-    <Text style={[{ fontSize: Math.round(size * 0.7), lineHeight: size }, textStyle]}>
+    <Text style={[{ fontSize: fs, lineHeight: Math.max(fs + 2, size) }, textStyle]}>
       {value || fallback}
     </Text>
   );

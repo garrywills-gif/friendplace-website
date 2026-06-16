@@ -3225,10 +3225,59 @@ async def _migrate_table_metadata() -> None:
 
 
 @api.get("/tables")
-async def list_tables():
+async def list_tables(user_id: str | None = None):
+    """List Coffee Lounge tables sorted by most recently active.
+
+    When `user_id` is supplied the response is enriched with:
+      • `host_display` — `{first_name, avatar}` for the table's host so the
+        card can say "Started by Frank" without an extra round-trip.
+      • `friends_seated` — array of `{id, first_name, avatar}` for any
+        currently-seated members that are friends of `user_id`. The lounge
+        UI surfaces this as a "Joyce is here 🌸" chip; it's the single
+        biggest reason older users will tap into a table.
+
+    Both fields are best-effort — if user lookups fail we silently omit
+    them so the lounge always loads.
+    """
     await _migrate_table_metadata()
     await _prune_idle_tables()
     docs = await db.tables.find({}, {"_id": 0}).sort("last_activity_at", -1).to_list(500)
+
+    if not user_id:
+        return docs
+
+    # Collect every user id we'll need to render the enriched cards in a
+    # single batched query — host ids plus all seated ids.
+    requester = await db.users.find_one({"id": user_id}, {"_id": 0, "friends": 1}) or {}
+    friend_set = set(requester.get("friends") or [])
+    needed_ids: set[str] = set()
+    for d in docs:
+        if d.get("host_id"):
+            needed_ids.add(d["host_id"])
+        for sid in d.get("seated") or []:
+            needed_ids.add(sid)
+    if not needed_ids:
+        return docs
+    cursor = db.users.find(
+        {"id": {"$in": list(needed_ids)}},
+        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1},
+    )
+    user_map: dict[str, dict] = {}
+    async for u in cursor:
+        user_map[u["id"]] = {
+            "id": u["id"],
+            "first_name": u.get("first_name") or u.get("username") or "Friend",
+            "avatar": u.get("avatar") or "🙂",
+        }
+
+    for d in docs:
+        hid = d.get("host_id")
+        if hid and hid in user_map:
+            d["host_display"] = user_map[hid]
+        d["friends_seated"] = [
+            user_map[sid] for sid in (d.get("seated") or [])
+            if sid in friend_set and sid in user_map
+        ]
     return docs
 
 

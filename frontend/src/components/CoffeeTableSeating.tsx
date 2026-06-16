@@ -127,10 +127,11 @@ export default function CoffeeTableSeating({
                   backgroundColor: c.surface,
                   borderColor: c.brand,
                   marginLeft: i === 0 ? 0 : -10,
+                  overflow: "hidden",
                 },
               ]}
             >
-              <AvatarBubble value={u.avatar} size={18} fallback="🙂" />
+              <AvatarBubble value={u.avatar} size={30} textSize={18} fallback="🙂" />
             </View>
           ))}
           {seated.length === 0 && (
@@ -206,13 +207,17 @@ export default function CoffeeTableSeating({
                         backgroundColor: isOccupied ? c.brandTertiary : c.surface,
                         borderColor: isOccupied ? c.brand : c.border,
                         borderStyle: isOccupied ? "solid" : "dashed",
+                        overflow: "hidden",
                       },
                     ]}
                   >
                     {isOccupied ? (
-                      <Text style={{ fontSize: Math.max(22, seatR * 0.95) }}>
-                        {u!.avatar || "🙂"}
-                      </Text>
+                      <AvatarBubble
+                        value={u!.avatar}
+                        size={seatR * 2}
+                        textSize={Math.max(22, seatR * 0.95)}
+                        fallback="🙂"
+                      />
                     ) : (
                       <Ionicons
                         name="person-outline"

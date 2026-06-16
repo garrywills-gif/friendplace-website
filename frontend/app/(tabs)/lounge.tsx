@@ -8,6 +8,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Button from "@/src/components/Button";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 function occupancyLabel(seated: number): { label: string; color: string; icon: keyof typeof Ionicons.glyphMap } {
   if (seated === 0) return { label: "Empty Table", color: "#94A3B8", icon: "ellipse-outline" };
@@ -47,9 +48,9 @@ export default function Lounge() {
   const [visibility, setVisibility] = useState<"public" | "friends">("public");
 
   const load = async () => {
-    try { setTables(await api.listTables()); } catch (e) { show("Failed to load lounge"); }
+    try { setTables(await api.listTables(user?.id)); } catch (e) { show("Failed to load lounge"); }
   };
-  useFocusEffect(useCallback(() => { load(); }, []));
+  useFocusEffect(useCallback(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user?.id]));
 
   const create = async () => {
     if (!user || !name.trim()) { show("Give your table a name"); return; }
@@ -99,8 +100,25 @@ export default function Lounge() {
       <FlatList
         data={tables}
         keyExtractor={(t) => t.id}
-        contentContainerStyle={{ padding: 16, paddingBottom: 110, gap: 12 }}
+        contentContainerStyle={[{ padding: 16, paddingBottom: 110, gap: 12 }, tables.length === 0 && { flexGrow: 1, justifyContent: "center" }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
+        ListEmptyComponent={() => (
+          <View style={styles.emptyState} testID="lounge-empty">
+            <Text style={styles.emptyEmoji}>☕</Text>
+            <Text style={[styles.emptyTitle, { color: c.onSurface, fontSize: 22 * scale }]}>Be the first to pull up a chair</Text>
+            <Text style={[styles.emptyBody, { color: c.muted, fontSize: 15 * scale }]}>
+              The Coffee Lounge is quiet right now. Start a table and we&apos;ll let your friends know.
+            </Text>
+            <Pressable
+              testID="lounge-empty-create"
+              onPress={() => setCreating(true)}
+              style={({ pressed }) => [styles.emptyBtn, { backgroundColor: c.brand, opacity: pressed ? 0.85 : 1 }]}
+              accessibilityLabel="Create a new table"
+            >
+              <Text style={{ color: c.onBrandPrimary, fontWeight: "800", fontSize: 16 * scale }}>+ Start a Table</Text>
+            </Pressable>
+          </View>
+        )}
         renderItem={({ item }) => {
           const seatedCount = (item.seated || []).length;
           const occ = occupancyLabel(seatedCount);
@@ -125,8 +143,43 @@ export default function Lounge() {
                     )}
                   </View>
                   {!!item.description && <Text style={[styles.cardDesc, { color: c.muted, fontSize: 15 * scale }]} numberOfLines={2}>{item.description}</Text>}
-                  {!active && !!ago && (
-                    <Text style={[styles.agoText, { color: c.muted, fontSize: 12 * scale }]}>Active {ago}</Text>
+                  {/* Host attribution + relative time — gives the card a human signature. */}
+                  {(item.host_display || ago) && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+                      {item.host_display && <AvatarBubble value={item.host_display.avatar} size={16} />}
+                      <Text style={[styles.agoText, { color: c.muted, fontSize: 12 * scale }]} numberOfLines={1}>
+                        {item.host_display ? `Started by ${item.host_display.first_name}` : "Started"}
+                        {ago ? ` · ${active ? "active now" : ago}` : ""}
+                      </Text>
+                    </View>
+                  )}
+                  {/* Friends-at-table chip — strongest reason to tap in. */}
+                  {Array.isArray(item.friends_seated) && item.friends_seated.length > 0 && (
+                    <View style={[styles.friendChip, { backgroundColor: c.brandTertiary }]} testID={`friends-here-${item.id}`}>
+                      <View style={{ flexDirection: "row" }}>
+                        {item.friends_seated.slice(0, 3).map((f: any, i: number) => (
+                          <View
+                            key={f.id}
+                            style={{
+                              width: 22, height: 22, borderRadius: 11,
+                              backgroundColor: c.surface, borderWidth: 2, borderColor: c.brandTertiary,
+                              marginLeft: i === 0 ? 0 : -6,
+                              overflow: "hidden",
+                              alignItems: "center", justifyContent: "center",
+                            }}
+                          >
+                            <AvatarBubble value={f.avatar} size={18} textSize={13} />
+                          </View>
+                        ))}
+                      </View>
+                      <Text style={[styles.friendChipText, { color: c.brand, fontSize: 12 * scale }]} numberOfLines={1}>
+                        {item.friends_seated.length === 1
+                          ? `${item.friends_seated[0].first_name} is here`
+                          : item.friends_seated.length === 2
+                            ? `${item.friends_seated[0].first_name} & ${item.friends_seated[1].first_name} are here`
+                            : `${item.friends_seated[0].first_name} +${item.friends_seated.length - 1} friends are here`}
+                      </Text>
+                    </View>
                   )}
                 </View>
                 {item.visibility === "friends" && (
@@ -255,4 +308,25 @@ const styles = StyleSheet.create({
   emojiPick: { width: 48, height: 48, borderRadius: 24, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   input: { borderWidth: 2, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontWeight: "600" },
   chip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 999, borderWidth: 2, minHeight: 44 },
+  friendChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    marginTop: 6,
+    alignSelf: "flex-start",
+  },
+  friendChipText: { fontWeight: "800", flexShrink: 1 },
+  emptyState: {
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 48,
+    gap: 12,
+  },
+  emptyEmoji: { fontSize: 56 },
+  emptyTitle: { fontWeight: "900", textAlign: "center" },
+  emptyBody: { fontWeight: "600", textAlign: "center", lineHeight: 22 },
+  emptyBtn: { paddingHorizontal: 24, paddingVertical: 14, borderRadius: 999, marginTop: 6 },
 });
