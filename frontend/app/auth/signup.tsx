@@ -10,6 +10,7 @@ import Header from "@/src/components/Header";
 import PasswordField from "@/src/components/PasswordField";
 import SuburbField from "@/src/components/SuburbField";
 import { INTERESTS } from "@/src/lib/interests";
+import PeopleAvatarPicker from "@/src/components/PeopleAvatarPicker";
 
 const AVATARS = ["🌸", "🔨", "📚", "🧓", "🧶", "🌳", "🎨", "🏏", "🌷", "🐾", "👋", "☕"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -113,7 +114,11 @@ export default function Signup() {
           <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Confirm password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
           <PasswordField testID="signup-pw2" value={pw2} onChangeText={setPw2} placeholder="Re-enter password" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
 
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Pick an avatar</Text>
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Pick your look</Text>
+          <View style={{ marginTop: 6 }}>
+            <PeopleAvatarPicker value={avatar} onChange={setAvatar} previewSize={84} compact />
+          </View>
+          <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 4 }]}>Or pick a fun emoji</Text>
           <View style={styles.row}>
             {AVATARS.map((a) => (
               <Pressable key={a} testID={`signup-avatar-${a}`} onPress={() => setAvatar(a)} style={[styles.avatarBtn, { backgroundColor: avatar === a ? c.brandTertiary : c.surfaceSecondary, borderColor: avatar === a ? c.brand : c.border }]}>
