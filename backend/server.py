@@ -3726,33 +3726,107 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
             y += (b[3] - b[1]) + line_gap
         return y
 
-    # ─── Top banner: YOUBELONG — the dominant brand-mark on the flyer. ─────
-    # Use the Condensed Bold cut so the wordmark can grow to ~190pt and span
-    # almost the full page width — about 3× bigger than the previous flyer.
-    BANNER_H = 280
+    # ─── Top banner: butterfly + YOUBELONG wordmark ────────────────────────
+    # Banner stacks a stylised butterfly logo above the wordmark so the eye
+    # reads "icon + brand" instantly from across a noticeboard.
+    BANNER_H = 360
     d.rectangle([0, 0, W, BANNER_H], fill=NAVY)
-    SIDE = 100  # body-text margin used elsewhere on the page
-    fit_centred("YOUBELONG", 70, W - 60, start_size=200, min_size=160,
+
+    def draw_butterfly(cx: int, cy: int, scale: float = 1.0, color: str = "#FFFFFF"):
+        """Stylised 4-wing butterfly drawn with PIL primitives so we don't
+        depend on a colour-emoji font. Coordinates are anchored on (cx, cy)
+        with `scale` controlling overall size (1.0 ≈ 120px tall)."""
+        s = scale
+        # Upper wings — two ellipses meeting in the middle
+        d.ellipse([cx - 60 * s, cy - 55 * s, cx - 2 * s, cy + 8 * s], fill=color)
+        d.ellipse([cx + 2 * s, cy - 55 * s, cx + 60 * s, cy + 8 * s], fill=color)
+        # Lower wings — smaller, droplet-shaped
+        d.ellipse([cx - 46 * s, cy + 2 * s, cx - 4 * s, cy + 55 * s], fill=color)
+        d.ellipse([cx + 4 * s, cy + 2 * s, cx + 46 * s, cy + 55 * s], fill=color)
+        # Body — slim ellipse drawn on top to define the centre line
+        d.ellipse([cx - 5 * s, cy - 50 * s, cx + 5 * s, cy + 52 * s], fill=NAVY)
+        # Antennae — two short curves leaving the head
+        d.line([cx - 3 * s, cy - 48 * s, cx - 16 * s, cy - 70 * s], fill=color, width=int(4 * s))
+        d.line([cx + 3 * s, cy - 48 * s, cx + 16 * s, cy - 70 * s], fill=color, width=int(4 * s))
+        # Antennae tips — tiny dots
+        d.ellipse([cx - 20 * s, cy - 74 * s, cx - 12 * s, cy - 66 * s], fill=color)
+        d.ellipse([cx + 12 * s, cy - 74 * s, cx + 20 * s, cy - 66 * s], fill=color)
+
+    draw_butterfly(W // 2, 100, scale=0.95, color="#FFFFFF")
+    SIDE = 100
+    fit_centred("YOUBELONG", 200, W - 60, start_size=200, min_size=160,
                 fill="#FFFFFF", bold=True, condensed=True)
 
     # ─── Headline ────────────────────────────────────────────────────────
-    HEAD_Y = BANNER_H + 60
+    HEAD_Y = BANNER_H + 50
     fit_centred("FIND YOUR PEOPLE.", HEAD_Y, W - 2 * SIDE,
                 start_size=110, min_size=72, fill=NAVY, bold=True)
 
-    # ─── Lead description ────────────────────────────────────────────────
-    lead = ("Meet new friends, join local events, chat in the Coffee Lounge, "
-            "and connect with people who share your interests.")
-    lead_y = wrap_centre(lead, HEAD_Y + 150, font(38, bold=False), INK,
-                         max_w=W - 2 * SIDE, line_gap=12)
-
-    sub = ("Whether you're new to the area, looking to expand your social "
-           "circle, or simply want to feel more connected, YouBelong helps "
-           "bring people together through friendship, community, and belonging.")
-    wrap_centre(sub, lead_y + 24, font(30, bold=False), SLATE,
+    # ─── Short tagline (single line — flyer is intentionally NOT text-heavy) ─
+    lead = "Meet new friends. Join local events. Feel connected."
+    wrap_centre(lead, HEAD_Y + 140, font(34, bold=False), SLATE,
                 max_w=W - 2 * SIDE, line_gap=10)
 
-    # ─── QR code (large, positioned high on page so it's easy to scan) ──
+    # ─── Four feature icons (Coffee Lounge · Local Events · Make Friends ·
+    # Community Groups). Drawn as a single row of tinted circles so a passer-
+    # by understands the app's purpose at a glance without reading. ────────
+    ICON_Y = HEAD_Y + 200
+    ICON_SIZE = 92
+    LABEL_Y = ICON_Y + ICON_SIZE + 14
+    cols = 4
+    pad = 60
+    col_w = (W - 2 * pad) // cols
+
+    def draw_chip(idx: int, tint: str, label: str, draw_icon):
+        cx = pad + col_w * idx + col_w // 2
+        cy = ICON_Y + ICON_SIZE // 2
+        d.ellipse([cx - ICON_SIZE // 2, cy - ICON_SIZE // 2,
+                   cx + ICON_SIZE // 2, cy + ICON_SIZE // 2], fill=tint)
+        draw_icon(cx, cy)
+        fnt = font(24)
+        words = label.split()
+        if len(words) == 2:
+            for i, w_ in enumerate(words):
+                b = d.textbbox((0, 0), w_, font=fnt)
+                d.text((cx - (b[2] - b[0]) / 2, LABEL_Y + i * 30), w_, font=fnt, fill=INK)
+        else:
+            b = d.textbbox((0, 0), label, font=fnt)
+            d.text((cx - (b[2] - b[0]) / 2, LABEL_Y), label, font=fnt, fill=INK)
+
+    def icon_coffee(cx, cy):
+        d.rounded_rectangle([cx - 28, cy - 16, cx + 18, cy + 24], radius=8, fill="#FFFFFF")
+        d.ellipse([cx + 12, cy - 6, cx + 32, cy + 16], outline="#FFFFFF", width=5)
+        for off in (-14, -2, 10):
+            d.line([cx + off, cy - 30, cx + off + 3, cy - 18], fill="#FFFFFF", width=3)
+
+    def icon_calendar(cx, cy):
+        d.rounded_rectangle([cx - 28, cy - 22, cx + 28, cy + 24], radius=7, fill="#FFFFFF")
+        d.rectangle([cx - 28, cy - 22, cx + 28, cy - 10], fill="#DC2626")
+        d.rectangle([cx - 18, cy - 28, cx - 12, cy - 14], fill="#0F172A")
+        d.rectangle([cx + 12, cy - 28, cx + 18, cy - 14], fill="#0F172A")
+        for r in range(2):
+            for col_i in range(3):
+                d.ellipse([cx - 18 + col_i * 14, cy - 2 + r * 12,
+                           cx - 12 + col_i * 14, cy + 4 + r * 12], fill="#94A3B8")
+
+    def icon_people(cx, cy):
+        for off in (-14, 14):
+            d.ellipse([cx + off - 13, cy - 24, cx + off + 13, cy + 2], fill="#FFFFFF")
+            d.chord([cx + off - 22, cy + 4, cx + off + 22, cy + 42], 180, 360, fill="#FFFFFF")
+
+    def icon_globe(cx, cy):
+        d.ellipse([cx - 30, cy - 30, cx + 30, cy + 30], fill="#FFFFFF")
+        d.arc([cx - 30, cy - 30, cx + 30, cy + 30], 0, 360, fill="#10B981", width=4)
+        d.line([cx - 28, cy, cx + 28, cy], fill="#10B981", width=3)
+        d.arc([cx - 12, cy - 30, cx + 12, cy + 30], 0, 360, fill="#10B981", width=3)
+        d.line([cx, cy - 28, cx, cy + 28], fill="#10B981", width=3)
+
+    draw_chip(0, "#92400E", "Coffee Lounge", icon_coffee)
+    draw_chip(1, "#0369A1", "Local Events", icon_calendar)
+    draw_chip(2, "#7C3AED", "Make Friends", icon_people)
+    draw_chip(3, "#0F766E", "Community Groups", icon_globe)
+
+    # ─── QR code (≈ 20% larger than before — the third visual anchor) ────
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -3761,26 +3835,24 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     qr.add_data(target_url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color=INK, back_color="#FFFFFF").convert("RGB")
-    qr_size = 600
+    qr_size = 720
     qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
     qr_x = (W - qr_size) // 2
-    qr_y = 880
+    qr_y = 820
     img.paste(qr_img, (qr_x, qr_y))
     d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14],
                 outline=NAVY, width=4)
 
-    # ─── CTA + URL + closing line ─────────────────────────────────────────
-    # Stack three lines tightly so they all fit within page-height (1754):
-    #   1. Scan to Join Free (large)
-    #   2. youbelongapp.com (medium)
-    #   3. Because You Belong Too. (italic, brand colour)
-    cta_y = qr_y + qr_size + 30  # 1580
-    centre("Scan to Join Free", cta_y, font(56), NAVY)
-    centre(target_url.replace("https://", "").replace("http://", ""),
-           cta_y + 70, font(30, bold=False), SLATE)
-    centre("Because You Belong Too.", cta_y + 116, font(40, italic=True), TEAL)
+    # Layout note: the small URL line that used to sit between "Scan to Join
+    # Free" and the closing tagline has been removed. Three lines stacked
+    # below the QR felt cluttered, and the QR itself encodes the URL.
+    # Pre-compute QR bottom so the closing block always anchors to it.
 
-    # Optional small venue line — squeezed between QR and CTA when supplied.
+    # ─── CTA + closing line ───────────────────────────────────────────────
+    cta_y = qr_y + qr_size + 30
+    centre("Scan to Join Free", cta_y, font(56), NAVY)
+    centre("Because You Belong Too.", cta_y + 76, font(40, italic=True), TEAL)
+
     if venue:
         centre(f"Posted by {venue}", qr_y - 38, font(22, bold=False), SLATE)
 
