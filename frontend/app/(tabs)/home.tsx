@@ -10,6 +10,7 @@ import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import ShareYouBelong from "@/src/components/ShareYouBelong";
+import FirstRunCard from "@/src/components/FirstRunCard";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 
 type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; route: string; bg: string; full?: boolean };
@@ -132,6 +133,14 @@ export default function Home() {
         </View>
         <Text style={[styles.hello, { color: c.muted, fontSize: 16 * scale }]}>Welcome back</Text>
         <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{user?.first_name || "Friend"} 🦋</Text>
+
+        {/* First-run guidance — visible only for the first ~3 opens after
+            onboarding. Hidden once the user dismisses or taps into a step.
+            Sits above-the-fold so it's the first thing brand-new members
+            see when they land on Home. */}
+        {user?.id ? (
+          <FirstRunCard userId={user.id} firstName={user.first_name} />
+        ) : null}
 
         {flutters.length > 0 && (
           <View style={[styles.flutterBox, { borderColor: "#8B5CF6" }]}>

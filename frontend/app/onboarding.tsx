@@ -60,6 +60,9 @@ export default function OnboardingWizard() {
 
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
+  // Step 5 lets the user pick where to land. Defaults to Coffee Lounge —
+  // proven to be the warmest first-touch (real-time chat, no scheduling).
+  const [finishDestination, setFinishDestination] = useState<"lounge" | "events" | "friends">("lounge");
   const scrollRef = useRef<ScrollView>(null);
 
   // Pre-seed from whatever signup may have already collected so the wizard
@@ -137,6 +140,12 @@ export default function OnboardingWizard() {
       return;
     }
     setBusy(true);
+    // Where to send the user after onboarding. Coffee Lounge is the default
+    // (warmest first touch). They can override via the tiles on Step 5.
+    const destinationRoute =
+      finishDestination === "events" ? "/events" :
+      finishDestination === "friends" ? "/friends" :
+      "/lounge";
     try {
       await api.onboardingFinish({
         user_id: user.id,
@@ -153,9 +162,9 @@ export default function OnboardingWizard() {
       show("You're all set up! Welcome to YouBelong 🦋");
       if (Platform.OS === "web") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).location.assign("/home");
+        (window as any).location.assign(destinationRoute);
       } else {
-        router.replace("/home" as any);
+        router.replace(destinationRoute as any);
       }
     } catch (e: any) {
       show("Couldn't save your choices. You can update them later from Profile.");
@@ -178,14 +187,47 @@ export default function OnboardingWizard() {
       <View style={styles.heroBadge}>
         <Text style={{ fontSize: 84 }}>🦋</Text>
       </View>
-      <Text style={[styles.h1, { color: c.onSurface, fontSize: 32 * scale }]}>
+      <Text style={[styles.h1, { color: c.onSurface, fontSize: 30 * scale, textAlign: "center" }]}>
         Welcome to YouBelong
       </Text>
-      <Text style={[styles.body, { color: c.muted, fontSize: 17 * scale }]}>
-        Let's get you set up in under a minute. We'll ask what you like to do, where you are, and find some good groups to join.
+      <Text style={[styles.body, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
+        A warm, friendly place to meet new people and stay connected — built especially for adults living alone.
       </Text>
-      <Text style={[styles.body, { color: c.muted, fontSize: 15 * scale, marginTop: 6 }]}>
-        You can change anything later from your Profile.
+
+      {/* Three-bullet "what YouBelong is" explainer so brand-new users
+          form the right mental model before they start filling forms. */}
+      <View style={[styles.featureList, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+        <View style={styles.featureRow}>
+          <Text style={styles.featureEmoji}>☕</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>Coffee Lounge</Text>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>
+              Drop into a real-time chat with friendly faces — no scheduling needed.
+            </Text>
+          </View>
+        </View>
+        <View style={styles.featureRow}>
+          <Text style={styles.featureEmoji}>📅</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>Local Events</Text>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>
+              Walks, lunches, classes and meet-ups happening right near you.
+            </Text>
+          </View>
+        </View>
+        <View style={styles.featureRow}>
+          <Text style={styles.featureEmoji}>👋</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>Friendship Groups</Text>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>
+              Join groups around your interests and chat with kindred spirits.
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <Text style={[styles.body, { color: c.muted, fontSize: 14 * scale, marginTop: 4, textAlign: "center" }]}>
+        Setup takes about a minute. You can change anything later from your Profile.
       </Text>
     </View>
   );
@@ -196,7 +238,7 @@ export default function OnboardingWizard() {
         What do you enjoy?
       </Text>
       <Text style={[styles.body, { color: c.muted, fontSize: 15 * scale }]}>
-        Pick a few — we'll use these to suggest people and groups. Tap any that interest you.
+        Pick a few — we&apos;ll use these to suggest people and groups. Tap any that interest you.
       </Text>
       <View style={styles.chips}>
         {INTERESTS.map((label) => {
@@ -239,7 +281,7 @@ export default function OnboardingWizard() {
         Where are you?
       </Text>
       <Text style={[styles.body, { color: c.muted, fontSize: 15 * scale }]}>
-        We'll show you local events and people nearby. We never share your exact address.
+        We&apos;ll show you local events and people nearby. We never share your exact address.
       </Text>
       <SuburbField
         initialValue={suburb?.name || ""}
@@ -361,31 +403,72 @@ export default function OnboardingWizard() {
   const Step5 = (
     <View style={[styles.stepWrap, { alignItems: "center" }]}>
       <View style={styles.heroBadge}>
-        <Text style={{ fontSize: 96 }}>🎉</Text>
+        <Text style={{ fontSize: 80 }}>🎉</Text>
       </View>
-      <Text style={[styles.h1, { color: c.onSurface, fontSize: 30 * scale, textAlign: "center" }]}>
-        You're all set!
+      <Text style={[styles.h1, { color: c.onSurface, fontSize: 28 * scale, textAlign: "center" }]}>
+        You&apos;re all set!
       </Text>
-      <Text style={[styles.body, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
-        Welcome to YouBelong. There's a friendly chat waiting for you in the Coffee Lounge whenever you're ready.
+      <Text style={[styles.body, { color: c.muted, fontSize: 16 * scale, textAlign: "center" }]}>
+        Where would you like to start? Tap one and we&apos;ll take you straight there.
       </Text>
-      <View style={{ height: 16 }} />
-      <View style={[styles.recapCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+
+      {/* Destination picker — the warmth of YouBelong comes from real
+          contact with other members, so we give the user three concrete
+          first-touch options rather than dumping them onto Home. The
+          footer CTA below mirrors whichever tile is selected. */}
+      <View style={{ width: "100%", gap: 10, marginTop: 6 }}>
+        {([
+          { key: "lounge",  emoji: "☕", title: "Coffee Lounge", body: "Drop into a real-time chat — friendly faces are usually around." },
+          { key: "events",  emoji: "📅", title: "Local Events",   body: "See what's happening near you this week — walks, lunches, classes." },
+          { key: "friends", emoji: "👋", title: "Find Friends",   body: "Say hi to a neighbour who shares your interests." },
+        ] as const).map((d) => {
+          const on = finishDestination === d.key;
+          return (
+            <Pressable
+              key={d.key}
+              testID={`onb-dest-${d.key}`}
+              onPress={() => setFinishDestination(d.key)}
+              style={[
+                styles.destTile,
+                {
+                  backgroundColor: on ? c.brandTertiary : c.surfaceSecondary,
+                  borderColor: on ? c.brand : c.border,
+                },
+              ]}
+            >
+              <Text style={{ fontSize: 32 }}>{d.emoji}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 17 * scale }}>{d.title}</Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }} numberOfLines={2}>
+                  {d.body}
+                </Text>
+              </View>
+              <Ionicons
+                name={on ? "checkmark-circle" : "ellipse-outline"}
+                size={26}
+                color={on ? c.brand : c.muted}
+              />
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <View style={[styles.recapCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border, marginTop: 16 }]}>
         <View style={styles.recapRow}>
-          <Ionicons name="heart" size={20} color={c.brand} />
-          <Text style={{ color: c.onSurface, fontSize: 15 * scale, flex: 1 }}>
+          <Ionicons name="heart" size={18} color={c.brand} />
+          <Text style={{ color: c.onSurface, fontSize: 14 * scale, flex: 1 }}>
             {interests.length ? `${interests.length} interest${interests.length > 1 ? "s" : ""} picked` : "Interests skipped — add them later"}
           </Text>
         </View>
         <View style={styles.recapRow}>
-          <Ionicons name="location" size={20} color={c.brand} />
-          <Text style={{ color: c.onSurface, fontSize: 15 * scale, flex: 1 }}>
+          <Ionicons name="location" size={18} color={c.brand} />
+          <Text style={{ color: c.onSurface, fontSize: 14 * scale, flex: 1 }}>
             {locationPrivate ? "Location private" : suburb?.name ? `In ${suburb.name}${suburb.state ? ", " + suburb.state : ""}` : "Suburb not set"}
           </Text>
         </View>
         <View style={styles.recapRow}>
-          <Ionicons name="people" size={20} color={c.brand} />
-          <Text style={{ color: c.onSurface, fontSize: 15 * scale, flex: 1 }}>
+          <Ionicons name="people" size={18} color={c.brand} />
+          <Text style={{ color: c.onSurface, fontSize: 14 * scale, flex: 1 }}>
             {selectedGroupIds.length
               ? `Joining ${selectedGroupIds.length} group${selectedGroupIds.length > 1 ? "s" : ""}`
               : "No groups joined yet"}
@@ -406,13 +489,17 @@ export default function OnboardingWizard() {
       default: return Step0;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, interests, suburb, locationPrivate, avatar, groups, selectedGroupIds, groupsLoading]);
+  }, [step, interests, suburb, locationPrivate, avatar, groups, selectedGroupIds, groupsLoading, finishDestination]);
 
   // -------- footer CTAs --------
   const isLast = step === totalSteps - 1;
   const isFirst = step === 0;
   const showSkip = step > 0 && !isLast;
-  const primaryLabel = isFirst ? "Get Started" : isLast ? "Take me to the Coffee Lounge" : "Continue";
+  const lastLabel =
+    finishDestination === "events" ? "Browse events" :
+    finishDestination === "friends" ? "Find friends" :
+    "Take me to the Coffee Lounge";
+  const primaryLabel = isFirst ? "Get Started" : isLast ? lastLabel : "Continue";
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface, paddingTop: insets.top }}>
@@ -517,6 +604,27 @@ const styles = StyleSheet.create({
     paddingVertical: 12, paddingHorizontal: 14, borderRadius: 14, borderWidth: 2, marginTop: 8,
   },
   matchBadge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 6 },
+
+  featureList: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    gap: 14,
+    marginTop: 8,
+  },
+  featureRow: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
+  featureEmoji: { fontSize: 36, lineHeight: 40 },
+
+  destTile: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 2,
+    minHeight: 76,
+  },
 
   recapCard: { width: "100%", borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
   recapRow: { flexDirection: "row", alignItems: "center", gap: 12 },
