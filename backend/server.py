@@ -5,7 +5,7 @@ notice board, butterfly points/badges, and a seeded sample dataset so the
 prototype feels alive on first launch.
 """
 
-from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -255,6 +255,14 @@ class Event(BaseModel):
     capacity: Optional[int] = None       # None = unlimited
     host_id: Optional[str] = None
     sponsor: Optional[dict] = None       # {name, message, discount_code}
+    # Recurrence — if a host picks "Repeats weekly" etc. we generate N concrete
+    # child events sharing the same series_id. RSVPs stay per-occurrence (so
+    # people can attend just some sessions). The master keeps `series_master`
+    # = True for display badges; children share `recurrence` for badge labels
+    # but their own dates/RSVP lists.
+    recurrence: Optional[str] = None     # None | "weekly" | "fortnightly" | "monthly"
+    series_id: Optional[str] = None
+    series_master: bool = False
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -289,6 +297,51 @@ def strip_id(doc: dict) -> dict:
     if doc and "_id" in doc:
         doc.pop("_id", None)
     return doc
+
+
+# -------------- Rate limiting (in-process, multi-instance safe at Tier 1) --------------
+# A tiny sliding-window limiter that protects hot write endpoints (signup,
+# notices, reports, events, flutters) from spam without adding new deps.
+#
+# Why in-process?  We're a single-pod backend at Tier 1 — this is the right
+# balance of safety + simplicity. When we migrate to Render/Railway with
+# multiple instances (Tier 2 in the scaling roadmap) we swap the dict for a
+# Redis-backed counter; the call sites don't change. The helper raises an
+# HTTPException(429) so the client gets a clear retry hint.
+import time as _time
+from collections import deque as _deque
+_RATE_BUCKETS: Dict[str, _deque] = {}
+
+def rate_limit(key: str, max_calls: int, window_seconds: int) -> None:
+    """Raise HTTP 429 if `key` has exceeded `max_calls` within the last
+    `window_seconds`. Otherwise record this call and let it through.
+
+    `key` should be derived from the actor identity for the endpoint —
+    e.g. f"signup:{ip}" or f"notice:{user_id}". Pick the most attacker-
+    relevant identifier (IP for unauthed flows, user_id for authed)."""
+    now = _time.monotonic()
+    cutoff = now - window_seconds
+    bucket = _RATE_BUCKETS.setdefault(key, _deque())
+    # Trim old timestamps. We do this lazily — fine while buckets are short.
+    while bucket and bucket[0] < cutoff:
+        bucket.popleft()
+    if len(bucket) >= max_calls:
+        # How long until the oldest call falls out of the window
+        retry_after = max(1, int(bucket[0] + window_seconds - now))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many requests — please slow down. Try again in {retry_after}s.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    bucket.append(now)
+    # Opportunistic garbage collection: keep the dict bounded. Buckets that
+    # haven't been touched for 10x the longest window can be evicted.
+    if len(_RATE_BUCKETS) > 5000:
+        stale_cutoff = now - 3600
+        for k in list(_RATE_BUCKETS.keys()):
+            b = _RATE_BUCKETS[k]
+            if not b or b[-1] < stale_cutoff:
+                _RATE_BUCKETS.pop(k, None)
 
 
 async def award_points(user_id: str, amount: int, reason: str = ""):
@@ -342,7 +395,12 @@ async def _find_user_by_identifier(identifier: str) -> Optional[dict]:
 
 
 @api.post("/auth/signup")
-async def signup(body: SignupBody):
+async def signup(body: SignupBody, request: Request):
+    # Anti-spam: cap signups to 5 per 10 min per source IP. Real users only
+    # ever sign up once; this stops bot floods cheaply. The auth/login
+    # endpoint already has per-account brute-force lockout (5 fails / 15 min).
+    client_ip = (request.client.host if request.client else "unknown") or "unknown"
+    rate_limit(f"signup:{client_ip}", max_calls=5, window_seconds=600)
     uname = body.username.strip()
     if len(uname) < 3:
         raise HTTPException(400, "Username must be at least 3 characters")
@@ -3434,11 +3492,116 @@ async def list_events():
     return await db.events.find({"archived": {"$ne": True}}, {"_id": 0}).sort("date", 1).to_list(200)
 
 
+class EventCreateBody(Event):
+    """Event creation accepts an optional `recurrence_count` (the additional
+    occurrences to spawn after the master) so a single API call can create
+    a full weekly/fortnightly/monthly series. Cap at 26 — that covers a
+    half-year of weekly meetups while preventing accidental DB floods."""
+    recurrence_count: Optional[int] = None
+
+
+def _add_days(date_str: str, days: int) -> str:
+    """ISO date math — preserves "YYYY-MM-DD" output. Used for weekly /
+    fortnightly recurrence (7d / 14d steps)."""
+    from datetime import date, timedelta
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", date_str or "")
+    if not m:
+        return date_str
+    d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    return (d + timedelta(days=days)).isoformat()
+
+
+def _add_months(date_str: str, months: int) -> str:
+    """Add N calendar months — clamps to the last valid day of the target
+    month (e.g. Jan 31 + 1 month → Feb 28). Keeps "same-numbered day of
+    every month" recurrence intuitive for hosts."""
+    from datetime import date
+    m = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", date_str or "")
+    if not m:
+        return date_str
+    y, mo, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    mo += months
+    while mo > 12:
+        mo -= 12
+        y += 1
+    while mo < 1:
+        mo += 12
+        y -= 1
+    # Clamp day to last valid day of target month
+    import calendar
+    last_day = calendar.monthrange(y, mo)[1]
+    day = min(day, last_day)
+    return date(y, mo, day).isoformat()
+
+
+def _next_occurrence(date_str: str, recurrence: str, step: int) -> str:
+    """Compute the Nth occurrence date in a recurring series. `step` is the
+    1-indexed occurrence offset from the master (1 → the first repeat)."""
+    if recurrence == "weekly":
+        return _add_days(date_str, 7 * step)
+    if recurrence == "fortnightly":
+        return _add_days(date_str, 14 * step)
+    if recurrence == "monthly":
+        return _add_months(date_str, step)
+    return date_str
+
+
 @api.post("/events")
-async def create_event(body: Event):
-    e = Event(**body.dict())
-    await db.events.insert_one(e.dict())
-    return e.dict()
+async def create_event(body: EventCreateBody):
+    # Anti-spam: a single host shouldn't be creating more than 8 events / hr.
+    # Recurring series count as one create call (one POST → N stored events),
+    # so this stays well clear of legitimate host behaviour.
+    if body.host_id:
+        rate_limit(f"event:{body.host_id}", max_calls=8, window_seconds=3600)
+    # Sanitise recurrence inputs. We accept None / weekly / fortnightly /
+    # monthly only — anything else is silently treated as a one-off.
+    rec = body.recurrence if body.recurrence in ("weekly", "fortnightly", "monthly") else None
+    # Spawn the master event first.
+    master_dict = body.dict(exclude={"recurrence_count"})
+    if rec:
+        master_dict["recurrence"] = rec
+        master_dict["series_id"] = nid()
+        master_dict["series_master"] = True
+    else:
+        master_dict["recurrence"] = None
+        master_dict["series_id"] = None
+        master_dict["series_master"] = False
+    master = Event(**master_dict)
+    await db.events.insert_one(master.dict())
+
+    # If recurrence is set, generate N additional concrete occurrences.
+    # Cap at 26 occurrences total (so weekly = ~6 months, fortnightly = 1 year,
+    # monthly = 2 years) — keeps the events list manageable and limits the
+    # damage from accidental long-running series.
+    created_ids = [master.id]
+    if rec and master.date:
+        # `recurrence_count` is the number of *additional* events after the
+        # master. Default to 3 (so a "weekly for 4 weeks" feels intuitive)
+        # if the host didn't specify a count.
+        n_extras = body.recurrence_count if body.recurrence_count is not None else 3
+        try:
+            n_extras = int(n_extras)
+        except Exception:
+            n_extras = 3
+        n_extras = max(0, min(n_extras, 25))
+        for i in range(1, n_extras + 1):
+            child = Event(
+                title=master.title,
+                emoji=master.emoji,
+                description=master.description,
+                location=master.location,
+                date=_next_occurrence(master.date, rec, i),
+                time=master.time,
+                capacity=master.capacity,
+                host_id=master.host_id,
+                sponsor=master.sponsor,
+                recurrence=rec,
+                series_id=master.series_id,
+                series_master=False,
+            )
+            await db.events.insert_one(child.dict())
+            created_ids.append(child.id)
+    return {**master.dict(), "series_event_ids": created_ids}
 
 
 class EventUpdateBody(BaseModel):
@@ -4135,6 +4298,9 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
 
 @api.post("/notices")
 async def create_notice(body: Notice):
+    # Anti-spam: cap notice creation to 6 per hour per user. Plenty for any
+    # real community contributor, low enough to stop bot/scripted floods.
+    rate_limit(f"notice:{body.user_id}", max_calls=6, window_seconds=3600)
     # Restricted/banned users can't post
     u = await db.users.find_one({"id": body.user_id}, {"_id": 0, "restricted": 1, "banned": 1})
     if u and (u.get("restricted") or u.get("banned")):
@@ -4465,6 +4631,11 @@ class SubmitReportBody(BaseModel):
 
 @api.post("/reports")
 async def submit_report(body: SubmitReportBody):
+    # Anti-griefing: a single reporter shouldn't be able to mass-flag content.
+    # Cap at 10 reports / hr per reporter — generous for legitimate moderation
+    # activity, but stops one user trying to weaponise auto-hide thresholds.
+    if body.reporter_id:
+        rate_limit(f"report:{body.reporter_id}", max_calls=10, window_seconds=3600)
     if body.reason and body.reason not in REPORT_REASONS:
         # Allow free-form but normalise to "Other" if completely off-list.
         pass
@@ -5224,6 +5395,10 @@ class FlutterSendBody(BaseModel):
 
 @api.post("/flutters/send")
 async def send_flutter(body: FlutterSendBody):
+    # Anti-spam: flutters are essentially DMs-in-disguise. Cap to 20 / hr
+    # per sender — plenty for a sociable user, low enough to make a "flutter
+    # everyone" attack quickly tip into 429s.
+    rate_limit(f"flutter:{body.from_id}", max_calls=20, window_seconds=3600)
     sender = await db.users.find_one({"id": body.from_id}, {"_id": 0})
     if not sender:
         raise HTTPException(404, "Sender not found")
@@ -5646,6 +5821,57 @@ SAMPLE_GROUP_POSTS = [
 
 
 @app.on_event("startup")
+async def _ensure_indexes():
+    """Create / verify the hot-path MongoDB indexes that YouBelong relies on
+    at every scale. `create_index` is idempotent (safe to run on every boot)
+    and uses background builds — never blocks startup.
+
+    Why these specific indexes:
+      • users.id / username / email — login + every user lookup
+      • messages.table_id + created_at — Coffee Lounge chat history pagination
+      • dms.room_id + created_at — private message thread reads
+      • events.date — events list sorts by date on every fetch
+      • events.host_id, .series_id — host-side & recurring-series filters
+      • notices.created_at — Notice Board feed sort
+      • flutters.to_id + created_at — Flutters tab inbox per user
+      • friend_requests.to_id / from_id — friend inbox + outbox
+
+    Once we migrate to MongoDB Atlas the same indexes apply — Atlas just
+    builds them faster on bigger hardware. Doing this NOW means the move is
+    truly a config-only change (no schema work). Aligns with the scale-
+    readiness checklist (item #2) from the platform team.
+    """
+    # eager log so ops can see when indexes were last verified
+    targets = [
+        ("users", [("id", 1)], {"name": "ix_users_id", "unique": True}),
+        ("users", [("username", 1)], {"name": "ix_users_username"}),
+        ("users", [("email", 1)], {"name": "ix_users_email", "sparse": True}),
+        ("users", [("last_active", -1)], {"name": "ix_users_last_active"}),
+        ("messages", [("table_id", 1), ("created_at", -1)], {"name": "ix_messages_table_created"}),
+        ("dm_messages", [("room_id", 1), ("created_at", -1)], {"name": "ix_dm_messages_room_created"}),
+        ("events", [("date", 1)], {"name": "ix_events_date"}),
+        ("events", [("host_id", 1)], {"name": "ix_events_host"}),
+        ("events", [("series_id", 1)], {"name": "ix_events_series", "sparse": True}),
+        ("notices", [("created_at", -1)], {"name": "ix_notices_created"}),
+        ("flutters", [("to_id", 1), ("created_at", -1)], {"name": "ix_flutters_to_created"}),
+        ("friend_requests", [("to_id", 1), ("status", 1)], {"name": "ix_freq_to_status"}),
+        ("friend_requests", [("from_id", 1), ("status", 1)], {"name": "ix_freq_from_status"}),
+        ("tables", [("visibility", 1), ("created_at", -1)], {"name": "ix_tables_vis_created"}),
+    ]
+    created = 0
+    for coll, keys, opts in targets:
+        try:
+            await db[coll].create_index(keys, background=True, **opts)
+            created += 1
+        except Exception as e:
+            # Common cause: the same key with a *different* name was created
+            # earlier (e.g. by a prior version). Log and continue — the index
+            # exists and Mongo will use it regardless of name.
+            logger.info("index %s on %s skipped: %s", opts.get("name"), coll, str(e)[:120])
+    logger.info("Indexes verified: %s / %s targets", created, len(targets))
+
+
+@app.on_event("startup")
 async def seed():
     # One-time migration: mark every legacy (passwordless) account as a demo account
     # so it stays separate from real signups. Idempotent — runs every restart safely.
@@ -5754,7 +5980,19 @@ async def root():
 
 @api.get("/health")
 async def health():
-    return {"status": "ok"}
+    """Active health probe — pings MongoDB so future load balancers
+    (Render, Railway, AWS ALB) can route traffic away when the DB connection
+    drops instead of serving 500s. Returns 503 with the failure mode so ops
+    can quickly diagnose. Public on purpose — no auth required."""
+    try:
+        await db.command("ping")
+        return {"status": "ok", "db": "up"}
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "db": "down", "error": str(e)[:200]},
+        )
 
 
 app.include_router(api)

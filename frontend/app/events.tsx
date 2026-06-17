@@ -151,6 +151,19 @@ export default function Events() {
                       <Ionicons name="time" size={16} color={c.brand} />
                       <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>{formatPrettyTime(item.time)}</Text>
                     </View>
+                    {/* Recurrence badge — sits next to date/time so attendees
+                        instantly see this is a regular session, not a one-off. */}
+                    {item.recurrence ? (
+                      <View
+                        testID={`recur-badge-${item.id}`}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#ECFDF5", borderColor: "#10B981", borderWidth: 1, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 }}
+                      >
+                        <Ionicons name="repeat" size={14} color="#047857" />
+                        <Text style={{ color: "#047857", fontWeight: "900", fontSize: 13 * scale }}>
+                          {item.recurrence === "weekly" ? "Weekly" : item.recurrence === "fortnightly" ? "Fortnightly" : item.recurrence === "monthly" ? "Monthly" : "Repeats"}
+                        </Text>
+                      </View>
+                    ) : null}
                   </View>
                   <Text style={[styles.meta, { color: c.muted, fontSize: 14 * scale }]}>📍 {item.location}</Text>
                 </View>

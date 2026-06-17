@@ -18,6 +18,25 @@ const CAPACITY_PRESETS = [
   { label: "No limit", value: null as number | null },
 ];
 
+// Recurrence cadences offered to hosts. "none" is the default — most events
+// are one-offs. We deliberately do NOT expose daily / yearly to keep the
+// surface friendly for older adults running regular meetups.
+type Recurrence = "none" | "weekly" | "fortnightly" | "monthly";
+const RECURRENCE_OPTIONS: { key: Recurrence; label: string; emoji: string }[] = [
+  { key: "none",         label: "Doesn't repeat", emoji: "—" },
+  { key: "weekly",       label: "Weekly",         emoji: "📅" },
+  { key: "fortnightly",  label: "Fortnightly",    emoji: "📆" },
+  { key: "monthly",      label: "Monthly",        emoji: "🗓️" },
+];
+// "How many times?" — count of *additional* occurrences after the first one.
+// Friendly labels phrased from the host's POV (e.g. "Repeat 4 times" creates
+// the master + 3 children).
+const REPEAT_COUNT_PRESETS = [
+  { label: "4 times",   value: 3 },
+  { label: "8 times",   value: 7 },
+  { label: "12 times",  value: 11 },
+];
+
 export default function NewEvent() {
   const router = useRouter();
   const { c, scale } = useTheme();
@@ -30,6 +49,8 @@ export default function NewEvent() {
   const [date, setDate] = useState(""); // YYYY-MM-DD
   const [time, setTime] = useState(""); // HH:MM (24h)
   const [capacity, setCapacity] = useState<number | null>(20);
+  const [recurrence, setRecurrence] = useState<Recurrence>("none");
+  const [repeatCount, setRepeatCount] = useState<number>(3); // +3 extras = 4 total
   const [busy, setBusy] = useState(false);
 
   if (!user) return <View style={{ flex: 1, backgroundColor: c.surface }}><Header title="New event" /></View>;
@@ -51,8 +72,15 @@ export default function NewEvent() {
         time,
         capacity: capacity ?? null,
         host_id: user.id,
+        recurrence: recurrence === "none" ? null : recurrence,
+        recurrence_count: recurrence === "none" ? null : repeatCount,
       });
-      show("Event created 🎉");
+      const totalCount = (created?.series_event_ids?.length as number | undefined) ?? 1;
+      if (totalCount > 1) {
+        show(`Series created — ${totalCount} events 🎉`);
+      } else {
+        show("Event created 🎉");
+      }
       router.replace("/events");
       return created;
     } catch (e: any) {
@@ -120,6 +148,59 @@ export default function NewEvent() {
             placeholderTextColor={c.muted}
             style={[styles.input, inputStyle, { marginTop: 8 }]}
           />
+
+          {/* Repeats — for regular meetups (weekly coffee, monthly book
+              club, etc.). The picker stays compact and only reveals the
+              "How many times?" row once a cadence is selected so one-off
+              hosts aren't distracted by options they don't need. */}
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Repeats</Text>
+          <Text style={{ color: c.muted, fontSize: 12 * scale, marginBottom: 6 }}>
+            For regular meetups — we&apos;ll create one event for each date so people can RSVP per session.
+          </Text>
+          <View style={styles.row}>
+            {RECURRENCE_OPTIONS.map((r) => {
+              const on = recurrence === r.key;
+              return (
+                <Pressable
+                  key={r.key}
+                  testID={`recur-${r.key}`}
+                  onPress={() => setRecurrence(r.key)}
+                  style={[styles.chip, { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}
+                >
+                  {r.emoji !== "—" ? <Text style={{ fontSize: 16 }}>{r.emoji}</Text> : null}
+                  <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{r.label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {recurrence !== "none" && (
+            <>
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>How many times?</Text>
+              <View style={styles.row}>
+                {REPEAT_COUNT_PRESETS.map((p) => {
+                  const on = repeatCount === p.value;
+                  return (
+                    <Pressable
+                      key={p.label}
+                      testID={`recur-count-${p.value}`}
+                      onPress={() => setRepeatCount(p.value)}
+                      style={[styles.chip, { backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}
+                    >
+                      <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{p.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 4 }}>
+                {(() => {
+                  const totalEvents = repeatCount + 1;
+                  if (recurrence === "weekly") return `📅 ${totalEvents} weekly events — last one ${totalEvents} week${totalEvents === 1 ? "" : "s"} after the first.`;
+                  if (recurrence === "fortnightly") return `📆 ${totalEvents} fortnightly events — last one ${(totalEvents - 1) * 2} weeks after the first.`;
+                  return `🗓️ ${totalEvents} monthly events — last one ${totalEvents - 1} months after the first.`;
+                })()}
+              </Text>
+            </>
+          )}
 
           <View style={{ height: 16 }} />
           <Pressable
