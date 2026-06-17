@@ -81,7 +81,7 @@ export default function OnboardingWizard() {
   // Lazy-load suggested groups when the user lands on the groups step so the
   // backend can already see their picked interests and rank accordingly.
   useEffect(() => {
-    if (step !== 4 || !user?.id || groups.length) return;
+    if (step !== 1 || !user?.id || groups.length) return;
     (async () => {
       setGroupsLoading(true);
       try {
@@ -486,8 +486,8 @@ export default function OnboardingWizard() {
   const stepView = useMemo(() => {
     switch (step) {
       case 0: return Step0;   // Welcome explainer
-      case 1: return Step3;   // Groups picker (was Step3 in the 6-step layout)
-      case 2: return Step5;   // Destination picker (was Step5)
+      case 1: return Step4;   // Groups picker (Step3 avatar dropped — collected in signup)
+      case 2: return Step5;   // Destination picker
       default: return Step0;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -540,7 +540,7 @@ export default function OnboardingWizard() {
           {showSkip && (
             <Pressable
               testID="onb-skip"
-              onPress={() => (step === 4 ? finishWizard(true) : goNext())}
+              onPress={() => goNext()}
               disabled={busy}
               style={{ paddingHorizontal: 12, paddingVertical: 10 }}
             >
@@ -551,7 +551,7 @@ export default function OnboardingWizard() {
           <Pressable
             testID="onb-next"
             disabled={busy}
-            onPress={() => (isLast ? finishWizard(false) : (step === 4 ? finishWizard(false) : goNext()))}
+            onPress={() => (isLast ? finishWizard(false) : goNext())}
             style={[styles.primaryBtn, { backgroundColor: c.brand, opacity: busy ? 0.7 : 1 }]}
           >
             {busy ? (
