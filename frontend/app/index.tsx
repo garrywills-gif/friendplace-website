@@ -195,15 +195,14 @@ export default function Welcome() {
         </View>
 
         <View style={styles.actions}>
-          {/* Founding Member counter — live recruiting signal. We only show
-              it while seats remain so it never becomes a sad "0 left" tomb. */}
+          {/* Founding Member recruiting tile — flips visible only while
+              real seats remain. Copy positions the cohort as community
+              shapers rather than a scarcity / FOMO play (which lands
+              better with the older-adult audience). */}
           {founderStatus && founderStatus.open && founderStatus.cap > 0 ? (
             <View testID="welcome-founder-banner" style={styles.founderBanner}>
-              <Text style={[styles.founderBannerTitle, { fontSize: 13 * scale }]}>
-                🦋 FOUNDING MEMBERS
-              </Text>
               <Text style={[styles.founderBannerBody, { fontSize: 15 * scale }]}>
-                {founderStatus.remaining.toLocaleString()} of {founderStatus.cap.toLocaleString()} spots left — sign up to claim yours
+                🦋 <Text style={{ fontWeight: "900", color: "#FBBF24" }}>Founding Members</Text> – Be among the first {founderStatus.cap.toLocaleString()} members helping shape YouBelong.
               </Text>
             </View>
           ) : null}
@@ -220,15 +219,10 @@ export default function Welcome() {
             <View style={styles.line} />
           </View>
 
-          {/* Apple Sign-In: hidden until we have an Apple Developer account
-              and the iOS native build supports it. The handler stays wired
-              up so re-enabling is a one-line uncomment when ready. */}
-          {false && (
-            <Pressable testID="welcome-apple" disabled={authBusy} onPress={() => handleSocial("Apple")} style={({ pressed }) => [styles.social, { backgroundColor: "#000", opacity: authBusy ? 0.5 : (pressed ? 0.85 : 1) }]}>
-              <Ionicons name="logo-apple" size={26} color="#FFF" />
-              <Text style={[styles.socialText, { color: "#FFF", fontSize: 18 * scale }]}>Continue with Apple</Text>
-            </Pressable>
-          )}
+          {/* Apple Sign-In intentionally NOT rendered here — comes back when
+              we have an Apple Developer account + a native iOS build that
+              supports Sign in with Apple. To re-enable, drop a Pressable
+              calling handleSocial("Apple") above the Google button. */}
           <Pressable testID="welcome-google" disabled={authBusy} onPress={() => handleSocial("Google")} style={({ pressed }) => [styles.social, { backgroundColor: "#FFFFFF", opacity: authBusy ? 0.6 : (pressed ? 0.85 : 1) }]}>
             {authBusy ? (
               <ActivityIndicator size="small" color="#1E3A7F" />
@@ -237,21 +231,6 @@ export default function Welcome() {
             )}
             <Text style={[styles.socialText, { color: "#1E3A7F", fontSize: 18 * scale }]}>
               {authBusy ? "Signing in…" : "Continue with Google"}
-            </Text>
-          </Pressable>
-
-          {/* Friends-and-family waitlist — a low-pressure path for people
-              who aren't ready to sign up yet. Lives below the auth buttons
-              so it doesn't compete with the primary CTAs. */}
-          <Pressable
-            testID="welcome-waitlist"
-            onPress={() => router.push("/waitlist")}
-            style={({ pressed }) => [styles.waitlistLink, { opacity: pressed ? 0.7 : 1 }]}
-            accessibilityRole="link"
-            accessibilityLabel="Join the friends and family waitlist"
-          >
-            <Text style={[styles.waitlistLinkText, { fontSize: 14 * scale }]}>
-              Not ready yet?  <Text style={{ fontWeight: "900", textDecorationLine: "underline" }}>Join the friends &amp; family waitlist</Text>
             </Text>
           </Pressable>
         </View>
@@ -330,29 +309,15 @@ const styles = StyleSheet.create({
     borderColor: "#FBBF24",   // warm gold accent
     borderWidth: 1.5,
     borderRadius: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 14,
     alignItems: "center",
     marginBottom: 4,
-  },
-  founderBannerTitle: {
-    color: "#FBBF24",
-    fontWeight: "900",
-    letterSpacing: 1.4,
   },
   founderBannerBody: {
     color: "#FFFFFF",
     fontWeight: "700",
     textAlign: "center",
-    marginTop: 4,
-  },
-  waitlistLink: {
-    alignItems: "center",
-    paddingVertical: 12,
-    marginTop: 2,
-  },
-  waitlistLinkText: {
-    color: "rgba(255,255,255,0.88)",
-    textAlign: "center",
+    lineHeight: 22,
   },
 });
