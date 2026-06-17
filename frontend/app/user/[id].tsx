@@ -39,7 +39,7 @@ export default function UserView() {
   const flutter = async () => {
     if (!user) return;
     try {
-      await api.sendFlutter(user.id, u.id);
+      await api.sendFlutter({ from_id: user.id, to_id: u.id });
       show(`🦋 Flutter sent to ${u.first_name}!`);
     } catch (e: any) {
       const msg = String(e?.message || "");

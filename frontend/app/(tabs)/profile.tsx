@@ -41,6 +41,13 @@ export default function Profile() {
   const [alertSelected, setAlertSelected] = useState<string[]>([]);
   const [nearbyOptedIn, setNearbyOptedIn] = useState<boolean>(((user as any)?.preferences?.nearby_chat_alerts) ?? false);
   const [inviteCount, setInviteCount] = useState<number>(0);
+  // Recent invitees — used to render the "Your invites" panel further down
+  // so the host can see the avatars/first names of friends who joined
+  // through their link, plus send each one a quick hello flutter.
+  const [recentInvites, setRecentInvites] = useState<any[]>([]);
+  // Per-invitee busy state so the "Send hello" buttons disable while a
+  // flutter is in-flight — keeps users from double-firing welcomes.
+  const [helloBusy, setHelloBusy] = useState<Record<string, boolean>>({});
   // Who invited me here? Shown as a friendly "You joined because Garry
   // invited you" card under the hero. null means nobody (organic signup).
   const [inviter, setInviter] = useState<any | null>(null);
@@ -56,6 +63,7 @@ export default function Profile() {
         try {
           const s: any = await api.inviteStats(user.id);
           setInviteCount(s?.count || 0);
+          setRecentInvites(Array.isArray(s?.recent) ? s.recent : []);
         } catch {}
         try {
           const r: any = await api.inviter(user.id);
@@ -64,6 +72,23 @@ export default function Profile() {
       }
     })();
   }, [user?.id]));
+
+  async function sendHello(invitee: any) {
+    if (!user?.id || !invitee?.id) return;
+    setHelloBusy((m) => ({ ...m, [invitee.id]: true }));
+    try {
+      await api.sendFlutter({
+        from_id: user.id,
+        to_id: invitee.id,
+        message: `Welcome to YouBelong, ${invitee.first_name || ""}! So glad you joined 🦋`,
+      });
+      show(`Said hi to ${invitee.first_name || invitee.username || "your friend"} 🦋`);
+    } catch (e: any) {
+      show(e?.message || "Couldn't send the hello flutter");
+    } finally {
+      setHelloBusy((m) => ({ ...m, [invitee.id]: false }));
+    }
+  }
 
   if (!user) return <View style={{ flex: 1, backgroundColor: c.surface }} />;
 
@@ -232,6 +257,64 @@ export default function Profile() {
       <Button label="Edit Profile" variant="outline" onPress={() => router.push("/edit-profile")} testID="profile-edit" />
       <View style={{ height: 12 }} />
       <ShareYouBelong variant="ghost" testID="profile-share" />
+
+      {/* Your invites panel — shows recent friends who joined through this
+          user's invite link with a quick "Say hi" flutter button. Hidden
+          when no invitees yet so the section never feels empty/depressing
+          for users who haven't invited anyone. */}
+      {recentInvites.length > 0 ? (
+        <View style={{ marginTop: 14 }}>
+          <Text style={[styles.sectionLabel, { color: c.muted, fontSize: 13 * scale }]}>
+            FRIENDS YOU&apos;VE BROUGHT IN ({inviteCount})
+          </Text>
+          <View style={{ gap: 8 }}>
+            {recentInvites.slice(0, 6).map((it) => (
+              <View
+                key={it.id}
+                testID={`invitee-${it.id}`}
+                style={[styles.inviteeRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+              >
+                <Pressable
+                  onPress={() => router.push(`/profile/${it.id}` as any)}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}
+                  accessibilityLabel={`Open ${it.first_name || it.username}'s profile`}
+                >
+                  <View style={[styles.inviteeAvatar, { backgroundColor: c.brandTertiary }]}>
+                    <AvatarBubble value={it.avatar} size={40} textSize={26} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }} numberOfLines={1}>
+                      {it.first_name || it.username}
+                    </Text>
+                    <Text style={{ color: c.muted, fontSize: 12 * scale }}>
+                      Joined {formatRelative(it.created_at)}
+                    </Text>
+                  </View>
+                </Pressable>
+                <Pressable
+                  testID={`invitee-hello-${it.id}`}
+                  disabled={!!helloBusy[it.id]}
+                  onPress={() => sendHello(it)}
+                  style={({ pressed }) => [
+                    styles.helloBtn,
+                    {
+                      backgroundColor: "#8B5CF6",
+                      opacity: helloBusy[it.id] ? 0.5 : (pressed ? 0.85 : 1),
+                    },
+                  ]}
+                  accessibilityLabel={`Send hello flutter to ${it.first_name || it.username}`}
+                >
+                  <Ionicons name="paper-plane" size={14} color="#FFFFFF" />
+                  <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 13 * scale }}>
+                    {helloBusy[it.id] ? "Sent…" : "Say hi"}
+                  </Text>
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        </View>
+      ) : null}
+
       <View style={{ height: 12 }} />
       <Button label="Help & Support" variant="outline" onPress={() => router.push("/help")} testID="profile-help" />
       <View style={{ height: 12 }} />
@@ -367,4 +450,35 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 1 },
   friendDot: { width: 80, height: 88, borderRadius: 18, alignItems: "center", justifyContent: "center", padding: 6 },
+  sectionLabel: { fontWeight: "900", letterSpacing: 0.6, marginTop: 4, marginBottom: 8 },
+  inviteeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 10,
+  },
+  inviteeAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  helloBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999,
+    minHeight: 36,
+  },
 });
+
+// Friendly relative-time string for the "Joined …" line on invitee rows.
+// Keeps the panel scanning-friendly without exposing exact timestamps.
+function formatRelative(iso?: string): string {
+  if (!iso) return "recently";
+  const t = Date.parse(iso);
+  if (!isFinite(t)) return "recently";
+  const diff = Date.now() - t;
+  const day = 24 * 60 * 60 * 1000;
+  if (diff < 60 * 1000) return "just now";
+  if (diff < 60 * 60 * 1000) return `${Math.round(diff / (60 * 1000))} min ago`;
+  if (diff < day) return `${Math.round(diff / (60 * 60 * 1000))} hr ago`;
+  if (diff < 7 * day) return `${Math.round(diff / day)} day${Math.round(diff / day) === 1 ? "" : "s"} ago`;
+  return new Date(t).toLocaleDateString();
+}

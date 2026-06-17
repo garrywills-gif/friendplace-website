@@ -314,7 +314,8 @@ export const api = {
   dmMessages: (cid: string) => req(`/dm/${cid}/messages`),
 
   // flutter
-  sendFlutter: (from_id: string, to_id: string) => req("/flutters/send", { method: "POST", body: JSON.stringify({ from_id, to_id }) }),
+  sendFlutter: (body: { from_id: string; to_id: string; message?: string }) =>
+    req("/flutters/send", { method: "POST", body: JSON.stringify(body) }),
   myFlutters: (uid: string) => req(`/flutters/${uid}`),
   markFlutterRead: (fid: string) => req(`/flutters/${fid}/read`, { method: "POST" }),
 

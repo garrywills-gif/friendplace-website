@@ -90,7 +90,7 @@ export default function Friends() {
   const sendFlutter = async (other: any) => {
     if (!user) return;
     try {
-      await api.sendFlutter(user.id, other.id);
+      await api.sendFlutter({ from_id: user.id, to_id: other.id });
       show(`🦋 Flutter sent to ${other.first_name}!`);
       await refresh();
     } catch { show("Could not send flutter"); }

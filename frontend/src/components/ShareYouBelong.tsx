@@ -9,7 +9,7 @@
  * current preview URL). To change the production link, set
  * EXPO_PUBLIC_SHARE_URL in /app/frontend/.env and rebuild.
  */
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import {
   Platform,
   Linking,
   ScrollView,
+  Share,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
@@ -26,6 +27,7 @@ import QRCode from "react-native-qrcode-svg";
 import { useTheme } from "@/src/lib/theme";
 import { useToast } from "@/src/lib/toast";
 import { useAuth } from "@/src/lib/auth";
+import { api } from "@/src/lib/api";
 
 const BASE_SHARE_URL: string =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,13 +64,49 @@ export default function ShareYouBelong({
   const [open, setOpen] = useState(false);
   const [showQR, setShowQR] = useState(false);
 
-  // Personalised share URL — every share gets `?ref=<user_id>` appended so
-  // we can credit this user when a new signup comes through their invite.
+  // Personalised share URL — routes invitees through the warm
+  // `/invite/<id>` landing page so they see "Margaret invited you" before
+  // they ever see a sign-up form. The query-param form is also kept as a
+  // safety net for any old links still in the wild (welcome.tsx will pick
+  // up ?ref=<id> and stash it the same way).
   const sharedUrl = useMemo(
-    () => (user?.id ? `${BASE_SHARE_URL}?ref=${encodeURIComponent(user.id)}` : BASE_SHARE_URL),
+    () => (user?.id ? `${BASE_SHARE_URL}/invite/${encodeURIComponent(user.id)}` : BASE_SHARE_URL),
     [user?.id],
   );
-  const fullBody = `${SHARE_MESSAGE}\n\n${sharedUrl}`;
+
+  // Live Founder counter — pulled once when the share sheet is opened so we
+  // can splice "{N} spots remaining" into the share body. Cheap public
+  // endpoint, no auth required, safe to call from any caller.
+  const [founderRemaining, setFounderRemaining] = useState<number | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const f: any = await api.founderStatus();
+        if (!cancelled && f?.open) setFounderRemaining(f.remaining ?? null);
+      } catch { /* keep null — message gracefully omits the line */ }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Founder-aware copy: if the inviter is a Founding Member the message
+  // says so ("I'm one of the founding members of YouBelong"). And when
+  // we know how many seats are left we tack that on for urgency.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const founderUser = (user as any)?.is_founder;
+  const personalisedMessage = useMemo(() => {
+    if (founderUser) {
+      const seats =
+        typeof founderRemaining === "number" && founderRemaining > 0
+          ? ` There are ${founderRemaining.toLocaleString()} Founding Member spots left.`
+          : "";
+      return `I'm one of the founding members of YouBelong — a friendly community where you can meet people, join local events, chat in the Coffee Lounge and make new friends.${seats} Come join me 🦋`;
+    }
+    return SHARE_MESSAGE;
+  }, [founderUser, founderRemaining]);
+
+  const fullBody = `${personalisedMessage}\n\n${sharedUrl}`;
 
   // Encode helpers — kept as memos so re-encoding doesn't happen on every render.
   const encoded = useMemo(() => {
@@ -76,6 +114,41 @@ export default function ShareYouBelong({
     const subject = encodeURIComponent(SHARE_SUBJECT);
     return { body, subject };
   }, [fullBody]);
+
+  // Native share sheet — opens iOS / iPadOS / Android system share menu so
+  // the user can pick *any* installed app (WhatsApp, Messenger, Facebook,
+  // AirDrop, Notes, etc.). Massive reach upgrade vs. our hand-curated 4
+  // channels. Web falls back to clipboard copy + a polite hint.
+  const openNativeShare = async () => {
+    try {
+      if (Platform.OS === "web") {
+        // Some modern browsers expose navigator.share — try it first.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const w: any = window;
+        if (w?.navigator?.share) {
+          await w.navigator.share({ title: SHARE_SUBJECT, text: personalisedMessage, url: sharedUrl });
+          setOpen(false);
+          return;
+        }
+        await Clipboard.setStringAsync(fullBody);
+        show("Invite copied — paste into any app");
+        setOpen(false);
+        return;
+      }
+      await Share.share(
+        { title: SHARE_SUBJECT, message: fullBody, url: sharedUrl },
+        { subject: SHARE_SUBJECT, dialogTitle: SHARE_SUBJECT },
+      );
+      setOpen(false);
+    } catch (e: any) {
+      // User cancelled or the native sheet failed — fall back to copy so
+      // the user is never left empty-handed.
+      try {
+        await Clipboard.setStringAsync(fullBody);
+        show("Invite copied — paste into any app");
+      } catch { /* truly stuck */ }
+    }
+  };
 
   const openSms = async () => {
     // iOS uses `&`, Android uses `?` for the body parameter. Linking handles
@@ -257,8 +330,20 @@ export default function ShareYouBelong({
             ) : (
               <View style={{ gap: 10, paddingBottom: 8 }}>
                 <Text style={[styles.preview, { color: c.muted, fontSize: 14 * scale, borderColor: c.border, backgroundColor: c.surfaceSecondary }]}>
-                  {SHARE_MESSAGE}
+                  {personalisedMessage}
                 </Text>
+                {/* Native share — opens the OS share sheet so users can pick
+                    WhatsApp / Messenger / Facebook / AirDrop / any installed
+                    app in one tap. Placed first because it's the highest-
+                    reach option for older audiences. */}
+                <ShareOption
+                  testID="share-native"
+                  icon="share-social"
+                  tint="#1E3A7F"
+                  label="Share to any app"
+                  sub="WhatsApp, Messenger, Facebook, AirDrop, Notes — anything on your phone"
+                  onPress={openNativeShare}
+                />
                 <ShareOption
                   testID="share-qr"
                   icon="qr-code"
