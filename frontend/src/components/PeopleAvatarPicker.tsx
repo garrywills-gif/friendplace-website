@@ -138,7 +138,7 @@ export default function PeopleAvatarPicker({
           <AvatarBubble value={current} size={previewSize - 16} textSize={Math.round(previewSize * 0.62)} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.label, { color: c.muted, fontSize: 12 * scale }]}>YOUR LOOK</Text>
+          <Text style={[styles.label, { color: c.muted, fontSize: 12 * scale }]}>YOUR AVATAR</Text>
           <Text style={[styles.previewTitle, { color: c.onSurface, fontSize: (compact ? 16 : 18) * scale }]}>
             {FACE_BY_KEY[faceKey]?.label}
           </Text>

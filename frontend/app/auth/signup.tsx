@@ -98,10 +98,16 @@ export default function Signup() {
   const toggleInterest = (i: string) =>
     setInterests((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]));
 
-  // Step 1 validation — runs when the user presses Continue.
+  // Step 1 validation — runs when the user presses Continue. Email is
+  // required because it's the primary recovery channel (password reset,
+  // login link, important account updates) and the simplest signal we
+  // have to prevent the same person creating multiple accounts.
   const validateStep1 = () => {
     const u = username.trim().toLowerCase();
     if (!u || u.length < 3) { show("Username must be at least 3 characters"); return false; }
+    const em = email.trim().toLowerCase();
+    if (!em) { show("Email address is required"); return false; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { show("Please enter a valid email address"); return false; }
     if (!pw || pw.length < 6) { show("Password must be at least 6 characters"); return false; }
     if (pw !== pw2) { show("Passwords do not match"); return false; }
     return true;
@@ -173,9 +179,15 @@ export default function Signup() {
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>First name <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional)</Text></Text>
               <TextInput testID="signup-first-name" value={firstName} onChangeText={setFirstName} placeholder="Shown on your profile" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+              <Text style={[styles.helper, { color: c.muted, fontSize: 12 * scale }]}>
+                Only your first name is shown to other members. Surnames are never displayed.
+              </Text>
 
-              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Email <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional — for password reset)</Text></Text>
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Email address  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
               <TextInput testID="signup-email" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+              <Text style={[styles.helper, { color: c.muted, fontSize: 12 * scale }]}>
+                Used for login, password recovery and important account updates.
+              </Text>
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Create password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
               <PasswordField testID="signup-pw" value={pw} onChangeText={setPw} placeholder="At least 6 characters" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
@@ -301,6 +313,7 @@ export default function Signup() {
 const styles = StyleSheet.create({
   content: { padding: 20, gap: 6, paddingBottom: 40 },
   label: { fontWeight: "700", marginTop: 12 },
+  helper: { marginTop: 4, lineHeight: 16 },
   input: { borderWidth: 2, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, fontWeight: "600" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 2, minHeight: 40 },
