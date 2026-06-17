@@ -10,6 +10,7 @@ import Button from "@/src/components/Button";
 import ShareYouBelong from "@/src/components/ShareYouBelong";
 import { api } from "@/src/lib/api";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import FounderBadge from "@/src/components/FounderBadge";
 
 const ALL_BADGES = [
   "Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder",
@@ -72,6 +73,10 @@ export default function Profile() {
         <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}><AvatarBubble value={user.avatar} size={user.avatar && /^https?:\/\//i.test(user.avatar) ? 110 : 110} textSize={88} fallback="🙂" /></View>
         <Text style={[styles.name, { color: c.onSurface, fontSize: 30 * scale }]} testID="profile-name">{user.first_name}</Text>
         <Text style={[styles.user, { color: c.muted, fontSize: 16 * scale }]}>@{user.username} · 📍 {user.suburb || "—"}</Text>
+        {/* Founding Member crest — renders nothing for non-founders. */}
+        <View style={{ marginTop: 8 }}>
+          <FounderBadge user={user as any} variant="chip" />
+        </View>
         {!!user.bio && <Text style={[styles.bio, { color: c.onSurface, fontSize: 16 * scale }]}>{user.bio}</Text>}
       </View>
 

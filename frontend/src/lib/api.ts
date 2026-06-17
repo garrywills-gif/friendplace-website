@@ -31,6 +31,12 @@ export const api = {
   me: (token: string) =>
     req("/auth/me", { headers: { Authorization: `Bearer ${token}` } }),
 
+  // Pre-launch programmes
+  founderStatus: () => req("/founders/status"),
+  joinWaitlist: (body: { email: string; name?: string; suburb?: string; source?: string; note?: string; referrer_id?: string | null }) =>
+    req("/waitlist", { method: "POST", body: JSON.stringify(body) }),
+  waitlistStats: () => req("/waitlist/stats"),
+
   listUsers: (params: { suburb?: string; interest?: string; q?: string; viewer_id?: string; near_lat?: number; near_lng?: number; radius_km?: number } = {}) => {
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "") as any).toString();
     return req(`/users${qs ? `?${qs}` : ""}`);

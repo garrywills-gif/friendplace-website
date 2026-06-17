@@ -19,6 +19,14 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError
 import os, uuid, logging, json, asyncio, random, re
 
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
+from sentry_sdk.integrations.asyncio import AsyncioIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
+
+from config import settings
+
 from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_themes as ws_list_themes, generate_puzzle as ws_generate, daily_pick as ws_daily_pick, today_iso as ws_today_iso
 from memory_match import THEMES as MM_THEMES, DIFFICULTIES as MM_DIFFS, list_themes as mm_list_themes, generate_puzzle as mm_generate, daily_pick as mm_daily_pick, today_iso as mm_today_iso
 from sudoku import DIFFICULTIES as SD_DIFFS, generate_puzzle as sd_generate, daily_pick as sd_daily_pick, today_iso as sd_today_iso
@@ -28,19 +36,21 @@ from milestones import MILESTONES as ML_DEFS, evaluate as ml_evaluate
 from suburbs import search_suburbs as sb_search, by_postcode as sb_by_postcode, haversine_km as sb_haversine
 
 ROOT_DIR = Path(__file__).parent
+# `settings` already loaded .env via pydantic-settings — we keep load_dotenv()
+# only so any *direct* os.environ readers in third-party libs (e.g. emergent
+# auth) still pick up the same values. Single source of truth: `config.settings`.
 load_dotenv(ROOT_DIR / ".env")
 
-mongo_url = os.environ["MONGO_URL"]
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ["DB_NAME"]]
+client = AsyncIOMotorClient(settings.mongo_url)
+db = client[settings.db_name]
 
 # ---------------- Auth config & helpers ----------------
-JWT_SECRET = os.environ.get("JWT_SECRET", "yb-dev-secret-change-me")
+JWT_SECRET = settings.jwt_secret
 JWT_ALG = "HS256"
-JWT_TTL_MIN = int(os.environ.get("JWT_TTL_MIN", "10080"))  # 7 days
-RESET_TTL_MIN = int(os.environ.get("RESET_TTL_MIN", "10"))
-MAX_LOGIN_ATTEMPTS = int(os.environ.get("MAX_LOGIN_ATTEMPTS", "5"))
-LOCKOUT_MIN = int(os.environ.get("LOCKOUT_MIN", "15"))
+JWT_TTL_MIN = settings.jwt_ttl_min
+RESET_TTL_MIN = settings.reset_ttl_min
+MAX_LOGIN_ATTEMPTS = settings.max_login_attempts
+LOCKOUT_MIN = settings.lockout_min
 
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
@@ -87,6 +97,31 @@ api = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("youbelong")
+
+# ---------------- Sentry (no-op when DSN unset) ----------------
+# Init *after* logger creation so the LoggingIntegration captures our own
+# logs too. When `settings.sentry_dsn` is None / empty the SDK initialises
+# in disabled mode and zero events are sent — safe to leave wired in dev.
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment,
+        sample_rate=settings.sentry_sample_rate,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+        send_default_pii=False,  # don't ship request bodies / cookies
+        integrations=[
+            FastApiIntegration(transaction_style="endpoint"),
+            StarletteIntegration(transaction_style="endpoint"),
+            AsyncioIntegration(),
+            # Capture WARNING+ logs as breadcrumbs and ERROR+ as events.
+            LoggingIntegration(level=logging.INFO, event_level=logging.ERROR),
+        ],
+    )
+    logger.info("Sentry initialised (env=%s, traces=%.2f)",
+                settings.sentry_environment, settings.sentry_traces_sample_rate)
+else:
+    logger.info("Sentry DSN not set — error reporting disabled "
+                "(set SENTRY_DSN_BACKEND in env to enable).")
 
 
 def now_iso() -> str:
@@ -140,6 +175,12 @@ class User(BaseModel):
     # community-builders. Never exposed back to the inviter as a clickable
     # identity — we only expose count + display name.
     invited_by: Optional[str] = None
+    # Founding Member programme — first N successful sign-ups (cap set by
+    # FOUNDING_MEMBER_CAP env var, default 500) get a permanent 🦋 badge
+    # shown on profile and posts. Cheap, ego-pleasing, and a clean signal
+    # for future "thank-you" perks (priority support, early features, etc.).
+    is_founder: bool = False
+    founder_number: Optional[int] = None  # 1-indexed position in cohort
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -394,6 +435,38 @@ async def _find_user_by_identifier(identifier: str) -> Optional[dict]:
     return await db.users.find_one({"email": {"$regex": f"^{ident}$", "$options": "i"}})
 
 
+async def _assign_founder_status(doc: dict) -> None:
+    """If the cohort isn't full yet, stamp this new account as a Founding
+    Member. Mutates `doc` in place — call BEFORE `db.users.insert_one(doc)`.
+
+    Demo accounts are excluded so the seeded cast doesn't burn slots that
+    belong to real friends-and-family invitees. The count is read fresh per
+    signup; at MVP traffic (~5 signups/hr at peak) the tiny race window
+    between count + insert is acceptable and self-corrects to "at most cap +
+    a few" — far cheaper than a Mongo transaction or a distributed lock.
+
+    Side effects: also adds the "Founding Member" badge and a celebratory
+    welcome notification so the user notices and feels rewarded.
+    """
+    if doc.get("is_demo"):
+        return
+    cap = max(0, int(settings.founding_member_cap or 0))
+    if cap <= 0:
+        return
+    current = await db.users.count_documents({"is_founder": True})
+    if current >= cap:
+        return
+    doc["is_founder"] = True
+    doc["founder_number"] = current + 1
+    badges = list(doc.get("badges") or [])
+    if "Founding Member" not in badges:
+        badges.append("Founding Member")
+    doc["badges"] = badges
+    # Small extra points bump as a thank-you — sized to make a Founder feel
+    # ahead of the pack at first login without unbalancing the leaderboard.
+    doc["points"] = int(doc.get("points") or 0) + 50
+
+
 @api.post("/auth/signup")
 async def signup(body: SignupBody, request: Request):
     # Anti-spam: cap signups to 5 per 10 min per source IP. Real users only
@@ -472,6 +545,9 @@ async def signup(body: SignupBody, request: Request):
                 from_avatar=doc.get("avatar") or "🦋",
                 message="🎉 Just joined through your invite — say hi!",
             ).dict())
+    # Founding Member assignment — runs *before* insert so the badge / number
+    # land in the same DB write as the rest of the user doc.
+    await _assign_founder_status(doc)
     await db.users.insert_one(doc)
     # Award any new milestone badges to the inviter now that the new account
     # is committed and `invited_by` is on file.
@@ -484,6 +560,15 @@ async def signup(body: SignupBody, request: Request):
         "body": "We're so glad you're here. Take a look at the Coffee Lounge or send a friend request to say hello.",
         "read": False, "created_at": now_iso(),
     })
+    # Extra "you're a Founder!" notification when applicable — lands at the
+    # top of the user's bell as their very first notification.
+    if doc.get("is_founder"):
+        await db.notifications.insert_one({
+            "id": nid(), "user_id": user.id, "type": "welcome",
+            "title": f"🦋 You're Founding Member #{doc['founder_number']}!",
+            "body": "Thanks for being one of the first to join YouBelong. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
+            "read": False, "created_at": now_iso(),
+        })
     # And tell the existing community about a new neighbour
     try: await _broadcast_new_member(doc)
     except Exception as e: logger.warning("new-member broadcast failed: %s", e)
@@ -682,6 +767,9 @@ async def auth_google(body: GoogleAuthBody):
                 message="🎉 Just joined through your invite — say hi!",
             ).dict())
 
+    # Founding Member assignment for OAuth signups — same cohort cap, same
+    # rules as username/password signup. Demo accounts excluded.
+    await _assign_founder_status(doc)
     await db.users.insert_one(doc)
     # Award invite-milestone badges to the inviter (idempotent).
     if doc.get("invited_by"):
@@ -692,6 +780,13 @@ async def auth_google(body: GoogleAuthBody):
         "body": "We're so glad you're here. Take a moment to add your interests and join a few groups.",
         "read": False, "created_at": now_iso(),
     })
+    if doc.get("is_founder"):
+        await db.notifications.insert_one({
+            "id": nid(), "user_id": user.id, "type": "welcome",
+            "title": f"🦋 You're Founding Member #{doc['founder_number']}!",
+            "body": "Thanks for being one of the first to join YouBelong. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
+            "read": False, "created_at": now_iso(),
+        })
     try: await _broadcast_new_member(doc)
     except Exception as e: logger.warning("new-member broadcast failed: %s", e)
     return {"access_token": make_token(user.id), "token_type": "bearer", "user": _safe_user(doc), "is_new": True}
@@ -700,6 +795,136 @@ async def auth_google(body: GoogleAuthBody):
 @api.get("/auth/me")
 async def auth_me(user=Depends(current_user)):
     return _safe_user(user)
+
+
+# ------------- Founding Member status (public) -------------
+@api.get("/founders/status")
+async def founders_status():
+    """How many slots are left in the Founding Member cohort. Public —
+    powers the marketing tile on the welcome / waitlist screens and lets
+    us run a live `247 / 500 spots claimed` counter without an admin role.
+    No personal data leaks — only aggregate counts."""
+    cap = max(0, int(settings.founding_member_cap or 0))
+    taken = await db.users.count_documents({"is_founder": True})
+    return {
+        "cap": cap,
+        "taken": taken,
+        "remaining": max(0, cap - taken),
+        "open": taken < cap,
+    }
+
+
+# ------------- Waitlist (pre-launch friends & family) -------------
+class WaitlistEntry(BaseModel):
+    id: str = Field(default_factory=nid)
+    email: EmailStr
+    name: str = ""
+    suburb: str = ""
+    source: str = ""        # e.g. "facebook", "flyer", "word_of_mouth"
+    note: str = ""          # free-form ("I heard from Maggie!")
+    referrer_id: Optional[str] = None  # carried from ?ref=<id>
+    created_at: str = Field(default_factory=now_iso)
+    invited: bool = False
+    invited_at: Optional[str] = None
+
+
+class WaitlistBody(BaseModel):
+    email: EmailStr
+    name: str = ""
+    suburb: str = ""
+    source: str = ""
+    note: str = ""
+    referrer_id: Optional[str] = None
+
+
+@api.post("/waitlist")
+async def join_waitlist(body: WaitlistBody, request: Request):
+    """Capture a friends-and-family signup BEFORE the public launch. Idempotent
+    by lower-cased email so a single person hitting "submit" twice doesn't
+    duplicate. Returns the queue position so we can show a friendly
+    "you're #42 in line" message.
+
+    NOT the same as account signup — these are leads, not authenticated
+    users. They'll be invited via email when we open more slots."""
+    client_ip = (request.client.host if request.client else "unknown") or "unknown"
+    rate_limit(f"waitlist:{client_ip}", max_calls=5, window_seconds=600)
+    email = body.email.strip().lower()
+    existing = await db.waitlist.find_one({"email": email}, {"_id": 0})
+    if existing:
+        position = await db.waitlist.count_documents({
+            "created_at": {"$lte": existing["created_at"]},
+        })
+        return {
+            "ok": True,
+            "already_on_list": True,
+            "position": position,
+            "joined_at": existing["created_at"],
+        }
+    entry = WaitlistEntry(
+        email=email,
+        name=(body.name or "").strip()[:80],
+        suburb=(body.suburb or "").strip()[:80],
+        source=(body.source or "").strip()[:40],
+        note=(body.note or "").strip()[:300],
+        referrer_id=body.referrer_id,
+    )
+    await db.waitlist.insert_one(entry.dict())
+    position = await db.waitlist.count_documents({})
+    logger.info("Waitlist signup: %s (pos #%s, source=%s)", email, position, entry.source or "—")
+    return {
+        "ok": True,
+        "already_on_list": False,
+        "position": position,
+        "joined_at": entry.created_at,
+    }
+
+
+@api.get("/waitlist/stats")
+async def waitlist_stats():
+    """Public, aggregate-only stats — total signups + count by source for the
+    marketing page. No emails or names exposed."""
+    total = await db.waitlist.count_documents({})
+    invited = await db.waitlist.count_documents({"invited": True})
+    # Top sources for a "where people heard about us" chart
+    pipe = [
+        {"$match": {"source": {"$ne": ""}}},
+        {"$group": {"_id": "$source", "n": {"$sum": 1}}},
+        {"$sort": {"n": -1}},
+        {"$limit": 10},
+    ]
+    sources = [{"source": d["_id"], "count": d["n"]} async for d in db.waitlist.aggregate(pipe)]
+    return {"total": total, "invited": invited, "waiting": total - invited, "sources": sources}
+
+
+@api.get("/admin/waitlist")
+async def admin_waitlist(admin_id: str = Query(...), invited: Optional[bool] = None):
+    """Admin-only — full waitlist with emails, names and notes so an admin
+    can hand-pick the next batch to invite. Mirrors the auth pattern used
+    by other admin endpoints (no token; admin_id verified against DB)."""
+    admin = await db.users.find_one({"id": admin_id}, {"_id": 0, "is_admin": 1})
+    if not admin or not admin.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    q: dict = {}
+    if invited is not None:
+        q["invited"] = invited
+    docs = await db.waitlist.find(q, {"_id": 0}).sort("created_at", 1).to_list(2000)
+    return {"total": len(docs), "entries": docs}
+
+
+@api.post("/admin/waitlist/{entry_id}/mark-invited")
+async def admin_mark_invited(entry_id: str, admin_id: str = Query(...)):
+    """Mark a waitlist entry as `invited` once the admin has emailed them.
+    No-op idempotent. Cleans the active queue without deleting history."""
+    admin = await db.users.find_one({"id": admin_id}, {"_id": 0, "is_admin": 1})
+    if not admin or not admin.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    res = await db.waitlist.update_one(
+        {"id": entry_id},
+        {"$set": {"invited": True, "invited_at": now_iso()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Waitlist entry not found")
+    return {"ok": True}
 
 
 @api.post("/auth/forgot-password")
@@ -5857,6 +6082,9 @@ async def _ensure_indexes():
         ("friend_requests", [("to_id", 1), ("status", 1)], {"name": "ix_freq_to_status"}),
         ("friend_requests", [("from_id", 1), ("status", 1)], {"name": "ix_freq_from_status"}),
         ("tables", [("visibility", 1), ("created_at", -1)], {"name": "ix_tables_vis_created"}),
+        ("waitlist", [("email", 1)], {"name": "ix_waitlist_email", "unique": True}),
+        ("waitlist", [("created_at", 1)], {"name": "ix_waitlist_created"}),
+        ("users", [("is_founder", 1)], {"name": "ix_users_founder", "sparse": True}),
     ]
     created = 0
     for coll, keys, opts in targets:
