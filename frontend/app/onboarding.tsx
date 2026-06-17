@@ -110,7 +110,12 @@ export default function OnboardingWizard() {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [step]);
 
-  const totalSteps = 6;
+  // Onboarding is now a slim 3-step wizard: Welcome explainer → Groups
+  // picker → Destination picker. The old interests / location / avatar
+  // steps were folded into the new 2-step /auth/signup so we don't ask
+  // for the same thing twice. (Step keys are still 0/1/2 here to keep
+  // the existing stepView memo + footer logic intact.)
+  const totalSteps = 3;
   const progress = (step + 1) / totalSteps;
 
   const goNext = () => setStep((s) => Math.min(totalSteps - 1, s + 1));
@@ -480,12 +485,9 @@ export default function OnboardingWizard() {
 
   const stepView = useMemo(() => {
     switch (step) {
-      case 0: return Step0;
-      case 1: return Step1;
-      case 2: return Step2;
-      case 3: return Step3;
-      case 4: return Step4;
-      case 5: return Step5;
+      case 0: return Step0;   // Welcome explainer
+      case 1: return Step3;   // Groups picker (was Step3 in the 6-step layout)
+      case 2: return Step5;   // Destination picker (was Step5)
       default: return Step0;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

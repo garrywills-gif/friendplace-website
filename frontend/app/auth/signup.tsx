@@ -1,7 +1,41 @@
+/**
+ * /auth/signup — two-step Create Account flow.
+ *
+ *   Step 1 of 2: Account essentials (username, first name, email, password)
+ *   Step 2 of 2: Personalisation (avatar, interests, birthday, suburb)
+ *
+ * Why two steps?
+ *   The original screen showed ~8 input groups stacked together — too
+ *   intimidating for the older-adult audience YouBelong targets. Splitting
+ *   creates two short pages, each fits on one phone screen without
+ *   scrolling, with a clear "Step X of 2" progress indicator at the top.
+ *   Submission happens at the end of Step 2 (single POST /api/auth/signup
+ *   with the full payload — backend contract unchanged).
+ *
+ * Behaviour notes:
+ *   - Step 1 fields are validated locally before "Continue" — clear inline
+ *     errors so the user never advances to Step 2 with bad credentials.
+ *   - Step 2 fields are all optional; users can submit with just the
+ *     defaults and refine later from Profile.
+ *   - "Back" on Step 2 returns to Step 1 without losing what they typed.
+ *   - The pickup of any pending `youbelong.invite.ref` (set by the
+ *     /invite/[id] landing) is preserved so attribution still flows through.
+ */
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Pressable,
+} from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
@@ -20,31 +54,36 @@ export default function Signup() {
   const { c, scale } = useTheme();
   const { signup } = useAuth();
   const { show } = useToast();
+
+  const [step, setStep] = useState<1 | 2>(1);
+
+  // Step 1 — account essentials
   const [firstName, setFirstName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
+
+  // Step 2 — personalisation
+  const [avatar, setAvatar] = useState("🌸");
+  const [interests, setInterests] = useState<string[]>([]);
+  const [bdayMonth, setBdayMonth] = useState<number | null>(null);
+  const [bdayDay, setBdayDay] = useState<string>("");
+  const [bdayYear, setBdayYear] = useState<string>("");
   const [suburb, setSuburb] = useState("");
   const [suburbPostcode, setSuburbPostcode] = useState<string | undefined>(undefined);
   const [suburbState, setSuburbState] = useState<string | undefined>(undefined);
   const [locationPrivate, setLocationPrivate] = useState(false);
-  const [avatar, setAvatar] = useState("🌸");
-  const [interests, setInterests] = useState<string[]>([]);
-  const [bdayMonth, setBdayMonth] = useState<number | null>(null); // 1..12
-  const [bdayDay, setBdayDay] = useState<string>("");
-  const [bdayYear, setBdayYear] = useState<string>("");
+
   const [busy, setBusy] = useState(false);
   const [referrerId, setReferrerId] = useState<string | null>(null);
 
-  // Pick up an invite token (?ref=<user_id>) the welcome page stashed in
-  // storage so we can attribute this signup to the friend who shared.
   useEffect(() => {
     (async () => {
       try {
         const stored = await AsyncStorage.getItem("youbelong.invite.ref");
         if (stored) setReferrerId(stored);
-      } catch {}
+      } catch { /* no-op */ }
     })();
   }, []);
 
@@ -56,18 +95,25 @@ export default function Signup() {
     return bdayYear && /^\d{4}$/.test(bdayYear) ? `${bdayYear}-${mm}-${dd}` : `${mm}-${dd}`;
   }, [bdayMonth, bdayDay, bdayYear]);
 
-  const toggle = (i: string) =>
+  const toggleInterest = (i: string) =>
     setInterests((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]));
 
-  const submit = async () => {
+  // Step 1 validation — runs when the user presses Continue.
+  const validateStep1 = () => {
     const u = username.trim().toLowerCase();
-    if (!u || u.length < 3) { show("Username must be at least 3 characters"); return; }
-    if (!pw || pw.length < 6) { show("Password must be at least 6 characters"); return; }
-    if (pw !== pw2) { show("Passwords do not match"); return; }
+    if (!u || u.length < 3) { show("Username must be at least 3 characters"); return false; }
+    if (!pw || pw.length < 6) { show("Password must be at least 6 characters"); return false; }
+    if (pw !== pw2) { show("Passwords do not match"); return false; }
+    return true;
+  };
+
+  const continueFromStep1 = () => { if (validateStep1()) setStep(2); };
+
+  const submit = async () => {
     setBusy(true);
     try {
       await signup({
-        username: u,
+        username: username.trim().toLowerCase(),
         password: pw,
         email: email.trim() ? email.trim().toLowerCase() : undefined,
         first_name: firstName.trim() || undefined,
@@ -80,122 +126,172 @@ export default function Signup() {
         birthday: birthdayString || undefined,
         referrer_id: referrerId || undefined,
       });
-      // Clear the stored ref so it doesn't leak across accounts.
-      try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch {}
+      try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch { /* no-op */ }
       show(`Welcome${firstName ? `, ${firstName.trim()}` : ""}! 🦋`);
       router.replace("/onboarding");
     } catch (e: any) {
       const msg = String(e?.message || "");
-      if (msg.includes("Username already taken")) show("Username already taken");
-      else if (msg.includes("Email already registered")) show("Email already registered");
+      if (msg.includes("Username already taken")) { show("Username already taken"); setStep(1); }
+      else if (msg.includes("Email already registered")) { show("Email already registered"); setStep(1); }
       else show("Could not create account. Try again.");
     } finally { setBusy(false); }
   };
 
   const inputStyle = { color: c.onSurface, backgroundColor: c.surfaceSecondary, borderColor: c.border, fontSize: 17 * scale };
+  const headerTitle = step === 1 ? "Create Account" : "About You";
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Create Account" />
+      <Header
+        title={headerTitle}
+        // Step 2's header "back" goes to the welcome interstitial; the
+        // in-page "Back to Step 1" link below the form is the primary way
+        // to return — visible without scrolling on Step 2.
+        backHref={step === 2 ? "/auth/welcome" : undefined}
+      />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Username  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-          <TextInput testID="signup-username" value={username} onChangeText={setUsername} placeholder="e.g. maggie (lowercase)" autoCapitalize="none" autoCorrect={false} placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>First name <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional)</Text></Text>
-          <TextInput testID="signup-first-name" value={firstName} onChangeText={setFirstName} placeholder="Optional — shown on your profile" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Email <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional — needed for password reset)</Text></Text>
-          <TextInput testID="signup-email" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Create password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-          <PasswordField testID="signup-pw" value={pw} onChangeText={setPw} placeholder="At least 6 characters" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Confirm password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-          <PasswordField testID="signup-pw2" value={pw2} onChangeText={setPw2} placeholder="Re-enter password" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Pick your look</Text>
-          <View style={{ marginTop: 6 }}>
-            <PeopleAvatarPicker value={avatar} onChange={setAvatar} previewSize={84} compact />
+          {/* Step indicator — single source of progress, sits above the
+              form so it's the first thing the user sees on entry to each step. */}
+          <View testID="signup-step-indicator" style={styles.stepperRow}>
+            <View style={[styles.stepDot, { backgroundColor: c.brand }]}>
+              <Text style={styles.stepDotText}>1</Text>
+            </View>
+            <View style={[styles.stepBar, { backgroundColor: step === 2 ? c.brand : c.border }]} />
+            <View style={[styles.stepDot, { backgroundColor: step === 2 ? c.brand : c.border }]}>
+              <Text style={[styles.stepDotText, { color: step === 2 ? "#FFFFFF" : c.muted }]}>2</Text>
+            </View>
+            <Text style={[styles.stepLabel, { color: c.muted, fontSize: 13 * scale }]}>
+              Step {step} of 2 — {step === 1 ? "Account" : "About you"}
+            </Text>
           </View>
-          <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 4 }]}>Or pick a fun emoji</Text>
-          <View style={styles.row}>
-            {AVATARS.map((a) => (
-              <Pressable key={a} testID={`signup-avatar-${a}`} onPress={() => setAvatar(a)} style={[styles.avatarBtn, { backgroundColor: avatar === a ? c.brandTertiary : c.surfaceSecondary, borderColor: avatar === a ? c.brand : c.border }]}>
-                <Text style={{ fontSize: 30 }}>{a}</Text>
+
+          {step === 1 ? (
+            <>
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Username  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <TextInput testID="signup-username" value={username} onChangeText={setUsername} placeholder="e.g. maggie (lowercase)" autoCapitalize="none" autoCorrect={false} placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>First name <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional)</Text></Text>
+              <TextInput testID="signup-first-name" value={firstName} onChangeText={setFirstName} placeholder="Shown on your profile" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Email <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional — for password reset)</Text></Text>
+              <TextInput testID="signup-email" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Create password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <PasswordField testID="signup-pw" value={pw} onChangeText={setPw} placeholder="At least 6 characters" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
+
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Confirm password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <PasswordField testID="signup-pw2" value={pw2} onChangeText={setPw2} placeholder="Re-enter password" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
+
+              <View style={{ height: 18 }} />
+              <Button
+                testID="signup-continue"
+                label="Continue"
+                onPress={continueFromStep1}
+              />
+            </>
+          ) : (
+            <>
+              {/* Friendly reassurance — these are all optional so people
+                  don't feel like they have to finish everything to join. */}
+              <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 4, lineHeight: 20 }}>
+                Everything below is optional — you can finish setup later from your Profile.
+              </Text>
+
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Choose an avatar</Text>
+              <View style={{ marginTop: 6 }}>
+                <PeopleAvatarPicker value={avatar} onChange={setAvatar} previewSize={84} compact />
+              </View>
+              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 4 }]}>Or pick a fun emoji</Text>
+              <View style={styles.row}>
+                {AVATARS.map((a) => (
+                  <Pressable key={a} testID={`signup-avatar-${a}`} onPress={() => setAvatar(a)} style={[styles.avatarBtn, { backgroundColor: avatar === a ? c.brandTertiary : c.surfaceSecondary, borderColor: avatar === a ? c.brand : c.border }]}>
+                    <Text style={{ fontSize: 30 }}>{a}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Birthday <Text style={{ color: c.muted, fontSize: 13 * scale }}>(for birthday waves)</Text></Text>
+              <View style={styles.row}>
+                {MONTHS.map((m, idx) => {
+                  const on = bdayMonth === idx + 1;
+                  return (
+                    <Pressable key={m} testID={`signup-bday-month-${idx + 1}`} onPress={() => setBdayMonth(on ? null : idx + 1)} style={[styles.chip, { paddingHorizontal: 12, backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}>
+                      <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontSize: 14 * scale, fontWeight: "700" }}>{m}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
+                <TextInput
+                  testID="signup-bday-day"
+                  value={bdayDay}
+                  onChangeText={(t) => setBdayDay(t.replace(/[^0-9]/g, "").slice(0, 2))}
+                  keyboardType="number-pad"
+                  placeholder="Day (1–31)"
+                  placeholderTextColor={c.muted}
+                  style={[styles.input, inputStyle, { flex: 1 }]}
+                />
+                <TextInput
+                  testID="signup-bday-year"
+                  value={bdayYear}
+                  onChangeText={(t) => setBdayYear(t.replace(/[^0-9]/g, "").slice(0, 4))}
+                  keyboardType="number-pad"
+                  placeholder="Year (optional)"
+                  placeholderTextColor={c.muted}
+                  style={[styles.input, inputStyle, { flex: 1 }]}
+                />
+              </View>
+              <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 4 }}>
+                We only use your birthday to wish you a happy day on the community.
+              </Text>
+
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb <Text style={{ color: c.muted, fontSize: 13 * scale }}>(helps you find neighbours)</Text></Text>
+              <SuburbField
+                testID="signup-suburb"
+                initialValue={suburb}
+                preferNotToSay={locationPrivate}
+                onChange={(m, pns) => {
+                  if (pns) {
+                    setSuburb("");
+                    setSuburbPostcode(undefined);
+                    setSuburbState(undefined);
+                    setLocationPrivate(true);
+                  } else if (m) {
+                    setSuburb(m.name);
+                    setSuburbPostcode(m.postcode);
+                    setSuburbState(m.state);
+                    setLocationPrivate(false);
+                  } else {
+                    setSuburb("");
+                    setSuburbPostcode(undefined);
+                    setSuburbState(undefined);
+                    setLocationPrivate(false);
+                  }
+                }}
+              />
+
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Interests</Text>
+              <View style={styles.row}>
+                {INTERESTS.map((i) => (
+                  <Pressable key={i} onPress={() => toggleInterest(i)} style={[styles.chip, { backgroundColor: interests.includes(i) ? c.brand : c.surfaceSecondary, borderColor: interests.includes(i) ? c.brand : c.border }]}>
+                    <Text style={{ color: interests.includes(i) ? c.onBrandPrimary : c.onSurface, fontSize: 15 * scale, fontWeight: "600" }}>{i}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={{ height: 18 }} />
+              <Button testID="signup-submit" label="Create my account" onPress={submit} loading={busy} />
+              <Pressable
+                testID="signup-back"
+                onPress={() => setStep(1)}
+                style={({ pressed }) => [styles.backLink, { opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Ionicons name="arrow-back" size={16} color={c.muted} />
+                <Text style={{ color: c.muted, fontWeight: "700", fontSize: 14 * scale }}>Back to Step 1</Text>
               </Pressable>
-            ))}
-          </View>
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Birthday <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional — for birthday waves)</Text></Text>
-          <View style={styles.row}>
-            {MONTHS.map((m, idx) => {
-              const on = bdayMonth === idx + 1;
-              return (
-                <Pressable key={m} testID={`signup-bday-month-${idx + 1}`} onPress={() => setBdayMonth(on ? null : idx + 1)} style={[styles.chip, { paddingHorizontal: 12, backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}>
-                  <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontSize: 14 * scale, fontWeight: "700" }}>{m}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
-            <TextInput
-              testID="signup-bday-day"
-              value={bdayDay}
-              onChangeText={(t) => setBdayDay(t.replace(/[^0-9]/g, "").slice(0, 2))}
-              keyboardType="number-pad"
-              placeholder="Day (1–31)"
-              placeholderTextColor={c.muted}
-              style={[styles.input, inputStyle, { flex: 1 }]}
-            />
-            <TextInput
-              testID="signup-bday-year"
-              value={bdayYear}
-              onChangeText={(t) => setBdayYear(t.replace(/[^0-9]/g, "").slice(0, 4))}
-              keyboardType="number-pad"
-              placeholder="Year (optional)"
-              placeholderTextColor={c.muted}
-              style={[styles.input, inputStyle, { flex: 1 }]}
-            />
-          </View>
-          <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 4 }}>We only use your birthday to wish you a happy day on the community.</Text>
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional — helps you find neighbours)</Text></Text>
-          <SuburbField
-            testID="signup-suburb"
-            initialValue={suburb}
-            preferNotToSay={locationPrivate}
-            onChange={(m, pns) => {
-              if (pns) {
-                setSuburb("");
-                setSuburbPostcode(undefined);
-                setSuburbState(undefined);
-                setLocationPrivate(true);
-              } else if (m) {
-                setSuburb(m.name);
-                setSuburbPostcode(m.postcode);
-                setSuburbState(m.state);
-                setLocationPrivate(false);
-              } else {
-                setSuburb("");
-                setSuburbPostcode(undefined);
-                setSuburbState(undefined);
-                setLocationPrivate(false);
-              }
-            }}
-          />
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Interests</Text>
-          <View style={styles.row}>
-            {INTERESTS.map((i) => (
-              <Pressable key={i} onPress={() => toggle(i)} style={[styles.chip, { backgroundColor: interests.includes(i) ? c.brand : c.surfaceSecondary, borderColor: interests.includes(i) ? c.brand : c.border }]}>
-                <Text style={{ color: interests.includes(i) ? c.onBrandPrimary : c.onSurface, fontSize: 15 * scale, fontWeight: "600" }}>{i}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <View style={{ height: 16 }} />
-          <Button testID="signup-submit" label="Create my account" onPress={submit} loading={busy} />
+            </>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -209,4 +305,21 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 2, minHeight: 40 },
   avatarBtn: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", borderWidth: 2 },
+
+  stepperRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginBottom: 8,
+  },
+  stepDot: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
+  },
+  stepDotText: { color: "#FFFFFF", fontWeight: "900", fontSize: 14 },
+  stepBar: { width: 40, height: 3, borderRadius: 2 },
+  stepLabel: { fontWeight: "800", letterSpacing: 0.2, marginLeft: 6 },
+
+  backLink: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    alignSelf: "center", paddingVertical: 14,
+  },
 });

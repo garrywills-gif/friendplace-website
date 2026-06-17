@@ -215,7 +215,7 @@ export default function Welcome() {
               </Text>
             </View>
           ) : null}
-          <Pressable testID="welcome-signup" onPress={() => router.push("/auth/signup")} style={({ pressed }) => [styles.btnPrimary, { opacity: pressed ? 0.85 : 1 }]}>
+          <Pressable testID="welcome-signup" onPress={() => router.push("/auth/welcome")} style={({ pressed }) => [styles.btnPrimary, { opacity: pressed ? 0.85 : 1 }]}>
             <Text style={[styles.btnPrimaryText, { fontSize: 22 * scale }]}>Sign Up</Text>
           </Pressable>
           <Pressable testID="welcome-login" onPress={() => router.push("/auth/login")} style={({ pressed }) => [styles.btnOutline, { opacity: pressed ? 0.85 : 1 }]}>

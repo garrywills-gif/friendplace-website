@@ -113,9 +113,9 @@ export default function InviteLanding() {
   }, [inviter, displayName]);
 
   function goSignup() {
-    // Welcome interstitial coming in the next batch — for now route straight
-    // to /auth/signup so the invite flow always lands somewhere real.
-    router.replace("/auth/signup" as any);
+    // Welcome interstitial softens the landing before the form. Captures
+    // any pending invite-ref so the inviter pill flows through too.
+    router.replace("/auth/welcome" as any);
   }
   function goLogin() {
     router.replace("/auth/login" as any);
