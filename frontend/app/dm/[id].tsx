@@ -54,7 +54,11 @@ export default function DM() {
   };
 
   const onMicPress = () => {
-    show("Voice input will be wired in the next backend update");
+    // Native dictation is the recommended path today — the OS keyboard
+    // already has a mic key on iPad / iPhone / Android. The in-app dictation
+    // panel is a future feature; this button just nudges users toward what
+    // already works so they're not stuck.
+    show("Tip: tap the 🎤 on your keyboard to dictate. (An in-app voice button is coming soon.)");
   };
 
   return (

@@ -24,7 +24,17 @@ const ROWS: RowDef[] = [
   { key: "largeText", title: "Larger text mode", desc: "Increase the size of text across the app for easier reading.", icon: "text" },
   { key: "highContrast", title: "High contrast mode", desc: "Stronger colours and bolder borders to help low-vision users.", icon: "contrast" },
   { key: "simplified", title: "Simplified mode", desc: "Larger buttons and more breathing room; reduces visual clutter.", icon: "layers" },
-  { key: "voiceInputEnabled", title: "Voice input for messages", desc: "Show a microphone in message boxes so you can dictate instead of typing.", icon: "mic", note: "Mic dictation needs a backend voice service — it'll be wired in the next update." },
+  // Voice typing — we lean on the device's own keyboard dictation, which
+  // works out of the box on iPhone, iPad and Android. Our in-app mic button
+  // is a separate, richer "tap to talk" panel still in design (no backend
+  // service required for the keyboard route — keeps costs at zero).
+  {
+    key: "voiceInputEnabled",
+    title: "Voice typing",
+    desc: "Tap any message box, then tap the 🎤 on your device's keyboard to dictate instead of typing. Works on iPhone, iPad and Android.",
+    icon: "mic",
+    note: "Coming Soon — an extra in-app microphone button with live transcription. Until then, your keyboard's microphone works everywhere in YouBelong.",
+  },
 ];
 
 export default function Accessibility() {
