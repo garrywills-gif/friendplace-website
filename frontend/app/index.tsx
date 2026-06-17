@@ -195,14 +195,23 @@ export default function Welcome() {
         </View>
 
         <View style={styles.actions}>
-          {/* Founding Member recruiting tile — flips visible only while
-              real seats remain. Copy positions the cohort as community
-              shapers rather than a scarcity / FOMO play (which lands
-              better with the older-adult audience). */}
+          {/* Founding Member recruiting tile — copy adapts to the cohort
+              state: pre-launch shows the aspirational "be among the first
+              N" pitch, then once real signups arrive flips to a live
+              "X places remaining" counter so the scarcity feels honest. */}
           {founderStatus && founderStatus.open && founderStatus.cap > 0 ? (
             <View testID="welcome-founder-banner" style={styles.founderBanner}>
-              <Text style={[styles.founderBannerBody, { fontSize: 15 * scale }]}>
-                🦋 <Text style={{ fontWeight: "900", color: "#FBBF24" }}>Founding Members</Text> – Be among the first {founderStatus.cap.toLocaleString()} members helping shape YouBelong.
+              {founderStatus.taken > 0 ? (
+                <Text style={[styles.founderBannerBody, { fontSize: 15 * scale }]}>
+                  🦋 <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.remaining.toLocaleString()}</Text> Founding Member places remaining.
+                </Text>
+              ) : (
+                <Text style={[styles.founderBannerBody, { fontSize: 15 * scale }]}>
+                  🦋 Be among the first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.cap.toLocaleString()}</Text> Founding Members helping shape YouBelong.
+                </Text>
+              )}
+              <Text style={[styles.founderBannerNote, { fontSize: 12 * scale }]}>
+                Free during testing.
               </Text>
             </View>
           ) : null}
@@ -308,16 +317,24 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.10)",
     borderColor: "#FBBF24",   // warm gold accent
     borderWidth: 1.5,
-    borderRadius: 14,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    borderRadius: 16,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
     alignItems: "center",
     marginBottom: 4,
+    gap: 6,
   },
   founderBannerBody: {
     color: "#FFFFFF",
     fontWeight: "700",
     textAlign: "center",
     lineHeight: 22,
+  },
+  founderBannerNote: {
+    color: "#FBBF24",
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: 0.4,
+    marginTop: 2,
   },
 });
