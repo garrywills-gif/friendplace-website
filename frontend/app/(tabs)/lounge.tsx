@@ -9,6 +9,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Button from "@/src/components/Button";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import FounderMark from "@/src/components/FounderMark";
 
 function occupancyLabel(seated: number): { label: string; color: string; icon: keyof typeof Ionicons.glyphMap } {
   if (seated === 0) return { label: "Empty Table", color: "#94A3B8", icon: "ellipse-outline" };
@@ -174,6 +175,14 @@ export default function Lounge() {
                         {item.host_display ? `Started by ${item.host_display.first_name}` : "Started"}
                         {ago ? ` · ${active ? "active now" : ago}` : ""}
                       </Text>
+                      {item.host_display?.is_founder && (
+                        <FounderMark
+                          isFounder
+                          founderNumber={item.host_display.founder_number}
+                          size={13}
+                          testID={`lounge-host-founder-${item.id}`}
+                        />
+                      )}
                     </View>
                   )}
                   {/* Friends-at-table chip — strongest reason to tap in. */}

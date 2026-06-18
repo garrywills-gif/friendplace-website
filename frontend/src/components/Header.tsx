@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../lib/theme";
 
-export default function Header({ title, right, back = true, backHref }: { title: string; right?: React.ReactNode; back?: boolean; backHref?: string }) {
+export default function Header({ title, right, back = true, backHref, titleAccessory }: { title: string; right?: React.ReactNode; back?: boolean; backHref?: string; titleAccessory?: React.ReactNode }) {
   const router = useRouter();
   const { c, scale } = useTheme();
   const insets = useSafeAreaInsets();
@@ -52,7 +52,10 @@ export default function Header({ title, right, back = true, backHref }: { title:
             <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale, marginLeft: 2 }}>Back</Text>
           </Pressable>
         ) : <View style={styles.spacer} />}
-        <Text style={[styles.title, { color: c.onSurface, fontSize: 20 * scale }]} numberOfLines={1}>{title}</Text>
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 }}>
+          <Text style={[styles.title, { color: c.onSurface, fontSize: 20 * scale, flex: 0, textAlign: "center" }]} numberOfLines={1}>{title}</Text>
+          {titleAccessory}
+        </View>
         <View style={styles.spacer}>{right}</View>
       </View>
     </View>

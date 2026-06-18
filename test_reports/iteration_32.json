@@ -1,0 +1,62 @@
+{
+  "summary": "Iter32 Founder Mark (butterfly) — BACKEND 5/6 PASS (83%); FRONTEND ~85% (welcome banner copy correct, Lounge/Friends/User/Profile butterflies tap-open the modal correctly with the right founder_number, Margaret as non-founder shows no butterfly next to her name). TWO bugs found that need E1 action: (1) CRITICAL backend bug — GET /api/tables/{table_id}/messages does NOT call _attach_founder_flags(), so table chat history loaded over REST never carries user_is_founder/user_founder_number and the 🦋 will not render on table message bubbles authored by founders. Notices, group posts, and DM messages all enrich correctly. (2) CRITICAL frontend bug — /founders Wall does NOT render the FounderMark butterfly next to each founder row's name; only the gold #N pill is shown. FounderMark is imported in app/founders.tsx but never used in the row JSX. Additionally I had to delete dead leftover style code (lines 180–191) at the end of app/founders.tsx that caused a SyntaxError 'Unexpected token (181:2)' and prevented the entire Expo web bundle from compiling — the frontend was completely broken (HTTP 500 on the bundle) before this trivial cleanup. All other surfaces verified: Welcome banner reads exactly '🦋 Founding Members / 498 Founding Member places remaining. / Join free as a Founding Member.' with the old 'Tap to see the Founders Wall · Free during testing' copy GONE. /lounge as Maggie: 'Started by Alice · active now' butterfly opens 'Founding Member #1' modal with correct body + Got it button. /friends: Alice (#1) and Bob (#2) both have tappable butterflies, modal renders correct numbers. /user/{alice_id} as Maggie: BOTH user-profile-founder (header) and user-profile-name-founder (avatar card) testIDs render and are tappable. /profile (Margaret) shows no butterfly next to her own name. Notice/group/table/DM founder-author surfaces could not be fully exercised because the only existing founders (Alice, Bob) have not authored any of those documents — but the backend enrichment endpoints were tested directly with seeded data and pass for notices, group posts, and DM messages; ONLY table messages fail. Cleanup: pytest fixtures auto-deleted the TEST_iter32_<hex> founder signup; founders count restored to 2 (Alice, Bob).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/tables/{table_id}/messages",
+        "issue": "Endpoint does NOT call _attach_founder_flags(). server.py:3895 — handler just returns the raw docs. Test (TestTableMessagesFounderEnrichment) confirms a founder-authored message comes back WITHOUT user_is_founder. The PRD/iter32 request explicitly lists table messages as one of the four surfaces that should be enriched (group posts/notices/table messages/dm messages). Frontend app/table/[id].tsx already reads item.user_is_founder + item.user_founder_number, so once the endpoint enrichment is added the bubble 🦋 will light up. Fix: add `await _attach_founder_flags(docs, 'user_id')` before the return on line 3897.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "app/founders.tsx",
+        "issue": "Founders Wall rows do NOT render the FounderMark butterfly next to each founder's name. Spec: 'each row shows the founder's name and a small 🦋 next to it. Tapping any butterfly opens the modal.' Currently only the #N pill is shown. FounderMark IS imported at line 24 but never used inside the row JSX (lines 110-145). Add `<FounderMark isFounder founderNumber={f.founder_number} size={14} testID={`wall-founder-${f.id}`} />` next to the first_name Text on line 135.",
+        "testID": "wall-founder-{id} (missing)",
+        "priority": "HIGH"
+      },
+      {
+        "component": "app/founders.tsx",
+        "issue": "Dead leftover style code at lines 180-191 (duplicated `borderWidth, numberPill, avatarWrap` block AFTER the StyleSheet was already closed on line 178) caused a SyntaxError 'Unexpected token (181:2)' — the entire Expo web bundle returned HTTP 500 and the app did not load at all on /, /lounge, /friends, /founders, /profile, etc. I deleted the duplicated tail block as a minimal fix so the app boots and the rest of the iteration could be tested. Please review the diff and ensure no styles were lost (a quick visual scan confirms the live styles object already contains numberPill + avatarWrap so the delete is safe).",
+        "testID": "n/a",
+        "priority": "CRITICAL (already mitigated by tester)"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter32_founder_mark.py",
+    "/app/test_reports/pytest/iter32.xml",
+    "/app/test_reports/iteration_32.json"
+  ],
+  "action_items": [
+    "Add `await _attach_founder_flags(docs, 'user_id')` inside table_messages() at /app/backend/server.py:3895-3898 so table chat bubbles authored by founders render the 🦋. Re-run /app/backend/tests/test_iter32_founder_mark.py to confirm 6/6 pass.",
+    "Render <FounderMark isFounder founderNumber={f.founder_number} size={14} testID={`wall-founder-${f.id}`} /> next to the first_name Text inside the Wall row in /app/frontend/app/founders.tsx (~line 135). The component is already imported and just unused.",
+    "Consider also enriching the LIVE WebSocket message payload — server.py:6203 (table WS) and 6244 (DM WS) — with user_is_founder/user_founder_number so the bubble shows the 🦋 immediately when a founder sends a new message in real time (currently it would only appear on next REST refetch).",
+    "After applying both fixes, smoke-test by signing up a fresh founder, posting a notice + group post + sending a table message + DM, and confirming 🦋 renders next to user_name on each surface and the modal opens with the correct #N."
+  ],
+  "critical_code_review_comments": [
+    "The fact that app/founders.tsx shipped with a syntax error that bricked the whole web bundle (HTTP 500 on the entry bundle) suggests there is no pre-commit/CI step running `tsc --noEmit` or even `expo export --dev` against the app — even an `eslint --max-warnings 0` would have caught the dangling object literal after the closing `});`. Strongly recommend wiring a JS lint + a one-time Metro bundle dry-run into the supervisor restart so this class of break-on-load bug is caught before a tester sees it.",
+    "_attach_founder_flags is plumbed into 3 of 4 cached-author surfaces (notices, group_posts, dm messages) but NOT into table_messages. The PR seems to have missed one of four very similar call sites — a unit test that iterates over all author-cached collections and asserts the helper is invoked would catch this kind of copy-paste omission going forward.",
+    "WebSocket broadcasts of new table/dm messages (server.py:6214, 6253) ship msg.dict() WITHOUT founder enrichment. Even after the REST fix, brand-new messages from a founder will display without the 🦋 until the client refetches via REST. Consider folding founder flags into Message creation (cache once at insert time) so both REST and WS paths return identical shapes.",
+    "/api/founders is publicly readable (no auth requirement) and exposes username + first_name + suburb for every founder. Suburb leak is bounded today (founders haven't filled it in) but worth confirming the privacy intent — Founders Wall is meant to be public-facing per spec, so this is likely fine but should be made explicit in the route docstring."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter32_founder_mark.py (new — 6 test classes, 5 pass, 1 expected-fail until table_messages enrichment is added)",
+    "/app/frontend/app/founders.tsx (deleted 12 lines of duplicate stray style code lines 180-191 that caused a global SyntaxError and a broken bundle)"
+  ],
+  "success_rate": {
+    "backend": "83% (5/6 pytest — table_messages enrichment fails as documented)",
+    "frontend": "~85% (welcome banner ✅, lounge butterfly ✅, friends butterflies ✅, user public profile butterflies ✅, profile-tab no-butterfly for non-founder ✅; Wall butterflies MISSING; table chat butterflies depend on backend fix; group/notice/DM butterflies render correctly when an author is a founder — currently no founder-authored content exists outside of the test signups)"
+  },
+  "seed_data_creation": "Pytest module fixture creates a fresh real account via /api/auth/signup (TEST_iter32_<hex>) which auto-promotes to founder #3, posts notices + group posts + seeds table/DM messages, then deletes itself + all child docs + pulls id from group/table arrays + removes from maggie's friends list. Verified after test run: founders count back to 2 (Alice, Bob); no TEST_iter32_* users remain.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "(1) Alice ac9c70fd-2f0b-4088-bfea-0c20539c690e (founder #1) and Bob 5e21539e-bc06-4db7-9186-5395052f4560 (founder #2) live in the DB from earlier iterations and DO render butterflies on /lounge host_display, /friends list, and /user/{alice_id} public profile. Their passwords are NOT recorded — sign up a fresh real account if you need an authenticated founder; cohort cap is at 2/500. (2) Frontend FounderMark testIDs in use: `lounge-host-founder-{table_id}`, `friend-founder-{user_id}`, `user-profile-founder` (header), `user-profile-name-founder` (avatar card), `profile-name-founder` (own profile, only renders if you're a founder), `dm-list-founder-{conv_id}`. Modal close button is `founder-mark-close`. (3) /api/tables/{table_id}/messages enrichment is the one outstanding backend gap — add `await _attach_founder_flags(docs, 'user_id')` before the return.",
+  "rca_of_issue": "Root cause of the bundle break: a search-and-replace inside app/founders.tsx duplicated the tail of the StyleSheet object literal AFTER the closing `});` on line 178 instead of replacing it, leaving 12 lines of unreachable object syntax that Babel parsed as a labeled statement followed by an invalid expression — hence 'Unexpected token (181:2)'. Reproduction: `curl -s 'http://localhost:3000/node_modules/expo-router/entry.bundle?...'` returned HTTP 500 with the SyntaxError JSON. Mitigation: deleted the dead lines 180-191. Root cause of the table_messages enrichment miss: a copy-paste of the await line was applied to /groups/{id}/posts (3939), /notices (4773), /dm/{conv_id}/messages (6086) but not to /tables/{table_id}/messages (3895-3898) which uses the same `docs` pattern. Mitigation: add the one-liner at line 3897 — already documented in action_items."
+}

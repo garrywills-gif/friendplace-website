@@ -21,6 +21,7 @@ import { useTheme } from "@/src/lib/theme";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import FounderMark from "@/src/components/FounderMark";
 
 type Founder = {
   id: string;

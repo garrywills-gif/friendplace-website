@@ -11,6 +11,7 @@ import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import ReportSheet from "@/src/components/ReportSheet";
 import { parseAvatar } from "@/src/components/AvatarBubble";
+import FounderMark from "@/src/components/FounderMark";
 
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
@@ -63,7 +64,10 @@ export default function DM() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title={other ? `${parseAvatar(other.avatar).base ?? ""} ${other.first_name}` : "Message"} right={other_id ? (
+      <Header
+        title={other ? `${parseAvatar(other.avatar).base ?? ""} ${other.first_name}` : "Message"}
+        titleAccessory={other ? <FounderMark user={other} size={15} testID="dm-header-founder" /> : null}
+        right={other_id ? (
         <Pressable testID="dm-report-user" onPress={() => setReportTarget({ type: "user" })} hitSlop={8} style={{ padding: 6 }}>
           <Ionicons name="flag-outline" size={22} color={c.warning} />
         </Pressable>

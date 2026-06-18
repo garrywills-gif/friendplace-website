@@ -11,6 +11,7 @@ import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import FounderMark from "@/src/components/FounderMark";
 
 const CATS = ["All", "Announcement", "Question", "Looking For", "Recommendation", "Local Event", "Success Story", "Community Help"];
 const POST_CATS = CATS.filter((c) => c !== "All");
@@ -155,7 +156,10 @@ export default function Notices() {
         <View style={styles.head}>
           <AvatarBubble value={n.avatar} size={28} fallback="🙂" />
           <View style={{ flex: 1, marginLeft: 10 }}>
-            <Text style={[styles.author, { color: c.onSurface, fontSize: 16 * scale }]} numberOfLines={1}>{n.user_name}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Text style={[styles.author, { color: c.onSurface, fontSize: 16 * scale }]} numberOfLines={1}>{n.user_name}</Text>
+              <FounderMark isFounder={n.user_is_founder} founderNumber={n.user_founder_number} size={14} testID={`notice-founder-${n.id}`} />
+            </View>
             <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
               <View style={[styles.catChip, { backgroundColor: c.brandTertiary }]}><Text style={{ color: c.brand, fontWeight: "800", fontSize: 11 * scale }}>{n.category}</Text></View>
               {n.solved && (

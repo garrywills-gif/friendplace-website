@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import FounderMark from "@/src/components/FounderMark";
 
 export default function GroupDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -47,6 +48,13 @@ export default function GroupDetail() {
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <AvatarBubble value={item.avatar} size={26} fallback="🙂" />
                 <Text style={{ color: c.onSurface, fontWeight: "700", marginLeft: 8, fontSize: 16 * scale }}>{item.user_name}</Text>
+                <FounderMark
+                  isFounder={item.user_is_founder}
+                  founderNumber={item.user_founder_number}
+                  size={14}
+                  style={{ marginLeft: 4 }}
+                  testID={`group-post-founder-${item.id}`}
+                />
               </View>
               <Text style={{ color: c.onSurfaceSecondary, fontSize: 16 * scale, marginTop: 6 }}>{item.text}</Text>
               <Pressable onPress={() => like(item)} style={{ flexDirection: "row", marginTop: 8, alignItems: "center", gap: 6 }}>

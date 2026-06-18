@@ -14,6 +14,7 @@ import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import CoffeeTableSeating from "@/src/components/CoffeeTableSeating";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import FounderMark from "@/src/components/FounderMark";
 
 type Msg = {
   id: string;
@@ -22,6 +23,8 @@ type Msg = {
   avatar?: string;
   text?: string;
   image?: string;
+  user_is_founder?: boolean;
+  user_founder_number?: number | null;
 };
 
 export default function TableChat() {
@@ -158,10 +161,20 @@ export default function TableChat() {
               <View style={[styles.msgRow, { justifyContent: mine ? "flex-end" : "flex-start" }]}>
                 {!mine && <AvatarBubble value={item.avatar} size={24} fallback="🙂" />}
                 <View style={[styles.bubble, { backgroundColor: mine ? c.brand : c.surfaceSecondary, borderColor: c.border, borderBottomLeftRadius: mine ? 18 : 4, borderBottomRightRadius: mine ? 4 : 18, padding: hasImg ? 6 : 12 }]}>
-                  {!mine && !hasImg && <Text style={[styles.author, { color: c.muted, fontSize: 13 * scale }]}>{item.user_name}</Text>}
+                  {!mine && !hasImg && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                      <Text style={[styles.author, { color: c.muted, fontSize: 13 * scale }]}>{item.user_name}</Text>
+                      <FounderMark isFounder={item.user_is_founder} founderNumber={item.user_founder_number} size={12} />
+                    </View>
+                  )}
                   {hasImg && (
                     <Pressable testID={`msg-img-${item.id}`} onPress={() => setZoom(item.image!)}>
-                      {!mine && <Text style={[styles.authorOnImg, { fontSize: 13 * scale }]}>{item.user_name}</Text>}
+                      {!mine && (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingTop: 6 }}>
+                          <Text style={[styles.authorOnImg, { fontSize: 13 * scale }]}>{item.user_name}</Text>
+                          <FounderMark isFounder={item.user_is_founder} founderNumber={item.user_founder_number} size={12} />
+                        </View>
+                      )}
                       <Image source={{ uri: item.image! }} style={styles.msgImage} resizeMode="cover" />
                     </Pressable>
                   )}

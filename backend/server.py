@@ -429,6 +429,45 @@ def _safe_user(u: dict) -> dict:
     return u
 
 
+async def _attach_founder_flags(items: list, user_id_key: str = "user_id") -> list:
+    """Enrich a list of documents (notices, group posts, messages, …) with
+    the author's `is_founder` + `founder_number` so the frontend can render
+    the 🦋 butterfly mark beside the cached `user_name` without a separate
+    round-trip per row.
+
+    Mutates `items` in place AND returns it for ergonomic chaining. Empty
+    list / missing ids are handled gracefully — the function never raises.
+
+    `user_id_key` lets the same helper work for documents that store the
+    author id under a different key (e.g. "host_id" on tables, "from_id"
+    on flutters). Comments inside notices are handled separately below.
+    """
+    if not items:
+        return items
+    ids = list({d.get(user_id_key) for d in items if d.get(user_id_key)})
+    if not ids:
+        return items
+    cursor = db.users.find(
+        {"id": {"$in": ids}},
+        {"_id": 0, "id": 1, "is_founder": 1, "founder_number": 1},
+    )
+    fmap: dict[str, dict] = {}
+    async for u in cursor:
+        if u.get("is_founder"):
+            fmap[u["id"]] = {
+                "is_founder": True,
+                "founder_number": u.get("founder_number"),
+            }
+    if not fmap:
+        return items
+    for d in items:
+        uid = d.get(user_id_key)
+        if uid and uid in fmap:
+            d["user_is_founder"] = True
+            d["user_founder_number"] = fmap[uid]["founder_number"]
+    return items
+
+
 async def _find_user_by_identifier(identifier: str) -> Optional[dict]:
     ident = (identifier or "").strip().lower()
     if not ident:
@@ -3739,15 +3778,22 @@ async def list_tables(user_id: str | None = None):
         return docs
     cursor = db.users.find(
         {"id": {"$in": list(needed_ids)}},
-        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1},
+        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1, "is_founder": 1, "founder_number": 1},
     )
     user_map: dict[str, dict] = {}
     async for u in cursor:
-        user_map[u["id"]] = {
+        entry = {
             "id": u["id"],
             "first_name": u.get("first_name") or u.get("username") or "Friend",
             "avatar": u.get("avatar") or "🙂",
         }
+        # Only attach the founder bits when they're true — keeps the
+        # payload small and avoids polluting every seated avatar object.
+        if u.get("is_founder"):
+            entry["is_founder"] = True
+            if u.get("founder_number") is not None:
+                entry["founder_number"] = u.get("founder_number")
+        user_map[u["id"]] = entry
 
     for d in docs:
         hid = d.get("host_id")
@@ -3889,7 +3935,9 @@ async def join_group(group_id: str, user_id: str):
 
 @api.get("/groups/{group_id}/posts")
 async def group_posts(group_id: str):
-    return await db.group_posts.find({"group_id": group_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    docs = await db.group_posts.find({"group_id": group_id}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    await _attach_founder_flags(docs, "user_id")
+    return docs
 
 
 @api.post("/groups/{group_id}/posts")
@@ -4722,6 +4770,7 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
     docs = await db.notices.find(query, {"_id": 0}).to_list(500)
     # Unsolved first, then newest first; solved Q's sink below.
     docs.sort(key=lambda d: (bool(d.get("solved")), -datetime.fromisoformat(d.get("created_at", now_iso())).timestamp()))
+    await _attach_founder_flags(docs, "user_id")
     return docs
 
 
@@ -6033,7 +6082,9 @@ async def my_conversations(user_id: str):
 
 @api.get("/dm/{conv_id}/messages")
 async def dm_messages(conv_id: str):
-    return await db.messages.find({"dm_id": conv_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    docs = await db.messages.find({"dm_id": conv_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    await _attach_founder_flags(docs, "user_id")
+    return docs
 
 
 @api.post("/dm/start")

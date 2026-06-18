@@ -9,6 +9,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import * as Location from "expo-location";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import FounderMark from "@/src/components/FounderMark";
 
 const RADIUS_OPTIONS = [5, 10, 25, 50] as const;
 
@@ -205,7 +206,10 @@ export default function Friends() {
                 <AvatarBubble value={item.avatar} size={28} fallback="🙂" />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={[styles.name, { color: c.onSurface, fontSize: 20 * scale }]}>{item.first_name}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Text style={[styles.name, { color: c.onSurface, fontSize: 20 * scale }]}>{item.first_name}</Text>
+                  <FounderMark user={item} size={14} testID={`friend-founder-${item.id}`} />
+                </View>
                 <Text style={[styles.metaText, { color: c.muted, fontSize: 14 * scale }]}>📍 {item.suburb || "—"}{item.distance_km != null ? ` · ${item.distance_km} km away` : ""}</Text>
                 <Text style={[styles.metaText, { color: c.muted, fontSize: 13 * scale }]} numberOfLines={1}>{(item.interests || []).join(" · ") || "No interests yet"}</Text>
               </View>

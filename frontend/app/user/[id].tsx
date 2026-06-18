@@ -10,6 +10,7 @@ import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import ReportSheet from "@/src/components/ReportSheet";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import FounderMark from "@/src/components/FounderMark";
 
 export default function UserView() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -66,11 +67,14 @@ export default function UserView() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title={u.first_name} />
+      <Header title={u.first_name} titleAccessory={<FounderMark user={u} size={16} testID="user-profile-founder" />} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
         <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
           <View style={[styles.av, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}><AvatarBubble value={u.avatar} size={u.avatar && /^https?:\/\//i.test(u.avatar) ? 110 : 110} textSize={88} fallback="🙂" /></View>
-          <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{u.first_name}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" }}>
+            <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{u.first_name}</Text>
+            <FounderMark user={u} size={20} testID="user-profile-name-founder" />
+          </View>
           <Text style={{ color: c.muted, fontSize: 16 * scale }}>@{u.username} · 📍 {u.suburb || "—"}</Text>
           {!!u.status && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, backgroundColor: c.surface, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 }}>

@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import FounderMark from "@/src/components/FounderMark";
 
 export default function Messages() {
   const { c, scale } = useTheme();
@@ -35,7 +36,10 @@ export default function Messages() {
           >
             <View style={[styles.av, { backgroundColor: c.brandTertiary, overflow: "hidden" }]}><AvatarBubble value={item.other?.avatar} size={36} textSize={24} fallback="🙂" /></View>
             <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={[styles.n, { color: c.onSurface, fontSize: 18 * scale }]}>{item.other?.first_name || "Friend"}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Text style={[styles.n, { color: c.onSurface, fontSize: 18 * scale }]}>{item.other?.first_name || "Friend"}</Text>
+                <FounderMark user={item.other} size={13} testID={`dm-list-founder-${item.id}`} />
+              </View>
               <Text numberOfLines={1} style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }}>{item.last?.text || "Start a conversation"}</Text>
             </View>
             <Ionicons name="chevron-forward" size={22} color={c.muted} />

@@ -11,6 +11,7 @@ import ShareYouBelong from "@/src/components/ShareYouBelong";
 import { api } from "@/src/lib/api";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderBadge from "@/src/components/FounderBadge";
+import FounderMark from "@/src/components/FounderMark";
 
 const ALL_BADGES = [
   "Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder",
@@ -96,7 +97,10 @@ export default function Profile() {
     <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 16, backgroundColor: c.surface, paddingBottom: 100 }]}>
       <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
         <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}><AvatarBubble value={user.avatar} size={user.avatar && /^https?:\/\//i.test(user.avatar) ? 110 : 110} textSize={88} fallback="🙂" /></View>
-        <Text style={[styles.name, { color: c.onSurface, fontSize: 30 * scale }]} testID="profile-name">{user.first_name}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" }}>
+          <Text style={[styles.name, { color: c.onSurface, fontSize: 30 * scale }]} testID="profile-name">{user.first_name}</Text>
+          <FounderMark user={user as any} size={22} testID="profile-name-founder" />
+        </View>
         <Text style={[styles.user, { color: c.muted, fontSize: 16 * scale }]}>@{user.username} · 📍 {user.suburb || "—"}</Text>
         {/* Founding Member crest — renders nothing for non-founders. */}
         <View style={{ marginTop: 8 }}>
@@ -187,7 +191,10 @@ export default function Profile() {
           {friends.map((f) => (
             <Pressable key={f.id} onPress={() => router.push(`/user/${f.id}` as any)} style={[styles.friendDot, { backgroundColor: c.brandTertiary }]}>
               <AvatarBubble value={f.avatar} size={28} fallback="🙂" />
-              <Text style={{ color: c.onBrandTertiary, fontWeight: "700", fontSize: 13 * scale, marginTop: 4 }}>{f.first_name}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginTop: 4 }}>
+                <Text style={{ color: c.onBrandTertiary, fontWeight: "700", fontSize: 13 * scale }}>{f.first_name}</Text>
+                <FounderMark user={f} size={12} />
+              </View>
             </Pressable>
           ))}
         </View>
