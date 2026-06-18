@@ -206,17 +206,20 @@ export default function Welcome() {
               accessibilityLabel="View the Founders Wall"
               style={({ pressed }) => [styles.founderBanner, { opacity: pressed ? 0.85 : 1 }]}
             >
+              <Text style={[styles.founderBannerTitle, { fontSize: 16 * scale }]}>
+                🦋 Founding Members
+              </Text>
               {founderStatus.taken > 0 ? (
-                <Text style={[styles.founderBannerBody, { fontSize: 15 * scale }]}>
-                  🦋 <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.remaining.toLocaleString()}</Text> Founding Member places remaining.
+                <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
+                  <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.remaining.toLocaleString()}</Text> Founding Member places remaining.
                 </Text>
               ) : (
-                <Text style={[styles.founderBannerBody, { fontSize: 15 * scale }]}>
-                  🦋 Be among the first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.cap.toLocaleString()}</Text> Founding Members helping shape YouBelong.
+                <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
+                  Be among the first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.cap.toLocaleString()}</Text> Founding Members helping shape YouBelong.
                 </Text>
               )}
               <Text style={[styles.founderBannerNote, { fontSize: 12 * scale }]}>
-                Tap to see the Founders Wall · Free during testing.
+                Join free as a Founding Member.
               </Text>
             </Pressable>
           ) : null}
@@ -334,6 +337,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     lineHeight: 22,
+  },
+  founderBannerTitle: {
+    color: "#FBBF24",
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: 0.6,
   },
   founderBannerNote: {
     color: "#FBBF24",

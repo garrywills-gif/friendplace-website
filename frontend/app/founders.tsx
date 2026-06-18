@@ -86,7 +86,7 @@ export default function FoundersWall() {
                 : `${total} early members shaping YouBelong together.`}
             </Text>
             <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale, marginTop: 4, letterSpacing: 0.3 }}>
-              FREE DURING TESTING
+              JOIN FREE AS A FOUNDING MEMBER
             </Text>
           </View>
         </View>

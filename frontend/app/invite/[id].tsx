@@ -174,17 +174,20 @@ export default function InviteLanding() {
                   intentional cohort. */}
               {founder && founder.open && founder.cap > 0 ? (
                 <View style={styles.founderBanner}>
+                  <Text style={[styles.founderBannerTitle, { fontSize: 16 * scale }]}>
+                    🦋 Founding Members
+                  </Text>
                   {founder.taken > 0 ? (
-                    <Text style={[styles.founderBannerBody, { fontSize: 15 * scale }]}>
-                      🦋 <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founder.remaining.toLocaleString()}</Text> Founding Member places remaining.
+                    <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
+                      <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founder.remaining.toLocaleString()}</Text> Founding Member places remaining.
                     </Text>
                   ) : (
-                    <Text style={[styles.founderBannerBody, { fontSize: 15 * scale }]}>
-                      🦋 You&apos;d join as one of the first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founder.cap.toLocaleString()}</Text> Founding Members.
+                    <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
+                      You&apos;d join as one of the first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founder.cap.toLocaleString()}</Text> Founding Members.
                     </Text>
                   )}
                   <Text style={[styles.founderBannerNote, { fontSize: 12 * scale }]}>
-                    Free during testing.
+                    Join free as a Founding Member.
                   </Text>
                 </View>
               ) : null}
@@ -260,6 +263,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   founderBannerBody: { color: "#FFFFFF", fontWeight: "700", textAlign: "center", lineHeight: 22 },
+  founderBannerTitle: { color: "#FBBF24", fontWeight: "900", textAlign: "center", letterSpacing: 0.6 },
   founderBannerNote: { color: "#FBBF24", fontWeight: "800", letterSpacing: 0.4, marginTop: 2 },
 
   primaryBtn: {
