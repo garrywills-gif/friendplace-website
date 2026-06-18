@@ -106,6 +106,26 @@ export default function Lounge() {
             </Pressable>
           </View>
         </View>
+        {/* Top-of-screen "Start a new table" CTA, in teal/butterfly green
+            (the brand accent). Placed here — above the table list — so
+            users see it before scrolling, and styled deliberately
+            differently from the navy "Take a Seat" join buttons so the
+            two distinct actions (join vs. host) are visually separated. */}
+        <Pressable
+          testID="create-table-top"
+          onPress={() => setCreating(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Start your own table"
+          style={({ pressed }) => [
+            styles.createTopBtn,
+            { backgroundColor: c.accent, opacity: pressed ? 0.88 : 1 },
+          ]}
+        >
+          <Ionicons name="add-circle" size={22} color="#FFFFFF" />
+          <Text style={[styles.createTopBtnText, { fontSize: 17 * scale }]}>
+            Start your own table
+          </Text>
+        </Pressable>
       </View>
 
       <FlatList
@@ -247,10 +267,10 @@ export default function Lounge() {
         }}
       />
 
-      <Pressable testID="create-table-fab" onPress={() => setCreating(true)} style={[styles.fab, { backgroundColor: c.brand, bottom: 96 + insets.bottom }]}>
-        <Ionicons name="add" size={28} color="#FFF" />
-        <Text style={styles.fabText}>Create Table</Text>
-      </Pressable>
+      {/* Floating FAB removed — replaced by the prominent teal "Start your
+          own table" CTA at the top of the screen so users see the host
+          action above the list, not floating over it. The empty-state and
+          modal still provide secondary entry points. */}
 
       {/* How-it-works modal — single, dismissible. Mirrors the user-approved
           wording. Pre-existing tables stay; only inactive ones get pruned. */}
@@ -360,6 +380,24 @@ const styles = StyleSheet.create({
   joinBtn: { paddingHorizontal: 22, paddingVertical: 12, borderRadius: 999 },
   emojiRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   fab: { position: "absolute", right: 16, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 999, shadowColor: "#0F172A", shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  createTopBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 14,
+    marginHorizontal: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    minHeight: 52,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  createTopBtnText: { color: "#FFFFFF", fontWeight: "900", letterSpacing: 0.2 },
   fabText: { color: "#FFFFFF", fontWeight: "800", fontSize: 16 },
   helpBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: 24 },
   helpSheet: { width: "100%", maxWidth: 460, borderRadius: 24, padding: 24, alignItems: "center", gap: 14 },
