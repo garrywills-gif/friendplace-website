@@ -3895,6 +3895,7 @@ async def leave_table(table_id: str, user_id: str):
 @api.get("/tables/{table_id}/messages")
 async def table_messages(table_id: str):
     docs = await db.messages.find({"table_id": table_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    await _attach_founder_flags(docs, "user_id")
     return docs
 
 
@@ -6211,7 +6212,14 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
             await db.messages.insert_one(msg.dict())
             await db.tables.update_one({"id": table_id}, {"$set": {"last_activity_at": now_iso()}})
             await award_points(user_id, 1)
-            await hub.broadcast(room, {"type": "message", "message": msg.dict()})
+            # Stamp the broadcast payload with the author's founder bits so
+            # subscribers can render the 🦋 immediately without a refetch.
+            out = msg.dict()
+            if (user or {}).get("is_founder"):
+                out["user_is_founder"] = True
+                if user.get("founder_number") is not None:
+                    out["user_founder_number"] = user.get("founder_number")
+            await hub.broadcast(room, {"type": "message", "message": out})
     except WebSocketDisconnect:
         pass
     finally:
@@ -6250,7 +6258,14 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...)):
             )
             await db.messages.insert_one(msg.dict())
             await db.dm_conversations.update_one({"id": conv_id}, {"$set": {"updated_at": now_iso()}})
-            await hub.broadcast(room, {"type": "message", "message": msg.dict()})
+            # Same founder-stamp treatment as the table room — live butterfly
+            # appears on the receiver's screen as soon as the message arrives.
+            out = msg.dict()
+            if (user or {}).get("is_founder"):
+                out["user_is_founder"] = True
+                if user.get("founder_number") is not None:
+                    out["user_founder_number"] = user.get("founder_number")
+            await hub.broadcast(room, {"type": "message", "message": out})
             # notify the OTHER participant about a new DM
             try:
                 conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0})

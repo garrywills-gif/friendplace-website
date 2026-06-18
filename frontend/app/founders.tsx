@@ -132,9 +132,17 @@ export default function FoundersWall() {
                   <AvatarBubble value={f.avatar} size={44} textSize={28} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }} numberOfLines={1}>
-                    {f.first_name || f.username || "Founding Member"}
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }} numberOfLines={1}>
+                      {f.first_name || f.username || "Founding Member"}
+                    </Text>
+                    <FounderMark
+                      isFounder
+                      founderNumber={f.founder_number}
+                      size={13}
+                      testID={`wall-founder-mark-${f.id}`}
+                    />
+                  </View>
                   <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }} numberOfLines={1}>
                     {f.suburb ? `📍 ${f.suburb}` : `@${f.username || ""}`}
                   </Text>
