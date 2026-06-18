@@ -33,6 +33,10 @@ export const api = {
 
   // Pre-launch programmes
   founderStatus: () => req("/founders/status"),
+  founders: (params?: { limit?: number; skip?: number }) => {
+    const q = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString()}` : "";
+    return req(`/founders${q}`);
+  },
   joinWaitlist: (body: { email: string; name?: string; suburb?: string; source?: string; note?: string; referrer_id?: string | null }) =>
     req("/waitlist", { method: "POST", body: JSON.stringify(body) }),
   waitlistStats: () => req("/waitlist/stats"),

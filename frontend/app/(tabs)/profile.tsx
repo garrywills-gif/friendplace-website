@@ -255,6 +255,36 @@ export default function Profile() {
       </View>
       <View style={{ height: 16 }} />
       <Button label="Edit Profile" variant="outline" onPress={() => router.push("/edit-profile")} testID="profile-edit" />
+      <View style={{ height: 8 }} />
+      {/* Founders Wall entry — visible to everyone. For founders this is
+          their crest celebration; for everyone else it's social-proof
+          scarcity (and a hint at the cohort still being open). */}
+      <Pressable
+        testID="profile-founders-wall"
+        onPress={() => router.push("/founders")}
+        accessibilityLabel="View the Founders Wall"
+        style={({ pressed }) => [
+          styles.founderRow,
+          {
+            backgroundColor: "#FEF3C7",
+            borderColor: "#D4A017",
+            opacity: pressed ? 0.85 : 1,
+          },
+        ]}
+      >
+        <Text style={{ fontSize: 26 }}>🦋</Text>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.6 }}>
+            FOUNDERS WALL
+          </Text>
+          <Text numberOfLines={2} style={{ color: "#3C2A06", fontWeight: "800", fontSize: 15 * scale, marginTop: 2 }}>
+            {(user as any).is_founder
+              ? `See yourself — you're Founding Member #${(user as any).founder_number ?? ""}`
+              : "Meet the Founding Members shaping YouBelong"}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#7C5300" />
+      </Pressable>
       <View style={{ height: 12 }} />
       <ShareYouBelong variant="ghost" testID="profile-share" />
 
@@ -451,6 +481,15 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 1 },
   friendDot: { width: 80, height: 88, borderRadius: 18, alignItems: "center", justifyContent: "center", padding: 6 },
   sectionLabel: { fontWeight: "900", letterSpacing: 0.6, marginTop: 4, marginBottom: 8 },
+  founderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
   inviteeRow: {
     flexDirection: "row",
     alignItems: "center",

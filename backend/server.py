@@ -235,6 +235,11 @@ class Table(BaseModel):
     # they don't disappear even when quiet.
     last_activity_at: str = Field(default_factory=now_iso)
     persistent: bool = False
+    # Founder-exclusive table flag. When True, only users with
+    # is_founder=True may join (REST + WS guard). Non-founders still see
+    # the card in the lounge list — locked — so it acts as gentle social
+    # proof for the Founding Member cohort.
+    founder_only: bool = False
 
 
 class CreateTableBody(BaseModel):
@@ -435,6 +440,77 @@ async def _find_user_by_identifier(identifier: str) -> Optional[dict]:
     return await db.users.find_one({"email": {"$regex": f"^{ident}$", "$options": "i"}})
 
 
+async def _ensure_founders_lounge() -> Optional[dict]:
+    """Create / fetch the special "Founders Lounge" group. Idempotent and
+    safe to call on every founder signup. The group is invite-only for
+    everyone except actual founders — gives Founding Members a private
+    space to chat and shape the app together (one of the headline perks
+    of the cohort)."""
+    g = await db.groups.find_one({"name": "Founders Lounge"}, {"_id": 0})
+    if g:
+        return g
+    g = {
+        "id": nid(),
+        "name": "Founders Lounge",
+        "emoji": "🦋",
+        "description": "A private space for Founding Members to chat, share early feedback, and help shape YouBelong.",
+        "members": [],
+        "is_founder_only": True,
+        "created_at": now_iso(),
+    }
+    try:
+        await db.groups.insert_one(g)
+    except Exception:
+        # Race-safe — another founder signup may have created it in parallel.
+        g = await db.groups.find_one({"name": "Founders Lounge"}, {"_id": 0})
+    return g
+
+
+async def _ensure_founders_table() -> Optional[dict]:
+    """Create / fetch the special Founders Lounge Coffee Table.
+
+    Idempotent — safe to call on every signup and at startup. The table is
+    `founder_only=True` and `persistent=True` so:
+      • non-founders still see the card in the public lounge list (acts as
+        social-proof scarcity), but get blocked at the door if they tap;
+      • the 24h idle prune never reaps it.
+
+    Hosted by the very first founder we can find, so the lounge card shows
+    a real "Started by …" attribution rather than a ghost host. Falls back
+    to an empty host_id if no founders exist yet — the table is still
+    created so newly-minted founders land somewhere immediately."""
+    t = await db.tables.find_one({"name": "Founders Lounge", "founder_only": True}, {"_id": 0})
+    if t:
+        return t
+    # Try to attribute hosting to the very first founder (#1); if there's
+    # none yet, leave host_id blank — backfilled on first founder signup.
+    first = await db.users.find_one(
+        {"is_founder": True, "is_demo": {"$ne": True}},
+        {"_id": 0, "id": 1, "first_name": 1},
+        sort=[("founder_number", 1)],
+    )
+    host_id = (first or {}).get("id", "") or ""
+    t = {
+        "id": nid(),
+        "name": "Founders Lounge",
+        "emoji": "🦋",
+        "description": "An exclusive Coffee Lounge table just for Founding Members. Pull up a chair.",
+        "visibility": "public",
+        "host_id": host_id,
+        "seated": [host_id] if host_id else [],
+        "created_at": now_iso(),
+        "last_activity_at": now_iso(),
+        "persistent": True,
+        "founder_only": True,
+    }
+    try:
+        await db.tables.insert_one(t)
+    except Exception:
+        # Race-safe — another founder signup may have created it in parallel.
+        t = await db.tables.find_one({"name": "Founders Lounge", "founder_only": True}, {"_id": 0})
+    return t
+
+
 async def _assign_founder_status(doc: dict) -> None:
     """If the cohort isn't full yet, stamp this new account as a Founding
     Member. Mutates `doc` in place — call BEFORE `db.users.insert_one(doc)`.
@@ -445,8 +521,9 @@ async def _assign_founder_status(doc: dict) -> None:
     between count + insert is acceptable and self-corrects to "at most cap +
     a few" — far cheaper than a Mongo transaction or a distributed lock.
 
-    Side effects: also adds the "Founding Member" badge and a celebratory
-    welcome notification so the user notices and feels rewarded.
+    Side effects: stamps the "Founding Member" badge, +50 bonus points, and
+    queues the user into the private Founders Lounge group so they land
+    inside an active conversation from day one.
     """
     if doc.get("is_demo"):
         return
@@ -462,9 +539,24 @@ async def _assign_founder_status(doc: dict) -> None:
     if "Founding Member" not in badges:
         badges.append("Founding Member")
     doc["badges"] = badges
-    # Small extra points bump as a thank-you — sized to make a Founder feel
-    # ahead of the pack at first login without unbalancing the leaderboard.
     doc["points"] = int(doc.get("points") or 0) + 50
+    # Auto-add to the Founders Lounge. We update `doc.groups` so the user is
+    # already a member on first read; the group document membership is added
+    # right after the insert (see signup handler) since we need the user.id.
+    fl = await _ensure_founders_lounge()
+    if fl and fl.get("id"):
+        gs = list(doc.get("groups") or [])
+        if fl["id"] not in gs:
+            gs.append(fl["id"])
+            doc["groups"] = gs
+        doc["_founders_lounge_id"] = fl["id"]  # picked up by signup handler
+    # Auto-seat at the Founders Lounge Coffee Table. The seated array is
+    # mutated on the table document right after the user insert (we need
+    # the user.id) — here we just stash the table id so the signup handler
+    # knows what to update.
+    ft = await _ensure_founders_table()
+    if ft and ft.get("id"):
+        doc["_founders_table_id"] = ft["id"]
 
 
 @api.post("/auth/signup")
@@ -548,8 +640,35 @@ async def signup(body: SignupBody, request: Request):
     # Founding Member assignment — runs *before* insert so the badge / number
     # land in the same DB write as the rest of the user doc.
     await _assign_founder_status(doc)
+    # Pop the transient lounge-id hint before persisting — we only need it to
+    # add this user to the group's members array post-insert (below).
+    _fl_id = doc.pop("_founders_lounge_id", None)
+    _ft_id = doc.pop("_founders_table_id", None)
     await db.users.insert_one(doc)
-    # Award any new milestone badges to the inviter now that the new account
+    if _fl_id:
+        try:
+            await db.groups.update_one(
+                {"id": _fl_id},
+                {"$addToSet": {"members": doc["id"]}},
+            )
+        except Exception:
+            pass
+    if _ft_id:
+        try:
+            await db.tables.update_one(
+                {"id": _ft_id},
+                {"$addToSet": {"seated": doc["id"]},
+                 "$set": {"last_activity_at": now_iso()}},
+            )
+            # If the founders table was created before any founder existed,
+            # the host_id may still be blank — set this new founder as host
+            # so the lounge card shows a real "Started by …" attribution.
+            await db.tables.update_one(
+                {"id": _ft_id, "host_id": ""},
+                {"$set": {"host_id": doc["id"]}},
+            )
+        except Exception:
+            pass
     # is committed and `invited_by` is on file.
     if doc.get("invited_by"):
         await _check_invite_milestones(doc["invited_by"])
@@ -770,7 +889,30 @@ async def auth_google(body: GoogleAuthBody):
     # Founding Member assignment for OAuth signups — same cohort cap, same
     # rules as username/password signup. Demo accounts excluded.
     await _assign_founder_status(doc)
+    _fl_id_g = doc.pop("_founders_lounge_id", None)
+    _ft_id_g = doc.pop("_founders_table_id", None)
     await db.users.insert_one(doc)
+    if _fl_id_g:
+        try:
+            await db.groups.update_one(
+                {"id": _fl_id_g},
+                {"$addToSet": {"members": doc["id"]}},
+            )
+        except Exception:
+            pass
+    if _ft_id_g:
+        try:
+            await db.tables.update_one(
+                {"id": _ft_id_g},
+                {"$addToSet": {"seated": doc["id"]},
+                 "$set": {"last_activity_at": now_iso()}},
+            )
+            await db.tables.update_one(
+                {"id": _ft_id_g, "host_id": ""},
+                {"$set": {"host_id": doc["id"]}},
+            )
+        except Exception:
+            pass
     # Award invite-milestone badges to the inviter (idempotent).
     if doc.get("invited_by"):
         await _check_invite_milestones(doc["invited_by"])
@@ -797,7 +939,36 @@ async def auth_me(user=Depends(current_user)):
     return _safe_user(user)
 
 
-# ------------- Founding Member status (public) -------------
+# ------------- Founding Member status + Wall (public) -------------
+@api.get("/founders")
+async def founders_wall(limit: int = 500, skip: int = 0):
+    """Public Founders Wall — celebrates every Founding Member with their
+    avatar, first name, founder number and suburb. Powers the `/founders`
+    screen which doubles as social proof for new visitors AND a thank-you
+    page where existing members can see who else is in the cohort.
+
+    Privacy: only fields that are already public on a normal profile are
+    returned. Demo accounts are excluded so the cast doesn't drown out
+    real founders. Sorted by founder_number ascending so #1 is always at
+    the top — the "history of the community" feels right that way."""
+    limit = max(1, min(int(limit or 500), 1000))
+    skip = max(0, int(skip or 0))
+    cursor = (
+        db.users
+        .find(
+            {"is_founder": True, "is_demo": {"$ne": True}},
+            {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1,
+             "founder_number": 1, "suburb": 1, "created_at": 1},
+        )
+        .sort("founder_number", 1)
+        .skip(skip)
+        .limit(limit)
+    )
+    items = await cursor.to_list(limit)
+    total = await db.users.count_documents({"is_founder": True, "is_demo": {"$ne": True}})
+    return {"total": total, "items": items}
+
+
 @api.get("/founders/status")
 async def founders_status():
     """How many slots are left in the Founding Member cohort. Public —
@@ -3508,10 +3679,16 @@ async def _migrate_table_metadata() -> None:
     TEST_Table* rows from earlier QA. Idempotent — safe to run on every call.
     """
     seed_names = {"Morning Coffee", "Gardening Chat", "Men's Shed", "Book Club",
-                  "Pet Lovers", "New Friends", "Sydney Locals"}
+                  "Pet Lovers", "New Friends", "Sydney Locals", "Founders Lounge"}
     await db.tables.update_many(
         {"name": {"$in": list(seed_names)}, "persistent": {"$ne": True}},
         {"$set": {"persistent": True}},
+    )
+    # Make sure the Founders Lounge table has the founder_only flag in case
+    # it was created before the field existed.
+    await db.tables.update_many(
+        {"name": "Founders Lounge", "founder_only": {"$ne": True}},
+        {"$set": {"founder_only": True, "persistent": True}},
     )
     # Backfill last_activity_at on any pre-migration rows that lack it.
     async for t in db.tables.find({"last_activity_at": {"$exists": False}}, {"id": 1, "created_at": 1, "_id": 0}):
@@ -3629,6 +3806,19 @@ async def join_table(table_id: str, user_id: str):
     t = await db.tables.find_one({"id": table_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Table not found")
+    # Founder-only guard. Non-founders see a friendly 403 with a code the
+    # client can branch on (lock the seat, show the "Founding Members only"
+    # gate).
+    if t.get("founder_only"):
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "is_founder": 1}) or {}
+        if not u.get("is_founder"):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "founder_only",
+                    "message": "This table is reserved for Founding Members.",
+                },
+            )
     if user_id in (t.get("seated") or []):
         return {"ok": True}
     await db.tables.update_one(
@@ -3678,6 +3868,20 @@ async def create_group(body: Group):
 
 @api.post("/groups/{group_id}/join/{user_id}")
 async def join_group(group_id: str, user_id: str):
+    # Founder-only groups (currently just the Founders Lounge) are
+    # protected: non-founders see a friendly 403 with a typed code so the
+    # client can show the "Founding Members only" gate copy.
+    g = await db.groups.find_one({"id": group_id}, {"_id": 0, "is_founder_only": 1, "name": 1})
+    if g and g.get("is_founder_only"):
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "is_founder": 1}) or {}
+        if not u.get("is_founder"):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "founder_only",
+                    "message": f"{g.get('name', 'This group')} is reserved for Founding Members.",
+                },
+            )
     await db.groups.update_one({"id": group_id}, {"$addToSet": {"members": user_id}})
     await award_points(user_id, 3)
     return {"ok": True}
@@ -4861,6 +5065,19 @@ async def submit_report(body: SubmitReportBody):
     # activity, but stops one user trying to weaponise auto-hide thresholds.
     if body.reporter_id:
         rate_limit(f"report:{body.reporter_id}", max_calls=10, window_seconds=3600)
+    # Founder priority — Founding Members are pre-launch testers whose
+    # signal we trust more than anonymous traffic. Their reports get a
+    # `priority: high` tag so the admin dashboard can surface them first
+    # without having to remember who's who. Same content rules, different
+    # SLA. We look this up once per submit (cheap, hot index ix_users_id).
+    reporter_priority = "normal"
+    if body.reporter_id:
+        rep = await db.users.find_one(
+            {"id": body.reporter_id},
+            {"_id": 0, "is_founder": 1, "is_admin": 1},
+        )
+        if rep and (rep.get("is_founder") or rep.get("is_admin")):
+            reporter_priority = "high"
     if body.reason and body.reason not in REPORT_REASONS:
         # Allow free-form but normalise to "Other" if completely off-list.
         pass
@@ -4889,6 +5106,7 @@ async def submit_report(body: SubmitReportBody):
         "related_text": related_text,
         "status": "new",                # new | reviewing | resolved | dismissed
         "urgent": False,
+        "priority": reporter_priority,  # high when reporter is Founder/admin
         "created_at": now_iso(),
         "updated_at": now_iso(),
     }
@@ -5866,6 +6084,25 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
     room = f"table:{table_id}"
     await hub.connect(room, websocket)
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    # Founder-only guard for the Founders Lounge coffee table. We close the
+    # socket gracefully with a typed error so the client can surface a kind
+    # "Founding Members only" toast instead of a generic disconnect.
+    tbl_doc = await db.tables.find_one({"id": table_id}, {"_id": 0, "founder_only": 1})
+    if tbl_doc and tbl_doc.get("founder_only") and not (user or {}).get("is_founder"):
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "code": "founder_only",
+                "message": "This table is reserved for Founding Members.",
+            })
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=1008)
+        except Exception:
+            pass
+        hub.disconnect(room, websocket)
+        return
     await db.tables.update_one({"id": table_id}, {"$addToSet": {"seated": user_id}})
     # Auto-update presence status when sitting at a Coffee Lounge table.
     prior_status = (user or {}).get("status")
@@ -6097,6 +6334,67 @@ async def _ensure_indexes():
             # exists and Mongo will use it regardless of name.
             logger.info("index %s on %s skipped: %s", opts.get("name"), coll, str(e)[:120])
     logger.info("Indexes verified: %s / %s targets", created, len(targets))
+
+
+@app.on_event("startup")
+async def _backfill_founders_spaces():
+    """Make sure the Founders Lounge community group AND the Founders Lounge
+    Coffee Table both exist, then backfill every existing founder into both.
+
+    Idempotent — uses $addToSet so re-running on every restart is a no-op
+    once everyone is already in place. Runs after the indexes startup hook
+    so the queries below hit the relevant indexes (notably `is_founder`).
+    """
+    try:
+        fl = await _ensure_founders_lounge()
+        ft = await _ensure_founders_table()
+        founder_ids = [
+            u["id"] async for u in db.users.find(
+                {"is_founder": True, "is_demo": {"$ne": True}},
+                {"_id": 0, "id": 1},
+            )
+        ]
+        if not founder_ids:
+            return
+        if fl and fl.get("id"):
+            await db.groups.update_one(
+                {"id": fl["id"]},
+                {"$addToSet": {"members": {"$each": founder_ids}}},
+            )
+        if ft and ft.get("id"):
+            await db.tables.update_one(
+                {"id": ft["id"]},
+                {"$addToSet": {"seated": {"$each": founder_ids}},
+                 "$set": {"last_activity_at": now_iso()}},
+            )
+            # If the table was created before any founder existed, the
+            # host_id is still blank — promote founder #1 to host so the
+            # lounge card shows a real attribution.
+            first = await db.users.find_one(
+                {"is_founder": True, "is_demo": {"$ne": True}},
+                {"_id": 0, "id": 1},
+                sort=[("founder_number", 1)],
+            )
+            if first:
+                await db.tables.update_one(
+                    {"id": ft["id"], "host_id": ""},
+                    {"$set": {"host_id": first["id"]}},
+                )
+        # Also stamp every founder's user doc with the lounge group id so
+        # the Groups list shows the Founders Lounge in their groups.
+        if fl and fl.get("id"):
+            await db.users.update_many(
+                {"is_founder": True, "is_demo": {"$ne": True}},
+                {"$addToSet": {"groups": fl["id"]}},
+            )
+        logger.info(
+            "Founders backfill: %s founder(s) seated in group=%s table=%s",
+            len(founder_ids),
+            (fl or {}).get("id", "—"),
+            (ft or {}).get("id", "—"),
+        )
+    except Exception as e:
+        logger.warning("Founders backfill failed: %s", e)
 
 
 @app.on_event("startup")

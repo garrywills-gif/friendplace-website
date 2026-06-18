@@ -200,7 +200,12 @@ export default function Welcome() {
               N" pitch, then once real signups arrive flips to a live
               "X places remaining" counter so the scarcity feels honest. */}
           {founderStatus && founderStatus.open && founderStatus.cap > 0 ? (
-            <View testID="welcome-founder-banner" style={styles.founderBanner}>
+            <Pressable
+              testID="welcome-founder-banner"
+              onPress={() => router.push("/founders")}
+              accessibilityLabel="View the Founders Wall"
+              style={({ pressed }) => [styles.founderBanner, { opacity: pressed ? 0.85 : 1 }]}
+            >
               {founderStatus.taken > 0 ? (
                 <Text style={[styles.founderBannerBody, { fontSize: 15 * scale }]}>
                   🦋 <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.remaining.toLocaleString()}</Text> Founding Member places remaining.
@@ -211,9 +216,9 @@ export default function Welcome() {
                 </Text>
               )}
               <Text style={[styles.founderBannerNote, { fontSize: 12 * scale }]}>
-                Free during testing.
+                Tap to see the Founders Wall · Free during testing.
               </Text>
-            </View>
+            </Pressable>
           ) : null}
           <Pressable testID="welcome-signup" onPress={() => router.push("/auth/welcome")} style={({ pressed }) => [styles.btnPrimary, { opacity: pressed ? 0.85 : 1 }]}>
             <Text style={[styles.btnPrimaryText, { fontSize: 22 * scale }]}>Sign Up</Text>

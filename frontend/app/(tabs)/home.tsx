@@ -28,6 +28,11 @@ export default function Home() {
   const [isFav, setIsFav] = useState<boolean>(false);
   const [community, setCommunity] = useState<any>(null);
   const [invitedCount, setInvitedCount] = useState<number>(0);
+  // Live "X of 500 Founding Members" counter — drives the Wall entry card
+  // that sits just under the Community Points tile. Null until the first
+  // status fetch returns so the card stays hidden during the brief boot
+  // window rather than flickering empty state.
+  const [founderStatus, setFounderStatus] = useState<{ taken: number; cap: number; remaining: number; open: boolean } | null>(null);
 
   const shuffleThought = () => setThought((t) => getRandomThought(t));
 
@@ -77,6 +82,7 @@ export default function Home() {
       const s: any = await api.inviteStats(user.id);
       setInvitedCount(Number(s?.count) || 0);
     } catch {}
+    try { setFounderStatus(await api.founderStatus()); } catch {}
   };
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
 
@@ -203,6 +209,52 @@ export default function Home() {
           )}
         </Pressable>
 
+        {/* Founders Wall entry — surfaced on every Home for both founders
+            (a celebratory "view your crest") and non-founders (social-proof
+            scarcity, encourages claiming a spot). Hidden if the cohort
+            programme is disabled (cap=0). */}
+        {founderStatus && founderStatus.cap > 0 ? (
+          <Pressable
+            testID="home-founders-wall"
+            onPress={() => router.push("/founders")}
+            accessibilityLabel="View the Founders Wall"
+            style={({ pressed }) => [
+              styles.founderCard,
+              {
+                backgroundColor: "#FEF3C7",
+                borderColor: "#D4A017",
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+          >
+            <Text style={{ fontSize: 30 }}>🦋</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              {(user as any)?.is_founder ? (
+                <>
+                  <Text numberOfLines={1} style={{ color: "#7C5300", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.6 }}>
+                    YOU&apos;RE FOUNDING MEMBER #{(user as any).founder_number}
+                  </Text>
+                  <Text numberOfLines={2} style={{ color: "#3C2A06", fontWeight: "800", fontSize: 15 * scale, marginTop: 2 }}>
+                    See yourself on the Founders Wall →
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text numberOfLines={1} style={{ color: "#7C5300", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.6 }}>
+                    FOUNDERS WALL
+                  </Text>
+                  <Text numberOfLines={2} style={{ color: "#3C2A06", fontWeight: "800", fontSize: 15 * scale, marginTop: 2 }}>
+                    {founderStatus.taken > 0
+                      ? `Meet the ${founderStatus.taken.toLocaleString()} Founding Members shaping YouBelong`
+                      : `Be among the first ${founderStatus.cap.toLocaleString()} Founding Members`}
+                  </Text>
+                </>
+              )}
+            </View>
+            <Ionicons name="chevron-forward" size={22} color="#7C5300" />
+          </Pressable>
+        ) : null}
+
         {/* Prominent invite card — sits above-the-fold so growth is one tap away. */}
         <View style={{ marginTop: 4 }}>
           <ShareYouBelong variant="highlight" testID="home-invite-highlight" invitedCount={invitedCount} />
@@ -304,4 +356,14 @@ const styles = StyleSheet.create({
   thoughtIconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center" },
   thoughtText: { fontWeight: "700", lineHeight: 26 },
   bellBadge: { position: "absolute", top: -4, right: -4, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  founderCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
 });

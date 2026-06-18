@@ -42,6 +42,9 @@ export default function Lounge() {
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  // "Founders Lounge — Founding Members only" gate. Opens when a
+  // non-founder taps a founder-only table; never shown to founders.
+  const [showFounderGate, setShowFounderGate] = useState(false);
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("☕");
   const [desc, setDesc] = useState("");
@@ -134,14 +137,27 @@ export default function Lounge() {
           return (
             <Pressable
               testID={`table-${item.id}`}
-              onPress={() => router.push(`/table/${item.id}` as any)}
-              style={({ pressed }) => [styles.card, { backgroundColor: c.surfaceSecondary, borderColor: active ? "#10B981" : c.border, borderWidth: active ? 2 : 1, opacity: pressed ? 0.85 : 1 }]}
+              onPress={() => {
+                // Gate non-founders from the Founders Lounge with a kind
+                // explainer modal instead of a hard 403 on the chat page.
+                if (item.founder_only && !(user as any)?.is_founder) {
+                  setShowFounderGate(true);
+                  return;
+                }
+                router.push(`/table/${item.id}` as any);
+              }}
+              style={({ pressed }) => [styles.card, { backgroundColor: c.surfaceSecondary, borderColor: item.founder_only ? "#D4A017" : (active ? "#10B981" : c.border), borderWidth: (item.founder_only || active) ? 2 : 1, opacity: pressed ? 0.85 : 1 }]}
             >
               <View style={styles.topRow}>
                 <Text style={{ fontSize: 44 }}>{item.emoji}</Text>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                     <Text style={[styles.cardTitle, { color: c.onSurface, fontSize: 22 * scale }]}>{item.name}</Text>
+                    {item.founder_only && (
+                      <View style={[styles.founderBadge]} testID={`founder-badge-${item.id}`}>
+                        <Text style={styles.founderBadgeText}>🦋 FOUNDERS</Text>
+                      </View>
+                    )}
                     {active && (
                       <View style={[styles.activeBadge, { backgroundColor: "#10B981" }]} testID={`active-${item.id}`}>
                         <View style={styles.activeDot} />
@@ -209,8 +225,12 @@ export default function Lounge() {
               </View>
 
               <View style={styles.bottom}>
-                <View style={[styles.joinBtn, { backgroundColor: c.brand }]}>
-                  <Text style={{ color: c.onBrandPrimary, fontWeight: "800", fontSize: 16 * scale }}>{seatedCount === 0 ? "Start a Chat" : "Take a Seat"}</Text>
+                <View style={[styles.joinBtn, { backgroundColor: (item.founder_only && !(user as any)?.is_founder) ? "#D4A017" : c.brand }]}>
+                  <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 16 * scale }}>
+                    {item.founder_only && !(user as any)?.is_founder
+                      ? "🦋 Founders Only"
+                      : (seatedCount === 0 ? "Start a Chat" : "Take a Seat")}
+                  </Text>
                 </View>
               </View>
             </Pressable>
@@ -239,6 +259,37 @@ export default function Lounge() {
             </Text>
             <Pressable testID="lounge-help-close" onPress={() => setShowHelp(false)} style={[styles.helpBtn, { backgroundColor: c.brand }]}>
               <Text style={{ color: c.onBrandPrimary, fontWeight: "800", fontSize: 17 * scale }}>Got it</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Founder-only access gate — shown when a non-founder taps the
+          Founders Lounge table. Routes them to the public Founders Wall
+          so they can still see who's already inside. */}
+      <Modal visible={showFounderGate} animationType="fade" transparent onRequestClose={() => setShowFounderGate(false)}>
+        <Pressable style={styles.helpBackdrop} onPress={() => setShowFounderGate(false)}>
+          <Pressable style={[styles.helpSheet, { backgroundColor: c.surface }]} onPress={(e: any) => e.stopPropagation && e.stopPropagation()}>
+            <Text style={{ fontSize: 56 }}>🦋</Text>
+            <Text style={[styles.helpTitle, { color: c.onSurface, fontSize: 22 * scale }]}>Founders Lounge</Text>
+            <Text style={[styles.helpBody, { color: c.onSurface, fontSize: 16 * scale }]}>
+              This table is just for Founding Members — the first 500 people to join YouBelong.
+              {"\n\n"}
+              <Text style={{ fontWeight: "700" }}>Spots are still open.</Text> Take a peek at the Wall to see who&apos;s already inside.
+            </Text>
+            <Pressable
+              testID="founder-gate-view-wall"
+              onPress={() => { setShowFounderGate(false); router.push("/founders"); }}
+              style={[styles.helpBtn, { backgroundColor: c.brand }]}
+            >
+              <Text style={{ color: c.onBrandPrimary, fontWeight: "800", fontSize: 17 * scale }}>See the Founders Wall</Text>
+            </Pressable>
+            <Pressable
+              testID="founder-gate-close"
+              onPress={() => setShowFounderGate(false)}
+              style={[styles.helpBtn, { backgroundColor: c.surfaceSecondary, marginTop: 0 }]}
+            >
+              <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 16 * scale }}>Maybe later</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -336,4 +387,18 @@ const styles = StyleSheet.create({
   emptyTitle: { fontWeight: "900", textAlign: "center" },
   emptyBody: { fontWeight: "600", textAlign: "center", lineHeight: 22 },
   emptyBtn: { paddingHorizontal: 24, paddingVertical: 14, borderRadius: 999, marginTop: 6 },
+  founderBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#D4A017",
+  },
+  founderBadgeText: {
+    color: "#7C5300",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 0.4,
+  },
 });
