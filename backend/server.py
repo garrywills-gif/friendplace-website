@@ -1223,9 +1223,19 @@ async def list_users(
     if interest:
         query["interests"] = {"$regex": interest, "$options": "i"}
     if q:
+        # Find Friends search: case-insensitive substring match across the
+        # most natural "who am I looking for?" fields. Includes interests
+        # so a search for "pets" matches a user with the interest "Pets"
+        # (this previously failed and was reported during UAT), and suburb
+        # so searches like "Bondi" surface neighbours without needing the
+        # advanced suburb filter chip.
+        import re as _re
+        safe = _re.escape(q)
         query["$or"] = [
-            {"first_name": {"$regex": q, "$options": "i"}},
-            {"username": {"$regex": q, "$options": "i"}},
+            {"first_name": {"$regex": safe, "$options": "i"}},
+            {"username": {"$regex": safe, "$options": "i"}},
+            {"interests": {"$regex": safe, "$options": "i"}},
+            {"suburb": {"$regex": safe, "$options": "i"}},
         ]
     if viewer_id:
         viewer = await db.users.find_one({"id": viewer_id}, {"_id": 0, "blocked": 1}) or {}

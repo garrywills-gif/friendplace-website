@@ -109,7 +109,7 @@ export default function InviteLanding() {
     if (inviter) {
       return `${displayName} thought you'd love YouBelong — a warm, friendly place to meet new people and stay connected.`;
     }
-    return "A warm, friendly place to meet new people and stay connected — built especially for adults living alone.";
+    return "A warm, friendly place for friendship, connection and community.";
   }, [inviter, displayName]);
 
   function goSignup() {

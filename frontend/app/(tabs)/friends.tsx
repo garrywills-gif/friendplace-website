@@ -124,7 +124,7 @@ export default function Friends() {
           <Ionicons name="search" size={22} color={c.muted} />
           <TextInput
             testID="friends-search"
-            placeholder="Search by name or interest"
+            placeholder="Search by name, interest or suburb"
             value={q}
             onChangeText={setQ}
             placeholderTextColor={c.muted}

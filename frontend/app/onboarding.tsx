@@ -196,7 +196,7 @@ export default function OnboardingWizard() {
         Welcome to YouBelong
       </Text>
       <Text style={[styles.body, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
-        A warm, friendly place to meet new people and stay connected — built especially for adults living alone.
+        A warm, friendly place for friendship, connection and community.
       </Text>
 
       {/* Three-bullet "what YouBelong is" explainer so brand-new users
