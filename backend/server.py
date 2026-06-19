@@ -4484,6 +4484,57 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     draw_chip(2, "#7C3AED", "Make Friends", icon_people)
     draw_chip(3, "#0F766E", "Community Groups", icon_globe)
 
+    # ─── "Become a Founding Member" gold ribbon ───────────────────────────
+    # Live count makes the urgency real: someone reading the poster sees
+    # exactly how many spots are still open. Fails gracefully (hidden ribbon)
+    # if the founder cohort programme is closed or the count lookup fails.
+    try:
+        cohort_cap = int(settings.founding_member_cap or 0)
+    except Exception:
+        cohort_cap = 500
+    try:
+        founder_count = await db.users.count_documents(
+            {"is_founder": True, "is_demo": {"$ne": True}}
+        )
+    except Exception:
+        founder_count = 0
+    if cohort_cap > 0 and founder_count < cohort_cap:
+        remaining = max(0, cohort_cap - founder_count)
+        GOLD_FILL = "#FBBF24"
+        GOLD_DARK = "#7C5300"
+        RIBBON_Y = 660
+        RIBBON_H = 130
+        # Outer rounded rectangle (gold fill, dark gold stroke)
+        d.rounded_rectangle(
+            [80, RIBBON_Y, W - 80, RIBBON_Y + RIBBON_H],
+            radius=20, fill=GOLD_FILL, outline=GOLD_DARK, width=4,
+        )
+        # Two-line copy: lead pill text + count
+        if founder_count > 0:
+            ribbon_lead = "🦋 BECOME A FOUNDING MEMBER"
+            ribbon_sub = f"{remaining:,} of {cohort_cap:,} places remaining · Free to join"
+        else:
+            ribbon_lead = "🦋 BE A FOUNDING MEMBER"
+            ribbon_sub = f"Among the first {cohort_cap:,} to shape YouBelong · Free to join"
+        try:
+            lead_fnt = font(38, bold=True)
+            sub_fnt = font(24, bold=False)
+            lb = d.textbbox((0, 0), ribbon_lead, font=lead_fnt)
+            sb = d.textbbox((0, 0), ribbon_sub, font=sub_fnt)
+            d.text(
+                (W // 2 - (lb[2] - lb[0]) / 2, RIBBON_Y + 18),
+                ribbon_lead, font=lead_fnt, fill=GOLD_DARK,
+            )
+            d.text(
+                (W // 2 - (sb[2] - sb[0]) / 2, RIBBON_Y + 72),
+                ribbon_sub, font=sub_fnt, fill=GOLD_DARK,
+            )
+        except Exception:
+            # If emoji glyphs aren't in the installed font we silently
+            # fall back — the ribbon shape remains, which is the most
+            # important visual cue.
+            pass
+
     # ─── QR code (≈ 20% larger than before — the third visual anchor) ────
     qr = qrcode.QRCode(
         version=None,
