@@ -4298,26 +4298,61 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
 
     def font(size: int, bold: bool = True, italic: bool = False,
              condensed: bool = False) -> ImageFont.FreeTypeFont:
+        """Resolve a TTF font path with graceful fallbacks.
+
+        The environment ships either DejaVu (older Debian images) or
+        Liberation Sans (current images) — we try DejaVu first because the
+        flyer was originally tuned against it, then fall back to the
+        metrically-compatible Liberation Sans variants, and finally Pillow's
+        bitmap default if nothing TrueType is installed. Using a TTF (not the
+        bitmap default) is critical: the bitmap default is a tiny 10-px font
+        that ignores the requested size, which makes the whole poster look
+        like 6pt text. Always prefer a real TTF.
+        """
         bases: list[str] = []
         if condensed:
-            # Condensed variant lets the wordmark grow significantly without
-            # blowing past the page margins (regular Bold tops out around 180pt
-            # for "YOUBELONG"; condensed bold easily reaches ~250pt).
+            # Condensed variants → DejaVu first, Liberation Sans Narrow as
+            # the modern fallback (Narrow has ~85% width of regular Sans).
             if bold and italic:
-                bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-BoldOblique.ttf")
+                bases += [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-BoldOblique.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-BoldItalic.ttf",
+                ]
             elif bold:
-                bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf")
+                bases += [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf",
+                ]
             elif italic:
-                bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Oblique.ttf")
+                bases += [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Oblique.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Italic.ttf",
+                ]
             else:
-                bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf")
+                bases += [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Regular.ttf",
+                ]
+        # Regular (non-condensed) variants — same priority order.
         if italic and bold:
-            bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf")
+            bases += [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
+            ]
         elif italic:
-            bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf")
+            bases += [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+            ]
         elif bold:
-            bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
-        bases.append("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+            bases += [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            ]
+        bases += [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        ]
         for cand in bases:
             try:
                 return ImageFont.truetype(cand, size)
@@ -4381,7 +4416,8 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     # screen). The PNG ships with a baked-in white outer glow + navy halo so
     # the wordmark sits crisply on the navy banner exactly the same way it
     # does on the photo backdrop in-app — keeping print + app branding 1:1.
-    BANNER_H = 320
+    # Top banner — slightly tighter to give the body more room for big text.
+    BANNER_H = 280
     d.rectangle([0, 0, W, BANNER_H], fill=NAVY)
     SIDE = 100  # body-text margin used elsewhere on the page
 
@@ -4415,21 +4451,23 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
         d.text(((W - tw) // 2, (BANNER_H - th) // 2 - 6), text,
                font=f_logo, fill="#FFFFFF")
 
-    # ─── Headline ────────────────────────────────────────────────────────
-    HEAD_Y = BANNER_H + 50
+    # ─── Headline (deliberately HUGE so passers-by can read it from across
+    # a room). Bumped from 110pt to 170pt; condensed bold lets the line
+    # fit within the side margins of a 1240px-wide page.
+    HEAD_Y = BANNER_H + 30
     fit_centred("FIND YOUR PEOPLE.", HEAD_Y, W - 2 * SIDE,
-                start_size=110, min_size=72, fill=NAVY, bold=True)
+                start_size=190, min_size=130, fill=NAVY, bold=True,
+                condensed=True)
 
-    # ─── Short tagline (single line — flyer is intentionally NOT text-heavy) ─
+    # ─── Short tagline (single line — readable from ~2m). Bumped to 40pt. ─
     lead = "Meet new friends. Join local events. Feel connected."
-    wrap_centre(lead, HEAD_Y + 140, font(34, bold=False), SLATE,
+    wrap_centre(lead, HEAD_Y + 200, font(40, bold=False), SLATE,
                 max_w=W - 2 * SIDE, line_gap=10)
 
-    # ─── Four feature icons (Coffee Lounge · Local Events · Make Friends ·
-    # Community Groups). Drawn as a single row of tinted circles so a passer-
-    # by understands the app's purpose at a glance without reading. ────────
-    ICON_Y = HEAD_Y + 200
-    ICON_SIZE = 92
+    # ─── Four feature icons. Bigger circles + bigger labels so the four
+    # purposes of the app read clearly at a glance from across the room. ──
+    ICON_Y = HEAD_Y + 290
+    ICON_SIZE = 110
     LABEL_Y = ICON_Y + ICON_SIZE + 14
     cols = 4
     pad = 60
@@ -4441,12 +4479,13 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
         d.ellipse([cx - ICON_SIZE // 2, cy - ICON_SIZE // 2,
                    cx + ICON_SIZE // 2, cy + ICON_SIZE // 2], fill=tint)
         draw_icon(cx, cy)
-        fnt = font(24)
+        # Labels bumped from 24pt → 36pt (bold) — readable from a corridor.
+        fnt = font(36, bold=True)
         words = label.split()
         if len(words) == 2:
             for i, w_ in enumerate(words):
                 b = d.textbbox((0, 0), w_, font=fnt)
-                d.text((cx - (b[2] - b[0]) / 2, LABEL_Y + i * 30), w_, font=fnt, fill=INK)
+                d.text((cx - (b[2] - b[0]) / 2, LABEL_Y + i * 42), w_, font=fnt, fill=INK)
         else:
             b = d.textbbox((0, 0), label, font=fnt)
             d.text((cx - (b[2] - b[0]) / 2, LABEL_Y), label, font=fnt, fill=INK)
@@ -4502,14 +4541,14 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
         remaining = max(0, cohort_cap - founder_count)
         GOLD_FILL = "#FBBF24"
         GOLD_DARK = "#7C5300"
-        RIBBON_Y = 660
-        RIBBON_H = 130
-        # Outer rounded rectangle (gold fill, dark gold stroke)
+        RIBBON_Y = 810
+        RIBBON_H = 175
+        # Outer rounded rectangle (gold fill, dark gold stroke). Slightly
+        # taller than before to accommodate the much larger lead + sub.
         d.rounded_rectangle(
-            [80, RIBBON_Y, W - 80, RIBBON_Y + RIBBON_H],
-            radius=20, fill=GOLD_FILL, outline=GOLD_DARK, width=4,
+            [60, RIBBON_Y, W - 60, RIBBON_Y + RIBBON_H],
+            radius=22, fill=GOLD_FILL, outline=GOLD_DARK, width=5,
         )
-        # Two-line copy: lead pill text + count
         if founder_count > 0:
             ribbon_lead = "🦋 BECOME A FOUNDING MEMBER"
             ribbon_sub = f"{remaining:,} of {cohort_cap:,} places remaining · Free to join"
@@ -4517,25 +4556,35 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
             ribbon_lead = "🦋 BE A FOUNDING MEMBER"
             ribbon_sub = f"Among the first {cohort_cap:,} to shape YouBelong · Free to join"
         try:
-            lead_fnt = font(38, bold=True)
-            sub_fnt = font(24, bold=False)
-            lb = d.textbbox((0, 0), ribbon_lead, font=lead_fnt)
-            sb = d.textbbox((0, 0), ribbon_sub, font=sub_fnt)
+            # Lead bumped 38pt → 56pt. Auto-fit so the line still fits the
+            # banner width (condensed bold lets us push the size further).
+            lead_size = 60
+            while lead_size > 40:
+                lf = font(lead_size, bold=True, condensed=True)
+                lb = d.textbbox((0, 0), ribbon_lead, font=lf)
+                if (lb[2] - lb[0]) <= (W - 160):
+                    break
+                lead_size -= 4
+            lf = font(lead_size, bold=True, condensed=True)
+            lb = d.textbbox((0, 0), ribbon_lead, font=lf)
             d.text(
                 (W // 2 - (lb[2] - lb[0]) / 2, RIBBON_Y + 18),
-                ribbon_lead, font=lead_fnt, fill=GOLD_DARK,
+                ribbon_lead, font=lf, fill=GOLD_DARK,
             )
+            # Sub line bumped 24pt → 36pt bold for scannability from afar.
+            sub_fnt = font(36, bold=True)
+            sb = d.textbbox((0, 0), ribbon_sub, font=sub_fnt)
             d.text(
-                (W // 2 - (sb[2] - sb[0]) / 2, RIBBON_Y + 72),
+                (W // 2 - (sb[2] - sb[0]) / 2, RIBBON_Y + RIBBON_H - 60),
                 ribbon_sub, font=sub_fnt, fill=GOLD_DARK,
             )
         except Exception:
-            # If emoji glyphs aren't in the installed font we silently
-            # fall back — the ribbon shape remains, which is the most
-            # important visual cue.
             pass
 
-    # ─── QR code (≈ 20% larger than before — the third visual anchor) ────
+    # ─── QR code — slightly smaller (640 vs 720) to make room for the much
+    # larger headline + ribbon above and a giant "SCAN TO JOIN FREE" below.
+    # Still 640px at ~150 dpi = ~4.3 inches printed, plenty big for scanning
+    # from a normal reading distance.
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -4544,26 +4593,26 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     qr.add_data(target_url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color=INK, back_color="#FFFFFF").convert("RGB")
-    qr_size = 720
+    qr_size = 640
     qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
     qr_x = (W - qr_size) // 2
-    qr_y = 820
+    qr_y = 1010
     img.paste(qr_img, (qr_x, qr_y))
     d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14],
                 outline=NAVY, width=4)
 
-    # Layout note: the small URL line that used to sit between "Scan to Join
-    # Free" and the closing tagline has been removed. Three lines stacked
-    # below the QR felt cluttered, and the QR itself encodes the URL.
-    # Pre-compute QR bottom so the closing block always anchors to it.
-
-    # ─── CTA + closing line ───────────────────────────────────────────────
-    cta_y = qr_y + qr_size + 30
-    centre("Scan to Join Free", cta_y, font(56), NAVY)
-    centre("Because You Belong Too.", cta_y + 76, font(40, italic=True), TEAL)
+    # ─── CTA stack ────────────────────────────────────────────────────────
+    # "SCAN TO JOIN FREE" — bumped 56pt → 84pt, condensed bold so it reads
+    # like a poster headline from across the room. "Because You Belong Too."
+    # bumped 40pt → 52pt italic teal.
+    cta_y = qr_y + qr_size + 24
+    fit_centred("SCAN TO JOIN FREE", cta_y, W - 2 * SIDE,
+                start_size=92, min_size=70, fill=NAVY, bold=True,
+                condensed=True)
+    centre("Because You Belong Too.", cta_y + 92, font(54, italic=True), TEAL)
 
     if venue:
-        centre(f"Posted by {venue}", qr_y - 38, font(22, bold=False), SLATE)
+        centre(f"Posted by {venue}", qr_y - 32, font(26, bold=False), SLATE)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
