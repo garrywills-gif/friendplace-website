@@ -4772,13 +4772,94 @@ async def admin_hard_delete_notice(notice_id: str, admin_id: str, reason: Option
     return {"ok": True}
 
 
+async def _hard_delete_user_data(user_id: str) -> None:
+    """Irreversibly purge a user and all their content from MongoDB.
+
+    Shared by:
+      • the admin moderation tool (`DELETE /api/admin/users/{user_id}`)
+      • the user-initiated account deletion (`DELETE /api/users/me`)
+
+    What gets deleted:
+      * The user document itself.
+      * Notices they authored (cascades comments since those live on the doc).
+      * Every message they sent or that targeted them (table chat + DMs).
+      * Flutters they sent or received.
+      * All in-app notifications for them.
+      * Reports they filed (their POV is gone with them).
+      * Friend & block links — pulled from every other user's arrays.
+      * Group post authorship — anonymised, not deleted, so threads remain
+        coherent for the rest of the community.
+      * Their seat at any Coffee Lounge table — pulled.
+      * Reports filed *against* them — kept for audit, but the
+        target_user_id is anonymised to "[deleted]".
+
+    What is intentionally kept (and how):
+      * Their content in groups they posted to (their `user_name` is
+        replaced with "Former member") — preserves community continuity
+        without leaking PII.
+      * Moderation audit log — the username snapshot field stays so any
+        prior action against them is still traceable, but their live id
+        is gone.
+    """
+    # Cache the username for the audit trail BEFORE we delete the row.
+    snapshot = await db.users.find_one({"id": user_id}, {"_id": 0, "username": 1})
+    uname = (snapshot or {}).get("username", "?")
+
+    await db.users.delete_one({"id": user_id})
+    await db.notices.delete_many({"user_id": user_id})
+    await db.messages.delete_many(
+        {"$or": [{"user_id": user_id}, {"from_id": user_id}, {"to_id": user_id}]}
+    )
+    await db.flutters.delete_many(
+        {"$or": [{"from_id": user_id}, {"to_id": user_id}]}
+    )
+    await db.notifications.delete_many({"user_id": user_id})
+    await db.reports.delete_many({"reporter_id": user_id})
+    await db.reports.update_many(
+        {"target_user_id": user_id},
+        {"$set": {"target_user_id": "[deleted]"}},
+    )
+    # Anonymise — don't delete — group post authorship so threads stay
+    # readable for remaining members. We use a stable sentinel id so
+    # subsequent re-runs are idempotent.
+    await db.group_posts.update_many(
+        {"user_id": user_id},
+        {"$set": {"user_name": "Former member", "avatar": "🙂", "user_id": "[deleted]"}},
+    )
+    # Pull the deleted user from every friend / block / group / event list.
+    await db.users.update_many(
+        {},
+        {"$pull": {"friends": user_id, "blocked": user_id,
+                   "incoming_friend_requests": user_id,
+                   "outgoing_friend_requests": user_id}},
+    )
+    await db.groups.update_many({}, {"$pull": {"members": user_id}})
+    await db.tables.update_many({}, {"$pull": {"seated": user_id}})
+    await db.events.update_many(
+        {},
+        {"$pull": {"rsvps": user_id, "rsvps_maybe": user_id,
+                   "rsvps_cant": user_id, "waitlist": user_id}},
+    )
+    # Stamp a soft audit row so we can reconcile later if needed.
+    try:
+        await db.moderation_log.insert_one({
+            "id": nid(),
+            "user_id": user_id,
+            "username_snapshot": uname,
+            "action": "self_delete_or_hard_delete",
+            "at": now_iso(),
+        })
+    except Exception:
+        # moderation_log may not exist in older deployments — ignore.
+        pass
+
+
 @api.delete("/admin/users/{user_id}")
 async def admin_hard_delete_user(user_id: str, admin_id: str, reason: Optional[str] = None):
     """Hard-delete a user account and their content. ADMIN ONLY. Irreversible.
 
-    Removes the user record, their notices, messages, friend connections,
-    flutters, and any moderation reports they filed. Reports filed against
-    them are kept (for audit) but the target_user_id is anonymised.
+    Thin wrapper around `_hard_delete_user_data` with the admin auth guard
+    and a richer audit-log entry that captures the reason.
     """
     await _require_admin(admin_id)
     if user_id == admin_id:
@@ -4788,21 +4869,57 @@ async def admin_hard_delete_user(user_id: str, admin_id: str, reason: Optional[s
         raise HTTPException(404, "User not found")
     if user.get("is_admin"):
         raise HTTPException(400, "Cannot hard-delete another admin")
-    # Log BEFORE deletion so the audit entry exists
+    # Log BEFORE deletion so the audit entry exists with the reason.
     await _log_moderation_action(
         user_id=user_id, by=admin_id, action="hard_delete",
         reason=reason or f"User @{user.get('username','?')} hard-deleted by admin",
         extra={"username_snapshot": user.get("username")},
     )
-    await db.users.delete_one({"id": user_id})
-    await db.notices.delete_many({"user_id": user_id})
-    await db.messages.delete_many({"$or": [{"user_id": user_id}, {"from_id": user_id}, {"to_id": user_id}]})
-    await db.flutters.delete_many({"$or": [{"from_id": user_id}, {"to_id": user_id}]})
-    await db.notifications.delete_many({"user_id": user_id})
-    await db.reports.delete_many({"reporter_id": user_id})
-    await db.reports.update_many({"target_user_id": user_id}, {"$set": {"target_user_id": "[deleted]"}})
-    # Pull from friends arrays everywhere
-    await db.users.update_many({}, {"$pull": {"friends": user_id, "blocked": user_id}})
+    await _hard_delete_user_data(user_id)
+    return {"ok": True}
+
+
+class SelfDeleteBody(BaseModel):
+    # Optional free-text reason — captured purely for product feedback,
+    # never displayed to other users. Limited to keep payload small.
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+@api.delete("/users/me")
+async def self_delete_account(
+    body: Optional[SelfDeleteBody] = None,
+    user=Depends(current_user),
+):
+    """User-initiated account deletion.
+
+    Required by both the Apple App Store and Google Play store policies
+    for any app that supports account creation. The user must be
+    authenticated (Bearer token), and admins cannot self-delete via this
+    endpoint — they must demote first to avoid leaving the moderation
+    pool empty by accident.
+
+    Returns 200 on success; the client must then clear its local token
+    and route the user back to the welcome screen.
+    """
+    if user.get("is_admin"):
+        raise HTTPException(
+            status_code=400,
+            detail="Admin accounts cannot delete themselves — demote first or contact support.",
+        )
+    uid = user["id"]
+    # Audit row first (we lose the username after delete).
+    try:
+        await db.moderation_log.insert_one({
+            "id": nid(),
+            "user_id": uid,
+            "username_snapshot": user.get("username", "?"),
+            "action": "self_delete",
+            "reason": (body.reason if body else None) or None,
+            "at": now_iso(),
+        })
+    except Exception:
+        pass
+    await _hard_delete_user_data(uid)
     return {"ok": True}
 
 

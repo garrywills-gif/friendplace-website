@@ -30,6 +30,15 @@ export const api = {
     }),
   me: (token: string) =>
     req("/auth/me", { headers: { Authorization: `Bearer ${token}` } }),
+  // User-initiated account deletion. Requires a Bearer token. Server purges
+  // the user + their content; on success the client must clear local
+  // session and route back to the welcome screen.
+  deleteAccount: (token: string, reason?: string) =>
+    req("/users/me", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ reason: reason || null }),
+    }),
 
   // Pre-launch programmes
   founderStatus: () => req("/founders/status"),

@@ -294,6 +294,27 @@ export default function Signup() {
 
               <View style={{ height: 18 }} />
               <Button testID="signup-submit" label="Create my account" onPress={submit} loading={busy} />
+              {/* Plain-language consent line — also the URLs we hand to the
+                  Apple/Google store listings. Tappable, opens in-app. */}
+              <Text style={[styles.legal, { color: c.muted, fontSize: 12 * scale }]}>
+                By creating an account you agree to our{" "}
+                <Text
+                  testID="signup-link-terms"
+                  onPress={() => router.push("/legal/terms")}
+                  style={{ color: c.brand, fontWeight: "800", textDecorationLine: "underline" }}
+                >
+                  Terms of Use
+                </Text>
+                {" "}and{" "}
+                <Text
+                  testID="signup-link-privacy"
+                  onPress={() => router.push("/legal/privacy")}
+                  style={{ color: c.brand, fontWeight: "800", textDecorationLine: "underline" }}
+                >
+                  Privacy Policy
+                </Text>
+                .
+              </Text>
               <Pressable
                 testID="signup-back"
                 onPress={() => setStep(1)}
@@ -330,6 +351,7 @@ const styles = StyleSheet.create({
   stepDotText: { color: "#FFFFFF", fontWeight: "900", fontSize: 14 },
   stepBar: { width: 40, height: 3, borderRadius: 2 },
   stepLabel: { fontWeight: "800", letterSpacing: 0.2, marginLeft: 6 },
+  legal: { marginTop: 12, textAlign: "center", lineHeight: 18 },
 
   backLink: {
     flexDirection: "row", alignItems: "center", gap: 6,
