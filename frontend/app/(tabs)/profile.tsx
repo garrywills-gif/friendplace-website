@@ -115,7 +115,7 @@ export default function Profile() {
       {inviter && (
         <Pressable
           testID="profile-inviter-card"
-          onPress={() => router.push(`/profile/${inviter.id}` as any)}
+          onPress={() => router.push(`/user/${inviter.id}` as any)}
           style={({ pressed }) => [styles.inviterCard, {
             backgroundColor: c.surfaceSecondary,
             borderColor: c.border,
@@ -312,7 +312,7 @@ export default function Profile() {
                 style={[styles.inviteeRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
               >
                 <Pressable
-                  onPress={() => router.push(`/profile/${it.id}` as any)}
+                  onPress={() => router.push(`/user/${it.id}` as any)}
                   style={{ flexDirection: "row", alignItems: "center", gap: 12, flex: 1 }}
                   accessibilityLabel={`Open ${it.first_name || it.username}'s profile`}
                 >

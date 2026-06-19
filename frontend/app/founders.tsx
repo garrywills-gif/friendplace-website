@@ -113,7 +113,7 @@ export default function FoundersWall() {
               <Pressable
                 key={f.id}
                 testID={`founder-row-${f.id}`}
-                onPress={() => router.push(`/profile/${f.id}` as any)}
+                onPress={() => router.push(`/user/${f.id}` as any)}
                 style={({ pressed }) => [
                   styles.row,
                   {
