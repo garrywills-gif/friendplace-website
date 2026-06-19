@@ -4815,6 +4815,11 @@ async def _hard_delete_user_data(user_id: str) -> None:
     )
     await db.notifications.delete_many({"user_id": user_id})
     await db.reports.delete_many({"reporter_id": user_id})
+    # DM conversations that the deleted user was part of are deleted
+    # outright (the other participant's message history with this user is
+    # gone anyway since we purged db.messages above — keeping a half-empty
+    # conversation row would just confuse the other side's DM list).
+    await db.dm_conversations.delete_many({"participants": user_id})
     await db.reports.update_many(
         {"target_user_id": user_id},
         {"$set": {"target_user_id": "[deleted]"}},
