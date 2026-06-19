@@ -4416,8 +4416,8 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     # screen). The PNG ships with a baked-in white outer glow + navy halo so
     # the wordmark sits crisply on the navy banner exactly the same way it
     # does on the photo backdrop in-app — keeping print + app branding 1:1.
-    # Top banner — slightly tighter to give the body more room for big text.
-    BANNER_H = 280
+    # Top banner — tightened so the body has room for big text.
+    BANNER_H = 270
     d.rectangle([0, 0, W, BANNER_H], fill=NAVY)
     SIDE = 100  # body-text margin used elsewhere on the page
 
@@ -4454,21 +4454,21 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     # ─── Headline (deliberately HUGE so passers-by can read it from across
     # a room). Bumped from 110pt to 170pt; condensed bold lets the line
     # fit within the side margins of a 1240px-wide page.
-    HEAD_Y = BANNER_H + 30
+    HEAD_Y = BANNER_H + 25
     fit_centred("FIND YOUR PEOPLE.", HEAD_Y, W - 2 * SIDE,
-                start_size=190, min_size=130, fill=NAVY, bold=True,
+                start_size=180, min_size=130, fill=NAVY, bold=True,
                 condensed=True)
 
-    # ─── Short tagline (single line — readable from ~2m). Bumped to 40pt. ─
+    # ─── Short tagline (single line — readable from ~2m). 38pt slate. ────
     lead = "Meet new friends. Join local events. Feel connected."
-    wrap_centre(lead, HEAD_Y + 200, font(40, bold=False), SLATE,
+    wrap_centre(lead, HEAD_Y + 185, font(38, bold=False), SLATE,
                 max_w=W - 2 * SIDE, line_gap=10)
 
-    # ─── Four feature icons. Bigger circles + bigger labels so the four
-    # purposes of the app read clearly at a glance from across the room. ──
-    ICON_Y = HEAD_Y + 290
-    ICON_SIZE = 110
-    LABEL_Y = ICON_Y + ICON_SIZE + 14
+    # ─── Four feature icons. Slightly tighter to make room for the ribbon
+    # immediately below them; circles still big enough to read at a glance.
+    ICON_Y = HEAD_Y + 250
+    ICON_SIZE = 105
+    LABEL_Y = ICON_Y + ICON_SIZE + 12
     cols = 4
     pad = 60
     col_w = (W - 2 * pad) // cols
@@ -4479,13 +4479,14 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
         d.ellipse([cx - ICON_SIZE // 2, cy - ICON_SIZE // 2,
                    cx + ICON_SIZE // 2, cy + ICON_SIZE // 2], fill=tint)
         draw_icon(cx, cy)
-        # Labels bumped from 24pt → 36pt (bold) — readable from a corridor.
-        fnt = font(36, bold=True)
+        # Labels 34pt bold — readable from a corridor without crowding the
+        # ribbon that sits directly below.
+        fnt = font(34, bold=True)
         words = label.split()
         if len(words) == 2:
             for i, w_ in enumerate(words):
                 b = d.textbbox((0, 0), w_, font=fnt)
-                d.text((cx - (b[2] - b[0]) / 2, LABEL_Y + i * 42), w_, font=fnt, fill=INK)
+                d.text((cx - (b[2] - b[0]) / 2, LABEL_Y + i * 40), w_, font=fnt, fill=INK)
         else:
             b = d.textbbox((0, 0), label, font=fnt)
             d.text((cx - (b[2] - b[0]) / 2, LABEL_Y), label, font=fnt, fill=INK)
@@ -4541,50 +4542,112 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
         remaining = max(0, cohort_cap - founder_count)
         GOLD_FILL = "#FBBF24"
         GOLD_DARK = "#7C5300"
-        RIBBON_Y = 810
-        RIBBON_H = 175
-        # Outer rounded rectangle (gold fill, dark gold stroke). Slightly
-        # taller than before to accommodate the much larger lead + sub.
+        # Ribbon sits just below the icon label block (2-line labels end
+        # around HEAD_Y + 350 ≈ 645; gap of ~15px keeps them visually
+        # separate without wasting vertical real estate).
+        RIBBON_Y = LABEL_Y + 90
+        RIBBON_H = 195
+        # Slightly taller ribbon — needs to hold a benefit line + count
+        # below the lead, plus a hand-drawn butterfly icon to its left
+        # (Liberation Sans doesn't ship with the 🦋 emoji glyph so we draw
+        # it geometrically instead of typesetting the character).
         d.rounded_rectangle(
             [60, RIBBON_Y, W - 60, RIBBON_Y + RIBBON_H],
-            radius=22, fill=GOLD_FILL, outline=GOLD_DARK, width=5,
+            radius=24, fill=GOLD_FILL, outline=GOLD_DARK, width=5,
         )
+
+        def draw_butterfly(cx: int, cy: int, span: int, ink: str, accent: str) -> None:
+            """Draw a small stylised butterfly centred at (cx, cy).
+
+            `span` controls overall wing-tip-to-wing-tip width.
+            Pure Pillow primitives — works regardless of which fonts are
+            installed on the host. Two pairs of wings (large upper, small
+            lower) plus a slim body and two antennae give the silhouette
+            people associate with 🦋 at a glance.
+            """
+            w = span // 2  # half-span
+            # Upper wings — large rounded ovals tilted outward.
+            upper_w, upper_h = int(w * 0.95), int(w * 0.85)
+            d.ellipse([cx - upper_w - 2, cy - upper_h, cx - 2, cy + upper_h // 6],
+                      fill=ink, outline=accent, width=2)
+            d.ellipse([cx + 2, cy - upper_h, cx + upper_w + 2, cy + upper_h // 6],
+                      fill=ink, outline=accent, width=2)
+            # Lower wings — smaller, sit beneath the uppers.
+            lower_w, lower_h = int(w * 0.6), int(w * 0.55)
+            d.ellipse([cx - lower_w - 2, cy - 4, cx - 2, cy + lower_h * 2],
+                      fill=ink, outline=accent, width=2)
+            d.ellipse([cx + 2, cy - 4, cx + lower_w + 2, cy + lower_h * 2],
+                      fill=ink, outline=accent, width=2)
+            # Body (slim vertical pill between the wings).
+            body_h = int(w * 1.05)
+            d.rounded_rectangle(
+                [cx - 4, cy - body_h // 2, cx + 4, cy + body_h // 2],
+                radius=4, fill=accent,
+            )
+            # Two antennae curling outward from the head.
+            d.line([cx - 3, cy - body_h // 2, cx - 12, cy - body_h // 2 - 16],
+                   fill=accent, width=3)
+            d.line([cx + 3, cy - body_h // 2, cx + 12, cy - body_h // 2 - 16],
+                   fill=accent, width=3)
+            # Two little wing-spots for charm.
+            d.ellipse([cx - upper_w + 8, cy - upper_h // 2 - 4,
+                       cx - upper_w + 22, cy - upper_h // 2 + 10], fill=accent)
+            d.ellipse([cx + upper_w - 22, cy - upper_h // 2 - 4,
+                       cx + upper_w - 8, cy - upper_h // 2 + 10], fill=accent)
+
+        # Three lines inside the ribbon (lead + benefit + count), centred.
+        ribbon_lead = "BECOME A FOUNDING MEMBER"
+        ribbon_benefit = "Founding Member badge + early access to new features"
         if founder_count > 0:
-            ribbon_lead = "🦋 BECOME A FOUNDING MEMBER"
             ribbon_sub = f"{remaining:,} of {cohort_cap:,} places remaining · Free to join"
         else:
-            ribbon_lead = "🦋 BE A FOUNDING MEMBER"
-            ribbon_sub = f"Among the first {cohort_cap:,} to shape YouBelong · Free to join"
+            ribbon_lead = "BE A FOUNDING MEMBER"
+            ribbon_sub = f"Among the first {cohort_cap:,} · Free to join"
         try:
-            # Lead bumped 38pt → 56pt. Auto-fit so the line still fits the
-            # banner width (condensed bold lets us push the size further).
-            lead_size = 60
+            # ── Lead line: auto-fit so the text + butterfly icon fit width ─
+            ICON_SPAN = 70  # butterfly width in px
+            ICON_GAP = 18   # gap between butterfly and text
+            lead_size = 58
+            available = (W - 160) - (ICON_SPAN + ICON_GAP)
             while lead_size > 40:
                 lf = font(lead_size, bold=True, condensed=True)
                 lb = d.textbbox((0, 0), ribbon_lead, font=lf)
-                if (lb[2] - lb[0]) <= (W - 160):
+                if (lb[2] - lb[0]) <= available:
                     break
                 lead_size -= 4
             lf = font(lead_size, bold=True, condensed=True)
             lb = d.textbbox((0, 0), ribbon_lead, font=lf)
+            lead_w = lb[2] - lb[0]
+            block_w = ICON_SPAN + ICON_GAP + lead_w
+            start_x = (W - block_w) / 2
+            # Centre the butterfly vertically on the lead text x-height.
+            lead_y = RIBBON_Y + 22
+            butterfly_cy = lead_y + (lead_size // 2) + 2
+            draw_butterfly(int(start_x + ICON_SPAN / 2), butterfly_cy,
+                           ICON_SPAN, "#FFFFFF", GOLD_DARK)
+            d.text((start_x + ICON_SPAN + ICON_GAP, lead_y),
+                   ribbon_lead, font=lf, fill=GOLD_DARK)
+
+            # ── Benefit line — explains *why* to join now ─────────────────
+            benefit_fnt = font(28, bold=False)
+            bb = d.textbbox((0, 0), ribbon_benefit, font=benefit_fnt)
             d.text(
-                (W // 2 - (lb[2] - lb[0]) / 2, RIBBON_Y + 18),
-                ribbon_lead, font=lf, fill=GOLD_DARK,
+                (W // 2 - (bb[2] - bb[0]) / 2, RIBBON_Y + RIBBON_H - 100),
+                ribbon_benefit, font=benefit_fnt, fill=GOLD_DARK,
             )
-            # Sub line bumped 24pt → 36pt bold for scannability from afar.
-            sub_fnt = font(36, bold=True)
+            # ── Count / "Free to join" line — sub copy ─────────────────────
+            sub_fnt = font(32, bold=True)
             sb = d.textbbox((0, 0), ribbon_sub, font=sub_fnt)
             d.text(
-                (W // 2 - (sb[2] - sb[0]) / 2, RIBBON_Y + RIBBON_H - 60),
+                (W // 2 - (sb[2] - sb[0]) / 2, RIBBON_Y + RIBBON_H - 52),
                 ribbon_sub, font=sub_fnt, fill=GOLD_DARK,
             )
         except Exception:
             pass
 
-    # ─── QR code — slightly smaller (640 vs 720) to make room for the much
-    # larger headline + ribbon above and a giant "SCAN TO JOIN FREE" below.
-    # Still 640px at ~150 dpi = ~4.3 inches printed, plenty big for scanning
-    # from a normal reading distance.
+    # ─── QR code — bumped back up to 680px (just over 4½ inches printed) so
+    # older readers can scan from further away. Vertical anchor moved up
+    # slightly to keep the bottom CTA on the page without crowding.
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -4593,26 +4656,23 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     qr.add_data(target_url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color=INK, back_color="#FFFFFF").convert("RGB")
-    qr_size = 640
+    qr_size = 680
     qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
     qr_x = (W - qr_size) // 2
-    qr_y = 1010
+    qr_y = 960
     img.paste(qr_img, (qr_x, qr_y))
     d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14],
                 outline=NAVY, width=4)
 
     # ─── CTA stack ────────────────────────────────────────────────────────
-    # "SCAN TO JOIN FREE" — bumped 56pt → 84pt, condensed bold so it reads
-    # like a poster headline from across the room. "Because You Belong Too."
-    # bumped 40pt → 52pt italic teal.
-    cta_y = qr_y + qr_size + 24
+    cta_y = qr_y + qr_size + 22
     fit_centred("SCAN TO JOIN FREE", cta_y, W - 2 * SIDE,
-                start_size=92, min_size=70, fill=NAVY, bold=True,
+                start_size=78, min_size=60, fill=NAVY, bold=True,
                 condensed=True)
-    centre("Because You Belong Too.", cta_y + 92, font(54, italic=True), TEAL)
+    centre("Because You Belong Too.", cta_y + 82, font(34, italic=True), TEAL)
 
     if venue:
-        centre(f"Posted by {venue}", qr_y - 32, font(26, bold=False), SLATE)
+        centre(f"Posted by {venue}", qr_y - 32, font(24, bold=False), SLATE)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
