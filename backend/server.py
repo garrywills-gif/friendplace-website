@@ -181,6 +181,17 @@ class User(BaseModel):
     # for future "thank-you" perks (priority support, early features, etc.).
     is_founder: bool = False
     founder_number: Optional[int] = None  # 1-indexed position in cohort
+    # ─── Business / venue flags ──────────────────────────────────────────
+    # YouBelong is a community app, not an ad platform. We invite local
+    # businesses (cafés, RSLs, bowling clubs, etc.) to advertise their
+    # events with a one-off "first listing free" gesture, then ask them to
+    # contribute. These three fields track that journey:
+    #   • is_business  → user has self-identified as a business / venue
+    #   • business_name → the public "Sponsored by …" label
+    #   • business_free_listing_used → whether they've taken the free post
+    is_business: bool = False
+    business_name: Optional[str] = None
+    business_free_listing_used: bool = False
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -4034,6 +4045,165 @@ def _next_occurrence(date_str: str, recurrence: str, step: int) -> str:
     return date_str
 
 
+def _looks_like_business_event(title: str, description: str = "", location: str = "") -> dict:
+    """Heuristic — does this event look like a business pitch rather than a
+    community gathering?
+
+    YouBelong is for the community. We're happy to host **one free** business
+    listing as a gesture (lots of local cafés, RSLs and bowling clubs run
+    great events worth knowing about). After that we ask businesses to chip
+    in. This function returns the cues that tripped the detector so the
+    sign-up modal can be honest with the user about *why* we flagged it.
+
+    Returns a dict:
+      {
+        "looks_business": bool,
+        "score":          int,   # 0+; ≥2 trips the flag
+        "reasons":        list[str],   # human-readable bullets
+      }
+
+    The heuristic is intentionally conservative (score ≥ 2 required) so a
+    community member posting "Sausage sizzle $5 — bring the kids" doesn't
+    get treated like a business. We also test on the LOCATION field because
+    "RSL", "Bowling Club", "Surf Club" etc. often live there, not in the
+    title.
+    """
+    haystack = " ".join([title or "", description or "", location or ""]).lower()
+    reasons: list[str] = []
+    score = 0
+
+    # ── Bucket 1 — clubs & community-business venues (Aussie focus). ─────
+    # These places ARE community spaces, but they're also commercial and we
+    # want them to share the listing fee. Catches RSLs, bowling/surf/golf
+    # clubs etc. that try to fill mid-week tables via the app.
+    CLUBS = [
+        "rsl", "returned and services league", "bowls club", "bowling club",
+        "bowlo", "surf club", "surf life saving", "leagues club", "workers club",
+        "country club", "golf club", "yacht club", "sailing club", "tennis club",
+        "lawn bowls", "sports club", "football club", "cricket club", "polo club",
+        "rotary club", "lions club", "men's shed", "mens shed",
+    ]
+    for c in CLUBS:
+        if c in haystack:
+            reasons.append(f'mentions a club / venue ("{c}")')
+            score += 2  # strong signal — clubs almost always = paid promotion
+            break  # one club mention is enough
+
+    # ── Bucket 2 — overt business types. ─────────────────────────────────
+    BIZ_NOUNS = [
+        "café", "cafe", "restaurant", "bistro", "pub", "brewery", "winery",
+        "bakery", "patisserie", "salon", "studio", "boutique", "clinic",
+        "dentist", "gym", "fitness centre", "yoga studio", "pilates studio",
+        "academy", "school of", "spa", "massage", "shop", "store",
+        "retailer", "showroom", "dealership", "gallery", "theatre",
+    ]
+    for n in BIZ_NOUNS:
+        if n in haystack:
+            reasons.append(f'business noun ("{n}")')
+            score += 1
+            break
+
+    # ── Bucket 3 — explicit pricing / ticketing language. ────────────────
+    money_re = re.compile(r"\$\s?\d|\baud?\b|\bgst\b|\bper person\b|\bper head\b", re.I)
+    if money_re.search(haystack):
+        reasons.append("explicit pricing / dollar amount")
+        score += 1
+    BOOK_WORDS = [
+        "book now", "buy tickets", "tickets available", "register at",
+        "rsvp by phone", "limited spots", "limited tickets", "early bird",
+        "discount code", "% off", " off!", "deal", "sale", "special offer",
+        "promo code", "promotion code", "trybooking", "eventbrite",
+        "humanitix", "moshtix", "ticketek", "stickytickets",
+    ]
+    for w in BOOK_WORDS:
+        if w in haystack:
+            reasons.append(f'ticketing / promo language ("{w.strip()}")')
+            score += 1
+            break
+
+    # ── Bucket 4 — links + phone numbers. ────────────────────────────────
+    if re.search(r"https?://|www\.", haystack):
+        reasons.append("external website link")
+        score += 1
+    if re.search(r"\b0[2-578]\s?\d{4}\s?\d{4}\b|\b1300\s?\d{3}\s?\d{3}\b|\b1800\s?\d{3}\s?\d{3}\b", haystack):
+        reasons.append("business phone number (1300 / 1800 / landline)")
+        score += 1
+
+    return {
+        "looks_business": score >= 2,
+        "score": score,
+        "reasons": reasons[:4],  # cap so the modal stays scannable
+    }
+
+
+class EventPreflightBody(BaseModel):
+    title: str = ""
+    description: str = ""
+    location: str = ""
+    host_id: Optional[str] = None
+
+
+@api.post("/events/preflight")
+async def events_preflight(body: EventPreflightBody):
+    """Run the business-event heuristic on a draft event BEFORE save.
+
+    Frontend calls this from the event-create form. If the response says
+    `looks_business: true` AND the host isn't already flagged as a
+    business, the client shows the friendly "this looks like a business
+    event" modal and lets the user choose between:
+      (a) confirming they're a business → claim the free listing perk
+      (b) confirming it's a community event → post normally, with a flag
+          logged for moderation if it looks suspicious later
+    """
+    hint = _looks_like_business_event(body.title, body.description, body.location)
+    already_business = False
+    free_listing_used = False
+    if body.host_id:
+        u = await db.users.find_one(
+            {"id": body.host_id},
+            {"_id": 0, "is_business": 1, "business_free_listing_used": 1, "business_name": 1},
+        )
+        if u:
+            already_business = bool(u.get("is_business"))
+            free_listing_used = bool(u.get("business_free_listing_used"))
+    return {
+        **hint,
+        "already_business": already_business,
+        "free_listing_used": free_listing_used,
+        # The actual copy the modal should show on each path. Centralised
+        # here so we can A/B test wording without an app release.
+        "messages": {
+            "first_free": "Your first business listing is on us — free!",
+            "next_paid": "We'll soon ask businesses to chip in for additional listings — we'll be in touch about pricing closer to launch.",
+        },
+    }
+
+
+class ClaimBusinessBody(BaseModel):
+    business_name: str = Field(min_length=2, max_length=80)
+
+
+@api.post("/users/me/business")
+async def claim_business(body: ClaimBusinessBody, user=Depends(current_user)):
+    """User self-identifies as a business / venue.
+
+    Sets `is_business=True` and stores the public `business_name` that
+    appears on sponsored event cards. Idempotent — if they're already a
+    business we just refresh the name. The `business_free_listing_used`
+    flag is NOT touched here; it's flipped only when their first sponsored
+    event is actually created.
+    """
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "is_business": True,
+            "business_name": body.business_name.strip(),
+        }},
+    )
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return _safe_user(fresh or {})
+
+
 @api.post("/events")
 async def create_event(body: EventCreateBody):
     # Anti-spam: a single host shouldn't be creating more than 8 events / hr.
@@ -4041,6 +4211,32 @@ async def create_event(body: EventCreateBody):
     # so this stays well clear of legitimate host behaviour.
     if body.host_id:
         rate_limit(f"event:{body.host_id}", max_calls=8, window_seconds=3600)
+    # ── Business / sponsored auto-attach ─────────────────────────────────
+    # If the host has self-identified as a business, automatically stamp
+    # the event with a "Sponsored by …" sponsor block (unless they've
+    # already provided their own custom one). Also flip the free-listing
+    # flag the first time they post so future listings know they've used
+    # their freebie.
+    host_user = None
+    if body.host_id:
+        host_user = await db.users.find_one(
+            {"id": body.host_id},
+            {"_id": 0, "is_business": 1, "business_name": 1,
+             "business_free_listing_used": 1},
+        )
+    if host_user and host_user.get("is_business"):
+        if not body.sponsor:
+            body.sponsor = {
+                "name": host_user.get("business_name") or "Local business",
+                "message": "",
+                "discount_code": "",
+            }
+        if not host_user.get("business_free_listing_used"):
+            # First sponsored event — mark the freebie as used.
+            await db.users.update_one(
+                {"id": body.host_id},
+                {"$set": {"business_free_listing_used": True}},
+            )
     # Sanitise recurrence inputs. We accept None / weekly / fortnightly /
     # monthly only — anything else is silently treated as a one-off.
     rec = body.recurrence if body.recurrence in ("weekly", "fortnightly", "monthly") else None

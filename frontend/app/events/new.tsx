@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator, Modal } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -40,7 +40,7 @@ const REPEAT_COUNT_PRESETS = [
 export default function NewEvent() {
   const router = useRouter();
   const { c, scale } = useTheme();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { show } = useToast();
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("☕");
@@ -53,6 +53,20 @@ export default function NewEvent() {
   const [repeatCount, setRepeatCount] = useState<number>(3); // +3 extras = 4 total
   const [busy, setBusy] = useState(false);
 
+  // ─── Business-event preflight state. When the user taps "Create event"
+  // we call /events/preflight first. If the heuristic flags it AND the
+  // host isn't already a business, we open a friendly modal explaining
+  // why we noticed and offering the "first listing free" path. The user
+  // can confirm they're a business (claim the perk) or insist it's a
+  // community event (we proceed as normal but flag for moderation).
+  const [businessModal, setBusinessModal] = useState<null | {
+    reasons: string[];
+    firstFree: boolean;
+    nextPaidMsg: string;
+  }>(null);
+  const [businessName, setBusinessName] = useState("");
+  const [claiming, setClaiming] = useState(false);
+
   if (!user) return <View style={{ flex: 1, backgroundColor: c.surface }}><Header title="New event" /></View>;
 
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
@@ -61,6 +75,36 @@ export default function NewEvent() {
 
   const submit = async () => {
     if (!canSubmit) return;
+    setBusy(true);
+    // ── Step 1 — preflight the heuristic. Only blocks if the host
+    // hasn't already self-identified as a business; once flagged, future
+    // events just attach the sponsor block silently in the backend.
+    try {
+      const hint: any = await api.eventPreflight({
+        title: title.trim(),
+        description: description.trim(),
+        location: location.trim(),
+        host_id: user.id,
+      });
+      if (hint?.looks_business && !hint.already_business) {
+        setBusy(false);
+        setBusinessModal({
+          reasons: hint.reasons || [],
+          firstFree: !hint.free_listing_used,
+          nextPaidMsg: hint?.messages?.next_paid || "",
+        });
+        return; // wait for the user's decision
+      }
+    } catch {
+      // Preflight is best-effort — don't block legitimate event creation
+      // if the endpoint hiccups. We just fall through to the create.
+    }
+    await actuallyCreate();
+  };
+
+  // Centralised so both the "post as community event anyway" CTA and the
+  // post-business-claim flow share the same body builder + success path.
+  const actuallyCreate = async () => {
     setBusy(true);
     try {
       const created: any = await api.createEvent({
@@ -86,6 +130,25 @@ export default function NewEvent() {
     } catch (e: any) {
       show(e?.message || "Could not create event");
     } finally { setBusy(false); }
+  };
+
+  const claimAndPost = async () => {
+    if (businessName.trim().length < 2) {
+      show("Please enter your business or venue name");
+      return;
+    }
+    if (!token) {
+      show("Please sign in again — your session has expired");
+      return;
+    }
+    setClaiming(true);
+    try {
+      await api.claimBusiness(token, businessName.trim());
+      setBusinessModal(null);
+      await actuallyCreate();
+    } catch (e: any) {
+      show(e?.message || "Could not save business name");
+    } finally { setClaiming(false); }
   };
 
   const inputStyle = { color: c.onSurface, backgroundColor: c.surfaceSecondary, borderColor: c.border, fontSize: 16 * scale };
@@ -220,9 +283,116 @@ export default function NewEvent() {
           <Button label="Cancel" variant="ghost" onPress={() => router.back()} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ─── "This looks like a business event" friendly gate ──────────────
+          Shown only when the preflight heuristic trips AND the host
+          isn't already a flagged business. Two paths:
+            • Yes, I'm a business → enter venue name → claim free listing
+              and post with "Sponsored by …" footer
+            • No, it's a community event → post as normal (flag logged
+              server-side via the heuristic score for future moderation)
+       */}
+      <Modal
+        visible={!!businessModal}
+        animationType="fade"
+        transparent
+        onRequestClose={() => !claiming && setBusinessModal(null)}
+      >
+        <Pressable style={modalStyles.backdrop} onPress={() => !claiming && setBusinessModal(null)}>
+          <Pressable
+            onPress={(e: any) => e.stopPropagation && e.stopPropagation()}
+            style={[modalStyles.sheet, { backgroundColor: c.surface }]}
+          >
+            <Text style={{ fontSize: 44 }}>🏪</Text>
+            <Text style={[modalStyles.title, { color: c.onSurface, fontSize: 22 * scale }]}>
+              This looks like a business event
+            </Text>
+            <Text style={[modalStyles.body, { color: c.onSurface, fontSize: 15 * scale }]}>
+              YouBelong is built for our community — so when we spot business listings, we gently let you know.
+              {"\n\n"}
+              <Text style={{ fontWeight: "800" }}>
+                {businessModal?.firstFree
+                  ? "Good news — your first listing is on us, free."
+                  : "You've already used your free listing."}
+              </Text>
+              {" "}
+              {businessModal?.nextPaidMsg || "We'll be in touch about pricing closer to launch."}
+            </Text>
+            {businessModal && businessModal.reasons.length > 0 && (
+              <View style={[modalStyles.reasons, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "800", marginBottom: 4, letterSpacing: 0.4 }}>WHY WE NOTICED</Text>
+                {businessModal.reasons.map((r, i) => (
+                  <View key={i} style={{ flexDirection: "row", gap: 6, marginTop: 2 }}>
+                    <Text style={{ color: c.brand, fontWeight: "900" }}>•</Text>
+                    <Text style={{ flex: 1, color: c.onSurface, fontSize: 13 * scale }}>{r}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+            <Text style={[modalStyles.label, { color: c.onSurface, fontSize: 14 * scale }]}>
+              Business or venue name
+            </Text>
+            <TextInput
+              testID="business-name-input"
+              value={businessName}
+              onChangeText={setBusinessName}
+              placeholder="e.g. Bondi RSL Club"
+              placeholderTextColor={c.muted}
+              editable={!claiming}
+              maxLength={80}
+              style={[
+                modalStyles.input,
+                {
+                  color: c.onSurface,
+                  borderColor: c.border,
+                  backgroundColor: c.surfaceSecondary,
+                  fontSize: 16 * scale,
+                },
+              ]}
+            />
+            <Pressable
+              testID="business-confirm-btn"
+              disabled={claiming || businessName.trim().length < 2}
+              onPress={claimAndPost}
+              style={[
+                modalStyles.primaryBtn,
+                {
+                  backgroundColor: businessName.trim().length >= 2 && !claiming ? c.brand : c.surfaceTertiary,
+                },
+              ]}
+            >
+              <Text style={{ color: businessName.trim().length >= 2 && !claiming ? c.onBrandPrimary : c.muted, fontWeight: "900", fontSize: 16 * scale }}>
+                {claiming ? "Posting…" : (businessModal?.firstFree ? "Yes, post free listing 🎁" : "Yes, post as business")}
+              </Text>
+            </Pressable>
+            <Pressable
+              testID="business-not-business-btn"
+              disabled={claiming}
+              onPress={async () => { setBusinessModal(null); await actuallyCreate(); }}
+              style={[modalStyles.secondaryBtn, { backgroundColor: c.surfaceSecondary }]}
+            >
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
+                No, it&apos;s a community event
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
+
+const modalStyles = StyleSheet.create({
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center", padding: 20 },
+  sheet: { width: "100%", maxWidth: 500, borderRadius: 24, padding: 24, gap: 10, alignItems: "stretch" },
+  title: { fontWeight: "900", textAlign: "center", marginTop: 4 },
+  body: { lineHeight: 22, textAlign: "left" },
+  reasons: { padding: 10, borderRadius: 12, borderWidth: 1, marginTop: 6 },
+  label: { fontWeight: "800", marginTop: 6 },
+  input: { borderWidth: 1.5, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontWeight: "700" },
+  primaryBtn: { alignItems: "center", paddingVertical: 14, borderRadius: 999, minHeight: 50, marginTop: 6 },
+  secondaryBtn: { alignItems: "center", paddingVertical: 12, borderRadius: 999, minHeight: 44, marginTop: 4 },
+});
 
 const styles = StyleSheet.create({
   content: { padding: 16, gap: 6, paddingBottom: 60 },

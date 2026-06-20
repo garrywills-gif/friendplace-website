@@ -279,6 +279,18 @@ export const api = {
   unrsvpEvent: (id: string, uid: string) => req(`/events/${id}/unrsvp/${uid}`, { method: "POST" }),
   createEvent: (body: { title: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; host_id?: string; recurrence?: "weekly" | "fortnightly" | "monthly" | null; recurrence_count?: number | null }) =>
     req(`/events`, { method: "POST", body: JSON.stringify(body) }),
+  // Business-event heuristic preflight — called before createEvent so we
+  // can surface the friendly "this looks like a business event" modal.
+  eventPreflight: (body: { title: string; description?: string; location?: string; host_id?: string }) =>
+    req(`/events/preflight`, { method: "POST", body: JSON.stringify(body) }),
+  // User self-identifies as a business / venue. Stores business_name and
+  // unlocks the "Sponsored by …" footer + free-listing perk path.
+  claimBusiness: (token: string, business_name: string) =>
+    req(`/users/me/business`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ business_name }),
+    }),
   updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
     req(`/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   cancelEvent: (id: string, body: { actor_id: string; reason?: string }) =>
