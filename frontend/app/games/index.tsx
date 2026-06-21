@@ -17,6 +17,7 @@ const GAMES: GameTile[] = [
   { key: "bingo",      title: "Bingo",              sub: "75-ball · 4 levels · live events",   icon: "apps",           tint: "#2E9EE2", route: "/games/bingo",      ready: true },
   { key: "sudoku",     title: "Sudoku",             sub: "4 levels · pencil notes", icon: "grid-outline",   tint: "#1E3A7F", route: "/games/sudoku",     ready: true },
   { key: "spot",       title: "Spot the Difference",sub: "6 themes · magnifying glass",icon: "eye",         tint: "#16A34A", route: "/games/spot",       ready: true },
+  { key: "crossword",  title: "Crossword",          sub: "4 levels · new puzzles every 2 weeks",  icon: "newspaper",      tint: "#0E7490", route: "/games/crossword",  ready: true },
 ];
 
 const INSTRUCTIONS = "Welcome to the Games Hub. Pick a game, choose your difficulty and play at your own pace. Your progress and personal bests are saved automatically. Complete a daily challenge to keep your streak alive. Every game you finish earns Community Points and may unlock an achievement.";

@@ -26,6 +26,12 @@ from sentry_sdk.integrations.asyncio import AsyncioIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 
 from config import settings
+from crossword_puzzles import (
+    levels_summary as _xword_levels,
+    active_puzzles as _xword_active,
+    get_puzzle as _xword_get,
+    serialise as _xword_serialise,
+)
 
 from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_themes as ws_list_themes, generate_puzzle as ws_generate, daily_pick as ws_daily_pick, today_iso as ws_today_iso
 from memory_match import THEMES as MM_THEMES, DIFFICULTIES as MM_DIFFS, list_themes as mm_list_themes, generate_puzzle as mm_generate, daily_pick as mm_daily_pick, today_iso as mm_today_iso
@@ -6740,6 +6746,108 @@ class ConnectionHub:
 
 
 hub = ConnectionHub()
+
+
+@api.get("/games/crossword/levels")
+async def crossword_levels():
+    """Headline data for the Crossword Hub.
+
+    Returns one row per difficulty level, with the count of puzzles
+    currently in rotation (3 per level) and the total in the library.
+    Players see "New puzzles every 2 weeks" so they know the active set
+    rotates on a fortnightly cadence.
+    """
+    return {"levels": _xword_levels(), "rotation_days": 14}
+
+
+@api.get("/games/crossword/active/{level}")
+async def crossword_active(level: str):
+    """Return the 3 puzzles currently active for `level`. Answers stripped
+    — the client never gets the solution. To check progress, the client
+    calls POST /games/crossword/{id}/check with their guesses."""
+    pool = _xword_active(level.lower())
+    return {"level": level.lower(), "puzzles": [_xword_serialise(p) for p in pool]}
+
+
+@api.get("/games/crossword/{puzzle_id}")
+async def crossword_get(puzzle_id: str):
+    """Fetch a single puzzle by id (e.g. the player resumed from a saved
+    game). Answers stripped."""
+    p = _xword_get(puzzle_id)
+    if not p:
+        raise HTTPException(404, "Crossword not found")
+    return _xword_serialise(p)
+
+
+class CrosswordCheckBody(BaseModel):
+    # 2-D array of single-character guesses; "" or null for blank cells.
+    # Length must match the puzzle's `size` × `size` grid.
+    guesses: list[list[Optional[str]]]
+    user_id: Optional[str] = None
+
+
+@api.post("/games/crossword/{puzzle_id}/check")
+async def crossword_check(puzzle_id: str, body: CrosswordCheckBody):
+    """Server-side answer check.
+
+    Returns a 2-D array of cell statuses ("correct" | "wrong" | "empty" |
+    "blocked") plus a `solved` flag when every filled cell matches. We
+    keep the answer key on the server so the client can't shortcut.
+    If `user_id` is provided AND the puzzle is fully solved, the player
+    earns 5 Community Points (one-off per puzzle id).
+    """
+    p = _xword_get(puzzle_id)
+    if not p:
+        raise HTTPException(404, "Crossword not found")
+    size = p["size"]
+    grid = p["grid"]
+    g = body.guesses
+    if len(g) != size or any(len(r) != size for r in g):
+        raise HTTPException(422, f"Grid must be {size}×{size}")
+    status: list[list[str]] = []
+    solved = True
+    for r in range(size):
+        row_status: list[str] = []
+        for col in range(size):
+            target = grid[r][col]
+            guess = (g[r][col] or "").strip().upper()
+            if target is None:
+                row_status.append("blocked")
+            elif guess == "":
+                row_status.append("empty")
+                solved = False
+            elif guess == target:
+                row_status.append("correct")
+            else:
+                row_status.append("wrong")
+                solved = False
+        status.append(row_status)
+    # Award points only once per puzzle per user.
+    awarded = False
+    if solved and body.user_id:
+        key = f"xword:{body.user_id}:{puzzle_id}"
+        marker = await db.game_completions.find_one({"key": key}, {"_id": 0})
+        if not marker:
+            await db.game_completions.insert_one({"key": key, "at": now_iso()})
+            await award_points(body.user_id, 5)
+            awarded = True
+    return {"status": status, "solved": solved, "points_awarded": awarded}
+
+
+@api.get("/games/crossword/{puzzle_id}/reveal/{row}/{col}")
+async def crossword_reveal(puzzle_id: str, row: int, col: int):
+    """Reveal a single letter (a free "I'm stuck" assist). The frontend
+    fills the cell + locks it so the player can't accidentally clear it."""
+    p = _xword_get(puzzle_id)
+    if not p:
+        raise HTTPException(404, "Crossword not found")
+    try:
+        letter = p["grid"][row][col]
+    except (IndexError, KeyError):
+        raise HTTPException(400, "Cell out of bounds")
+    if letter is None:
+        raise HTTPException(400, "That cell is blocked")
+    return {"row": row, "col": col, "letter": letter}
 
 
 @app.websocket("/api/ws/table/{table_id}")
