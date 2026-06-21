@@ -1,19 +1,20 @@
-"""Hand-crafted crossword puzzle library + 14-day rotation logic.
+"""Crossword puzzle library — auto-built dense interlocking grids.
 
-The library uses a **slot-based authoring** approach. Each puzzle declares
-a list of word slots: (direction, row, col, answer, clue). The
-`_build_puzzle` helper:
+The library uses an **auto-generator** that takes a themed list of
+(word, clue) pairs and packs them into a real crossword:
 
-    1. Lays each word into the grid (cells outside any slot stay blocked).
-    2. Validates every intersection — if two slots disagree on a shared
-       letter, the module fails to import.
-    3. Auto-numbers cells that start an across or down word.
+  * Words intersect — every placed word shares at least one letter with a
+    previously-placed word.
+  * Cells before/after each word are blocked, so words can't bleed into
+    each other.
+  * Empty cells adjacent (perpendicular) to a placed word are blocked,
+    so we never create accidental "shadow" words.
 
-Why this matters: previous iterations had hand-typed grids with broken
-intersections and placeholder ("sample only") clues. The builder makes
-those errors impossible — the module simply won't load.
+The result is a normal-looking crossword with ~8–14 clues across AND
+down, just like a newspaper puzzle. The previous "3 acrosses, 1 down"
+sparse approach has been retired.
 
-Rotation
+Rotation:
   Players see THREE puzzles per level at any given time. Every 14 days
   the active set rotates. With 8 puzzles per level the same trio comes
   back every ~16 weeks (well past the user's "fresh every 2 weeks" ask).
@@ -27,92 +28,263 @@ from typing import Optional
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Builder + validator
+# Auto crossword generator
 # ────────────────────────────────────────────────────────────────────────────
-Direction = str  # "A" (across) or "D" (down)
-Slot = tuple[Direction, int, int, str, str]
+WordClue = tuple[str, str]   # (answer, clue)
 
 
-def _build_puzzle(
+def _can_place(grid, word, sr, sc, d, G) -> bool:
+    """True if `word` can sit at (sr,sc) going direction `d` without:
+      • running off the grid,
+      • conflicting with an existing letter,
+      • being directly extended (cell before or after is filled),
+      • brushing perpendicular letters at any of its empty cells (which
+        would silently create a 2-letter "shadow" word).
+    """
+    L = len(word)
+    if d == "A":
+        if sc < 0 or sc + L > G:
+            return False
+        if sc > 0 and grid[sr][sc - 1] is not None:
+            return False
+        if sc + L < G and grid[sr][sc + L] is not None:
+            return False
+        for i, ch in enumerate(word):
+            r, c = sr, sc + i
+            cur = grid[r][c]
+            if cur is not None and cur != ch:
+                return False
+            if cur is None:
+                if r > 0 and grid[r - 1][c] is not None:
+                    return False
+                if r + 1 < G and grid[r + 1][c] is not None:
+                    return False
+    else:  # D
+        if sr < 0 or sr + L > G:
+            return False
+        if sr > 0 and grid[sr - 1][sc] is not None:
+            return False
+        if sr + L < G and grid[sr + L][sc] is not None:
+            return False
+        for i, ch in enumerate(word):
+            r, c = sr + i, sc
+            cur = grid[r][c]
+            if cur is not None and cur != ch:
+                return False
+            if cur is None:
+                if c > 0 and grid[r][c - 1] is not None:
+                    return False
+                if c + 1 < G and grid[r][c + 1] is not None:
+                    return False
+    return True
+
+
+def _score_placement(grid, word, sr, sc, d) -> int:
+    """Count letters that intersect existing letters — more = better."""
+    n = 0
+    for i, ch in enumerate(word):
+        r, c = (sr, sc + i) if d == "A" else (sr + i, sc)
+        if grid[r][c] == ch:
+            n += 1
+    return n
+
+
+def auto_build_crossword(
+    puzzle_id: str,
+    level: str,
+    theme: str,
+    words: list[WordClue],
+    grid_buffer: int = 31,
+    max_size: int = 15,
+) -> dict:
+    """Pack `words` into a dense interlocking crossword.
+
+    The greedy placement is sensitive to which word seeds the grid. To
+    maximise clue density we try the **top 5 longest words** as candidate
+    seeds and keep the result with the most placements (ties broken by
+    smaller grid size — denser is better).
+
+    Words that simply can't fit are dropped. The minimum acceptable puzzle
+    has ≥ 4 placed words; otherwise we raise to surface the bad input.
+    """
+    if not words:
+        raise ValueError(f"{puzzle_id}: no words provided")
+    words = sorted([(w.upper(), c) for w, c in words], key=lambda wc: -len(wc[0]))
+
+    best_result: dict | None = None
+    best_unconstrained: dict | None = None  # fallback if size cap can't be met
+    # Try the top-N longest words as seeds — denser crosswords usually
+    # start from the longest available word, but ties are common so try
+    # the longest few and pick the best result.
+    n_seeds = min(5, len(words))
+    for seed_idx in range(n_seeds):
+        # First try respecting max_size.
+        result = _try_build(puzzle_id, level, theme, words, seed_idx, grid_buffer, max_size)
+        if result is not None:
+            if best_result is None:
+                best_result = result
+            else:
+                placed_a = len(best_result["clues"]["across"]) + len(best_result["clues"]["down"])
+                placed_b = len(result["clues"]["across"]) + len(result["clues"]["down"])
+                if placed_b > placed_a:
+                    best_result = result
+                elif placed_b == placed_a and result["size"] < best_result["size"]:
+                    best_result = result
+        # Always try an unconstrained build too — used as a fallback if
+        # the size cap can't be satisfied for any seed.
+        unc = _try_build(puzzle_id, level, theme, words, seed_idx, grid_buffer, grid_buffer)
+        if unc is not None:
+            if best_unconstrained is None or unc["size"] < best_unconstrained["size"]:
+                best_unconstrained = unc
+
+    # Fall back to the smallest unconstrained result if no size-capped
+    # result succeeded.
+    final = best_result or best_unconstrained
+    if final is None or (
+        len(final["clues"]["across"]) + len(final["clues"]["down"])
+    ) < 4:
+        raise ValueError(
+            f"{puzzle_id}: only "
+            f"{0 if final is None else len(final['clues']['across']) + len(final['clues']['down'])}"
+            f" words placed (need ≥4). Try adding more theme words with shared letters."
+        )
+    return final
+
+
+def _try_build(
+    puzzle_id: str,
+    level: str,
+    theme: str,
+    words: list[WordClue],
+    seed_idx: int,
+    grid_buffer: int,
+    max_size: int,
+) -> dict | None:
+    """Run one placement attempt starting from `words[seed_idx]`."""
+    G = grid_buffer
+    grid: list[list[Optional[str]]] = [[None] * G for _ in range(G)]
+    placements: list[tuple[str, int, int, str, str]] = []
+
+    seed_word, seed_clue = words[seed_idx]
+    if len(seed_word) > max_size:
+        return None  # seed too long for the cap
+    r0 = G // 2
+    sc0 = (G - len(seed_word)) // 2
+    for i, ch in enumerate(seed_word):
+        grid[r0][sc0 + i] = ch
+    placements.append(("A", r0, sc0, seed_word, seed_clue))
+
+    remaining: list[WordClue] = [w for i, w in enumerate(words) if i != seed_idx]
+    for _attempt in range(6):
+        if not remaining:
+            break
+        next_remaining: list[WordClue] = []
+        progress = False
+        for word, clue in remaining:
+            best = None  # (score, dir, sr, sc)
+            for wi, wch in enumerate(word):
+                for r in range(G):
+                    for c in range(G):
+                        if grid[r][c] != wch:
+                            continue
+                        # Vertical
+                        sr = r - wi
+                        if _can_place(grid, word, sr, c, "D", G):
+                            s = _score_placement(grid, word, sr, c, "D")
+                            if s > 0 and (best is None or s > best[0]):
+                                best = (s, "D", sr, c)
+                        # Horizontal
+                        sc = c - wi
+                        if _can_place(grid, word, r, sc, "A", G):
+                            s = _score_placement(grid, word, r, sc, "A")
+                            if s > 0 and (best is None or s > best[0]):
+                                best = (s, "A", r, sc)
+            if best:
+                _, d, sr, sc = best
+                for i, ch in enumerate(word):
+                    if d == "A":
+                        grid[sr][sc + i] = ch
+                    else:
+                        grid[sr + i][sc] = ch
+                placements.append((d, sr, sc, word, clue))
+                progress = True
+            else:
+                next_remaining.append((word, clue))
+        remaining = next_remaining
+        if not progress:
+            break
+    dropped = [w for w, _ in remaining]
+
+    # Trim to bounding box.
+    rows = [r for r in range(G) if any(grid[r][c] is not None for c in range(G))]
+    cols = [c for c in range(G) if any(grid[r][c] is not None for r in range(G))]
+    if not rows or not cols:
+        return None
+    rmin, rmax = min(rows), max(rows)
+    cmin, cmax = min(cols), max(cols)
+    h = rmax - rmin + 1
+    w = cmax - cmin + 1
+    size = max(h, w)
+    if size > max_size:
+        # This seed produced too large a grid — caller will skip / try another seed.
+        return None
+    new_grid: list[list[Optional[str]]] = [[None] * size for _ in range(size)]
+    rpad = (size - h) // 2
+    cpad = (size - w) // 2
+    for r in range(rmin, rmax + 1):
+        for c in range(cmin, cmax + 1):
+            new_grid[r - rmin + rpad][c - cmin + cpad] = grid[r][c]
+    adj: list[tuple[str, int, int, str, str]] = [
+        (d, sr - rmin + rpad, sc - cmin + cpad, w, cl) for d, sr, sc, w, cl in placements
+    ]
+    return _finalise(puzzle_id, level, theme, size, new_grid, adj, dropped=dropped)
+
+
+def _finalise(
     puzzle_id: str,
     level: str,
     theme: str,
     size: int,
-    slots: list[Slot],
+    grid: list[list[Optional[str]]],
+    placements: list[tuple[str, int, int, str, str]],
+    *,
+    dropped: list[str] | None = None,
 ) -> dict:
-    """Construct, validate and number a crossword puzzle.
-
-    Raises ValueError if any intersection conflicts or any slot is in an
-    invalid place. This means a bad puzzle CANNOT ship — the module fails
-    to import in dev, surfacing the problem immediately.
-    """
-    grid: list[list[Optional[str]]] = [[None] * size for _ in range(size)]
-
-    # 1) Place letters and validate intersections.
-    for d, r, c, answer, _clue in slots:
-        ans = answer.upper()
-        for i, ch in enumerate(ans):
-            rr = r + i if d == "D" else r
-            cc = c + i if d == "A" else c
-            if not (0 <= rr < size and 0 <= cc < size):
-                raise ValueError(
-                    f"{puzzle_id}: slot {d}@({r},{c}) '{ans}' goes off the grid at ({rr},{cc})"
-                )
-            existing = grid[rr][cc]
-            if existing is not None and existing != ch:
-                raise ValueError(
-                    f"{puzzle_id}: intersection conflict at ({rr},{cc}) — "
-                    f"'{existing}' vs '{ch}' from slot {d}@({r},{c}) '{ans}'"
-                )
-            grid[rr][cc] = ch
-
-    # 2) Auto-number every cell that *starts* an across or down word.
+    # Auto-number cells that start an across or down word.
     numbers: dict[tuple[int, int], int] = {}
     counter = 0
     for r in range(size):
         for c in range(size):
             if grid[r][c] is None:
                 continue
-            starts_across = (
-                (c == 0 or grid[r][c - 1] is None)
-                and (c + 1 < size and grid[r][c + 1] is not None)
-            )
-            starts_down = (
-                (r == 0 or grid[r - 1][c] is None)
-                and (r + 1 < size and grid[r + 1][c] is not None)
-            )
-            if starts_across or starts_down:
+            sa = (c == 0 or grid[r][c - 1] is None) and (c + 1 < size and grid[r][c + 1] is not None)
+            sd = (r == 0 or grid[r - 1][c] is None) and (r + 1 < size and grid[r + 1][c] is not None)
+            if sa or sd:
                 counter += 1
                 numbers[(r, c)] = counter
 
-    # 3) Build numbered clue lists.
-    across_clues: list[dict] = []
-    down_clues: list[dict] = []
-    for d, r, c, answer, clue in slots:
-        if (r, c) not in numbers:
+    across: list[dict] = []
+    down: list[dict] = []
+    for d, sr, sc, w, cl in placements:
+        if (sr, sc) not in numbers:
             raise ValueError(
-                f"{puzzle_id}: slot {d}@({r},{c}) '{answer}' is not at a word start. "
-                "Either the cell has a filled neighbour above/left, or the slot has "
-                "no continuing cell to the right/below."
+                f"{puzzle_id}: word '{w}' at ({sr},{sc}) is not at a word start"
             )
         entry = {
-            "num": numbers[(r, c)],
-            "row": r,
-            "col": c,
-            "len": len(answer),
-            "clue": clue,
-            "answer": answer.upper(),
+            "num": numbers[(sr, sc)],
+            "row": sr,
+            "col": sc,
+            "len": len(w),
+            "clue": cl,
+            "answer": w.upper(),
             "dir": d,
         }
         if d == "A":
-            across_clues.append(entry)
-        elif d == "D":
-            down_clues.append(entry)
+            across.append(entry)
         else:
-            raise ValueError(f"{puzzle_id}: unknown direction '{d}'")
-
-    across_clues.sort(key=lambda x: x["num"])
-    down_clues.sort(key=lambda x: x["num"])
+            down.append(entry)
+    across.sort(key=lambda x: x["num"])
+    down.sort(key=lambda x: x["num"])
 
     return {
         "id": puzzle_id,
@@ -120,270 +292,386 @@ def _build_puzzle(
         "theme": theme,
         "size": size,
         "grid": grid,
-        "clues": {"across": across_clues, "down": down_clues},
+        "clues": {"across": across, "down": down},
+        "dropped_words": dropped or [],
     }
 
 
-def _b(id_: str, level: str, theme: str, size: int, slots: list[Slot]) -> dict:
-    return _build_puzzle(id_, level, theme, size, slots)
+def _ab(id_: str, level: str, theme: str, words: list[WordClue]) -> dict:
+    """Authoring shortcut — runs the auto-builder with level-appropriate caps."""
+    cap = {"easy": 11, "medium": 13, "hard": 15, "expert": 19}.get(level, 15)
+    return auto_build_crossword(id_, level, theme, words, max_size=cap)
 
 
 # ════════════════════════════════════════════════════════════════════════
-# EASY (5×5) — 8 sparse mini-crosswords
-# Each: 2-3 across + 1 down (where words allow)
+# Word lists — themed, with interlocking shared letters where possible.
+# Each list yields a dense puzzle when run through the auto-builder.
 # ════════════════════════════════════════════════════════════════════════
-EASY_PUZZLES = [
-    _b("easy-001", "easy", "Garden", 5, [
-        ("A", 0, 0, "ROSES", "Romantic flowers, plural"),
-        ("A", 2, 0, "TREES", "Tall plants giving shade"),
-        ("D", 0, 2, "SEE",   "Catch sight of"),
+
+# EASY — short, friendly themed words (4-7 letters)
+EASY_LISTS: list[tuple[str, str, list[WordClue]]] = [
+    ("easy-001", "Garden", [
+        ("ROSES",   "Romantic flowers, plural"),
+        ("TULIPS",  "Spring bulbs in bright colours"),
+        ("LEAVES",  "Found on trees"),
+        ("SEEDS",   "What you plant"),
+        ("WATER",   "Plants need it daily"),
+        ("PLANT",   "Put a seed in the soil"),
+        ("HOSE",    "Garden watering tool"),
+        ("WEED",    "Unwanted garden visitor"),
     ]),
-    _b("easy-002", "easy", "Cooking", 5, [
-        ("A", 0, 0, "BREAD", "Loaf you bake"),
-        ("A", 2, 0, "SUGAR", "Sweet white granules"),
-        ("D", 0, 0, "BUS",   "Public transport on wheels"),
+    ("easy-002", "Cooking", [
+        ("BREAD",   "A loaf you bake"),
+        ("BUTTER",  "Spread on toast"),
+        ("CHEESE",  "Comes in cheddar or brie"),
+        ("ROAST",   "Sunday lunch tradition"),
+        ("RECIPE",  "Step-by-step cooking guide"),
+        ("SUGAR",   "Sweet white granules"),
+        ("OVEN",    "Where you bake"),
+        ("SPOON",   "Stirring tool"),
     ]),
-    _b("easy-003", "easy", "Weather", 5, [
-        ("A", 0, 0, "SUNNY", "Bright, clear day"),
-        ("A", 2, 0, "RAINS", "Showers from the sky"),
-        ("D", 0, 0, "SIR",   "Polite address to a man"),
+    ("easy-003", "Weather", [
+        ("SUNNY",   "Bright, clear day"),
+        ("CLOUDY",  "Overcast sky"),
+        ("STORMY",  "Wild and windy"),
+        ("RAINBOW", "Arc of colour after rain"),
+        ("THUNDER", "Rumbling boom"),
+        ("WINDY",   "Breezy day"),
+        ("FROST",   "Icy morning coating"),
+        ("MIST",    "Light fog"),
     ]),
-    _b("easy-004", "easy", "Pets", 5, [
-        ("A", 0, 0, "PUPPY", "A young dog"),
-        ("A", 2, 0, "KITTY", "A young cat, fondly"),
-        ("D", 0, 2, "PAT",   "Gentle stroke"),
+    ("easy-004", "Pets", [
+        ("PUPPY",   "Young dog"),
+        ("KITTEN",  "Young cat"),
+        ("RABBIT",  "Long-eared hopper"),
+        ("HAMSTER", "Wheel-running rodent pet"),
+        ("BUDGIE",  "Chatty cage bird"),
+        ("PARROT",  "Talking bird"),
+        ("FISH",    "Lives in a tank"),
+        ("MOUSE",   "Tiny squeaky pet"),
     ]),
-    _b("easy-005", "easy", "Beach", 5, [
-        ("A", 0, 0, "WAVES", "Ocean rollers"),
-        ("A", 2, 0, "SANDS", "Beach grains, plural"),
-        ("D", 0, 0, "WAS",   "Past tense of 'is'"),
+    ("easy-005", "Beach", [
+        ("WAVES",   "Ocean rollers"),
+        ("SANDY",   "Beachy underfoot"),
+        ("SHELLS",  "Beach treasures"),
+        ("SURFER",  "Wave-rider"),
+        ("SUNSET",  "Evening glow over the sea"),
+        ("TIDE",    "Sea's daily rise and fall"),
+        ("REEF",    "Underwater coral ridge"),
+        ("BOAT",    "Floats on water"),
     ]),
-    _b("easy-006", "easy", "Music", 5, [
-        ("A", 0, 0, "NOTES", "Symbols on a music stave"),
-        ("A", 2, 0, "TUNES", "Catchy melodies"),
-        ("D", 0, 0, "NUT",   "Walnut or peanut"),
+    ("easy-006", "Music", [
+        ("PIANO",   "88-key instrument"),
+        ("GUITAR",  "Strummed with 6 strings"),
+        ("MELODY",  "A catchy tune"),
+        ("CHORUS",  "Repeating part of a song"),
+        ("DRUMS",   "Beaten with sticks"),
+        ("BALLAD",  "A slow, story-song"),
+        ("NOTE",    "A single musical sound"),
+        ("BAND",    "Group of musicians"),
     ]),
-    _b("easy-007", "easy", "Books", 5, [
-        ("A", 0, 0, "BOOKS", "Library treasures"),
-        ("A", 2, 0, "PAGES", "Sheets in a novel"),
-        ("D", 0, 4, "SOS",   "Distress signal"),
+    ("easy-007", "Books", [
+        ("NOVEL",   "Long story"),
+        ("AUTHOR",  "Who writes the book"),
+        ("PAGES",   "Sheets you turn"),
+        ("LIBRARY", "Borrow books here"),
+        ("CHAPTER", "Section of a book"),
+        ("STORY",   "Tale being told"),
+        ("READ",    "What you do with a book"),
+        ("POEM",    "Rhyming writing"),
     ]),
-    _b("easy-008", "easy", "Family", 5, [
-        ("A", 0, 0, "MUMMY", "Mum, affectionately"),
-        ("A", 2, 0, "DADDY", "Dad, affectionately"),
-        ("D", 0, 0, "MUD",   "Wet earth after rain"),
+    ("easy-008", "Family", [
+        ("MOTHER",  "Mum, formally"),
+        ("FATHER",  "Dad, formally"),
+        ("SISTER",  "Female sibling"),
+        ("COUSIN",  "Aunty's child"),
+        ("AUNTIE",  "Mum or dad's sister"),
+        ("NANNA",   "Granny, fondly"),
+        ("UNCLE",   "Mum or dad's brother"),
+        ("BABY",    "Newest family member"),
     ]),
 ]
 
 
-# ════════════════════════════════════════════════════════════════════════
-# MEDIUM (7×7) — 8 puzzles, 4 across + 1 down each
-# ════════════════════════════════════════════════════════════════════════
-MEDIUM_PUZZLES = [
-    _b("medium-001", "medium", "Aussie Slang", 7, [
-        ("A", 0, 0, "BARBIE",  "BBQ, Aussie style"),
-        ("A", 2, 0, "ESKY",    "Cold-drinks carrier"),
-        ("A", 4, 0, "ARVO",    "Afternoon, slang"),
-        ("A", 6, 0, "BREKKIE", "Morning meal, slang"),
-        ("D", 0, 0, "BEE",     "Buzzy stinging insect"),
+# MEDIUM — themed, 5-9 letter words
+MEDIUM_LISTS: list[tuple[str, str, list[WordClue]]] = [
+    ("medium-001", "Aussie Slang", [
+        ("BARBIE",  "BBQ, Aussie style"),
+        ("BREKKIE", "Morning meal"),
+        ("ESKY",    "Cold drinks carrier"),
+        ("ARVO",    "Afternoon"),
+        ("COBBER",  "Mate, old slang"),
+        ("RIPPER",  "Top notch, beauty"),
+        ("DUNNY",   "Outdoor loo"),
+        ("CRIKEY",  "Steve Irwin's exclamation"),
+        ("SARNIE",  "Sandwich, British/Aussie slang"),
     ]),
-    _b("medium-002", "medium", "Aussie Birds", 7, [
-        ("A", 0, 0, "MAGPIE",  "Black-and-white warbler"),
-        ("A", 2, 0, "GALAH",   "Pink-and-grey parrot"),
-        ("A", 4, 0, "ROBIN",   "Red-breasted small bird"),
-        ("A", 6, 0, "EMU",     "Flightless Aussie giant"),
-        ("D", 0, 0, "MUG",     "Coffee cup"),
+    ("medium-002", "Aussie Birds", [
+        ("MAGPIE",     "Black-and-white swooper"),
+        ("KOOKABURRA", "Laughing kingfisher"),
+        ("COCKATOO",   "White sulphur-crested screecher"),
+        ("GALAH",      "Pink-and-grey parrot"),
+        ("LORIKEET",   "Rainbow-coloured parrot"),
+        ("ROSELLA",    "Crimson-headed parrot"),
+        ("EMU",        "Flightless Aussie giant"),
+        ("KIWI",       "NZ's national bird"),
     ]),
-    _b("medium-003", "medium", "Tea Time", 7, [
-        ("A", 0, 0, "TEAPOT",  "Brewing vessel"),
-        ("A", 2, 0, "CAKES",   "Birthday treats, plural"),
-        ("A", 4, 0, "BISCUIT", "Tea-time snack"),
-        ("A", 6, 0, "JAM",     "Spread on scones"),
-        ("D", 0, 0, "TIC",     "Nervous twitch"),
+    ("medium-003", "Tea Time", [
+        ("TEAPOT",    "Brewing vessel"),
+        ("SCONES",    "Cream-tea favourites"),
+        ("CRUMPETS",  "Spongy toasted treats"),
+        ("BISCUIT",   "Tea-time snack"),
+        ("MARMALADE", "Orange preserve"),
+        ("CUPPA",     "A nice cup of tea, slang"),
+        ("CAKES",     "Sweet baked treats"),
+        ("JAM",       "Spread on scones"),
     ]),
-    _b("medium-004", "medium", "Holidays", 7, [
-        ("A", 0, 0, "EASTER",  "Chocolate-egg holiday"),
-        ("A", 2, 0, "ANZAC",   "Aussie/Kiwi memorial day"),
-        ("A", 4, 0, "XMAS",    "Christmas, abbrev."),
-        ("A", 6, 0, "NEWYEAR", "Jan 1 holiday (two words run together)"),
-        ("D", 0, 0, "ERA",     "Long stretch of time"),
+    ("medium-004", "Holidays", [
+        ("EASTER",    "Chocolate-egg holiday"),
+        ("ANZAC",     "Aussie/Kiwi memorial day"),
+        ("CHRISTMAS", "December 25 holiday"),
+        ("BIRTHDAY",  "Yearly personal celebration"),
+        ("NEWYEAR",   "Jan 1 holiday, two words run together"),
+        ("HALLOWEEN", "31 October dress-up day"),
+        ("DIWALI",    "Hindu festival of lights"),
     ]),
-    _b("medium-005", "medium", "Travel", 7, [
-        ("A", 0, 0, "PACKING", "Filling the suitcase"),
-        ("A", 2, 0, "TICKET",  "Boarding pass partner"),
-        ("A", 4, 0, "HOTEL",   "Holiday accommodation"),
-        ("A", 6, 0, "FLIGHT",  "Plane journey"),
-        ("D", 0, 0, "PIT",     "Hollow in the ground"),
+    ("medium-005", "Travel", [
+        ("PACKING",  "Filling the suitcase"),
+        ("TICKET",   "Boarding pass partner"),
+        ("HOTEL",    "Holiday accommodation"),
+        ("FLIGHT",   "Plane journey"),
+        ("LUGGAGE",  "Suitcases and bags"),
+        ("PASSPORT", "Document for going abroad"),
+        ("HOLIDAY",  "Time away from work"),
+        ("SUITCASE", "Travel bag with wheels"),
     ]),
-    _b("medium-006", "medium", "Sports", 7, [
-        ("A", 0, 0, "CRICKET", "Aussie summer game"),
-        ("A", 2, 0, "TENNIS",  "Racket sport with a net"),
-        ("A", 4, 0, "GOLF",    "Played on greens with clubs"),
-        ("A", 6, 0, "RUGBY",   "Footy code with oval ball"),
-        ("D", 0, 0, "CAT",     "Pet that purrs"),
+    ("medium-006", "Sports", [
+        ("CRICKET",  "Summer game with bats and stumps"),
+        ("TENNIS",   "Net sport with rackets"),
+        ("GOLF",     "Played at clubs with greens"),
+        ("RUGBY",    "Footy code with oval ball"),
+        ("NETBALL",  "Hoops with no backboard"),
+        ("BOWLS",    "Older-adult green sport"),
+        ("SAILING",  "Wind-powered ocean sport"),
+        ("SWIMMING", "Pool laps for fitness"),
     ]),
-    _b("medium-007", "medium", "Around the House", 7, [
-        ("A", 0, 0, "KITCHEN", "Where the cooking happens"),
-        ("A", 2, 0, "LOUNGE",  "Sitting-room"),
-        ("A", 4, 0, "GARDEN",  "Outdoor green space"),
-        ("A", 6, 0, "PATIO",   "Outdoor paved area"),
+    ("medium-007", "Around the House", [
+        ("KITCHEN",  "Cooking room"),
+        ("LOUNGE",   "Sitting room"),
+        ("GARDEN",   "Outdoor green space"),
+        ("PATIO",    "Outdoor paved area"),
+        ("BEDROOM",  "Where you sleep"),
+        ("BATHROOM", "Where you bathe"),
+        ("GARAGE",   "Where the car lives"),
+        ("LAUNDRY",  "Washing-machine room"),
     ]),
-    _b("medium-008", "medium", "Friends & Family", 7, [
-        ("A", 0, 0, "FRIENDS", "Mates"),
-        ("A", 2, 0, "FAMILY",  "Loved ones"),
-        ("A", 4, 0, "COUSINS", "Aunty's children"),
-        ("A", 6, 0, "NANS",    "Grandmothers, plural"),
-    ]),
-]
-
-
-# ════════════════════════════════════════════════════════════════════════
-# HARD (9×9) — 8 puzzles, 5 across rows + 1 down
-# ════════════════════════════════════════════════════════════════════════
-HARD_PUZZLES = [
-    _b("hard-001", "hard", "Travel & Adventure", 9, [
-        ("A", 0, 0, "PASSPORT",  "Travel document"),
-        ("A", 2, 0, "CONTINENT", "Major land mass"),
-        ("A", 4, 0, "JOURNEY",   "A trip from A to B"),
-        ("A", 6, 0, "LANDMARK",  "Famous local feature"),
-        ("A", 8, 0, "SOUVENIR",  "Holiday keepsake"),
-        ("D", 0, 0, "PIC",       "Photograph, slang"),
-    ]),
-    _b("hard-002", "hard", "Australian Cities", 9, [
-        ("A", 0, 0, "BRISBANE", "QLD capital"),
-        ("A", 2, 0, "ADELAIDE", "SA capital"),
-        ("A", 4, 0, "HOBART",   "TAS capital"),
-        ("A", 6, 0, "CAIRNS",   "Tropical FNQ city"),
-        ("A", 8, 0, "GEELONG",  "Victorian seaside city"),
-        ("D", 0, 0, "BOA",      "Big constrictor snake"),
-    ]),
-    _b("hard-003", "hard", "Music & Theatre", 9, [
-        ("A", 0, 0, "ORCHESTRA", "Symphony ensemble"),
-        ("A", 2, 0, "MUSICIAN",  "Player of instruments"),
-        ("A", 4, 0, "OPERA",     "Sung dramatic work"),
-        ("A", 6, 0, "CONCERT",   "Live music event"),
-        ("A", 8, 0, "STAGE",     "Where the show unfolds"),
-        ("D", 0, 4, "ETC",       "And so on, abbrev."),
-    ]),
-    _b("hard-004", "hard", "Cooking Up A Storm", 9, [
-        ("A", 0, 0, "PAVLOVA",   "Iconic Aussie dessert"),
-        ("A", 2, 0, "LAMINGTON", "Sponge dipped in chocolate"),
-        ("A", 4, 0, "ROAST",     "Sunday lunch tradition"),
-        ("A", 6, 0, "DAMPER",    "Campfire bush bread"),
-        ("A", 8, 0, "VEGEMITE",  "Salty spread on toast"),
-        ("D", 0, 0, "PAL",       "Buddy, mate"),
-    ]),
-    _b("hard-005", "hard", "Around the World", 9, [
-        ("A", 0, 0, "ITALY",   "Land of pasta"),
-        ("A", 2, 0, "JAPAN",   "Sushi homeland"),
-        ("A", 4, 0, "ENGLAND", "London's country"),
-        ("A", 6, 0, "FRANCE",  "Eiffel-tower nation"),
-        ("A", 8, 0, "GERMANY", "Land of Oktoberfest"),
-        ("D", 0, 4, "YEN",     "Japanese currency"),
-    ]),
-    _b("hard-006", "hard", "Nature", 9, [
-        ("A", 0, 0, "FORESTS",  "Wooded regions, plural"),
-        ("A", 2, 0, "MOUNTAIN", "Tall peak"),
-        ("A", 4, 0, "RIVER",    "Flowing waterway"),
-        ("A", 6, 0, "ESTUARY",  "Where river meets sea"),
-        ("A", 8, 0, "REEF",     "Underwater coral ridge"),
-        ("D", 0, 4, "SET",      "Group of items"),
-    ]),
-    _b("hard-007", "hard", "Sports Across Australia", 9, [
-        ("A", 0, 0, "NETBALL",  "Hoops, no backboard"),
-        ("A", 2, 0, "SAILING",  "Ocean racing sport"),
-        ("A", 4, 0, "BOWLS",    "Older-adult favourite green sport"),
-        ("A", 6, 0, "SURFING",  "Catching ocean waves"),
-        ("A", 8, 0, "FOOTBALL", "Soccer, simply"),
-        ("D", 0, 6, "LEG",      "Body part you walk on"),
-    ]),
-    _b("hard-008", "hard", "Classic Movies", 9, [
-        ("A", 0, 0, "GODFATHER", "1972 mafia classic, with 'The'"),
-        ("A", 2, 0, "GREASE",    "1978 musical with Travolta"),
-        ("A", 4, 0, "ROCKY",     "Stallone boxing series"),
-        ("A", 6, 0, "BENHUR",    "Chariot-race epic"),
-        ("A", 8, 0, "TITANIC",   "1997 shipwreck film"),
-        ("D", 0, 0, "GIG",       "Live music show, slang"),
+    ("medium-008", "Friends & Family", [
+        ("FRIENDS",   "Mates"),
+        ("FAMILY",    "Loved ones"),
+        ("COUSINS",   "Aunty's children"),
+        ("GRANDMA",   "Mum's mum"),
+        ("GRANDPA",   "Mum's dad"),
+        ("NEIGHBOUR", "Person next door"),
+        ("BROTHER",   "Male sibling"),
+        ("NEPHEW",    "Sibling's son"),
     ]),
 ]
 
 
-# ════════════════════════════════════════════════════════════════════════
-# EXPERT (11×11) — 8 puzzles, 6 across rows + 1 down
-# ════════════════════════════════════════════════════════════════════════
-EXPERT_PUZZLES = [
-    _b("expert-001", "expert", "Community Life", 11, [
-        ("A", 0, 0,  "COMMUNITY",  "Group of neighbours"),
-        ("A", 2, 0,  "GATHERING",  "A get-together"),
-        ("A", 4, 0,  "FELLOWSHIP", "Bond of friendship"),
-        ("A", 6, 0,  "VOLUNTEER",  "Helper without pay"),
-        ("A", 8, 0,  "NEIGHBOUR",  "Person next door"),
-        ("A", 10, 0, "TOGETHER",   "United, side by side"),
-        ("D", 0, 0,  "COG",        "Tooth on a gear wheel"),
+# HARD — 5-10 letter themed words
+HARD_LISTS: list[tuple[str, str, list[WordClue]]] = [
+    ("hard-001", "Travel & Adventure", [
+        ("PASSPORT",   "Travel document"),
+        ("JOURNEY",    "A trip from A to B"),
+        ("CONTINENT",  "Major land mass"),
+        ("LANDMARK",   "Famous local feature"),
+        ("SOUVENIR",   "Holiday keepsake"),
+        ("ITINERARY",  "Day-by-day travel plan"),
+        ("HOLIDAY",    "Time away"),
+        ("ADVENTURE",  "Exciting experience"),
     ]),
-    _b("expert-002", "expert", "World Capitals", 11, [
-        ("A", 0, 0,  "CANBERRA",   "Aussie capital"),
-        ("A", 2, 0,  "WELLINGTON", "Kiwi capital"),
-        ("A", 4, 0,  "LONDON",     "Capital of England"),
-        ("A", 6, 0,  "WASHINGTON", "USA capital"),
-        ("A", 8, 0,  "TOKYO",      "Japan's capital"),
-        ("A", 10, 0, "PARIS",      "France's capital"),
-        ("D", 0, 0,  "COW",        "Moo-ing farm animal"),
+    ("hard-002", "Australian Cities", [
+        ("BRISBANE",  "QLD capital"),
+        ("ADELAIDE",  "SA capital"),
+        ("HOBART",    "TAS capital"),
+        ("CAIRNS",    "Tropical FNQ city"),
+        ("GEELONG",   "Victorian seaside city"),
+        ("DARWIN",    "Top End capital"),
+        ("PERTH",     "WA capital"),
+        ("CANBERRA",  "National capital"),
+        ("SYDNEY",    "NSW capital"),
     ]),
-    _b("expert-003", "expert", "Famous Australians", 11, [
-        ("A", 0, 0,  "BRADMAN",   "Cricketing knight, surname"),
-        ("A", 2, 0,  "KIDMAN",    "Aussie actress, _ Nicole"),
-        ("A", 4, 0,  "FREEMAN",   "Olympic gold runner Cathy _"),
-        ("A", 6, 0,  "MENZIES",   "Long-serving PM Robert _"),
-        ("A", 8, 0,  "HUTCHENCE", "INXS frontman Michael _"),
-        ("A", 10, 0, "WATSON",    "Surname of cricketer Shane _"),
-        ("D", 0, 4,  "MIA",       "Missing-in-action, abbrev."),
+    ("hard-003", "Music & Theatre", [
+        ("ORCHESTRA", "Symphony ensemble"),
+        ("MUSICIAN",  "Player of instruments"),
+        ("OPERA",     "Sung dramatic work"),
+        ("CONCERT",   "Live music event"),
+        ("STAGE",     "Where the show unfolds"),
+        ("BALLET",    "Classical dance form"),
+        ("SYMPHONY",  "Multi-movement orchestral work"),
+        ("AUDIENCE",  "The watchers in seats"),
+        ("ENCORE",    "Extra song after applause"),
     ]),
-    _b("expert-004", "expert", "On the Farm", 11, [
-        ("A", 0, 0,  "PADDOCK",   "Fenced grazing field"),
-        ("A", 2, 0,  "SHEARING",  "Wool-cutting season"),
-        ("A", 4, 0,  "WOOLSHED",  "Where shearing happens"),
-        ("A", 6, 0,  "LIVESTOCK", "Farm animals (cattle, sheep…)"),
-        ("A", 8, 0,  "HARVEST",   "Crop-gathering time"),
-        ("A", 10, 0, "RANCHER",   "Cattle-station owner"),
-        ("D", 0, 2,  "DOE",       "Female deer"),
+    ("hard-004", "Cooking Up A Storm", [
+        ("PAVLOVA",   "Iconic Aussie dessert"),
+        ("LAMINGTON", "Sponge dipped in chocolate"),
+        ("ROAST",     "Sunday lunch classic"),
+        ("DAMPER",    "Campfire bush bread"),
+        ("VEGEMITE",  "Salty spread on toast"),
+        ("MEATPIE",   "Footy game classic"),
+        ("SAUSAGE",   "Snag on the BBQ"),
+        ("BARBECUE",  "Outdoor cookout"),
     ]),
-    _b("expert-005", "expert", "Aussie Cars", 11, [
-        ("A", 0, 0,  "HOLDEN",     "Aussie car brand, retired 2020"),
-        ("A", 2, 0,  "MUSTANG",    "Ford pony car"),
-        ("A", 4, 0,  "VOLKSWAGEN", "German people's car"),
-        ("A", 6, 0,  "FALCON",     "Iconic Ford Aussie sedan"),
-        ("A", 8, 0,  "TORANA",     "70s Holden classic"),
-        ("A", 10, 0, "MONARO",     "Holden muscle car"),
-        ("D", 0, 0,  "HAM",        "Sliced pork on sandwiches"),
+    ("hard-005", "Around the World", [
+        ("ITALY",   "Land of pasta"),
+        ("JAPAN",   "Sushi homeland"),
+        ("ENGLAND", "London's country"),
+        ("FRANCE",  "Eiffel-tower nation"),
+        ("GERMANY", "Land of Oktoberfest"),
+        ("SPAIN",   "Land of paella"),
+        ("CANADA",  "Maple-leaf country"),
+        ("MEXICO",  "Land of tacos"),
+        ("GREECE",  "Land of feta and olives"),
     ]),
-    _b("expert-006", "expert", "Aussie TV Classics", 11, [
-        ("A", 0, 0,  "NEIGHBOURS",  "Ramsay Street drama"),
-        ("A", 2, 0,  "HOMEANDAWAY", "Summer Bay soap (three words run)"),
-        ("A", 4, 0,  "BLUEHEELERS", "Mt Thomas country cop drama"),
-        ("A", 6, 0,  "SKIPPY",      "Bush kangaroo TV star"),
-        ("A", 8, 0,  "PRISONER",    "80s Cell Block H drama"),
-        ("A", 10, 0, "COUNTDOWN",   "Molly Meldrum's music show"),
+    ("hard-006", "Nature", [
+        ("FORESTS",  "Wooded regions"),
+        ("MOUNTAIN", "Tall peak"),
+        ("RIVER",    "Flowing waterway"),
+        ("ESTUARY",  "Where river meets sea"),
+        ("REEF",     "Underwater coral ridge"),
+        ("OCEAN",    "Massive body of saltwater"),
+        ("DESERT",   "Vast dry sandy area"),
+        ("CANYON",   "Deep river-cut valley"),
+        ("VOLCANO",  "Lava-spewing mountain"),
     ]),
-    _b("expert-007", "expert", "Garden Glory", 11, [
-        ("A", 0, 0,  "HYDRANGEA",  "Big-bloom hedge plant"),
-        ("A", 2, 0,  "FRANGIPANI", "Sweet tropical flower"),
-        ("A", 4, 0,  "BOTTLEBRUSH","Red Aussie native shrub"),
-        ("A", 6, 0,  "WATTLE",     "Yellow national emblem"),
-        ("A", 8, 0,  "EUCALYPT",   "Gum tree, family name"),
-        ("A", 10, 0, "GREVILLEA",  "Native bird-attracting shrub"),
-        ("D", 0, 2,  "DNA",        "Genetic material"),
+    ("hard-007", "Sports Across Australia", [
+        ("NETBALL",   "Hoops with no backboard"),
+        ("SAILING",   "Wind-powered ocean sport"),
+        ("BOWLS",     "Older-adult green sport"),
+        ("SURFING",   "Catching ocean waves"),
+        ("FOOTBALL",  "Soccer, simply"),
+        ("CRICKET",   "Summer bat-and-ball game"),
+        ("SWIMMING",  "Pool laps for fitness"),
+        ("HOCKEY",    "Stick-and-ball field sport"),
     ]),
-    _b("expert-008", "expert", "Holiday Spots", 11, [
-        ("A", 0, 0,  "GOLDCOAST",  "Surfers Paradise locale"),
-        ("A", 2, 0,  "BYRONBAY",   "NSW hippie surf town"),
-        ("A", 4, 0,  "BAROSSA",    "SA wine country"),
-        ("A", 6, 0,  "KAKADU",     "Top End national park"),
-        ("A", 8, 0,  "DAINTREE",   "FNQ ancient rainforest"),
-        ("A", 10, 0, "ULURU",      "Red-centre monolith"),
-        ("D", 0, 0,  "GOB",        "Mouth, casual slang"),
+    ("hard-008", "Classic Movies", [
+        ("GODFATHER", "1972 mafia classic, with 'The'"),
+        ("GREASE",    "1978 musical with Travolta"),
+        ("ROCKY",     "Stallone boxing series"),
+        ("BENHUR",    "Chariot-race epic"),
+        ("TITANIC",   "1997 shipwreck film"),
+        ("JAWS",      "1975 Spielberg shark thriller"),
+        ("CASABLANCA","Bogart and Bergman classic"),
+        ("AMADEUS",   "1984 Mozart biopic"),
+        ("GLADIATOR", "2000 Russell Crowe epic"),
     ]),
 ]
+
+
+# EXPERT — 5-12 letter themed words
+EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
+    ("expert-001", "Community Life", [
+        ("COMMUNITY",   "Group of neighbours"),
+        ("GATHERING",   "A get-together"),
+        ("FELLOWSHIP",  "Bond of friendship"),
+        ("VOLUNTEER",   "Helper without pay"),
+        ("NEIGHBOUR",   "Person next door"),
+        ("TOGETHER",    "United, side by side"),
+        ("FRIENDSHIP",  "Strong bond between mates"),
+        ("KINDNESS",    "Being warm to others"),
+        ("SUPPORT",     "Help and encouragement"),
+        ("BELONGING",   "Feeling part of something"),
+    ]),
+    ("expert-002", "World Capitals", [
+        ("CANBERRA",   "Aussie capital"),
+        ("WELLINGTON", "Kiwi capital"),
+        ("LONDON",     "Capital of England"),
+        ("WASHINGTON", "USA capital"),
+        ("TOKYO",      "Japan's capital"),
+        ("PARIS",      "France's capital"),
+        ("BERLIN",     "Germany's capital"),
+        ("MADRID",     "Spain's capital"),
+        ("ROME",       "Italy's capital"),
+        ("OTTAWA",     "Canada's capital"),
+    ]),
+    ("expert-003", "Famous Australians", [
+        ("BRADMAN",   "Cricketing knight, surname"),
+        ("KIDMAN",    "Nicole, Aussie actress, surname"),
+        ("FREEMAN",   "Cathy, Olympic gold runner, surname"),
+        ("MENZIES",   "Long-serving PM Robert, surname"),
+        ("HUTCHENCE", "Michael, INXS frontman, surname"),
+        ("WATSON",    "Common Aussie sport surname"),
+        ("CROWE",     "Russell, actor, surname"),
+        ("MINOGUE",   "Kylie, pop singer, surname"),
+        ("JACKMAN",   "Hugh, Wolverine actor, surname"),
+        ("GIBSON",    "Mel, Mad Max actor, surname"),
+    ]),
+    ("expert-004", "On the Farm", [
+        ("PADDOCK",   "Fenced grazing field"),
+        ("SHEARING",  "Wool-cutting season"),
+        ("WOOLSHED",  "Where the shearing happens"),
+        ("LIVESTOCK", "Farm animals"),
+        ("HARVEST",   "Crop-gathering time"),
+        ("RANCHER",   "Cattle-station owner"),
+        ("FARMER",    "The boss of the farm"),
+        ("CATTLE",    "Cows, plural"),
+        ("TRACTOR",   "Big farm vehicle"),
+        ("CHICKENS",  "Egg layers, plural"),
+    ]),
+    ("expert-005", "Aussie Cars", [
+        ("HOLDEN",     "Aussie car brand, retired 2020"),
+        ("MUSTANG",    "Ford pony car"),
+        ("VOLKSWAGEN", "German people's car"),
+        ("FALCON",     "Iconic Ford Aussie sedan"),
+        ("TORANA",     "70s Holden classic"),
+        ("MONARO",     "Holden muscle car"),
+        ("COMMODORE",  "Long-running Holden sedan"),
+        ("KOMBI",      "Hippie van"),
+        ("CHARGER",    "70s Valiant muscle car"),
+    ]),
+    ("expert-006", "Aussie TV Classics", [
+        ("NEIGHBOURS",  "Ramsay Street drama"),
+        ("HOMEANDAWAY", "Summer Bay soap, run together"),
+        ("BLUEHEELERS", "Mt Thomas country cop drama"),
+        ("SKIPPY",      "Bush kangaroo TV star"),
+        ("PRISONER",    "80s Cell Block H drama"),
+        ("COUNTDOWN",   "Molly Meldrum's music show"),
+        ("MASTERCHEF",  "Cooking competition show"),
+    ]),
+    ("expert-007", "Garden Glory", [
+        ("HYDRANGEA",   "Big-bloom hedge plant"),
+        ("FRANGIPANI",  "Sweet tropical flower"),
+        ("BOTTLEBRUSH", "Red Aussie native shrub"),
+        ("WATTLE",      "Yellow national emblem"),
+        ("EUCALYPT",    "Gum-tree family name"),
+        ("GREVILLEA",   "Native bird-attracting shrub"),
+        ("JACARANDA",   "Purple-flowered shade tree"),
+        ("BANKSIA",     "Native cone-flower shrub"),
+        ("GUMTREE",     "Eucalyptus, two words run together"),
+    ]),
+    ("expert-008", "Holiday Spots", [
+        ("GOLDCOAST",   "Surfers Paradise locale"),
+        ("BYRONBAY",    "NSW hippie surf town"),
+        ("BAROSSA",     "SA wine country"),
+        ("KAKADU",      "Top End national park"),
+        ("DAINTREE",    "FNQ ancient rainforest"),
+        ("ULURU",       "Red-centre monolith"),
+        ("WHITSUNDAYS", "Queensland reef islands"),
+        ("TASMANIA",    "Island state, south of Vic"),
+        ("MELBOURNE",   "Vic capital, sport-mad city"),
+    ]),
+]
+
+
+# ────────────────────────────────────────────────────────────────────────
+# Build the library at import time. If any puzzle fails to produce ≥4
+# words, `auto_build_crossword` raises ValueError — the module fails to
+# load, surfacing the problem immediately.
+# ────────────────────────────────────────────────────────────────────────
+EASY_PUZZLES:   list[dict] = [_ab(id_, "easy",   theme, ws) for id_, theme, ws in EASY_LISTS]
+MEDIUM_PUZZLES: list[dict] = [_ab(id_, "medium", theme, ws) for id_, theme, ws in MEDIUM_LISTS]
+HARD_PUZZLES:   list[dict] = [_ab(id_, "hard",   theme, ws) for id_, theme, ws in HARD_LISTS]
+EXPERT_PUZZLES: list[dict] = [_ab(id_, "expert", theme, ws) for id_, theme, ws in EXPERT_LISTS]
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -391,8 +679,8 @@ EXPERT_PUZZLES = [
 # ────────────────────────────────────────────────────────────────────────
 LIBRARY: list[dict] = EASY_PUZZLES + MEDIUM_PUZZLES + HARD_PUZZLES + EXPERT_PUZZLES
 
-PUZZLES_PER_PAGE = 3       # players see 3 active per level at any moment
-ROTATION_DAYS = 14         # set rotates every fortnight
+PUZZLES_PER_PAGE = 3
+ROTATION_DAYS = 14
 
 POINTS_BY_LEVEL = {
     "easy":   5,
@@ -407,10 +695,6 @@ def _puzzles_by_level(level: str) -> list[dict]:
 
 
 def _current_rotation_window(now: datetime | None = None) -> int:
-    """Integer rotation window — bumps by 1 every ROTATION_DAYS.
-
-    Anchored at 2026-01-01 UTC so the window number is stable across
-    deploys and processes."""
     if now is None:
         now = datetime.now(timezone.utc)
     anchor = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -419,19 +703,12 @@ def _current_rotation_window(now: datetime | None = None) -> int:
 
 
 def active_puzzles(level: str, now: datetime | None = None) -> list[dict]:
-    """Return PUZZLES_PER_PAGE puzzles currently active for `level`.
-
-    Wraps modulo the pool size so the rotation never empties out.
-    """
     pool = _puzzles_by_level(level)
     if not pool:
         return []
     window = _current_rotation_window(now)
     start = (window * PUZZLES_PER_PAGE) % len(pool)
-    out = []
-    for i in range(PUZZLES_PER_PAGE):
-        out.append(pool[(start + i) % len(pool)])
-    return out
+    return [pool[(start + i) % len(pool)] for i in range(PUZZLES_PER_PAGE)]
 
 
 def get_puzzle(puzzle_id: str) -> dict | None:
@@ -439,17 +716,6 @@ def get_puzzle(puzzle_id: str) -> dict | None:
 
 
 def daily_puzzle(now: datetime | None = None) -> dict | None:
-    """The shared "Daily Crossword" — same medium-level puzzle for everyone
-    on a given UTC date. Rotates one-per-day through `MEDIUM_PUZZLES`.
-
-    Anchored at 2026-01-01 UTC so the schedule is stable across deploys.
-
-    Why medium?
-      • Easy is too quick for a daily "let's chat about it" hook.
-      • Hard/Expert intimidate first-timers.
-      • Medium (7×7) is the social sweet-spot — solvable in ~5–8 min,
-        plenty of words to chat about, fits the over-60 audience.
-    """
     if not MEDIUM_PUZZLES:
         return None
     if now is None:
@@ -460,8 +726,6 @@ def daily_puzzle(now: datetime | None = None) -> dict | None:
 
 
 def daily_iso_date(now: datetime | None = None) -> str:
-    """The UTC ISO date string for which the daily puzzle is keyed.
-    Used by the client to label the daily card ("Tuesday 2 June 2026")."""
     if now is None:
         now = datetime.now(timezone.utc)
     return now.strftime("%Y-%m-%d")
@@ -485,16 +749,17 @@ def levels_summary(now: datetime | None = None) -> list[dict]:
 
 
 def serialise(p: dict, *, with_answers: bool = False) -> dict:
-    """Strip the `answer` field from clues before serving to the client.
-
-    `Check answers` and `Reveal letter` go through server-side endpoints
-    that read the in-memory puzzle (with answers) directly.
-    """
+    """Strip the `answer` field from clues + the internal `dropped_words`
+    debug field before serving to the client."""
     if with_answers:
-        return p
+        out = {**p}
+        out.pop("dropped_words", None)
+        return out
     clues_safe = {}
     for dir_, lst in p["clues"].items():
         clues_safe[dir_] = [
             {k: v for k, v in cl.items() if k != "answer"} for cl in lst
         ]
-    return {**p, "clues": clues_safe}
+    out = {**p, "clues": clues_safe}
+    out.pop("dropped_words", None)
+    return out
