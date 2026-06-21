@@ -364,7 +364,7 @@ export default function SudokuPlayer() {
             <Text style={{ fontSize: 54 }}>🎉</Text>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, marginTop: 8 }}>Solved!</Text>
             <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center" }}>
-              {puzzle.difficulty_label} · {m}:{s.toString().padStart(2, "0")} · {mistakes} mistakes{"\n"}+{puzzle.points} Community Points
+              {puzzle.difficulty_label} · {m}:{s.toString().padStart(2, "0")} · {mistakes} mistakes{"\n"}+{puzzle.points} Belong Points
             </Text>
             {(puzzle.difficulty === "hard" || puzzle.difficulty === "nightmare") && (
               <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, marginTop: 8, textAlign: "center" }}>🦋 Friends will see a celebration Flutter</Text>

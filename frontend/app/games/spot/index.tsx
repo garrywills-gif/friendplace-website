@@ -69,7 +69,7 @@ export default function SpotHub() {
             <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>HOW TO PLAY</Text>
             <SpeakButton text={HOW_TO} color={c.brand} size={22} testID="std-how-speak" />
           </View>
-          <Text style={{ color: c.onSurface, fontSize: 15 * scale, lineHeight: 22 }}>Tap on the differences between the two pictures. Magnifying glass and zoom included. No timer by default — enjoy at your own pace. Community Points awarded on Hard and Nightmare only.</Text>
+          <Text style={{ color: c.onSurface, fontSize: 15 * scale, lineHeight: 22 }}>Tap on the differences between the two pictures. Magnifying glass and zoom included. No timer by default — enjoy at your own pace. Belong Points awarded on Hard and Nightmare only.</Text>
         </View>
 
         {daily && (

@@ -440,7 +440,7 @@ export default function SpotPlayer() {
           <View style={[styles.modalCard, { backgroundColor: c.surface, alignItems: "center" }]}>
             <Text style={{ fontSize: 54 }}>🎉</Text>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, marginTop: 8 }}>You found them all!</Text>
-            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center" }}>{puzzle.title || puzzle.theme_label} · {puzzle.difficulty_label} · {m}:{s.toString().padStart(2, "0")}{puzzle.points > 0 ? `\n+${puzzle.points} Community Points` : ""}{beatClock && btcDef && seconds <= btcDef.seconds && puzzle.points > 0 ? `\n+${btcDef.bonus} Beat the Clock bonus!` : ""}</Text>
+            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center" }}>{puzzle.title || puzzle.theme_label} · {puzzle.difficulty_label} · {m}:{s.toString().padStart(2, "0")}{puzzle.points > 0 ? `\n+${puzzle.points} Belong Points` : ""}{beatClock && btcDef && seconds <= btcDef.seconds && puzzle.points > 0 ? `\n+${btcDef.bonus} Beat the Clock bonus!` : ""}</Text>
             {(puzzle.difficulty === "hard" || puzzle.difficulty === "nightmare") && (
               <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, marginTop: 8, textAlign: "center" }}>🦋 Friends will see a celebration Flutter</Text>
             )}

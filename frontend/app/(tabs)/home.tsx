@@ -29,7 +29,7 @@ export default function Home() {
   const [community, setCommunity] = useState<any>(null);
   const [invitedCount, setInvitedCount] = useState<number>(0);
   // Live "X of 500 Founding Members" counter — drives the Wall entry card
-  // that sits just under the Community Points tile. Null until the first
+  // that sits just under the Belong Points tile. Null until the first
   // status fetch returns so the card stays hidden during the brief boot
   // window rather than flickering empty state.
   const [founderStatus, setFounderStatus] = useState<{ taken: number; cap: number; remaining: number; open: boolean } | null>(null);
@@ -194,7 +194,7 @@ export default function Home() {
 
         <Pressable testID="home-points-card" onPress={() => goTo("/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
           <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-            <Text numberOfLines={1} style={[styles.pointsLabel, { color: c.brand, fontSize: 12 * scale }]}>COMMUNITY POINTS</Text>
+            <Text numberOfLines={1} style={[styles.pointsLabel, { color: c.brand, fontSize: 12 * scale }]}>BELONG POINTS</Text>
             <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling minimumFontScale={0.6} style={[styles.pointsNum, { color: c.onSurface, fontSize: 34 * scale }]}>{user?.points ?? 0}</Text>
           </View>
           {(user?.badges || []).length > 0 && (

@@ -99,7 +99,7 @@ export default function JigsawPlayer() {
       }).catch(() => {});
       if (done && !completed) {
         setCompleted(true);
-        show("🎉 Puzzle complete! +15 Community Points");
+        show("🎉 Puzzle complete! +15 Belong Points");
       }
     }, 350);
     return () => clearTimeout(handler);

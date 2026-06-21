@@ -250,7 +250,7 @@ export default function CrosswordPlay() {
         setCompleted(true);
         setShowWin(true);
         setWinPoints(res.points || 0);
-        if (res.points_awarded) show(`+${res.points} Community Points 🎉`);
+        if (res.points_awarded) show(`+${res.points} Belong Points 🎉`);
         else show("Solved! Nice work.");
       } else {
         const wrong = next.flat().filter(s => s === "wrong").length;

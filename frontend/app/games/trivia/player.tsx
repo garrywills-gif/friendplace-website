@@ -95,7 +95,7 @@ export default function TriviaPlayer() {
     const granted: string[] = completion?.granted || [];
     const pct = total ? Math.round((score / total) * 100) : 0;
     const tone = pct >= 80 ? "#16A34A" : pct >= 60 ? c.brand : pct >= 40 ? "#B45309" : "#7C3AED";
-    const summary = `You scored ${score} out of ${total}. That's ${pct}%. You earned ${pts} Community Points.`;
+    const summary = `You scored ${score} out of ${total}. That's ${pct}%. You earned ${pts} Belong Points.`;
     return (
       <View style={{ flex: 1, backgroundColor: c.surface }}>
         <Header title="Trivia" />
@@ -109,7 +109,7 @@ export default function TriviaPlayer() {
               <SpeakButton text={summary} color={c.brand} size={20} />
             </View>
             <Text style={{ color: c.onSurface, fontSize: 16 * scale, marginTop: 6 }}>
-              You earned <Text style={{ fontWeight: "900", color: c.brand }}>+{pts}</Text> Community Points.
+              You earned <Text style={{ fontWeight: "900", color: c.brand }}>+{pts}</Text> Belong Points.
             </Text>
             {granted.length > 0 && (
               <View style={{ marginTop: 10, gap: 4 }}>
