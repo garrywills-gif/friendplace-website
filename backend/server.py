@@ -4176,7 +4176,11 @@ async def events_preflight(body: EventPreflightBody):
         )
         if u:
             already_business = bool(u.get("is_business"))
-            business_status = _business_status(u)
+            # Only attach the status block if the user actually has a plan
+            # — keeps the payload tidy and matches the spec (frontend
+            # branches on truthiness, not on the inner `plan` field).
+            if already_business and u.get("business_plan"):
+                business_status = _business_status(u)
     return {
         **hint,
         "already_business": already_business,
