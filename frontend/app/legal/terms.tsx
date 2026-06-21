@@ -11,7 +11,7 @@ import { useTheme } from "@/src/lib/theme";
 import Header from "@/src/components/Header";
 
 const LAST_UPDATED = "18 June 2026";
-const CONTACT_EMAIL = "hello@youbelong.app";
+const CONTACT_EMAIL = "support@youbelongapp.com";
 
 export default function Terms() {
   const { c, scale } = useTheme();
@@ -79,7 +79,7 @@ export default function Terms() {
         </Section>
 
         <Section title="Suspending or closing an account" c={c} scale={scale}>
-          <Bullet c={c} scale={scale}>You can delete your account any time from Settings → Delete my account.</Bullet>
+          <Bullet c={c} scale={scale}>You can delete your account any time from Settings → Delete Account.</Bullet>
           <Bullet c={c} scale={scale}>We can suspend or close any account that breaches these Terms.</Bullet>
           <Bullet c={c} scale={scale}>If your account is closed by us, we'll tell you why and how to appeal.</Bullet>
         </Section>

@@ -164,6 +164,23 @@ export const api = {
   sdSaveProgress: (uid: string, body: { puzzle_id: string; difficulty: string; entries: number[][]; notes: number[][][]; hints_used: number; mistakes: number; seconds: number; completed: boolean; is_daily?: boolean }) =>
     req(`/games/sudoku/progress/${uid}`, { method: "POST", body: JSON.stringify(body) }),
 
+  // crossword
+  xwLevels: () => req("/games/crossword/levels"),
+  xwActive: (level: string) => req(`/games/crossword/active/${encodeURIComponent(level)}`),
+  xwPuzzle: (puzzle_id: string) => req(`/games/crossword/${encodeURIComponent(puzzle_id)}`),
+  xwDaily: () => req("/games/crossword/daily"),
+  xwCheck: (puzzle_id: string, guesses: (string | null)[][], user_id?: string) =>
+    req(`/games/crossword/${encodeURIComponent(puzzle_id)}/check`, {
+      method: "POST",
+      body: JSON.stringify({ guesses, user_id: user_id || null }),
+    }),
+  xwReveal: (puzzle_id: string, row: number, col: number) =>
+    req(`/games/crossword/${encodeURIComponent(puzzle_id)}/reveal/${row}/${col}`),
+  xwGetProgress: (uid: string, puzzle_id: string) =>
+    req(`/games/crossword/progress/${uid}?puzzle_id=${encodeURIComponent(puzzle_id)}`),
+  xwSaveProgress: (uid: string, body: { puzzle_id: string; guesses: (string | null)[][]; revealed: boolean[][]; seconds: number; completed: boolean }) =>
+    req(`/games/crossword/progress/${uid}`, { method: "POST", body: JSON.stringify(body) }),
+
   // spot the difference
   stdCatalog: () => req("/games/spot/catalog"),
   // Invitation analytics + admin flyer (Share YouBelong follow-ons)

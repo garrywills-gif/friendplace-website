@@ -19,7 +19,7 @@ import Header from "@/src/components/Header";
 // Bump this whenever the policy is materially updated. Used at the top
 // of the page and surfaced to users by date so they can re-read changes.
 const LAST_UPDATED = "18 June 2026";
-const CONTACT_EMAIL = "privacy@youbelong.app";
+const CONTACT_EMAIL = "support@youbelongapp.com";
 
 export default function PrivacyPolicy() {
   const { c, scale } = useTheme();
@@ -59,7 +59,7 @@ export default function PrivacyPolicy() {
         <Section title="Your choices and rights" c={c} scale={scale}>
           <Bullet c={c} scale={scale}><Text style={styles.b}>Edit your profile</Text> at any time from Profile → Edit Profile.</Bullet>
           <Bullet c={c} scale={scale}><Text style={styles.b}>Block or report</Text> any member from their profile page.</Bullet>
-          <Bullet c={c} scale={scale}><Text style={styles.b}>Delete your account</Text> at any time from Settings → Delete my account. This permanently removes your profile, messages, posts and friend connections. Group posts are anonymised so threads stay coherent for other members.</Bullet>
+          <Bullet c={c} scale={scale}><Text style={styles.b}>Delete your account</Text> at any time from Settings → Delete Account. This permanently removes your profile, messages, posts and friend connections. Group posts are anonymised so threads stay coherent for other members.</Bullet>
           <Bullet c={c} scale={scale}>You can ask us for a copy of the data we hold about you, or ask us to correct it, by writing to {CONTACT_EMAIL}.</Bullet>
         </Section>
 

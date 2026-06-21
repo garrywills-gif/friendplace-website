@@ -2,11 +2,13 @@
  * Settings — accessibility prefs, community guidelines, legal pages,
  * sign out, and the (Apple/Google-mandated) in-app account deletion flow.
  *
- * The Delete Account flow is intentionally a two-step confirmation:
- *   1. User taps "Delete my account" → red modal explains exactly what
- *      will be removed (messages, posts, photos, friends) and asks them
- *      to type DELETE to confirm.
- *   2. On confirmation, we call `api.deleteAccount(token)` (DELETE
+ * Delete Account flow (intentionally short — Apple/Google only require
+ * an in-app deletion path with explicit user confirmation, not typed
+ * friction):
+ *   1. User taps "Delete Account" → red confirmation modal:
+ *        "Are you sure? This action cannot be undone."
+ *   2. Side-by-side [Cancel] [Delete Account] buttons.
+ *   3. On confirm, we call `api.deleteAccount(token)` (DELETE
  *      /api/users/me). On 200, we clear the local session and route to
  *      the welcome screen.
  *
@@ -15,7 +17,7 @@
  */
 import React, { useState } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, Switch, Pressable, Modal, TextInput, Alert,
+  View, Text, StyleSheet, ScrollView, Switch, Pressable, Modal, Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/lib/theme";
@@ -36,12 +38,8 @@ export default function Settings() {
   const { user, token, logout } = useAuth();
   const router = useRouter();
 
-  // Two-step delete state. `step` walks through: idle → confirm → typing → done.
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [confirmText, setConfirmText] = useState("");
   const [deleting, setDeleting] = useState(false);
-
-  const canDelete = confirmText.trim().toUpperCase() === "DELETE" && !deleting;
 
   const doDelete = async () => {
     if (!token) {
@@ -129,19 +127,19 @@ export default function Settings() {
 
         {/* ─── Account deletion — store-mandated, kept separate from the
             normal Sign Out so it can't be tapped by accident. Red border +
-            red label + a two-step typed confirmation modal. ─────────── */}
+            red label + a single-step confirm modal. ────────────────── */}
         {user ? (
           <>
             <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale, marginTop: 8 }]}>Account</Text>
             <Pressable
               testID="settings-delete-account"
-              onPress={() => { setConfirmText(""); setDeleteOpen(true); }}
+              onPress={() => setDeleteOpen(true)}
               style={[styles.dangerRow, { borderColor: "#DC2626" }]}
               accessibilityRole="button"
-              accessibilityLabel="Delete my account permanently"
+              accessibilityLabel="Delete Account"
             >
               <View style={{ flex: 1 }}>
-                <Text style={{ color: "#DC2626", fontWeight: "900", fontSize: 17 * scale }}>Delete my account</Text>
+                <Text style={{ color: "#DC2626", fontWeight: "900", fontSize: 17 * scale }}>Delete Account</Text>
                 <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>
                   Permanently removes your profile, messages, posts and friend connections.
                 </Text>
@@ -152,9 +150,9 @@ export default function Settings() {
         ) : null}
       </ScrollView>
 
-      {/* Two-step Delete Account confirmation modal. Type DELETE to enable
-          the red button. This is the friction Apple/Google want for an
-          irreversible action — no accidental taps. */}
+      {/* Single-step Delete Account confirmation modal — Cancel | Delete Account.
+          Short, clear, and matches Apple/Google's "explicit confirmation"
+          guidance without typed-friction overkill. */}
       <Modal visible={deleteOpen} animationType="fade" transparent onRequestClose={() => !deleting && setDeleteOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => !deleting && setDeleteOpen(false)}>
           <Pressable
@@ -162,49 +160,30 @@ export default function Settings() {
             style={[styles.sheet, { backgroundColor: c.surface }]}
           >
             <Text style={{ fontSize: 44 }}>⚠️</Text>
-            <Text style={[styles.modalTitle, { color: c.onSurface, fontSize: 22 * scale }]}>Delete your account?</Text>
-            <Text style={[styles.modalBody, { color: c.onSurface, fontSize: 16 * scale }]}>
-              This is permanent. We&apos;ll remove your profile, all your messages and posts, your event RSVPs, your photos, and your friend connections.
-              {"\n\n"}
-              Group posts will stay so threads remain readable for other members, but they&apos;ll show <Text style={{ fontWeight: "800" }}>&ldquo;Former member&rdquo;</Text> instead of your name.
-              {"\n\n"}
-              Type <Text style={{ fontWeight: "900", color: "#DC2626" }}>DELETE</Text> below to confirm.
+            <Text style={[styles.modalTitle, { color: c.onSurface, fontSize: 22 * scale }]}>Are you sure?</Text>
+            <Text style={[styles.modalBody, { color: c.onSurface, fontSize: 16 * scale, textAlign: "center" }]}>
+              This action cannot be undone. We&apos;ll permanently remove your profile, messages, posts and friend connections.
             </Text>
-            <TextInput
-              testID="delete-confirm-input"
-              value={confirmText}
-              onChangeText={setConfirmText}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              placeholder="Type DELETE"
-              placeholderTextColor={c.muted}
-              editable={!deleting}
-              style={[
-                styles.input,
-                { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 17 * scale },
-              ]}
-            />
-            <Pressable
-              testID="delete-confirm-btn"
-              disabled={!canDelete}
-              onPress={doDelete}
-              style={[
-                styles.dangerBtn,
-                { backgroundColor: canDelete ? "#DC2626" : "#FCA5A5" },
-              ]}
-            >
-              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 * scale }}>
-                {deleting ? "Deleting…" : "Delete my account permanently"}
-              </Text>
-            </Pressable>
-            <Pressable
-              testID="delete-cancel-btn"
-              disabled={deleting}
-              onPress={() => setDeleteOpen(false)}
-              style={[styles.cancelBtn, { backgroundColor: c.surfaceSecondary }]}
-            >
-              <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 16 * scale }}>Cancel</Text>
-            </Pressable>
+            <View style={styles.btnRow}>
+              <Pressable
+                testID="delete-cancel-btn"
+                disabled={deleting}
+                onPress={() => setDeleteOpen(false)}
+                style={[styles.cancelBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+              >
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                testID="delete-confirm-btn"
+                disabled={deleting}
+                onPress={doDelete}
+                style={[styles.dangerBtn, { backgroundColor: deleting ? "#FCA5A5" : "#DC2626" }]}
+              >
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 * scale }}>
+                  {deleting ? "Deleting…" : "Delete Account"}
+                </Text>
+              </Pressable>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
@@ -234,16 +213,15 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontWeight: "900", textAlign: "center" },
   modalBody: { textAlign: "left", lineHeight: 22 },
-  input: {
-    alignSelf: "stretch", paddingHorizontal: 16, paddingVertical: 14,
-    borderRadius: 14, borderWidth: 1.5, fontWeight: "800", letterSpacing: 1.5, textAlign: "center",
+  btnRow: {
+    flexDirection: "row", alignSelf: "stretch", gap: 10, marginTop: 6,
   },
   dangerBtn: {
-    alignSelf: "stretch", alignItems: "center", paddingVertical: 16,
-    borderRadius: 999, minHeight: 52, marginTop: 4,
+    flex: 1, alignItems: "center", paddingVertical: 14,
+    borderRadius: 999, minHeight: 48,
   },
   cancelBtn: {
-    alignSelf: "stretch", alignItems: "center", paddingVertical: 14,
-    borderRadius: 999, minHeight: 48,
+    flex: 1, alignItems: "center", paddingVertical: 14,
+    borderRadius: 999, minHeight: 48, borderWidth: 1,
   },
 });

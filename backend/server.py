@@ -31,6 +31,9 @@ from crossword_puzzles import (
     active_puzzles as _xword_active,
     get_puzzle as _xword_get,
     serialise as _xword_serialise,
+    daily_puzzle as _xword_daily,
+    daily_iso_date as _xword_daily_date,
+    POINTS_BY_LEVEL as _XWORD_POINTS,
 )
 
 from word_search import THEMES as WS_THEMES, DIFFICULTIES as WS_DIFFS, list_themes as ws_list_themes, generate_puzzle as ws_generate, daily_pick as ws_daily_pick, today_iso as ws_today_iso
@@ -529,6 +532,77 @@ async def _ensure_founders_lounge() -> Optional[dict]:
         # Race-safe — another founder signup may have created it in parallel.
         g = await db.groups.find_one({"name": "Founders Lounge"}, {"_id": 0})
     return g
+
+
+async def _ensure_daily_crossword_table(puzzle: dict | None = None) -> Optional[dict]:
+    """Create / refresh the persistent "Today's Crossword ✏️" Coffee Table.
+
+    Idempotent — safe to call on every `/games/crossword/daily` GET. The
+    table is `persistent=True` so the 24h idle prune never reaps it, and
+    open to every signed-in user (no `founder_only` gate). Each day the
+    title/description are refreshed so the card reflects today's puzzle.
+
+    Why a fixed table?
+      The "discuss today's puzzle" loop only works if everyone lands in
+      the *same* room. A per-user table would shard the conversation and
+      nobody would meet. One table per day, persistent forever, is the
+      simplest correct shape.
+    """
+    if puzzle is None:
+        return None
+    # Find by name (single source of truth for the daily table identity).
+    t = await db.tables.find_one(
+        {"name": {"$regex": "^Today's Crossword"}, "persistent": True, "daily_crossword": True},
+        {"_id": 0},
+    )
+    today = _xword_daily_date()
+    desc = (
+        f"Discuss today's Daily Crossword — {puzzle.get('theme', 'Medium')} ({today}). "
+        f"Share your favourite clue, ask for hints, brag about your finish time. "
+        f"Everyone's solving the same puzzle today."
+    )
+    if t:
+        # Refresh the metadata in case the day rolled over since last call.
+        if t.get("daily_puzzle_id") != puzzle.get("id"):
+            await db.tables.update_one(
+                {"id": t["id"]},
+                {"$set": {
+                    "daily_puzzle_id": puzzle.get("id"),
+                    "description": desc,
+                    "last_activity_at": now_iso(),
+                }},
+            )
+            t["daily_puzzle_id"] = puzzle.get("id")
+            t["description"] = desc
+        return t
+    # Pick a host: any active member; falls back to empty (visible card with
+    # generic attribution) so the lounge never shows an "orphan" table.
+    first = await db.users.find_one(
+        {"is_demo": {"$ne": True}}, {"_id": 0, "id": 1}, sort=[("created_at", 1)]
+    )
+    host_id = (first or {}).get("id", "") or ""
+    t = {
+        "id": nid(),
+        "name": "Today's Crossword ✏️",
+        "emoji": "✏️",
+        "description": desc,
+        "visibility": "public",
+        "host_id": host_id,
+        "seated": [host_id] if host_id else [],
+        "created_at": now_iso(),
+        "last_activity_at": now_iso(),
+        "persistent": True,
+        "daily_crossword": True,
+        "daily_puzzle_id": puzzle.get("id"),
+    }
+    try:
+        await db.tables.insert_one(t)
+    except Exception:
+        # Race-safe — another caller may have just created it.
+        t = await db.tables.find_one(
+            {"name": {"$regex": "^Today's Crossword"}, "daily_crossword": True}, {"_id": 0}
+        )
+    return t
 
 
 async def _ensure_founders_table() -> Optional[dict]:
@@ -6748,6 +6822,27 @@ class ConnectionHub:
 hub = ConnectionHub()
 
 
+@api.get("/games/crossword/daily")
+async def crossword_daily():
+    """The shared **Daily Crossword** — same medium-level puzzle for every
+    player on a given UTC day. Pairs with the "Today's Crossword" Coffee
+    Lounge table so the community can swap clues and celebrate finishes.
+    """
+    p = _xword_daily()
+    if not p:
+        raise HTTPException(404, "No daily crossword available")
+    # Make sure the discussion table exists. Idempotent — once created the
+    # table is reused for life; the puzzle id stamped on it is refreshed
+    # daily so the card title stays accurate.
+    table = await _ensure_daily_crossword_table(p)
+    return {
+        "date": _xword_daily_date(),
+        "puzzle": _xword_serialise(p),
+        "discussion_table_id": (table or {}).get("id"),
+        "points": _XWORD_POINTS.get(p.get("level", "medium"), 10) + 5,  # +5 daily bonus
+    }
+
+
 @api.get("/games/crossword/levels")
 async def crossword_levels():
     """Headline data for the Crossword Hub.
@@ -6823,15 +6918,24 @@ async def crossword_check(puzzle_id: str, body: CrosswordCheckBody):
                 solved = False
         status.append(row_status)
     # Award points only once per puzzle per user.
+    # Points scale with difficulty (easy=5, medium=10, hard=15, expert=25).
+    # The shared Daily Crossword (medium) carries a +5 social bonus on top
+    # so the "everyone's chatting about today's puzzle" loop is rewarding.
     awarded = False
+    points_to_award = 0
     if solved and body.user_id:
         key = f"xword:{body.user_id}:{puzzle_id}"
         marker = await db.game_completions.find_one({"key": key}, {"_id": 0})
         if not marker:
             await db.game_completions.insert_one({"key": key, "at": now_iso()})
-            await award_points(body.user_id, 5)
+            points_to_award = _XWORD_POINTS.get(p.get("level", "easy"), 5)
+            # Daily bonus: today's shared puzzle = extra +5 for the social hook.
+            daily = _xword_daily()
+            if daily and daily.get("id") == puzzle_id:
+                points_to_award += 5
+            await award_points(body.user_id, points_to_award)
             awarded = True
-    return {"status": status, "solved": solved, "points_awarded": awarded}
+    return {"status": status, "solved": solved, "points_awarded": awarded, "points": points_to_award}
 
 
 @api.get("/games/crossword/{puzzle_id}/reveal/{row}/{col}")
@@ -6848,6 +6952,52 @@ async def crossword_reveal(puzzle_id: str, row: int, col: int):
     if letter is None:
         raise HTTPException(400, "That cell is blocked")
     return {"row": row, "col": col, "letter": letter}
+
+
+class CrosswordProgressBody(BaseModel):
+    # Required so we know which puzzle this snapshot belongs to.
+    puzzle_id: str
+    # 2-D array of letters or "" for empty cells. Server stores verbatim
+    # so the player resumes exactly where they left off (even mistakes).
+    guesses: list[list[Optional[str]]]
+    # Cells the player revealed via the "Reveal letter" assist — locked in
+    # the UI so they can't be accidentally cleared.
+    revealed: list[list[bool]] = []
+    seconds: int = 0
+    completed: bool = False
+
+
+@api.post("/games/crossword/progress/{user_id}")
+async def crossword_save_progress(user_id: str, body: CrosswordProgressBody):
+    """Persist a single user's in-progress crossword.
+
+    One document per (user, puzzle). Idempotent upsert — the play screen
+    calls this opportunistically (on cell change + on unmount) so users
+    who walk away and come back tomorrow find their letters intact.
+    """
+    p = _xword_get(body.puzzle_id)
+    if not p:
+        raise HTTPException(404, "Crossword not found")
+    key = {"user_id": user_id, "puzzle_id": body.puzzle_id}
+    doc = {
+        **key,
+        "guesses": body.guesses,
+        "revealed": body.revealed,
+        "seconds": int(body.seconds or 0),
+        "completed": bool(body.completed),
+        "updated_at": now_iso(),
+    }
+    await db.crossword_progress.update_one(key, {"$set": doc}, upsert=True)
+    return {"ok": True}
+
+
+@api.get("/games/crossword/progress/{user_id}")
+async def crossword_get_progress(user_id: str, puzzle_id: str):
+    """Resume the player's in-progress crossword if they have one."""
+    saved = await db.crossword_progress.find_one(
+        {"user_id": user_id, "puzzle_id": puzzle_id}, {"_id": 0}
+    )
+    return saved or {}
 
 
 @app.websocket("/api/ws/table/{table_id}")
