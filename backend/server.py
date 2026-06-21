@@ -182,15 +182,24 @@ class User(BaseModel):
     is_founder: bool = False
     founder_number: Optional[int] = None  # 1-indexed position in cohort
     # ─── Business / venue flags ──────────────────────────────────────────
-    # YouBelong is a community app, not an ad platform. We invite local
-    # businesses (cafés, RSLs, bowling clubs, etc.) to advertise their
-    # events with a one-off "first listing free" gesture, then ask them to
-    # contribute. These three fields track that journey:
-    #   • is_business  → user has self-identified as a business / venue
-    #   • business_name → the public "Sponsored by …" label
-    #   • business_free_listing_used → whether they've taken the free post
+    # YouBelong invites local businesses (cafés, RSLs, bowling clubs, etc.)
+    # to list their events under a subscription. The first month is a free
+    # trial with a 5-listing-per-period cap; paid weekly / monthly tiers
+    # are coming soon. These fields track that journey:
+    #   • is_business               → self-identified as a business / venue
+    #   • business_name             → public "Hosted by …" label
+    #   • business_plan             → trial | weekly | monthly | None
+    #   • business_plan_started_at  → ISO; when current period began
+    #   • business_plan_renews_at   → ISO; when counter resets / billing falls due
+    #   • business_events_this_period → count posted in current period
     is_business: bool = False
     business_name: Optional[str] = None
+    business_plan: Optional[str] = None  # "trial" | "weekly" | "monthly"
+    business_plan_started_at: Optional[str] = None
+    business_plan_renews_at: Optional[str] = None
+    business_events_this_period: int = 0
+    # Legacy — superseded by business_plan. Kept so existing accounts that
+    # claimed the original "one free listing" perk still load.
     business_free_listing_used: bool = False
     created_at: str = Field(default_factory=now_iso)
 
@@ -4157,51 +4166,124 @@ async def events_preflight(body: EventPreflightBody):
     """
     hint = _looks_like_business_event(body.title, body.description, body.location)
     already_business = False
-    free_listing_used = False
+    business_status = None
     if body.host_id:
         u = await db.users.find_one(
             {"id": body.host_id},
-            {"_id": 0, "is_business": 1, "business_free_listing_used": 1, "business_name": 1},
+            {"_id": 0, "is_business": 1, "business_plan": 1,
+             "business_plan_started_at": 1, "business_plan_renews_at": 1,
+             "business_events_this_period": 1, "business_name": 1},
         )
         if u:
             already_business = bool(u.get("is_business"))
-            free_listing_used = bool(u.get("business_free_listing_used"))
+            business_status = _business_status(u)
     return {
         **hint,
         "already_business": already_business,
-        "free_listing_used": free_listing_used,
-        # The actual copy the modal should show on each path. Centralised
-        # here so we can A/B test wording without an app release.
+        "business_status": business_status,
         "messages": {
-            "first_free": "Your first business listing is on us — free!",
-            "next_paid": "We'll soon ask businesses to chip in for additional listings — we'll be in touch about pricing closer to launch.",
+            "trial_offer": "Start with a free 1-month trial — up to 5 event listings.",
+            "next_paid": "Weekly and monthly plans are coming soon — we'll be in touch about pricing.",
         },
     }
 
 
 class ClaimBusinessBody(BaseModel):
     business_name: str = Field(min_length=2, max_length=80)
+    plan: Optional[str] = Field(default="trial")  # trial | weekly | monthly
+
+
+# Subscription limits — single source of truth so the modal, the gate
+# message, and the limit check never drift out of sync.
+_BUSINESS_PLANS = {
+    "trial":   {"limit": 5, "period_days": 30, "label": "Free 1-month trial"},
+    "monthly": {"limit": 5, "period_days": 30, "label": "Monthly"},
+    "weekly":  {"limit": 2, "period_days": 7,  "label": "Weekly"},
+}
+
+
+def _business_status(u: dict) -> dict:
+    """Build the live counter the frontend uses to render "3 of 5 listings
+    used this month" + days-until-renewal. Centralised so create_event,
+    the preflight endpoint, and the dedicated status endpoint all agree.
+    """
+    plan = u.get("business_plan")
+    if not plan or plan not in _BUSINESS_PLANS:
+        return {"plan": None}
+    cfg = _BUSINESS_PLANS[plan]
+    used = int(u.get("business_events_this_period") or 0)
+    renews_at = u.get("business_plan_renews_at")
+    # Handle period roll-over lazily on read so the counter resets even if
+    # the user hasn't tried to post yet. We don't persist on read, just
+    # report the up-to-date numbers.
+    if renews_at:
+        try:
+            r = datetime.fromisoformat(renews_at.replace("Z", "+00:00"))
+            if r <= datetime.now(timezone.utc):
+                used = 0
+        except Exception:
+            pass
+    return {
+        "plan": plan,
+        "plan_label": cfg["label"],
+        "events_used": used,
+        "events_limit": cfg["limit"],
+        "events_remaining": max(0, cfg["limit"] - used),
+        "period_started_at": u.get("business_plan_started_at"),
+        "period_renews_at": renews_at,
+        "is_within_limit": used < cfg["limit"],
+    }
 
 
 @api.post("/users/me/business")
 async def claim_business(body: ClaimBusinessBody, user=Depends(current_user)):
-    """User self-identifies as a business / venue.
+    """User self-identifies as a business / venue and starts a plan.
 
-    Sets `is_business=True` and stores the public `business_name` that
-    appears on sponsored event cards. Idempotent — if they're already a
-    business we just refresh the name. The `business_free_listing_used`
-    flag is NOT touched here; it's flipped only when their first sponsored
-    event is actually created.
+    Only `trial` is bookable right now (free for 1 month, 5 listings).
+    Paid weekly + monthly tiers come later — we'll be in touch about
+    pricing closer to launch, so requesting them just slots the user
+    into the trial period for now and records their interest.
     """
-    await db.users.update_one(
+    plan = (body.plan or "trial").lower()
+    if plan not in _BUSINESS_PLANS:
+        plan = "trial"
+    # For now everyone lands on the trial regardless of their choice — paid
+    # plans are coming-soon. We still remember the choice via `business_name`
+    # update + a `requested_plan` flag so we can reach out.
+    effective_plan = "trial"
+    cfg = _BUSINESS_PLANS[effective_plan]
+    now = datetime.now(timezone.utc)
+    renews_at = (now + timedelta(days=cfg["period_days"])).isoformat()
+    existing = await db.users.find_one(
         {"id": user["id"]},
-        {"$set": {
-            "is_business": True,
-            "business_name": body.business_name.strip(),
-        }},
-    )
+        {"_id": 0, "is_business": 1, "business_plan": 1, "business_plan_started_at": 1, "business_plan_renews_at": 1, "business_events_this_period": 1},
+    ) or {}
+    update: dict = {
+        "is_business": True,
+        "business_name": body.business_name.strip(),
+        "business_plan": effective_plan,
+        "business_requested_plan": plan,  # remember what they asked for
+    }
+    # Only initialise the period the first time, so repeat-claim doesn't
+    # silently reset the counter and let someone game the limit.
+    if not existing.get("business_plan"):
+        update["business_plan_started_at"] = now.isoformat()
+        update["business_plan_renews_at"] = renews_at
+        update["business_events_this_period"] = 0
+    await db.users.update_one({"id": user["id"]}, {"$set": update})
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    return _safe_user(fresh or {})
+    return {
+        **_safe_user(fresh or {}),
+        "business_status": _business_status(fresh or {}),
+    }
+
+
+@api.get("/users/me/business/status")
+async def my_business_status(user=Depends(current_user)):
+    """Snapshot used by Settings & the event-create screen to show
+    'You've used N of M listings this month · resets in X days'."""
+    fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return _business_status(fresh or {})
 
 
 @api.post("/events")
@@ -4221,21 +4303,58 @@ async def create_event(body: EventCreateBody):
     if body.host_id:
         host_user = await db.users.find_one(
             {"id": body.host_id},
-            {"_id": 0, "is_business": 1, "business_name": 1,
-             "business_free_listing_used": 1},
+            {"_id": 0, "is_business": 1, "business_name": 1, "business_plan": 1,
+             "business_plan_started_at": 1, "business_plan_renews_at": 1,
+             "business_events_this_period": 1},
         )
     if host_user and host_user.get("is_business"):
+        status = _business_status(host_user)
+        # Hard-stop at the per-period limit. Frontend catches this 402 and
+        # shows the friendly "you've used N of M this month — paid plans
+        # coming soon" prompt instead of a generic error toast.
+        if status.get("plan") and not status.get("is_within_limit"):
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "code": "business_limit_reached",
+                    "message": f"You've used {status['events_used']} of {status['events_limit']} listings this period. Paid plans are coming soon — we'll be in touch.",
+                    "business_status": status,
+                },
+            )
+        # Auto-attach the "Hosted by …" badge so the event card on the
+        # community feed shows the business name. We keep using the existing
+        # `sponsor` field on the Event model to avoid a schema migration.
         if not body.sponsor:
             body.sponsor = {
                 "name": host_user.get("business_name") or "Local business",
                 "message": "",
                 "discount_code": "",
             }
-        if not host_user.get("business_free_listing_used"):
-            # First sponsored event — mark the freebie as used.
+        # Roll the counter forward (and reset on period roll-over).
+        now = datetime.now(timezone.utc)
+        renews_at = host_user.get("business_plan_renews_at")
+        period_rolled = False
+        if renews_at:
+            try:
+                r = datetime.fromisoformat(renews_at.replace("Z", "+00:00"))
+                period_rolled = r <= now
+            except Exception:
+                period_rolled = False
+        if period_rolled:
+            cfg = _BUSINESS_PLANS.get(host_user.get("business_plan") or "trial", _BUSINESS_PLANS["trial"])
+            new_renews = (now + timedelta(days=cfg["period_days"])).isoformat()
             await db.users.update_one(
                 {"id": body.host_id},
-                {"$set": {"business_free_listing_used": True}},
+                {"$set": {
+                    "business_plan_started_at": now.isoformat(),
+                    "business_plan_renews_at": new_renews,
+                    "business_events_this_period": 1,
+                }},
+            )
+        else:
+            await db.users.update_one(
+                {"id": body.host_id},
+                {"$inc": {"business_events_this_period": 1}},
             )
     # Sanitise recurrence inputs. We accept None / weekly / fortnightly /
     # monthly only — anything else is silently treated as a one-off.

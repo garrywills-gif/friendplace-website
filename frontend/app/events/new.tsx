@@ -56,16 +56,23 @@ export default function NewEvent() {
   // ─── Business-event preflight state. When the user taps "Create event"
   // we call /events/preflight first. If the heuristic flags it AND the
   // host isn't already a business, we open a friendly modal explaining
-  // why we noticed and offering the "first listing free" path. The user
-  // can confirm they're a business (claim the perk) or insist it's a
+  // what we noticed and offering the free 1-month trial path. The user
+  // can confirm they're a business (start the trial) or insist it's a
   // community event (we proceed as normal but flag for moderation).
   const [businessModal, setBusinessModal] = useState<null | {
-    reasons: string[];
-    firstFree: boolean;
+    trialOffer: string;
     nextPaidMsg: string;
   }>(null);
   const [businessName, setBusinessName] = useState("");
   const [claiming, setClaiming] = useState(false);
+  // Hard-stop overlay when an existing business hits the period limit.
+  // Distinct from the "claim a plan" modal — these users have already
+  // started a plan and just need a friendly "you're out for this period".
+  const [limitModal, setLimitModal] = useState<null | {
+    message: string;
+    used: number;
+    limit: number;
+  }>(null);
 
   if (!user) return <View style={{ flex: 1, backgroundColor: c.surface }}><Header title="New event" /></View>;
 
@@ -89,8 +96,7 @@ export default function NewEvent() {
       if (hint?.looks_business && !hint.already_business) {
         setBusy(false);
         setBusinessModal({
-          reasons: hint.reasons || [],
-          firstFree: !hint.free_listing_used,
+          trialOffer: hint?.messages?.trial_offer || "Start with a free 1-month trial — up to 5 event listings.",
           nextPaidMsg: hint?.messages?.next_paid || "",
         });
         return; // wait for the user's decision
@@ -128,7 +134,19 @@ export default function NewEvent() {
       router.replace("/events");
       return created;
     } catch (e: any) {
-      show(e?.message || "Could not create event");
+      // 402 Payment Required → business has used its monthly allowance.
+      // Show the friendly limit modal instead of a generic error toast.
+      const msg = e?.message || "";
+      const m = msg.match(/used\s+(\d+)\s+of\s+(\d+)/i);
+      if (msg.toLowerCase().includes("listings") || msg.toLowerCase().includes("business_limit")) {
+        setLimitModal({
+          message: msg,
+          used: m ? parseInt(m[1], 10) : 0,
+          limit: m ? parseInt(m[2], 10) : 5,
+        });
+      } else {
+        show(msg || "Could not create event");
+      }
     } finally { setBusy(false); }
   };
 
@@ -310,25 +328,10 @@ export default function NewEvent() {
             <Text style={[modalStyles.body, { color: c.onSurface, fontSize: 15 * scale }]}>
               YouBelong is built for our community — so when we spot business listings, we gently let you know.
               {"\n\n"}
-              <Text style={{ fontWeight: "800" }}>
-                {businessModal?.firstFree
-                  ? "Good news — your first listing is on us, free."
-                  : "You've already used your free listing."}
-              </Text>
-              {" "}
-              {businessModal?.nextPaidMsg || "We'll be in touch about pricing closer to launch."}
+              <Text style={{ fontWeight: "800" }}>🎁 {businessModal?.trialOffer}</Text>
+              {"\n\n"}
+              {businessModal?.nextPaidMsg}
             </Text>
-            {businessModal && businessModal.reasons.length > 0 && (
-              <View style={[modalStyles.reasons, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-                <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "800", marginBottom: 4, letterSpacing: 0.4 }}>WHY WE NOTICED</Text>
-                {businessModal.reasons.map((r, i) => (
-                  <View key={i} style={{ flexDirection: "row", gap: 6, marginTop: 2 }}>
-                    <Text style={{ color: c.brand, fontWeight: "900" }}>•</Text>
-                    <Text style={{ flex: 1, color: c.onSurface, fontSize: 13 * scale }}>{r}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
             <Text style={[modalStyles.label, { color: c.onSurface, fontSize: 14 * scale }]}>
               Business or venue name
             </Text>
@@ -362,7 +365,7 @@ export default function NewEvent() {
               ]}
             >
               <Text style={{ color: businessName.trim().length >= 2 && !claiming ? c.onBrandPrimary : c.muted, fontWeight: "900", fontSize: 16 * scale }}>
-                {claiming ? "Posting…" : (businessModal?.firstFree ? "Yes, post free listing 🎁" : "Yes, post as business")}
+                {claiming ? "Starting your trial…" : "Start free trial & post event 🎁"}
               </Text>
             </Pressable>
             <Pressable
@@ -374,6 +377,38 @@ export default function NewEvent() {
               <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
                 No, it&apos;s a community event
               </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Limit-reached modal — shown when an existing business user tries
+          to post beyond their period allowance (server returns 402).
+          Friendly, not punitive — explains the reset window and signals
+          that paid plans are coming. */}
+      <Modal visible={!!limitModal} animationType="fade" transparent onRequestClose={() => setLimitModal(null)}>
+        <Pressable style={modalStyles.backdrop} onPress={() => setLimitModal(null)}>
+          <Pressable
+            onPress={(e: any) => e.stopPropagation && e.stopPropagation()}
+            style={[modalStyles.sheet, { backgroundColor: c.surface, alignItems: "center" }]}
+          >
+            <Text style={{ fontSize: 44 }}>🦋</Text>
+            <Text style={[modalStyles.title, { color: c.onSurface, fontSize: 22 * scale }]}>
+              You&apos;ve used your listings for this period
+            </Text>
+            <Text style={[modalStyles.body, { color: c.onSurface, fontSize: 15 * scale, textAlign: "center" }]}>
+              <Text style={{ fontWeight: "800" }}>{limitModal?.used ?? 0} of {limitModal?.limit ?? 5}</Text> listings used.
+              {"\n\n"}
+              Your allowance resets at the end of the period.
+              {"\n\n"}
+              Weekly and monthly plans are coming soon — we&apos;ll be in touch about pricing.
+            </Text>
+            <Pressable
+              testID="limit-modal-close"
+              onPress={() => setLimitModal(null)}
+              style={[modalStyles.primaryBtn, { backgroundColor: c.brand }]}
+            >
+              <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 16 * scale }}>Got it</Text>
             </Pressable>
           </Pressable>
         </Pressable>
