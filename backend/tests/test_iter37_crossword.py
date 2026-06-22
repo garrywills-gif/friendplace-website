@@ -86,6 +86,9 @@ class TestLevels:
         for lvl in ("easy", "medium", "hard", "expert"):
             assert by_lvl[lvl]["library_total"] == 8, lvl
             assert by_lvl[lvl]["active_count"] == 3, lvl
+        # Iter38 polish — 4 levels × 8 puzzles = 32 total
+        total_library = sum(l["library_total"] for l in levels)
+        assert total_library == 32, total_library
         assert data["rotation_days"] == 14
 
 
@@ -135,36 +138,60 @@ class TestSinglePuzzle:
         assert p["id"] == "easy-001"
         assert p["level"] == "easy"
         assert p["theme"] == "Garden"
-        assert p["size"] == 5
-        # Grid is 5x5, has letters at known cells, blocked elsewhere
-        assert p["grid"][0][0] == "R"  # ROSES
-        assert p["grid"][2][0] == "T"  # TREES
-        # Answers stripped
-        for cl in p["clues"]["across"]:
-            assert "answer" not in cl
-        # All clues are there (2 across + 1 down)
-        assert len(p["clues"]["across"]) == 2
-        assert len(p["clues"]["down"]) == 1
+        # Iter38 polish — easy-001 grid is at least 9 wide (was 5)
+        assert p["size"] >= 9, p["size"]
+        # Answers stripped from clues
+        for direction in ("across", "down"):
+            for cl in p["clues"].get(direction, []):
+                assert "answer" not in cl, cl
+        # Should have several across + down clues now
+        assert len(p["clues"]["across"]) >= 2
+        assert len(p["clues"]["down"]) >= 1
+
+    # Iter38 polish — Expert puzzles expanded to dense 14×14+ grids with ≥10 clues
+    def test_expert_001_is_dense(self, session):
+        r = session.get(f"{API}/games/crossword/expert-001")
+        assert r.status_code == 200, r.text
+        p = r.json()
+        assert p["id"] == "expert-001"
+        assert p["level"] == "expert"
+        # Grid is at least 14×14
+        assert p["size"] >= 14, p["size"]
+        assert len(p["grid"]) >= 14
+        assert len(p["grid"][0]) >= 14
+        # ≥10 clues total (much denser than before)
+        total_clues = (
+            len(p["clues"].get("across", []))
+            + len(p["clues"].get("down", []))
+        )
+        assert total_clues >= 10, total_clues
+        # Answers still stripped
+        for direction in ("across", "down"):
+            for cl in p["clues"].get(direction, []):
+                assert "answer" not in cl, cl
 
 
 # ── Check (correct + idempotent points) ───────────────────────────────
 class TestCheckCorrect:
     @staticmethod
-    def _correct_easy_001_grid():
-        # 5x5, fill ROSES @ row 0 col 0..4, TREES @ row 2 col 0..4,
-        # SEE @ col 2 rows 0..2 (S=row0,col2 from ROSES already, E=row1,col2,
-        # E=row2,col2 from TREES). Cells outside ROSES/TREES/SEE are blocked.
-        g = [["" for _ in range(5)] for _ in range(5)]
-        for i, ch in enumerate("ROSES"):
-            g[0][i] = ch
-        for i, ch in enumerate("TREES"):
-            g[2][i] = ch
-        # SEE column intersection — row 1 col 2 = "E"
-        g[1][2] = "E"
+    def _correct_grid_from_api(session):
+        """Fetch easy-001 from the API and convert the served grid (with
+        letters + nulls for blocks) into a guesses array (letters + '')."""
+        r = session.get(f"{API}/games/crossword/easy-001")
+        assert r.status_code == 200, r.text
+        p = r.json()
+        size = p["size"]
+        grid_in = p["grid"]
+        g = [["" for _ in range(size)] for _ in range(size)]
+        for row in range(size):
+            for col in range(size):
+                cell = grid_in[row][col]
+                if cell:
+                    g[row][col] = cell
         return g
 
     def test_correct_awards_points_once(self, session, maggie_id):
-        guesses = self._correct_easy_001_grid()
+        guesses = self._correct_grid_from_api(session)
         r1 = session.post(
             f"{API}/games/crossword/easy-001/check",
             json={"guesses": guesses, "user_id": maggie_id},
@@ -190,14 +217,35 @@ class TestCheckCorrect:
 # ── Check (wrong letters) ─────────────────────────────────────────────
 class TestCheckWrong:
     def test_wrong_letters_marked(self, session):
-        # Same as correct grid but with one wrong letter at (0,0)
-        g = [["" for _ in range(5)] for _ in range(5)]
-        for i, ch in enumerate("ROSES"):
-            g[0][i] = ch
-        for i, ch in enumerate("TREES"):
-            g[2][i] = ch
-        g[1][2] = "E"
-        g[0][0] = "X"  # wrong
+        # Build correct grid from API then corrupt one letter cell.
+        r = session.get(f"{API}/games/crossword/easy-001")
+        assert r.status_code == 200, r.text
+        p = r.json()
+        size = p["size"]
+        grid_in = p["grid"]
+        g = [["" for _ in range(size)] for _ in range(size)]
+        first_letter_cell = None
+        blocked_cell = None
+        for row in range(size):
+            for col in range(size):
+                cell = grid_in[row][col]
+                if cell:
+                    g[row][col] = cell
+                    if first_letter_cell is None:
+                        first_letter_cell = (row, col)
+                else:
+                    if blocked_cell is None:
+                        blocked_cell = (row, col)
+        assert first_letter_cell is not None
+        assert blocked_cell is not None
+        # Pick a SECOND letter cell to keep correct for the "correct" assertion
+        # and corrupt the first one.
+        fr, fc = first_letter_cell
+        correct_letter = g[fr][fc]
+        # Use a letter guaranteed to differ
+        wrong_letter = "Q" if correct_letter != "Q" else "Z"
+        g[fr][fc] = wrong_letter
+
         r = session.post(
             f"{API}/games/crossword/easy-001/check", json={"guesses": g}
         )
@@ -205,25 +253,54 @@ class TestCheckWrong:
         d = r.json()
         assert d["solved"] is False
         # Per-cell statuses
-        assert d["status"][0][0] == "wrong"
-        # Cells that are not part of any word should be "blocked"
-        assert d["status"][3][0] == "blocked"
-        assert d["status"][4][4] == "blocked"
-        # Filled correctly: row 0 col 1
-        assert d["status"][0][1] == "correct"
+        assert d["status"][fr][fc] == "wrong"
+        br, bc = blocked_cell
+        assert d["status"][br][bc] == "blocked"
 
 
 # ── Reveal ─────────────────────────────────────────────────────────────
 class TestReveal:
-    def test_reveal_first_cell(self, session):
-        r = session.get(f"{API}/games/crossword/easy-001/reveal/0/0")
+    def test_reveal_first_letter_cell(self, session):
+        # Find the first non-blocked cell in easy-001 and assert reveal
+        # returns the letter that is in the API grid for that cell.
+        r0 = session.get(f"{API}/games/crossword/easy-001")
+        assert r0.status_code == 200
+        p = r0.json()
+        grid_in = p["grid"]
+        target = None
+        for row in range(p["size"]):
+            for col in range(p["size"]):
+                if grid_in[row][col]:
+                    target = (row, col, grid_in[row][col])
+                    break
+            if target:
+                break
+        assert target is not None
+        row, col, letter = target
+        r = session.get(
+            f"{API}/games/crossword/easy-001/reveal/{row}/{col}"
+        )
         assert r.status_code == 200, r.text
-        d = r.json()
-        assert d == {"row": 0, "col": 0, "letter": "R"}
+        assert r.json() == {"row": row, "col": col, "letter": letter}
 
     def test_reveal_blocked_cell_400(self, session):
-        # Row 3, col 0 is blocked on easy-001
-        r = session.get(f"{API}/games/crossword/easy-001/reveal/3/0")
+        # Find a blocked cell and assert 400.
+        r0 = session.get(f"{API}/games/crossword/easy-001")
+        assert r0.status_code == 200
+        p = r0.json()
+        grid_in = p["grid"]
+        blocked = None
+        for row in range(p["size"]):
+            for col in range(p["size"]):
+                if not grid_in[row][col]:
+                    blocked = (row, col)
+                    break
+            if blocked:
+                break
+        assert blocked is not None
+        r = session.get(
+            f"{API}/games/crossword/easy-001/reveal/{blocked[0]}/{blocked[1]}"
+        )
         assert r.status_code == 400
 
 

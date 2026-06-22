@@ -1,23 +1,28 @@
 /**
  * Crossword — interactive play screen.
  *
- * UX overview (designed for older adults, big touch targets):
- *   • Tap a cell → highlights the active word (across by default).
- *   • Tap an already-active cell → toggles between across/down direction.
- *   • Big on-screen letter keyboard at the bottom (one row of A–M, one
- *     row of N–Z, plus ⌫ / next-word). Letters auto-advance the cursor.
- *   • Action buttons: Check, Reveal letter, Clear, Help.
- *   • Wrong letters tint red until typed over (per user choice "A").
- *   • Save progress server-side so the user can come back tomorrow.
- *   • On full solve: confetti + points awarded toast + offer to discuss
- *     in the "Today's Crossword" Coffee Lounge table (Daily only).
+ * UX overview (designed for older adults, soft visuals, big touch targets):
+ *   • Soft slate blocked cells (not harsh black), strong teal/yellow
+ *     highlight for the active word so it's always obvious where you
+ *     are typing.
+ *   • Tap a cell → highlights the active word. Tap again → flips
+ *     across↔down direction.
+ *   • Big on-screen keyboard with auto-advance.
+ *   • Action row: Check · Hint (one letter) · Clear answer (current word).
+ *   • Clue banner has ◀ Previous / Next ▶ buttons for keyboard-free
+ *     navigation between clues, plus the speak-aloud button.
+ *   • Wrong letters tint red until typed over.
+ *   • Progress auto-saves: every keystroke (debounced), on unmount,
+ *     and when the app goes to the background.
+ *   • Win flow: confetti + Belong Points toast + Coffee Lounge CTA on
+ *     the daily.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator,
-  useWindowDimensions, Modal,
+  useWindowDimensions, Modal, AppState,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
@@ -97,17 +102,28 @@ export default function CrosswordPlay() {
         const blankR: boolean[][] = p.grid.map(row => row.map(() => false));
         const blankS: (null)[][] = p.grid.map(row => row.map(() => null));
         let lt = blank, rv = blankR;
-        // Resume from server if available
+        // Resume from server if available — but only if the saved
+        // grid shape matches the current puzzle. If a puzzle was
+        // resized between sessions (as happened in the iter38 grid
+        // expansion), we discard the stale snapshot rather than feed
+        // a 5×5 array into a 9×9 puzzle (which would break Check).
         if (user) {
           try {
             const saved: any = await api.xwGetProgress(user.id, p.id);
-            if (saved && Array.isArray(saved.guesses)) {
+            const shapeOk =
+              saved &&
+              Array.isArray(saved.guesses) &&
+              saved.guesses.length === p.size &&
+              saved.guesses.every((r: any[]) => Array.isArray(r) && r.length === p.size);
+            if (shapeOk) {
               lt = saved.guesses.map((r: any[], ri: number) =>
                 r.map((v, ci) => (p!.grid[ri][ci] === null ? "" : (v || "")))
               );
-              rv = Array.isArray(saved.revealed) && saved.revealed.length === p.size
-                ? saved.revealed
-                : blankR;
+              const revShape =
+                Array.isArray(saved.revealed) &&
+                saved.revealed.length === p.size &&
+                saved.revealed.every((r: any[]) => Array.isArray(r) && r.length === p.size);
+              rv = revShape ? saved.revealed : blankR;
               if (typeof saved.seconds === "number") setSeconds(saved.seconds);
               startedAt.current = Date.now() - (saved.seconds || 0) * 1000;
               if (saved.completed) setCompleted(true);
@@ -238,6 +254,15 @@ export default function CrosswordPlay() {
     setSel([nx.row, nx.col]);
   }, [puzzle, activeClue, dir]);
 
+  const onPrevClue = useCallback(() => {
+    if (!puzzle || !activeClue) return;
+    const list = dir === "A" ? puzzle.clues.across : puzzle.clues.down;
+    const i = list.findIndex(cl => cl.num === activeClue.num);
+    if (i < 0) return;
+    const prev = list[(i - 1 + list.length) % list.length];
+    if (prev) setSel([prev.row, prev.col]);
+  }, [puzzle, activeClue, dir]);
+
   // ── server-side check
   const doCheck = useCallback(async () => {
     if (!puzzle) return;
@@ -292,32 +317,76 @@ export default function CrosswordPlay() {
     }
   }, [puzzle, sel, isBlocked, moveCursor, show]);
 
-  // ── clear non-revealed cells
+  // ── Clear answer: wipes letters in the active word ONLY (not the whole
+  // grid). Revealed/hinted cells stay locked. This matches what most
+  // crossword apps do when you tap a "Clear" affordance from a clue.
   const doClear = useCallback(() => {
-    if (!puzzle) return;
-    setLetters(prev => prev.map((row, r) => row.map((v, col) => revealed[r]?.[col] ? v : "")));
-    setStatusGrid(prev => prev.map(row => row.map(s => (s === "correct" ? "correct" : null))));
-  }, [puzzle, revealed]);
+    if (!puzzle || !activeClue) return;
+    setLetters(prev => {
+      const next = prev.map(row => row.slice());
+      for (let i = 0; i < activeClue.len; i++) {
+        const [r, col] = dir === "A"
+          ? [activeClue.row, activeClue.col + i]
+          : [activeClue.row + i, activeClue.col];
+        if (!revealed[r]?.[col]) next[r][col] = "";
+      }
+      return next;
+    });
+    setStatusGrid(prev => {
+      const next = prev.map(row => row.slice());
+      for (let i = 0; i < activeClue.len; i++) {
+        const [r, col] = dir === "A"
+          ? [activeClue.row, activeClue.col + i]
+          : [activeClue.row + i, activeClue.col];
+        // Keep "correct" status for revealed cells; clear others.
+        if (next[r][col] !== "correct") next[r][col] = null;
+      }
+      return next;
+    });
+    // Move cursor back to the first cell of the cleared word.
+    setSel([activeClue.row, activeClue.col]);
+  }, [puzzle, activeClue, dir, revealed]);
 
-  // ── debounced save (opportunistic on letter change + on unmount)
+  // ── Persist progress immediately. Used by debounced effect AND by
+  // the "save on the way out" hooks (unmount, focus loss, app background).
+  const saveNow = useCallback(() => {
+    if (!puzzle || !user || !letters.length) return Promise.resolve();
+    const guesses = letters.map(row => row.map(v => (v ? v : null)));
+    return api.xwSaveProgress(user.id, {
+      puzzle_id: puzzle.id,
+      guesses: guesses as any,
+      revealed,
+      seconds,
+      completed,
+    }).catch(() => {});
+  }, [puzzle, user, letters, revealed, seconds, completed]);
+
+  // ── debounced save (opportunistic on letter change)
   useEffect(() => {
     if (!puzzle || !user || !letters.length) return;
-    const handle = setTimeout(() => {
-      const guesses = letters.map(row => row.map(v => (v ? v : null)));
-      api.xwSaveProgress(user.id, {
-        puzzle_id: puzzle.id,
-        guesses: guesses as any,
-        revealed,
-        seconds,
-        completed,
-      }).catch(() => {});
-    }, 1500);
+    const handle = setTimeout(() => { saveNow(); }, 1500);
     return () => clearTimeout(handle);
-  }, [letters, revealed, seconds, completed, puzzle?.id, user?.id]);
+  }, [letters, revealed, seconds, completed, puzzle?.id, user?.id, saveNow]);
 
-  // ── grid dims (responsive: full width on phone, capped on iPad/web)
-  const GRID_MAX = Math.min(winW - 24, 520);
-  const cellSize = puzzle ? Math.floor(GRID_MAX / puzzle.size) : 40;
+  // ── Save on the way out: when the user navigates away, swipes back,
+  // closes the app, or backgrounds it. Critical for the "I'll come back
+  // tomorrow" promise — no lost letters.
+  useFocusEffect(useCallback(() => {
+    return () => { saveNow(); };
+  }, [saveNow]));
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "background" || s === "inactive") saveNow();
+    });
+    return () => sub.remove();
+  }, [saveNow]);
+
+  // ── grid dims — responsive. iPad-friendly: caps at 720 (the
+  // recommended max readable width). Min 28px cell keeps even dense
+  // Expert grids legible; if the grid would still overflow, the wrapping
+  // ScrollView gives a horizontal pan affordance.
+  const GRID_MAX = Math.min(winW - 12, 720);
+  const cellSize = puzzle ? Math.max(28, Math.min(56, Math.floor(GRID_MAX / puzzle.size))) : 40;
 
   if (loading) {
     return (
@@ -389,9 +458,21 @@ export default function CrosswordPlay() {
           </Pressable>
         )}
 
-        {/* Grid */}
-        <View style={{ alignItems: "center", marginTop: 8 }}>
-          <View style={{ width: cellSize * puzzle.size, borderWidth: 1.5, borderColor: c.onSurface }}>
+        {/* Grid — soft slate blocked cells (not harsh navy), thick brand
+            border. Wrapped in a horizontal ScrollView so dense Expert
+            grids stay tappable on phones (and look great centred on iPad). */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 6, alignItems: "center", justifyContent: "center", flexGrow: 1 }}
+          style={{ marginTop: 12 }}
+        >
+          <View style={{
+            width: cellSize * puzzle.size,
+            borderWidth: 2.5, borderColor: c.brand, borderRadius: 6,
+            backgroundColor: "#E7EAF0",
+            padding: 2,
+          }}>
             {puzzle.grid.map((row, r) => (
               <View key={r} style={{ flexDirection: "row" }}>
                 {row.map((cell, col) => {
@@ -405,12 +486,17 @@ export default function CrosswordPlay() {
                   const userLetter = letters[r]?.[col] || "";
                   const cellStatus = statusGrid[r]?.[col] || null;
                   const isRevealed = revealed[r]?.[col];
+                  // Soft palette:
+                  //   blocked       → soft slate gray   (#94A3B8)
+                  //   selected cell → bright sky tint   (#FCD34D, warm yellow)
+                  //   active word   → soft sky highlight (#DBEAFE, pale blue)
+                  //   normal cell   → off-white         (#FFFDF7, easier on eyes)
                   const bg = blocked
-                    ? c.onSurface
-                    : (selected ? "#FFE082" : (inActive ? "#FFF59D" : "#FFFFFF"));
+                    ? "#94A3B8"
+                    : (selected ? "#FCD34D" : (inActive ? "#DBEAFE" : "#FFFDF7"));
                   const fg = cellStatus === "wrong"
                     ? "#C62828"
-                    : (isRevealed ? c.brand : "#111");
+                    : (isRevealed ? c.brand : "#0F172A");
                   return (
                     <Pressable
                       key={`${r}-${col}`}
@@ -418,13 +504,13 @@ export default function CrosswordPlay() {
                       disabled={blocked}
                       style={{
                         width: cellSize, height: cellSize,
-                        borderWidth: 0.5, borderColor: c.onSurface,
+                        borderWidth: 1, borderColor: blocked ? "#94A3B8" : "#94A3B8",
                         backgroundColor: bg,
                         alignItems: "center", justifyContent: "center",
                       }}
                     >
                       {!blocked && num !== undefined && (
-                        <Text style={{ position: "absolute", top: 1, left: 2, fontSize: Math.max(8, cellSize * 0.22), color: "#555", fontWeight: "700" }}>
+                        <Text style={{ position: "absolute", top: 1, left: 2, fontSize: Math.max(9, cellSize * 0.24), color: "#475569", fontWeight: "700" }}>
                           {num}
                         </Text>
                       )}
@@ -439,29 +525,52 @@ export default function CrosswordPlay() {
               </View>
             ))}
           </View>
-        </View>
+        </ScrollView>
 
-        {/* Active clue banner */}
+        {/* Active clue banner — larger, easier to read, with Prev/Next
+            navigation buttons so users don't have to scroll the clue list. */}
         <View style={[styles.clueBanner, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.brand, fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.5 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+            <Text style={{ color: c.brand, fontWeight: "900", fontSize: 14 * scale, letterSpacing: 0.6, flex: 1 }}>
               {activeClue ? `${activeClue.num} ${dir === "A" ? "ACROSS" : "DOWN"} · ${activeClue.len} letters` : (dir === "A" ? "ACROSS" : "DOWN")}
             </Text>
-            <Text style={{ color: c.onSurface, fontSize: 17 * scale, fontWeight: "700", marginTop: 4 }}>
-              {activeClue?.clue || "Tap a cell to begin."}
-            </Text>
+            {!!ttsClue && <SpeakButton text={ttsClue} size={28} />}
           </View>
-          {!!ttsClue && <SpeakButton text={ttsClue} size={28} />}
-          <Pressable onPress={onNextClue} hitSlop={8} style={{ padding: 6 }} accessibilityLabel="Next clue">
-            <Ionicons name="play-skip-forward" size={22} color={c.brand} />
-          </Pressable>
+          <Text style={{ color: c.onSurface, fontSize: 21 * scale, fontWeight: "700", lineHeight: 28 * scale }}>
+            {activeClue?.clue || "Tap a cell to begin."}
+          </Text>
+          <View style={styles.navRow}>
+            <Pressable
+              onPress={onPrevClue}
+              style={({ pressed }) => [styles.navBtn, {
+                backgroundColor: pressed ? c.brand : "#FFFFFF",
+                borderColor: c.brand,
+              }]}
+              accessibilityLabel="Previous clue"
+            >
+              <Ionicons name="chevron-back" size={20} color={c.brand} />
+              <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Previous</Text>
+            </Pressable>
+            <Pressable
+              onPress={onNextClue}
+              style={({ pressed }) => [styles.navBtn, {
+                backgroundColor: pressed ? c.brand : "#FFFFFF",
+                borderColor: c.brand,
+              }]}
+              accessibilityLabel="Next clue"
+            >
+              <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Next</Text>
+              <Ionicons name="chevron-forward" size={20} color={c.brand} />
+            </Pressable>
+          </View>
         </View>
 
-        {/* Action row */}
+        {/* Action row — Hint (one letter free), Check (validate),
+            Clear answer (wipe current word only). */}
         <View style={styles.actionRow}>
           <ActionBtn label="Check" icon="checkmark-circle-outline" onPress={doCheck} c={c} scale={scale} />
-          <ActionBtn label="Reveal" icon="bulb-outline" onPress={doRevealLetter} c={c} scale={scale} />
-          <ActionBtn label="Clear" icon="refresh-outline" onPress={doClear} c={c} scale={scale} />
+          <ActionBtn label="Hint" icon="bulb-outline" onPress={doRevealLetter} c={c} scale={scale} />
+          <ActionBtn label="Clear answer" icon="refresh-outline" onPress={doClear} c={c} scale={scale} />
         </View>
 
         {/* Clue lists */}
@@ -539,7 +648,7 @@ export default function CrosswordPlay() {
               How to play
             </Text>
             <Text style={{ color: c.onSurface, fontSize: 14 * scale, lineHeight: 22 }}>
-              {`• Tap a cell to start — the highlighted word shows in the clue bar.\n• Tap the same cell again to flip between Across and Down.\n• Type with the on-screen keyboard. The cursor moves automatically.\n• Stuck? Tap "Reveal" to get the current letter for free.\n• Tap "Check" any time — red letters need a re-think.\n• Your progress is saved if you walk away.`}
+              {`• Tap a cell to start — the highlighted word shows in the clue bar.\n• Tap the same cell again to flip between Across and Down.\n• Type with the on-screen keyboard. The cursor moves automatically.\n• Stuck on a letter? Tap "Hint" to fill in just that one cell.\n• Tap "Check" any time — red letters mean try again.\n• Tap "Clear answer" to wipe the current word and start it over.\n• Your progress saves automatically — come back anytime.`}
             </Text>
             <Pressable
               style={[styles.modalBtn, { backgroundColor: c.brand }]}
@@ -625,7 +734,12 @@ const styles = StyleSheet.create({
   metaStrip: { flexDirection: "row", alignItems: "center", padding: 12, gap: 10 },
   timerPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 4 },
   discussCard: { marginHorizontal: 12, padding: 12, borderRadius: 14, flexDirection: "row", alignItems: "center", gap: 12 },
-  clueBanner: { marginHorizontal: 12, marginTop: 12, padding: 12, borderRadius: 14, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 8 },
+  clueBanner: { marginHorizontal: 12, marginTop: 14, padding: 16, borderRadius: 16, borderWidth: 1.5 },
+  navRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  navBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, minHeight: 48, gap: 4,
+  },
   actionRow: { flexDirection: "row", paddingHorizontal: 12, marginTop: 12, gap: 8 },
   actionBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: "center", gap: 4 },
   kb: { borderTopWidth: 1, paddingVertical: 8, paddingHorizontal: 4 },

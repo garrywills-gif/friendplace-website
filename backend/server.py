@@ -6993,11 +6993,34 @@ async def crossword_save_progress(user_id: str, body: CrosswordProgressBody):
 
 @api.get("/games/crossword/progress/{user_id}")
 async def crossword_get_progress(user_id: str, puzzle_id: str):
-    """Resume the player's in-progress crossword if they have one."""
+    """Resume the player's in-progress crossword if they have one.
+
+    If the stored snapshot's grid shape doesn't match the current puzzle
+    (can happen after a library rebuild that resized the grid), we purge
+    the stale doc and return an empty payload. Keeps the player in a
+    valid state without a manual data fix.
+    """
     saved = await db.crossword_progress.find_one(
         {"user_id": user_id, "puzzle_id": puzzle_id}, {"_id": 0}
     )
-    return saved or {}
+    if not saved:
+        return {}
+    p = _xword_get(puzzle_id)
+    if not p:
+        return saved
+    expected = p["size"]
+    g = saved.get("guesses")
+    shape_ok = (
+        isinstance(g, list)
+        and len(g) == expected
+        and all(isinstance(r, list) and len(r) == expected for r in g)
+    )
+    if not shape_ok:
+        await db.crossword_progress.delete_one(
+            {"user_id": user_id, "puzzle_id": puzzle_id}
+        )
+        return {}
+    return saved
 
 
 @app.websocket("/api/ws/table/{table_id}")

@@ -299,7 +299,7 @@ def _finalise(
 
 def _ab(id_: str, level: str, theme: str, words: list[WordClue]) -> dict:
     """Authoring shortcut — runs the auto-builder with level-appropriate caps."""
-    cap = {"easy": 11, "medium": 13, "hard": 15, "expert": 19}.get(level, 15)
+    cap = {"easy": 11, "medium": 13, "hard": 15, "expert": 17}.get(level, 15)
     return auto_build_crossword(id_, level, theme, words, max_size=cap)
 
 
@@ -568,7 +568,7 @@ HARD_LISTS: list[tuple[str, str, list[WordClue]]] = [
 ]
 
 
-# EXPERT — 5-12 letter themed words
+# EXPERT — denser packs (12-16 themed words each) for tough grids
 EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
     ("expert-001", "Community Life", [
         ("COMMUNITY",   "Group of neighbours"),
@@ -581,6 +581,11 @@ EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
         ("KINDNESS",    "Being warm to others"),
         ("SUPPORT",     "Help and encouragement"),
         ("BELONGING",   "Feeling part of something"),
+        ("WELCOME",     "Friendly hello to a newcomer"),
+        ("CARING",      "Looking after others"),
+        ("LAUGHTER",    "Sound of joy"),
+        ("RESPECT",     "Esteem and consideration"),
+        ("CHATTER",     "Light talk between friends"),
     ]),
     ("expert-002", "World Capitals", [
         ("CANBERRA",   "Aussie capital"),
@@ -593,6 +598,12 @@ EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
         ("MADRID",     "Spain's capital"),
         ("ROME",       "Italy's capital"),
         ("OTTAWA",     "Canada's capital"),
+        ("DUBLIN",     "Ireland's capital"),
+        ("ATHENS",     "Greece's capital"),
+        ("VIENNA",     "Austria's capital"),
+        ("HELSINKI",   "Finland's capital"),
+        ("OSLO",       "Norway's capital"),
+        ("LISBON",     "Portugal's capital"),
     ]),
     ("expert-003", "Famous Australians", [
         ("BRADMAN",   "Cricketing knight, surname"),
@@ -605,6 +616,10 @@ EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
         ("MINOGUE",   "Kylie, pop singer, surname"),
         ("JACKMAN",   "Hugh, Wolverine actor, surname"),
         ("GIBSON",    "Mel, Mad Max actor, surname"),
+        ("MURDOCH",   "Rupert, media mogul, surname"),
+        ("WHITLAM",   "Reformist PM Gough, surname"),
+        ("PACKER",    "Kerry, media boss, surname"),
+        ("THORPE",    "Ian, swimmer, surname"),
     ]),
     ("expert-004", "On the Farm", [
         ("PADDOCK",   "Fenced grazing field"),
@@ -617,6 +632,10 @@ EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
         ("CATTLE",    "Cows, plural"),
         ("TRACTOR",   "Big farm vehicle"),
         ("CHICKENS",  "Egg layers, plural"),
+        ("HOMESTEAD", "Farm house"),
+        ("OUTBACK",   "Remote Aussie bush country"),
+        ("CROPS",     "Wheat, oats and the like"),
+        ("STATION",   "Big rural property"),
     ]),
     ("expert-005", "Aussie Cars", [
         ("HOLDEN",     "Aussie car brand, retired 2020"),
@@ -628,6 +647,11 @@ EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
         ("COMMODORE",  "Long-running Holden sedan"),
         ("KOMBI",      "Hippie van"),
         ("CHARGER",    "70s Valiant muscle car"),
+        ("STATESMAN",  "Long-wheelbase Holden flagship"),
+        ("CHRYSLER",   "Maker of the Valiant"),
+        ("TOYOTA",     "Japanese maker of the Corolla"),
+        ("HONDA",      "Japanese maker of the Civic"),
+        ("SEDAN",      "Four-door car body style"),
     ]),
     ("expert-006", "Aussie TV Classics", [
         ("NEIGHBOURS",  "Ramsay Street drama"),
@@ -637,6 +661,10 @@ EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
         ("PRISONER",    "80s Cell Block H drama"),
         ("COUNTDOWN",   "Molly Meldrum's music show"),
         ("MASTERCHEF",  "Cooking competition show"),
+        ("HEYHEY",      "Daryl Somers' long-running variety show"),
+        ("PLAYSCHOOL",  "Beloved kids morning show"),
+        ("SALEOFTHECENTURY", "Tony Barber game show"),
+        ("BACKYARDBLITZ",   "Garden-makeover lifestyle show"),
     ]),
     ("expert-007", "Garden Glory", [
         ("HYDRANGEA",   "Big-bloom hedge plant"),
@@ -648,6 +676,11 @@ EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
         ("JACARANDA",   "Purple-flowered shade tree"),
         ("BANKSIA",     "Native cone-flower shrub"),
         ("GUMTREE",     "Eucalyptus, two words run together"),
+        ("AGAPANTHUS",  "Tall blue-violet flower-head plant"),
+        ("MAGNOLIA",    "Big pink-flowered tree"),
+        ("CAMELLIA",    "Glossy-leafed flowering shrub"),
+        ("LAVENDER",    "Purple aromatic herb"),
+        ("ROSEMARY",    "Spiky-leafed kitchen herb"),
     ]),
     ("expert-008", "Holiday Spots", [
         ("GOLDCOAST",   "Surfers Paradise locale"),
@@ -659,6 +692,11 @@ EXPERT_LISTS: list[tuple[str, str, list[WordClue]]] = [
         ("WHITSUNDAYS", "Queensland reef islands"),
         ("TASMANIA",    "Island state, south of Vic"),
         ("MELBOURNE",   "Vic capital, sport-mad city"),
+        ("FREMANTLE",   "Historic WA port suburb"),
+        ("NOOSA",       "Sunshine Coast holiday town"),
+        ("PORTDOUGLAS", "FNQ luxe seaside town"),
+        ("KANGAROO",    "Island off SA coast (with 'Island')"),
+        ("CABLEBEACH",  "Broome's famous white-sand beach"),
     ]),
 ]
 
