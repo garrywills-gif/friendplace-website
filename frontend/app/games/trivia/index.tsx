@@ -92,7 +92,7 @@ export default function TriviaHub() {
             </View>
             <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 22 * scale, marginTop: 8 }}>Today&apos;s 10 questions</Text>
             <Text style={{ color: "#FFFFFFCC", fontWeight: "700", fontSize: 14 * scale, marginTop: 2 }}>
-              Mixed categories · Earn {daily.points_on_complete} Belong Points
+              Mixed categories · Earn {daily.points_on_complete} Butterfly Points
             </Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 }}>
               <Ionicons name="play-circle" size={20} color="#FCC656" />
@@ -179,7 +179,7 @@ export default function TriviaHub() {
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 17 * scale }}>{d.label}</Text>
                   <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>
-                    {d.questions} questions · {d.points} Belong Points
+                    {d.questions} questions · {d.points} Butterfly Points
                   </Text>
                 </View>
                 {active && <Ionicons name="checkmark-circle" size={26} color={d.color} />}

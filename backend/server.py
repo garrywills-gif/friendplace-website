@@ -2363,7 +2363,7 @@ async def send_cheer(from_user_id: str, body: CheerBody):
     await push_notification(
         body.to_user_id, "cheer",
         f"{savatar} {sname} says {emoji} {label}",
-        "Belong Points awarded for kindness.",
+        "Butterfly Points awarded for kindness.",
         {"from_id": from_user_id, "kind": body.kind},
     )
     # Award points for positive participation
@@ -6889,7 +6889,7 @@ async def crossword_check(puzzle_id: str, body: CrosswordCheckBody):
     "blocked") plus a `solved` flag when every filled cell matches. We
     keep the answer key on the server so the client can't shortcut.
     If `user_id` is provided AND the puzzle is fully solved, the player
-    earns 5 Belong Points (one-off per puzzle id).
+    earns 5 Butterfly Points (one-off per puzzle id).
     """
     p = _xword_get(puzzle_id)
     if not p:

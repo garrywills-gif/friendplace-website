@@ -75,18 +75,18 @@ MILESTONES: List[Dict] = [
      "message": "100 games — a true YouBelong regular!",
      "value": lambda u, s: s.get("games_completed", 0)},
 
-    # Belong Points
-    {"key": "points_100",     "group": "Points",    "label": "100 Belong Points",         "emoji": "✨", "threshold": 100,
-     "message": "100 Belong Points — kindness pays!",
+    # Butterfly Points
+    {"key": "points_100",     "group": "Points",    "label": "100 Butterfly Points",         "emoji": "✨", "threshold": 100,
+     "message": "100 Butterfly Points — kindness pays!",
      "value": lambda u, s: int(u.get("points") or 0)},
-    {"key": "points_500",     "group": "Points",    "label": "500 Belong Points",         "emoji": "🌟", "threshold": 500,
-     "message": "500 Belong Points — what a lovely contribution.",
+    {"key": "points_500",     "group": "Points",    "label": "500 Butterfly Points",         "emoji": "🌟", "threshold": 500,
+     "message": "500 Butterfly Points — what a lovely contribution.",
      "value": lambda u, s: int(u.get("points") or 0)},
-    {"key": "points_1000",    "group": "Points",    "label": "1,000 Belong Points",       "emoji": "💫", "threshold": 1000,
-     "message": "1,000 Belong Points — you're a YouBelong star.",
+    {"key": "points_1000",    "group": "Points",    "label": "1,000 Butterfly Points",       "emoji": "💫", "threshold": 1000,
+     "message": "1,000 Butterfly Points — you're a YouBelong star.",
      "value": lambda u, s: int(u.get("points") or 0)},
-    {"key": "points_5000",    "group": "Points",    "label": "5,000 Belong Points",       "emoji": "🏵️", "threshold": 5000,
-     "message": "5,000 Belong Points — extraordinary!",
+    {"key": "points_5000",    "group": "Points",    "label": "5,000 Butterfly Points",       "emoji": "🏵️", "threshold": 5000,
+     "message": "5,000 Butterfly Points — extraordinary!",
      "value": lambda u, s: int(u.get("points") or 0)},
 
     # YouBelong Anniversaries

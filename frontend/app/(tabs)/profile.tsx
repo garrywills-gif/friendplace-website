@@ -141,7 +141,7 @@ export default function Profile() {
       <View style={[styles.statsCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
         <View style={styles.statBox}>
           <Text style={[styles.statNum, { color: c.brand, fontSize: 32 * scale }]}>{user.points}</Text>
-          <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Belong Points</Text>
+          <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Butterfly Points</Text>
         </View>
         <View style={[styles.divider, { backgroundColor: c.border }]} />
         <View style={styles.statBox}>

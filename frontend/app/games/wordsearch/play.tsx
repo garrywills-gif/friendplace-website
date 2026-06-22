@@ -503,7 +503,7 @@ export default function WordSearchPlayer() {
             <Text style={{ fontSize: 54 }}>🎉</Text>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, marginTop: 8 }}>You found them all!</Text>
             <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center" }}>
-              {puzzle.theme_label} · {puzzle.difficulty_label} · {minutes}:{secs.toString().padStart(2, "0")}{"\n"}+{puzzle.points} Belong Points
+              {puzzle.theme_label} · {puzzle.difficulty_label} · {minutes}:{secs.toString().padStart(2, "0")}{"\n"}+{puzzle.points} Butterfly Points
             </Text>
             {(puzzle.difficulty === "hard" || puzzle.difficulty === "nightmare") && (
               <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, marginTop: 8, textAlign: "center" }}>🦋 Friends will see a celebration Flutter</Text>

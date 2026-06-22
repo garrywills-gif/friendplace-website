@@ -20,7 +20,7 @@ const GAMES: GameTile[] = [
   { key: "crossword",  title: "Crossword",          sub: "Daily + 4 levels · refreshes every 2 weeks",  icon: "newspaper",      tint: "#0E7490", route: "/games/crossword",  ready: true },
 ];
 
-const INSTRUCTIONS = "Welcome to the Games Hub. Pick a game, choose your difficulty and play at your own pace. Your progress and personal bests are saved automatically. Complete a daily challenge to keep your streak alive. Every game you finish earns Belong Points and may unlock an achievement.";
+const INSTRUCTIONS = "Welcome to the Games Hub. Pick a game, choose your difficulty and play at your own pace. Your progress and personal bests are saved automatically. Complete a daily challenge to keep your streak alive. Every game you finish earns Butterfly Points and may unlock an achievement.";
 
 export default function GamesHub() {
   const router = useRouter();
@@ -49,7 +49,7 @@ export default function GamesHub() {
             <SpeakButton text={INSTRUCTIONS} color={c.brand} size={22} />
           </View>
           <Text style={{ color: c.onSurface, fontSize: 15 * scale, lineHeight: 22, marginTop: 6 }}>
-            Play at your own pace. Every game saves automatically and rewards you with Belong Points.
+            Play at your own pace. Every game saves automatically and rewards you with Butterfly Points.
           </Text>
         </View>
 

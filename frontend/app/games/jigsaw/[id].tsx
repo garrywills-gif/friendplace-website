@@ -99,7 +99,7 @@ export default function JigsawPlayer() {
       }).catch(() => {});
       if (done && !completed) {
         setCompleted(true);
-        show("🎉 Puzzle complete! +15 Belong Points");
+        show("🎉 Puzzle complete! +15 Butterfly Points");
       }
     }, 350);
     return () => clearTimeout(handler);

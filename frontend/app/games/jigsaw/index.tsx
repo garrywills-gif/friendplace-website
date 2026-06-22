@@ -187,7 +187,7 @@ export default function JigsawHub() {
         {completed.length > 0 && (
           <View style={{ marginTop: 18 }}>
             <Text style={[styles.section, { color: c.onSurface, fontSize: 18 * scale }]}>Completed ({completed.length})</Text>
-            <Text style={{ color: c.muted, fontSize: 13 * scale }}>Each completed puzzle is worth 15 ⚜︎ Belong Points.</Text>
+            <Text style={{ color: c.muted, fontSize: 13 * scale }}>Each completed puzzle is worth 15 ⚜︎ Butterfly Points.</Text>
           </View>
         )}
       </ScrollView>

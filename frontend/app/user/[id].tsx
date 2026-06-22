@@ -92,7 +92,7 @@ export default function UserView() {
           <Button testID="user-message" label="Message" variant="secondary" onPress={message} />
         </View>
         <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-          <Text style={[styles.h, { color: c.onSurface, fontSize: 18 * scale }]}>🏅 {u.points} Belong Points</Text>
+          <Text style={[styles.h, { color: c.onSurface, fontSize: 18 * scale }]}>🏅 {u.points} Butterfly Points</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
             {(u.badges || []).map((b: string) => <Text key={b} style={{ color: c.brand, borderColor: c.brand, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, fontWeight: "700", fontSize: 13 * scale }}>{b}</Text>)}
           </View>

@@ -14,7 +14,7 @@
  *   • Wrong letters tint red until typed over.
  *   • Progress auto-saves: every keystroke (debounced), on unmount,
  *     and when the app goes to the background.
- *   • Win flow: confetti + Belong Points toast + Coffee Lounge CTA on
+ *   • Win flow: confetti + Butterfly Points toast + Coffee Lounge CTA on
  *     the daily.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -275,7 +275,7 @@ export default function CrosswordPlay() {
         setCompleted(true);
         setShowWin(true);
         setWinPoints(res.points || 0);
-        if (res.points_awarded) show(`+${res.points} Belong Points 🎉`);
+        if (res.points_awarded) show(`+${res.points} Butterfly Points 🎉`);
         else show("Solved! Nice work.");
       } else {
         const wrong = next.flat().filter(s => s === "wrong").length;
