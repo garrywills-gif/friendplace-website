@@ -754,13 +754,30 @@ def get_puzzle(puzzle_id: str) -> dict | None:
 
 
 def daily_puzzle(now: datetime | None = None) -> dict | None:
-    if not MEDIUM_PUZZLES:
-        return None
+    """The shared **Daily Crossword** — deliberately challenging so that
+    players genuinely want to ask each other for hints at the "Today's
+    Crossword" Coffee Lounge table.
+
+    Day-by-day we alternate between the HARD and EXPERT pools. With both
+    cohorts at 8 puzzles each that gives 16 unique brain-teasers in
+    rotation before any one repeats (~2.5 weeks of fresh puzzles).
+    """
+    pool: list[dict] = []
+    if HARD_PUZZLES:
+        pool.extend(HARD_PUZZLES)
+    if EXPERT_PUZZLES:
+        pool.extend(EXPERT_PUZZLES)
+    if not pool:
+        # Fall back to medium if the harder cohorts haven't loaded yet —
+        # better to ship a puzzle than to 404 the daily table.
+        if not MEDIUM_PUZZLES:
+            return None
+        pool = list(MEDIUM_PUZZLES)
     if now is None:
         now = datetime.now(timezone.utc)
     anchor = datetime(2026, 1, 1, tzinfo=timezone.utc)
     day_index = max(0, (now - anchor).days)
-    return MEDIUM_PUZZLES[day_index % len(MEDIUM_PUZZLES)]
+    return pool[day_index % len(pool)]
 
 
 def daily_iso_date(now: datetime | None = None) -> str:

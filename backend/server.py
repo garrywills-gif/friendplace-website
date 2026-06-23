@@ -556,10 +556,14 @@ async def _ensure_daily_crossword_table(puzzle: dict | None = None) -> Optional[
         {"_id": 0},
     )
     today = _xword_daily_date()
+    # Friendly difficulty label — bumped to "challenging" copy on purpose:
+    # the daily puzzle now alternates between Hard and Expert pools so the
+    # table feels like a community brain-teaser, not a warm-up.
+    level_label = (puzzle.get("level") or "hard").title()
     desc = (
-        f"Discuss today's Daily Crossword — {puzzle.get('theme', 'Medium')} ({today}). "
-        f"Share your favourite clue, ask for hints, brag about your finish time. "
-        f"Everyone's solving the same puzzle today."
+        f"Today's brain-teaser — {puzzle.get('theme', level_label)} ({today}, {level_label}). "
+        f"It's a tough one on purpose. Ask the table for hints, share clues you've cracked, "
+        f"and celebrate every finish together. Everyone's solving the same puzzle today."
     )
     if t:
         # Refresh the metadata in case the day rolled over since last call.
