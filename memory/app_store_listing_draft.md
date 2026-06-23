@@ -19,23 +19,12 @@ YouBelong
 ## 2. Subtitle
 *(30 chars max — secondary headline under the app name)*
 
-Options (pick one):
-```
-A friendship community 🦋
-```
-*23 / 30 chars*
-
 ```
 Make friends, share a cuppa
 ```
 *26 / 30 chars*
 
-```
-Real friends, real moments
-```
-*25 / 30 chars*
-
-**Recommended:** "Make friends, share a cuppa" — concrete, warm, distinctively Aussie.
+**Locked in.** Concrete, warm, distinctively Aussie — pairs beautifully with the Coffee Lounge as the headline feature.
 
 ---
 
@@ -116,7 +105,7 @@ friendship,community,coffee,chat,connect,neighbours,events,local,groups,games,cr
 ```
 *99 / 100 chars*
 
-**Why these:** Hits the core experience (friendship, community, chat, events) without locking in any demographic. Avoided "dating" / "meet" (Apple flags those) and dropped "seniors / retirees" so the keywords are inclusive. The differentiators are "coffee", "butterfly" and "crossword".
+**Why these:** Hits the core experience (friendship, community, chat, events) without locking in any demographic. Avoided "dating" / "meet" (Apple flags those) and kept the keyword set demographic-neutral so the app surfaces for anyone looking to make new friends. The differentiators are "coffee", "butterfly" and "crossword".
 
 ---
 
@@ -157,7 +146,7 @@ The first version includes everything you need to start making friends:
 • Butterfly Points — earn them across the app
 • Founders Wall — be one of the first to claim your butterfly
 
-We're a small team building this for our parents, grandparents, and neighbours. Feedback welcome: support@youbelongapp.com
+We're a small team building YouBelong with care. Feedback always welcome: support@youbelongapp.com
 ```
 *~640 chars*
 
