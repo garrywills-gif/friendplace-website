@@ -102,17 +102,20 @@ class TestDaily:
         from datetime import datetime, timezone
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         assert d["date"] == today
-        # puzzle is medium and has no `answer` leaks
+        # Daily was bumped to alternate HARD + EXPERT pools (iter39) so
+        # the table feels like a community brain-teaser, not a warm-up.
+        # Either level is acceptable; medium is now intentionally excluded.
         p = d["puzzle"]
-        assert p["level"] == "medium"
+        assert p["level"] in ("hard", "expert"), f"daily must be hard or expert, got {p['level']}"
         for direction in ("across", "down"):
             for cl in p["clues"].get(direction, []):
                 assert "answer" not in cl, f"answer leaked in clue {cl}"
         # discussion table id is a string (uuid)
         assert isinstance(d["discussion_table_id"], str)
         assert len(d["discussion_table_id"]) >= 10
-        # points = 10 (medium) + 5 (daily bonus) = 15
-        assert d["points"] == 15
+        # Points = base level points (15 hard / 25 expert) + 5 daily bonus.
+        # Range check keeps the test resilient to which pool today lands on.
+        assert d["points"] in (20, 30), f"daily points must be 20 (hard) or 30 (expert), got {d['points']}"
 
 
 # ── Active list ───────────────────────────────────────────────────────
