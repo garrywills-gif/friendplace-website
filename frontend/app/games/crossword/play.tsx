@@ -24,6 +24,7 @@ import {
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
@@ -82,6 +83,14 @@ export default function CrosswordPlay() {
   const [showWin, setShowWin] = useState(false);
   const [winPoints, setWinPoints] = useState(0);
   const [showHowTo, setShowHowTo] = useState(false);
+  // ── Hint allowance — one hint per CLUE per puzzle. Stops players
+  // from solving the whole grid by mashing Hint. Stored as a Set of
+  // clue keys ("A-3", "D-5") and persisted to AsyncStorage so the
+  // allowance survives back-out/re-enter (and across days for the
+  // daily puzzle — since the daily puzzle id changes each day the
+  // namespace is naturally per-day).
+  const [hintedClues, setHintedClues] = useState<Set<string>>(new Set());
+  const hintStorageKey = puzzle ? `xword.hints.${puzzle.id}` : "";
   // Timer visibility — newspaper-style toggle. Some users love racing
   // against the clock, others find it stressful. Default ON for the
   // "real crossword" feel; one tap on the pill hides it (and the icon
@@ -143,6 +152,15 @@ export default function CrosswordPlay() {
         setLetters(lt);
         setRevealed(rv);
         setStatusGrid(blankS as any);
+        // Restore the hint-allowance set for this puzzle (one hint per
+        // clue). Stored as a JSON string array of clue keys.
+        try {
+          const raw = await AsyncStorage.getItem(`xword.hints.${p.id}`);
+          if (raw) {
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr)) setHintedClues(new Set(arr));
+          }
+        } catch {}
         // Initial selection: first across clue's first cell
         const first = p.clues.across[0] || p.clues.down[0];
         if (first) setSel([first.row, first.col]);
@@ -298,34 +316,78 @@ export default function CrosswordPlay() {
   }, [puzzle, letters, user?.id, show]);
 
   // ── reveal a single letter
+  // ── activeClueKey — stable key for the currently selected clue,
+  // used to track which clues have already received their one hint.
+  const activeClueKey = activeClue ? `${dir}-${activeClue.num}` : null;
+  const hintAlreadyUsed = !!(activeClueKey && hintedClues.has(activeClueKey));
+
   const doRevealLetter = useCallback(async () => {
-    if (!puzzle || !sel) return;
-    const [r, col] = sel;
-    if (isBlocked(r, col)) return;
+    if (!puzzle || !activeClue || !activeClueKey) return;
+    // Enforce "one hint per clue" — once used, the player must work it
+    // out (or move to another clue and ask the table for help). This is
+    // the difference between a brain-teaser and a free fill-in.
+    if (hintedClues.has(activeClueKey)) {
+      show("You've already used your hint for this clue. Try another!");
+      return;
+    }
+    // Collect every cell in this clue and partition them. Best UX is to
+    // hint a cell that's currently EMPTY — that's where the player is
+    // stuck. If they've filled the whole word (correctly or not) we
+    // fall back to any unrevealed cell so the hint still does
+    // something useful.
+    const cells: [number, number][] = [];
+    for (let i = 0; i < activeClue.len; i++) {
+      const [r, col] = dir === "A"
+        ? [activeClue.row, activeClue.col + i]
+        : [activeClue.row + i, activeClue.col];
+      cells.push([r, col]);
+    }
+    const emptyUnrevealed = cells.filter(([r, col]) => !revealed[r]?.[col] && !letters[r]?.[col]);
+    const anyUnrevealed   = cells.filter(([r, col]) => !revealed[r]?.[col]);
+    const pool = emptyUnrevealed.length > 0 ? emptyUnrevealed : anyUnrevealed;
+    if (pool.length === 0) {
+      // Nothing left to reveal — the clue is already fully locked.
+      show("This clue is already solved!");
+      return;
+    }
+    const [r, col] = pool[Math.floor(Math.random() * pool.length)];
     try {
       const res: any = await api.xwReveal(puzzle.id, r, col);
-      if (res.letter) {
-        setLetters(prev => {
-          const next = prev.map(row => row.slice());
-          next[r][col] = res.letter;
-          return next;
-        });
-        setRevealed(prev => {
-          const next = prev.map(row => row.slice());
-          next[r][col] = true;
-          return next;
-        });
-        setStatusGrid(prev => {
-          const next = prev.map(row => row.slice());
-          next[r][col] = "correct";
-          return next;
-        });
-        moveCursor(1);
+      if (!res?.letter) {
+        show("Could not reveal letter.");
+        return;
       }
+      setLetters(prev => {
+        const next = prev.map(row => row.slice());
+        next[r][col] = res.letter;
+        return next;
+      });
+      setRevealed(prev => {
+        const next = prev.map(row => row.slice());
+        next[r][col] = true;
+        return next;
+      });
+      setStatusGrid(prev => {
+        const next = prev.map(row => row.slice());
+        next[r][col] = "correct";
+        return next;
+      });
+      // Move the cursor onto the hinted cell so the player visually
+      // anchors to the new letter.
+      setSel([r, col]);
+      // Mark this clue as hinted (in-memory + persisted).
+      setHintedClues(prev => {
+        const next = new Set(prev);
+        next.add(activeClueKey);
+        // Persist asynchronously — fire-and-forget is fine, worst case
+        // is the user gets one extra hint after a hard crash.
+        AsyncStorage.setItem(hintStorageKey, JSON.stringify(Array.from(next))).catch(() => {});
+        return next;
+      });
     } catch {
       show("Could not reveal letter.");
     }
-  }, [puzzle, sel, isBlocked, moveCursor, show]);
+  }, [puzzle, activeClue, activeClueKey, dir, hintedClues, hintStorageKey, letters, revealed, show]);
 
   // ── Clear answer: wipes letters in the active word ONLY (not the whole
   // grid). Revealed/hinted cells stay locked. This matches what most
@@ -633,7 +695,18 @@ export default function CrosswordPlay() {
             columns on tablet for thumb-reachable consistency. */}
         <View style={styles.actionRow}>
           <ActionBtn label="Check" icon="checkmark-circle-outline" onPress={doCheck} c={c} scale={scale} />
-          <ActionBtn label="Hint" icon="bulb-outline" onPress={doRevealLetter} c={c} scale={scale} />
+          {/* Hint — one per clue. Once used, the button visually dims
+              and the label changes so players can see at a glance that
+              they need to crack the rest themselves (or ask the table
+              for help). Tapping again surfaces a friendly toast. */}
+          <ActionBtn
+            label={hintAlreadyUsed ? "Hint used" : "Hint"}
+            icon={hintAlreadyUsed ? "bulb" : "bulb-outline"}
+            onPress={doRevealLetter}
+            c={c}
+            scale={scale}
+            dimmed={hintAlreadyUsed}
+          />
           <ActionBtn label="Clear answer" icon="refresh-outline" onPress={doClear} c={c} scale={scale} />
         </View>
       </ScrollView>
@@ -714,16 +787,19 @@ export default function CrosswordPlay() {
 }
 
 // ── Small components ────────────────────────────────────────────────
-function ActionBtn({ label, icon, onPress, c, scale }: any) {
+function ActionBtn({ label, icon, onPress, c, scale, dimmed = false }: any) {
   return (
     <Pressable
       onPress={onPress}
+      accessibilityState={{ disabled: !!dimmed }}
       style={({ pressed }) => [styles.actionBtn, {
-        backgroundColor: c.surfaceSecondary, borderColor: c.border, opacity: pressed ? 0.85 : 1,
+        backgroundColor: dimmed ? c.surfaceTertiary : c.surfaceSecondary,
+        borderColor: dimmed ? c.border : c.border,
+        opacity: pressed ? 0.85 : (dimmed ? 0.65 : 1),
       }]}
     >
-      <Ionicons name={icon} size={20} color={c.brand} />
-      <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{label}</Text>
+      <Ionicons name={icon} size={20} color={dimmed ? c.muted : c.brand} />
+      <Text style={{ color: dimmed ? c.muted : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{label}</Text>
     </Pressable>
   );
 }
