@@ -54,18 +54,18 @@ Join a Coffee Lounge table, find a friend nearby, or just say g'day. Founder spo
 *(4,000 chars max — the main pitch on the App Store listing)*
 
 ```
-YouBelong is a friendship community for older adults, retirees, and anyone who'd like to meet kind, like-minded people in their suburb. Not a dating app — just real friendships, real conversations, and small moments that make a day brighter.
+YouBelong is a friendship and community app — a warm, welcoming place to meet new people, share interests, and feel a little more connected to your local area. Not a dating app — just real friendships, real conversations, and small moments that make a day brighter.
 
-Whether you're newly retired, recently moved, or simply ready to widen your circle, YouBelong helps you find people who share your interests and your neighbourhood.
+Whether you're looking to widen your social circle, new to your area, or simply ready to meet a few like-minded people, YouBelong helps you find people who share your interests and your neighbourhood.
 
 ☕ COFFEE LOUNGE
 Drop into a virtual "table" any time of day. Chat with new friends about gardening, footy, cooking, books, or just have a yarn over a cuppa. Today's Crossword table is always open — solve the daily puzzle together.
 
 🦋 FIND FRIENDS
-Discover neighbours by suburb, shared interests, or a friendly search. Send a Flutter (our gentle hello) — no awkward swiping, no pressure.
+Discover people nearby by suburb or shared interests. Send a Flutter (our gentle hello) — no awkward swiping, no pressure.
 
 📅 LOCAL EVENTS
-Bowls clubs, walking groups, RSL nights, knitting circles, men's sheds. RSVP in two taps and see who else is going.
+Walking groups, book clubs, bowls, knitting circles, men's sheds, RSL nights — anything happening in your area. RSVP in two taps and see who else is going.
 
 💬 COMMUNITY GROUPS
 Join groups for hobbies, local areas, faith, volunteering, and more. Share photos, post questions, get to know your neighbours.
@@ -91,20 +91,20 @@ Crossword (daily + 4 difficulty levels), Sudoku, Word Search, Trivia, Bingo, Jig
 The first wave of YouBelong members get a permanent butterfly mark next to their name, exclusive access to the Founders Lounge, and a forever spot on the Founders Wall. We're building this together.
 
 WHO IT'S FOR
-• People over 50 who'd like new friends nearby
-• Retirees and empty-nesters
-• People new to a suburb or starting over
-• Anyone living alone who'd appreciate a daily chat
-• Carers, returning expats, recently bereaved — anyone rebuilding their circle
+• Anyone looking to expand their social circle
+• People new to an area, or starting fresh
+• People wanting more social connection in their week
+• People with shared interests looking to find their crowd
+• Anyone who'd appreciate a daily chat and a friendly cuppa
 
 WHO IT'S NOT FOR
 • Dating, romance, or relationships — please look elsewhere
 • Selling, advertising, or promotion (businesses have a separate trial subscription)
 
-YouBelong is built in Australia for our community. Free to use, ad-free, and always will be.
+YouBelong is built in Australia. Free to use, ad-free, and always will be.
 ```
 
-*~2,920 / 4,000 chars*
+*~2,830 / 4,000 chars*
 
 ---
 
@@ -112,11 +112,11 @@ YouBelong is built in Australia for our community. Free to use, ad-free, and alw
 *(100 chars max, comma-separated, no spaces after commas — these drive App Store search)*
 
 ```
-friendship,community,seniors,retirees,coffee,chat,events,local,games,crossword,puzzles,butterfly
+friendship,community,coffee,chat,connect,neighbours,events,local,groups,games,crossword,butterfly
 ```
 *99 / 100 chars*
 
-**Why these:** Hits the audience (seniors, retirees), the core mechanic (community, chat, events), and one strong differentiator (crossword/puzzles + butterfly brand). Avoid: "dating" (Apple will flag), "meet" (too dating-adjacent), competitor names.
+**Why these:** Hits the core experience (friendship, community, chat, events) without locking in any demographic. Avoided "dating" / "meet" (Apple flags those) and dropped "seniors / retirees" so the keywords are inclusive. The differentiators are "coffee", "butterfly" and "crossword".
 
 ---
 
@@ -170,7 +170,7 @@ We're a small team building this for our parents, grandparents, and neighbours. 
 Thank you for reviewing YouBelong.
 
 ABOUT THE APP
-YouBelong is a friendship community for older adults (50+). It is NOT a dating app. We explicitly prohibit romantic/sexual content in our Community Guidelines (available in Settings → Community Guidelines), and our reporting categories include "Dating-app behaviour" as a top-level reason.
+YouBelong is a friendship and community app. It is NOT a dating app. We explicitly prohibit romantic/sexual content in our Community Guidelines (available in Settings → Community Guidelines), and our reporting categories include "Dating-app behaviour" as a top-level reason. The app welcomes any adult looking for friendship and social connection — the design is accessible and welcoming to everyone.
 
 DEMO ACCOUNT FOR TESTING
 Email: reviewer-demo@youbelongapp.com

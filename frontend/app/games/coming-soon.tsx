@@ -18,7 +18,7 @@ export default function ComingSoon() {
         <Ionicons name="sparkles" size={48} color={c.brand} />
         <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, textAlign: "center", marginTop: 12 }}>{title} is coming soon</Text>
         <Text style={{ color: c.muted, fontSize: 15 * scale, textAlign: "center", marginTop: 6 }}>
-          We're building it carefully for older adults — large text, easy controls, full accessibility support.
+          We&apos;re building it with care — large text, easy controls, full accessibility support.
         </Text>
         <View style={{ height: 16 }} />
         <Button label="Back to Games Hub" onPress={() => router.replace("/games")} />

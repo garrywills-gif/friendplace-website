@@ -1,6 +1,6 @@
 # YouBelong — Friendship & Community App
 
-YouBelong is a mobile-first friendship and community app for older adults, retirees, widows, and anyone seeking belonging. It is **not a dating app** — its core is the **Coffee Lounge**: virtual tables where people pull up a chair and have a real-time chat.
+YouBelong is a mobile-first friendship and community app for anyone looking to make new friends, expand their social circle, or feel more connected to their local area. It is **not a dating app** — its core is the **Coffee Lounge**: virtual tables where people pull up a chair and have a real-time chat. The app is designed to be accessible and welcoming for everyone, with thoughtful defaults (large text, soft palette, plain English) that work for users of any age or technical confidence.
 
 ## Stack
 - **Frontend**: Expo Router (React Native Web), TypeScript

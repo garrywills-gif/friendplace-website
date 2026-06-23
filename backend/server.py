@@ -6822,6 +6822,25 @@ class ConnectionHub:
 hub = ConnectionHub()
 
 
+DOCS_DIR = "/app/backend/docs"
+
+
+@api.get("/docs/{filename}")
+async def serve_doc(filename: str):
+    """Serve internal project docs (QA checklist, listing draft, etc).
+    Path-traversal proof: only the leaf filename is accepted."""
+    from fastapi.responses import FileResponse
+    safe = os.path.basename(filename)
+    full = os.path.join(DOCS_DIR, safe)
+    if not os.path.isfile(full):
+        raise HTTPException(404, "Doc not found")
+    return FileResponse(
+        full,
+        media_type="application/octet-stream",
+        filename=safe,
+    )
+
+
 @api.get("/games/crossword/daily")
 async def crossword_daily():
     """The shared **Daily Crossword** — same medium-level puzzle for every
