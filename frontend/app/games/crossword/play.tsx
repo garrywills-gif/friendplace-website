@@ -78,6 +78,12 @@ export default function CrosswordPlay() {
   const [showWin, setShowWin] = useState(false);
   const [winPoints, setWinPoints] = useState(0);
   const [showHowTo, setShowHowTo] = useState(false);
+  // Timer visibility — newspaper-style toggle. Some users love racing
+  // against the clock, others find it stressful. Default ON for the
+  // "real crossword" feel; one tap on the pill hides it (and the icon
+  // remains so they can re-enable). Persisted to AsyncStorage so the
+  // preference sticks across sessions.
+  const [showTimer, setShowTimer] = useState(true);
   const startedAt = useRef<number>(Date.now());
 
   // ── load puzzle (daily or by id) + saved progress
@@ -381,12 +387,16 @@ export default function CrosswordPlay() {
     return () => sub.remove();
   }, [saveNow]);
 
-  // ── grid dims — responsive. iPad-friendly: caps at 720 (the
-  // recommended max readable width). Min 28px cell keeps even dense
-  // Expert grids legible; if the grid would still overflow, the wrapping
-  // ScrollView gives a horizontal pan affordance.
-  const GRID_MAX = Math.min(winW - 12, 720);
-  const cellSize = puzzle ? Math.max(28, Math.min(56, Math.floor(GRID_MAX / puzzle.size))) : 40;
+  // ── grid dims — responsive. Switches to a "newspaper" two-pane layout
+  // on tablets / wide screens (>= 768px): grid on the left, full
+  // scrollable clue list on the right, just like the reference. On
+  // phones we keep the stacked vertical flow.
+  const isWide = winW >= 768;
+  const CLUE_PANEL_W = isWide ? Math.min(Math.max(260, winW * 0.36), 380) : 0;
+  // Available width for the grid area. On tablet, leave space for the
+  // clue panel + a small gutter; on phone the grid gets full width.
+  const GRID_AREA_W = isWide ? Math.max(280, winW - CLUE_PANEL_W - 36) : Math.min(winW - 12, 720);
+  const cellSize = puzzle ? Math.max(28, Math.min(56, Math.floor(GRID_AREA_W / puzzle.size))) : 40;
 
   if (loading) {
     return (
@@ -417,7 +427,8 @@ export default function CrosswordPlay() {
       <Header title={isDaily ? "Daily Crossword" : puzzle.theme} />
 
       <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-        {/* Top meta strip */}
+        {/* Top meta strip — toggleable timer (tap to hide so users who
+            find the clock stressful can play without it). */}
         <View style={styles.metaStrip}>
           <View style={{ flex: 1 }}>
             <Text style={{ color: c.muted, fontSize: 12 * scale, letterSpacing: 0.6, fontWeight: "900" }}>
@@ -427,10 +438,30 @@ export default function CrosswordPlay() {
               {puzzle.theme}
             </Text>
           </View>
-          <View style={[styles.timerPill, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
-            <Ionicons name="time-outline" size={14} color={c.brand} />
-            <Text style={{ color: c.brand, fontWeight: "900", fontSize: 13 * scale }}>{formatTime(seconds)}</Text>
-          </View>
+          <Pressable
+            onPress={() => setShowTimer(s => !s)}
+            accessibilityRole="button"
+            accessibilityLabel={showTimer ? "Hide timer" : "Show timer"}
+            hitSlop={8}
+            style={({ pressed }) => [styles.timerPill, {
+              backgroundColor: showTimer ? c.brandTertiary : c.surfaceSecondary,
+              borderColor: showTimer ? c.brand : c.border,
+              opacity: pressed ? 0.8 : 1,
+            }]}
+          >
+            <Ionicons
+              name={showTimer ? "time-outline" : "eye-off-outline"}
+              size={14}
+              color={showTimer ? c.brand : c.muted}
+            />
+            <Text style={{
+              color: showTimer ? c.brand : c.muted,
+              fontWeight: "900",
+              fontSize: 13 * scale,
+            }}>
+              {showTimer ? formatTime(seconds) : "Timer"}
+            </Text>
+          </Pressable>
           <Pressable onPress={() => setShowHowTo(true)} accessibilityRole="button" hitSlop={10} style={{ marginLeft: 8 }}>
             <Ionicons name="help-circle-outline" size={26} color={c.brand} />
           </Pressable>
