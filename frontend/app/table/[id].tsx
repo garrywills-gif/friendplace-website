@@ -146,7 +146,46 @@ export default function TableChat() {
         seated={seated}
         tableEmoji={table?.emoji || "☕"}
         testID="table-seating"
+        // Compact size inside the chat view so the conversation feed
+        // sits up close to the table diagram and the screen feels more
+        // active & social (full 360 footprint is reserved for the
+        // table-listing screen where seating is the hero).
+        maxSize={260}
       />
+
+      {/* Crossword shortcut — only on the Daily Crossword table. Lets
+          players jump back and forth between solving the puzzle and
+          chatting about it without losing their place. Tap-to-play opens
+          the daily puzzle deep-link directly. */}
+      {table?.daily_crossword ? (
+        <Pressable
+          testID="table-open-crossword"
+          onPress={() => router.push("/games/crossword/play?daily=1" as any)}
+          accessibilityRole="button"
+          accessibilityLabel="Open today's crossword"
+          style={({ pressed }) => [
+            styles.xwordCta,
+            {
+              backgroundColor: "#1B7A8A",
+              opacity: pressed ? 0.85 : 1,
+            },
+          ]}
+        >
+          <View style={styles.xwordIconBubble}>
+            <Text style={{ fontSize: 22 }}>✏️</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 * scale, letterSpacing: 0.2 }}>
+              Open Today&apos;s Crossword
+            </Text>
+            <Text style={{ color: "#BAE6FD", fontWeight: "700", fontSize: 13 * scale, marginTop: 2 }}>
+              Pick up where you left off · share clues with the table
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+        </Pressable>
+      ) : null}
+
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }} keyboardVerticalOffset={90}>
         <FlatList
           ref={listRef}
@@ -259,6 +298,27 @@ export default function TableChat() {
 }
 
 const styles = StyleSheet.create({
+  // Prominent "Open Today's Crossword" CTA — only renders on the daily
+  // crossword table. Sits between the seating diagram and the chat feed
+  // so it's the first action your thumb finds, encouraging the
+  // solve ↔ chat ↔ solve loop the lounge is built for.
+  xwordCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 12,
+    marginTop: 4,
+    marginBottom: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    minHeight: 64,
+  },
+  xwordIconBubble: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center", justifyContent: "center",
+  },
   msgRow: { flexDirection: "row", alignItems: "flex-end", gap: 6 },
   av: { fontSize: 24 },
   bubble: { maxWidth: "76%", borderRadius: 18, borderWidth: 1, overflow: "hidden" },

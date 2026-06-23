@@ -42,6 +42,14 @@ type Props = {
   collapsible?: boolean;
   /** Optional testID prefix passed through for automation. */
   testID?: string;
+  /**
+   * Cap on the rendered square size. Defaults to 360 (the full lounge
+   * card on the table-listing screen). Inside the chat view we pass a
+   * smaller cap (~260) so the table diagram takes less vertical space
+   * and the conversation feed sits up under it for a more "active &
+   * social" feel.
+   */
+  maxSize?: number;
 };
 
 // 8-seat layout, top-of-the-clock first, then clockwise. The order is fixed
@@ -55,6 +63,7 @@ export default function CoffeeTableSeating({
   tableEmoji = "☕",
   collapsible = true,
   testID = "coffee-table",
+  maxSize = 360,
 }: Props) {
   const { c, scale } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
@@ -81,7 +90,9 @@ export default function CoffeeTableSeating({
 
   // Compute geometry inside the square. Keeping it self-contained means the
   // component scales smoothly to whatever width the parent allocates.
-  const size = Math.min(layoutW || 320, 360);
+  // `maxSize` is the cap — defaults to 360 (lounge listing), shrunk to ~260
+  // by the chat view so the conversation feed has more room.
+  const size = Math.min(layoutW || 320, maxSize);
   const cx = size / 2;
   const cy = size / 2;
   const tableR = size * 0.22;   // table radius
