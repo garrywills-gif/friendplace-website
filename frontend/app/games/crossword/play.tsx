@@ -44,8 +44,12 @@ type Puzzle = {
 type Cell = string;   // single letter or "" for empty (or null for blocked)
 type Direction = "A" | "D";
 
-const KB_TOP = "ABCDEFGHIJKLM".split("");
-const KB_BOT = "NOPQRSTUVWXYZ".split("");
+// On-screen keyboard — QWERTY layout (universal muscle memory). Three
+// rows with the classic offset; backspace lives at the right end of the
+// bottom row so it's where typists already reach for it on their phones.
+const KB_ROW_1 = "QWERTYUIOP".split("");
+const KB_ROW_2 = "ASDFGHJKL".split("");
+const KB_ROW_3 = "ZXCVBNM".split("");
 
 // Cell-cell adjacency along a direction.
 function stepCell(r: number, c: number, dir: Direction, delta: number): [number, number] {
@@ -634,11 +638,17 @@ export default function CrosswordPlay() {
         </View>
       </ScrollView>
 
-      {/* Bottom keyboard */}
+      {/* Bottom keyboard — QWERTY (3 rows). The middle row is offset
+          by half a key on each side and the bottom row has a wider
+          backspace on the right, matching the universal phone-keyboard
+          layout people already know by feel. */}
       <View style={[styles.kb, { backgroundColor: c.surfaceSecondary, borderTopColor: c.border }]}>
-        <KbRow letters={KB_TOP} onPress={onKeyPress} c={c} scale={scale} />
+        <KbRow letters={KB_ROW_1} onPress={onKeyPress} c={c} scale={scale} />
+        <View style={{ marginTop: 4, paddingHorizontal: 14 }}>
+          <KbRow letters={KB_ROW_2} onPress={onKeyPress} c={c} scale={scale} />
+        </View>
         <View style={{ flexDirection: "row", justifyContent: "center", gap: 4, marginTop: 4 }}>
-          {KB_BOT.map(l => (
+          {KB_ROW_3.map(l => (
             <KeyButton key={l} label={l} onPress={() => onKeyPress(l)} c={c} scale={scale} />
           ))}
           <KeyButton label="⌫" wide onPress={onBackspace} c={c} scale={scale} />
