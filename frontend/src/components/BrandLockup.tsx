@@ -1,98 +1,76 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
-import ButterflyLogo from "./ButterflyLogo";
+import { Image } from "expo-image";
 
 /**
- * BrandLockup — the official "YouBelong COMMUNITY" lockup, rendered natively
- * (no image asset) so it stays crisp on every screen density and is easy to
- * tweak in the future.
+ * BrandLockup — the official "YouBelong COMMUNITY" lockup.
  *
- * Layout (top → bottom):
- *   [ small butterfly perched above-right of the wordmark ]
- *   YouBelong            ← bold teal wordmark
- *   C O M M U N I T Y    ← letter-spaced teal descriptor underline
+ * Uses the original baked PNG wordmark (with the butterfly forming the "O"
+ * in YouBelong) and adds a small "COMMUNITY" descriptor strap underneath.
  *
  * Two visual variants:
- *   - "light"  → for light backgrounds (default — uses brand teal #1B7A8A)
- *   - "dark"   → for dark backgrounds (white text, mint butterfly accent)
+ *   - "light"  → for light backgrounds (uses brand teal tagline `#1B7A8A`)
+ *   - "dark"   → for dark backgrounds (mint tagline `#A7F3D0`)
  *
- * The `size` prop is the WORDMARK font size in points — everything else
- * (butterfly, tagline, spacing) scales proportionally so the lockup keeps
- * its recognisable rhythm at any size from 28pt (compact in-app) through
- * 80pt (hero on the welcome screen / splash).
+ * The `width` prop drives the size of the wordmark image; the tagline
+ * scales proportionally so the lockup keeps its rhythm at any size from
+ * compact in-app through hero on the welcome screen / splash.
  */
 export type BrandLockupVariant = "light" | "dark";
 
+// Official YouBelong brand mark — bold variant with baked-in white glow +
+// navy halo so the wordmark stays crisp/readable on any backdrop.
+const BRAND_LOGO = require("../../assets/brand/youbelong-logo-bold.png");
+const LOGO_ASPECT = 1066 / 326; // intrinsic pixel ratio of the PNG
+
 export default function BrandLockup({
-  size = 64,
+  width = 320,
   variant = "light",
-  showButterfly = true,
+  showTagline = true,
   testID,
 }: {
-  size?: number;             // wordmark font size in points
+  width?: number;             // wordmark width in points
   variant?: BrandLockupVariant;
-  showButterfly?: boolean;
+  showTagline?: boolean;
   testID?: string;
 }) {
-  const wordmarkFs = size;
-  const taglineFs  = Math.max(9, size * 0.27);
-  const butterflyW = size * 0.95;
-  const wordmarkColor = variant === "dark" ? "#FFFFFF" : "#1B7A8A"; // brand teal
-  const taglineColor  = variant === "dark" ? "#A7F3D0" : "#1B7A8A";
-  // "C O M M U N I T Y" letter spacing — wide enough to read as a descriptor
-  // strap without becoming sparse. Tracking ~0.5em is the brand norm.
-  const taglineLetterSpacing = taglineFs * 0.48;
+  const imgH = Math.round(width / LOGO_ASPECT);
+
+  // Tagline reads as a wide descriptor — letter-spaced "C O M M U N I T Y"
+  // sized so it visually mirrors the breadth of the wordmark above it.
+  const taglineFs = Math.max(11, Math.round(width * 0.06));
+  const taglineLetterSpacing = taglineFs * 0.55;
+  const taglineColor = variant === "dark" ? "#A7F3D0" : "#1B7A8A";
 
   return (
     <View style={styles.wrap} testID={testID || "brand-lockup"}>
-      {/* Butterfly + wordmark row — butterfly perches above-right of the "g".
-          We use marginBottom: negative so the butterfly visually overlaps the
-          top of the wordmark, matching the brand sheet composition. */}
-      {showButterfly ? (
-        <View
-          style={{
-            alignSelf: "flex-end",
-            marginRight: size * 0.18,
-            marginBottom: -size * 0.22,
-            zIndex: 2,
-          }}
+      <Image
+        source={BRAND_LOGO}
+        style={{ width, height: imgH }}
+        contentFit="contain"
+        transition={150}
+      />
+      {showTagline ? (
+        <Text
+          allowFontScaling={false}
+          style={[
+            styles.tagline,
+            {
+              fontSize: taglineFs,
+              color: taglineColor,
+              letterSpacing: taglineLetterSpacing,
+              // Pad-left compensates for trailing letter-spacing so the
+              // tagline optically centers under the wordmark.
+              paddingLeft: taglineLetterSpacing,
+              // Pull tagline up slightly so it nests under the wordmark
+              // baseline instead of floating after the PNG's empty padding.
+              marginTop: -Math.round(imgH * 0.08),
+            },
+          ]}
         >
-          <ButterflyLogo size={butterflyW} />
-        </View>
+          COMMUNITY
+        </Text>
       ) : null}
-
-      <Text
-        allowFontScaling={false}
-        style={[
-          styles.wordmark,
-          {
-            fontSize: wordmarkFs,
-            color: wordmarkColor,
-            lineHeight: wordmarkFs * 1.02,
-          },
-        ]}
-      >
-        YouBelong
-      </Text>
-
-      <Text
-        allowFontScaling={false}
-        style={[
-          styles.tagline,
-          {
-            fontSize: taglineFs,
-            color: taglineColor,
-            letterSpacing: taglineLetterSpacing,
-            marginTop: size * 0.06,
-            // Compensate for the right-side bias the letter-spacing adds
-            // (RN renders trailing spacing as real width) so the tagline
-            // optically centers under the wordmark.
-            paddingLeft: taglineLetterSpacing,
-          },
-        ]}
-      >
-        COMMUNITY
-      </Text>
     </View>
   );
 }
@@ -101,11 +79,6 @@ const styles = StyleSheet.create({
   wrap: {
     alignItems: "center",
     justifyContent: "center",
-  },
-  wordmark: {
-    fontWeight: "900",
-    textAlign: "center",
-    letterSpacing: -0.5,
   },
   tagline: {
     fontWeight: "800",

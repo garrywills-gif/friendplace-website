@@ -84,7 +84,7 @@ export default function SplashGate({ children }: { children: React.ReactNode }) 
           pointerEvents={done ? "none" : "auto"}
           style={[StyleSheet.absoluteFillObject, styles.splash, { opacity: fade }]}
         >
-          <BrandLockup size={62} variant="light" testID="splash-lockup" />
+          <BrandLockup width={340} variant="dark" testID="splash-lockup" />
         </Animated.View>
       ) : null}
     </View>
@@ -93,9 +93,9 @@ export default function SplashGate({ children }: { children: React.ReactNode }) 
 
 const styles = StyleSheet.create({
   splash: {
-    // Soft warm off-white so the teal lockup reads cleanly without
-    // competing with pure white in the rest of the app.
-    backgroundColor: "#FFFFFF",
+    // Brand navy backdrop so the wordmark (designed with a baked-in
+    // white glow / navy halo) reads cleanly during the brand reveal.
+    backgroundColor: "#0D2A57",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 9999,

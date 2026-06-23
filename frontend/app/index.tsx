@@ -48,10 +48,10 @@ export default function Welcome() {
     })();
     return () => { cancelled = true; };
   }, []);
-  // Brand lockup is rendered natively (BrandLockup component) — `size` is
-  // the wordmark font size in points. Cap at 80pt so it stays balanced with
-  // the headline and never overflows narrow phone widths.
-  const lockupSize = Math.round(Math.min(winW * 0.18, 80));
+  // Brand lockup uses the original PNG wordmark (with the butterfly forming
+  // the "O" in YouBelong) plus a "COMMUNITY" tagline strap underneath.
+  // Sized in points — caps at 545 so it never overflows on tablet widths.
+  const lockupWidth = Math.round(Math.min(winW - 28, 545));
 
   useEffect(() => {
     // Capture an invitation token (?ref=<user_id>) into AsyncStorage so the
@@ -120,7 +120,7 @@ export default function Welcome() {
   if (loading) {
     return (
       <View style={[styles.full, { backgroundColor: "#0D2A57", justifyContent: "center", alignItems: "center" }]}>
-        <BrandLockup size={68} variant="dark" />
+        <BrandLockup width={340} variant="dark" />
         <ActivityIndicator size="large" color="#FFFFFF" style={{ marginTop: 28 }} />
       </View>
     );
@@ -172,11 +172,11 @@ export default function Welcome() {
       />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
-        {/* Hero — official YouBelong COMMUNITY lockup (rendered natively for
-            crisp output on every screen density). */}
+        {/* Hero — official YouBelong logo (with butterfly forming the "O")
+            plus a "COMMUNITY" descriptor strap underneath. */}
         <View style={styles.hero}>
           <View style={styles.logoWrap} testID="welcome-brand">
-            <BrandLockup size={lockupSize} variant="dark" />
+            <BrandLockup width={lockupWidth} variant="dark" />
           </View>
 
           <Text style={[styles.tag1, { fontSize: 30.4 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
