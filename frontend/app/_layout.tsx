@@ -13,6 +13,7 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider } from "@/src/lib/theme";
 import { AuthProvider } from "@/src/lib/auth";
 import { ToastProvider } from "@/src/lib/toast";
+import SplashGate from "@/src/components/SplashGate";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -78,7 +79,9 @@ export default function RootLayout() {
           <AuthProvider>
             <ToastProvider>
               <StatusBar style="dark" />
-              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
+              <SplashGate>
+                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
+              </SplashGate>
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>

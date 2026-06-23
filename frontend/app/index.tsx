@@ -11,14 +11,11 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { startGoogleSignIn, consumePendingSession } from "@/src/lib/googleSignIn";
 import { api } from "@/src/lib/api";
+import BrandLockup from "@/src/components/BrandLockup";
 
 // Warm photo of 3 adults talking & smiling — sits behind the gradient as a soft watermark
 const COMMUNITY_BG =
   "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=1400&q=80";
-
-// Official YouBelong brand mark — bold variant with baked-in white glow +
-// navy halo so the wordmark stays crisp/readable on any photo background.
-const BRAND_LOGO = require("../assets/brand/youbelong-logo-bold.png");
 
 export default function Welcome() {
   const router = useRouter();
@@ -51,13 +48,10 @@ export default function Welcome() {
     })();
     return () => { cancelled = true; };
   }, []);
-  // Logo card sized in PIXELS (aspectRatio is unreliable on web)
-  // The bold variant ships with a baked-in navy halo + white outer glow so the
-  // wordmark stays crisp on the photo backdrop. PNG is 1066×326 → aspect ≈3.27.
-  const LOGO_ASPECT = 1066 / 326;
-  // +13% larger than the previous 480px cap so the brand mark stands out more.
-  const cardW = Math.round(Math.min(winW - 28, 545));
-  const cardH = Math.round(cardW / LOGO_ASPECT);
+  // Brand lockup is rendered natively (BrandLockup component) — `size` is
+  // the wordmark font size in points. Cap at 80pt so it stays balanced with
+  // the headline and never overflows narrow phone widths.
+  const lockupSize = Math.round(Math.min(winW * 0.18, 80));
 
   useEffect(() => {
     // Capture an invitation token (?ref=<user_id>) into AsyncStorage so the
@@ -126,7 +120,8 @@ export default function Welcome() {
   if (loading) {
     return (
       <View style={[styles.full, { backgroundColor: "#0D2A57", justifyContent: "center", alignItems: "center" }]}>
-        <ActivityIndicator size="large" color="#FFFFFF" />
+        <BrandLockup size={68} variant="dark" />
+        <ActivityIndicator size="large" color="#FFFFFF" style={{ marginTop: 28 }} />
       </View>
     );
   }
@@ -177,20 +172,16 @@ export default function Welcome() {
       />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
-        {/* Hero — official logo card */}
+        {/* Hero — official YouBelong COMMUNITY lockup (rendered natively for
+            crisp output on every screen density). */}
         <View style={styles.hero}>
-          <View style={[styles.logoWrap, { width: cardW, height: cardH }]} testID="welcome-brand">
-            <Image
-              source={BRAND_LOGO}
-              style={{ width: cardW, height: cardH }}
-              contentFit="contain"
-              transition={150}
-            />
+          <View style={styles.logoWrap} testID="welcome-brand">
+            <BrandLockup size={lockupSize} variant="dark" />
           </View>
 
           <Text style={[styles.tag1, { fontSize: 30.4 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.welcomeMsg, { fontSize: 14 * scale }]} testID="welcome-message">
-            Meet new friends, join local events and feel connected.
+            Meet new friends, discover local events and find your community.
           </Text>
         </View>
 
