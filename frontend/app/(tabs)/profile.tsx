@@ -264,12 +264,12 @@ export default function Profile() {
       <Button label="Edit Profile" variant="outline" onPress={() => router.push("/edit-profile")} testID="profile-edit" />
       <View style={{ height: 8 }} />
       {/* Founders Wall entry — visible to everyone. For founders this is
-          their crest celebration; for everyone else it's social-proof
-          scarcity (and a hint at the cohort still being open). */}
+          their crest celebration; for everyone else it's a tap into the
+          Founder Info / opt-in flow where they can claim their badge. */}
       <Pressable
         testID="profile-founders-wall"
-        onPress={() => router.push("/founders")}
-        accessibilityLabel="View the Founders Wall"
+        onPress={() => router.push((user as any).is_founder ? "/founders" : "/founders/info")}
+        accessibilityLabel={(user as any).is_founder ? "View the Founders Wall" : "Learn about Founding Members"}
         style={({ pressed }) => [
           styles.founderRow,
           {
@@ -287,7 +287,7 @@ export default function Profile() {
           <Text numberOfLines={2} style={{ color: "#3C2A06", fontWeight: "800", fontSize: 15 * scale, marginTop: 2 }}>
             {(user as any).is_founder
               ? `See yourself — you're Founding Member #${(user as any).founder_number ?? ""}`
-              : "Meet the Founding Members shaping YouBelong"}
+              : "Join free as a Founding Member"}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color="#7C5300" />

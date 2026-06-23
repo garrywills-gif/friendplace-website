@@ -46,6 +46,13 @@ export const api = {
     const q = params ? `?${new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)])).toString()}` : "";
     return req(`/founders${q}`);
   },
+  /** Opt-in: promote the signed-in user to a Founding Member. Requires
+   *  Bearer token. Returns `{ founder_number, user }` on success. */
+  claimFounder: (token: string) =>
+    req("/founders/claim", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    }),
   joinWaitlist: (body: { email: string; name?: string; suburb?: string; source?: string; note?: string; referrer_id?: string | null }) =>
     req("/waitlist", { method: "POST", body: JSON.stringify(body) }),
   waitlistStats: () => req("/waitlist/stats"),

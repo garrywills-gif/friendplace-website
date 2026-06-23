@@ -651,51 +651,108 @@ async def _ensure_founders_table() -> Optional[dict]:
 
 
 async def _assign_founder_status(doc: dict) -> None:
-    """If the cohort isn't full yet, stamp this new account as a Founding
-    Member. Mutates `doc` in place — call BEFORE `db.users.insert_one(doc)`.
-
-    Demo accounts are excluded so the seeded cast doesn't burn slots that
-    belong to real friends-and-family invitees. The count is read fresh per
-    signup; at MVP traffic (~5 signups/hr at peak) the tiny race window
-    between count + insert is acceptable and self-corrects to "at most cap +
-    a few" — far cheaper than a Mongo transaction or a distributed lock.
-
-    Side effects: stamps the "Founding Member" badge, +50 bonus points, and
-    queues the user into the private Founders Lounge group so they land
-    inside an active conversation from day one.
+    """DEPRECATED for the new opt-in flow — kept only for back-compat with
+    any legacy callsites that haven't been migrated to the explicit
+    `/founders/claim` endpoint. New signups must opt-in via the Founder
+    Info page; we no longer auto-stamp founders on account creation.
     """
-    if doc.get("is_demo"):
-        return
+    return
+
+
+async def _promote_existing_user_to_founder(user_id: str) -> dict:
+    """Convert an existing, persisted user into a Founding Member.
+
+    Powers the `POST /api/founders/claim` flow — runs ALL the side effects
+    that used to happen at signup time (founder number, badge, +50 points,
+    Founders Lounge group + table seating, welcome notification) but
+    against a user that's already in the DB.
+
+    Returns a dict with `founder_number` and the refreshed user document.
+
+    Raises HTTPException:
+      400 — user not found / demo account
+      409 — already a Founding Member
+      410 — Founding Member cohort is full
+    """
+    u = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(400, "Account not found")
+    if u.get("is_demo"):
+        raise HTTPException(400, "Demo accounts cannot claim Founding Member status")
+    if u.get("is_founder"):
+        raise HTTPException(409, "You're already a Founding Member")
     cap = max(0, int(settings.founding_member_cap or 0))
     if cap <= 0:
-        return
+        raise HTTPException(410, "Founding Member programme is closed")
     current = await db.users.count_documents({"is_founder": True})
     if current >= cap:
-        return
-    doc["is_founder"] = True
-    doc["founder_number"] = current + 1
-    badges = list(doc.get("badges") or [])
+        raise HTTPException(410, "Founding Member cohort is full")
+
+    founder_number = current + 1
+    badges = list(u.get("badges") or [])
     if "Founding Member" not in badges:
         badges.append("Founding Member")
-    doc["badges"] = badges
-    doc["points"] = int(doc.get("points") or 0) + 50
-    # Auto-add to the Founders Lounge. We update `doc.groups` so the user is
-    # already a member on first read; the group document membership is added
-    # right after the insert (see signup handler) since we need the user.id.
+    new_points = int(u.get("points") or 0) + 50
+
+    # Promote the user atomically (small race window vs other parallel
+    # claims is acceptable at MVP traffic — the count is rechecked next
+    # time and self-corrects to "at most cap + a few", same as the old
+    # auto-assignment flow).
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "is_founder": True,
+            "founder_number": founder_number,
+            "badges": badges,
+            "points": new_points,
+        }},
+    )
+
+    # Add to the private Founders Lounge group.
     fl = await _ensure_founders_lounge()
     if fl and fl.get("id"):
-        gs = list(doc.get("groups") or [])
-        if fl["id"] not in gs:
-            gs.append(fl["id"])
-            doc["groups"] = gs
-        doc["_founders_lounge_id"] = fl["id"]  # picked up by signup handler
-    # Auto-seat at the Founders Lounge Coffee Table. The seated array is
-    # mutated on the table document right after the user insert (we need
-    # the user.id) — here we just stash the table id so the signup handler
-    # knows what to update.
+        try:
+            await db.groups.update_one(
+                {"id": fl["id"]},
+                {"$addToSet": {"members": user_id}},
+            )
+            await db.users.update_one(
+                {"id": user_id},
+                {"$addToSet": {"groups": fl["id"]}},
+            )
+        except Exception as e:
+            logger.warning("founder claim: failed to add to lounge group: %s", e)
+
+    # Seat at the Founders Lounge Coffee Table.
     ft = await _ensure_founders_table()
     if ft and ft.get("id"):
-        doc["_founders_table_id"] = ft["id"]
+        try:
+            await db.tables.update_one(
+                {"id": ft["id"]},
+                {"$addToSet": {"seated": user_id},
+                 "$set": {"last_activity_at": now_iso()}},
+            )
+            # If the table was created before any founder existed, the
+            # host_id may still be blank — set this new founder as host
+            # so the lounge card shows a real "Started by …" attribution.
+            await db.tables.update_one(
+                {"id": ft["id"], "host_id": ""},
+                {"$set": {"host_id": user_id}},
+            )
+        except Exception as e:
+            logger.warning("founder claim: failed to seat at table: %s", e)
+
+    # Welcome notification — lands at the top of the user's bell.
+    await db.notifications.insert_one({
+        "id": nid(), "user_id": user_id, "type": "welcome",
+        "title": f"🦋 You're Founding Member #{founder_number}!",
+        "body": "Thanks for being one of the first to join YouBelong. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
+        "read": False, "created_at": now_iso(),
+    })
+
+    # Reload the user so callers get the post-promotion document.
+    refreshed = await db.users.find_one({"id": user_id}, {"_id": 0}) or u
+    return {"founder_number": founder_number, "user": refreshed}
 
 
 @api.post("/auth/signup")
@@ -1121,6 +1178,29 @@ async def founders_status():
         "taken": taken,
         "remaining": max(0, cap - taken),
         "open": taken < cap,
+    }
+
+
+@api.post("/founders/claim")
+async def founders_claim(user=Depends(current_user)):
+    """Opt-in endpoint that promotes the currently signed-in account to a
+    Founding Member.
+
+    Replaces the old auto-assignment-on-signup flow — now users see the
+    Founder Info page (benefits + confirmation modal) and consciously
+    claim the badge, which makes it feel earned rather than inherited.
+
+    Returns the assigned founder_number and the refreshed user document
+    so the client can update its local cache. Errors:
+      • 400 — demo account or user missing
+      • 409 — already a Founding Member (idempotent-safe to surface)
+      • 410 — the cohort is full (cap reached)
+    """
+    result = await _promote_existing_user_to_founder(user["id"])
+    return {
+        "ok": True,
+        "founder_number": result["founder_number"],
+        "user": _safe_user(result["user"]),
     }
 
 

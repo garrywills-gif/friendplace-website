@@ -193,7 +193,13 @@ export default function Welcome() {
           {founderStatus && founderStatus.open && founderStatus.cap > 0 ? (
             <Pressable
               testID="welcome-founder-banner"
-              onPress={() => router.push("/founders")}
+              onPress={() => {
+                // Non-founders (and unauthenticated visitors) see the
+                // info / opt-in page first; existing founders skip the
+                // pitch and land straight on the Wall.
+                const isFounder = !!(user as any)?.is_founder;
+                router.push(isFounder ? "/founders" : "/founders/info");
+              }}
               accessibilityLabel="View the Founders Wall"
               style={({ pressed }) => [styles.founderBanner, { opacity: pressed ? 0.85 : 1 }]}
             >

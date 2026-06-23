@@ -16,8 +16,10 @@ import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/lib/theme";
+import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import AvatarBubble from "@/src/components/AvatarBubble";
@@ -36,12 +38,19 @@ type Founder = {
 export default function FoundersWall() {
   const router = useRouter();
   const { c, scale } = useTheme();
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
 
   const [items, setItems] = useState<Founder[]>([]);
   const [total, setTotal] = useState(0);
   const [cap, setCap] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Whether the signed-in viewer is themselves a Founding Member —
+  // unlocks the "You're a Founding Member ✓" status header and the
+  // shortcut buttons to the Founders Lounge.
+  const viewerIsFounder = !!(user as any)?.is_founder;
+  const viewerFounderNumber = (user as any)?.founder_number ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +84,51 @@ export default function FoundersWall() {
         showsVerticalScrollIndicator={false}
         testID="founders-wall"
       >
+        {/* "You're a Founding Member ✓" status header — only renders when
+            the viewer is themselves a Founder. Gives existing members a
+            warm sense of belonging the moment they land on the Wall, plus
+            shortcut access to the private Lounge they unlocked. */}
+        {viewerIsFounder ? (
+          <View style={[styles.statusCard, { backgroundColor: "#0F766E", borderColor: "#5EEAD4" }]} testID="founders-wall-status">
+            <View style={styles.statusRow}>
+              <Text style={{ fontSize: 30 }}>🦋</Text>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Text style={{ color: "#ECFEFF", fontWeight: "900", fontSize: 16 * scale, letterSpacing: 0.4 }}>
+                    YOU&apos;RE A FOUNDING MEMBER
+                  </Text>
+                  <Ionicons name="checkmark-circle" size={20} color="#5EEAD4" />
+                </View>
+                {viewerFounderNumber ? (
+                  <Text style={{ color: "#A7F3D0", fontWeight: "800", fontSize: 13 * scale, marginTop: 2 }}>
+                    Founding Member #{viewerFounderNumber}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+            <View style={styles.statusBtnRow}>
+              <Pressable
+                testID="founders-wall-go-lounge"
+                onPress={() => router.push("/lounge" as any)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.statusBtn, { backgroundColor: "#ECFEFF", opacity: pressed ? 0.85 : 1 }]}
+              >
+                <Ionicons name="cafe" size={18} color="#0F766E" />
+                <Text style={{ color: "#0F766E", fontWeight: "900", fontSize: 14 * scale }}>Founders Lounge</Text>
+              </Pressable>
+              <Pressable
+                testID="founders-wall-go-profile"
+                onPress={() => router.push("/(tabs)/profile" as any)}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.statusBtn, { backgroundColor: "rgba(236, 254, 255, 0.18)", borderWidth: 1.2, borderColor: "#A7F3D0", opacity: pressed ? 0.85 : 1 }]}
+              >
+                <Ionicons name="person-circle" size={18} color="#ECFEFF" />
+                <Text style={{ color: "#ECFEFF", fontWeight: "900", fontSize: 14 * scale }}>My Profile</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
         <View style={[styles.heroCard, { backgroundColor: c.brandTertiary, borderColor: "#D4A017" }]}>
           <Text style={{ fontSize: 36 }}>🦋</Text>
           <View style={{ flex: 1 }}>
@@ -157,6 +211,24 @@ export default function FoundersWall() {
 }
 
 const styles = StyleSheet.create({
+  statusCard: {
+    borderRadius: 18,
+    borderWidth: 1.5,
+    padding: 16,
+    gap: 12,
+  },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  statusBtnRow: { flexDirection: "row", gap: 10 },
+  statusBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 12,
+  },
   heroCard: {
     borderRadius: 18,
     borderWidth: 1.5,
