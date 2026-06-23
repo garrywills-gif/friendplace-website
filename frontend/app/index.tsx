@@ -181,7 +181,7 @@ export default function Welcome() {
 
           <Text style={[styles.tag1, { fontSize: 30.4 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
           <Text style={[styles.welcomeMsg, { fontSize: 14 * scale }]} testID="welcome-message">
-            Meet new friends, discover local events and find your community.
+            Meet new friends, discover local events and find your people.
           </Text>
         </View>
 
