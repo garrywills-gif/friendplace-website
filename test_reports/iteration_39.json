@@ -1,0 +1,57 @@
+{
+  "summary": "Iter39 — Crossword UI overhaul + Daily difficulty bump regression. ALL ACCEPTANCE CRITERIA PASS.\n\nBackend (15/15 pytest in /app/backend/tests/test_iter39_crossword_daily_difficulty.py, ~3s):\n• GET /api/games/crossword/daily now returns a HARD or EXPERT puzzle (verified live: today's daily = expert-006 \"Aussie TV Classics\"). Points envelope = 30 (expert 25 + daily bonus 5); also asserts points=20 for hard. Theme is NOT in the previous MEDIUM theme set (\"Aussie Slang\", \"Around the House\", etc.).\n• Daily envelope contains `date` (today UTC ISO), `discussion_table_id` (string), and `puzzle` with no `answer` leak in any clue.\n• /api/games/crossword/levels still lists all 4 levels (easy/medium/hard/expert), and /api/games/crossword/active/{level} returns puzzles for every level — the library is intact, only the daily picker changed.\n• Single-puzzle GET (/api/games/crossword/{id}) still works for easy/medium/hard/expert ids with answers stripped.\n• POST /api/games/crossword/{id}/check still returns the `solved` + `status` grid (empty grid → solved=false, blocked cells correctly tagged).\n• GET /api/games/crossword/{id}/reveal/{r}/{c} (the \"hint\" endpoint per the brief) still returns the correct letter.\n• The Coffee Lounge \"Today's Crossword\" table (surfaced via GET /api/tables, filtered by discussion_table_id) now has the tougher description copy — contains the substring \"tough\" or \"brain-teaser\" per the new _ensure_daily_crossword_table() rewrite.\n\nFrontend (Playwright, mobile 390×844 + tablet 1024×768 against /games/crossword/play?daily=1):\nPHONE (stacked layout):\n  • `[data-testid=\"crossword-clue-panel-stacked\"]` present, `crossword-clue-panel-wide` absent.\n  • Dense grid renders (`Aussie TV Classics`, today's daily — screenshot confirmed).\n  • Active-clue banner appears below the grid with `Previous clue` + `Next clue` accessibility-labelled buttons (1 of each found).\n  • `ACROSS (4)` section header present with 4 clue rows, `DOWN (7)` section present with 7 clue rows.\n  • Tapping a Down clue row updates the banner heading from `3 ACROSS · 11 letters` → `1 DOWN · 16 letters` (clue picker integration working).\n  • Timer pill: initial state shows the live counter (e.g. `0:05`) with accessibilityLabel=\"Hide timer\". Tap → label becomes \"Timer\" and the eye-off icon is used (Show timer accessibility label present). Tap again → live counter restored (Hide timer accessibility label back).\nTABLET (side-by-side layout):\n  • `[data-testid=\"crossword-clue-panel-wide\"]` present, stacked absent.\n  • Layout flips correctly — screenshot confirms grid on the left + bordered scrollable clue panel on the right with `ACROSS (4)` highlighted-first-clue visible in teal background + left-border accent (Summer Bay soap, run together) and `DOWN (7)` rendered below.\n  • Clue rows are tappable (4 across rows found, tap invoked). Note: React Native Web does NOT propagate `accessibilityState.selected: true` to the DOM as `aria-selected=\"true\"`, so I couldn't verify the new selection state via aria; the visual highlight (background colour + left border accent + bold font) is the source of truth and is clearly working in the screenshot.\n\nKnown stale test flagged for E1: /app/backend/tests/test_iter37_crossword.py::TestDaily::test_daily_puzzle_envelope still hard-codes `p[\"level\"] == \"medium\"` and `d[\"points\"] == 15` — that test will now FAIL because daily is hard/expert. It needs to be updated to allow {hard, expert} and 20/30 points (or be superseded by the new iter39 file). I did NOT modify iter37 — change is intentional per the brief, the test file just needs an update.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "test_iter37_crossword.py::TestDaily::test_daily_puzzle_envelope",
+        "issue": "Stale test — asserts daily level=='medium' and points==15. Needs update to allow level in ('hard','expert') and points in (20, 30) after the iter39 difficulty bump. Not a backend bug — a test fixture that drifted with intended behaviour."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "global (pre-existing)",
+        "issue": "React Native Web deprecation warnings persisting in browser console — `shadow*` style props (use boxShadow), `textShadow*` (use textShadow), `props.pointerEvents` (use style.pointerEvents), `Animated useNativeDriver` warning. Not introduced by iter39 — same warnings flagged in iter37/38."
+      },
+      {
+        "component": "CluePanel clue rows (play.tsx:783)",
+        "issue": "`accessibilityState={{ selected: isActive }}` does NOT render as `aria-selected=\"true\"` in React Native Web (only role=\"button\" reaches the DOM). The visual highlight works fine, but the selected-state is not exposed to assistive tech / Playwright via aria. Consider adding `testID` to each clue row (e.g. `crossword-clue-A-3` / `crossword-clue-D-1`) so testing + screen readers can deterministically identify the active row."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter39_crossword_daily_difficulty.py",
+    "/app/test_reports/pytest/iter39.xml",
+    "/app/test_reports/iteration_39.json"
+  ],
+  "action_items": [
+    "Update /app/backend/tests/test_iter37_crossword.py::TestDaily::test_daily_puzzle_envelope to expect level in ('hard','expert') and points in (20, 30) — or delete it in favour of iter39's TestDailyDifficulty class which covers the same envelope assertions with the new contract.",
+    "(Polish) Add `testID` attributes to crossword clue rows in CluePanel (play.tsx:783) so the active row can be deterministically identified during testing and by screen readers — RN Web does NOT translate `accessibilityState.selected` to `aria-selected` in the DOM.",
+    "(Polish) Add `testID=\"crossword-timer-pill\"` to the timer Pressable in play.tsx:441 — currently the only handle is accessibilityLabel which switches between 'Hide timer' / 'Show timer', making tests dependent on the current toggle state.",
+    "(Pre-existing, not introduced by iter39) Address React Native Web deprecation warnings: replace `shadow*`/`textShadow*` props with `boxShadow`/`textShadow`, move `pointerEvents` to style, and audit `Animated.useNativeDriver` usage on web."
+  ],
+  "critical_code_review_comments": [
+    "crossword_puzzles.py:756 daily_puzzle() concatenates HARD_PUZZLES + EXPERT_PUZZLES into a fresh `pool` list every call — fine for correctness, but mildly wasteful. Could be a module-level constant `DAILY_POOL = HARD_PUZZLES + EXPERT_PUZZLES` computed once.",
+    "crossword_puzzles.py:770 fallback when both HARD/EXPERT pools are empty silently switches to MEDIUM with a comment — good safety net, but worth a `log.warning()` so a deploy with truncated puzzle lists is noisy in Sentry rather than silently regressing the difficulty bump.",
+    "play.tsx:756 CluePanel auto-scroll uses `useEffect` keyed off `activeKey` and reads `offsets.current.get(...)` — fine, but if the active clue is the FIRST one in its section and its onLayout fires AFTER the first render (race), the initial scroll-to-top happens before the offset is known. Today the panel starts at y=0 so this is invisible, but if the parent ever adds a header above the panel the first auto-scroll could overshoot. Consider falling back to scrollIntoView via measureInWindow or stamping the y with a ref+state on first measure.",
+    "play.tsx:573 active-clue banner uses `c.brandTertiary` background with `c.brand` border + `c.onSurface` text — visually clean, but the `21 * scale` font is the only text the user reads while typing. Could benefit from explicit minimum tap target on Prev/Next (already 48px via styles.navBtn — good).",
+    "play.tsx:825 the wide-layout ScrollView has `maxHeight: panelMaxHeight` but no minHeight — on very-tall tablets the panel could collapse if the grid renders shorter than expected. Probably fine in practice, just worth a sanity check on iPad Pro landscape."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter39_crossword_daily_difficulty.py (NEW — 15 tests across 5 classes covering iter39's daily difficulty bump + library/check/reveal regression)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 — TestDailyDifficulty 3/3, TestLibraryUnchanged 5/5, TestSinglePuzzleStillWorks 4/4, TestCheckAndReveal 2/2, TestDailyTableCopy 1/1)",
+    "frontend": "100% (phone: stacked panel ✓, grid ✓, banner + Prev/Next ✓, ACROSS+DOWN sections ✓, clue-tap updates banner ✓, timer toggle hide/show ✓; tablet: wide panel ✓, side-by-side layout ✓, active-clue highlight visible ✓, clue rows tappable ✓)"
+  },
+  "seed_data_creation": "No new seed data. Tests use maggie's demo session for any user-scoped endpoints; iter37 conftest pattern not needed here because all 15 iter39 tests are read-only (GET) or stateless POSTs (check with empty/wrong grid). No data persisted.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend env var key is EXPO_PUBLIC_BACKEND_URL (frontend/.env). Crossword endpoints actually deployed: GET /levels, /daily, /active/{level}, /{puzzle_id}, /{puzzle_id}/reveal/{r}/{c}, POST /{puzzle_id}/check, POST/GET /progress/{user_id}. The brief mentioned `/puzzles`, `/puzzle/{id}`, `/check`, `/hint` — those are aliases for /active/{level}, /{puzzle_id}, /{puzzle_id}/check, /{puzzle_id}/reveal respectively (the brief's names don't literally exist as routes). FE testIDs available on the crossword play screen: crossword-clue-panel-stacked (phone) and crossword-clue-panel-wide (tablet). Timer pill + Prev/Next buttons + clue rows have NO testIDs yet — they're locatable via accessibilityLabel (\"Hide timer\"/\"Show timer\", \"Previous clue\"/\"Next clue\", and \"Across N: <clue>\" / \"Down N: <clue>\" patterns). React Native Web does NOT propagate accessibilityState.selected as aria-selected, so use the visual styling (left border + brandTertiary background) to verify the active clue, or add testIDs per the action items. Today's daily (2026-06-23) is expert-006 \"Aussie TV Classics\" — daily_puzzle() uses (today_utc - 2026-01-01).days % len(HARD+EXPERT pool) to rotate, so each calendar day picks a different puzzle. Note: /app/backend/tests/test_iter37_crossword.py::TestDaily::test_daily_puzzle_envelope is STALE post-iter39 and will fail any regression run until updated — flagged in action_items.",
+  "rca_of_issue": "N/A — all iter39 acceptance criteria pass. Only nit: the previous iter37 daily envelope test is now stale (asserts medium/15) and needs a one-line update to allow {hard,expert}/{20,30}. The new iter39 test file supersedes that assertion."
+}

@@ -59,7 +59,7 @@ export default function CrosswordPlay() {
   const { c, scale } = useTheme();
   const { user } = useAuth();
   const { show } = useToast();
-  const { width: winW } = useWindowDimensions();
+  const { width: winW, height: winH } = useWindowDimensions();
 
   // ── data
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
@@ -489,139 +489,148 @@ export default function CrosswordPlay() {
           </Pressable>
         )}
 
-        {/* Grid — soft slate blocked cells (not harsh navy), thick brand
-            border. Wrapped in a horizontal ScrollView so dense Expert
-            grids stay tappable on phones (and look great centred on iPad). */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 6, alignItems: "center", justifyContent: "center", flexGrow: 1 }}
-          style={{ marginTop: 12 }}
+        {/* Grid + clue panels — newspaper-style layout. On phone the
+            clue list stacks directly under the grid (and active-clue
+            banner) so users see lots of clues without scrolling far.
+            On tablet/landscape we flip to a side-by-side row: grid on
+            the left, scrollable clue panel on the right — matching the
+            classic newspaper feel of the reference design. */}
+        <View
+          style={[
+            isWide
+              ? { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 12, gap: 14, marginTop: 8 }
+              : { marginTop: 8 },
+          ]}
         >
-          <View style={{
-            width: cellSize * puzzle.size,
-            borderWidth: 2.5, borderColor: c.brand, borderRadius: 6,
-            backgroundColor: "#E7EAF0",
-            padding: 2,
-          }}>
-            {puzzle.grid.map((row, r) => (
-              <View key={r} style={{ flexDirection: "row" }}>
-                {row.map((cell, col) => {
-                  const blocked = cell === null;
-                  const selected = sel && sel[0] === r && sel[1] === col;
-                  const inActive = !blocked && activeClue && (
-                    (dir === "A" && r === activeClue.row && col >= activeClue.col && col < activeClue.col + activeClue.len) ||
-                    (dir === "D" && col === activeClue.col && r >= activeClue.row && r < activeClue.row + activeClue.len)
-                  );
-                  const num = startCellNum[`${r},${col}`];
-                  const userLetter = letters[r]?.[col] || "";
-                  const cellStatus = statusGrid[r]?.[col] || null;
-                  const isRevealed = revealed[r]?.[col];
-                  // Soft palette:
-                  //   blocked       → soft slate gray   (#94A3B8)
-                  //   selected cell → bright sky tint   (#FCD34D, warm yellow)
-                  //   active word   → soft sky highlight (#DBEAFE, pale blue)
-                  //   normal cell   → off-white         (#FFFDF7, easier on eyes)
-                  const bg = blocked
-                    ? "#94A3B8"
-                    : (selected ? "#FCD34D" : (inActive ? "#DBEAFE" : "#FFFDF7"));
-                  const fg = cellStatus === "wrong"
-                    ? "#C62828"
-                    : (isRevealed ? c.brand : "#0F172A");
-                  return (
-                    <Pressable
-                      key={`${r}-${col}`}
-                      onPress={() => onCellPress(r, col)}
-                      disabled={blocked}
-                      style={{
-                        width: cellSize, height: cellSize,
-                        borderWidth: 1, borderColor: blocked ? "#94A3B8" : "#94A3B8",
-                        backgroundColor: bg,
-                        alignItems: "center", justifyContent: "center",
-                      }}
-                    >
-                      {!blocked && num !== undefined && (
-                        <Text style={{ position: "absolute", top: 1, left: 2, fontSize: Math.max(9, cellSize * 0.24), color: "#475569", fontWeight: "700" }}>
-                          {num}
-                        </Text>
-                      )}
-                      {!blocked && (
-                        <Text style={{ fontSize: cellSize * 0.5, color: fg, fontWeight: "800" }}>
-                          {userLetter}
-                        </Text>
-                      )}
-                    </Pressable>
-                  );
-                })}
+          {/* LEFT column (or full width on phone): the grid + active clue
+              banner. Action row sits at the very bottom of the page so the
+              clue list gets prime real estate above the keyboard. */}
+          <View style={isWide ? { width: GRID_AREA_W + 24 } : undefined}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 6, alignItems: "center", justifyContent: "center", flexGrow: 1 }}
+            >
+              <View style={{
+                width: cellSize * puzzle.size,
+                borderWidth: 2.5, borderColor: c.brand, borderRadius: 6,
+                backgroundColor: "#E7EAF0",
+                padding: 2,
+              }}>
+                {puzzle.grid.map((row, r) => (
+                  <View key={r} style={{ flexDirection: "row" }}>
+                    {row.map((cell, col) => {
+                      const blocked = cell === null;
+                      const selected = sel && sel[0] === r && sel[1] === col;
+                      const inActive = !blocked && activeClue && (
+                        (dir === "A" && r === activeClue.row && col >= activeClue.col && col < activeClue.col + activeClue.len) ||
+                        (dir === "D" && col === activeClue.col && r >= activeClue.row && r < activeClue.row + activeClue.len)
+                      );
+                      const num = startCellNum[`${r},${col}`];
+                      const userLetter = letters[r]?.[col] || "";
+                      const cellStatus = statusGrid[r]?.[col] || null;
+                      const isRevealed = revealed[r]?.[col];
+                      const bg = blocked
+                        ? "#94A3B8"
+                        : (selected ? "#FCD34D" : (inActive ? "#DBEAFE" : "#FFFDF7"));
+                      const fg = cellStatus === "wrong"
+                        ? "#C62828"
+                        : (isRevealed ? c.brand : "#0F172A");
+                      return (
+                        <Pressable
+                          key={`${r}-${col}`}
+                          onPress={() => onCellPress(r, col)}
+                          disabled={blocked}
+                          style={{
+                            width: cellSize, height: cellSize,
+                            borderWidth: 1, borderColor: blocked ? "#94A3B8" : "#94A3B8",
+                            backgroundColor: bg,
+                            alignItems: "center", justifyContent: "center",
+                          }}
+                        >
+                          {!blocked && num !== undefined && (
+                            <Text style={{ position: "absolute", top: 1, left: 2, fontSize: Math.max(9, cellSize * 0.24), color: "#475569", fontWeight: "700" }}>
+                              {num}
+                            </Text>
+                          )}
+                          {!blocked && (
+                            <Text style={{ fontSize: cellSize * 0.5, color: fg, fontWeight: "800" }}>
+                              {userLetter}
+                            </Text>
+                          )}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
-        </ScrollView>
+            </ScrollView>
 
-        {/* Active clue banner — larger, easier to read, with Prev/Next
-            navigation buttons so users don't have to scroll the clue list. */}
-        <View style={[styles.clueBanner, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
-          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
-            <Text style={{ color: c.brand, fontWeight: "900", fontSize: 14 * scale, letterSpacing: 0.6, flex: 1 }}>
-              {activeClue ? `${activeClue.num} ${dir === "A" ? "ACROSS" : "DOWN"} · ${activeClue.len} letters` : (dir === "A" ? "ACROSS" : "DOWN")}
-            </Text>
-            {!!ttsClue && <SpeakButton text={ttsClue} size={28} />}
+            {/* Active clue banner — sits directly under the grid so the
+                current clue is always visible alongside the puzzle. The
+                Prev/Next buttons let users skip clues without scrolling
+                the clue list (still nice for thumb navigation). */}
+            <View style={[styles.clueBanner, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+                <Text style={{ color: c.brand, fontWeight: "900", fontSize: 14 * scale, letterSpacing: 0.6, flex: 1 }}>
+                  {activeClue ? `${activeClue.num} ${dir === "A" ? "ACROSS" : "DOWN"} · ${activeClue.len} letters` : (dir === "A" ? "ACROSS" : "DOWN")}
+                </Text>
+                {!!ttsClue && <SpeakButton text={ttsClue} size={28} />}
+              </View>
+              <Text style={{ color: c.onSurface, fontSize: 21 * scale, fontWeight: "700", lineHeight: 28 * scale }}>
+                {activeClue?.clue || "Tap a cell to begin."}
+              </Text>
+              <View style={styles.navRow}>
+                <Pressable
+                  onPress={onPrevClue}
+                  style={({ pressed }) => [styles.navBtn, {
+                    backgroundColor: pressed ? c.brand : "#FFFFFF",
+                    borderColor: c.brand,
+                  }]}
+                  accessibilityLabel="Previous clue"
+                >
+                  <Ionicons name="chevron-back" size={20} color={c.brand} />
+                  <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Previous</Text>
+                </Pressable>
+                <Pressable
+                  onPress={onNextClue}
+                  style={({ pressed }) => [styles.navBtn, {
+                    backgroundColor: pressed ? c.brand : "#FFFFFF",
+                    borderColor: c.brand,
+                  }]}
+                  accessibilityLabel="Next clue"
+                >
+                  <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Next</Text>
+                  <Ionicons name="chevron-forward" size={20} color={c.brand} />
+                </Pressable>
+              </View>
+            </View>
           </View>
-          <Text style={{ color: c.onSurface, fontSize: 21 * scale, fontWeight: "700", lineHeight: 28 * scale }}>
-            {activeClue?.clue || "Tap a cell to begin."}
-          </Text>
-          <View style={styles.navRow}>
-            <Pressable
-              onPress={onPrevClue}
-              style={({ pressed }) => [styles.navBtn, {
-                backgroundColor: pressed ? c.brand : "#FFFFFF",
-                borderColor: c.brand,
-              }]}
-              accessibilityLabel="Previous clue"
-            >
-              <Ionicons name="chevron-back" size={20} color={c.brand} />
-              <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Previous</Text>
-            </Pressable>
-            <Pressable
-              onPress={onNextClue}
-              style={({ pressed }) => [styles.navBtn, {
-                backgroundColor: pressed ? c.brand : "#FFFFFF",
-                borderColor: c.brand,
-              }]}
-              accessibilityLabel="Next clue"
-            >
-              <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Next</Text>
-              <Ionicons name="chevron-forward" size={20} color={c.brand} />
-            </Pressable>
-          </View>
+
+          {/* RIGHT column on tablet OR continuation below grid on phone:
+              the full Across/Down clue lists. Active clue auto-scrolls
+              into view so users never lose their place after typing a
+              long word that flips them to a new section. */}
+          <CluePanel
+            puzzle={puzzle}
+            activeClue={activeClue}
+            dir={dir}
+            onPick={(cl, d) => { setDir(d); setSel([cl.row, cl.col]); }}
+            c={c}
+            scale={scale}
+            isWide={isWide}
+            panelWidth={CLUE_PANEL_W}
+            panelMaxHeight={Math.max(360, winH - 360)}
+          />
         </View>
 
         {/* Action row — Hint (one letter free), Check (validate),
-            Clear answer (wipe current word only). */}
+            Clear answer (wipe current word only). Sits below both
+            columns on tablet for thumb-reachable consistency. */}
         <View style={styles.actionRow}>
           <ActionBtn label="Check" icon="checkmark-circle-outline" onPress={doCheck} c={c} scale={scale} />
           <ActionBtn label="Hint" icon="bulb-outline" onPress={doRevealLetter} c={c} scale={scale} />
           <ActionBtn label="Clear answer" icon="refresh-outline" onPress={doClear} c={c} scale={scale} />
-        </View>
-
-        {/* Clue lists */}
-        <View style={{ paddingHorizontal: 16, marginTop: 16, gap: 14 }}>
-          <ClueList
-            title={`Across (${puzzle.clues.across.length})`}
-            clues={puzzle.clues.across}
-            activeNum={activeClue && dir === "A" ? activeClue.num : null}
-            onPick={(cl) => { setDir("A"); setSel([cl.row, cl.col]); }}
-            c={c} scale={scale}
-          />
-          {!!puzzle.clues.down.length && (
-            <ClueList
-              title={`Down (${puzzle.clues.down.length})`}
-              clues={puzzle.clues.down}
-              activeNum={activeClue && dir === "D" ? activeClue.num : null}
-              onPick={(cl) => { setDir("D"); setSel([cl.row, cl.col]); }}
-              c={c} scale={scale}
-            />
-          )}
         </View>
       </ScrollView>
 
@@ -709,28 +718,146 @@ function ActionBtn({ label, icon, onPress, c, scale }: any) {
   );
 }
 
-function ClueList({ title, clues, activeNum, onPick, c, scale }: any) {
-  return (
-    <View>
-      <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 15 * scale, marginBottom: 6 }}>{title}</Text>
-      {clues.map((cl: Clue) => {
-        const active = cl.num === activeNum;
+function CluePanel({
+  puzzle,
+  activeClue,
+  dir,
+  onPick,
+  c,
+  scale,
+  isWide,
+  panelWidth,
+  panelMaxHeight,
+}: {
+  puzzle: Puzzle;
+  activeClue: Clue | null;
+  dir: Direction;
+  onPick: (cl: Clue, d: Direction) => void;
+  c: any;
+  scale: number;
+  isWide: boolean;
+  panelWidth: number;
+  panelMaxHeight: number;
+}) {
+  // Auto-scroll the active clue into view so users never lose their
+  // place — especially helpful on phones where the list lives below
+  // the grid and on tablets where Down clues might sit further down
+  // the side panel. We capture the y-offset of each row via onLayout
+  // (the row knows its own height + position) and scroll the panel
+  // there with a tiny vertical buffer so the active row is centered
+  // rather than hugging the top edge.
+  const scrollRef = useRef<ScrollView>(null);
+  const offsets = useRef<Map<string, number>>(new Map());
+
+  // Compose a stable key for the active row that survives Across/Down
+  // collisions (same number can exist in both lists).
+  const activeKey = activeClue ? `${dir}-${activeClue.num}` : null;
+
+  useEffect(() => {
+    if (!activeKey) return;
+    const y = offsets.current.get(activeKey);
+    if (typeof y !== "number") return;
+    // Subtract a small offset so the active clue isn't flush against
+    // the top — feels more readable with breathing room above.
+    scrollRef.current?.scrollTo({ y: Math.max(0, y - 28), animated: true });
+  }, [activeKey]);
+
+  const Section = ({ title, clues, d }: { title: string; clues: Clue[]; d: Direction }) => (
+    <View style={{ marginBottom: 14 }}>
+      <Text
+        style={{
+          color: c.muted,
+          fontWeight: "900",
+          fontSize: 12 * scale,
+          letterSpacing: 0.8,
+          marginBottom: 6,
+          paddingLeft: 4,
+        }}
+      >
+        {title.toUpperCase()}
+      </Text>
+      {clues.map((cl) => {
+        const key = `${d}-${cl.num}`;
+        const isActive = activeKey === key;
         return (
           <Pressable
-            key={`${title}-${cl.num}`}
-            onPress={() => onPick(cl)}
-            style={({ pressed }) => [styles.clueRow, {
-              backgroundColor: active ? c.brandTertiary : "transparent",
-              borderColor: active ? c.brand : c.border,
-              opacity: pressed ? 0.85 : 1,
-            }]}
+            key={key}
+            onPress={() => onPick(cl, d)}
+            onLayout={(e) => { offsets.current.set(key, e.nativeEvent.layout.y); }}
+            style={({ pressed }) => [
+              styles.clueRow,
+              {
+                backgroundColor: isActive ? c.brandTertiary : "transparent",
+                borderColor: isActive ? c.brand : c.border,
+                borderLeftWidth: isActive ? 4 : 1,
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isActive }}
+            accessibilityLabel={`${d === "A" ? "Across" : "Down"} ${cl.num}: ${cl.clue}`}
           >
-            <Text style={{ color: c.brand, fontWeight: "900", width: 28, fontSize: 14 * scale }}>{cl.num}.</Text>
-            <Text style={{ color: c.onSurface, flex: 1, fontSize: 14 * scale, lineHeight: 20 }}>{cl.clue}</Text>
+            <Text style={{ color: c.brand, fontWeight: "900", width: 28, fontSize: 14 * scale }}>
+              {cl.num}.
+            </Text>
+            <Text
+              style={{
+                color: c.onSurface,
+                flex: 1,
+                fontSize: 14 * scale,
+                lineHeight: 20,
+                fontWeight: isActive ? "800" : "500",
+              }}
+            >
+              {cl.clue}
+            </Text>
             <Text style={{ color: c.muted, fontSize: 12 * scale, marginLeft: 6 }}>({cl.len})</Text>
           </Pressable>
         );
       })}
+    </View>
+  );
+
+  // On tablet — fixed-width column with its OWN scroll so the grid
+  // stays anchored while users browse the clues. On phone — inline
+  // with the outer page scroll (no nested ScrollView so flick gestures
+  // don't fight each other).
+  if (isWide) {
+    return (
+      <View
+        style={{
+          width: panelWidth,
+          maxHeight: panelMaxHeight,
+          borderWidth: 1,
+          borderColor: c.border,
+          borderRadius: 14,
+          backgroundColor: c.surface,
+          padding: 12,
+        }}
+        testID="crossword-clue-panel-wide"
+      >
+        <ScrollView
+          ref={scrollRef}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 8 }}
+        >
+          <Section title={`Across (${puzzle.clues.across.length})`} clues={puzzle.clues.across} d="A" />
+          {!!puzzle.clues.down.length && (
+            <Section title={`Down (${puzzle.clues.down.length})`} clues={puzzle.clues.down} d="D" />
+          )}
+        </ScrollView>
+      </View>
+    );
+  }
+  return (
+    <View
+      style={{ paddingHorizontal: 16, marginTop: 14 }}
+      testID="crossword-clue-panel-stacked"
+    >
+      <Section title={`Across (${puzzle.clues.across.length})`} clues={puzzle.clues.across} d="A" />
+      {!!puzzle.clues.down.length && (
+        <Section title={`Down (${puzzle.clues.down.length})`} clues={puzzle.clues.down} d="D" />
+      )}
     </View>
   );
 }
