@@ -1,7 +1,7 @@
 """
 Word Search — curated, family-friendly word lists + deterministic puzzle generator.
 
-Word lists are MANUALLY CURATED for a retirement / community context.
+Word lists are MANUALLY CURATED for a community context.
 No AI-generated words. All entries:
   * 3–10 letters
   * Plain English (or common Australian English)

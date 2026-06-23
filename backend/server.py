@@ -3862,7 +3862,7 @@ async def list_tables(user_id: str | None = None):
       • `friends_seated` — array of `{id, first_name, avatar}` for any
         currently-seated members that are friends of `user_id`. The lounge
         UI surfaces this as a "Joyce is here 🌸" chip; it's the single
-        biggest reason older users will tap into a table.
+        biggest reason members will tap into a table.
 
     Both fields are best-effort — if user lookups fail we silently omit
     them so the lounge always loads.
@@ -7203,7 +7203,7 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...)):
 # ------------- Seed -------------
 SAMPLE_USERS = [
     {"first_name": "Margaret", "username": "maggie", "suburb": "Bondi", "interests": ["Gardening", "Books", "Tea"], "avatar": "🌸", "bio": "Loves roses and a good cuppa.", "points": 78, "badges": ["Friendly Member", "Helpful Neighbour", "Social Star"]},
-    {"first_name": "Frank", "username": "frankie", "suburb": "Manly", "interests": ["Woodwork", "Fishing", "Pets"], "avatar": "🔨", "bio": "Retired carpenter. Always tinkering.", "points": 42, "badges": ["Friendly Member", "Helpful Neighbour"]},
+    {"first_name": "Frank", "username": "frankie", "suburb": "Manly", "interests": ["Woodwork", "Fishing", "Pets"], "avatar": "🔨", "bio": "Loves woodwork and tinkering in the shed.", "points": 42, "badges": ["Friendly Member", "Helpful Neighbour"]},
     {"first_name": "Joyce", "username": "joycey", "suburb": "Surry Hills", "interests": ["Books", "Cats", "Tea"], "avatar": "📚", "bio": "Two cats and a hundred books.", "points": 55, "badges": ["Friendly Member", "Helpful Neighbour"]},
     {"first_name": "Bill", "username": "billdo", "suburb": "Bondi", "interests": ["Men's Shed", "Walking", "Cricket"], "avatar": "🧓", "bio": "Up at 5, walking by 6.", "points": 31, "badges": ["Friendly Member"]},
     {"first_name": "Dorothy", "username": "dot", "suburb": "Newtown", "interests": ["Crochet", "Trivia", "Pets"], "avatar": "🧶", "bio": "Crochet anything you ask!", "points": 64, "badges": ["Friendly Member", "Helpful Neighbour", "Social Star"]},
@@ -7232,7 +7232,7 @@ SAMPLE_GROUPS = [
 
 SAMPLE_EVENTS = [
     {"title": "Coffee Morning", "emoji": "☕", "description": "Casual morning catch-up over a cuppa.", "location": "Cafe Belong, Manly", "date": "2026-05-20", "time": "10:00 AM",
-     "sponsor": {"name": "Café Belong", "message": "Senior's discount on coffee & cake", "discount_code": "BELONG10"}},
+     "sponsor": {"name": "Café Belong", "message": "Members' discount on coffee & cake", "discount_code": "BELONG10"}},
     {"title": "Community Morning Tea", "emoji": "🫖", "description": "Tea, biscuits, and chatter at the community hall.", "location": "Bondi Community Hall", "date": "2026-05-22", "time": "10:30 AM",
      "sponsor": {"name": "Bondi Community Centre", "message": "Free tea & scones for RSVPs", "discount_code": "BONDITEA"}},
     {"title": "Walking Group", "emoji": "🚶", "description": "Gentle stroll around Centennial Park.", "location": "Centennial Park", "date": "2026-05-24", "time": "8:00 AM"},
@@ -7254,7 +7254,7 @@ SAMPLE_NOTICES = [
 SAMPLE_GROUP_POSTS = [
     {"group_idx": 0, "user_idx": 0, "text": "Lovely walk this morning around the harbour — six of us made it. Tea afterwards was 🌸"},
     {"group_idx": 2, "user_idx": 2, "text": "My peace lily is finally blooming! Anyone else have luck indoors?"},
-    {"group_idx": 4, "user_idx": 6, "text": "Cafe Belong has a senior's discount on Tuesdays — pass it on!"},
+    {"group_idx": 4, "user_idx": 6, "text": "Cafe Belong has a members' discount on Tuesdays — pass it on!"},
     {"group_idx": 1, "user_idx": 7, "text": "Saturday's food drive went brilliantly. Thank you to everyone who turned up. 🤝"},
 ]
 

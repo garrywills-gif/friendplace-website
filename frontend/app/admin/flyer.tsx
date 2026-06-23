@@ -3,7 +3,7 @@
  *
  * Renders a preview of the printable A4 flyer (generated server-side as a
  * single PNG by GET /api/admin/invite-flyer) and offers a one-tap download.
- * Designed to be pinned up at community centres, retirement villages,
+ * Designed to be pinned up at community centres, libraries and local clubs,
  * libraries and clubs.
  */
 import React, { useMemo, useState } from "react";

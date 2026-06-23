@@ -406,7 +406,7 @@ def _apply_diff(scene_b: List[Dict], d: Dict) -> Dict:
         "type": d["type"],
         "x": region_x,
         "y": region_y,
-        # A generous tap region (percent of board) so older users can find them.
+        # A generous tap region (percent of board) so members can find them.
         "radius": 10,
     }
 

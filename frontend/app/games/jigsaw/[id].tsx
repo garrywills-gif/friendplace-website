@@ -188,7 +188,7 @@ export default function JigsawPlayer() {
 
         {/* The board: each tile shows a portion of the image at its CORRECT location.
             order[i] is the piece currently in slot i. Tile renders the piece's image with negative offsets.
-            Touch targets are large (>=44px) for older users. */}
+            Touch targets are large (>=44px) for everyone. */}
         <View style={[styles.board, { width: boardW, height: boardH }]}>
           {order.map((pieceIndex, slotIndex) => {
             const correct = pieceIndex === slotIndex;

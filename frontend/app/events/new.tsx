@@ -20,7 +20,7 @@ const CAPACITY_PRESETS = [
 
 // Recurrence cadences offered to hosts. "none" is the default — most events
 // are one-offs. We deliberately do NOT expose daily / yearly to keep the
-// surface friendly for older adults running regular meetups.
+// surface friendly for everyone running regular meetups.
 type Recurrence = "none" | "weekly" | "fortnightly" | "monthly";
 const RECURRENCE_OPTIONS: { key: Recurrence; label: string; emoji: string }[] = [
   { key: "none",         label: "Doesn't repeat", emoji: "—" },

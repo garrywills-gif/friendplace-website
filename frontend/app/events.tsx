@@ -41,7 +41,7 @@ export default function Events() {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   // Build the list of months that actually have events, anchored on the
-  // current calendar month + next month for predictability — older users
+  // current calendar month + next month for predictability — members
   // shouldn't have to scroll a year of empty months.
   const monthOptions = useMemo(() => {
     const now = new Date();

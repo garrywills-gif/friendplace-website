@@ -1,7 +1,7 @@
 /**
  * Crossword — interactive play screen.
  *
- * UX overview (designed for older adults, soft visuals, big touch targets):
+ * UX overview (designed for everyone, soft visuals, big touch targets):
  *   • Soft slate blocked cells (not harsh black), strong teal/yellow
  *     highlight for the active word so it's always obvious where you
  *     are typing.
