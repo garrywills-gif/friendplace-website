@@ -68,7 +68,7 @@ export default function Settings() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Settings" />
+      <Header title="Settings" emoji="⚙️" subtitle="Preferences · Account · Accessibility" />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
         <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>Accessibility</Text>
         <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>

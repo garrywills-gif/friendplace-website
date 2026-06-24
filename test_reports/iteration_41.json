@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 41 — Community Groups overhaul + consistent page banners. Both backend (16/16 pytest passes) and frontend (Playwright @ 390×844) flows are fully working. /api/groups hides system groups + pending suggestions by default; ?include_system=true brings them back; the suggest → admin pending → approve → public-list flow works end-to-end; group_approved / group_rejected notifications fire correctly. Frontend Header banner refactor is consistent across /groups (🤝), /notices (📋), /messages (💬), /notifications (🔔), /settings (⚙️), /founders (🦋), /founders/info (🦋), /help (🤗), /admin (🛡️). FAB + suggest modal works; admin queue Approve/Reject + reject-reason modal work; /admin index 🌟 Pending Group Suggestions card is wired and links to /admin/pending-groups.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/groups (Suggest a Group modal)",
+        "issues": [
+          "On a 390×844 viewport, the Send-for-review button can sit below the visible fold. Tapping the FAB works, but submission requires scrolling inside the modal. Consider sticking the action row to the bottom of the modal card or reducing the form padding so the submit is reachable without scroll on small phones."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter41_groups_overhaul.py",
+    "/app/test_reports/pytest/iter41_groups.xml"
+  ],
+  "action_items": [
+    "(optional polish) Pin the Cancel / Send-for-review action row to the bottom of the suggest modal so it's reachable without scrolling on 390-wide phones."
+  ],
+  "critical_code_review_comments": [
+    "Backend filter logic on GET /api/groups is clean and read-only (no _id leak, default-hide for both is_system and pending_approval, opt-in via query params).",
+    "Suggest endpoint correctly enforces auth (HTTPBearer), 3-60 char name validation, case-insensitive duplicate detection (409), and fans out admin notifications.",
+    "Admin endpoints all 403 for non-admins and return 404 when the pending document is missing — consistent with the rest of the admin surface.",
+    "Header.tsx renders title + emoji + subtitle in a clear banner with a teal 2px bottom border; testIDs (page-header, header-title, header-subtitle, header-back) are in place for testing.",
+    "/admin/pending-groups has a defence-in-depth client gate AND the server-side 403 — good belt-and-braces pattern."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter41_groups_overhaul.py (new pytest suite, 16 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (16/16 pytest)",
+    "frontend": "100% (all banner pages, suggest flow, admin approve flow, public-list refresh verified)"
+  },
+  "seed_data_creation": "Tests create disposable groups named TEST_* and clean them up via the admin reject endpoint at module-level. A single approved group ('Test Suggestion 31861') was left in the DB after the Playwright end-to-end approval flow — this is expected since the test validates that it appears in the public list. Main agent can delete it manually if desired.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_iter41_groups_overhaul.py — reusable for regression. The Playwright flow uses demo-login via /api/auth/demo-login (maggie is admin) and stores yb_token / yb_user in localStorage before navigating. Use wait_until='domcontentloaded' (NOT networkidle) for /groups because the page polls continuously. The suggest modal submit button can sit below the fold at 390×844 — scroll_into_view_if_needed() before clicking.",
+  "rca_of_issue": "n/a — feature working end-to-end."
+}

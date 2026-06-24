@@ -524,6 +524,9 @@ async def _ensure_founders_lounge() -> Optional[dict]:
         "description": "A private space for Founding Members to chat, share early feedback, and help shape YouBelong.",
         "members": [],
         "is_founder_only": True,
+        # System group — hidden from the public Community Groups list
+        # because it lives inside the Founders area instead.
+        "is_system": True,
         "created_at": now_iso(),
     }
     try:
@@ -1826,7 +1829,7 @@ STARTER_GROUPS = [
     {"name": "Walking & Trails", "emoji": "🥾", "description": "Bushwalks, beach strolls, and gentle daily walks — find a walking buddy.",
      "tags": ["walking", "fitness", "hiking", "outdoors"]},
     {"name": "Coffee Lounge Crew", "emoji": "☕", "description": "Regulars who love a virtual cuppa in the Coffee Lounge — chat anytime.",
-     "tags": ["coffee", "chat", "lounge", "social"]},
+     "tags": ["coffee", "chat", "lounge", "social"], "is_system": True},
 ]
 
 
@@ -4095,9 +4098,24 @@ async def table_messages(table_id: str):
 
 # ------------- Groups -------------
 @api.get("/groups")
-async def list_groups():
-    # Newest groups first so new communities are discoverable.
-    return await db.groups.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+async def list_groups(include_pending: bool = False, include_system: bool = False):
+    """Public Community Groups list.
+
+    By default hides:
+      • `is_system=True`  — Founders Lounge & Coffee Lounge Crew (these
+        live in their own dedicated tabs, would be confusing in the
+        public listing)
+      • `pending_approval=True` — user-suggested groups waiting on admin
+        review. Admin panel passes `include_pending=true` to see them.
+
+    Newest first so newly-approved community groups are discoverable.
+    """
+    q: dict = {}
+    if not include_system:
+        q["is_system"] = {"$ne": True}
+    if not include_pending:
+        q["pending_approval"] = {"$ne": True}
+    return await db.groups.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
 
 
 @api.post("/groups")
@@ -4105,6 +4123,122 @@ async def create_group(body: Group):
     g = Group(**body.dict())
     await db.groups.insert_one(g.dict())
     return g.dict()
+
+
+@api.post("/groups/suggest")
+async def suggest_group(body: dict, user=Depends(current_user)):
+    """User-facing endpoint — anyone signed in can suggest a new
+    Community Group. The submission is stored as a regular group
+    document with `pending_approval: true`, so it doesn't appear in the
+    public listing until an admin approves it via /admin/groups/{id}/approve.
+
+    Body: { name: str, emoji?: str, description?: str, reason?: str }
+    """
+    name = (body.get("name") or "").strip()
+    if not name or len(name) < 3:
+        raise HTTPException(400, "Group name must be at least 3 characters")
+    if len(name) > 60:
+        raise HTTPException(400, "Group name is too long (60 char max)")
+    emoji = (body.get("emoji") or "🌟").strip()[:4]
+    description = (body.get("description") or "").strip()[:500]
+    reason = (body.get("reason") or "").strip()[:500]
+    # Avoid duplicate suggestions while one is pending — protects the
+    # admin queue from accidental double-taps.
+    existing = await db.groups.find_one(
+        {"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}},
+        {"_id": 0, "id": 1, "pending_approval": 1},
+    )
+    if existing:
+        if existing.get("pending_approval"):
+            raise HTTPException(409, "A group with that name is already awaiting approval.")
+        raise HTTPException(409, "A group with that name already exists.")
+    g = {
+        "id": nid(),
+        "name": name,
+        "emoji": emoji,
+        "description": description,
+        "members": [user["id"]],   # requester auto-joins on approval
+        "pending_approval": True,
+        "suggested_by": user["id"],
+        "suggested_by_username": user.get("username") or user.get("first_name") or "Member",
+        "suggested_reason": reason,
+        "suggested_at": now_iso(),
+        "created_at": now_iso(),
+    }
+    await db.groups.insert_one(g)
+    # Notify admins so they know there's something to review. We send to
+    # every admin user — small list, idempotent fan-out.
+    admins = await db.users.find({"is_admin": True}, {"_id": 0, "id": 1}).to_list(100)
+    for a in admins:
+        await db.notifications.insert_one({
+            "id": nid(), "user_id": a["id"], "type": "group_suggestion",
+            "title": "🌟 New group suggestion",
+            "body": f"{g['suggested_by_username']} suggested \"{name}\" — review in Admin.",
+            "data": {"group_id": g["id"]},
+            "read": False, "created_at": now_iso(),
+        })
+    return {"ok": True, "id": g["id"], "pending": True}
+
+
+@api.get("/admin/groups/pending")
+async def admin_pending_groups(user=Depends(current_user)):
+    """Admin-only: list of user-suggested groups waiting on review."""
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    docs = await db.groups.find({"pending_approval": True}, {"_id": 0}).sort("suggested_at", -1).to_list(200)
+    return docs
+
+
+@api.post("/admin/groups/{group_id}/approve")
+async def admin_approve_group(group_id: str, user=Depends(current_user)):
+    """Approve a pending group — flips `pending_approval` off and pings
+    the requester so they know their group is live."""
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    g = await db.groups.find_one({"id": group_id, "pending_approval": True}, {"_id": 0})
+    if not g:
+        raise HTTPException(404, "Pending group not found")
+    await db.groups.update_one(
+        {"id": group_id},
+        {"$set": {"pending_approval": False, "approved_at": now_iso(), "approved_by": user["id"]}},
+    )
+    # Auto-add the requester to their own group's groups[] list so it
+    # shows in their "My Groups" filter immediately.
+    if g.get("suggested_by"):
+        await db.users.update_one({"id": g["suggested_by"]}, {"$addToSet": {"groups": group_id}})
+        await db.notifications.insert_one({
+            "id": nid(), "user_id": g["suggested_by"], "type": "group_approved",
+            "title": "🎉 Your group is live!",
+            "body": f"\"{g.get('name')}\" has been approved — tap to open it.",
+            "data": {"group_id": group_id},
+            "read": False, "created_at": now_iso(),
+        })
+    return {"ok": True}
+
+
+@api.post("/admin/groups/{group_id}/reject")
+async def admin_reject_group(group_id: str, body: dict | None = None, user=Depends(current_user)):
+    """Reject a pending group — deletes the document and notifies the
+    requester with the optional admin-supplied reason."""
+    if not user.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    g = await db.groups.find_one({"id": group_id, "pending_approval": True}, {"_id": 0})
+    if not g:
+        raise HTTPException(404, "Pending group not found")
+    reason = (body or {}).get("reason", "").strip() if body else ""
+    await db.groups.delete_one({"id": group_id})
+    if g.get("suggested_by"):
+        body_text = f"\"{g.get('name')}\" wasn't approved this time."
+        if reason:
+            body_text += f" Reason: {reason}"
+        body_text += " Feel free to suggest a different group anytime."
+        await db.notifications.insert_one({
+            "id": nid(), "user_id": g["suggested_by"], "type": "group_rejected",
+            "title": "Group suggestion update",
+            "body": body_text,
+            "read": False, "created_at": now_iso(),
+        })
+    return {"ok": True}
 
 
 @api.post("/groups/{group_id}/join/{user_id}")
@@ -7477,6 +7611,13 @@ async def seed():
     await db.users.update_many({"is_admin": {"$exists": False}}, {"$set": {"is_admin": False}})
     # Ensure 'maggie' is the admin demo account so moderation tools can be previewed.
     await db.users.update_one({"username": "maggie"}, {"$set": {"is_admin": True}})
+    # Backfill `is_system` flag on the two special groups so they no
+    # longer appear in the public Community Groups list (they live in
+    # their own dedicated tabs — Founders area + Coffee Lounge).
+    await db.groups.update_many(
+        {"name": {"$in": ["Founders Lounge", "Coffee Lounge Crew"]}, "is_system": {"$ne": True}},
+        {"$set": {"is_system": True}},
+    )
     users_count = await db.users.count_documents({})
     if users_count > 0:
         logger.info("Seed skipped — data already present (%s users)", users_count)

@@ -73,7 +73,7 @@ export default function FoundersWall() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surfaceBase }}>
-      <Header title="Founders Wall" />
+      <Header title="Founders Wall" emoji="🦋" subtitle="The Founding Members of YouBelong" />
       <ScrollView
         contentContainerStyle={{
           padding: 18,

@@ -289,6 +289,25 @@ export const api = {
 
   // groups
   listGroups: () => req("/groups"),
+  /** User-submitted group suggestion. Awaits admin approval before
+   *  appearing in the public listing. */
+  suggestGroup: (token: string, body: { name: string; emoji?: string; description?: string; reason?: string }) =>
+    req("/groups/suggest", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    }),
+  /** Admin only — list groups waiting on approval. */
+  adminPendingGroups: (token: string) =>
+    req("/admin/groups/pending", { headers: { Authorization: `Bearer ${token}` } }),
+  adminApproveGroup: (token: string, gid: string) =>
+    req(`/admin/groups/${gid}/approve`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }),
+  adminRejectGroup: (token: string, gid: string, reason?: string) =>
+    req(`/admin/groups/${gid}/reject`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ reason: reason || "" }),
+    }),
   createGroup: (b: any) => req("/groups", { method: "POST", body: JSON.stringify(b) }),
   joinGroup: (gid: string, uid: string) => req(`/groups/${gid}/join/${uid}`, { method: "POST" }),
   groupPosts: (gid: string) => req(`/groups/${gid}/posts`),

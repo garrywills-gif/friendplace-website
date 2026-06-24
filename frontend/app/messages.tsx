@@ -22,7 +22,7 @@ export default function Messages() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="My Messages" />
+      <Header title="My Messages" emoji="💬" subtitle="Conversations · Direct messages" />
       <FlatList
         data={convs}
         keyExtractor={(i) => i.id}

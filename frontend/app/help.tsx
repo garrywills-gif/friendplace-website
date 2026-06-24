@@ -51,7 +51,7 @@ export default function HelpCentre() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Help & Support" />
+      <Header title="Help &amp; Support" emoji="🤗" subtitle="FAQs · Contact us · Resources" />
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 60, gap: 12 }}>
         {/* Tabs */}
         <View style={{ flexDirection: "row", gap: 8 }}>

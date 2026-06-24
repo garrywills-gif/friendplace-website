@@ -139,7 +139,7 @@ export default function FounderInfo() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surfaceBase }}>
-      <Header title="Founding Members" />
+      <Header title="Founding Members" emoji="🦋" subtitle="Help shape YouBelong from day one" />
       <ScrollView
         contentContainerStyle={{
           padding: 18,

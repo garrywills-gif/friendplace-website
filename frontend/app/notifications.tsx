@@ -74,7 +74,7 @@ export default function Notifications() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Notifications" />
+      <Header title="Notifications" emoji="🔔" subtitle="Recent activity" />
       <View style={[styles.toolbar, { borderColor: c.border }]}>
         <Text style={{ color: c.muted, fontSize: 14 * scale, fontWeight: "700" }}>{list.filter((n) => !n.read).length} unread</Text>
         <Pressable testID="mark-all-read" onPress={markAll} hitSlop={6}>

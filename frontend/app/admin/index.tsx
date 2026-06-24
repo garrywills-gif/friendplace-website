@@ -55,9 +55,36 @@ export default function AdminHome() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Admin" />
+      <Header title="Admin" emoji="🛡️" subtitle="Moderation · Reports · Tickets" />
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 60 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
         {loading && !summary ? <ActivityIndicator color={c.brand} /> : null}
+
+        {/* Quick-link row — shortcut to the user-suggested group queue
+            so reviewing pending submissions doesn't get buried inside
+            the reports/tickets tabs. */}
+        <Pressable
+          testID="admin-pending-groups-link"
+          onPress={() => router.push("/admin/pending-groups" as any)}
+          style={({ pressed }) => [{
+            backgroundColor: c.brandTertiary,
+            borderColor: c.brand,
+            borderWidth: 1.5,
+            borderRadius: 16,
+            padding: 14,
+            marginBottom: 14,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            opacity: pressed ? 0.85 : 1,
+          }]}
+        >
+          <Text style={{ fontSize: 26 }}>🌟</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.brand, fontWeight: "900", fontSize: 16 * scale }}>Pending Group Suggestions</Text>
+            <Text style={{ color: c.onSurface, fontSize: 13 * scale, marginTop: 2 }}>Review user-submitted community groups</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color={c.brand} />
+        </Pressable>
 
         {/* Summary tiles */}
         {summary && (
