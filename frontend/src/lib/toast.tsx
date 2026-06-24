@@ -37,9 +37,17 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!toast) return;
     Animated.timing(anim, { toValue: 1, duration: 200, easing: Easing.out(Easing.ease), useNativeDriver: true }).start();
+    // Stay long enough to *actually read* — 2.2s was too quick, especially
+    // for the over-60 demographic. Base 4s + 50ms per character (≈ ~300 wpm
+    // reading pace) so longer confirmations like "Your post has been
+    // submitted for review and will appear once approved" stay on-screen
+    // until the user has had time to finish reading. Capped at 9s so a
+    // stray essay doesn't camp the toast indefinitely.
+    const len = (toast.text || "").length;
+    const dwellMs = Math.min(9000, 4000 + len * 50);
     const t = setTimeout(() => {
       Animated.timing(anim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => setToast(null));
-    }, 2200);
+    }, dwellMs);
     return () => clearTimeout(t);
   }, [toast]);
 
