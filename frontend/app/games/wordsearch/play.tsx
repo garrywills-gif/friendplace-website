@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import GameZoomControls, { useGameZoom } from "@/src/components/GameZoomControls";
 
 type Cell = [number, number];
 
@@ -146,7 +147,10 @@ export default function WordSearchPlayer() {
   // ---- Compute board sizing ----
   const size = puzzle?.size ?? 8;
   const horizontalPad = 14 * 2;
-  const boardW = Math.min(winW - horizontalPad, 520);
+  // Auto-fit board; user can zoom with +/- pills in the header.
+  const { zoom, zoomIn, zoomOut, resetZoom } = useGameZoom(1);
+  const baseBoardW = Math.min(winW - horizontalPad, 520);
+  const boardW = Math.round(baseBoardW * zoom);
   const tileW = Math.floor(boardW / size);
   const realBoardW = tileW * size;
 
@@ -378,6 +382,15 @@ export default function WordSearchPlayer() {
               <View style={[styles.progressFill, { backgroundColor: completed ? c.success : c.brand, width: `${Math.round((foundCount / totalWords) * 100)}%` }]} />
             </View>
           </View>
+          <GameZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onReset={resetZoom}
+            c={c}
+            scale={scale}
+            testID="ws-zoom"
+          />
           <Pressable testID="ws-how-toggle" onPress={() => setShowHow(true)} hitSlop={6} style={[styles.iconBtn, { backgroundColor: c.brandTertiary }]}>
             <Ionicons name="help-circle" size={22} color={c.brand} />
           </Pressable>
@@ -386,7 +399,13 @@ export default function WordSearchPlayer() {
           )}
         </View>
 
-        {/* Board — drag-to-select handled at board level; tap still works on each cell */}
+        {/* Board — wrapped in horizontal ScrollView so zoom > 100% can
+            pan sideways. Drag-to-select still handled at board level. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 6, justifyContent: "center", flexGrow: 1 }}
+        >
         <View
           onLayout={onBoardLayout}
           {...dragHandlers}
@@ -426,6 +445,7 @@ export default function WordSearchPlayer() {
             </View>
           ))}
         </View>
+        </ScrollView>
 
         {/* Always-visible tip — explains the gesture + that diagonals work. */}
         <Text style={{ color: c.muted, fontSize: 13 * scale, textAlign: "center", marginTop: 6 }}>

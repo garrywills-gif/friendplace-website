@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import GameZoomControls, { useGameZoom } from "@/src/components/GameZoomControls";
 
 const HOW_TO = "Memory Match. Tap a card to flip it, then tap another card. If the two cards match, they stay face up. Try to find every pair in as few moves as you can. Cards are previewed for a moment at the start to help you remember.";
 
@@ -32,6 +33,10 @@ export default function MemoryPlayer() {
   const [showWin, setShowWin] = useState(false);
   const [previewing, setPreviewing] = useState(true);
   const startedAt = useRef<number>(Date.now());
+
+  // Hoisted to top so the hook isn't called conditionally after the
+  // early returns below for loading / no puzzle.
+  const { zoom, zoomIn, zoomOut, resetZoom } = useGameZoom(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,7 +139,9 @@ export default function MemoryPlayer() {
   const rows = puzzle.rows;
   const horizontalPad = 14 * 2;
   const gap = 6;
-  const boardW = Math.min(winW - horizontalPad, 520);
+  // Auto-fit; users can chunk cards up with the +/- pills in the top bar.
+  const baseBoardW = Math.min(winW - horizontalPad, 520);
+  const boardW = Math.round(baseBoardW * zoom);
   const tileW = Math.floor((boardW - gap * (cols - 1)) / cols);
 
   const onTap = (i: number) => {
@@ -162,6 +169,15 @@ export default function MemoryPlayer() {
               <View style={[styles.progressFill, { backgroundColor: completed ? c.success : c.brand, width: `${Math.round((foundPairs / totalPairs) * 100)}%` }]} />
             </View>
           </View>
+          <GameZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onReset={resetZoom}
+            c={c}
+            scale={scale}
+            testID="mm-zoom"
+          />
           <Pressable testID="mm-how-toggle" onPress={() => setShowHow(true)} hitSlop={6} style={[styles.iconBtn, { backgroundColor: c.brandTertiary }]}>
             <Ionicons name="help-circle" size={22} color={c.brand} />
           </Pressable>
@@ -174,6 +190,13 @@ export default function MemoryPlayer() {
           </Text>
         )}
 
+        {/* Card board — wrapped in a horizontal ScrollView so zooming
+            past the screen width still keeps every card tappable. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 6, justifyContent: "center", flexGrow: 1 }}
+        >
         <View style={[styles.board, { width: boardW, alignSelf: "center", gap }]}> 
           {Array.from({ length: rows }).map((_, r) => (
             <View key={r} style={{ flexDirection: "row", gap }}>
@@ -196,6 +219,7 @@ export default function MemoryPlayer() {
             </View>
           ))}
         </View>
+        </ScrollView>
       </ScrollView>
 
       <Modal visible={showHow} animationType="fade" transparent onRequestClose={() => setShowHow(false)}>

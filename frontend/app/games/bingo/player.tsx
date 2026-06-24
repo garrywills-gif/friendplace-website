@@ -10,6 +10,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import Button from "@/src/components/Button";
+import GameZoomControls, { useGameZoom } from "@/src/components/GameZoomControls";
 
 type Session = {
   id: string; difficulty: string; cards: number[][][]; marked: boolean[][][];
@@ -36,6 +37,8 @@ export default function BingoPlayer() {
   const [loading, setLoading] = useState(true);
   const [completion, setCompletion] = useState<any>(null);
   const saveTimer = useRef<any>(null);
+  // Hoisted to top so it's not called conditionally after the early returns.
+  const { zoom, zoomIn, zoomOut, resetZoom } = useGameZoom(1);
 
   const load = useCallback(async () => {
     if (!user || !sid) return;
@@ -131,7 +134,9 @@ export default function BingoPlayer() {
   const cols = s.meta.cols;
   const rows = s.meta.rows;
   const letters = cols === 5 ? ["B", "I", "N", "G", "O"] : ["B", "I", "N", "G"];
-  const cellSize = cols === 5 ? 56 : 64;
+  // Auto-fit base cell size + user-controlled zoom (hook hoisted to top).
+  const baseCellSize = cols === 5 ? 56 : 64;
+  const cellSize = Math.round(baseCellSize * zoom);
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
@@ -153,6 +158,30 @@ export default function BingoPlayer() {
           <Text style={{ color: "#FFFFFFCC", fontSize: 12 * scale, marginTop: 4 }}>{s.call_index} / {s.sequence.length} calls {s.meta.auto_call_ms ? "\u00B7 auto" : ""}</Text>
         </View>
 
+        {/* Card size controls — bingo cards print numbers at the same
+            size regardless of difficulty, so the +/- pills let players
+            choose chunkier or compact daubing to taste. */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+          <Text style={{ color: c.muted, fontWeight: "800", fontSize: 12 * scale, marginRight: 4 }}>Card size</Text>
+          <GameZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onReset={resetZoom}
+            c={c}
+            scale={scale}
+            testID="bingo-zoom"
+          />
+        </View>
+
+        {/* Cards — wrapped in a horizontal ScrollView so zooming past
+            the screen width leaves cards pannable. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 4, justifyContent: "center", flexGrow: 1 }}
+        >
+        <View style={{ gap: 12, alignSelf: "center" }}>
         {/* Cards */}
         {s.cards.map((card, ci) => (
           <View key={ci} style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
@@ -177,6 +206,8 @@ export default function BingoPlayer() {
             ))}
           </View>
         ))}
+        </View>
+        </ScrollView>
 
         {/* Controls */}
         {!s.meta.auto_call_ms && (

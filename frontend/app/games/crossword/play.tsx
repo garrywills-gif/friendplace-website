@@ -705,6 +705,34 @@ export default function CrosswordPlay() {
               <Text style={{ color: c.onSurface, fontSize: 21 * scale, fontWeight: "700", lineHeight: 28 * scale }}>
                 {activeClue?.clue || "Tap a cell to begin."}
               </Text>
+              {/* Prev / Next — sits right under the clue text so the
+                  two clue-navigation taps + the clue you're reading are
+                  the closest thing to your thumb. Removing the bottom
+                  footer nav frees up another ~60px for the keyboard. */}
+              <View style={styles.navRow}>
+                <Pressable
+                  onPress={onPrevClue}
+                  style={({ pressed }) => [styles.navBtn, {
+                    backgroundColor: pressed ? c.brand : "#FFFFFF",
+                    borderColor: c.brand,
+                  }]}
+                  accessibilityLabel="Previous clue"
+                >
+                  <Ionicons name="chevron-back" size={20} color={c.brand} />
+                  <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Previous</Text>
+                </Pressable>
+                <Pressable
+                  onPress={onNextClue}
+                  style={({ pressed }) => [styles.navBtn, {
+                    backgroundColor: pressed ? c.brand : "#FFFFFF",
+                    borderColor: c.brand,
+                  }]}
+                  accessibilityLabel="Next clue"
+                >
+                  <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Next</Text>
+                  <Ionicons name="chevron-forward" size={20} color={c.brand} />
+                </Pressable>
+              </View>
               <View style={styles.actionRow}>
                 <ActionBtn label="Check" icon="checkmark-circle-outline" onPress={doCheck} c={c} scale={scale} />
                 <ActionBtn
@@ -737,34 +765,6 @@ export default function CrosswordPlay() {
           />
         </View>
       </ScrollView>
-
-      {/* Footer nav strip — Prev / Next clue. Lives just above the
-          keyboard so the typing hand can move clues without reaching
-          all the way up to the banner. */}
-      <View style={[styles.footerNav, { backgroundColor: c.surface, borderTopColor: c.border }]}>
-        <Pressable
-          onPress={onPrevClue}
-          style={({ pressed }) => [styles.navBtn, styles.navBtnFooter, {
-            backgroundColor: pressed ? c.brand : "transparent",
-            borderColor: c.brand,
-          }]}
-          accessibilityLabel="Previous clue"
-        >
-          <Ionicons name="chevron-back" size={20} color={c.brand} />
-          <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Previous</Text>
-        </Pressable>
-        <Pressable
-          onPress={onNextClue}
-          style={({ pressed }) => [styles.navBtn, styles.navBtnFooter, {
-            backgroundColor: pressed ? c.brand : "transparent",
-            borderColor: c.brand,
-          }]}
-          accessibilityLabel="Next clue"
-        >
-          <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Next</Text>
-          <Ionicons name="chevron-forward" size={20} color={c.brand} />
-        </Pressable>
-      </View>
 
       {/* Bottom keyboard — QWERTY (3 rows). The middle row is offset
           by half a key on each side and the bottom row has a wider

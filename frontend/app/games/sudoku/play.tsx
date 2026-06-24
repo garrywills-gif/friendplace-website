@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import GameZoomControls, { useGameZoom } from "@/src/components/GameZoomControls";
 
 const HOW_TO = "Sudoku. Fill every row, column, and 3 by 3 box with the digits 1 through 9. Tap a cell, then tap a number. Tap the pencil to write small candidate notes. You have 3 mistakes before the puzzle ends. Use a hint if you get stuck. Auto-save is on.";
 
@@ -41,6 +42,10 @@ export default function SudokuPlayer() {
   const [showLose, setShowLose] = useState(false);
   const [wrongCell, setWrongCell] = useState<[number, number] | null>(null);
   const startedAt = useRef<number>(Date.now());
+
+  // Auto-fit board zoom — hook hoisted to the top of the function so
+  // it's not called conditionally after the early returns below.
+  const { zoom, zoomIn, zoomOut, resetZoom } = useGameZoom(1);
 
   // Load + resume
   useEffect(() => {
@@ -225,7 +230,10 @@ export default function SudokuPlayer() {
   }
 
   const horizontalPad = 14 * 2;
-  const boardW = Math.min(winW - horizontalPad, 460);
+  // Auto-fit: board fills the screen on first open. zoom 1.0 = baseline,
+  // user can grow with the +/- pills in the top bar.
+  const baseBoardW = Math.min(winW - horizontalPad, 460);
+  const boardW = Math.round(baseBoardW * zoom);
   const tile = Math.floor(boardW / 9);
   const realBoardW = tile * 9;
 
@@ -250,13 +258,28 @@ export default function SudokuPlayer() {
               {filledCount}/81 · {m}:{s.toString().padStart(2, "0")} · ❌ {mistakes}/{puzzle.max_mistakes}
             </Text>
           </View>
+          <GameZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+            onReset={resetZoom}
+            c={c}
+            scale={scale}
+            testID="sd-zoom"
+          />
           <Pressable onPress={() => setShowHow(true)} hitSlop={6} style={[styles.iconBtn, { backgroundColor: c.brandTertiary }]} testID="sd-how-toggle">
             <Ionicons name="help-circle" size={22} color={c.brand} />
           </Pressable>
           {prefs.readMessagesAloud && (<SpeakButton text={HOW_TO} color={c.brand} size={22} bg={c.brandTertiary} testID="sd-speak" />)}
         </View>
 
-        {/* Board */}
+        {/* Board — wrapped in a horizontal ScrollView so users who zoom
+            in past the screen width can still pan the grid sideways. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 6, justifyContent: "center", flexGrow: 1 }}
+        >
         <View style={[styles.boardWrap, { backgroundColor: c.surfaceSecondary, borderColor: c.onSurface, width: realBoardW + 2, alignSelf: "center" }]}>
           {entries.map((row, r) => (
             <View key={r} style={{ flexDirection: "row" }}>
@@ -314,6 +337,7 @@ export default function SudokuPlayer() {
             </View>
           ))}
         </View>
+        </ScrollView>
 
         {/* Pencil + Erase + Hint */}
         <View style={styles.actions}>
