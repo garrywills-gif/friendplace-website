@@ -453,16 +453,22 @@ export default function CrosswordPlay() {
     return () => sub.remove();
   }, [saveNow]);
 
-  // ── grid dims — responsive. Switches to a "newspaper" two-pane layout
-  // on tablets / wide screens (>= 768px): grid on the left, full
-  // scrollable clue list on the right, just like the reference. On
-  // phones we keep the stacked vertical flow.
+  // ── Grid zoom — newspapers always print full-bleed crosswords, so we
+  // auto-fit the whole grid into the available width by default (no
+  // horizontal scroll needed). Players can then bump cell size up with
+  // the +/- buttons in the header for bigger letters & easier tapping.
+  // Range 70% – 250%. 100% = the auto-fit baseline.
+  const [zoom, setZoom] = useState(1);
   const isWide = winW >= 768;
   const CLUE_PANEL_W = isWide ? Math.min(Math.max(260, winW * 0.36), 380) : 0;
-  // Available width for the grid area. On tablet, leave space for the
-  // clue panel + a small gutter; on phone the grid gets full width.
   const GRID_AREA_W = isWide ? Math.max(280, winW - CLUE_PANEL_W - 36) : Math.min(winW - 12, 720);
-  const cellSize = puzzle ? Math.max(28, Math.min(56, Math.floor(GRID_AREA_W / puzzle.size))) : 40;
+  // Lowered the floor from 28 → 16 so a dense Expert grid (17x17) now
+  // auto-fits on a 390px phone without horizontal scroll. The +/- zoom
+  // buttons multiply this baseline up to 2.5x for chunky play.
+  const baseCellSize = puzzle ? Math.max(16, Math.min(56, Math.floor((GRID_AREA_W - 8) / puzzle.size))) : 40;
+  const cellSize = Math.round(baseCellSize * zoom);
+  const canZoomOut = zoom > 0.71;
+  const canZoomIn  = zoom < 2.49;
 
   if (loading) {
     return (
@@ -528,6 +534,57 @@ export default function CrosswordPlay() {
               {showTimer ? formatTime(seconds) : "Timer"}
             </Text>
           </Pressable>
+          {/* Zoom controls — three small pills sit next to the timer.
+              − shrinks the grid back toward auto-fit, % shows the
+              current scale, + bumps cell size up for chunkier letters.
+              Auto-fit is the default so the whole crossword is on
+              screen when you open it; tap + a few times for bigger
+              cells if you'd rather scroll the grid than the page. */}
+          <View style={styles.zoomGroup}>
+            <Pressable
+              onPress={() => canZoomOut && setZoom(z => Math.max(0.7, +(z - 0.15).toFixed(2)))}
+              accessibilityRole="button"
+              accessibilityLabel="Zoom out"
+              hitSlop={6}
+              disabled={!canZoomOut}
+              style={({ pressed }) => [styles.zoomBtn, {
+                backgroundColor: c.surfaceSecondary,
+                borderColor: c.border,
+                opacity: !canZoomOut ? 0.4 : (pressed ? 0.7 : 1),
+              }]}
+            >
+              <Ionicons name="remove" size={16} color={c.brand} />
+            </Pressable>
+            <Pressable
+              onPress={() => setZoom(1)}
+              accessibilityRole="button"
+              accessibilityLabel={`Reset zoom (currently ${Math.round(zoom * 100)} percent)`}
+              hitSlop={6}
+              style={({ pressed }) => [styles.zoomLabel, {
+                backgroundColor: c.surfaceSecondary,
+                borderColor: c.border,
+                opacity: pressed ? 0.7 : 1,
+              }]}
+            >
+              <Text style={{ color: c.brand, fontWeight: "900", fontSize: 11 * scale }}>
+                {Math.round(zoom * 100)}%
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={() => canZoomIn && setZoom(z => Math.min(2.5, +(z + 0.15).toFixed(2)))}
+              accessibilityRole="button"
+              accessibilityLabel="Zoom in"
+              hitSlop={6}
+              disabled={!canZoomIn}
+              style={({ pressed }) => [styles.zoomBtn, {
+                backgroundColor: c.surfaceSecondary,
+                borderColor: c.border,
+                opacity: !canZoomIn ? 0.4 : (pressed ? 0.7 : 1),
+              }]}
+            >
+              <Ionicons name="add" size={16} color={c.brand} />
+            </Pressable>
+          </View>
           <Pressable onPress={() => setShowHowTo(true)} accessibilityRole="button" hitSlop={10} style={{ marginLeft: 8 }}>
             <Ionicons name="help-circle-outline" size={26} color={c.brand} />
           </Pressable>
@@ -633,9 +690,11 @@ export default function CrosswordPlay() {
             </ScrollView>
 
             {/* Active clue banner — sits directly under the grid so the
-                current clue is always visible alongside the puzzle. The
-                Prev/Next buttons let users skip clues without scrolling
-                the clue list (still nice for thumb navigation). */}
+                current clue is always visible alongside the puzzle.
+                Check / Hint / Clear live right here so the action a
+                player wants for the current clue is one thumb-tap
+                away. Prev / Next navigation moved to a footer row above
+                the keyboard (closer to where the typing hand sits). */}
             <View style={[styles.clueBanner, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
               <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
                 <Text style={{ color: c.brand, fontWeight: "900", fontSize: 14 * scale, letterSpacing: 0.6, flex: 1 }}>
@@ -646,29 +705,17 @@ export default function CrosswordPlay() {
               <Text style={{ color: c.onSurface, fontSize: 21 * scale, fontWeight: "700", lineHeight: 28 * scale }}>
                 {activeClue?.clue || "Tap a cell to begin."}
               </Text>
-              <View style={styles.navRow}>
-                <Pressable
-                  onPress={onPrevClue}
-                  style={({ pressed }) => [styles.navBtn, {
-                    backgroundColor: pressed ? c.brand : "#FFFFFF",
-                    borderColor: c.brand,
-                  }]}
-                  accessibilityLabel="Previous clue"
-                >
-                  <Ionicons name="chevron-back" size={20} color={c.brand} />
-                  <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Previous</Text>
-                </Pressable>
-                <Pressable
-                  onPress={onNextClue}
-                  style={({ pressed }) => [styles.navBtn, {
-                    backgroundColor: pressed ? c.brand : "#FFFFFF",
-                    borderColor: c.brand,
-                  }]}
-                  accessibilityLabel="Next clue"
-                >
-                  <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Next</Text>
-                  <Ionicons name="chevron-forward" size={20} color={c.brand} />
-                </Pressable>
+              <View style={styles.actionRow}>
+                <ActionBtn label="Check" icon="checkmark-circle-outline" onPress={doCheck} c={c} scale={scale} />
+                <ActionBtn
+                  label={hintAlreadyUsed ? "Hint used" : "Hint"}
+                  icon={hintAlreadyUsed ? "bulb" : "bulb-outline"}
+                  onPress={doRevealLetter}
+                  c={c}
+                  scale={scale}
+                  dimmed={hintAlreadyUsed}
+                />
+                <ActionBtn label="Clear answer" icon="refresh-outline" onPress={doClear} c={c} scale={scale} />
               </View>
             </View>
           </View>
@@ -689,27 +736,35 @@ export default function CrosswordPlay() {
             panelMaxHeight={Math.max(360, winH - 360)}
           />
         </View>
-
-        {/* Action row — Hint (one letter free), Check (validate),
-            Clear answer (wipe current word only). Sits below both
-            columns on tablet for thumb-reachable consistency. */}
-        <View style={styles.actionRow}>
-          <ActionBtn label="Check" icon="checkmark-circle-outline" onPress={doCheck} c={c} scale={scale} />
-          {/* Hint — one per clue. Once used, the button visually dims
-              and the label changes so players can see at a glance that
-              they need to crack the rest themselves (or ask the table
-              for help). Tapping again surfaces a friendly toast. */}
-          <ActionBtn
-            label={hintAlreadyUsed ? "Hint used" : "Hint"}
-            icon={hintAlreadyUsed ? "bulb" : "bulb-outline"}
-            onPress={doRevealLetter}
-            c={c}
-            scale={scale}
-            dimmed={hintAlreadyUsed}
-          />
-          <ActionBtn label="Clear answer" icon="refresh-outline" onPress={doClear} c={c} scale={scale} />
-        </View>
       </ScrollView>
+
+      {/* Footer nav strip — Prev / Next clue. Lives just above the
+          keyboard so the typing hand can move clues without reaching
+          all the way up to the banner. */}
+      <View style={[styles.footerNav, { backgroundColor: c.surface, borderTopColor: c.border }]}>
+        <Pressable
+          onPress={onPrevClue}
+          style={({ pressed }) => [styles.navBtn, styles.navBtnFooter, {
+            backgroundColor: pressed ? c.brand : "transparent",
+            borderColor: c.brand,
+          }]}
+          accessibilityLabel="Previous clue"
+        >
+          <Ionicons name="chevron-back" size={20} color={c.brand} />
+          <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Previous</Text>
+        </Pressable>
+        <Pressable
+          onPress={onNextClue}
+          style={({ pressed }) => [styles.navBtn, styles.navBtnFooter, {
+            backgroundColor: pressed ? c.brand : "transparent",
+            borderColor: c.brand,
+          }]}
+          accessibilityLabel="Next clue"
+        >
+          <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Next</Text>
+          <Ionicons name="chevron-forward" size={20} color={c.brand} />
+        </Pressable>
+      </View>
 
       {/* Bottom keyboard — QWERTY (3 rows). The middle row is offset
           by half a key on each side and the bottom row has a wider
@@ -984,8 +1039,29 @@ const styles = StyleSheet.create({
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
     paddingVertical: 12, borderRadius: 12, borderWidth: 1.5, minHeight: 48, gap: 4,
   },
-  actionRow: { flexDirection: "row", paddingHorizontal: 12, marginTop: 12, gap: 8 },
+  actionRow: { flexDirection: "row", marginTop: 14, gap: 8 },
   actionBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: "center", gap: 4 },
+  // Footer nav row — Prev/Next clue. Hugs the keyboard so the typing
+  // hand can swipe between clues without reaching up to the banner.
+  footerNav: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  navBtnFooter: { paddingVertical: 10, minHeight: 44 },
+  // Zoom controls — sit in the meta strip next to the timer pill so
+  // they're always available without scrolling.
+  zoomGroup: { flexDirection: "row", gap: 4, alignItems: "center", marginLeft: 4 },
+  zoomBtn: {
+    width: 30, height: 30, borderRadius: 8, borderWidth: 1,
+    alignItems: "center", justifyContent: "center",
+  },
+  zoomLabel: {
+    paddingHorizontal: 8, height: 30, borderRadius: 8, borderWidth: 1,
+    alignItems: "center", justifyContent: "center",
+  },
   kb: { borderTopWidth: 1, paddingVertical: 8, paddingHorizontal: 4 },
   key: { paddingVertical: 12, paddingHorizontal: 6, borderRadius: 8, borderWidth: 1, alignItems: "center", minHeight: 44 },
   clueRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, marginBottom: 6 },
