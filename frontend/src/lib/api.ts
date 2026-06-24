@@ -255,6 +255,14 @@ export const api = {
 
   // profile / onboarding
   updateProfile: (uid: string, body: any) => req(`/users/${uid}/profile`, { method: "PATCH", body: JSON.stringify(body) }),
+  /** Change the signed-in user's password. Requires the current
+   *  password as a confirmation step (defence against session theft). */
+  changePassword: (token: string, uid: string, current_password: string, new_password: string) =>
+    req(`/users/${uid}/password`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ current_password, new_password }),
+    }),
   updatePrivacySettings: (uid: string, body: any) => req(`/users/${uid}/privacy-settings`, { method: "PATCH", body: JSON.stringify(body) }),
   completeOnboarding: (uid: string) => req(`/users/${uid}/onboarding-complete`, { method: "POST" }),
 

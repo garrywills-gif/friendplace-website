@@ -19,7 +19,7 @@ const GAMES = ["Jigsaw", "Trivia", "Bingo", "Word Search", "Memory Match", "Sudo
 export default function ProfileEdit() {
   const router = useRouter();
   const { c, scale } = useTheme();
-  const { user, refresh } = useAuth();
+  const { user, token, refresh } = useAuth();
   const { show } = useToast();
   const [first_name, setFirstName] = useState(user?.first_name || "");
   const [suburb, setSuburb] = useState((user as any)?.suburb || "");
@@ -28,9 +28,24 @@ export default function ProfileEdit() {
   const [interests, setInterests] = useState<string[]>((user as any)?.interests || []);
   const [favourite_games, setFavGames] = useState<string[]>((user as any)?.favourite_games || []);
   const [birthday, setBirthday] = useState((user as any)?.birthday || "");
+  // Account contact details — editable here so members can change
+  // their email or username without writing to support. Google-managed
+  // accounts have email locked (set on the OAuth side).
+  const [email, setEmail] = useState((user as any)?.email || "");
+  const [username, setUsername] = useState((user as any)?.username || "");
+  const isGoogleAccount = !!((user as any)?.google_id);
+  const isDemoAccount   = !!((user as any)?.is_demo);
   const [privacy, setPrivacy] = useState((user as any)?.privacy_settings || { profile_visibility: "everyone", friend_requests: "everyone", show_in_find_friends: true });
   const [saving, setSaving] = useState(false);
   const [pickingPhoto, setPickingPhoto] = useState(false);
+  // Change-password card state. Kept separate from the main save flow
+  // so an unfinished password attempt never blocks profile edits.
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwConfirm, setPwConfirm] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [showPw, setShowPw] = useState(false);
+  const passwordEditable = !isGoogleAccount && !isDemoAccount;
 
   useEffect(() => {
     if (user) {
@@ -41,6 +56,8 @@ export default function ProfileEdit() {
       setInterests((user as any).interests || []);
       setFavGames((user as any).favourite_games || []);
       setBirthday((user as any).birthday || "");
+      setEmail((user as any).email || "");
+      setUsername((user as any).username || "");
       if ((user as any).privacy_settings) setPrivacy((user as any).privacy_settings);
     }
   }, [user?.id]);
@@ -71,14 +88,81 @@ export default function ProfileEdit() {
     if (!user) return;
     setSaving(true);
     try {
-      await api.updateProfile(user.id, { first_name, suburb, bio, avatar, interests, favourite_games, birthday });
+      // Only send email/username if they actually changed AND aren't
+      // locked (Google email / demo username). Sending the same value
+      // back would still pass uniqueness, but skipping reduces noise.
+      const payload: any = { first_name, suburb, bio, avatar, interests, favourite_games, birthday };
+      const currentEmail = ((user as any).email || "").toLowerCase();
+      const newEmail = email.trim().toLowerCase();
+      if (!isGoogleAccount && newEmail && newEmail !== currentEmail) payload.email = newEmail;
+      const currentUsername = ((user as any).username || "").toLowerCase();
+      const newUsername = username.trim().toLowerCase();
+      if (!isDemoAccount && newUsername && newUsername !== currentUsername) payload.username = newUsername;
+      await api.updateProfile(user.id, payload);
       await api.updatePrivacySettings(user.id, privacy);
       await refresh?.();
-      show("Profile saved");
+      show("Profile saved — your changes are live.");
       router.back();
     } catch (e: any) {
-      show("Could not save. Please try again.");
+      const msg = String(e?.message || "");
+      if (msg.includes("409") && msg.toLowerCase().includes("email")) {
+        show("That email is already used by another account.");
+      } else if (msg.includes("409") && msg.toLowerCase().includes("username")) {
+        show("That username is already taken — try a different one.");
+      } else if (msg.includes("400") && msg.toLowerCase().includes("email")) {
+        show("That email doesn't look right. Try something like name@example.com");
+      } else if (msg.includes("400") && msg.toLowerCase().includes("username")) {
+        show("Username must be 3-24 characters (letters, numbers, dots, dashes, underscores).");
+      } else {
+        show("Could not save. Please check your details and try again.");
+      }
     } finally { setSaving(false); }
+  };
+
+  const changePassword = async () => {
+    if (!user || !token) return;
+    if (!passwordEditable) {
+      show(isGoogleAccount
+        ? "Your account uses Google sign-in — no password to change here."
+        : "Demo accounts can't change password.");
+      return;
+    }
+    const current = pwCurrent.trim();
+    const next = pwNew.trim();
+    const confirmed = pwConfirm.trim();
+    if (!current || !next || !confirmed) {
+      show("Please fill in all three password fields.");
+      return;
+    }
+    if (next.length < 8) {
+      show("New password must be at least 8 characters.");
+      return;
+    }
+    if (next !== confirmed) {
+      show("New password and confirmation don't match.");
+      return;
+    }
+    if (next === current) {
+      show("New password must be different from your current one.");
+      return;
+    }
+    setPwBusy(true);
+    try {
+      await api.changePassword(token, user.id, current, next);
+      setPwCurrent(""); setPwNew(""); setPwConfirm("");
+      show("Password updated — use the new one next time you sign in.");
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (msg.toLowerCase().includes("current password is incorrect")) {
+        show("That current password isn't right. Try again.");
+      } else if (msg.toLowerCase().includes("at least 8")) {
+        show("New password must be at least 8 characters.");
+      } else if (msg.toLowerCase().includes("different from your current")) {
+        show("New password must be different from your current one.");
+      } else {
+        show("Could not update password. Please try again.");
+      }
+    } finally { setPwBusy(false); }
   };
 
   if (!user) return <View style={{ flex: 1, backgroundColor: c.surface }}><Header title="Edit Profile" /><Text style={{ padding: 20, color: c.onSurface }}>Please log in.</Text></View>;
@@ -137,6 +221,145 @@ export default function ProfileEdit() {
           />
           <Text style={[styles.section, { color: c.muted, marginTop: 12 }]}>BIRTHDAY (OPTIONAL)</Text>
           <TextInput value={birthday} onChangeText={setBirthday} placeholder="YYYY-MM-DD or MM-DD" placeholderTextColor={c.muted} style={[styles.field, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceTertiary, fontSize: 16 * scale }]} />
+        </View>
+
+        {/* Account contact details — email + username. Locked on
+            Google / demo accounts where the identifier is managed
+            externally or is part of the seeded fixture set. */}
+        <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <Text style={[styles.section, { color: c.muted }]}>ACCOUNT</Text>
+          <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 14 * scale, marginBottom: 6 }}>
+            Email address
+          </Text>
+          <TextInput
+            testID="profile-email"
+            value={email}
+            onChangeText={setEmail}
+            editable={!isGoogleAccount}
+            placeholder="you@example.com"
+            placeholderTextColor={c.muted}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={120}
+            style={[styles.field, {
+              color: c.onSurface,
+              borderColor: c.border,
+              backgroundColor: isGoogleAccount ? c.surfaceTertiary : c.surfaceTertiary,
+              fontSize: 16 * scale,
+              opacity: isGoogleAccount ? 0.6 : 1,
+            }]}
+          />
+          {isGoogleAccount ? (
+            <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6, lineHeight: 16 }}>
+              Your email is managed by Google sign-in. Sign in with a different Google account to change it.
+            </Text>
+          ) : (
+            <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6, lineHeight: 16 }}>
+              Used for password reset &amp; important account messages. Never shown publicly.
+            </Text>
+          )}
+
+          <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 14 * scale, marginTop: 14, marginBottom: 6 }}>
+            Username
+          </Text>
+          <TextInput
+            testID="profile-username"
+            value={username}
+            onChangeText={setUsername}
+            editable={!isDemoAccount}
+            placeholder="your.username"
+            placeholderTextColor={c.muted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={24}
+            style={[styles.field, {
+              color: c.onSurface,
+              borderColor: c.border,
+              backgroundColor: c.surfaceTertiary,
+              fontSize: 16 * scale,
+              opacity: isDemoAccount ? 0.6 : 1,
+            }]}
+          />
+        </View>
+
+        {/* Change password — only available for accounts that have a
+            local password (i.e. not Google sign-in or demo seeds). The
+            card is intentionally separate from the main Save button so
+            an incomplete attempt never blocks profile edits. */}
+        <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <Text style={[styles.section, { color: c.muted, marginBottom: 0 }]}>CHANGE PASSWORD</Text>
+            {passwordEditable ? (
+              <Pressable onPress={() => setShowPw((v) => !v)} hitSlop={10} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Ionicons name={showPw ? "eye-off" : "eye"} size={16} color={c.muted} />
+                <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "700" }}>{showPw ? "Hide" : "Show"}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {!passwordEditable ? (
+            <Text style={{ color: c.muted, fontSize: 13 * scale, lineHeight: 18 }}>
+              {isGoogleAccount
+                ? "Your account uses Google sign-in. Manage your password in your Google account settings."
+                : "Demo accounts can't change password."}
+            </Text>
+          ) : (
+            <>
+              <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 14 * scale, marginBottom: 6 }}>Current password</Text>
+              <TextInput
+                testID="profile-current-password"
+                value={pwCurrent}
+                onChangeText={setPwCurrent}
+                placeholder="Enter your current password"
+                placeholderTextColor={c.muted}
+                secureTextEntry={!showPw}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.field, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceTertiary, fontSize: 16 * scale }]}
+              />
+
+              <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 14 * scale, marginTop: 12, marginBottom: 6 }}>New password</Text>
+              <TextInput
+                testID="profile-new-password"
+                value={pwNew}
+                onChangeText={setPwNew}
+                placeholder="At least 8 characters"
+                placeholderTextColor={c.muted}
+                secureTextEntry={!showPw}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.field, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceTertiary, fontSize: 16 * scale }]}
+              />
+
+              <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 14 * scale, marginTop: 12, marginBottom: 6 }}>Confirm new password</Text>
+              <TextInput
+                testID="profile-confirm-password"
+                value={pwConfirm}
+                onChangeText={setPwConfirm}
+                placeholder="Re-type your new password"
+                placeholderTextColor={c.muted}
+                secureTextEntry={!showPw}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.field, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceTertiary, fontSize: 16 * scale }]}
+              />
+
+              <Pressable
+                testID="profile-change-password"
+                onPress={changePassword}
+                disabled={pwBusy}
+                style={[styles.btn, { backgroundColor: c.brand, marginTop: 14, paddingVertical: 14, opacity: pwBusy ? 0.7 : 1 }]}
+              >
+                {pwBusy ? <ActivityIndicator color="#FFF" /> : (
+                  <>
+                    <Ionicons name="lock-closed" size={18} color="#FFF" />
+                    <Text style={[styles.btnText, { fontSize: 15 * scale }]}>Update password</Text>
+                  </>
+                )}
+              </Pressable>
+            </>
+          )}
         </View>
 
         {/* Bio */}

@@ -1764,6 +1764,11 @@ class ProfileUpdateBody(BaseModel):
     interests: Optional[List[str]] = None
     favourite_games: Optional[List[str]] = None
     birthday: Optional[str] = None    # YYYY-MM-DD or MM-DD
+    # Account contact details — added so members can edit their email
+    # / username from the in-app profile editor (and so it isn't a
+    # support-only operation).
+    email: Optional[str] = None
+    username: Optional[str] = None
 
 
 @api.patch("/users/{user_id}/profile")
@@ -1773,6 +1778,44 @@ async def update_profile(user_id: str, body: ProfileUpdateBody):
         v = getattr(body, f, None)
         if v is not None:
             update[f] = v
+
+    # Email — accept a normalised lowercase address, validate format,
+    # check uniqueness against other accounts. Google-managed accounts
+    # are gated because the email is the OAuth identity key and
+    # changing it server-side would break next sign-in.
+    if body.email is not None:
+        email = body.email.strip().lower()
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            raise HTTPException(400, "That email address doesn't look right. Try something like name@example.com")
+        if len(email) > 120:
+            raise HTTPException(400, "Email is too long")
+        current = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "google_id": 1})
+        if not current:
+            raise HTTPException(404, "Account not found")
+        if (current.get("google_id") and email != (current.get("email") or "").lower()):
+            raise HTTPException(400, "Your email is managed by Google sign-in and can't be changed here. Sign in with a different Google account if you'd like to switch.")
+        clash = await db.users.find_one({"email": email, "id": {"$ne": user_id}}, {"_id": 0, "id": 1})
+        if clash:
+            raise HTTPException(409, "That email is already in use by another account.")
+        update["email"] = email
+
+    # Username — letters, digits, dot, underscore, dash. 3-24 chars.
+    # Demo accounts skip the change since their handle is part of the
+    # seeded fixture set.
+    if body.username is not None:
+        uname = body.username.strip().lower()
+        if not re.match(r"^[a-z0-9._-]{3,24}$", uname):
+            raise HTTPException(400, "Username can use letters, numbers, dots, dashes and underscores (3-24 characters).")
+        current = await db.users.find_one({"id": user_id}, {"_id": 0, "username": 1, "is_demo": 1})
+        if not current:
+            raise HTTPException(404, "Account not found")
+        if current.get("is_demo"):
+            raise HTTPException(400, "Demo accounts can't change username.")
+        clash = await db.users.find_one({"username": uname, "id": {"$ne": user_id}}, {"_id": 0, "id": 1})
+        if clash:
+            raise HTTPException(409, "That username is already taken — try another.")
+        update["username"] = uname
+
     if update:
         await db.users.update_one({"id": user_id}, {"$set": update})
     u = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
@@ -1783,6 +1826,48 @@ class PrivacySettingsBody(BaseModel):
     profile_visibility: Optional[str] = None    # everyone | friends
     friend_requests: Optional[str] = None        # everyone | friends | off
     show_in_find_friends: Optional[bool] = None
+
+
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@api.post("/users/{user_id}/password")
+async def change_password(user_id: str, body: ChangePasswordBody, user=Depends(current_user)):
+    """Member-initiated password change.
+
+    Requires the existing password to be supplied so a stolen session
+    can't silently take over the account. Google-managed accounts are
+    rejected because they have no local password to swap. Demo accounts
+    are blocked to keep the seeded fixtures predictable for testing.
+    """
+    if user.get("id") != user_id and not user.get("is_admin"):
+        raise HTTPException(403, "You can only change your own password")
+    u = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "Account not found")
+    if u.get("is_demo"):
+        raise HTTPException(400, "Demo accounts can't change password.")
+    if u.get("google_id") and not u.get("password_hash"):
+        raise HTTPException(400, "Your account uses Google sign-in — there's no password to change here.")
+    if not body.current_password or not body.new_password:
+        raise HTTPException(400, "Both current and new password are required.")
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "New password must be at least 8 characters.")
+    if body.new_password == body.current_password:
+        raise HTTPException(400, "New password must be different from your current one.")
+    # Verify the current password
+    cur_hash = u.get("password_hash") or ""
+    try:
+        ok = pwd_ctx.verify(body.current_password, cur_hash) if cur_hash else False
+    except Exception:
+        ok = False
+    if not ok:
+        raise HTTPException(400, "Current password is incorrect.")
+    new_hash = hash_pw(body.new_password)
+    await db.users.update_one({"id": user_id}, {"$set": {"password_hash": new_hash}})
+    return {"ok": True}
 
 
 @api.patch("/users/{user_id}/privacy-settings")
