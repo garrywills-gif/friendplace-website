@@ -22,6 +22,11 @@ export default function Groups() {
   const [sDesc, setSDesc] = useState("");
   const [sReason, setSReason] = useState("");
   const [sBusy, setSBusy] = useState(false);
+  // Inline error surface — toasts can be missed (they fade out) so we
+  // also show the last submission error directly inside the modal until
+  // the user changes the form. Especially useful for the common case of
+  // duplicate group names.
+  const [sError, setSError] = useState<string | null>(null);
 
   const load = async () => setGroups(await api.listGroups());
   useFocusEffect(useCallback(() => { load(); }, []));
@@ -139,7 +144,7 @@ export default function Groups() {
           <View style={[styles.modalCard, { backgroundColor: c.surface, borderColor: c.border }]}>
             <ScrollView
               keyboardShouldPersistTaps="handled"
-              contentContainerStyle={{ paddingBottom: 8 }}
+              contentContainerStyle={{ paddingBottom: 16 }}
               style={{ flexGrow: 0, flexShrink: 1 }}
             >
               <Text style={{ fontSize: 36, textAlign: "center" }}>🌟</Text>
@@ -154,12 +159,20 @@ export default function Groups() {
               <TextInput
                 testID="suggest-name"
                 value={sName}
-                onChangeText={setSName}
+                onChangeText={(v) => { setSName(v); if (sError) setSError(null); }}
                 placeholder="e.g. Lawn Bowls Club"
                 placeholderTextColor={c.muted}
                 maxLength={60}
-                style={[styles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 16 * scale }]}
+                style={[styles.input, { color: c.onSurface, borderColor: sError ? "#C62828" : c.border, backgroundColor: c.surfaceSecondary, fontSize: 16 * scale }]}
               />
+              {sError ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, padding: 10, borderRadius: 10, backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: "#FCA5A5" }} testID="suggest-error">
+                  <Ionicons name="alert-circle" size={18} color="#C62828" />
+                  <Text style={{ color: "#991B1B", fontSize: 13 * scale, flex: 1, lineHeight: 18, fontWeight: "700" }}>
+                    {sError}
+                  </Text>
+                </View>
+              ) : null}
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 14 * scale }]}>Emoji</Text>
               <TextInput
@@ -195,50 +208,63 @@ export default function Groups() {
                 maxLength={500}
                 style={[styles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 14 * scale, minHeight: 60, textAlignVertical: "top" }]}
               />
-
-              <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
-                <Pressable
-                  testID="suggest-cancel"
-                  disabled={sBusy}
-                  onPress={() => setSuggestOpen(false)}
-                  style={({ pressed }) => [styles.modalBtn, { borderWidth: 1.5, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}
-                >
-                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  testID="suggest-submit"
-                  disabled={sBusy || !sName.trim()}
-                  onPress={async () => {
-                    if (!token) { show("Sign in to suggest a group"); return; }
-                    setSBusy(true);
-                    try {
-                      await api.suggestGroup(token, {
-                        name: sName.trim(),
-                        emoji: sEmoji.trim() || "🌟",
-                        description: sDesc.trim(),
-                        reason: sReason.trim(),
-                      });
-                      show("Thanks! Your group is awaiting admin approval 🌟");
-                      setSuggestOpen(false);
-                      setSName(""); setSEmoji("🌟"); setSDesc(""); setSReason("");
-                    } catch (e: any) {
-                      const msg = String(e?.message || "Could not submit suggestion");
-                      show(msg.includes("409") ? "A group with that name already exists." : "Could not submit suggestion.");
-                    } finally {
-                      setSBusy(false);
-                    }
-                  }}
-                  style={({ pressed }) => [styles.modalBtn, {
-                    backgroundColor: !sName.trim() ? c.surfaceTertiary : c.brand,
-                    opacity: (sBusy || !sName.trim()) ? 0.65 : (pressed ? 0.85 : 1),
-                  }]}
-                >
-                  {sBusy ? <ActivityIndicator color="#FFFFFF" /> : (
-                    <Text style={{ color: !sName.trim() ? c.muted : "#FFFFFF", fontWeight: "900", fontSize: 16 * scale }}>Send for review</Text>
-                  )}
-                </Pressable>
-              </View>
             </ScrollView>
+
+            {/* Action row — pinned to the bottom of the modal card so
+                the buttons are always tappable, regardless of how far the
+                form has been scrolled or the keyboard state. */}
+            <View style={[styles.modalActionRow, { borderTopColor: c.border }]}>
+              <Pressable
+                testID="suggest-cancel"
+                disabled={sBusy}
+                onPress={() => setSuggestOpen(false)}
+                style={({ pressed }) => [styles.modalBtn, { borderWidth: 1.5, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                testID="suggest-submit"
+                disabled={sBusy || !sName.trim()}
+                onPress={async () => {
+                  if (!token) { show("Sign in to suggest a group"); return; }
+                  setSError(null);
+                  setSBusy(true);
+                  try {
+                    await api.suggestGroup(token, {
+                      name: sName.trim(),
+                      emoji: sEmoji.trim() || "🌟",
+                      description: sDesc.trim(),
+                      reason: sReason.trim(),
+                    });
+                    show("Thanks! Your group is awaiting admin approval 🌟");
+                    setSuggestOpen(false);
+                    setSName(""); setSEmoji("🌟"); setSDesc(""); setSReason(""); setSError(null);
+                  } catch (e: any) {
+                    const msg = String(e?.message || "");
+                    let friendly = "Could not submit suggestion. Please try again.";
+                    if (msg.includes("409")) {
+                      friendly = "A group with that name already exists. Try a different name.";
+                    } else if (msg.includes("400")) {
+                      friendly = "That name doesn't look quite right — it needs to be between 3 and 60 characters.";
+                    } else if (msg.includes("401")) {
+                      friendly = "You need to be signed in to suggest a group.";
+                    }
+                    setSError(friendly);
+                    show(friendly);
+                  } finally {
+                    setSBusy(false);
+                  }
+                }}
+                style={({ pressed }) => [styles.modalBtn, {
+                  backgroundColor: !sName.trim() ? c.surfaceTertiary : c.brand,
+                  opacity: (sBusy || !sName.trim()) ? 0.65 : (pressed ? 0.85 : 1),
+                }]}
+              >
+                {sBusy ? <ActivityIndicator color="#FFFFFF" /> : (
+                  <Text style={{ color: !sName.trim() ? c.muted : "#FFFFFF", fontWeight: "900", fontSize: 16 * scale }}>Send for review</Text>
+                )}
+              </Pressable>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -293,7 +319,16 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 22,
     borderWidth: 1,
     padding: 20,
+    paddingBottom: 0,        // action row supplies its own bottom padding
     maxHeight: "92%",
+    overflow: "hidden",
+  },
+  modalActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingTop: 14,
+    paddingBottom: 18,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   label: { fontWeight: "800", marginTop: 14, marginBottom: 6 },
   input: {
