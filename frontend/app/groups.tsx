@@ -137,7 +137,11 @@ export default function Groups() {
             onPress={() => !sBusy && setSuggestOpen(false)}
           />
           <View style={[styles.modalCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8 }}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 8 }}
+              style={{ flexGrow: 0, flexShrink: 1 }}
+            >
               <Text style={{ fontSize: 36, textAlign: "center" }}>🌟</Text>
               <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, textAlign: "center", marginTop: 6 }}>
                 Suggest a Group
