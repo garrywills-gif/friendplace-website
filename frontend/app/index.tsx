@@ -10,6 +10,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { startGoogleSignIn, consumePendingSession } from "@/src/lib/googleSignIn";
+import { isAppleSignInAvailable, startAppleSignIn } from "@/src/lib/appleSignIn";
 import { api } from "@/src/lib/api";
 import BrandLockup from "@/src/components/BrandLockup";
 
@@ -20,7 +21,7 @@ const COMMUNITY_BG =
 export default function Welcome() {
   const router = useRouter();
   const { scale } = useTheme();
-  const { user, loading, loginWithGoogle } = useAuth();
+  const { user, loading, loginWithGoogle, loginWithApple } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
@@ -28,6 +29,12 @@ export default function Welcome() {
   // the Emergent OAuth tab/redirect is in flight on web so the buttons stay
   // disabled and the user gets a spinner.
   const [authBusy, setAuthBusy] = useState(false);
+  // Whether the device supports native Apple Sign-In. False on Android, web,
+  // and in Expo Go (the native module is unavailable until a dev/prod build).
+  // We hide the button entirely when unavailable so non-iOS users don't see
+  // a dead end. Apple requires Sign in with Apple alongside Google for the
+  // App Store, but only on platforms where it actually works.
+  const [appleReady, setAppleReady] = useState(false);
   // Founding Member counter — cheap stat that gives the welcome page a
   // "real, alive community" feel. Failing silently is fine (the banner
   // simply doesn't render) so it never blocks the auth flow.
@@ -45,6 +52,13 @@ export default function Welcome() {
       } catch {
         /* no banner, no harm */
       }
+    })();
+    // Probe Apple Sign-In availability once on mount. iOS only.
+    (async () => {
+      try {
+        const ok = await isAppleSignInAvailable();
+        if (!cancelled) setAppleReady(ok);
+      } catch { /* button stays hidden, no harm */ }
     })();
     return () => { cancelled = true; };
   }, []);
@@ -147,6 +161,29 @@ export default function Welcome() {
       }
       return;
     }
+    if (provider === "Apple") {
+      try {
+        setAuthBusy(true);
+        const credential = await startAppleSignIn();
+        if (!credential) {
+          // Cancelled — drop the spinner so the buttons re-enable.
+          setAuthBusy(false);
+          return;
+        }
+        // Best-effort pickup of an invite ref captured at app launch.
+        let ref: string | null = null;
+        try { ref = await AsyncStorage.getItem("youbelong.invite.ref"); } catch {}
+        const r = await loginWithApple(credential.identityToken, credential.firstName, credential.lastName, ref);
+        try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch {}
+        show(r.isNew ? "Welcome to YouBelong!" : "Welcome back!");
+        const dest = r.isNew ? "/onboarding" : "/home";
+        router.replace(dest as any);
+      } catch (e: any) {
+        setAuthBusy(false);
+        show("Apple sign-in failed. Please try again or use email.");
+      }
+      return;
+    }
     show(`${provider} sign-in is coming soon. Please sign up with email or use Log In for now.`);
   };
 
@@ -233,10 +270,30 @@ export default function Welcome() {
             <View style={styles.line} />
           </View>
 
-          {/* Apple Sign-In intentionally NOT rendered here — comes back when
-              we have an Apple Developer account + a native iOS build that
-              supports Sign in with Apple. To re-enable, drop a Pressable
-              calling handleSocial("Apple") above the Google button. */}
+          {/* Apple Sign-In — iOS-only, native sheet. Required alongside
+              Google by App Store guidelines (4.8). Hidden on Android/web
+              and in Expo Go where the native module isn't available, so
+              non-iOS users never see a dead-end button. */}
+          {appleReady ? (
+            <Pressable
+              testID="welcome-apple"
+              disabled={authBusy}
+              onPress={() => handleSocial("Apple")}
+              style={({ pressed }) => [styles.social, { backgroundColor: "#000000", opacity: authBusy ? 0.6 : (pressed ? 0.85 : 1) }]}
+              accessibilityRole="button"
+              accessibilityLabel="Sign in with Apple"
+            >
+              {authBusy ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="logo-apple" size={26} color="#FFFFFF" />
+              )}
+              <Text style={[styles.socialText, { color: "#FFFFFF", fontSize: 18 * scale }]}>
+                {authBusy ? "Signing in…" : "Continue with Apple"}
+              </Text>
+            </Pressable>
+          ) : null}
+
           <Pressable testID="welcome-google" disabled={authBusy} onPress={() => handleSocial("Google")} style={({ pressed }) => [styles.social, { backgroundColor: "#FFFFFF", opacity: authBusy ? 0.6 : (pressed ? 0.85 : 1) }]}>
             {authBusy ? (
               <ActivityIndicator size="small" color="#1E3A7F" />

@@ -20,6 +20,16 @@ export const api = {
     req("/auth/demo-login", { method: "POST", body: JSON.stringify({ username }) }),
   googleAuth: (session_id: string, referrer_id?: string | null) =>
     req("/auth/google", { method: "POST", body: JSON.stringify({ session_id, referrer_id: referrer_id || null }) }),
+  appleAuth: (identity_token: string, first_name?: string | null, last_name?: string | null, referrer_id?: string | null) =>
+    req("/auth/apple", {
+      method: "POST",
+      body: JSON.stringify({
+        identity_token,
+        first_name: first_name || null,
+        last_name: last_name || null,
+        referrer_id: referrer_id || null,
+      }),
+    }),
   demoAccounts: () => req("/auth/demo-accounts"),
   forgot: (identifier: string) =>
     req("/auth/forgot-password", { method: "POST", body: JSON.stringify({ identifier }) }),

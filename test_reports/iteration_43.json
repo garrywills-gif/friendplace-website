@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 43 — Sign in with Apple (iOS-native) backend verification + web regression. 12/12 backend tests passing covering all reachable negative paths on POST /api/auth/apple (empty/missing token, malformed JWT, HS256 wrong-signature, RS256 bogus kid, missing kid, error envelope shape, JWK endpoint reachability). Confirmed via backend logs the backend successfully reaches https://appleid.apple.com/auth/keys (HTTP 200) during the bogus-kid test (cache miss → refresh path exercised). Regression smoke tests on /auth/login, /auth/signup, /auth/demo-login, /auth/google all pass. Frontend web regression: welcome-apple button correctly NOT rendered on web; welcome-google, welcome-signup, welcome-login all render; founder counter banner intact. LIMITATION (flagged): the happy path (existing Apple user login + new Apple user creation, founder/invite/coffee-lounge wiring, name backfill idempotency, private-relay email handling) is NOT testable here because a valid Apple identity_token requires Apple's private key — this is only verifiable in a real iOS dev/prod build. No deprecated Expo packages or SafeAreaView issues introduced by this change.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_apple_signin.py",
+    "/app/test_reports/pytest/iter43_apple_signin.xml"
+  ],
+  "action_items": [
+    "Once a real iOS dev build is available, exercise the happy paths end-to-end: (a) brand-new Apple user creation with first_name/last_name shipped on first sign-in, (b) returning Apple user login (apple_id match), (c) email-fallback link to a pre-existing email/password account, (d) 'Hide my email' private relay flow (apple_private_relay flag, 🍎 avatar), (e) name backfill idempotency on second sign-in when Apple returns null name, (f) founder cohort + Coffee Lounge seating + invite attribution parity with Google flow.",
+    "Optional: add APPLE_CLIENT_ID_IOS / APPLE_CLIENT_ID_WEB to /app/backend/.env explicitly so the audience set is auditable (currently falls back to hardcoded defaults via os.getenv, which is fine but invisible)."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/server.py auth_apple: clean implementation — RS256 algorithm pin prevents alg downgrade attacks, JWK kid-miss → cache refresh is the right pattern, name backfill correctly never overwrites existing first_name (Apple's first-sign-in-only contract). Private relay handling and avatar choice (🍎 vs 🦋) look intentional.",
+    "/app/backend/server.py auth_apple line 1267: returns 401 'Apple did not return a user identifier' if sub is empty — good guard. However, this is reached only after signature verification succeeds, so realistically unreachable (Apple always sets sub). Cosmetic.",
+    "/app/backend/server.py _fetch_apple_jwks: stale-on-failure fallback (lines 1193-1196) is a nice resilience touch — if Apple's JWK URL is briefly down but we have a cached set, we keep working.",
+    "/app/frontend/app/index.tsx line 277: appleReady gate is correctly checked before rendering testID=welcome-apple — confirmed via web visit that the button is hidden when isAppleSignInAvailable() returns false."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter43_apple_signin.py (new)",
+    "/app/test_reports/pytest/iter43_apple_signin.xml (new — pytest junit output)"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12 reachable tests; happy path requires iOS device)",
+    "frontend": "100% (web-side regression: Apple hidden, Google visible, founder banner intact)"
+  },
+  "seed_data_creation": "Created one transient test user via signup smoke test (username starts with 'appletest_<hex8>'). Not cleaned up — same pattern as prior iterations. Safe to delete from Mongo if desired.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Apple Sign-In backend negative paths are fully covered by /app/backend/tests/test_iter43_apple_signin.py (12 tests, all passing). To regression-test future changes touching /api/auth/apple, just re-run this file. The Apple JWK URL is reachable from this container so cache-miss → refresh path is exercised on every run. Happy-path tests (real Apple identity_token verification, new account provisioning, name backfill, private relay) require a real iOS dev/prod build with bundle ID com.youbelong.community — there is no way to mint a signed Apple JWT in this sandbox. Frontend: on web the Apple button is correctly hidden because isAppleSignInAvailable() returns false in browser; to test the button's rendering you'd need expo-apple-authentication to be available, i.e. an iOS device or simulator with a dev build."
+}

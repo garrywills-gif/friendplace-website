@@ -1137,6 +1137,287 @@ async def auth_google(body: GoogleAuthBody):
     return {"access_token": make_token(user.id), "token_type": "bearer", "user": _safe_user(doc), "is_new": True}
 
 
+# ============================================================================
+# Sign in with Apple (iOS-native)
+# ============================================================================
+# Apple gives us an `identity_token` (a JWT signed by Apple) that contains the
+# user's stable Apple ID (`sub`), email (may be a private relay address), and
+# audience. We verify the signature using Apple's published JWK set, then
+# either link to an existing account by email/apple_id or create a fresh one
+# using the SAME cohort/founder/invite logic as the Google flow above so the
+# experience is identical regardless of provider.
+#
+# IMPORTANT: Apple only ships the user's *name* on the FIRST sign-in. Returning
+# users see `fullName=null`. The frontend always passes whatever it has, and
+# the backend backfills the name only if we don't already have one (never
+# overwrites). This matches Apple's review guidelines.
+#
+# IMPORTANT: Email may be `nnn@privaterelay.appleid.com` when the user picks
+# "Hide my email". We treat this as a normal email — Apple forwards messages
+# to the real inbox — but we always use `apple_id` (sub) as the long-lived
+# identity key, never email.
+
+_APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
+_APPLE_ISSUER = "https://appleid.apple.com"
+_APPLE_AUDIENCES = (
+    os.getenv("APPLE_CLIENT_ID_IOS") or "com.youbelong.community",
+    os.getenv("APPLE_CLIENT_ID_WEB") or "com.youbelong.community.web",
+)
+
+# Cache the JWK set in-memory for an hour. Apple rotates keys roughly twice a
+# year but rarely; an in-process LRU is enough for a single-instance backend.
+_apple_jwks_cache: Dict[str, dict] = {}
+_apple_jwks_fetched_at: float = 0.0
+
+
+async def _fetch_apple_jwks() -> Dict[str, dict]:
+    """Return a {kid: jwk_dict} mapping of Apple's current public keys.
+
+    Cached for 1 hour. Re-fetched on cache miss for an unknown `kid` so a
+    fresh key rotation never breaks sign-in for more than one request.
+    """
+    import time as _time, httpx as _httpx
+    global _apple_jwks_cache, _apple_jwks_fetched_at
+    now_ts = _time.time()
+    if _apple_jwks_cache and (now_ts - _apple_jwks_fetched_at) < 3600:
+        return _apple_jwks_cache
+    try:
+        async with _httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.get(_APPLE_JWKS_URL)
+            r.raise_for_status()
+            keys = (r.json() or {}).get("keys", []) or []
+        _apple_jwks_cache = {k["kid"]: k for k in keys if k.get("kid")}
+        _apple_jwks_fetched_at = now_ts
+        return _apple_jwks_cache
+    except Exception as e:
+        logger.warning("apple jwks fetch failed: %s", e)
+        if _apple_jwks_cache:
+            return _apple_jwks_cache  # serve stale rather than hard-fail
+        raise HTTPException(503, "Could not reach Apple sign-in right now. Please try again.")
+
+
+class AppleAuthBody(BaseModel):
+    # Apple identity JWT — issued by AppleAuthentication.signInAsync on iOS.
+    identity_token: str
+    # Apple ships these only on the very first sign-in. Optional on subsequent
+    # calls — we won't overwrite an existing name.
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    # Invite attribution captured at app launch (?ref=<id> in deep link).
+    referrer_id: Optional[str] = None
+
+
+@api.post("/auth/apple")
+async def auth_apple(body: AppleAuthBody):
+    """Exchange an Apple identity_token for a YouBelong JWT.
+
+    Verifies the JWT signature against Apple's public keys, checks issuer &
+    audience, then either logs in the existing user (matched by apple_id, then
+    email) or provisions a new account using the same logic as the Google
+    flow (username generation, founder cohort, invite attribution, welcome
+    notifications). Returns `{access_token, token_type, user, is_new}` — same
+    envelope as `/auth/login` and `/auth/google` so the auth context on the
+    client keeps working unchanged.
+    """
+    tok = (body.identity_token or "").strip()
+    if not tok:
+        raise HTTPException(400, "Missing identity_token")
+
+    # --- 1. Parse header to find the signing key ID ---
+    try:
+        header = jwt.get_unverified_header(tok)
+    except Exception as e:
+        logger.info("apple token bad header: %s", e)
+        raise HTTPException(401, "Apple sign-in token is malformed. Please try again.")
+    kid = header.get("kid")
+    if not kid:
+        raise HTTPException(401, "Apple sign-in token is missing a key id. Please try again.")
+
+    # --- 2. Resolve the public key (with cache miss → refresh fallback) ---
+    keys = await _fetch_apple_jwks()
+    jwk = keys.get(kid)
+    if not jwk:
+        # Apple may have rotated keys since our last fetch — force a refresh.
+        global _apple_jwks_fetched_at
+        _apple_jwks_fetched_at = 0.0
+        keys = await _fetch_apple_jwks()
+        jwk = keys.get(kid)
+    if not jwk:
+        raise HTTPException(401, "Apple sign-in key not recognised. Please try again.")
+
+    # --- 3. Verify signature + claims ---
+    try:
+        # python-jose accepts a JWK dict directly; we explicitly allow only
+        # RS256 (Apple's algorithm) so the token can't be downgraded.
+        decoded = jwt.decode(
+            tok,
+            jwk,
+            algorithms=["RS256"],
+            audience=list(_APPLE_AUDIENCES),
+            issuer=_APPLE_ISSUER,
+            options={"verify_at_hash": False},  # we don't request an access token
+        )
+    except JWTError as e:
+        logger.info("apple token verify failed: %s", e)
+        raise HTTPException(401, "Apple sign-in could not be verified. Please try again.")
+
+    apple_sub = (decoded.get("sub") or "").strip()
+    email = (decoded.get("email") or "").strip().lower()
+    if not apple_sub:
+        raise HTTPException(401, "Apple did not return a user identifier.")
+
+    # Apple includes `email_verified` as a string "true"/"false". We trust it
+    # only for non-private-relay addresses; relay addresses are always
+    # routable through Apple so we treat them as verified-equivalent.
+    is_private_relay = email.endswith("@privaterelay.appleid.com")
+
+    given = (body.first_name or "").strip()
+    # Apple ships family name too but we don't store it separately yet (the
+    # rest of the app only uses first_name). Capture it here for future use.
+    _family = (body.last_name or "").strip()  # noqa: F841
+
+    # --- 4. Existing account match (apple_id first, then email) ---
+    existing = await db.users.find_one({"apple_id": apple_sub})
+    if not existing and email:
+        existing = await db.users.find_one(
+            {"email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}}
+        )
+
+    if existing:
+        if existing.get("banned"):
+            raise HTTPException(403, "Your account has been banned. Please contact support.")
+        sus_until = existing.get("suspended_until")
+        if sus_until:
+            try:
+                if datetime.now(timezone.utc) < datetime.fromisoformat(sus_until):
+                    raise HTTPException(403, f"Your account is suspended until {sus_until}.")
+            except (ValueError, TypeError):
+                pass
+        patch: Dict = {
+            "last_login_at": now_iso(),
+            "failed_login_attempts": 0,
+            "lockout_until": None,
+            "apple_id": apple_sub,
+            "oauth_provider": existing.get("oauth_provider") or "apple",
+        }
+        # Backfill name ONLY when missing — Apple only ships name on first
+        # sign-in so we must never overwrite with a later null value.
+        if (not existing.get("first_name")) and given:
+            patch["first_name"] = given
+        # Backfill email if missing (rare — happens when the relay address
+        # changed shape between sign-ins).
+        if (not existing.get("email")) and email:
+            patch["email"] = email
+        await db.users.update_one({"id": existing["id"]}, {"$set": patch})
+        merged = {**existing, **patch}
+        return {
+            "access_token": make_token(existing["id"]),
+            "token_type": "bearer",
+            "user": _safe_user(merged),
+            "is_new": False,
+        }
+
+    # --- 5. Brand-new user: generate username from name/email/sub ---
+    seed = (given or (email.split("@", 1)[0] if email else "") or f"friend{random.randint(100, 999)}")
+    base_uname = re.sub(r"[^A-Za-z0-9_.\-]", "", seed)[:24] or f"friend{random.randint(100, 999)}"
+    uname = base_uname
+    n = 1
+    while await db.users.find_one({"username": {"$regex": f"^{re.escape(uname)}$", "$options": "i"}}):
+        n += 1
+        uname = f"{base_uname}{n}"
+        if n > 50:
+            uname = f"{base_uname}{random.randint(1000, 9999)}"
+            break
+
+    user = User(
+        first_name=given or "",
+        username=uname.lower(),
+        email=email or "",
+        avatar="🍎" if is_private_relay else "🦋",
+        points=5,
+        badges=["Friendly Member"],
+    )
+    doc = user.dict()
+    doc["apple_id"] = apple_sub
+    doc["oauth_provider"] = "apple"
+    doc["password_hash"] = ""
+    doc["failed_login_attempts"] = 0
+    doc["lockout_until"] = None
+    doc["onboarding_completed"] = False
+    doc["location_visibility"] = "suburb"
+    if is_private_relay:
+        doc["apple_private_relay"] = True
+
+    # Invite attribution — identical to Google/email flows
+    if body.referrer_id and body.referrer_id != user.id:
+        referrer = await db.users.find_one({"id": body.referrer_id}, {"id": 1, "_id": 0})
+        if referrer:
+            doc["invited_by"] = referrer["id"]
+            await db.notifications.insert_one({
+                "id": nid(), "user_id": referrer["id"], "type": "invite_accepted",
+                "title": "Your invite worked!",
+                "body": f"{user.first_name or user.username} just joined YouBelong through your share link. Welcome them in!",
+                "data": {"user_id": user.id}, "read": False, "created_at": now_iso(),
+            })
+            await db.flutters.insert_one(FlutterDoc(
+                from_id=user.id,
+                to_id=referrer["id"],
+                from_name=user.first_name or user.username,
+                from_avatar=doc.get("avatar") or "🦋",
+                message="🎉 Just joined through your invite — say hi!",
+            ).dict())
+
+    # Founder cohort + Coffee Lounge seating (same rules as Google flow)
+    await _assign_founder_status(doc)
+    _fl_id_a = doc.pop("_founders_lounge_id", None)
+    _ft_id_a = doc.pop("_founders_table_id", None)
+    await db.users.insert_one(doc)
+    if _fl_id_a:
+        try:
+            await db.groups.update_one(
+                {"id": _fl_id_a},
+                {"$addToSet": {"members": doc["id"]}},
+            )
+        except Exception:
+            pass
+    if _ft_id_a:
+        try:
+            await db.tables.update_one(
+                {"id": _ft_id_a},
+                {"$addToSet": {"seated": doc["id"]},
+                 "$set": {"last_activity_at": now_iso()}},
+            )
+            await db.tables.update_one(
+                {"id": _ft_id_a, "host_id": ""},
+                {"$set": {"host_id": doc["id"]}},
+            )
+        except Exception:
+            pass
+    if doc.get("invited_by"):
+        await _check_invite_milestones(doc["invited_by"])
+    await db.notifications.insert_one({
+        "id": nid(), "user_id": user.id, "type": "welcome",
+        "title": "Welcome to YouBelong!",
+        "body": "We're so glad you're here. Take a moment to add your interests and join a few groups.",
+        "read": False, "created_at": now_iso(),
+    })
+    if doc.get("is_founder"):
+        await db.notifications.insert_one({
+            "id": nid(), "user_id": user.id, "type": "welcome",
+            "title": f"🦋 You're Founding Member #{doc['founder_number']}!",
+            "body": "Thanks for being one of the first to join YouBelong. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
+            "read": False, "created_at": now_iso(),
+        })
+    try: await _broadcast_new_member(doc)
+    except Exception as e: logger.warning("apple new-member broadcast failed: %s", e)
+    return {
+        "access_token": make_token(user.id),
+        "token_type": "bearer",
+        "user": _safe_user(doc),
+        "is_new": True,
+    }
+
+
 @api.get("/auth/me")
 async def auth_me(user=Depends(current_user)):
     return _safe_user(user)

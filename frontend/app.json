@@ -12,6 +12,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.youbelong.community",
       "buildNumber": "1",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Find neighbours near your suburb",
         "NSPhotoLibraryUsageDescription": "Share photos in the Coffee Lounge",
@@ -48,6 +49,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
       [
         "expo-splash-screen",
         {
