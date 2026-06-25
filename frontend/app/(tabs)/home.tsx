@@ -295,10 +295,27 @@ export default function Home() {
               </Pressable>
             ))}
             {community.new_members?.length > 0 && (
-              <Pressable testID="new-members-row" onPress={() => goTo("/friends")} style={styles.commRow}>
+              <Pressable
+                testID="new-members-row"
+                onPress={() => {
+                  // Single new member → straight to that person's profile.
+                  // Multiple → focused "new this week" list (not the full
+                  // Find Friends directory, which used to bury the new
+                  // arrivals among everyone else).
+                  const newOnes = community.new_members as any[];
+                  if (newOnes.length === 1) {
+                    router.push(`/user/${newOnes[0].id}` as any);
+                  } else {
+                    router.push("/friends/new-this-week" as any);
+                  }
+                }}
+                style={styles.commRow}
+              >
                 <Text style={styles.commEmoji}>👋</Text>
                 <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
-                  Say hello to {community.new_members.length} new {community.new_members.length === 1 ? "neighbour" : "neighbours"} this week
+                  {community.new_members.length === 1
+                    ? `Say hello to ${community.new_members[0].first_name || community.new_members[0].username || "a new neighbour"} — they just joined`
+                    : `Say hello to ${community.new_members.length} new neighbours this week`}
                 </Text>
                 <Ionicons name="chevron-forward" size={18} color={c.muted} />
               </Pressable>
