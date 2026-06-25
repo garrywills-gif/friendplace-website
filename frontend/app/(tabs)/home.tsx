@@ -114,10 +114,16 @@ export default function Home() {
       show(`Flutter sent to ${f.from_name || "them"} 🦋`);
     } catch (e: any) {
       const msg = String(e?.message || "").toLowerCase();
-      if (msg.includes("rate") || msg.includes("429")) {
+      // Backend returns "Cannot flutter this user" (lowercased here) when
+      // the recipient has the sender in their blocked list. The recipient
+      // may still have sent us a flutter — so show a kind, non-judgmental
+      // message rather than the scary generic fallback.
+      if (msg.includes("cannot flutter") || msg.includes("blocked")) {
+        show("They're not taking flutters from you right now.");
+      } else if (msg.includes("rate") || msg.includes("429")) {
         show("Whoa — slow down on the flutters! Try again in a bit.");
-      } else if (msg.includes("blocked")) {
-        show("Can't flutter this person right now.");
+      } else if (msg.includes("not found") || msg.includes("404")) {
+        show("That person isn't on YouBelong any more.");
       } else {
         show("Couldn't send flutter. Please try again.");
       }
