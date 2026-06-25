@@ -31,7 +31,7 @@ export type BrandLockupVariant = "light" | "dark" | "navy";
 const BRAND_LOGO_LIGHT = require("../../assets/brand/youbelong-logo-bold.png");
 const BRAND_LOGO_NAVY = require("../../assets/brand/youbelong-logo-navy.png");
 const LOGO_ASPECT_LIGHT = 1066 / 326;
-const LOGO_ASPECT_NAVY = 1272 / 330;
+const LOGO_ASPECT_NAVY = 993 / 330;
 
 export default function BrandLockup({
   width = 320,
@@ -51,8 +51,13 @@ export default function BrandLockup({
 
   // Tagline reads as a wide descriptor — letter-spaced "C O M M U N I T Y"
   // sized so it visually mirrors the breadth of the wordmark above it.
+  // Calibrated to match the welcome screen rhythm: the tagline must span
+  // roughly the same horizontal width as the wordmark itself.
   const taglineFs = Math.max(11, Math.round(width * 0.06));
-  const taglineLetterSpacing = taglineFs * 0.55;
+  // Letter spacing tuned so 9 letters * (fs + spacing) ≈ image width. This
+  // matches the very-airy "C O M M U N I T Y" treatment on the welcome
+  // screen rather than a tight monospaced look.
+  const taglineLetterSpacing = Math.max(taglineFs * 0.55, (width - taglineFs * 9) / 9);
   // Navy wordmark pairs with the same brand teal as the light variant;
   // dark backgrounds get the mint tag so it stays readable.
   const taglineColor = variant === "dark" ? "#A7F3D0" : "#1B7A8A";
