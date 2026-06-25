@@ -11,6 +11,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import ShareYouBelong from "@/src/components/ShareYouBelong";
 import FirstRunCard from "@/src/components/FirstRunCard";
+import BrandLockup from "@/src/components/BrandLockup";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 
 type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; route: string; bg: string; full?: boolean };
@@ -123,22 +124,51 @@ export default function Home() {
         }
       >
         <View style={styles.headerRow}>
-          <View style={[styles.iconBtn, { backgroundColor: "transparent", borderColor: "transparent" }]} />
-          <Text style={[styles.brand, { color: c.brand, fontSize: 26 * scale }]}>YouBelong</Text>
-          <Pressable testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border, marginRight: 8 }]}>
-            <Ionicons name="notifications-outline" size={24} color={c.onSurface} />
-            {unread > 0 && (
-              <View style={[styles.bellBadge, { backgroundColor: c.error }]}>
-                <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 }}>{unread > 9 ? "9+" : unread}</Text>
-              </View>
-            )}
-          </Pressable>
-          <Pressable testID="home-settings" onPress={() => router.push("/settings")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-            <Ionicons name="settings-outline" size={26} color={c.onSurface} />
-          </Pressable>
+          {/* Left spacer matches the bell+settings width so the brand
+              lockup optically centers in the header without flexing. */}
+          <View style={styles.headerSideSpacer} pointerEvents="none" />
+          <BrandLockup width={132} variant="light" testID="home-brand-lockup" />
+          <View style={styles.headerActions}>
+            <Pressable testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+              <Ionicons name="notifications-outline" size={24} color={c.onSurface} />
+              {unread > 0 && (
+                <View style={[styles.bellBadge, { backgroundColor: c.error }]}>
+                  <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 }}>{unread > 9 ? "9+" : unread}</Text>
+                </View>
+              )}
+            </Pressable>
+            <Pressable testID="home-settings" onPress={() => router.push("/settings")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+              <Ionicons name="settings-outline" size={26} color={c.onSurface} />
+            </Pressable>
+          </View>
         </View>
         <Text style={[styles.hello, { color: c.muted, fontSize: 16 * scale }]}>Welcome back</Text>
         <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{user?.first_name || "Friend"} 🦋</Text>
+
+        {/* Today's Thought — surfaced at the top of Home (above First-Run
+            and Flutters) so the very first thing returning members read is
+            something warm and grounding. Stays sticky across opens via
+            the daily-rotation key but can be reshuffled manually. */}
+        <View style={[styles.thoughtCard, { backgroundColor: c.surfaceSecondary, borderColor: c.brand }]} testID="todays-thought">
+          <View style={styles.thoughtHead}>
+            <View style={[styles.thoughtChip, { backgroundColor: c.brandTertiary }]}>
+              <Ionicons name="sunny" size={14} color={c.brand} />
+              <Text style={[styles.thoughtChipText, { color: c.brand, fontSize: 12 * scale }]}>TODAY&apos;S THOUGHT</Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              {prefs.readMessagesAloud && (
+                <SpeakButton text={thought} color={c.brand} size={22} testID="thought-speak" />
+              )}
+              <Pressable testID="thought-fav" onPress={toggleFav} hitSlop={6} style={styles.thoughtIconBtn} accessibilityLabel={isFav ? "Remove from favourites" : "Save to favourites"}>
+                <Ionicons name={isFav ? "heart" : "heart-outline"} size={22} color={isFav ? c.error : c.brand} />
+              </Pressable>
+              <Pressable testID="thought-shuffle" onPress={shuffleThought} hitSlop={6} style={styles.thoughtIconBtn} accessibilityLabel="Shuffle thought">
+                <Ionicons name="shuffle" size={22} color={c.brand} />
+              </Pressable>
+            </View>
+          </View>
+          <Text style={[styles.thoughtText, { color: c.onSurface, fontSize: 18 * scale }]}>{thought}</Text>
+        </View>
 
         {/* First-run guidance — visible only for the first ~3 opens after
             onboarding. Hidden once the user dismisses or taps into a step.
@@ -152,7 +182,7 @@ export default function Home() {
           <View style={[styles.flutterBox, { borderColor: "#8B5CF6" }]}>
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
               <Text style={{ fontSize: 24 }}>🦋</Text>
-              <Text style={{ color: "#6D28D9", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>You've got Flutters!</Text>
+              <Text style={{ color: "#6D28D9", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>You&apos;ve got Flutters!</Text>
             </View>
             {flutters.slice(0, 3).map((f) => (
               <View key={f.id} style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#EDE9FE" }]}>
@@ -170,27 +200,6 @@ export default function Home() {
             ))}
           </View>
         )}
-
-        <View style={[styles.thoughtCard, { backgroundColor: c.surfaceSecondary, borderColor: c.brand }]} testID="todays-thought">
-          <View style={styles.thoughtHead}>
-            <View style={[styles.thoughtChip, { backgroundColor: c.brandTertiary }]}>
-              <Ionicons name="sunny" size={14} color={c.brand} />
-              <Text style={[styles.thoughtChipText, { color: c.brand, fontSize: 12 * scale }]}>TODAY'S THOUGHT</Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-              {prefs.readMessagesAloud && (
-                <SpeakButton text={thought} color={c.brand} size={22} testID="thought-speak" />
-              )}
-              <Pressable testID="thought-fav" onPress={toggleFav} hitSlop={6} style={styles.thoughtIconBtn} accessibilityLabel={isFav ? "Remove from favourites" : "Save to favourites"}>
-                <Ionicons name={isFav ? "heart" : "heart-outline"} size={22} color={isFav ? c.error : c.brand} />
-              </Pressable>
-              <Pressable testID="thought-shuffle" onPress={shuffleThought} hitSlop={6} style={styles.thoughtIconBtn} accessibilityLabel="Shuffle thought">
-                <Ionicons name="shuffle" size={22} color={c.brand} />
-              </Pressable>
-            </View>
-          </View>
-          <Text style={[styles.thoughtText, { color: c.onSurface, fontSize: 18 * scale }]}>{thought}</Text>
-        </View>
 
         <Pressable testID="home-points-card" onPress={() => goTo("/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
           <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
@@ -327,6 +336,10 @@ export default function Home() {
 const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  // Reserves width equal to the bell+settings group (52 + 8 + 52 = 112) so
+  // the brand lockup sits optically centered in the header row.
+  headerSideSpacer: { width: 112, height: 1 },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   brand: { fontWeight: "900", letterSpacing: 0.3 },
   hello: { fontWeight: "600", marginTop: 6 },
   name: { fontWeight: "900", marginTop: 2 },
