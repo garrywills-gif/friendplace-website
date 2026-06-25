@@ -8,20 +8,30 @@ import { Image } from "expo-image";
  * Uses the original baked PNG wordmark (with the butterfly forming the "O"
  * in YouBelong) and adds a small "COMMUNITY" descriptor strap underneath.
  *
- * Two visual variants:
- *   - "light"  → for light backgrounds (uses brand teal tagline `#1B7A8A`)
- *   - "dark"   → for dark backgrounds (mint tagline `#A7F3D0`)
+ * Three visual variants — all use the SAME wordmark artwork (so the
+ * butterfly + linked-people in the "O" are always present), just swapped
+ * for ink colour:
+ *   - "light"  → for light/photo backgrounds (white wordmark + teal tagline)
+ *   - "dark"   → for dark backgrounds (white wordmark + mint tagline)
+ *   - "navy"   → REVERSED colours: navy-ink wordmark on transparent bg, so
+ *                the lockup reads cleanly on a plain white surface (the
+ *                white-haloed variants disappear into a white page).
  *
  * The `width` prop drives the size of the wordmark image; the tagline
  * scales proportionally so the lockup keeps its rhythm at any size from
  * compact in-app through hero on the welcome screen / splash.
  */
-export type BrandLockupVariant = "light" | "dark";
+export type BrandLockupVariant = "light" | "dark" | "navy";
 
-// Official YouBelong brand mark — bold variant with baked-in white glow +
-// navy halo so the wordmark stays crisp/readable on any backdrop.
-const BRAND_LOGO = require("../../assets/brand/youbelong-logo-bold.png");
-const LOGO_ASPECT = 1066 / 326; // intrinsic pixel ratio of the PNG
+// Official YouBelong brand marks. Both versions of the same lockup —
+// "bold" is the white wordmark with baked navy halo (for dark/photo bg),
+// "navy" is the navy-ink wordmark (for white bg). Aspect ratios differ
+// because the navy variant was cropped from the master file and has
+// slightly different padding around the butterfly/people graphic.
+const BRAND_LOGO_LIGHT = require("../../assets/brand/youbelong-logo-bold.png");
+const BRAND_LOGO_NAVY = require("../../assets/brand/youbelong-logo-navy.png");
+const LOGO_ASPECT_LIGHT = 1066 / 326;
+const LOGO_ASPECT_NAVY = 1272 / 330;
 
 export default function BrandLockup({
   width = 320,
@@ -34,18 +44,23 @@ export default function BrandLockup({
   showTagline?: boolean;
   testID?: string;
 }) {
-  const imgH = Math.round(width / LOGO_ASPECT);
+  const isNavy = variant === "navy";
+  const source = isNavy ? BRAND_LOGO_NAVY : BRAND_LOGO_LIGHT;
+  const aspect = isNavy ? LOGO_ASPECT_NAVY : LOGO_ASPECT_LIGHT;
+  const imgH = Math.round(width / aspect);
 
   // Tagline reads as a wide descriptor — letter-spaced "C O M M U N I T Y"
   // sized so it visually mirrors the breadth of the wordmark above it.
   const taglineFs = Math.max(11, Math.round(width * 0.06));
   const taglineLetterSpacing = taglineFs * 0.55;
+  // Navy wordmark pairs with the same brand teal as the light variant;
+  // dark backgrounds get the mint tag so it stays readable.
   const taglineColor = variant === "dark" ? "#A7F3D0" : "#1B7A8A";
 
   return (
     <View style={styles.wrap} testID={testID || "brand-lockup"}>
       <Image
-        source={BRAND_LOGO}
+        source={source}
         style={{ width, height: imgH }}
         contentFit="contain"
         transition={150}

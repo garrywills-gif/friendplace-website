@@ -127,7 +127,11 @@ export default function Home() {
           {/* Left spacer matches the bell+settings width so the brand
               lockup optically centers in the header without flexing. */}
           <View style={styles.headerSideSpacer} pointerEvents="none" />
-          <BrandLockup width={132} variant="light" testID="home-brand-lockup" />
+          {/* Brand lockup — uses the navy-ink variant so the wordmark + the
+              butterfly/people in the "O" read clearly on the white Home
+              surface. Identical artwork to the welcome screen, just
+              colour-reversed. */}
+          <BrandLockup width={140} variant="navy" testID="home-brand-lockup" />
           <View style={styles.headerActions}>
             <Pressable testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <Ionicons name="notifications-outline" size={24} color={c.onSurface} />
