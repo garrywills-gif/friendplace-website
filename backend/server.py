@@ -7175,12 +7175,33 @@ async def send_flutter(body: FlutterSendBody):
         raise HTTPException(404, "Recipient not found")
     if body.from_id in (receiver.get("blocked") or []):
         raise HTTPException(403, "Cannot flutter this user")
+
+    # Detect "reply flutter": is this person flutter-ing back at someone who
+    # already flutter-ed them? We look for ANY prior flutter going the other
+    # direction (recipient → current sender). If present, the message wording
+    # frames it as a reply ("Garry replied with a flutter — start a chat?")
+    # rather than a fresh opening ping ("Garry sent you a flutter — reply
+    # with a flutter or start a chat"). The clearer wording gives the new
+    # recipient a stronger nudge to take the next step (DM) rather than
+    # bouncing flutters back and forth indefinitely.
+    is_reply = bool(await db.flutters.find_one({
+        "from_id": body.to_id,
+        "to_id": body.from_id,
+    }, {"_id": 0, "id": 1}))
+
+    if body.message:
+        msg = body.message
+    elif is_reply:
+        msg = "replied with a flutter 🦋 — would you like to start a chat?"
+    else:
+        msg = "sent you a flutter 🦋 — reply with a flutter or start a chat"
+
     f = FlutterDoc(
         from_id=body.from_id,
         to_id=body.to_id,
         from_name=sender.get("first_name", ""),
         from_avatar=sender.get("avatar", ""),
-        message=body.message or "would like to chat 🦋",
+        message=msg,
     )
     await db.flutters.insert_one(f.dict())
     await award_points(body.from_id, 2)

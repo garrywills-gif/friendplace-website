@@ -87,11 +87,41 @@ export default function Home() {
   };
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
 
-  const replyFlutter = async (f: any) => {
+  /**
+   * Open a DM with the person who flutter-ed us. Renamed visually from
+   * "Reply" → "Chat" because the card now offers two distinct actions:
+   * "Flutter back" (send a flutter the other way) and "Chat" (open DM).
+   */
+  const chatFromFlutter = async (f: any) => {
     await api.markFlutterRead(f.id);
     const conv = await api.startDm(user!.id, f.from_id);
     router.push(`/dm/${conv.id}?other_id=${f.from_id}` as any);
     await loadFlutters();
+  };
+  /**
+   * Send a flutter back to the original sender. Backend detects this is a
+   * reply (because the other person flutter-ed first) and frames the
+   * notification as "<You> replied with a flutter — would you like to
+   * start a chat?". Card is dismissed locally after the send so the
+   * recipient sees fresh state next refresh.
+   */
+  const flutterBack = async (f: any) => {
+    if (!user) return;
+    try {
+      await api.sendFlutter({ from_id: user.id, to_id: f.from_id });
+      await api.markFlutterRead(f.id);
+      setFlutters((arr) => arr.filter((x) => x.id !== f.id));
+      show(`Flutter sent to ${f.from_name || "them"} 🦋`);
+    } catch (e: any) {
+      const msg = String(e?.message || "").toLowerCase();
+      if (msg.includes("rate") || msg.includes("429")) {
+        show("Whoa — slow down on the flutters! Try again in a bit.");
+      } else if (msg.includes("blocked")) {
+        show("Can't flutter this person right now.");
+      } else {
+        show("Couldn't send flutter. Please try again.");
+      }
+    }
   };
   const dismissFlutter = async (f: any) => {
     await api.markFlutterRead(f.id);
@@ -191,12 +221,19 @@ export default function Home() {
             {flutters.slice(0, 3).map((f) => (
               <View key={f.id} style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#EDE9FE" }]}>
                 <AvatarBubble value={f.from_avatar} size={22} fallback="🙂" />
-                <Text style={{ color: "#1E293B", flex: 1, marginLeft: 8, fontSize: 15 * scale }} numberOfLines={2}>
+                <Text style={{ color: "#1E293B", flex: 1, marginLeft: 8, fontSize: 14 * scale }} numberOfLines={3}>
                   <Text style={{ fontWeight: "800" }}>{f.from_name}</Text> {f.message}
                 </Text>
-                <Pressable testID={`flutter-reply-${f.id}`} onPress={() => replyFlutter(f)} style={[styles.replyBtn, { backgroundColor: "#8B5CF6" }]}>
-                  <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Reply</Text>
-                </Pressable>
+                <View style={styles.flutterActions}>
+                  <Pressable testID={`flutter-back-${f.id}`} onPress={() => flutterBack(f)} style={[styles.flutterActionBtn, { backgroundColor: "#EDE9FE", borderColor: "#8B5CF6" }]}>
+                    <Text style={{ fontSize: 14 }}>🦋</Text>
+                    <Text style={{ color: "#6D28D9", fontWeight: "800", fontSize: 12 * scale }}>Flutter back</Text>
+                  </Pressable>
+                  <Pressable testID={`flutter-chat-${f.id}`} onPress={() => chatFromFlutter(f)} style={[styles.flutterActionBtn, { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" }]}>
+                    <Ionicons name="chatbubble" size={12} color="#FFF" />
+                    <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 12 * scale }}>Chat</Text>
+                  </Pressable>
+                </View>
                 <Pressable testID={`flutter-dismiss-${f.id}`} onPress={() => dismissFlutter(f)} style={styles.dismissBtn}>
                   <Ionicons name="close" size={18} color="#94A3B8" />
                 </Pressable>
@@ -366,7 +403,9 @@ const styles = StyleSheet.create({
   name: { fontWeight: "900", marginTop: 2 },
   iconBtn: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   flutterBox: { borderWidth: 2, borderRadius: 18, padding: 14, backgroundColor: "#F5F3FF", gap: 8 },
-  flutterItem: { flexDirection: "row", alignItems: "center", padding: 10, borderRadius: 12, borderWidth: 1, gap: 6 },
+  flutterItem: { flexDirection: "row", alignItems: "center", padding: 10, borderRadius: 12, borderWidth: 1, gap: 6, flexWrap: "wrap" },
+  flutterActions: { flexDirection: "row", alignItems: "center", gap: 6 },
+  flutterActionBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, borderWidth: 1.5 },
   replyBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
   dismissBtn: { padding: 6 },
   pointsCard: { flexDirection: "row", alignItems: "center", borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18, marginTop: 20, marginBottom: 8, borderWidth: 1.5 },
