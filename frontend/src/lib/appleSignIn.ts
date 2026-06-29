@@ -20,6 +20,11 @@ import * as AppleAuthentication from "expo-apple-authentication";
 
 export type AppleCredential = {
   identityToken: string;
+  // Apple ships an authorization_code we can swap for a refresh_token on
+  // the backend (server-to-server, using our Sign in with Apple .p8 key).
+  // Required for token revocation on account deletion (App Store Guideline
+  // 5.1.1(v)). Null if Apple didn't return one (rare).
+  authorizationCode: string | null;
   firstName: string | null;
   lastName: string | null;
 };
@@ -50,6 +55,7 @@ export async function startAppleSignIn(): Promise<AppleCredential | null> {
     if (!credential.identityToken) return null;
     return {
       identityToken: credential.identityToken,
+      authorizationCode: credential.authorizationCode ?? null,
       firstName: credential.fullName?.givenName ?? null,
       lastName: credential.fullName?.familyName ?? null,
     };

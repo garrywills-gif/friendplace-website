@@ -1199,12 +1199,137 @@ async def _fetch_apple_jwks() -> Dict[str, dict]:
 class AppleAuthBody(BaseModel):
     # Apple identity JWT — issued by AppleAuthentication.signInAsync on iOS.
     identity_token: str
+    # Apple authorization code — required to obtain a refresh_token via the
+    # server-to-server `/auth/token` endpoint. We use the refresh_token to
+    # call `/auth/revoke` when the user deletes their account (App Store
+    # Guideline 5.1.1(v)). Optional because Apple sometimes doesn't return
+    # one and because we want the endpoint to keep working even before the
+    # SIWA `.p8` is configured.
+    authorization_code: Optional[str] = None
     # Apple ships these only on the very first sign-in. Optional on subsequent
     # calls — we won't overwrite an existing name.
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     # Invite attribution captured at app launch (?ref=<id> in deep link).
     referrer_id: Optional[str] = None
+
+
+# ----------------------------------------------------------------------------
+# Sign in with Apple: server-to-server token exchange + revocation
+# ----------------------------------------------------------------------------
+# These helpers only do real work when the operator has configured the
+# Sign-in-with-Apple private key in env. Without it the app still works
+# (users can sign up and use the app), but delete-account won't be able to
+# revoke Apple's tokens. Set:
+#   APPLE_SIWA_TEAM_ID       — Apple Developer Team ID (e.g. 6XRMF8PK98)
+#   APPLE_SIWA_KEY_ID        — 10-char Key ID of the Sign-in-with-Apple key
+#                              (DIFFERENT from the App Store Connect API key)
+#   APPLE_SIWA_PRIVATE_KEY   — full contents of the .p8 file (PEM, newlines
+#                              preserved). Wrap in quotes in .env.
+#   APPLE_SIWA_CLIENT_ID     — usually the same as APPLE_CLIENT_ID_IOS
+#                              (com.youbelong.community). Override if you want
+#                              to use the .web Services ID instead.
+
+def _siwa_configured() -> bool:
+    """True if all three env values needed to talk to Apple S2S are set."""
+    return bool(
+        os.getenv("APPLE_SIWA_TEAM_ID")
+        and os.getenv("APPLE_SIWA_KEY_ID")
+        and os.getenv("APPLE_SIWA_PRIVATE_KEY")
+    )
+
+
+def _build_apple_client_secret() -> str:
+    """Mint a short-lived ES256 JWT used as the `client_secret` on Apple's
+    server-to-server endpoints (`/auth/token`, `/auth/revoke`).
+
+    Per Apple's docs the JWT must:
+      - alg = ES256
+      - iss = Apple Developer Team ID
+      - sub = client_id (your bundle/Services ID)
+      - aud = https://appleid.apple.com
+      - exp ≤ 6 months from iat (we use 30 min — plenty for one request)
+    """
+    team_id = os.getenv("APPLE_SIWA_TEAM_ID", "")
+    key_id = os.getenv("APPLE_SIWA_KEY_ID", "")
+    client_id = os.getenv("APPLE_SIWA_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID_IOS") or "com.youbelong.community"
+    pkey = os.getenv("APPLE_SIWA_PRIVATE_KEY", "").replace("\\n", "\n")
+    now_ts = int(_time.time())
+    return jwt.encode(
+        {
+            "iss": team_id,
+            "iat": now_ts,
+            "exp": now_ts + 30 * 60,
+            "aud": "https://appleid.apple.com",
+            "sub": client_id,
+        },
+        pkey,
+        algorithm="ES256",
+        headers={"kid": key_id, "alg": "ES256"},
+    )
+
+
+async def _apple_exchange_code(auth_code: str) -> Dict[str, object]:
+    """Exchange an authorization_code for `{access_token, refresh_token,
+    id_token, ...}`. Returns {} on failure so callers can no-op gracefully.
+
+    Apple's docs: POST https://appleid.apple.com/auth/token (form-encoded).
+    The refresh_token is the long-lived credential we need for revoke.
+    """
+    if not _siwa_configured():
+        return {}
+    import httpx as _httpx
+    client_id = os.getenv("APPLE_SIWA_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID_IOS") or "com.youbelong.community"
+    try:
+        secret = _build_apple_client_secret()
+        async with _httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.post(
+                "https://appleid.apple.com/auth/token",
+                data={
+                    "client_id": client_id,
+                    "client_secret": secret,
+                    "code": auth_code,
+                    "grant_type": "authorization_code",
+                },
+            )
+            if r.status_code == 200:
+                return r.json() or {}
+            logger.warning("apple token exchange failed: %s %s", r.status_code, r.text[:200])
+    except Exception as e:
+        logger.warning("apple token exchange error: %s", e)
+    return {}
+
+
+async def _apple_revoke_token(token: str, token_type_hint: str = "refresh_token") -> bool:
+    """Revoke a user's Apple tokens. Returns True on success or when SIWA
+    isn't configured (so callers can treat configured/not-configured the
+    same way and still delete the local account).
+
+    Per Apple, revoking the refresh_token invalidates all derived access
+    tokens, which is what Apple's review team will test for after deletion.
+    """
+    if not _siwa_configured() or not token:
+        return False
+    import httpx as _httpx
+    client_id = os.getenv("APPLE_SIWA_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID_IOS") or "com.youbelong.community"
+    try:
+        secret = _build_apple_client_secret()
+        async with _httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.post(
+                "https://appleid.apple.com/auth/revoke",
+                data={
+                    "client_id": client_id,
+                    "client_secret": secret,
+                    "token": token,
+                    "token_type_hint": token_type_hint,
+                },
+            )
+            if r.status_code == 200:
+                return True
+            logger.warning("apple revoke failed: %s %s", r.status_code, r.text[:200])
+    except Exception as e:
+        logger.warning("apple revoke error: %s", e)
+    return False
 
 
 @api.post("/auth/apple")
@@ -1308,6 +1433,14 @@ async def auth_apple(body: AppleAuthBody):
         # changed shape between sign-ins).
         if (not existing.get("email")) and email:
             patch["email"] = email
+        # If we got a fresh authorization_code, exchange it for a refresh
+        # token. We always overwrite — Apple issues a new refresh_token on
+        # every sign-in and the old one may already be expired.
+        if body.authorization_code and _siwa_configured():
+            tokens = await _apple_exchange_code(body.authorization_code)
+            rt = (tokens or {}).get("refresh_token")
+            if rt:
+                patch["apple_refresh_token"] = rt
         await db.users.update_one({"id": existing["id"]}, {"$set": patch})
         merged = {**existing, **patch}
         return {
@@ -1347,6 +1480,18 @@ async def auth_apple(body: AppleAuthBody):
     doc["location_visibility"] = "suburb"
     if is_private_relay:
         doc["apple_private_relay"] = True
+    # If SIWA S2S is configured AND Apple gave us an auth code on the
+    # client, exchange it now for a refresh_token. We persist that so we
+    # can revoke Apple's tokens cleanly when the user later deletes their
+    # account (App Store Guideline 5.1.1(v)).
+    if body.authorization_code and _siwa_configured():
+        try:
+            tokens = await _apple_exchange_code(body.authorization_code)
+            rt = (tokens or {}).get("refresh_token")
+            if rt:
+                doc["apple_refresh_token"] = rt
+        except Exception as e:
+            logger.warning("apple code exchange (new user) failed: %s", e)
 
     # Invite attribution — identical to Google/email flows
     if body.referrer_id and body.referrer_id != user.id:
@@ -5895,6 +6040,19 @@ async def self_delete_account(
             detail="Admin accounts cannot delete themselves — demote first or contact support.",
         )
     uid = user["id"]
+    # Apple Sign-In token revocation — REQUIRED by App Store Guideline
+    # 5.1.1(v) when the app offers Sign in with Apple. If the user signed
+    # up via Apple AND we have their refresh token AND SIWA is configured,
+    # tell Apple to invalidate their tokens BEFORE we drop local data. We
+    # fire-and-forget the result: a failed revoke is logged but doesn't
+    # block deletion — Apple will eventually time the tokens out anyway.
+    rt = user.get("apple_refresh_token")
+    if rt and _siwa_configured():
+        try:
+            ok = await _apple_revoke_token(rt, token_type_hint="refresh_token")
+            logger.info("apple revoke for user=%s -> %s", uid, ok)
+        except Exception as e:
+            logger.warning("apple revoke for user=%s errored: %s", uid, e)
     # Audit row first (we lose the username after delete).
     try:
         await db.moderation_log.insert_one({

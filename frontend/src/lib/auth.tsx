@@ -47,7 +47,7 @@ type Ctx = {
   signup: (b: SignupBody) => Promise<void>;
   login: (identifier: string, password: string) => Promise<void>;
   loginWithGoogle: (session_id: string, referrer_id?: string | null) => Promise<{ isNew: boolean }>;
-  loginWithApple: (identity_token: string, first_name?: string | null, last_name?: string | null, referrer_id?: string | null) => Promise<{ isNew: boolean }>;
+  loginWithApple: (identity_token: string, authorization_code?: string | null, first_name?: string | null, last_name?: string | null, referrer_id?: string | null) => Promise<{ isNew: boolean }>;
   demoLogin: (username: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -113,8 +113,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           registerForPush(r.user?.id).catch(() => {});
           return { isNew: !!r.is_new };
         },
-        loginWithApple: async (identity_token, first_name, last_name, referrer_id) => {
-          const r: any = await api.appleAuth(identity_token, first_name || null, last_name || null, referrer_id || null);
+        loginWithApple: async (identity_token, authorization_code, first_name, last_name, referrer_id) => {
+          const r: any = await api.appleAuth(identity_token, authorization_code || null, first_name || null, last_name || null, referrer_id || null);
           await persist(r.user as User, r.access_token as string);
           registerForPush(r.user?.id).catch(() => {});
           return { isNew: !!r.is_new };

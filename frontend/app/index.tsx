@@ -173,7 +173,7 @@ export default function Welcome() {
         // Best-effort pickup of an invite ref captured at app launch.
         let ref: string | null = null;
         try { ref = await AsyncStorage.getItem("youbelong.invite.ref"); } catch {}
-        const r = await loginWithApple(credential.identityToken, credential.firstName, credential.lastName, ref);
+        const r = await loginWithApple(credential.identityToken, credential.authorizationCode, credential.firstName, credential.lastName, ref);
         try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch {}
         show(r.isNew ? "Welcome to YouBelong!" : "Welcome back!");
         const dest = r.isNew ? "/onboarding" : "/home";
