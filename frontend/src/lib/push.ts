@@ -1,48 +1,17 @@
 /**
- * YouBelong — push registration helper.
+ * YouBelong — push registration helper (STUBBED).
  *
- * Permission-first, then native device token, then relay to backend.
- * Honours the YouBelong permission contract:
- *   • Caller is expected to show a context modal BEFORE invoking this.
- *   • Denial is non-fatal; we just skip registration silently.
- *
- * Web and Expo Go (without dev-client) return early — push only fully
- * works after the user publishes + generates a native build.
+ * Push notifications are deferred until we enable the Apple Push
+ * Notifications capability on our provisioning profile. This module
+ * is intentionally a no-op so the app builds cleanly without the
+ * `aps-environment` entitlement (which the EAS provisioning profile
+ * does not currently support). Re-enable by reintroducing the
+ * `expo-notifications` package + config plugin, and enabling
+ * "Push Notifications" on the App ID in the Apple Developer portal.
  */
-import { Platform } from "react-native";
-import Constants from "expo-constants";
-import * as Notifications from "expo-notifications";
 
-const API = process.env.EXPO_PUBLIC_BACKEND_URL || "";
-
-export async function registerForPush(userId: string): Promise<"granted" | "denied" | "skipped" | "error"> {
-  if (Platform.OS === "web") return "skipped";
-  // Expo Go (managed) cannot resolve native push tokens — bail gracefully
-  if (Constants.appOwnership === "expo") return "skipped";
-  if (!userId) return "skipped";
-  try {
-    const current = await Notifications.getPermissionsAsync();
-    let granted = current.granted;
-    if (!granted) {
-      if (!current.canAskAgain) return "denied";
-      const req = await Notifications.requestPermissionsAsync();
-      granted = req.granted;
-      if (!granted) return "denied";
-    }
-    const tokenResp = await Notifications.getDevicePushTokenAsync();
-    const device_token = tokenResp?.data;
-    if (!device_token) return "error";
-    await fetch(`${API}/api/register-push`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: userId,
-        platform: Platform.OS,
-        device_token: String(device_token),
-      }),
-    }).catch(() => {});
-    return "granted";
-  } catch {
-    return "error";
-  }
+export async function registerForPush(
+  _userId: string,
+): Promise<"granted" | "denied" | "skipped" | "error"> {
+  return "skipped";
 }
