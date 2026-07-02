@@ -18,8 +18,7 @@
         "NSPhotoLibraryUsageDescription": "Attach photos to your messages and group posts.",
         "NSCameraUsageDescription": "Take photos to share in chats and group posts.",
         "ITSAppUsesNonExemptEncryption": false,
-        "LSApplicationCategoryType": "public.app-category.social-networking",
-        "UIBackgroundModes": ["remote-notification"]
+        "LSApplicationCategoryType": "public.app-category.social-networking"
       },
       "privacyManifests": {
         "NSPrivacyAccessedAPITypes": [
@@ -73,14 +72,7 @@
           "backgroundColor": "#FFFFFF"
         }
       ],
-      "expo-font",
-      [
-        "expo-notifications",
-        {
-          "icon": "./assets/images/icon.png",
-          "color": "#0A2540"
-        }
-      ]
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
