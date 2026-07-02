@@ -103,7 +103,19 @@ export default function AdminReportDetail() {
             <Text style={{ color: c.muted, fontSize: 13 * scale }}>@{tgt.username} {tgt.is_admin ? "\u2022 Admin" : ""}</Text>
             <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 4 }}>Status: <Text style={{ color: tgt.banned ? "#DC2626" : tgt.restricted ? "#B45309" : c.onSurface, fontWeight: "800" }}>{tgt.banned ? "Banned" : tgt.restricted ? "Restricted" : "Active"}</Text></Text>
             {!!tgt.restricted_reason && <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2, fontStyle: "italic" }}>{tgt.restricted_reason}</Text>}
-            {history.length > 0 && <Text style={{ color: "#B45309", fontWeight: "700", fontSize: 12 * scale, marginTop: 4 }}>{"\u26A0\uFE0F"} {history.length} other report{history.length === 1 ? "" : "s"} on file</Text>}
+            {history.length > 0 && (
+              <Pressable
+                testID="report-history-open"
+                onPress={() => router.push(`/admin/user/${tgt.id}` as any)}
+                hitSlop={6}
+                accessibilityRole="link"
+                accessibilityLabel={`View ${history.length} other report${history.length === 1 ? "" : "s"} for this user`}
+              >
+                <Text style={{ color: "#B45309", fontWeight: "800", fontSize: 12 * scale, marginTop: 4, textDecorationLine: "underline" }}>
+                  {"\u26A0\uFE0F"} {history.length} other report{history.length === 1 ? "" : "s"} on file — view history
+                </Text>
+              </Pressable>
+            )}
           </> : <Text style={{ color: c.muted, fontSize: 14 * scale }}>Unknown / not specified</Text>}
         </View>
 

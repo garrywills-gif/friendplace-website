@@ -54,17 +54,29 @@ export default function Profile() {
   const [inviter, setInviter] = useState<any | null>(null);
 
   useFocusEffect(useCallback(() => {
+    // Focus effect is intentionally lightweight — we skip the network
+    // refresh on subsequent tab visits so the profile screen doesn't
+    // flicker every time the user taps the Profile tab. Fresh data
+    // arrives on pull-to-refresh or explicit actions. The initial load
+    // still runs because `friends` starts empty.
+    let cancelled = false;
     (async () => {
-      await refresh();
+      // Best-effort refresh (silent) — never trips loading UI now.
+      refresh().catch(() => {});
+      if (cancelled) return;
       if (user?.friends?.length) {
         const arr = await Promise.all(user.friends.map((id) => api.getUser(id).catch(() => null)));
-        setFriends(arr.filter(Boolean));
-      } else setFriends([]);
-      if (user?.id) {
+        if (!cancelled) setFriends(arr.filter(Boolean));
+      } else if (!cancelled) {
+        setFriends([]);
+      }
+      if (user?.id && !cancelled) {
         try {
           const s: any = await api.inviteStats(user.id);
-          setInviteCount(s?.count || 0);
-          setRecentInvites(Array.isArray(s?.recent) ? s.recent : []);
+          if (!cancelled) {
+            setInviteCount(s?.count || 0);
+            setRecentInvites(Array.isArray(s?.recent) ? s.recent : []);
+          }
         } catch {}
         try {
           const r: any = await api.inviter(user.id);

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView,
-  Platform, Pressable, Image, ActivityIndicator, Modal, Linking,
+  Platform, Pressable, Image, ActivityIndicator, Modal, Linking, Keyboard,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -39,6 +39,23 @@ export default function TableChat() {
   const [seated, setSeated] = useState<any[]>([]);
   const [draftImage, setDraftImage] = useState<string | null>(null); // base64 preview before sending
   const [picking, setPicking] = useState(false);
+  // Collapse the table-seating diagram whenever the on-screen keyboard is
+  // open OR the user is actively composing. Reclaiming that vertical space
+  // gives the chat feed the whole screen so the newest messages sit right
+  // above the keyboard — matches native iOS Messages/WhatsApp behaviour.
+  const [kbOpen, setKbOpen] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setKbOpen(true),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKbOpen(false),
+    );
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  const collapseSeating = kbOpen || text.length > 0;
   const [zoom, setZoom] = useState<string | null>(null); // full-screen image viewer
   const [permBlocked, setPermBlocked] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -142,16 +159,19 @@ export default function TableChat() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title={table ? `${table.emoji} ${table.name}` : "Table"} />
-      <CoffeeTableSeating
-        seated={seated}
-        tableEmoji={table?.emoji || "☕"}
-        testID="table-seating"
-        // Compact size inside the chat view so the conversation feed
-        // sits up close to the table diagram and the screen feels more
-        // active & social (full 360 footprint is reserved for the
-        // table-listing screen where seating is the hero).
-        maxSize={260}
-      />
+      {collapseSeating ? null : (
+        <CoffeeTableSeating
+          seated={seated}
+          tableEmoji={table?.emoji || "☕"}
+          testID="table-seating"
+          // Compact size inside the chat view so the conversation feed
+          // sits up close to the table diagram and the screen feels more
+          // active & social (full 360 footprint is reserved for the
+          // table-listing screen where seating is the hero). Hidden while
+          // the keyboard is up so the chat gets the whole screen.
+          maxSize={260}
+        />
+      )}
 
       {/* Crossword shortcut — only on the Daily Crossword table. Lets
           players jump back and forth between solving the puzzle and

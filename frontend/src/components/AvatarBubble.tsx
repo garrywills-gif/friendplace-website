@@ -79,8 +79,14 @@ export default function AvatarBubble({
   const inner = isUrl ? (
     <Image
       source={{ uri: base as string }}
+      // resizeMode="cover" ensures the photo fills the circular frame
+      // without distortion; combined with overflow:"hidden" it produces
+      // a clean circular crop centred on the source. Users who dislike
+      // the crop can re-upload with the built-in square editor from
+      // expo-image-picker (allowsEditing:true, aspect:[1,1]).
+      resizeMode="cover"
       style={[
-        { width: size, height: size, borderRadius: size / 2 },
+        { width: size, height: size, borderRadius: size / 2, overflow: "hidden" },
         imageStyle,
       ]}
       accessibilityIgnoresInvertColors

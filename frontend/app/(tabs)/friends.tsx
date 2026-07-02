@@ -111,7 +111,7 @@ export default function Friends() {
         <View style={styles.headRow}>
           <Pressable
             testID="friends-back"
-            onPress={() => { try { router.back(); } catch { router.replace("/home" as any); } }}
+            onPress={() => router.replace("/home" as any)}
             hitSlop={12}
             accessibilityLabel="Back to Home"
             style={({ pressed }) => [styles.backBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}

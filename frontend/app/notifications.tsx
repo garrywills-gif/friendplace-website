@@ -58,6 +58,11 @@ export default function Notifications() {
     if (n.type === "table_join" && n.payload?.table_id) return router.push(`/table/${n.payload.table_id}`);
     if (n.type === "flutter") return router.push("/home");
     if (n.type === "event_invite") return router.push("/events");
+    // New-member notifications carry `ref_user_id` — surface the user's
+    // profile directly so the recipient can wave hello (either via the
+    // Flutter button on the profile or by sending a DM). Previously this
+    // notification was a dead end.
+    if (n.type === "new_member" && n.ref_user_id) return router.push(`/user/${n.ref_user_id}` as any);
     if (n.type === "notice_comment") return router.push("/notices");
     if (n.type === "recipe_comment" && n.ref_id) return router.push(`/recipes/${n.ref_id}` as any);
   };
@@ -68,6 +73,21 @@ export default function Notifications() {
       // Optimistic: mark as read locally; user can refresh to fully clear.
       setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
     } catch {}
+  };
+
+  const sayHi = async (n: any) => {
+    if (!user || !n?.ref_user_id) return;
+    try {
+      await api.sendFlutter({ from_id: user.id, to_id: n.ref_user_id });
+      if (!n.read) await api.readNotification(n.id);
+      setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      show("Flutter sent 🦋");
+    } catch (e: any) {
+      const msg = String(e?.message || "").toLowerCase();
+      if (msg.includes("cannot flutter") || msg.includes("blocked")) show("They're not taking flutters right now.");
+      else if (msg.includes("rate") || msg.includes("429")) show("Whoa — slow down on the flutters!");
+      else show("Couldn't send flutter. Please try again.");
+    }
   };
 
   const markAll = async () => { if (!user) return; await api.readAllNotifications(user.id); load(); show("Marked all as read"); };
@@ -97,6 +117,7 @@ export default function Notifications() {
           const ic = ICON[item.type] || { name: "notifications", tint: c.brand };
           const isAchievement = item.type === "achievement" && item.payload?.actor_id;
           const isDm = item.type === "dm";
+          const isNewMember = item.type === "new_member" && !!item.ref_user_id;
           return (
             <View>
               <Pressable testID={`notif-${item.id}`} onPress={() => onItemPress(item)} style={[styles.row, { backgroundColor: item.read ? c.surfaceSecondary : c.brandTertiary, borderColor: item.read ? c.border : c.brand }]}>
@@ -111,6 +132,27 @@ export default function Notifications() {
 
               {/* Message preview actions — only for direct messages. Chat opens the
                   conversation; Dismiss marks the notification as read in place. */}
+              {isNewMember && (
+                <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  <Pressable
+                    testID={`newmember-say-hi-${item.id}`}
+                    onPress={() => sayHi(item)}
+                    style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
+                  >
+                    <Text style={{ fontSize: 16 }}>🦋</Text>
+                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale, marginLeft: 6 }}>Say Hi</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`newmember-profile-${item.id}`}
+                    onPress={() => onItemPress(item)}
+                    style={[styles.dmActionBtn, { backgroundColor: c.surface, borderColor: c.border, flex: 1 }]}
+                  >
+                    <Ionicons name="person" size={16} color={c.brand} />
+                    <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale, marginLeft: 6 }}>View profile</Text>
+                  </Pressable>
+                </View>
+              )}
+
               {isDm && (
                 <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
                   <Pressable
