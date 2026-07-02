@@ -72,7 +72,8 @@
           "backgroundColor": "#FFFFFF"
         }
       ],
-      "expo-font"
+      "expo-font",
+      "./plugins/withStripApsEnvironment"
     ],
     "experiments": {
       "typedRoutes": true
