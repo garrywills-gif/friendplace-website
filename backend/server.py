@@ -2971,6 +2971,57 @@ async def send_cheer(from_user_id: str, body: CheerBody):
     return {"ok": True}
 
 
+class SolitaireAwardBody(BaseModel):
+    outcome: str  # "played" | "won"
+    moves: int = 0
+    duration_seconds: int = 0
+    seed: Optional[int] = None
+
+
+@api.post("/games/solitaire/award/{user_id}")
+async def solitaire_award(user_id: str, body: SolitaireAwardBody):
+    """Award Butterfly Points for a Klondike Solitaire session.
+
+    Per the launch spec (June 2026): +2 pts on any completed session
+    ("played" — the player finished the game without an active state
+    lingering) and +10 pts on a win (foundations full). Also stores a
+    row in `game_completions` so the Games Hub streak/stats logic
+    continues to count Solitaire alongside every other game.
+
+    Intentionally NOT deduped — Solitaire is the "never resets" ambient
+    game per the spec, so users can farm play-points at 2/session; the
+    +10 win bonus is naturally rate-limited by the game itself.
+    """
+    outcome = (body.outcome or "").lower()
+    if outcome not in ("played", "won"):
+        raise HTTPException(400, "outcome must be 'played' or 'won'")
+    pts = 10 if outcome == "won" else 2
+    await db.game_completions.insert_one({
+        "id": nid(),
+        "user_id": user_id,
+        "game_type": "solitaire",
+        "difficulty": "won" if outcome == "won" else "played",
+        "title": "Klondike Solitaire",
+        "duration_seconds": max(0, int(body.duration_seconds or 0)),
+        "score": int(body.moves or 0),
+        "is_daily": False,
+        "created_at": now_iso(),
+    })
+    await award_points(user_id, pts, reason=f"solitaire:{outcome}")
+    # Fetch fresh totals for the client so it can show the running tally.
+    lifetime_wins = await db.game_completions.count_documents({"user_id": user_id, "game_type": "solitaire", "difficulty": "won"})
+    lifetime_played = await db.game_completions.count_documents({"user_id": user_id, "game_type": "solitaire"})
+    return {"ok": True, "points_awarded": pts, "outcome": outcome, "lifetime_wins": lifetime_wins, "lifetime_played": lifetime_played}
+
+
+@api.get("/games/solitaire/stats/{user_id}")
+async def solitaire_stats(user_id: str):
+    """Lifetime Solitaire counters. Zero if the player has never played."""
+    wins = await db.game_completions.count_documents({"user_id": user_id, "game_type": "solitaire", "difficulty": "won"})
+    played = await db.game_completions.count_documents({"user_id": user_id, "game_type": "solitaire"})
+    return {"lifetime_wins": wins, "lifetime_played": played}
+
+
 @api.get("/games/stats/{user_id}")
 async def games_stats(user_id: str):
     total = await db.game_completions.count_documents({"user_id": user_id})

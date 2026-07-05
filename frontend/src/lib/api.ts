@@ -295,6 +295,11 @@ export const api = {
   // unified games hub
   gamesStats: (uid: string) => req(`/games/stats/${uid}`),
   gamesDailies: () => req("/games/dailies"),
+  // Klondike Solitaire — the "never resets" signature game. See
+  // /app/backend/server.py for the awarding rules (+2 played / +10 win).
+  solitaireAward: (uid: string, body: { outcome: "played" | "won"; moves?: number; duration_seconds?: number; seed?: number }) =>
+    req(`/games/solitaire/award/${uid}`, { method: "POST", body: JSON.stringify(body) }),
+  solitaireStats: (uid: string) => req(`/games/solitaire/stats/${uid}`),
   gameCheer: (fromId: string, toId: string, kind: "well_done" | "congrats" | "coffee" | "flutter") =>
     req(`/games/cheer/${fromId}`, { method: "POST", body: JSON.stringify({ to_user_id: toId, kind }) }),
 

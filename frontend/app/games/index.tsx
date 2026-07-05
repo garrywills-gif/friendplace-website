@@ -7,20 +7,62 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import { getCurrentSeason } from "@/src/lib/seasons";
 
-type GameTile = { key: string; title: string; sub: string; icon: keyof typeof Ionicons.glyphMap; tint: string; route: string; ready: boolean };
+/**
+ * Games Hub — restructured per June 2026 launch spec.
+ *
+ * Sections in order:
+ *   1. Signature Game: Solitaire — never resets, prominent seasonal
+ *      hero at the top of the hub.
+ *   2. Daily Challenges: Puzzle · Word Search · Trivia
+ *   3. All Games (with schedule chips):
+ *      Solitaire (Signature), Bingo (Tue/Thu/Sun 6pm AEST),
+ *      Crossword, Sudoku, Word Search, Puzzle Centre, Trivia,
+ *      Memory Match (Weekly)
+ *   Spot the Difference has been retired.
+ */
+
+type Schedule = "daily" | "weekly" | "signature" | { label: string };
+type GameTile = {
+  key: string;
+  title: string;
+  sub: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  tint: string;
+  route: string;
+  ready: boolean;
+  schedule?: Schedule;
+};
+
 const GAMES: GameTile[] = [
-  { key: "jigsaw",     title: "Puzzle Centre",      sub: "8 categories · 4 levels",  icon: "grid",           tint: "#0F766E", route: "/games/jigsaw",     ready: true },
-  { key: "trivia",     title: "Trivia",             sub: "7 categories · 4 levels", icon: "help-circle",    tint: "#7C3AED", route: "/games/trivia",     ready: true },
-  { key: "wordsearch", title: "Word Search",        sub: "20 themes · 4 levels",     icon: "search",         tint: "#B45309", route: "/games/wordsearch", ready: true },
-  { key: "memory",     title: "Memory Match",       sub: "12 themes · 4 levels",    icon: "sparkles",       tint: "#DB2777", route: "/games/memory",     ready: true },
-  { key: "bingo",      title: "Bingo",              sub: "75-ball · 4 levels · live events",   icon: "apps",           tint: "#2E9EE2", route: "/games/bingo",      ready: true },
-  { key: "sudoku",     title: "Sudoku",             sub: "4 levels · pencil notes", icon: "grid-outline",   tint: "#1E3A7F", route: "/games/sudoku",     ready: true },
-  { key: "spot",       title: "Spot the Difference",sub: "6 themes · magnifying glass",icon: "eye",         tint: "#16A34A", route: "/games/spot",       ready: true },
-  { key: "crossword",  title: "Crossword",          sub: "Daily + 4 levels · refreshes every 2 weeks",  icon: "newspaper",      tint: "#0E7490", route: "/games/crossword",  ready: true },
+  { key: "solitaire",  title: "Solitaire",          sub: "Signature · Klondike Draw 3", icon: "sparkles",     tint: "#7C3AED", route: "/games/solitaire",  ready: true, schedule: "signature" },
+  { key: "bingo",      title: "Bingo",              sub: "75-ball · live events",       icon: "apps",         tint: "#2E9EE2", route: "/games/bingo",      ready: true, schedule: { label: "Tue/Thu/Sun 6pm AEST" } },
+  { key: "crossword",  title: "Crossword",          sub: "Daily + 4 levels",            icon: "newspaper",    tint: "#0E7490", route: "/games/crossword",  ready: true, schedule: "daily" },
+  { key: "sudoku",     title: "Sudoku",             sub: "4 levels · pencil notes",     icon: "grid-outline", tint: "#1E3A7F", route: "/games/sudoku",     ready: true, schedule: "daily" },
+  { key: "wordsearch", title: "Word Search",        sub: "20 themes · 4 levels",        icon: "search",       tint: "#B45309", route: "/games/wordsearch", ready: true, schedule: "daily" },
+  { key: "jigsaw",     title: "Puzzle Centre",      sub: "8 categories · 4 levels",     icon: "grid",         tint: "#0F766E", route: "/games/jigsaw",     ready: true, schedule: "daily" },
+  { key: "trivia",     title: "Trivia",             sub: "7 categories · 4 levels",     icon: "help-circle",  tint: "#DB2777", route: "/games/trivia",     ready: true, schedule: "daily" },
+  { key: "memory",     title: "Memory Match",       sub: "12 themes · 4 levels",        icon: "square",       tint: "#0891B2", route: "/games/memory",     ready: true, schedule: "weekly" },
 ];
 
-const INSTRUCTIONS = "Welcome to the Games Hub. Pick a game, choose your difficulty and play at your own pace. Your progress and personal bests are saved automatically. Complete a daily challenge to keep your streak alive. Every game you finish earns Butterfly Points and may unlock an achievement.";
+const INSTRUCTIONS = "Welcome to the Games Hub. Solitaire is your signature game — play any time. Complete daily challenges to keep your streak alive. Bingo runs live on Tuesday, Thursday and Sunday at six PM. Every game earns Butterfly Points.";
+
+function ScheduleChip({ sched, tint }: { sched: Schedule | undefined; tint: string }) {
+  if (!sched) return null;
+  let label = "";
+  let icon: keyof typeof Ionicons.glyphMap = "time";
+  if (sched === "daily") { label = "Daily"; icon = "sunny"; }
+  else if (sched === "weekly") { label = "Weekly"; icon = "calendar"; }
+  else if (sched === "signature") { label = "Signature"; icon = "sparkles"; }
+  else { label = sched.label; icon = "time"; }
+  return (
+    <View style={[styles.schedChip, { backgroundColor: `${tint}22`, borderColor: tint }]}>
+      <Ionicons name={icon} size={11} color={tint} />
+      <Text style={[styles.schedChipText, { color: tint }]}>{label}</Text>
+    </View>
+  );
+}
 
 export default function GamesHub() {
   const router = useRouter();
@@ -29,21 +71,46 @@ export default function GamesHub() {
   const [stats, setStats] = useState<any>(null);
   const [dailies, setDailies] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const season = getCurrentSeason();
 
   const load = async () => {
-    if (user) { try { setStats(await api.gamesStats(user.id)); } catch {} }
-    try { setDailies(await api.gamesDailies()); } catch {}
+    if (user) { try { setStats(await api.gamesStats(user.id)); } catch { /* ignore */ } }
+    try { setDailies(await api.gamesDailies()); } catch { /* ignore */ }
   };
   useFocusEffect(useCallback(() => { load(); }, [user?.id]));
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Games Hub" />
+      <Header title="Games Hub" backHref="/home" />
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
         contentContainerStyle={{ padding: 14, paddingBottom: 60 }}
       >
-        <View style={[styles.intro, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+        {/* Signature seasonal hero — Solitaire */}
+        <Pressable
+          testID="games-signature-solitaire"
+          onPress={() => router.push("/games/solitaire" as any)}
+          style={({ pressed }) => [styles.signatureHero, { backgroundColor: season.felt, borderColor: season.outline, opacity: pressed ? 0.9 : 1 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Play Solitaire — the signature game"
+        >
+          <View style={styles.heroBackPreview}>
+            <View style={[styles.cardBackSmall, { backgroundColor: season.cardBackPrimary }]}>
+              <View style={[styles.cardBackDiag, { backgroundColor: season.cardBackSecondary }]} />
+              <Text style={{ fontSize: 28 }}>🦋</Text>
+            </View>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: season.outline, fontWeight: "900", letterSpacing: 0.6, fontSize: 11 * scale }}>
+              {season.emoji} {season.label.toUpperCase()} · SIGNATURE GAME
+            </Text>
+            <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 22 * scale, marginTop: 4 }}>Solitaire</Text>
+            <Text style={{ color: "#E2E8F0", fontSize: 13 * scale, marginTop: 2 }}>Klondike · Draw 3 · Never resets</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color="#FFFFFF" />
+        </Pressable>
+
+        <View style={[styles.intro, { backgroundColor: c.brandTertiary, borderColor: c.brand, marginTop: 12 }]}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>WELCOME TO THE GAMES HUB</Text>
             <SpeakButton text={INSTRUCTIONS} color={c.brand} size={22} />
@@ -85,7 +152,7 @@ export default function GamesHub() {
         <Text style={[styles.section, { color: c.onSurface, fontSize: 18 * scale, marginTop: 16 }]}>Daily Challenges</Text>
         <View style={{ gap: 8 }}>
           {dailies?.jigsaw?.puzzle && (
-            <Pressable testID="daily-jigsaw" onPress={() => router.push(`/games/jigsaw/${dailies.jigsaw.puzzle.id}?d=${dailies.jigsaw.difficulty}`)} style={[styles.dailyRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Pressable testID="daily-jigsaw" onPress={() => router.push(`/games/jigsaw/${dailies.jigsaw.puzzle.id}?d=${dailies.jigsaw.difficulty}` as any)} style={[styles.dailyRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <View style={[styles.dailyIcon, { backgroundColor: "#0F766E22" }]}><Ionicons name="grid" size={20} color={"#0F766E"} /></View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Daily Puzzle</Text>
@@ -94,16 +161,8 @@ export default function GamesHub() {
               <Ionicons name="chevron-forward" size={20} color={c.muted} />
             </Pressable>
           )}
-          <Pressable testID="daily-trivia" onPress={() => router.push("/games/trivia?daily=1")} style={[styles.dailyRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-            <View style={[styles.dailyIcon, { backgroundColor: "#7C3AED22" }]}><Ionicons name="help-circle" size={20} color={"#7C3AED"} /></View>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Daily Trivia</Text>
-              <Text style={{ color: c.muted, fontSize: 13 * scale }}>10 mixed questions · 15 pts</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={c.muted} />
-          </Pressable>
           {dailies?.wordsearch?.available ? (
-            <Pressable testID="daily-wordsearch" onPress={() => router.push(`/games/wordsearch/play?theme=${dailies.wordsearch.theme}&difficulty=${dailies.wordsearch.difficulty}&daily=1`)} style={[styles.dailyRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Pressable testID="daily-wordsearch" onPress={() => router.push(`/games/wordsearch/play?theme=${dailies.wordsearch.theme}&difficulty=${dailies.wordsearch.difficulty}&daily=1` as any)} style={[styles.dailyRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <View style={[styles.dailyIcon, { backgroundColor: "#B4530922" }]}><Ionicons name="search" size={20} color={"#B45309"} /></View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Daily Word Search</Text>
@@ -120,6 +179,14 @@ export default function GamesHub() {
               </View>
             </View>
           )}
+          <Pressable testID="daily-trivia" onPress={() => router.push("/games/trivia?daily=1" as any)} style={[styles.dailyRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <View style={[styles.dailyIcon, { backgroundColor: "#DB277722" }]}><Ionicons name="help-circle" size={20} color={"#DB2777"} /></View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Daily Trivia</Text>
+              <Text style={{ color: c.muted, fontSize: 13 * scale }}>10 mixed questions · 15 pts</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={c.muted} />
+          </Pressable>
         </View>
 
         {/* Games grid */}
@@ -129,7 +196,7 @@ export default function GamesHub() {
             <Pressable
               key={g.key}
               testID={`game-${g.key}`}
-              onPress={() => g.ready ? router.push(g.route as any) : router.push(`/games/coming-soon?name=${encodeURIComponent(g.title)}`)}
+              onPress={() => g.ready ? router.push(g.route as any) : router.push(`/games/coming-soon?name=${encodeURIComponent(g.title)}` as any)}
               style={[styles.tile, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
             >
               <View style={[styles.tileIcon, { backgroundColor: `${g.tint}22` }]}>
@@ -137,6 +204,9 @@ export default function GamesHub() {
               </View>
               <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale, marginTop: 8 }}>{g.title}</Text>
               <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>{g.sub}</Text>
+              <View style={{ marginTop: 6 }}>
+                <ScheduleChip sched={g.schedule} tint={g.tint} />
+              </View>
               {!g.ready && (
                 <View style={[styles.soon, { backgroundColor: c.warning }]}>
                   <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 10 * scale, letterSpacing: 0.4 }}>SOON</Text>
@@ -151,6 +221,35 @@ export default function GamesHub() {
 }
 
 const styles = StyleSheet.create({
+  signatureHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 14,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    minHeight: 96,
+  },
+  heroBackPreview: { alignItems: "center", justifyContent: "center" },
+  cardBackSmall: {
+    width: 60,
+    height: 84,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#0F172A",
+  },
+  cardBackDiag: {
+    position: "absolute",
+    width: "160%",
+    height: 16,
+    top: "50%",
+    left: "-30%",
+    transform: [{ rotate: "-20deg" }],
+    opacity: 0.55,
+  },
   intro: { borderRadius: 18, padding: 14, borderWidth: 1.5 },
   statsCard: { marginTop: 12, padding: 14, borderRadius: 18, borderWidth: 1 },
   statBox: { flex: 1, alignItems: "center" },
@@ -160,7 +259,18 @@ const styles = StyleSheet.create({
   dailyDisabled: { opacity: 0.7 },
   dailyIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  tile: { width: "48%", minHeight: 130, borderRadius: 18, borderWidth: 1, padding: 14, justifyContent: "flex-start" },
+  tile: { width: "48%", minHeight: 150, borderRadius: 18, borderWidth: 1, padding: 14, justifyContent: "flex-start" },
   tileIcon: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   soon: { position: "absolute", top: 10, right: 10, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  schedChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  schedChipText: { fontWeight: "800", fontSize: 10 },
 });
