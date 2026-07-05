@@ -25,6 +25,10 @@ type Msg = {
   image?: string;
   user_is_founder?: boolean;
   user_founder_number?: number | null;
+  /** Local-only marker for join/leave system messages so we can render
+   *  them as centered pill chips rather than chat bubbles. Never sent
+   *  to the backend. */
+  system?: boolean;
 };
 
 export default function TableChat() {
@@ -82,6 +86,21 @@ export default function TableChat() {
           if (data.event === "join") return s.find((u: any) => u.id === data.user.id) ? s : [...s, data.user];
           return s.filter((u: any) => u.id !== data.user.id);
         });
+        // Insert a local-only "system message" so the chat feed shows a
+        // gentle "Garry took a seat" / "Garry left the table" chip — the
+        // same social cue you'd get sitting at a real cafe. The backend
+        // isn't persisting these, so we key on user id + event + a coarse
+        // 5s bucket to dedupe against duplicate WS broadcasts.
+        if (data.user && (data.event === "join" || data.event === "leave")) {
+          const first = data.user.first_name || data.user.name || "Someone";
+          const bucket = Math.floor(Date.now() / 5000);
+          const sysId = `sys:${data.user.id}:${data.event}:${bucket}`;
+          const line = data.event === "join"
+            ? `🪑 ${first} took a seat`
+            : `👋 ${first} left the table`;
+          setMessages((m) => (m.some((x) => x.id === sysId) ? m : [...m, { id: sysId, user_id: "system", system: true, text: line } as Msg]));
+          setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 60);
+        }
       } else if (data.type === "error") {
         show(data.message || "Send failed");
       }
@@ -159,7 +178,35 @@ export default function TableChat() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title={table ? `${table.emoji} ${table.name}` : "Table"} />
-      {collapseSeating ? null : (
+      {collapseSeating ? (
+        // Compact strip — keeps seated members visible even while the user
+        // is typing so it still feels like a conversation with faces, not
+        // a text screen with no context. The full seating diagram returns
+        // as soon as the keyboard is dismissed and the composer is empty.
+        <View style={[styles.compactStrip, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]} testID="table-seating-compact">
+          <Text style={{ fontSize: 22, marginRight: 8 }}>{table?.emoji || "☕"}</Text>
+          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+            {seated.slice(0, 8).map((u: any) => (
+              <View key={u.id} style={{ alignItems: "center", marginRight: 4 }}>
+                <AvatarBubble value={u.avatar} size={30} fallback="🙂" />
+              </View>
+            ))}
+            {seated.length === 0 && (
+              <Text style={{ color: c.muted, fontSize: 13 * scale, fontStyle: "italic" }}>
+                You&apos;re the first here — say hi!
+              </Text>
+            )}
+            {seated.length > 8 && (
+              <View style={[styles.moreChip, { backgroundColor: c.brandTertiary }]}>
+                <Text style={{ color: c.brand, fontWeight: "900", fontSize: 12 * scale }}>+{seated.length - 8}</Text>
+              </View>
+            )}
+          </View>
+          <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "700", marginLeft: 6 }}>
+            {seated.length}/8
+          </Text>
+        </View>
+      ) : (
         <CoffeeTableSeating
           seated={seated}
           tableEmoji={table?.emoji || "☕"}
@@ -214,6 +261,18 @@ export default function TableChat() {
           contentContainerStyle={{ padding: 14, gap: 10, paddingBottom: 14 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => {
+            // Local-only system messages ("🪑 Garry took a seat") render
+            // as centred pill chips so they don't get confused with real
+            // chat bubbles.
+            if (item.system) {
+              return (
+                <View style={styles.systemRow}>
+                  <View style={[styles.systemPill, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+                    <Text style={{ color: c.brand, fontWeight: "800", fontSize: 13 * scale }}>{item.text}</Text>
+                  </View>
+                </View>
+              );
+            }
             const mine = item.user_id === user?.id;
             const hasImg = !!item.image;
             return (
@@ -358,4 +417,35 @@ const styles = StyleSheet.create({
   permBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
   permCard: { width: "100%", maxWidth: 420, borderRadius: 20, padding: 22, alignItems: "center" },
   permBtn: { marginTop: 14, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 999, minHeight: 48, alignItems: "center", justifyContent: "center", alignSelf: "stretch" },
+  // Compact seated strip shown when the keyboard is up or the composer
+  // has text. Keeps faces visible so it still feels social.
+  compactStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 52,
+  },
+  moreChip: {
+    minWidth: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 6,
+  },
+  // System messages ("🪑 Garry took a seat") — centred pill so they
+  // read as ambient presence chatter rather than a message.
+  systemRow: {
+    alignItems: "center",
+    marginVertical: 2,
+  },
+  systemPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
 });

@@ -2738,9 +2738,11 @@ class SetLocationBody(BaseModel):
 
 
 @api.get("/suburbs/search")
-async def suburbs_search(q: str = "", limit: int = 10):
-    """Typeahead — returns up to `limit` matches by name or postcode."""
-    return {"results": sb_search(q, min(int(limit), 30))}
+async def suburbs_search(q: str = "", limit: int = 20):
+    """Typeahead — returns up to `limit` matches by name or postcode.
+    Default bumped to 20 (from 10) so signup shows more options — the
+    dataset expanded to ~600+ suburbs so a 10-cap felt too tight."""
+    return {"results": sb_search(q, min(int(limit), 50))}
 
 
 @api.get("/suburbs/by-postcode/{postcode}")
