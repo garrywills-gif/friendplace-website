@@ -27,13 +27,19 @@ function goHome(router: ReturnType<typeof useRouter>) {
 export default function Login() {
   const router = useRouter();
   const { c, scale } = useTheme();
-  const { login, demoLogin } = useAuth();
+  const { login, demoLogin, user, loading } = useAuth();
   const { show } = useToast();
   const [identifier, setIdentifier] = useState("");
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [demos, setDemos] = useState<DemoAccount[]>([]);
   const [showDemos, setShowDemos] = useState(false);
+
+  // Safety guard: if a signed-in user lands here (e.g. via browser Back),
+  // bounce to Home so it never feels like they've been logged out.
+  useEffect(() => {
+    if (!loading && user) goHome(router);
+  }, [loading, user, router]);
 
   useEffect(() => {
     (async () => {

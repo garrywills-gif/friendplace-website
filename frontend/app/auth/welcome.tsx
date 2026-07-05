@@ -29,6 +29,7 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useTheme } from "@/src/lib/theme";
+import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import AvatarBubble from "@/src/components/AvatarBubble";
 
@@ -36,7 +37,17 @@ export default function AuthWelcome() {
   const router = useRouter();
   const { scale } = useTheme();
   const insets = useSafeAreaInsets();
+  const { user, loading } = useAuth();
   const [inviter, setInviter] = useState<any | null>(null);
+
+  // Defense in depth: if a signed-in user lands here (e.g. via browser
+  // Back / history.back()), don't strand them on the sign-up interstitial.
+  // Bounce straight to Home so it never feels like they've been logged out.
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace("/home" as any);
+    }
+  }, [loading, user, router]);
 
   useEffect(() => {
     let cancelled = false;

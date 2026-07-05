@@ -61,6 +61,7 @@ export default function Groups() {
         title="Community Groups"
         subtitle="Find your people · Join interest-based groups"
         emoji="🤝"
+        backHref="/home"
       />
       <FlatList
         data={groups}

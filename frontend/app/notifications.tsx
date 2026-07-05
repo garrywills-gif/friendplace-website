@@ -56,7 +56,15 @@ export default function Notifications() {
     if (n.type === "friend_request" || n.type === "friend_accepted") return router.push("/friends/inbox");
     if (n.type === "dm" && n.payload?.dm_id) return router.push(`/dm/${n.payload.dm_id}?other_id=${n.payload.from_id || ""}`);
     if (n.type === "table_join" && n.payload?.table_id) return router.push(`/table/${n.payload.table_id}`);
-    if (n.type === "flutter") return router.push("/home");
+    // Flutter notifications carry the sender's id in payload.from_id (not
+    // ref_user_id). Route straight to that user's profile so the recipient
+    // can reply with a flutter, view them, or start a chat instead of
+    // dumping them on the Home tab with no context.
+    if (n.type === "flutter") {
+      const fromId = n?.payload?.from_id || n?.ref_user_id;
+      if (fromId) return router.push(`/user/${fromId}` as any);
+      return router.push("/home");
+    }
     if (n.type === "event_invite") return router.push("/events");
     // New-member notifications carry `ref_user_id` — surface the user's
     // profile directly so the recipient can wave hello (either via the
@@ -76,9 +84,13 @@ export default function Notifications() {
   };
 
   const sayHi = async (n: any) => {
-    if (!user || !n?.ref_user_id) return;
+    // Flutter-type notifications don't populate `ref_user_id` — they put
+    // the sender's id in payload.from_id. Fall back to that so replying
+    // ("Say Hi" ↔ flutter back) actually works from the notifications list.
+    const targetId: string | undefined = n?.ref_user_id || n?.payload?.from_id;
+    if (!user || !targetId) return;
     try {
-      await api.sendFlutter({ from_id: user.id, to_id: n.ref_user_id });
+      await api.sendFlutter({ from_id: user.id, to_id: targetId });
       if (!n.read) await api.readNotification(n.id);
       setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
       show("Flutter sent 🦋");
@@ -118,6 +130,12 @@ export default function Notifications() {
           const isAchievement = item.type === "achievement" && item.payload?.actor_id;
           const isDm = item.type === "dm";
           const isNewMember = item.type === "new_member" && !!item.ref_user_id;
+          // Flutter notifications get the same quick-action row as new-member
+          // pings so recipients can reply with a flutter or open the sender's
+          // profile in one tap. The sender id lives in payload.from_id (not
+          // ref_user_id) so we normalise here.
+          const flutterFromId: string | undefined = item.type === "flutter" ? (item?.payload?.from_id || item?.ref_user_id) : undefined;
+          const isFlutter = item.type === "flutter" && !!flutterFromId;
           return (
             <View>
               <Pressable testID={`notif-${item.id}`} onPress={() => onItemPress(item)} style={[styles.row, { backgroundColor: item.read ? c.surfaceSecondary : c.brandTertiary, borderColor: item.read ? c.border : c.brand }]}>
@@ -132,18 +150,20 @@ export default function Notifications() {
 
               {/* Message preview actions — only for direct messages. Chat opens the
                   conversation; Dismiss marks the notification as read in place. */}
-              {isNewMember && (
+              {(isNewMember || isFlutter) && (
                 <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
                   <Pressable
-                    testID={`newmember-say-hi-${item.id}`}
+                    testID={`${isFlutter ? "flutter" : "newmember"}-say-hi-${item.id}`}
                     onPress={() => sayHi(item)}
                     style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
                   >
                     <Text style={{ fontSize: 16 }}>🦋</Text>
-                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale, marginLeft: 6 }}>Say Hi</Text>
+                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale, marginLeft: 6 }}>
+                      {isFlutter ? "Flutter back" : "Say Hi"}
+                    </Text>
                   </Pressable>
                   <Pressable
-                    testID={`newmember-profile-${item.id}`}
+                    testID={`${isFlutter ? "flutter" : "newmember"}-profile-${item.id}`}
                     onPress={() => onItemPress(item)}
                     style={[styles.dmActionBtn, { backgroundColor: c.surface, borderColor: c.border, flex: 1 }]}
                   >

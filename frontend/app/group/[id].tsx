@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput } from "react-native";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,9 +17,30 @@ export default function GroupDetail() {
   const { show } = useToast();
   const [posts, setPosts] = useState<any[]>([]);
   const [text, setText] = useState("");
+  // Real group name + emoji — the header used to say the literal word
+  // "Group" which is confusing when there are dozens of groups. We fetch
+  // the group's meta from /groups (there's no single-group endpoint) and
+  // cache it so the banner always reflects e.g. "Gardening 🌱".
+  const [group, setGroup] = useState<{ name?: string; emoji?: string; is_founder_only?: boolean } | null>(null);
 
   const load = async () => { if (id) setPosts(await api.groupPosts(id)); };
   useFocusEffect(useCallback(() => { load(); }, [id]));
+
+  // Fetch the group's display name / emoji once on mount. Silent on failure
+  // — if the network's flaky the header just falls back to "Group" rather
+  // than blocking the whole screen.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!id) return;
+      try {
+        const all: any[] = await api.listGroups();
+        const g = (all || []).find((x) => x?.id === id);
+        if (!cancelled && g) setGroup({ name: g.name, emoji: g.emoji, is_founder_only: !!g.is_founder_only });
+      } catch { /* header falls back to "Group" */ }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
 
   const post = async () => {
     if (!user || !text.trim() || !id) return;
@@ -30,7 +51,12 @@ export default function GroupDetail() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Group" />
+      <Header
+        title={group?.name || "Group"}
+        emoji={group?.emoji}
+        subtitle={group?.is_founder_only ? "Founders-only group" : undefined}
+        backHref="/groups"
+      />
       <FlatList
         data={posts}
         keyExtractor={(p) => p.id}
