@@ -11,6 +11,7 @@ import { ThemeProvider } from "@/src/lib/theme";
 import { AuthProvider } from "@/src/lib/auth";
 import { ToastProvider } from "@/src/lib/toast";
 import SplashGate from "@/src/components/SplashGate";
+import ErrorBoundary from "@/src/components/ErrorBoundary";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -25,19 +26,21 @@ export default function RootLayout() {
   if (!loaded && !error) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <ThemeProvider>
-          <AuthProvider>
-            <ToastProvider>
-              <StatusBar style="dark" />
-              <SplashGate>
-                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
-              </SplashGate>
-            </ToastProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              <ToastProvider>
+                <StatusBar style="dark" />
+                <SplashGate>
+                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
+                </SplashGate>
+              </ToastProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }

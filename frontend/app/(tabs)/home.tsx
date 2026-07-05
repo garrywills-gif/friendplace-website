@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -19,7 +19,7 @@ type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; 
 export default function Home() {
   const router = useRouter();
   const { c, scale, prefs } = useTheme();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const [flutters, setFlutters] = useState<any[]>([]);
@@ -34,6 +34,13 @@ export default function Home() {
   // status fetch returns so the card stays hidden during the brief boot
   // window rather than flickering empty state.
   const [founderStatus, setFounderStatus] = useState<{ taken: number; cap: number; remaining: number; open: boolean } | null>(null);
+  // Butterfly Points details modal — previously the whole tile did a hard
+  // navigation to /profile, which made the Home screen "close" behind the
+  // user with no context. Now the tile opens an inline modal that shows
+  // the current total plus a friendly "how to earn more" breakdown, and
+  // offers a secondary "View full profile" button for anyone who wants to
+  // keep drilling in. Much less jarring for older users.
+  const [pointsInfoOpen, setPointsInfoOpen] = useState(false);
 
   const shuffleThought = () => setThought((t) => getRandomThought(t));
 
@@ -111,6 +118,11 @@ export default function Home() {
       await api.sendFlutter({ from_id: user.id, to_id: f.from_id });
       await api.markFlutterRead(f.id);
       setFlutters((arr) => arr.filter((x) => x.id !== f.id));
+      // Sender earns +2 pts — refresh here so the Butterfly Points card
+      // on Home (and the Profile tab if the user navigates there next)
+      // shows the new total immediately instead of flickering between
+      // the stale and fresh value on focus.
+      refresh().catch(() => {});
       show(`Flutter sent to ${f.from_name || "them"} 🦋`);
     } catch (e: any) {
       const msg = String(e?.message || "").toLowerCase();
@@ -248,7 +260,7 @@ export default function Home() {
           </View>
         )}
 
-        <Pressable testID="home-points-card" onPress={() => goTo("/profile")} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+        <Pressable testID="home-points-card" onPress={() => setPointsInfoOpen(true)} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
           <View style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
             <Text numberOfLines={1} style={[styles.pointsLabel, { color: c.brand, fontSize: 12 * scale }]}>BUTTERFLY POINTS</Text>
             <Text numberOfLines={1} adjustsFontSizeToFit allowFontScaling minimumFontScale={0.6} style={[styles.pointsNum, { color: c.onSurface, fontSize: 34 * scale }]}>{user?.points ?? 0}</Text>
@@ -393,6 +405,112 @@ export default function Home() {
           ))}
         </View>
       </ScrollView>
+
+      {/* Butterfly Points details modal — opened from the points card.
+          Shows the current total plus a plain-English "how to earn more"
+          list. Keeping this local (instead of hard-navigating to Profile)
+          makes the card feel like a peek panel rather than a page change,
+          which was disorienting for older members ("the Home page just
+          closed on me"). */}
+      <Modal
+        visible={pointsInfoOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setPointsInfoOpen(false)}
+      >
+        <Pressable
+          style={styles.pointsBackdrop}
+          onPress={() => setPointsInfoOpen(false)}
+        >
+          <Pressable
+            testID="points-info-card"
+            style={[styles.pointsInfoCard, { backgroundColor: c.surface, borderColor: c.brand }]}
+            onPress={(e: any) => e.stopPropagation && e.stopPropagation()}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: c.brand, fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.6 }}>BUTTERFLY POINTS</Text>
+                <Text
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.6}
+                  style={{ color: c.onSurface, fontWeight: "900", fontSize: 44 * scale, marginTop: 4 }}
+                >
+                  {user?.points ?? 0}
+                </Text>
+              </View>
+              <Text style={{ fontSize: 52 }}>🦋</Text>
+            </View>
+
+            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale, marginTop: 18 }}>
+              How to earn more:
+            </Text>
+            <View style={{ marginTop: 10, gap: 10 }}>
+              {[
+                { emoji: "🦋", label: "Send a flutter", pts: "+2" },
+                { emoji: "☕", label: "Join or post in the Coffee Lounge", pts: "+3" },
+                { emoji: "🤝", label: "Post in a Community Group", pts: "+4" },
+                { emoji: "📅", label: "RSVP to a local event", pts: "+5" },
+                { emoji: "🎮", label: "Complete a daily game", pts: "+10–15" },
+                { emoji: "👋", label: "Invite a friend who joins", pts: "+25" },
+              ].map((row) => (
+                <View
+                  key={row.label}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    padding: 10,
+                    borderRadius: 12,
+                    backgroundColor: c.surfaceSecondary,
+                    borderWidth: 1,
+                    borderColor: c.border,
+                  }}
+                >
+                  <Text style={{ fontSize: 22 }}>{row.emoji}</Text>
+                  <Text style={{ flex: 1, marginLeft: 10, color: c.onSurface, fontSize: 15 * scale, fontWeight: "600" }}>
+                    {row.label}
+                  </Text>
+                  <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>{row.pts}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
+              <Pressable
+                testID="points-info-close"
+                onPress={() => setPointsInfoOpen(false)}
+                style={({ pressed }) => [{
+                  flex: 1,
+                  minHeight: 48,
+                  borderRadius: 999,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderWidth: 1.5,
+                  borderColor: c.border,
+                  opacity: pressed ? 0.7 : 1,
+                }]}
+              >
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Close</Text>
+              </Pressable>
+              <Pressable
+                testID="points-info-view-profile"
+                onPress={() => { setPointsInfoOpen(false); goTo("/profile"); }}
+                style={({ pressed }) => [{
+                  flex: 1,
+                  minHeight: 48,
+                  borderRadius: 999,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: c.brand,
+                  opacity: pressed ? 0.85 : 1,
+                }]}
+              >
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 * scale }}>View full profile</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -444,5 +562,21 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     marginTop: 4,
+  },
+  // Points details modal — semi-transparent backdrop + centered card.
+  pointsBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  pointsInfoCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    paddingHorizontal: 20,
+    paddingVertical: 22,
   },
 });

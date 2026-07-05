@@ -111,7 +111,18 @@ export default function Friends() {
         <View style={styles.headRow}>
           <Pressable
             testID="friends-back"
-            onPress={() => router.replace("/home" as any)}
+            onPress={() => {
+              // Friends is a top-level tab, so "back" means Home.
+              // router.replace silently no-ops on iPad Safari for tab
+              // destinations — force a hard nav on web so the button is
+              // always deterministic and never appears to do nothing.
+              if (Platform.OS === "web") {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (window as any).location.assign("/home");
+              } else {
+                router.replace("/home" as any);
+              }
+            }}
             hitSlop={12}
             accessibilityLabel="Back to Home"
             style={({ pressed }) => [styles.backBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}

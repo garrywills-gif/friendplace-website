@@ -78,7 +78,20 @@ export default function Lounge() {
         <View style={styles.headRow}>
           <Pressable
             testID="lounge-back"
-            onPress={() => { try { router.back(); } catch { router.replace("/home" as any); } }}
+            onPress={() => {
+              // Coffee Lounge is a top-level tab, so "back" always means
+              // Home. router.back() silently no-ops on iPad Safari from a
+              // hard-loaded tab route (history is empty) and could take
+              // the user off the app entirely; a hard URL change on web +
+              // router.replace on native are both deterministic and never
+              // strand the user on a login-looking screen.
+              if (Platform.OS === "web") {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (window as any).location.assign("/home");
+              } else {
+                router.replace("/home" as any);
+              }
+            }}
             hitSlop={12}
             accessibilityLabel="Back to Home"
             style={({ pressed }) => [styles.backBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}
