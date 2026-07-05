@@ -300,6 +300,10 @@ export const api = {
   solitaireAward: (uid: string, body: { outcome: "played" | "won"; moves?: number; duration_seconds?: number; seed?: number }) =>
     req(`/games/solitaire/award/${uid}`, { method: "POST", body: JSON.stringify(body) }),
   solitaireStats: (uid: string) => req(`/games/solitaire/stats/${uid}`),
+  // Daily Butterfly Bonus — encourages daily return visits. Status is
+  // read-only; claim awards +5 pts once per AEST day.
+  dailyBonusStatus: (uid: string) => req(`/games/daily-bonus/status/${uid}`),
+  dailyBonusClaim: (uid: string) => req(`/games/daily-bonus/claim/${uid}`, { method: "POST" }),
   gameCheer: (fromId: string, toId: string, kind: "well_done" | "congrats" | "coffee" | "flutter") =>
     req(`/games/cheer/${fromId}`, { method: "POST", body: JSON.stringify({ to_user_id: toId, kind }) }),
 

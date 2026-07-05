@@ -1383,8 +1383,30 @@ async def auth_apple(body: AppleAuthBody):
             options={"verify_at_hash": False},  # we don't request an access token
         )
     except JWTError as e:
-        logger.info("apple token verify failed: %s", e)
-        raise HTTPException(401, "Apple sign-in could not be verified. Please try again.")
+        # Peek at the token claims (without verification) so the log tells us
+        # WHY the JWT failed — usually an `aud` mismatch. TestFlight bugs are
+        # almost impossible to diagnose without this line, so it's worth the
+        # tiny cost.
+        peek = {}
+        try:
+            peek = jwt.get_unverified_claims(tok) or {}
+        except Exception:
+            peek = {}
+        logger.warning(
+            "apple token verify failed: %s | token aud=%s iss=%s exp=%s | our audiences=%s",
+            e, peek.get("aud"), peek.get("iss"), peek.get("exp"), _APPLE_AUDIENCES,
+        )
+        # Return a more actionable error message so TestFlight logs show the
+        # actual cause rather than a generic "please try again".
+        expected = " or ".join(_APPLE_AUDIENCES)
+        got = peek.get("aud") or "unknown"
+        if got and got != "unknown" and got not in _APPLE_AUDIENCES:
+            raise HTTPException(
+                401,
+                f"Apple sign-in bundle mismatch: token aud '{got}' but server expects '{expected}'. "
+                f"Check APPLE_CLIENT_ID_IOS in backend env.",
+            )
+        raise HTTPException(401, f"Apple sign-in could not be verified ({e}). Please try again.")
 
     apple_sub = (decoded.get("sub") or "").strip()
     email = (decoded.get("email") or "").strip().lower()
@@ -2823,6 +2845,7 @@ ACHIEVEMENT_DEFS = {
     "streak_7":          {"title": "7-Day Streak",             "body": "You've played 7 days in a row. Keep it going!",            "points": 25},
     "streak_30":         {"title": "30-Day Streak",            "body": "A month of daily play — incredible!",                      "points": 80},
     "century":           {"title": "100 Games Completed",      "body": "Wow! 100 games done. The community salutes you.",          "points": 100},
+    "daily_devotee":     {"title": "Daily Devotee",             "body": "7 days of playing YouBelong in a row — thank you for showing up.", "points": 50},
 }
 
 # Difficulties that DO trigger achievement notifications to friends.
@@ -2878,6 +2901,13 @@ async def _daily_streak_for(user_id: str) -> int:
 async def log_game_completion(user_id: str, body: GameCompletionBody):
     """Single source-of-truth for finished games. Awards achievements/points
     and broadcasts Achievement Flutters to friends for major wins."""
+    # Also opportunistically award the Daily Butterfly Bonus — playing ANY
+    # game qualifies. Silent no-op if already claimed today so users can
+    # play multiple games without spamming toasts.
+    try:
+        await _award_daily_bonus_if_new(user_id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("daily bonus award skipped for %s: %s", user_id, e)
     doc = {
         "id": nid(), "user_id": user_id,
         "game_type": body.game_type, "difficulty": body.difficulty.lower(),
@@ -2978,6 +3008,112 @@ class SolitaireAwardBody(BaseModel):
     seed: Optional[int] = None
 
 
+# ----------------------------------------------------------------------------
+# Daily Butterfly Bonus — +5 pts once per AEST day for playing any game,
+# with a "Daily Devotee" badge unlocking on a 7-day streak.
+# ----------------------------------------------------------------------------
+def _aest_date_str(dt: Optional[datetime] = None) -> str:
+    """Return the AEST calendar date (YYYY-MM-DD) for the given moment.
+    Uses a fixed +10:00 offset — DST-aware handling can be added later,
+    but AEST (Sydney/Melbourne) is what the launch spec calls out and the
+    +/-1h drift from DST won't cause double-claims because we compare on
+    date equality only."""
+    src = dt or datetime.now(timezone.utc)
+    return (src + timedelta(hours=10)).date().isoformat()
+
+
+DAILY_BONUS_POINTS = 5
+DAILY_DEVOTEE_STREAK = 7
+
+
+async def _award_daily_bonus_if_new(user_id: str) -> Dict[str, object]:
+    """Award +5 Butterfly Points if the user hasn't claimed today's bonus.
+    Also bumps the 7-day streak counter and grants the Daily Devotee badge
+    once the streak hits 7.
+
+    Returns `{claimed, points_awarded, streak_days, badge_earned}`.
+    Idempotent — safe to call after any game action; will silently no-op
+    if today's bonus already claimed. Uses AEST calendar day for reset.
+    """
+    if not user_id:
+        return {"claimed": False, "points_awarded": 0, "streak_days": 0, "badge_earned": False}
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        return {"claimed": False, "points_awarded": 0, "streak_days": 0, "badge_earned": False}
+    today = _aest_date_str()
+    last = user.get("daily_bonus_last_claim") or ""
+    if last == today:
+        # Already claimed today — return current state, no side effects.
+        return {
+            "claimed": False,
+            "already_claimed_today": True,
+            "points_awarded": 0,
+            "streak_days": int(user.get("daily_bonus_streak") or 0),
+            "badge_earned": False,
+        }
+    # Compute new streak: continues if last claim was YESTERDAY (AEST),
+    # otherwise restarts at 1. A missed day always resets the counter.
+    prev_streak = int(user.get("daily_bonus_streak") or 0)
+    yesterday = _aest_date_str(datetime.now(timezone.utc) - timedelta(days=1))
+    if last == yesterday:
+        new_streak = prev_streak + 1
+    else:
+        new_streak = 1
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"daily_bonus_last_claim": today, "daily_bonus_streak": new_streak}},
+    )
+    await award_points(user_id, DAILY_BONUS_POINTS, reason="daily_bonus")
+    badge_earned = False
+    if new_streak >= DAILY_DEVOTEE_STREAK:
+        # `_grant_achievement` is idempotent so multi-streak users don't get
+        # duplicate badges.
+        try:
+            granted = await _grant_achievement(user_id, "daily_devotee", {"streak_days": new_streak})
+            badge_earned = bool(granted)
+        except Exception:  # pragma: no cover
+            badge_earned = False
+    return {
+        "claimed": True,
+        "points_awarded": DAILY_BONUS_POINTS,
+        "streak_days": new_streak,
+        "badge_earned": badge_earned,
+        "reset_at_utc": None,
+    }
+
+
+@api.get("/games/daily-bonus/status/{user_id}")
+async def daily_bonus_status(user_id: str):
+    """Snapshot of the Daily Butterfly Bonus for the header banner.
+    - `claimed_today`: True after any game has been played today.
+    - `streak_days`: consecutive days claimed (incl. today).
+    - `points`: DAILY_BONUS_POINTS constant, exposed so the UI can render
+      the amount without hard-coding it.
+    """
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(404, "User not found")
+    today = _aest_date_str()
+    last = user.get("daily_bonus_last_claim") or ""
+    return {
+        "claimed_today": last == today,
+        "streak_days": int(user.get("daily_bonus_streak") or 0),
+        "points": DAILY_BONUS_POINTS,
+        "streak_target": DAILY_DEVOTEE_STREAK,
+        "date": today,
+    }
+
+
+@api.post("/games/daily-bonus/claim/{user_id}")
+async def daily_bonus_claim(user_id: str):
+    """Explicitly claim today's bonus (used by the Home banner "Claim"
+    button). Games call `_award_daily_bonus_if_new` internally when a
+    completion is logged, but the button lets curious users trigger it
+    without playing anything first — same +5, same streak logic."""
+    result = await _award_daily_bonus_if_new(user_id)
+    return result
+
+
 @api.post("/games/solitaire/award/{user_id}")
 async def solitaire_award(user_id: str, body: SolitaireAwardBody):
     """Award Butterfly Points for a Klondike Solitaire session.
@@ -3008,6 +3144,12 @@ async def solitaire_award(user_id: str, body: SolitaireAwardBody):
         "created_at": now_iso(),
     })
     await award_points(user_id, pts, reason=f"solitaire:{outcome}")
+    # Playing Solitaire counts toward the Daily Butterfly Bonus. Silent
+    # no-op if today's already claimed via another game.
+    try:
+        await _award_daily_bonus_if_new(user_id)
+    except Exception:  # noqa: BLE001
+        pass
     # Fetch fresh totals for the client so it can show the running tally.
     lifetime_wins = await db.game_completions.count_documents({"user_id": user_id, "game_type": "solitaire", "difficulty": "won"})
     lifetime_played = await db.game_completions.count_documents({"user_id": user_id, "game_type": "solitaire"})

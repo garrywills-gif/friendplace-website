@@ -186,7 +186,29 @@ export default function Welcome() {
         router.replace(dest as any);
       } catch (e: any) {
         setAuthBusyProvider(null);
-        show("Apple sign-in failed. Please try again or use email.");
+        // Surface the *actual* backend/native error so TestFlight bugs are
+        // diagnosable at a glance. `api.appleAuth` propagates the FastAPI
+        // `HTTPException.detail` verbatim via `req()`; the Apple native
+        // module uses `e.code` for the SIWA error type. Anything unmapped
+        // falls through to the generic message.
+        const nativeCode = (e?.code || "").toString();
+        const backendMsg = (e?.message || "").toString().trim();
+        // eslint-disable-next-line no-console
+        console.warn("[apple-signin] failed", { nativeCode, backendMsg, err: e });
+        if (nativeCode === "ERR_REQUEST_UNKNOWN" || nativeCode === "ERR_INVALID_RESPONSE") {
+          show("Apple sign-in couldn't complete. Please check your internet and try again.");
+        } else if (nativeCode === "ERR_REQUEST_NOT_HANDLED") {
+          show("Apple sign-in needs to be enabled on this device. Check Settings → Apple ID.");
+        } else if (nativeCode === "ERR_REQUEST_NOT_INTERACTIVE") {
+          show("Apple sign-in needs a full sign-in — try again.");
+        } else if (backendMsg) {
+          // Show the real backend message so we can diagnose from TestFlight
+          // screenshots. Trimmed to 140 chars so the toast still fits.
+          const trimmed = backendMsg.length > 140 ? `${backendMsg.slice(0, 137)}…` : backendMsg;
+          show(`Apple sign-in: ${trimmed}`);
+        } else {
+          show("Apple sign-in failed. Please try again or use email.");
+        }
       }
       return;
     }

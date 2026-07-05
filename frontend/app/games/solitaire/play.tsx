@@ -8,6 +8,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import { ButterflyCardBack } from "@/src/components/ButterflyCardBack";
 import { getCurrentSeason } from "@/src/lib/seasons";
 import {
   newGame, draw, moveWasteToTableau, moveWasteToFoundation,
@@ -382,15 +383,10 @@ function CardFace({ card }: { card: Card }) {
 }
 
 function CardBack({ season }: { season: ReturnType<typeof getCurrentSeason> }) {
-  // Butterfly-themed back — a chevron of two seasonal colours with a
-  // giant butterfly emoji in the centre. Ships with zero image assets
-  // so it looks correct on iOS, Android, and Web without any bundling.
-  return (
-    <View style={[styles.cardBack, { backgroundColor: season.cardBackPrimary }]}>
-      <View style={[styles.cardBackDiag, { backgroundColor: season.cardBackSecondary }]} />
-      <Text style={styles.cardBackEmoji}>🦋</Text>
-    </View>
-  );
+  // Branded YouBelong butterfly card back — teal + navy body, seasonal
+  // accent stripe. Rendered via SVG so it stays crisp from 44px (tableau
+  // card) up to 78px (hub preview) without extra assets.
+  return <ButterflyCardBack width={CARD_W} height={CARD_H} season={season} showCorners={false} />;
 }
 
 // ---------- styles ----------

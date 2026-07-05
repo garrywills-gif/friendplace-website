@@ -6,6 +6,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import { ButterflyCardBack } from "@/src/components/ButterflyCardBack";
 import { getCurrentSeason } from "@/src/lib/seasons";
 
 /**
@@ -35,11 +36,9 @@ export default function SolitaireHub() {
         {/* Seasonal hero */}
         <View style={[styles.hero, { backgroundColor: season.felt, borderColor: season.outline }]}>
           <View style={styles.heroBackWrap}>
-            {/* Themed butterfly card back preview */}
-            <View style={[styles.cardBackBig, { backgroundColor: season.cardBackPrimary }]}>
-              <View style={[styles.cardBackDiag, { backgroundColor: season.cardBackSecondary }]} />
-              <Text style={styles.cardBackEmoji}>🦋</Text>
-            </View>
+            {/* Themed butterfly card back preview — branded YouBelong
+                teal + navy with a seasonal accent stripe. */}
+            <ButterflyCardBack width={78} height={112} season={season} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ color: season.outline, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>

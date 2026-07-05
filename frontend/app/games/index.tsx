@@ -7,6 +7,8 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import { useToast } from "@/src/lib/toast";
+import { ButterflyCardBack } from "@/src/components/ButterflyCardBack";
 import { getCurrentSeason } from "@/src/lib/seasons";
 
 /**
@@ -67,21 +69,54 @@ function ScheduleChip({ sched, tint }: { sched: Schedule | undefined; tint: stri
 export default function GamesHub() {
   const router = useRouter();
   const { c, scale } = useTheme();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
+  const { show } = useToast();
   const [stats, setStats] = useState<any>(null);
   const [dailies, setDailies] = useState<any>(null);
+  const [bonus, setBonus] = useState<{ claimed_today: boolean; streak_days: number; points: number; streak_target: number } | null>(null);
+  const [claiming, setClaiming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const season = getCurrentSeason();
 
   const load = async () => {
-    if (user) { try { setStats(await api.gamesStats(user.id)); } catch { /* ignore */ } }
+    if (user) {
+      try { setStats(await api.gamesStats(user.id)); } catch { /* ignore */ }
+      try { setBonus(await api.dailyBonusStatus(user.id) as any); } catch { /* ignore */ }
+    }
     try { setDailies(await api.gamesDailies()); } catch { /* ignore */ }
   };
   useFocusEffect(useCallback(() => { load(); }, [user?.id]));
 
+  const claimBonus = async () => {
+    if (!user || claiming) return;
+    setClaiming(true);
+    try {
+      const r: any = await api.dailyBonusClaim(user.id);
+      if (r.claimed) {
+        setBonus((b) => (b ? { ...b, claimed_today: true, streak_days: r.streak_days } : b));
+        refresh().catch(() => {});
+        const pts = r.points_awarded ?? bonus?.points ?? 5;
+        if (r.badge_earned) {
+          show(`+${pts} Butterfly Points · Daily Devotee badge unlocked! 🏆`);
+        } else if (r.streak_days >= 2) {
+          show(`+${pts} Butterfly Points · Day ${r.streak_days} streak 🦋`);
+        } else {
+          show(`+${pts} Butterfly Points 🦋 Come back tomorrow to build your streak!`);
+        }
+      } else {
+        show("Already claimed today — come back tomorrow!");
+      }
+    } catch { show("Couldn't claim right now — please try again."); }
+    finally { setClaiming(false); }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Games Hub" backHref="/home" />
+      <Header
+        title="Games Hub"
+        backHref="/home"
+        subtitle={`${season.emoji} ${season.label} · ${season.tagline}`}
+      />
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
         contentContainerStyle={{ padding: 14, paddingBottom: 60 }}
@@ -95,10 +130,7 @@ export default function GamesHub() {
           accessibilityLabel="Play Solitaire — the signature game"
         >
           <View style={styles.heroBackPreview}>
-            <View style={[styles.cardBackSmall, { backgroundColor: season.cardBackPrimary }]}>
-              <View style={[styles.cardBackDiag, { backgroundColor: season.cardBackSecondary }]} />
-              <Text style={{ fontSize: 28 }}>🦋</Text>
-            </View>
+            <ButterflyCardBack width={60} height={84} season={season} showCorners={false} />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ color: season.outline, fontWeight: "900", letterSpacing: 0.6, fontSize: 11 * scale }}>
@@ -109,6 +141,57 @@ export default function GamesHub() {
           </View>
           <Ionicons name="chevron-forward" size={24} color="#FFFFFF" />
         </Pressable>
+
+        {/* Daily Butterfly Bonus banner — encourages a daily return
+            without being pushy. Different states:
+              • Available today → gold gradient + "Claim" button
+              • Already claimed → soft chip showing "Day X of 7 streak"
+              • Streak ≥ 7 → celebration variant with Daily Devotee badge nod */}
+        {bonus && (
+          bonus.claimed_today ? (
+            <View testID="daily-bonus-claimed" style={[styles.bonusChip, { backgroundColor: c.brandTertiary, borderColor: c.brand, marginTop: 12 }]}>
+              <Text style={{ fontSize: 22 }}>🦋</Text>
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 15 * scale }}>
+                  Today&apos;s bonus claimed
+                </Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>
+                  {bonus.streak_days >= (bonus.streak_target || 7)
+                    ? `Day ${bonus.streak_days} · Daily Devotee 🏆`
+                    : `Day ${bonus.streak_days} of ${bonus.streak_target || 7} · streak building 🔥`}
+                </Text>
+              </View>
+              {/* Small streak dots */}
+              <View style={{ flexDirection: "row", gap: 3 }}>
+                {Array.from({ length: bonus.streak_target || 7 }).map((_, i) => (
+                  <View key={i} style={[styles.streakDot, { backgroundColor: i < (bonus.streak_days % ((bonus.streak_target || 7) + 1)) ? c.brand : c.border }]} />
+                ))}
+              </View>
+            </View>
+          ) : (
+            <Pressable
+              testID="daily-bonus-claim"
+              onPress={claimBonus}
+              disabled={claiming}
+              style={({ pressed }) => [styles.bonusCard, { backgroundColor: "#FBBF24", borderColor: "#F59E0B", marginTop: 12, opacity: (pressed || claiming) ? 0.85 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Claim daily butterfly bonus for ${bonus.points} points`}
+            >
+              <Text style={{ fontSize: 32, marginRight: 12 }}>🦋</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#78350F", fontWeight: "900", fontSize: 16 * scale }}>
+                  Daily Butterfly Bonus
+                </Text>
+                <Text style={{ color: "#78350F", fontSize: 13 * scale, marginTop: 2 }}>
+                  Play any game today to earn +{bonus.points} pts · 7 days = Daily Devotee badge
+                </Text>
+              </View>
+              <View style={[styles.claimBtn, { backgroundColor: "#78350F" }]}>
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 13 * scale }}>{claiming ? "…" : "Claim"}</Text>
+              </View>
+            </Pressable>
+          )
+        )}
 
         <View style={[styles.intro, { backgroundColor: c.brandTertiary, borderColor: c.brand, marginTop: 12 }]}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -273,4 +356,32 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   schedChipText: { fontWeight: "800", fontSize: 10 },
+  // Daily Butterfly Bonus
+  bonusCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    borderRadius: 18,
+    borderWidth: 2,
+  },
+  bonusChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
+  claimBtn: {
+    minHeight: 40,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  streakDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
 });
