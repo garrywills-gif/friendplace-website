@@ -1838,7 +1838,6 @@ async def forgot_password(body: ForgotBody):
         "user_id": u["id"], "code": code, "expires_at": expires_at,
         "used": False, "created_at": now_iso(),
     })
-    logger.info(f"Password reset code for {u.get('username')}: {code}")
     # SEC-003: NEVER return or log the reset code to the caller. Until an
     # email/SMS provider is wired we log a redacted acknowledgement only —
     # the code is generated and stored server-side, but the operator must
@@ -1943,9 +1942,12 @@ async def list_users(
         viewer_id = me.get("id")
     query: Dict = {"banned": {"$ne": True}, "profile_hidden": {"$ne": True}}
     if suburb:
-        query["suburb"] = {"$regex": suburb, "$options": "i"}
+        # SEC hardening: escape user-supplied filter values before passing to
+        # Mongo `$regex`; otherwise a crafted input could inject regex
+        # metacharacters and trigger catastrophic backtracking (ReDoS).
+        query["suburb"] = {"$regex": re.escape(suburb), "$options": "i"}
     if interest:
-        query["interests"] = {"$regex": interest, "$options": "i"}
+        query["interests"] = {"$regex": re.escape(interest), "$options": "i"}
     if q:
         # Find Friends search: case-insensitive substring match across the
         # most natural "who am I looking for?" fields. Includes interests
@@ -7808,31 +7810,51 @@ def dm_conv_id(a: str, b: str) -> str:
 
 
 @api.get("/dm/{user_id}/conversations")
-async def my_conversations(user_id: str):
+async def my_conversations(user_id: str, me: dict = Depends(current_user)):
+    # SEC-101: only the owner can enumerate their conversations.
+    if me.get("id") != user_id:
+        raise HTTPException(403, "Not authorised")
     docs = await db.dm_conversations.find({"participants": user_id}, {"_id": 0}).sort("updated_at", -1).to_list(100)
     # attach other user info + last message
     out = []
     for c in docs:
         other_id = next((p for p in c["participants"] if p != user_id), None)
         other = await db.users.find_one({"id": other_id}, {"_id": 0}) if other_id else None
+        if other:
+            # Never leak email/apple_id/refresh tokens of the peer in the
+            # conversations list (SEC-002 pattern applied here too).
+            other = _peer_user(other, viewer_is_owner=False, viewer_is_admin=bool(me.get("is_admin")))
         last = await db.messages.find_one({"dm_id": c["id"]}, {"_id": 0}, sort=[("created_at", -1)])
         out.append({**c, "other": other, "last": last})
     return out
 
 
 @api.get("/dm/{conv_id}/messages")
-async def dm_messages(conv_id: str):
+async def dm_messages(conv_id: str, me: dict = Depends(current_user)):
+    """Fetch the full history of a DM. SEC-101 fix — the caller must be
+    a participant on the conversation. Previously this was public and any
+    anonymous client could compute conv_id from two known user ids and
+    read the entire private chat history."""
+    conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0, "participants": 1})
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    if me.get("id") not in (conv.get("participants") or []):
+        raise HTTPException(403, "Not a participant")
     docs = await db.messages.find({"dm_id": conv_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
     await _attach_founder_flags(docs, "user_id")
     return docs
 
 
 @api.post("/dm/start")
-async def start_dm(body: dict):
+async def start_dm(body: dict, me: dict = Depends(current_user)):
     a = body.get("user_id")
     b = body.get("other_id")
     if not a or not b:
         raise HTTPException(400, "user_id and other_id are required")
+    # SEC-101 hardening: the caller must be one of the two participants
+    # (either they're starting a DM as themselves, or the other side).
+    if me.get("id") not in (a, b):
+        raise HTTPException(403, "Not authorised")
     cid = dm_conv_id(a, b)
     existing = await db.dm_conversations.find_one({"id": cid}, {"_id": 0})
     if not existing:
@@ -8226,6 +8248,22 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
             pass
         try:
             await websocket.close(code=4401)
+        except Exception:
+            pass
+        hub.disconnect(room, websocket)
+        return
+    # SEC-102: additionally verify the authenticated user IS a participant
+    # on this specific conversation. Without this any signed-in member
+    # could open ws/dm/<any_conv_id> and eavesdrop / inject into strangers'
+    # chats.
+    conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0, "participants": 1})
+    if not conv or user_id not in (conv.get("participants") or []):
+        try:
+            await websocket.send_json({"type": "error", "code": "forbidden", "message": "Not a participant."})
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=4403)
         except Exception:
             pass
         hub.disconnect(room, websocket)
