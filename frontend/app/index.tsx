@@ -28,7 +28,13 @@ export default function Welcome() {
   // True while we're swapping a Google session_id for a JWT — also true while
   // the Emergent OAuth tab/redirect is in flight on web so the buttons stay
   // disabled and the user gets a spinner.
-  const [authBusy, setAuthBusy] = useState(false);
+  // Per-provider busy state — previously both Apple and Google shared one
+  // `authBusy` flag, which caused BOTH spinners to appear the moment either
+  // button was pressed (confusing for older users who wondered which one
+  // was actually running). Tracking the active provider fixes it.
+  const [authBusyProvider, setAuthBusyProvider] = useState<null | "apple" | "google">(null);
+  const authBusy = authBusyProvider !== null;
+  const setAuthBusy = (v: boolean) => setAuthBusyProvider(v ? authBusyProvider ?? "apple" : null);
   // Whether the device supports native Apple Sign-In. False on Android, web,
   // and in Expo Go (the native module is unavailable until a dev/prod build).
   // We hide the button entirely when unavailable so non-iOS users don't see
@@ -143,7 +149,7 @@ export default function Welcome() {
   const handleSocial = async (provider: string) => {
     if (provider === "Google") {
       try {
-        setAuthBusy(true);
+        setAuthBusyProvider("google");
         const sid = await startGoogleSignIn();
         // On web, the page navigates away — control never reaches here.
         // On native, sid is the freshly returned session_id (or null on cancel).
@@ -153,21 +159,21 @@ export default function Welcome() {
           router.replace("/home" as any);
         } else if (Platform.OS !== "web") {
           // user cancelled the in-app browser
-          setAuthBusy(false);
+          setAuthBusyProvider(null);
         }
       } catch (e: any) {
-        setAuthBusy(false);
+        setAuthBusyProvider(null);
         show("Google sign-in failed. Please try again or use email.");
       }
       return;
     }
     if (provider === "Apple") {
       try {
-        setAuthBusy(true);
+        setAuthBusyProvider("apple");
         const credential = await startAppleSignIn();
         if (!credential) {
           // Cancelled — drop the spinner so the buttons re-enable.
-          setAuthBusy(false);
+          setAuthBusyProvider(null);
           return;
         }
         // Best-effort pickup of an invite ref captured at app launch.
@@ -179,7 +185,7 @@ export default function Welcome() {
         const dest = r.isNew ? "/onboarding" : "/home";
         router.replace(dest as any);
       } catch (e: any) {
-        setAuthBusy(false);
+        setAuthBusyProvider(null);
         show("Apple sign-in failed. Please try again or use email.");
       }
       return;
@@ -283,25 +289,25 @@ export default function Welcome() {
               accessibilityRole="button"
               accessibilityLabel="Sign in with Apple"
             >
-              {authBusy ? (
+              {authBusyProvider === "apple" ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Ionicons name="logo-apple" size={26} color="#FFFFFF" />
               )}
               <Text style={[styles.socialText, { color: "#FFFFFF", fontSize: 18 * scale }]}>
-                {authBusy ? "Signing in…" : "Continue with Apple"}
+                {authBusyProvider === "apple" ? "Signing in…" : "Continue with Apple"}
               </Text>
             </Pressable>
           ) : null}
 
           <Pressable testID="welcome-google" disabled={authBusy} onPress={() => handleSocial("Google")} style={({ pressed }) => [styles.social, { backgroundColor: "#FFFFFF", opacity: authBusy ? 0.6 : (pressed ? 0.85 : 1) }]}>
-            {authBusy ? (
+            {authBusyProvider === "google" ? (
               <ActivityIndicator size="small" color="#1E3A7F" />
             ) : (
               <Ionicons name="logo-google" size={24} color="#1E3A7F" />
             )}
             <Text style={[styles.socialText, { color: "#1E3A7F", fontSize: 18 * scale }]}>
-              {authBusy ? "Signing in…" : "Continue with Google"}
+              {authBusyProvider === "google" ? "Signing in…" : "Continue with Google"}
             </Text>
           </Pressable>
         </View>
