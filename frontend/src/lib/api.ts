@@ -1,10 +1,47 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+const TOKEN_STORAGE_KEY = "youbelong.auth.token";
+
+// In-memory mirror of the AsyncStorage token so requests fired back-to-back
+// don't each pay a storage round-trip. AuthProvider calls `setAuthToken()`
+// on login/logout so this stays in sync — see /app/frontend/src/lib/auth.tsx.
+let _cachedToken: string | null = null;
+let _tokenBootstrapped = false;
+
+export function setAuthToken(token: string | null) {
+  _cachedToken = token;
+  _tokenBootstrapped = true;
+}
+
+async function _getToken(): Promise<string | null> {
+  if (_tokenBootstrapped) return _cachedToken;
+  try {
+    const t = await AsyncStorage.getItem(TOKEN_STORAGE_KEY);
+    _cachedToken = t;
+  } catch { /* ignore */ }
+  _tokenBootstrapped = true;
+  return _cachedToken;
+}
+
+export async function getAuthToken(): Promise<string | null> {
+  return _getToken();
+}
 
 async function req<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}/api${path}`, {
-    ...opts,
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-  });
+  // SEC-002/004: attach the auth token to every API call so the server
+  // can verify the caller. Endpoints that don't need it will simply
+  // ignore the header. This means we can lock down `/api/users`,
+  // `/api/admin/*` etc. without threading a token through every callsite.
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(opts.headers as any),
+  };
+  if (!headers.Authorization && !headers.authorization) {
+    const token = await _getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  const res = await fetch(`${BASE}/api${path}`, { ...opts, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`${res.status} ${text}`);

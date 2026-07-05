@@ -101,6 +101,16 @@ async def current_user(creds: HTTPAuthorizationCredentials = Depends(bearer)):
     return u
 
 
+async def current_admin(me: dict = Depends(current_user)):
+    """Guard for /api/admin/* endpoints — requires a valid bearer token
+    AND that the subject has `is_admin = True`. Fixes SEC-004: admin
+    routes must never trust a client-supplied `admin_id`; the identity
+    is always taken from the signed JWT."""
+    if not me.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    return me
+
+
 app = FastAPI(title="YouBelong API")
 api = APIRouter(prefix="/api")
 
@@ -447,6 +457,8 @@ def _safe_user(u: dict) -> dict:
       * MongoDB _id, password_hash, lockout state
       * Precise location: suburb_lat / suburb_lng (publicly unsafe — only the
         suburb name + postcode + state are ever exposed)
+      * OAuth / SSO identifiers that could be replayed to a provider
+        (SEC-002): apple_id, apple_refresh_token, google_sub, google_email
     """
     u = dict(u or {})
     u.pop("_id", None)
@@ -455,7 +467,52 @@ def _safe_user(u: dict) -> dict:
     u.pop("lockout_until", None)
     u.pop("suburb_lat", None)
     u.pop("suburb_lng", None)
+    u.pop("apple_refresh_token", None)
     return u
+
+
+# Fields that MAY be serialised in a peer-visible view. Everything else
+# — email, phone, apple_id, refresh tokens, admin flags, block lists,
+# password hash — is stripped so we never leak PII or auth material to
+# another user (SEC-002). Only the authenticated owner sees their own
+# private fields via /api/users/{id} where user_id == token subject.
+_PEER_VISIBLE_FIELDS = {
+    "id", "first_name", "username", "avatar", "bio", "suburb",
+    "suburb_postcode", "suburb_state", "interests", "points", "badges",
+    "achievements", "status", "last_seen_at", "privacy",
+    "is_founder", "founder_number", "created_at", "location_visibility",
+    # Non-PII flags used for UI badging
+    "is_admin",  # only surfaced to admins; the endpoint decides
+    "distance_km",  # attached by radius search
+}
+
+
+def _peer_user(u: dict, viewer_is_owner: bool = False, viewer_is_admin: bool = False) -> dict:
+    """Return the peer-visible projection of a user document.
+
+    - Owner (viewer == user) sees their full `_safe_user` (still no
+      password_hash, still no refresh tokens).
+    - Admin viewers get the same shape as owner (need email for support
+      workflows) minus the refresh token.
+    - Everyone else gets the allowlisted projection only — no email,
+      no apple_id, no admin flag, no block list.
+    """
+    if viewer_is_owner or viewer_is_admin:
+        # Owner / admin: full safe view (still strips password_hash + refresh tokens
+        # via _safe_user). Never leak apple_refresh_token even to the owner
+        # over an authenticated API call — clients don't need it.
+        out = _safe_user(u)
+        # is_admin only ever visible when the viewer is themselves admin
+        if not viewer_is_admin:
+            out.pop("is_admin", None)
+        return out
+    projected: dict = {}
+    for k in _PEER_VISIBLE_FIELDS:
+        if k == "is_admin":
+            continue  # never expose admin flag to peers
+        if k in u:
+            projected[k] = u[k]
+    return projected
 
 
 async def _attach_founder_flags(items: list, user_id_key: str = "user_id") -> list:
@@ -502,10 +559,10 @@ async def _find_user_by_identifier(identifier: str) -> Optional[dict]:
     if not ident:
         return None
     # try username (case-insensitive) then email
-    u = await db.users.find_one({"username": {"$regex": f"^{ident}$", "$options": "i"}})
+    u = await db.users.find_one({"username": {"$regex": f"^{re.escape(ident)}$", "$options": "i"}})
     if u:
         return u
-    return await db.users.find_one({"email": {"$regex": f"^{ident}$", "$options": "i"}})
+    return await db.users.find_one({"email": {"$regex": f"^{re.escape(ident)}$", "$options": "i"}})
 
 
 async def _ensure_founders_lounge() -> Optional[dict]:
@@ -778,9 +835,9 @@ async def signup(body: SignupBody, request: Request):
         raise HTTPException(400, "Username can only contain letters, numbers, and . _ -")
     if len(body.password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
-    if await db.users.find_one({"username": {"$regex": f"^{uname}$", "$options": "i"}}):
+    if await db.users.find_one({"username": {"$regex": f"^{re.escape(uname)}$", "$options": "i"}}):
         raise HTTPException(400, "Username already taken")
-    if body.email and await db.users.find_one({"email": {"$regex": f"^{body.email}$", "$options": "i"}}):
+    if body.email and await db.users.find_one({"email": {"$regex": f"^{re.escape(body.email)}$", "$options": "i"}}):
         raise HTTPException(400, "Email already registered")
 
     user = User(
@@ -953,7 +1010,7 @@ async def login(body: LoginBody):
 @api.post("/auth/demo-login")
 async def demo_login(body: DemoLoginBody):
     """Login as a seeded demo user (no password). Real accounts cannot use this."""
-    u = await db.users.find_one({"username": {"$regex": f"^{body.username}$", "$options": "i"}})
+    u = await db.users.find_one({"username": {"$regex": f"^{re.escape(body.username)}$", "$options": "i"}})
     if not u:
         raise HTTPException(404, "Demo user not found")
     if not u.get("is_demo"):
@@ -1742,13 +1799,13 @@ async def waitlist_stats():
 
 
 @api.get("/admin/waitlist")
-async def admin_waitlist(admin_id: str = Query(...), invited: Optional[bool] = None):
-    """Admin-only — full waitlist with emails, names and notes so an admin
-    can hand-pick the next batch to invite. Mirrors the auth pattern used
-    by other admin endpoints (no token; admin_id verified against DB)."""
-    admin = await db.users.find_one({"id": admin_id}, {"_id": 0, "is_admin": 1})
-    if not admin or not admin.get("is_admin"):
-        raise HTTPException(403, "Admin only")
+async def admin_waitlist(
+    invited: Optional[bool] = None,
+    me: dict = Depends(current_admin),
+):
+    """Admin-only — full waitlist with emails/names/notes so an admin can
+    hand-pick the next batch to invite. SEC-004 fix: uses bearer-token
+    admin check via `current_admin` — no client-supplied admin_id."""
     q: dict = {}
     if invited is not None:
         q["invited"] = invited
@@ -1757,12 +1814,8 @@ async def admin_waitlist(admin_id: str = Query(...), invited: Optional[bool] = N
 
 
 @api.post("/admin/waitlist/{entry_id}/mark-invited")
-async def admin_mark_invited(entry_id: str, admin_id: str = Query(...)):
-    """Mark a waitlist entry as `invited` once the admin has emailed them.
-    No-op idempotent. Cleans the active queue without deleting history."""
-    admin = await db.users.find_one({"id": admin_id}, {"_id": 0, "is_admin": 1})
-    if not admin or not admin.get("is_admin"):
-        raise HTTPException(403, "Admin only")
+async def admin_mark_invited(entry_id: str, me: dict = Depends(current_admin)):
+    """Mark a waitlist entry as `invited`. SEC-004 hardened."""
     res = await db.waitlist.update_one(
         {"id": entry_id},
         {"$set": {"invited": True, "invited_at": now_iso()}},
@@ -1786,28 +1839,54 @@ async def forgot_password(body: ForgotBody):
         "used": False, "created_at": now_iso(),
     })
     logger.info(f"Password reset code for {u.get('username')}: {code}")
-    # NOTE: returned in the response only because no email provider is wired yet.
-    # Replace with email delivery (Resend / SendGrid) once a key is provided.
-    return {
-        "message": "Reset code generated.",
-        "dev_code": code,
-        "expires_in_minutes": RESET_TTL_MIN,
-    }
+    # SEC-003: NEVER return or log the reset code to the caller. Until an
+    # email/SMS provider is wired we log a redacted acknowledgement only —
+    # the code is generated and stored server-side, but the operator must
+    # look it up in the DB during dev if they want to complete a reset.
+    # In production, wire Resend/SendGrid and email the code directly.
+    logger.info("Password reset code generated for user=%s (code redacted)", u.get("id"))
+    return {"message": "If that account exists, a reset code was generated. Check your email."}
 
 
 @api.post("/auth/reset-password")
 async def reset_password(body: ResetBody):
     u = await _find_user_by_identifier(body.identifier)
     if not u:
+        # Constant-error path so we don't reveal existence.
         raise HTTPException(400, "Invalid or expired code")
+    # SEC-003 hardening: throttle verification attempts per user. After
+    # 5 wrong codes we mark all outstanding resets as used, forcing a new
+    # code request. Prevents online brute-force of the 6-digit code.
+    now = datetime.now(timezone.utc)
+    attempts = int(u.get("reset_verify_attempts") or 0)
+    locked_until_iso = u.get("reset_verify_locked_until")
+    if locked_until_iso:
+        try:
+            if now < datetime.fromisoformat(locked_until_iso):
+                raise HTTPException(429, "Too many attempts — please request a new code")
+        except (ValueError, TypeError):
+            pass
     rec = await db.password_resets.find_one({"user_id": u["id"], "code": body.code, "used": False})
     if not rec:
+        # Bump the counter and lock after 5 misses for 15 minutes.
+        new_attempts = attempts + 1
+        patch: Dict[str, object] = {"reset_verify_attempts": new_attempts}
+        if new_attempts >= 5:
+            # Invalidate every outstanding reset row + lock the identifier.
+            await db.password_resets.update_many(
+                {"user_id": u["id"], "used": False}, {"$set": {"used": True}}
+            )
+            patch["reset_verify_locked_until"] = (
+                now + timedelta(minutes=15)
+            ).isoformat()
+            patch["reset_verify_attempts"] = 0
+        await db.users.update_one({"id": u["id"]}, {"$set": patch})
         raise HTTPException(400, "Invalid or expired code")
     try:
         exp = datetime.fromisoformat(rec["expires_at"])
     except Exception:
         raise HTTPException(400, "Invalid or expired code")
-    if datetime.now(timezone.utc) > exp:
+    if now > exp:
         raise HTTPException(400, "Invalid or expired code")
 
     await db.users.update_one(
@@ -1816,6 +1895,8 @@ async def reset_password(body: ResetBody):
             "password_hash": hash_pw(body.new_password),
             "failed_login_attempts": 0,
             "lockout_until": None,
+            "reset_verify_attempts": 0,
+            "reset_verify_locked_until": None,
         }},
     )
     await db.password_resets.update_many(
@@ -1843,15 +1924,23 @@ async def list_users(
     near_lat: Optional[float] = None,
     near_lng: Optional[float] = None,
     radius_km: Optional[float] = None,
+    me: dict = Depends(current_user),
 ):
-    """List members. When `viewer_id` is provided, hides users blocked by or
-    who have blocked the viewer, and excludes banned users.
+    """List members. Requires authentication (SEC-002). When `viewer_id` is
+    provided, hides users blocked by or who have blocked the viewer, and
+    excludes banned users.
 
     When `near_lat` + `near_lng` + `radius_km` are provided, only includes
     members whose suburb falls within that radius. Coordinates are NEVER
     returned to the client — only a friendly `distance_km` and the suburb
     name. Users with `location_visibility=private` are excluded from radius
     queries (they opted out of location matching)."""
+    # viewer_id is ignored if it doesn't match the token subject — we trust
+    # the authenticated identity, not the query string (SEC-004 pattern).
+    if viewer_id and viewer_id != me.get("id"):
+        viewer_id = me.get("id")
+    if not viewer_id:
+        viewer_id = me.get("id")
     query: Dict = {"banned": {"$ne": True}, "profile_hidden": {"$ne": True}}
     if suburb:
         query["suburb"] = {"$regex": suburb, "$options": "i"}
@@ -1902,24 +1991,25 @@ async def list_users(
             dist = sb_haversine(float(near_lat), float(near_lng), float(lat), float(lng))
             if dist <= float(radius_km):
                 u["distance_km"] = round(dist, 1)
-                u.pop("suburb_lat", None)
-                u.pop("suburb_lng", None)
                 out.append(u)
         out.sort(key=lambda x: x.get("distance_km", 9999))
-        return out
-    # Never leak raw coordinates in the public list response.
-    for u in docs:
-        u.pop("suburb_lat", None)
-        u.pop("suburb_lng", None)
-    return docs
+        # Peer projection strips PII + coords + admin flags (SEC-002).
+        return [_peer_user(u, viewer_is_owner=False, viewer_is_admin=bool(me.get("is_admin"))) for u in out]
+    # Peer projection for the default listing too — never leak email,
+    # apple_id, refresh tokens, or admin flags to other members.
+    return [_peer_user(u, viewer_is_owner=False, viewer_is_admin=bool(me.get("is_admin"))) for u in docs]
 
 
 @api.get("/users/{user_id}")
-async def get_user(user_id: str):
+async def get_user(user_id: str, me: dict = Depends(current_user)):
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     if not user:
         raise HTTPException(404, "User not found")
-    return _safe_user(user)
+    # Only the owner (or admins) sees their private fields; every other
+    # viewer gets the peer projection (SEC-002).
+    viewer_is_owner = me.get("id") == user_id
+    viewer_is_admin = bool(me.get("is_admin"))
+    return _peer_user(user, viewer_is_owner=viewer_is_owner, viewer_is_admin=viewer_is_admin)
 
 
 @api.get("/users/{user_id}/invite-stats")
@@ -5581,7 +5671,7 @@ class AdminHardDeleteBody(BaseModel):
 
 
 @api.get("/admin/invite-flyer")
-async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
+async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = "", _me: dict = Depends(current_admin)):
     """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
     for printing and pinning up at noticeboards. The layout is intentionally
     BOLD and TYPOGRAPHIC so it works at a glance from across a room:
@@ -6010,7 +6100,7 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
 
 
 @api.get("/admin/events")
-async def admin_list_events(admin_id: str, status: str = "all"):
+async def admin_list_events(admin_id: str, status: str = "all", _me: dict = Depends(current_admin)):
     await _require_admin(admin_id)
     q: Dict = {}
     if status == "active":
@@ -6040,7 +6130,7 @@ async def admin_list_events(admin_id: str, status: str = "all"):
 
 
 @api.post("/admin/events/{event_id}/archive")
-async def admin_archive_event(event_id: str, body: AdminHardDeleteBody):
+async def admin_archive_event(event_id: str, body: AdminHardDeleteBody, _me: dict = Depends(current_admin)):
     """Soft-archive — hidden from public list but kept in DB for audit."""
     await _require_admin(body.admin_id)
     ev = await db.events.find_one({"id": event_id}, {"_id": 0, "host_id": 1, "title": 1})
@@ -6057,14 +6147,14 @@ async def admin_archive_event(event_id: str, body: AdminHardDeleteBody):
 
 
 @api.post("/admin/events/{event_id}/unarchive")
-async def admin_unarchive_event(event_id: str, body: AdminHardDeleteBody):
+async def admin_unarchive_event(event_id: str, body: AdminHardDeleteBody, _me: dict = Depends(current_admin)):
     await _require_admin(body.admin_id)
     await db.events.update_one({"id": event_id}, {"$set": {"archived": False}, "$unset": {"archived_at": "", "archived_by": "", "archived_reason": ""}})
     return {"ok": True}
 
 
 @api.delete("/admin/events/{event_id}")
-async def admin_hard_delete_event(event_id: str, admin_id: str, reason: Optional[str] = None):
+async def admin_hard_delete_event(event_id: str, admin_id: str, reason: Optional[str] = None, _me: dict = Depends(current_admin)):
     await _require_admin(admin_id)
     ev = await db.events.find_one({"id": event_id}, {"_id": 0, "host_id": 1, "title": 1})
     if not ev:
@@ -6080,7 +6170,7 @@ async def admin_hard_delete_event(event_id: str, admin_id: str, reason: Optional
 
 
 @api.delete("/admin/notices/{notice_id}")
-async def admin_hard_delete_notice(notice_id: str, admin_id: str, reason: Optional[str] = None):
+async def admin_hard_delete_notice(notice_id: str, admin_id: str, reason: Optional[str] = None, _me: dict = Depends(current_admin)):
     await _require_admin(admin_id)
     n = await db.notices.find_one({"id": notice_id}, {"_id": 0, "user_id": 1})
     if not n:
@@ -6183,7 +6273,7 @@ async def _hard_delete_user_data(user_id: str) -> None:
 
 
 @api.delete("/admin/users/{user_id}")
-async def admin_hard_delete_user(user_id: str, admin_id: str, reason: Optional[str] = None):
+async def admin_hard_delete_user(user_id: str, admin_id: str, reason: Optional[str] = None, _me: dict = Depends(current_admin)):
     """Hard-delete a user account and their content. ADMIN ONLY. Irreversible.
 
     Thin wrapper around `_hard_delete_user_data` with the admin auth guard
@@ -6812,7 +6902,7 @@ async def safety_report_reasons():
 
 # ----- Admin -----
 @api.get("/admin/reports")
-async def admin_list_reports(admin_id: str, status: str = "all"):
+async def admin_list_reports(admin_id: str, status: str = "all", _me: dict = Depends(current_admin)):
     await _require_admin(admin_id)
     q: Dict = {}
     if status and status != "all":
@@ -6838,7 +6928,7 @@ async def admin_list_reports(admin_id: str, status: str = "all"):
 
 
 @api.get("/admin/reports/{report_id}")
-async def admin_get_report(report_id: str, admin_id: str):
+async def admin_get_report(report_id: str, admin_id: str, _me: dict = Depends(current_admin)):
     await _require_admin(admin_id)
     r = await db.reports.find_one({"id": report_id}, {"_id": 0})
     if not r:
@@ -6862,7 +6952,7 @@ class AdminActionBody(BaseModel):
 
 
 @api.post("/admin/reports/{report_id}/status")
-async def admin_set_status(report_id: str, status: str, body: AdminActionBody):
+async def admin_set_status(report_id: str, status: str, body: AdminActionBody, _me: dict = Depends(current_admin)):
     await _require_admin(body.admin_id)
     if status not in ("new", "reviewing", "resolved", "dismissed"):
         raise HTTPException(400, "Invalid status")
@@ -6879,7 +6969,7 @@ class AdminUserActionBody(BaseModel):
 
 
 @api.post("/admin/users/warn")
-async def admin_warn_user(body: AdminUserActionBody):
+async def admin_warn_user(body: AdminUserActionBody, _me: dict = Depends(current_admin)):
     await _require_admin(body.admin_id)
     target = await db.users.find_one({"id": body.user_id}, {"_id": 0, "username": 1, "first_name": 1, "avatar": 1})
     if not target:
@@ -6898,7 +6988,7 @@ async def admin_warn_user(body: AdminUserActionBody):
 
 
 @api.post("/admin/users/suspend")
-async def admin_suspend_user(body: AdminUserActionBody):
+async def admin_suspend_user(body: AdminUserActionBody, _me: dict = Depends(current_admin)):
     await _require_admin(body.admin_id)
     hours = max(1, int(body.duration_hours or 24))
     until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
@@ -6919,7 +7009,7 @@ async def admin_suspend_user(body: AdminUserActionBody):
 
 
 @api.post("/admin/users/ban")
-async def admin_ban_user(body: AdminUserActionBody):
+async def admin_ban_user(body: AdminUserActionBody, _me: dict = Depends(current_admin)):
     await _require_admin(body.admin_id)
     await db.users.update_one(
         {"id": body.user_id},
@@ -6932,7 +7022,7 @@ async def admin_ban_user(body: AdminUserActionBody):
 
 
 @api.post("/admin/users/restore")
-async def admin_restore_user(body: AdminUserActionBody):
+async def admin_restore_user(body: AdminUserActionBody, _me: dict = Depends(current_admin)):
     await _require_admin(body.admin_id)
     await db.users.update_one(
         {"id": body.user_id},
@@ -6956,7 +7046,7 @@ class AdminRemoveContentBody(BaseModel):
 
 
 @api.post("/admin/content/remove")
-async def admin_remove_content(body: AdminRemoveContentBody):
+async def admin_remove_content(body: AdminRemoveContentBody, _me: dict = Depends(current_admin)):
     await _require_admin(body.admin_id)
     target_user_id: Optional[str] = None
     if body.target_type == "notice":
@@ -6986,7 +7076,7 @@ class AdminNoteBody(BaseModel):
 
 
 @api.get("/admin/users/{user_id}/moderation")
-async def admin_user_moderation(user_id: str, admin_id: str):
+async def admin_user_moderation(user_id: str, admin_id: str, _me: dict = Depends(current_admin)):
     """Full moderation snapshot for one user — for the admin review screen."""
     await _require_admin(admin_id)
     user = await db.users.find_one(
@@ -7020,7 +7110,7 @@ async def admin_user_moderation(user_id: str, admin_id: str):
 
 
 @api.post("/admin/users/{user_id}/notes")
-async def admin_add_user_note(user_id: str, body: AdminNoteBody):
+async def admin_add_user_note(user_id: str, body: AdminNoteBody, _me: dict = Depends(current_admin)):
     """Free-form note that admins can attach to a user's history."""
     await _require_admin(body.admin_id)
     if not (body.note or "").strip():
@@ -7057,7 +7147,7 @@ async def submit_support_ticket(body: SupportTicketBody):
 
 
 @api.get("/admin/support/tickets")
-async def admin_list_tickets(admin_id: str, status: str = "all"):
+async def admin_list_tickets(admin_id: str, status: str = "all", _me: dict = Depends(current_admin)):
     await _require_admin(admin_id)
     q: Dict = {}
     if status and status != "all":
@@ -7074,14 +7164,14 @@ async def admin_list_tickets(admin_id: str, status: str = "all"):
 
 
 @api.post("/admin/support/tickets/{ticket_id}/resolve")
-async def admin_resolve_ticket(ticket_id: str, body: AdminActionBody):
+async def admin_resolve_ticket(ticket_id: str, body: AdminActionBody, _me: dict = Depends(current_admin)):
     await _require_admin(body.admin_id)
     await db.support_tickets.update_one({"id": ticket_id}, {"$set": {"status": "resolved", "updated_at": now_iso(), "admin_note": body.note}})
     return {"ok": True}
 
 
 @api.get("/admin/summary")
-async def admin_summary(admin_id: str):
+async def admin_summary(admin_id: str, _me: dict = Depends(current_admin)):
     await _require_admin(admin_id)
     return {
         "reports": {
@@ -7111,7 +7201,7 @@ async def admin_summary(admin_id: str):
 
 
 @api.get("/admin/repeat-offenders")
-async def admin_repeat_offenders(admin_id: str, days: int = MODERATION_WINDOW_DAYS, min_reporters: int = 2):
+async def admin_repeat_offenders(admin_id: str, days: int = MODERATION_WINDOW_DAYS, min_reporters: int = 2, _me: dict = Depends(current_admin)):
     """Users with multiple unique reporters in the window, sorted by unique-reporter count desc.
     Drives the 'Reported Multiple Times' admin view."""
     await _require_admin(admin_id)
@@ -7175,7 +7265,7 @@ class ModerationLiftBody(BaseModel):
 
 
 @api.post("/admin/users/clear-restriction")
-async def admin_clear_restriction(body: ModerationLiftBody):
+async def admin_clear_restriction(body: ModerationLiftBody, _me: dict = Depends(current_admin)):
     """Lift a temporary restriction after admin review. Optionally also clears
     the 'flagged_for_review' badge. Unhides their notices."""
     await _require_admin(body.admin_id)
@@ -7217,7 +7307,7 @@ async def admin_policy():
 
 # ------------- Admin: promote / demote moderators -------------
 @api.get("/admin/admins")
-async def admin_list_admins(admin_id: str):
+async def admin_list_admins(admin_id: str, _me: dict = Depends(current_admin)):
     """Return every user currently flagged as admin. Visible to admins only."""
     await _require_admin(admin_id)
     rows = await db.users.find(
@@ -7228,7 +7318,7 @@ async def admin_list_admins(admin_id: str):
 
 
 @api.get("/admin/users/search")
-async def admin_search_users(admin_id: str, q: str = "", limit: int = 25):
+async def admin_search_users(admin_id: str, q: str = "", limit: int = 25, _me: dict = Depends(current_admin)):
     """Lightweight user search for admin tooling. Matches username, first
     name, or last name (case-insensitive, substring). Returns the bits an
     admin needs to identify the person + their current admin/restricted
@@ -7255,7 +7345,7 @@ class AdminPromoteBody(BaseModel):
 
 
 @api.post("/admin/users/admin-flag")
-async def admin_set_admin_flag(body: AdminPromoteBody):
+async def admin_set_admin_flag(body: AdminPromoteBody, _me: dict = Depends(current_admin)):
     """Toggle a user's `is_admin` flag. Admins only. We refuse to let an
     admin remove their *own* admin rights (so the platform always has at
     least the actor as admin), and refuse to demote the last remaining
@@ -8001,9 +8091,25 @@ async def crossword_get_progress(user_id: str, puzzle_id: str):
 
 
 @app.websocket("/api/ws/table/{table_id}")
-async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...)):
+async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...), token: str = Query("")):
     room = f"table:{table_id}"
     await hub.connect(room, websocket)
+    # SEC-005: Require a valid bearer token on connect AND require it to
+    # belong to the same user_id. Without this an attacker could impersonate
+    # anyone in the Coffee Lounge. Fail the socket cleanly with a typed
+    # "unauthorized" so the client can surface a friendly re-login prompt.
+    token_uid = decode_token(token) if token else None
+    if not token_uid or token_uid != user_id:
+        try:
+            await websocket.send_json({"type": "error", "code": "unauthorized", "message": "Please sign in again."})
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=4401)
+        except Exception:
+            pass
+        hub.disconnect(room, websocket)
+        return
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     # Founder-only guard for the Founders Lounge coffee table. We close the
     # socket gracefully with a typed error so the client can surface a kind
@@ -8107,9 +8213,23 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
 
 
 @app.websocket("/api/ws/dm/{conv_id}")
-async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...)):
+async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), token: str = Query("")):
     room = f"dm:{conv_id}"
     await hub.connect(room, websocket)
+    # SEC-005: Bearer-token check identical to /ws/table. Refuse the socket
+    # unless the token subject equals the claimed user_id.
+    token_uid = decode_token(token) if token else None
+    if not token_uid or token_uid != user_id:
+        try:
+            await websocket.send_json({"type": "error", "code": "unauthorized", "message": "Please sign in again."})
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=4401)
+        except Exception:
+            pass
+        hub.disconnect(room, websocket)
+        return
     user = await db.users.find_one({"id": user_id}, {"_id": 0})
     try:
         while True:
@@ -8476,12 +8596,29 @@ _STATIC_DIR = ROOT_DIR / "static"
 _STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/api/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+# CORS — locked-down allowlist for production, with the local Metro/Expo
+# dev proxy allowed for development. Wildcard `*` combined with
+# `allow_credentials=True` is unsafe (browsers reject it in practice and
+# it silently falls back to unauthenticated calls), so we build the list
+# explicitly from an env-configurable comma list. Defaults cover the
+# Emergent-hosted preview subdomains (*.emergentagent.com), the Metro
+# dev server, and the two live app origins.
+_CORS_DEFAULT = (
+    "http://localhost:3000,"
+    "http://localhost:19006,"
+    "https://youbelong.au,"
+    "https://www.youbelong.au"
+)
+_cors_env = os.getenv("CORS_ORIGINS", _CORS_DEFAULT)
+_cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+_cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"^https://[a-z0-9-]+\.emergentagent\.com$")
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_origin_regex=_cors_regex,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 

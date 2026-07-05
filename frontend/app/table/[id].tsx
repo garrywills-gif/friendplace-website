@@ -34,7 +34,7 @@ type Msg = {
 export default function TableChat() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { c, scale } = useTheme();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const { show } = useToast();
   const [table, setTable] = useState<any>(null);
@@ -73,7 +73,7 @@ export default function TableChat() {
       const msgs = await api.tableMessages(id);
       setMessages(msgs);
     })();
-    const ws = new WebSocket(wsUrl(`/ws/table/${id}?user_id=${user.id}`));
+    const ws = new WebSocket(wsUrl(`/ws/table/${id}?user_id=${user.id}&token=${encodeURIComponent(token || "")}`));
     wsRef.current = ws;
     ws.onmessage = (ev) => {
       const data = JSON.parse(ev.data);

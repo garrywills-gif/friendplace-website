@@ -16,7 +16,7 @@ import FounderMark from "@/src/components/FounderMark";
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
   const { c, scale, prefs } = useTheme();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { show } = useToast();
   const [messages, setMessages] = useState<any[]>([]);
   const [other, setOther] = useState<any>(null);
@@ -32,7 +32,7 @@ export default function DM() {
       setMessages(msgs);
       if (other_id) try { setOther(await api.getUser(other_id)); } catch {}
     })();
-    const ws = new WebSocket(wsUrl(`/ws/dm/${id}?user_id=${user.id}`));
+    const ws = new WebSocket(wsUrl(`/ws/dm/${id}?user_id=${user.id}&token=${encodeURIComponent(token || "")}`));
     wsRef.current = ws;
     ws.onmessage = (ev) => {
       const data = JSON.parse(ev.data);

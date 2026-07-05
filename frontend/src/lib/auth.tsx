@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { api } from "./api";
+import { api, setAuthToken } from "./api";
 import { registerForPush } from "./push";
 
 export type User = {
@@ -73,6 +73,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ]);
         if (rawU) try { setUser(JSON.parse(rawU) as User); } catch {}
         if (rawT) setToken(rawT);
+        // Sync into api.ts cache so cold-start requests are authed.
+        setAuthToken(rawT || null);
       } catch {}
       if (!cancelled) setLoading(false);
       clearTimeout(t);
@@ -83,6 +85,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const persist = async (u: User | null, tok: string | null) => {
     setUser(u);
     setToken(tok);
+    // Push the token into api.ts's in-memory cache so every subsequent
+    // fetch attaches the Authorization header without an AsyncStorage
+    // round-trip. Also keeps the cache in sync on logout.
+    setAuthToken(tok);
     try {
       if (u) await AsyncStorage.setItem(USER_KEY, JSON.stringify(u));
       else await AsyncStorage.removeItem(USER_KEY);

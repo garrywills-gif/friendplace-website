@@ -47,7 +47,13 @@ class Settings(BaseSettings):
     db_name: str = Field(..., alias="DB_NAME")
 
     # ---- Auth & session ----
-    jwt_secret: str = Field("yb-dev-secret-change-me", alias="JWT_SECRET")
+    # SIGNING KEY for our HS256 JWTs. No safe default — a weak or public
+    # secret lets anyone forge a session for any user, including admins
+    # (SEC-001). Boot fails fast if the env var is missing OR too short.
+    # Generate a fresh one with `python -c "import secrets;
+    # print(secrets.token_urlsafe(64))"` and paste into the Emergent env
+    # panel / .env. Minimum accepted length is 32 chars — enforced below.
+    jwt_secret: str = Field(..., alias="JWT_SECRET")
     jwt_ttl_min: int = Field(10080, alias="JWT_TTL_MIN")  # 7 days
     reset_ttl_min: int = Field(10, alias="RESET_TTL_MIN")
     max_login_attempts: int = Field(5, alias="MAX_LOGIN_ATTEMPTS")
@@ -85,3 +91,22 @@ class Settings(BaseSettings):
 
 # Singleton — import this everywhere; never instantiate manually.
 settings = Settings()  # type: ignore[call-arg]
+
+# ---- Runtime validation of security-sensitive knobs ----
+# Enforced here rather than as a Pydantic validator so the failure mode is
+# explicit at import time (and the message survives Pydantic's error
+# wrapping cleanly). SEC-001 remediation — refuse to start with a weak or
+# publicly-known JWT secret.
+_JWT_KNOWN_WEAK = {"yb-dev-secret-change-me", "change-me", "secret", ""}
+if (
+    not settings.jwt_secret
+    or len(settings.jwt_secret) < 32
+    or settings.jwt_secret in _JWT_KNOWN_WEAK
+):
+    raise RuntimeError(
+        "JWT_SECRET is missing, too short, or set to a known development "
+        "value. Generate a fresh one with:\n"
+        "    python -c 'import secrets; print(secrets.token_urlsafe(64))'\n"
+        "and add it to the backend .env / Emergent env panel. "
+        "Refusing to start — this would allow anyone to forge sessions."
+    )
