@@ -273,11 +273,6 @@ export default function Welcome() {
               <Text style={[styles.founderBannerTitle, { fontSize: 16 * scale }]}>
                 🦋 Become one of our first 500 Founding Members
               </Text>
-              {founderStatus.taken > 0 && founderStatus.remaining > 0 ? (
-                <Text style={[styles.founderBannerRemaining, { fontSize: 12 * scale, marginTop: 6 }]}>
-                  <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.remaining.toLocaleString()}</Text> places remaining
-                </Text>
-              ) : null}
               <Text style={[styles.founderBannerNote, { fontSize: 12 * scale }]}>
                 Join free as a Founding Member.
               </Text>

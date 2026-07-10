@@ -49,16 +49,17 @@ export default function BrandLockup({
 }) {
   // Font size derived from the requested width — keeps the wordmark
   // rhythm consistent across a huge range (splash 400 → header 120).
-  const fontSize = Math.round(width * 0.19);
+  // Slightly reduced ratio so the butterfly reads as the primary brand
+  // mark and the wordmark plays a supporting role.
+  const fontSize = Math.round(width * 0.17);
   const tagSize = Math.max(11, Math.round(width * 0.055));
   const gap = Math.max(4, Math.round(width * 0.02));
 
   // Butterfly icon sizing — the butterfly is the heart of the FriendPlace
-  // brand, so we scale it a touch bigger than the wordmark suggests. Aims
-  // for ~135–145px on the login screen, ~200px on the splash, and ~60px
-  // in the compact home header. Clamped to sensible bounds so it never
-  // dominates the layout or shrinks below recognisable.
-  const butterflySize = Math.max(60, Math.min(190, Math.round(width * 0.42)));
+  // brand and should be the first thing users notice. Sized larger than
+  // the wordmark suggests. Aims for ~150–160px on login, ~210px max on
+  // wide splash surfaces, and ~65px in the compact home header.
+  const butterflySize = Math.max(64, Math.min(210, Math.round(width * 0.46)));
 
   const friendColor = variant === "navy" ? NAVY_INK : "#FFFFFF";
   const placeColor = variant === "navy" ? TEAL_INK : "#5EEAD4"; // mint on dark
