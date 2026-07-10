@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform, useWindowDimensions } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -44,23 +44,26 @@ export default function SolitairePlay() {
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const season = useMemo(() => getCurrentSeason(), []);
-  const { width: winW } = useWindowDimensions();
 
-  // Responsive card size — the tableau is 7 columns with a small gap
-  // between each. On phones we cap around 88px so the deck feels tight;
-  // on tablets we let it stretch to ~140px so the cards fill the felt
-  // instead of clumping in a narrow band. Height is a 1.4x ratio
-  // (standard playing-card proportion).
+  // Measure the actual felt width via onLayout — using window dimensions
+  // would over-estimate on emulator/iframe previews and cause the 7 tableau
+  // cards to overflow the visible phone/tablet frame. We start with a
+  // sensible guess (360px) and re-measure on first paint.
+  const [feltWidth, setFeltWidth] = useState<number>(360);
+
+  // Responsive card size — 7 columns + 6 inter-column gaps must always
+  // fit inside the felt width. Card height is the standard 1.4x aspect.
+  // We cap the max card width so the deck never sprawls into unusable
+  // giants on ultra-wide surfaces.
   const { cardW, cardH, tableauGap } = useMemo(() => {
-    const isTablet = winW >= 768;
-    const gap = isTablet ? 12 : 8;
-    const horizontalPadding = 24;
-    const available = winW - horizontalPadding - gap * 6;
+    const gap = feltWidth >= 700 ? 12 : 6;
+    const paddingHoriz = 16; // matches the ScrollView's paddingHorizontal
+    const available = feltWidth - paddingHoriz - gap * 6;
     const raw = Math.floor(available / 7);
-    const maxW = isTablet ? 140 : 88;
-    const w = Math.max(42, Math.min(maxW, raw));
+    const maxW = feltWidth >= 900 ? 140 : feltWidth >= 700 ? 110 : 80;
+    const w = Math.max(38, Math.min(maxW, raw));
     return { cardW: w, cardH: Math.round(w * 1.4), tableauGap: gap };
-  }, [winW]);
+  }, [feltWidth]);
   const slotSize = { width: cardW, height: cardH };
   const cardStagger = Math.round(cardH * 0.35);
   const cardStaggerDown = Math.round(cardH * 0.2);
@@ -235,7 +238,15 @@ export default function SolitairePlay() {
   const won = isWon(state);
 
   return (
-    <View style={{ flex: 1, backgroundColor: season.felt }}>
+    <View
+      style={{ flex: 1, backgroundColor: season.felt }}
+      onLayout={(e) => {
+        const w = e.nativeEvent.layout.width;
+        // Only update if the width changed materially — avoids jitter
+        // from tiny layout re-flows on some platforms.
+        if (Math.abs(w - feltWidth) > 4) setFeltWidth(w);
+      }}
+    >
       <Header
         title="Solitaire"
         emoji="🦋"
