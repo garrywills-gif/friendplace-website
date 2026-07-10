@@ -53,12 +53,12 @@ export default function BrandLockup({
   const tagSize = Math.max(11, Math.round(width * 0.055));
   const gap = Math.max(4, Math.round(width * 0.02));
 
-  // Butterfly icon sizing — aims for ~120px on the login screen (where
-  // lockupWidth caps at 545 but is typically ~330 on a phone) and
-  // scales gracefully for the splash (340→140) and compact home
-  // header (140→64) placements. The rounded-square icon is visually
-  // heavier than the wordmark height, so we clamp to sensible bounds.
-  const butterflySize = Math.max(56, Math.min(160, Math.round(width * 0.36)));
+  // Butterfly icon sizing — the butterfly is the heart of the FriendPlace
+  // brand, so we scale it a touch bigger than the wordmark suggests. Aims
+  // for ~135–145px on the login screen, ~200px on the splash, and ~60px
+  // in the compact home header. Clamped to sensible bounds so it never
+  // dominates the layout or shrinks below recognisable.
+  const butterflySize = Math.max(60, Math.min(190, Math.round(width * 0.42)));
 
   const friendColor = variant === "navy" ? NAVY_INK : "#FFFFFF";
   const placeColor = variant === "navy" ? TEAL_INK : "#5EEAD4"; // mint on dark

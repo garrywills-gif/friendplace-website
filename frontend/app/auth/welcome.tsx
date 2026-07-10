@@ -88,8 +88,11 @@ export default function AuthWelcome() {
 
           <View style={{ alignItems: "center", marginTop: 10 }}>
             <Text style={[styles.hero, { fontSize: 34 * scale }]}>Welcome to FriendPlace</Text>
+            <Text style={[styles.brandLine, { fontSize: 15 * scale }]}>
+              Australia&apos;s friendly community for making genuine connections.
+            </Text>
             <Text style={[styles.tagline, { fontSize: 17 * scale }]}>
-              A welcoming place to meet people, join local events and build lasting friendships.
+              Meet new friends, discover local events and build lasting friendships.
             </Text>
           </View>
 
@@ -142,7 +145,16 @@ const styles = StyleSheet.create({
   inviterText: { color: "#FFFFFF", flex: 1, lineHeight: 20 },
 
   hero: { color: "#FFFFFF", fontWeight: "900", textAlign: "center", lineHeight: 44, marginTop: 20 },
-  tagline: { color: "rgba(255,255,255,0.92)", textAlign: "center", lineHeight: 24, marginTop: 14 },
+  brandLine: {
+    color: "#5EEAD4",
+    textAlign: "center",
+    marginTop: 8,
+    paddingHorizontal: 12,
+    fontWeight: "700",
+    fontStyle: "italic",
+    lineHeight: 22,
+  },
+  tagline: { color: "rgba(255,255,255,0.92)", textAlign: "center", lineHeight: 24, marginTop: 10 },
 
   timeChip: {
     alignSelf: "center",

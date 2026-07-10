@@ -237,17 +237,21 @@ export default function Welcome() {
         style={StyleSheet.absoluteFill}
       />
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
-        {/* Hero — official FriendPlace logo (with butterfly forming the "O")
-            plus a "COMMUNITY" descriptor strap underneath. */}
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 4, paddingBottom: insets.bottom + 24 }]}>
+        {/* Hero — teal butterfly + FriendPlace wordmark + descriptor.
+            Sits close to the top of the safe area so the empty space
+            above the brand mark stays minimal. */}
         <View style={styles.hero}>
           <View style={styles.logoWrap} testID="welcome-brand">
             <BrandLockup width={lockupWidth} variant="dark" />
           </View>
 
           <Text style={[styles.tag1, { fontSize: 28 * scale }]} testID="welcome-tag-primary">Welcome to FriendPlace</Text>
+          <Text style={[styles.brandLine, { fontSize: 16 * scale }]} testID="welcome-brand-line">
+            Australia&apos;s friendly community for making genuine connections.
+          </Text>
           <Text style={[styles.welcomeMsg, { fontSize: 15 * scale }]} testID="welcome-message">
-            A welcoming place to meet people, join local events and build lasting friendships.
+            Meet new friends, discover local events and build lasting friendships.
           </Text>
         </View>
 
@@ -274,11 +278,11 @@ export default function Welcome() {
               </Text>
               {founderStatus.taken > 0 ? (
                 <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
-                  <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.remaining.toLocaleString()}</Text> Founding Member places remaining.
+                  Only <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.remaining.toLocaleString()}</Text> Founding Member places remaining.
                 </Text>
               ) : (
                 <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
-                  Be among the first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.cap.toLocaleString()}</Text> Founding Members helping shape FriendPlace.
+                  Become one of our first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.cap.toLocaleString()}</Text> Founding Members.
                 </Text>
               )}
               <Text style={[styles.founderBannerNote, { fontSize: 12 * scale }]}>
@@ -341,8 +345,8 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   full: { flex: 1, backgroundColor: "#0D2A57" },
-  content: { paddingHorizontal: 22, flexGrow: 1, justifyContent: "flex-start", gap: 14 },
-  hero: { alignItems: "center", marginTop: 4 },
+  content: { paddingHorizontal: 22, flexGrow: 1, justifyContent: "flex-start", gap: 10 },
+  hero: { alignItems: "center", marginTop: 0 },
   miniTag: {
     color: "rgba(255,255,255,0.78)",
     textAlign: "center",
@@ -362,11 +366,21 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#FFFFFF",
     textAlign: "center",
-    marginTop: 22,
+    marginTop: 18,
     letterSpacing: 0.3,
     textShadowColor: "rgba(0,0,0,0.25)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 6,
+  },
+  brandLine: {
+    color: "#CCFBF1",
+    textAlign: "center",
+    marginTop: 8,
+    paddingHorizontal: 10,
+    fontWeight: "700",
+    fontStyle: "italic",
+    letterSpacing: 0.2,
+    lineHeight: 22,
   },
   tag2: {
     color: "#CCFBF1",
@@ -379,12 +393,12 @@ const styles = StyleSheet.create({
   welcomeMsg: {
     color: "rgba(255,255,255,0.92)",
     textAlign: "center",
-    marginTop: 10,
+    marginTop: 8,
     paddingHorizontal: 14,
-    lineHeight: 19,
+    lineHeight: 21,
     fontWeight: "500",
   },
-  actions: { gap: 12, marginTop: 28, marginBottom: 16 },
+  actions: { gap: 12, marginTop: 20, marginBottom: 16 },
   btnPrimary: {
     minHeight: 62, borderRadius: 999, backgroundColor: "#FFFFFF",
     alignItems: "center", justifyContent: "center",
