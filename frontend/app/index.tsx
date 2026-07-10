@@ -237,16 +237,16 @@ export default function Welcome() {
         style={StyleSheet.absoluteFill}
       />
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 4, paddingBottom: insets.bottom + 24 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingTop: Math.max(0, insets.top - 8), paddingBottom: insets.bottom + 24 }]}>
         {/* Hero — teal butterfly + FriendPlace wordmark + descriptor.
-            Sits close to the top of the safe area so the empty space
+            Sits tight against the safe-area edge so the empty space
             above the brand mark stays minimal. */}
         <View style={styles.hero}>
           <View style={styles.logoWrap} testID="welcome-brand">
             <BrandLockup width={lockupWidth} variant="dark" />
           </View>
 
-          <Text style={[styles.tag1, { fontSize: 28 * scale }]} testID="welcome-tag-primary">Welcome to FriendPlace</Text>
+          <Text style={[styles.tag1, { fontSize: 22 * scale }]} testID="welcome-tag-primary">Welcome to FriendPlace</Text>
           <Text style={[styles.welcomeMsg, { fontSize: 15 * scale }]} testID="welcome-message">
             Meet new friends, discover local events and build lasting friendships.
           </Text>
@@ -279,10 +279,10 @@ export default function Welcome() {
             </Pressable>
           ) : null}
           <Pressable testID="welcome-signup" onPress={() => router.push("/auth/welcome")} style={({ pressed }) => [styles.btnPrimary, { opacity: pressed ? 0.85 : 1 }]}>
-            <Text style={[styles.btnPrimaryText, { fontSize: 22 * scale }]}>Sign Up</Text>
+            <Text style={[styles.btnPrimaryText, { fontSize: 24 * scale }]}>Sign Up</Text>
           </Pressable>
           <Pressable testID="welcome-login" onPress={() => router.push("/auth/login")} style={({ pressed }) => [styles.btnOutline, { opacity: pressed ? 0.85 : 1 }]}>
-            <Text style={[styles.btnOutlineText, { fontSize: 22 * scale }]}>Log In</Text>
+            <Text style={[styles.btnOutlineText, { fontSize: 20 * scale }]}>Log In</Text>
           </Pressable>
 
           <View style={styles.divider}>
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     color: "#FFFFFF",
     textAlign: "center",
-    marginTop: 18,
+    marginTop: 14,
     letterSpacing: 0.3,
     textShadowColor: "rgba(0,0,0,0.25)",
     textShadowOffset: { width: 0, height: 2 },
@@ -386,15 +386,16 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: "500",
   },
-  actions: { gap: 12, marginTop: 20, marginBottom: 16 },
+  actions: { gap: 12, marginTop: 16, marginBottom: 16 },
   btnPrimary: {
-    minHeight: 62, borderRadius: 999, backgroundColor: "#FFFFFF",
+    minHeight: 72, borderRadius: 999, backgroundColor: "#FFFFFF",
     alignItems: "center", justifyContent: "center",
-    shadowColor: "#0D2A57", shadowOpacity: 0.32, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6,
+    paddingHorizontal: 32,
+    shadowColor: "#0D2A57", shadowOpacity: 0.38, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 8,
   },
-  btnPrimaryText: { color: "#1E3A7F", fontWeight: "900", letterSpacing: 0.3 },
+  btnPrimaryText: { color: "#1E3A7F", fontWeight: "900", letterSpacing: 0.4 },
   btnOutline: {
-    minHeight: 62, borderRadius: 999, borderWidth: 2, borderColor: "#FFFFFF",
+    minHeight: 56, borderRadius: 999, borderWidth: 2, borderColor: "#FFFFFF",
     alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.12)",
   },
   btnOutlineText: { color: "#FFFFFF", fontWeight: "900" },
