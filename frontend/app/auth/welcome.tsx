@@ -88,9 +88,6 @@ export default function AuthWelcome() {
 
           <View style={{ alignItems: "center", marginTop: 10 }}>
             <Text style={[styles.hero, { fontSize: 34 * scale }]}>Welcome to FriendPlace</Text>
-            <Text style={[styles.brandLine, { fontSize: 15 * scale }]}>
-              Australia&apos;s friendly community for making genuine connections.
-            </Text>
             <Text style={[styles.tagline, { fontSize: 17 * scale }]}>
               Meet new friends, discover local events and build lasting friendships.
             </Text>

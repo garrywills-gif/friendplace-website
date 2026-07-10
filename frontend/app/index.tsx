@@ -247,9 +247,6 @@ export default function Welcome() {
           </View>
 
           <Text style={[styles.tag1, { fontSize: 28 * scale }]} testID="welcome-tag-primary">Welcome to FriendPlace</Text>
-          <Text style={[styles.brandLine, { fontSize: 16 * scale }]} testID="welcome-brand-line">
-            Australia&apos;s friendly community for making genuine connections.
-          </Text>
           <Text style={[styles.welcomeMsg, { fontSize: 15 * scale }]} testID="welcome-message">
             Meet new friends, discover local events and build lasting friendships.
           </Text>
@@ -274,17 +271,13 @@ export default function Welcome() {
               style={({ pressed }) => [styles.founderBanner, { opacity: pressed ? 0.85 : 1 }]}
             >
               <Text style={[styles.founderBannerTitle, { fontSize: 16 * scale }]}>
-                🦋 Founding Members
+                🦋 Become one of our first 500 Founding Members
               </Text>
-              {founderStatus.taken > 0 ? (
-                <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
-                  Only <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.remaining.toLocaleString()}</Text> Founding Member places remaining.
+              {founderStatus.taken > 0 && founderStatus.remaining > 0 ? (
+                <Text style={[styles.founderBannerRemaining, { fontSize: 12 * scale, marginTop: 6 }]}>
+                  <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.remaining.toLocaleString()}</Text> places remaining
                 </Text>
-              ) : (
-                <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
-                  Become one of our first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.cap.toLocaleString()}</Text> Founding Members.
-                </Text>
-              )}
+              ) : null}
               <Text style={[styles.founderBannerNote, { fontSize: 12 * scale }]}>
                 Join free as a Founding Member.
               </Text>
@@ -434,6 +427,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     textAlign: "center",
     lineHeight: 22,
+  },
+  founderBannerRemaining: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    textAlign: "center",
+    letterSpacing: 0.3,
+    opacity: 0.85,
   },
   founderBannerTitle: {
     color: "#FBBF24",
