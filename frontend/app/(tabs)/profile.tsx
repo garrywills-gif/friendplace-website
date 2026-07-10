@@ -93,7 +93,7 @@ export default function Profile() {
       await api.sendFlutter({
         from_id: user.id,
         to_id: invitee.id,
-        message: `Welcome to YouBelong, ${invitee.first_name || ""}! So glad you joined 🦋`,
+        message: `Welcome to FriendPlace, ${invitee.first_name || ""}! So glad you joined 🦋`,
       });
       show(`Said hi to ${invitee.first_name || invitee.username || "your friend"} 🦋`);
     } catch (e: any) {

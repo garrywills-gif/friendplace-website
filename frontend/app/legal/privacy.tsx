@@ -5,7 +5,7 @@
  * store listings (and to the sign-up screen disclosure) is stable, mobile-
  * friendly, and updates with every app release.
  *
- * The wording below is a sensible starting draft tailored to YouBelong's
+ * The wording below is a sensible starting draft tailored to FriendPlace's
  * actual data flow — it should be reviewed by the user (and ideally a
  * lawyer in the launch jurisdiction) before public submission. The
  * **Last updated** date below is the single source of truth: bump it
@@ -27,10 +27,10 @@ export default function PrivacyPolicy() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Privacy Policy" />
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 48, gap: 14 }}>
-        <Text style={[styles.h1, { color: c.onSurface, fontSize: 26 * scale }]}>YouBelong Privacy Policy</Text>
+        <Text style={[styles.h1, { color: c.onSurface, fontSize: 26 * scale }]}>FriendPlace Privacy Policy</Text>
         <Text style={[styles.meta, { color: c.muted, fontSize: 13 * scale }]}>Last updated: {LAST_UPDATED}</Text>
         <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>
-          YouBelong is a community app for friendship, connection and belonging.
+          FriendPlace is a community app for friendship, connection and belonging.
           Your trust is important to us. This policy explains what we collect, how
           we use it, and the choices you have.
         </Text>
@@ -44,14 +44,14 @@ export default function PrivacyPolicy() {
         </Section>
 
         <Section title="How we use it" c={c} scale={scale}>
-          <Bullet c={c} scale={scale}>To run YouBelong — show your profile to friends, deliver your messages, suggest people nearby (by suburb), and let you join groups, events and Coffee Lounge tables.</Bullet>
+          <Bullet c={c} scale={scale}>To run FriendPlace — show your profile to friends, deliver your messages, suggest people nearby (by suburb), and let you join groups, events and Coffee Lounge tables.</Bullet>
           <Bullet c={c} scale={scale}>To keep the community safe — review reports, prevent abuse, and apply our community guidelines.</Bullet>
           <Bullet c={c} scale={scale}>To send service notifications (e.g. event reminders, friend requests). You can turn these off in Settings.</Bullet>
           <Bullet c={c} scale={scale}>To improve the app — measure aggregate usage (never tied to your identity in marketing reports).</Bullet>
         </Section>
 
         <Section title="Who we share it with" c={c} scale={scale}>
-          <Bullet c={c} scale={scale}>Other YouBelong members — only the parts of your profile you choose to share (e.g. first name, suburb, interests, avatar).</Bullet>
+          <Bullet c={c} scale={scale}>Other FriendPlace members — only the parts of your profile you choose to share (e.g. first name, suburb, interests, avatar).</Bullet>
           <Bullet c={c} scale={scale}>Service providers that help us run the app (e.g. cloud hosting, email delivery). They handle data on our behalf under strict contracts and never use it for their own purposes.</Bullet>
           <Bullet c={c} scale={scale}>Law-enforcement, if we are legally required, or to protect the safety of our community.</Bullet>
         </Section>
@@ -65,7 +65,7 @@ export default function PrivacyPolicy() {
 
         <Section title="Children" c={c} scale={scale}>
           <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>
-            YouBelong is not designed for children under 13 and we do not knowingly
+            FriendPlace is not designed for children under 13 and we do not knowingly
             collect data from them. If you believe a child has signed up, please
             contact us and we will remove the account.
           </Text>
@@ -84,7 +84,7 @@ export default function PrivacyPolicy() {
           <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>
             We may update this policy from time to time. When we do we will
             update the date above and, for significant changes, let you know
-            in the app. Continuing to use YouBelong after a change means you
+            in the app. Continuing to use FriendPlace after a change means you
             accept the updated policy.
           </Text>
         </Section>

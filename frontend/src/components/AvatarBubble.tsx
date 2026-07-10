@@ -3,7 +3,7 @@
  * (image) depending on whether the stored `value` is a URL.
  *
  * Why this exists:
- *   Native YouBelong accounts pick an emoji avatar (🙂 🌸 🎨 …). Google
+ *   Native FriendPlace accounts pick an emoji avatar (🙂 🌸 🎨 …). Google
  *   sign-in users instead get a Google photo URL stored in `user.avatar`.
  *   Without this helper, those URLs render as raw text inside the avatar
  *   circle (👀 ugly bug). This component transparently switches between

@@ -2,7 +2,7 @@
  * /friends/new-this-week
  *
  * A focused, lightweight screen that shows ONLY the members who joined
- * YouBelong in the last 7 days. Linked from the "Say hello to N new
+ * FriendPlace in the last 7 days. Linked from the "Say hello to N new
  * neighbour(s) this week" row on Home — that row used to dump people into
  * the full Find Friends list, which buried the new arrivals.
  *
@@ -82,7 +82,7 @@ export default function NewThisWeek() {
         <View style={{ alignItems: "center", marginTop: 8 }}>
           <Text style={{ fontSize: 30 }}>👋</Text>
           <Text style={[styles.title, { color: c.onSurface, fontSize: 22 * scale }]}>New this week</Text>
-          <Text style={[styles.sub, { color: c.muted, fontSize: 13 * scale }]}>Friendly faces who just joined YouBelong</Text>
+          <Text style={[styles.sub, { color: c.muted, fontSize: 13 * scale }]}>Friendly faces who just joined FriendPlace</Text>
         </View>
       </View>
 
@@ -106,7 +106,7 @@ export default function NewThisWeek() {
               No new neighbours just yet
             </Text>
             <Text style={{ color: c.muted, textAlign: "center", marginTop: 4, fontSize: 13 * scale, lineHeight: 18 }}>
-              Check back next week — or invite a friend to join YouBelong and make their week.
+              Check back next week — or invite a friend to join FriendPlace and make their week.
             </Text>
             <Pressable
               testID="ntw-invite"

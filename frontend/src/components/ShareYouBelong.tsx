@@ -1,5 +1,5 @@
 /**
- * Share YouBelong — invite friends & family via SMS, Email, Copy Link, or QR.
+ * Share FriendPlace — invite friends & family via SMS, Email, Copy Link, or QR.
  *
  * Single reusable component used on Home and Profile. Renders an outlined
  * button that opens a bottom-sheet modal with the four share options.
@@ -38,10 +38,10 @@ const BASE_SHARE_URL: string =
 export const SHARE_URL = BASE_SHARE_URL;
 
 export const SHARE_MESSAGE =
-  "Join me on YouBelong – a friendly community where you can meet people, " +
+  "Join me on FriendPlace – a friendly community where you can meet people, " +
   "join local events, chat in the Coffee Lounge, share interests and make new friends.";
 
-export const SHARE_SUBJECT = "Join me on YouBelong";
+export const SHARE_SUBJECT = "Join me on FriendPlace";
 
 const fullBody = `${SHARE_MESSAGE}\n\n${SHARE_URL}`;
 
@@ -91,7 +91,7 @@ export default function ShareYouBelong({
   }, [open]);
 
   // Founder-aware copy: if the inviter is a Founding Member the message
-  // says so ("I'm one of the founding members of YouBelong"). And when
+  // says so ("I'm one of the founding members of FriendPlace"). And when
   // we know how many seats are left we tack that on for urgency.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const founderUser = (user as any)?.is_founder;
@@ -101,7 +101,7 @@ export default function ShareYouBelong({
         typeof founderRemaining === "number" && founderRemaining > 0
           ? ` There are ${founderRemaining.toLocaleString()} Founding Member spots left.`
           : "";
-      return `I'm one of the founding members of YouBelong — a friendly community where you can meet people, join local events, chat in the Coffee Lounge and make new friends.${seats} Come join me 🦋`;
+      return `I'm one of the founding members of FriendPlace — a friendly community where you can meet people, join local events, chat in the Coffee Lounge and make new friends.${seats} Come join me 🦋`;
     }
     return SHARE_MESSAGE;
   }, [founderUser, founderRemaining]);
@@ -227,7 +227,7 @@ export default function ShareYouBelong({
           onPress={() => setOpen(true)}
           style={({ pressed }) => [styles.highlight, { opacity: pressed ? 0.92 : 1 }]}
           accessibilityRole="button"
-          accessibilityLabel="Invite a friend to YouBelong"
+          accessibilityLabel="Invite a friend to FriendPlace"
         >
           <View style={styles.highlightIconWrap}>
             <Ionicons name="gift" size={30} color="#FFFFFF" />
@@ -251,7 +251,7 @@ export default function ShareYouBelong({
         >
           <Ionicons name="share-social" size={28} color="#FFFFFF" />
           <View style={{ flex: 1, marginLeft: 14 }}>
-            <Text style={[styles.tileTitle, { fontSize: 18 * scale }]}>Share YouBelong</Text>
+            <Text style={[styles.tileTitle, { fontSize: 18 * scale }]}>Share FriendPlace</Text>
             <Text style={[styles.tileSub, { fontSize: 13 * scale }]}>Invite friends & family</Text>
           </View>
           <Ionicons name="chevron-forward" size={22} color="rgba(255,255,255,0.85)" />
@@ -266,7 +266,7 @@ export default function ShareYouBelong({
           style={({ pressed }) => [styles.ghostBtn, { borderColor: c.brand, opacity: pressed ? 0.7 : 1 }]}
         >
           <Ionicons name="share-social" size={20} color={c.brand} />
-          <Text style={{ color: c.brand, fontWeight: "800", fontSize: 16 * scale }}>Share YouBelong</Text>
+          <Text style={{ color: c.brand, fontWeight: "800", fontSize: 16 * scale }}>Share FriendPlace</Text>
         </Pressable>
       );
     }
@@ -277,7 +277,7 @@ export default function ShareYouBelong({
         style={({ pressed }) => [styles.primaryBtn, { backgroundColor: c.brand, opacity: pressed ? 0.85 : 1 }]}
       >
         <Ionicons name="share-social" size={22} color="#FFFFFF" />
-        <Text style={[styles.primaryTxt, { fontSize: 17 * scale }]}>Share YouBelong</Text>
+        <Text style={[styles.primaryTxt, { fontSize: 17 * scale }]}>Share FriendPlace</Text>
       </Pressable>
     );
   };
@@ -295,7 +295,7 @@ export default function ShareYouBelong({
             <View style={styles.handle} />
             <View style={styles.headRow}>
               <Text style={[styles.title, { color: c.onSurface, fontSize: 22 * scale }]}>
-                {showQR ? "Scan to join" : "Invite Friends to YouBelong"}
+                {showQR ? "Scan to join" : "Invite Friends to FriendPlace"}
               </Text>
               <Pressable
                 testID="share-close"
@@ -313,7 +313,7 @@ export default function ShareYouBelong({
                   <QRCode value={sharedUrl} size={240} backgroundColor="#FFFFFF" color="#0F172A" />
                 </View>
                 <Text style={[styles.qrCaption, { color: c.onSurface, fontSize: 16 * scale }]}>
-                  Point a phone camera at this code to open YouBelong.
+                  Point a phone camera at this code to open FriendPlace.
                 </Text>
                 <Text selectable style={[styles.qrUrl, { color: c.muted, fontSize: 13 * scale }]} numberOfLines={2}>
                   {sharedUrl}

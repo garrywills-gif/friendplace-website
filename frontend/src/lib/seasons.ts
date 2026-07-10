@@ -8,7 +8,7 @@
  *   1. Holidays (fixed dates that trump ambient seasons): Christmas,
  *      Easter, Valentine's, Halloween, Australia Day, Mother's Day
  *   2. Ambient Southern-Hemisphere season: Summer / Autumn / Winter /
- *      Spring (YouBelong is Australian-first)
+ *      Spring (FriendPlace is Australian-first)
  *
  * We deliberately compute in local time — a user in Melbourne opening
  * the app on 25 December should always see Christmas, regardless of
@@ -31,7 +31,7 @@ export type SeasonKey =
 
 export type SeasonTheme = {
   key: SeasonKey;
-  /** Short human label — used in headings ("Summer at YouBelong"). */
+  /** Short human label — used in headings ("Summer at FriendPlace"). */
   label: string;
   /** Marketing-y sub label ("Long days, lazy afternoons"). */
   tagline: string;

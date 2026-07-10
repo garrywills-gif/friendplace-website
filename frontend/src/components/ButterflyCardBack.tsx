@@ -4,15 +4,15 @@ import Svg, { Path, Defs, LinearGradient as SvgGradient, Stop, Circle, G } from 
 import type { SeasonTheme } from "@/src/lib/seasons";
 
 /**
- * ButterflyCardBack — the branded YouBelong card back for Klondike.
+ * ButterflyCardBack — the branded FriendPlace card back for Klondike.
  *
  * Design brief (June 2026):
- *   • Recognisable YouBelong butterfly silhouette (matches the app icon).
+ *   • Recognisable FriendPlace butterfly silhouette (matches the app icon).
  *   • Teal + navy-blue gradient body — the two brand hues.
  *   • Seasonal accent stripe so the back subtly shifts with the theme
  *     (Winter → cool blue, Christmas → red, Summer → gold, etc.) while
  *     the wings always stay teal/navy so members instantly recognise the
- *     card back as "the YouBelong deck".
+ *     card back as "the FriendPlace deck".
  *   • Fully vector — no image assets, scales cleanly from a 44px card in
  *     the tableau up to the 78×112 preview on the hub.
  *   • Zero dependencies beyond `react-native-svg` (already installed).
@@ -75,7 +75,7 @@ export function ButterflyCardBack({
 
         {/* Butterfly — pair of wings mirrored around a slim body. Each
             wing is a bezier path with a large upper lobe and a small
-            lower lobe, matching the YouBelong app icon silhouette. */}
+            lower lobe, matching the FriendPlace app icon silhouette. */}
         <G transform="translate(50 70)">
           {/* left wings */}
           <Path

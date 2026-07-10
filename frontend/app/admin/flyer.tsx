@@ -88,7 +88,7 @@ export default function InviteFlyer() {
             <Text style={{ color: c.brand, fontWeight: "900", fontSize: 17 * scale }}>Printable QR poster</Text>
           </View>
           <Text style={{ color: c.onSurface, fontSize: 14 * scale, marginTop: 6, lineHeight: 20 }}>
-            Generate an A4 portrait poster with a large QR code that takes scanners straight to YouBelong.
+            Generate an A4 portrait poster with a large QR code that takes scanners straight to FriendPlace.
             Pin it up at community centres, libraries, cafés, clubs and anywhere people gather.
             New signups through your poster will be credited to your admin account.
           </Text>

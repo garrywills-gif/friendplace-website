@@ -139,7 +139,7 @@ export default function FounderInfo() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surfaceBase }}>
-      <Header title="Founding Members" emoji="🦋" subtitle="Help shape YouBelong from day one" />
+      <Header title="Founding Members" emoji="🦋" subtitle="Help shape FriendPlace from day one" />
       <ScrollView
         contentContainerStyle={{
           padding: 18,
@@ -160,7 +160,7 @@ export default function FounderInfo() {
             Become a Founding Member
           </Text>
           <Text style={{ color: "#5B3F08", fontSize: 15 * scale, textAlign: "center", marginTop: 8, lineHeight: 22 }}>
-            Help shape YouBelong from the very beginning. Founding Members are the heart of our community — recognised, celebrated and rewarded.
+            Help shape FriendPlace from the very beginning. Founding Members are the heart of our community — recognised, celebrated and rewarded.
           </Text>
           {status ? (
             <View style={styles.counterPill}>
@@ -264,7 +264,7 @@ export default function FounderInfo() {
               Join {status?.taken ? `${status.taken.toLocaleString()} other ` : ""}Founding Member{status?.taken === 1 ? "" : "s"}?
             </Text>
             <Text style={{ color: c.muted, fontSize: 14 * scale, textAlign: "center", marginTop: 8, lineHeight: 20 }}>
-              Help shape YouBelong. Free forever — you&apos;ll never be charged once you join.
+              Help shape FriendPlace. Free forever — you&apos;ll never be charged once you join.
             </Text>
             <View style={{ flexDirection: "row", gap: 10, marginTop: 18 }}>
               <Pressable

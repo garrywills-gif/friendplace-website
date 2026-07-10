@@ -326,7 +326,7 @@ export default function NewEvent() {
               This looks like a business event
             </Text>
             <Text style={[modalStyles.body, { color: c.onSurface, fontSize: 15 * scale }]}>
-              YouBelong is built for our community — so when we spot business listings, we gently let you know.
+              FriendPlace is built for our community — so when we spot business listings, we gently let you know.
               {"\n\n"}
               <Text style={{ fontWeight: "800" }}>🎁 {businessModal?.trialOffer}</Text>
               {"\n\n"}

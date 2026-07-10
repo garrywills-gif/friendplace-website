@@ -104,7 +104,7 @@ export default function Settings() {
 
         <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>Safety</Text>
         <Text style={{ color: c.muted, fontSize: 15 * scale, lineHeight: 22 }}>
-          You can report or block any user from their profile page. Reports go to our moderator dashboard so we can keep YouBelong a warm and welcoming space for everyone. 🦋
+          You can report or block any user from their profile page. Reports go to our moderator dashboard so we can keep FriendPlace a warm and welcoming space for everyone. 🦋
         </Text>
 
         <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>Legal</Text>

@@ -148,7 +148,7 @@ export default function FirstRunCard({ userId, firstName, testID = "first-run-ca
       <View style={styles.head}>
         <View style={{ flex: 1, paddingRight: 8 }}>
           <Text style={{ color: c.brand, fontWeight: "900", fontSize: 12 * scale, letterSpacing: 1 }}>
-            WELCOME TO YOUBELONG
+            WELCOME TO FRIENDPLACE
           </Text>
           <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 18 * scale, marginTop: 4 }}>
             {firstName ? `${firstName}, here's a good first step` : "Here's a good first step"}

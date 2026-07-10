@@ -118,7 +118,7 @@ export default function TableChat() {
   /**
    * Open the device photo library, compress the picked image to a small JPEG
    * data-URI, and stage it as a draft so the user can review (and optionally
-   * add a caption) before sending. Follows the YouBelong permission contract:
+   * add a caption) before sending. Follows the FriendPlace permission contract:
    * pre-request explanation is handled by the OS picker prompt for photos —
    * we only ever need read-only access to a single picked item, which is the
    * "ph_picker"-grade permission on iOS 14+ and Android 13+.
@@ -361,7 +361,7 @@ export default function TableChat() {
             <Text style={{ fontSize: 36 }}>📷</Text>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale, marginTop: 6, textAlign: "center" }}>Photo access blocked</Text>
             <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center", lineHeight: 22 }}>
-              To share photos in the Coffee Lounge, allow YouBelong access to your photos in Settings.
+              To share photos in the Coffee Lounge, allow FriendPlace access to your photos in Settings.
             </Text>
             <Pressable onPress={() => { setPermBlocked(false); Linking.openSettings(); }} style={[styles.permBtn, { backgroundColor: c.brand }]}>
               <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Open Settings</Text>

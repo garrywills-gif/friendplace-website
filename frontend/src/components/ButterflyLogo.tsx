@@ -4,7 +4,7 @@ import { View, StyleSheet } from "react-native";
 /**
  * Flat two-tone butterfly drawn with Views — no images, no SVG.
  * Left wings = deep teal/blue, right wings = mint/light teal,
- * matching the YouBelong brand mark.
+ * matching the FriendPlace brand mark.
  */
 export default function ButterflyLogo({ size = 96 }: { size?: number }) {
   const wingW = size * 0.46;

@@ -1,5 +1,5 @@
 /**
- * YouBelong — push registration helper (STUBBED).
+ * FriendPlace — push registration helper (STUBBED).
  *
  * Push notifications are deferred until we enable the Apple Push
  * Notifications capability on our provisioning profile. This module

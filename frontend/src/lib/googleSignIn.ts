@@ -8,7 +8,7 @@
  *   2. `consumePendingSession(handler)` — runs on app mount and looks for a
  *      `session_id` in the URL (web) or initial deep link (native). If found,
  *      it forwards it to the auth context, which swaps it server-side for a
- *      YouBelong JWT.
+ *      FriendPlace JWT.
  *
  * The redirect URL is platform-specific per the playbook:
  *   - web:    `${window.location.origin}/` (existing root route)

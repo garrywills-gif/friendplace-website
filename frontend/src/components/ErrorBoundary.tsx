@@ -32,7 +32,7 @@ export default class ErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     // eslint-disable-next-line no-console
-    console.error("[YouBelong] Unhandled render error:", error, info?.componentStack);
+    console.error("[FriendPlace] Unhandled render error:", error, info?.componentStack);
   }
 
   reset = () => {
@@ -58,7 +58,7 @@ export default class ErrorBoundary extends React.Component<
           <Ionicons name="warning" size={54} color="#F59E0B" />
           <Text style={styles.title}>Something went wrong</Text>
           <Text style={styles.body}>
-            YouBelong hit a small hiccup. Your account is safe — you don&apos;t need to sign in again. Please try again below.
+            FriendPlace hit a small hiccup. Your account is safe — you don&apos;t need to sign in again. Please try again below.
           </Text>
           {!!msg && (
             <Text style={styles.detail} numberOfLines={4}>{msg}</Text>

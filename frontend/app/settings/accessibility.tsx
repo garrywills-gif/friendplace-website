@@ -33,7 +33,7 @@ const ROWS: RowDef[] = [
     title: "Voice typing",
     desc: "Tap any message box, then tap the 🎤 on your device's keyboard to dictate instead of typing. Works on iPhone, iPad and Android.",
     icon: "mic",
-    note: "Coming Soon — an extra in-app microphone button with live transcription. Until then, your keyboard's microphone works everywhere in YouBelong.",
+    note: "Coming Soon — an extra in-app microphone button with live transcription. Until then, your keyboard's microphone works everywhere in FriendPlace.",
   },
 ];
 
@@ -58,7 +58,7 @@ export default function Accessibility() {
       <Header title="Accessibility" />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}>
         <Text style={[styles.intro, { color: c.onSurfaceSecondary, fontSize: 16 * scale }]}>
-          Make YouBelong easier to see, hear and use. These settings are saved on this device.
+          Make FriendPlace easier to see, hear and use. These settings are saved on this device.
         </Text>
 
         {ROWS.map((r) => {

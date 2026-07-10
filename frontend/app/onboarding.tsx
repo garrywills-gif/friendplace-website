@@ -1,5 +1,5 @@
 /**
- * YouBelong post-signup onboarding wizard.
+ * FriendPlace post-signup onboarding wizard.
  *
  * Replaces the old feature-tour with a data-collection flow that gets new
  * members engaged in under a minute. Six steps, with a progress bar and
@@ -164,7 +164,7 @@ export default function OnboardingWizard() {
         joined_all: !skipGroups && joinedAll,
       });
       try { await refresh?.(); } catch {}
-      show("You're all set up! Welcome to YouBelong 🦋");
+      show("You're all set up! Welcome to FriendPlace 🦋");
       if (Platform.OS === "web") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).location.assign(destinationRoute);
@@ -193,13 +193,13 @@ export default function OnboardingWizard() {
         <Text style={{ fontSize: 84 }}>🦋</Text>
       </View>
       <Text style={[styles.h1, { color: c.onSurface, fontSize: 30 * scale, textAlign: "center" }]}>
-        Welcome to YouBelong
+        Welcome to FriendPlace
       </Text>
       <Text style={[styles.body, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
         A warm, friendly place for friendship, connection and community.
       </Text>
 
-      {/* Three-bullet "what YouBelong is" explainer so brand-new users
+      {/* Three-bullet "what FriendPlace is" explainer so brand-new users
           form the right mental model before they start filling forms. */}
       <View style={[styles.featureList, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
         <View style={styles.featureRow}>
@@ -417,7 +417,7 @@ export default function OnboardingWizard() {
         Where would you like to start? Tap one and we&apos;ll take you straight there.
       </Text>
 
-      {/* Destination picker — the warmth of YouBelong comes from real
+      {/* Destination picker — the warmth of FriendPlace comes from real
           contact with other members, so we give the user three concrete
           first-touch options rather than dumping them onto Home. The
           footer CTA below mirrors whichever tile is selected. */}

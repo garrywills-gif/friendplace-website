@@ -1,5 +1,5 @@
 /**
- * YouBelong shared Interest catalogue.
+ * FriendPlace shared Interest catalogue.
  * Deliberately balanced for men and women, older adults and retirees.
  * Order is curated so the most-asked-for items sit near the top.
  */

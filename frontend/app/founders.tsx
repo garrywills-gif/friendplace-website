@@ -73,7 +73,7 @@ export default function FoundersWall() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surfaceBase }}>
-      <Header title="Founders Wall" emoji="🦋" subtitle="The Founding Members of YouBelong" />
+      <Header title="Founders Wall" emoji="🦋" subtitle="The Founding Members of FriendPlace" />
       <ScrollView
         contentContainerStyle={{
           padding: 18,
@@ -137,8 +137,8 @@ export default function FoundersWall() {
             </Text>
             <Text style={{ color: c.onSurface, fontSize: 14 * scale, marginTop: 4, lineHeight: 20 }}>
               {cap != null
-                ? `${total} of ${cap.toLocaleString()} early members shaping YouBelong together.`
-                : `${total} early members shaping YouBelong together.`}
+                ? `${total} of ${cap.toLocaleString()} early members shaping FriendPlace together.`
+                : `${total} early members shaping FriendPlace together.`}
             </Text>
             <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale, marginTop: 4, letterSpacing: 0.3 }}>
               JOIN FREE AS A FOUNDING MEMBER

@@ -8,7 +8,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 
 const FAQ = [
-  { q: "What is YouBelong?", a: "YouBelong is a warm, friendly community app for friendship, connection and community. Meet new friends, have a coffee chat, play games, and stay connected — at your own pace." },
+  { q: "What is FriendPlace?", a: "FriendPlace is a warm, friendly community app for friendship, connection and community. Meet new friends, have a coffee chat, play games, and stay connected — at your own pace." },
   { q: "How do I make a friend?", a: "Open Find Friends from the bottom bar, browse members near you, and tap 'Send Friend Request'. When they accept, you can chat any time." },
   { q: "What is the Coffee Lounge?", a: "The Coffee Lounge is our virtual living room. Sit at any table for a friendly chat with others, just like a real café. New tables open every day." },
   { q: "What are Flutters?", a: "A Flutter is a gentle wave to someone — like saying 'hello, I'm here'. You can also send Flutters to congratulate friends on a game achievement." },

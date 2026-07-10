@@ -2,7 +2,7 @@ import React from "react";
 import { View } from "react-native";
 
 /**
- * YouBelong brand mark: two friends forming an "O".
+ * FriendPlace brand mark: two friends forming an "O".
  *
  * The outer O is a two-tone ring. Inside the ring, two clearly recognisable
  * person silhouettes (round head + rounded shoulder/bust) face each other.

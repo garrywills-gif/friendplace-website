@@ -238,7 +238,7 @@ export const api = {
 
   // spot the difference
   stdCatalog: () => req("/games/spot/catalog"),
-  // Invitation analytics + admin flyer (Share YouBelong follow-ons)
+  // Invitation analytics + admin flyer (Share FriendPlace follow-ons)
   inviteStats: (user_id: string) => req(`/users/${user_id}/invite-stats`),
   inviter: (user_id: string) => req(`/users/${user_id}/inviter`),
   inviteFlyerUrl: (admin_id: string, venue: string, url: string) =>

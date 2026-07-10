@@ -383,7 +383,7 @@ function CardFace({ card }: { card: Card }) {
 }
 
 function CardBack({ season }: { season: ReturnType<typeof getCurrentSeason> }) {
-  // Branded YouBelong butterfly card back — teal + navy body, seasonal
+  // Branded FriendPlace butterfly card back — teal + navy body, seasonal
   // accent stripe. Rendered via SVG so it stays crisp from 44px (tableau
   // card) up to 78px (hub preview) without extra assets.
   return <ButterflyCardBack width={CARD_W} height={CARD_H} season={season} showCorners={false} />;

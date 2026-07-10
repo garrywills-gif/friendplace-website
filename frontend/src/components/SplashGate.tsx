@@ -5,7 +5,7 @@ import BrandLockup from "./BrandLockup";
 
 /**
  * SplashGate — an in-JS brand splash overlay that briefly shows the official
- * "YouBelong COMMUNITY" lockup over a clean teal-tinted backdrop on app start.
+ * "FriendPlace COMMUNITY" lockup over a clean teal-tinted backdrop on app start.
  *
  * Why this exists:
  *   The native expo-splash-screen uses a static PNG. To keep the brand

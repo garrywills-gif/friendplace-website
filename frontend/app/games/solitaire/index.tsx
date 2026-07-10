@@ -36,7 +36,7 @@ export default function SolitaireHub() {
         {/* Seasonal hero */}
         <View style={[styles.hero, { backgroundColor: season.felt, borderColor: season.outline }]}>
           <View style={styles.heroBackWrap}>
-            {/* Themed butterfly card back preview — branded YouBelong
+            {/* Themed butterfly card back preview — branded FriendPlace
                 teal + navy with a seasonal accent stripe. */}
             <ButterflyCardBack width={78} height={112} season={season} />
           </View>

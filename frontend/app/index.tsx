@@ -69,7 +69,7 @@ export default function Welcome() {
     return () => { cancelled = true; };
   }, []);
   // Brand lockup uses the original PNG wordmark (with the butterfly forming
-  // the "O" in YouBelong) plus a "COMMUNITY" tagline strap underneath.
+  // the "O" in FriendPlace) plus a "COMMUNITY" tagline strap underneath.
   // Sized in points — caps at 545 so it never overflows on tablet widths.
   const lockupWidth = Math.round(Math.min(winW - 28, 545));
 
@@ -102,7 +102,7 @@ export default function Welcome() {
         const r = await consumePendingSession(loginWithGoogle);
         if (cancelled) return;
         if (r.handled) {
-          show(r.isNew ? "Welcome to YouBelong!" : "Welcome back!");
+          show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
           // Brand-new users go straight into the onboarding wizard; returning
           // users land on /home. The home tab also has a guard that catches
           // any non-onboarded user as a safety net.
@@ -155,7 +155,7 @@ export default function Welcome() {
         // On native, sid is the freshly returned session_id (or null on cancel).
         if (sid) {
           const r = await loginWithGoogle(sid, null);
-          show(r.isNew ? "Welcome to YouBelong!" : "Welcome back!");
+          show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
           router.replace("/home" as any);
         } else if (Platform.OS !== "web") {
           // user cancelled the in-app browser
@@ -181,7 +181,7 @@ export default function Welcome() {
         try { ref = await AsyncStorage.getItem("youbelong.invite.ref"); } catch {}
         const r = await loginWithApple(credential.identityToken, credential.authorizationCode, credential.firstName, credential.lastName, ref);
         try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch {}
-        show(r.isNew ? "Welcome to YouBelong!" : "Welcome back!");
+        show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
         const dest = r.isNew ? "/onboarding" : "/home";
         router.replace(dest as any);
       } catch (e: any) {
@@ -237,7 +237,7 @@ export default function Welcome() {
       />
 
       <ScrollView contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
-        {/* Hero — official YouBelong logo (with butterfly forming the "O")
+        {/* Hero — official FriendPlace logo (with butterfly forming the "O")
             plus a "COMMUNITY" descriptor strap underneath. */}
         <View style={styles.hero}>
           <View style={styles.logoWrap} testID="welcome-brand">
@@ -277,7 +277,7 @@ export default function Welcome() {
                 </Text>
               ) : (
                 <Text style={[styles.founderBannerBody, { fontSize: 15 * scale, marginTop: 4 }]}>
-                  Be among the first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.cap.toLocaleString()}</Text> Founding Members helping shape YouBelong.
+                  Be among the first <Text style={{ fontWeight: "900", color: "#FBBF24" }}>{founderStatus.cap.toLocaleString()}</Text> Founding Members helping shape FriendPlace.
                 </Text>
               )}
               <Text style={[styles.founderBannerNote, { fontSize: 12 * scale }]}>

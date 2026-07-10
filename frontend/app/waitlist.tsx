@@ -2,7 +2,7 @@
  * /waitlist — pre-launch friends-and-family signup.
  *
  * Why this exists:
- *   YouBelong rolls out invite-only at first so we can stabilise the
+ *   FriendPlace rolls out invite-only at first so we can stabilise the
  *   community before opening the gates. This screen lets people who heard
  *   about the app (flyer, word of mouth, social) leave their email so we
  *   can drip-feed invites as the Founding Member slots fill.
@@ -186,7 +186,7 @@ export default function WaitlistScreen() {
                 </Text>
               </View>
               <Text style={{ fontSize: 15 * scale, color: c.onSurface, marginTop: 10, lineHeight: 22 * scale }}>
-                YouBelong is rolling out invite-only at first so we can keep the community warm and welcoming. Leave your email and we&apos;ll let you in soon — no app store, no payment, no pressure.
+                FriendPlace is rolling out invite-only at first so we can keep the community warm and welcoming. Leave your email and we&apos;ll let you in soon — no app store, no payment, no pressure.
               </Text>
               {(stats || founder) ? (
                 <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
@@ -243,7 +243,7 @@ export default function WaitlistScreen() {
                 style={inputStyle as any}
               />
 
-              <Label scale={scale} color={c.onSurface}>How did you hear about YouBelong?</Label>
+              <Label scale={scale} color={c.onSurface}>How did you hear about FriendPlace?</Label>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
                 {SOURCES.map((s) => {
                   const on = source === s.key;

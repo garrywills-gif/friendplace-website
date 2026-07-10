@@ -1,5 +1,5 @@
 /**
- * Curated "Today's Thought" pool for YouBelong's home screen.
+ * Curated "Today's Thought" pool for FriendPlace's home screen.
  * Deterministic pick by date, plus a manual shuffle and saved favourites.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";

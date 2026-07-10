@@ -48,7 +48,7 @@ export default function AdminHome() {
       <Header title="Admin" />
       <View style={{ padding: 24, alignItems: "center" }}>
         <Ionicons name="lock-closed" size={48} color={c.muted} />
-        <Text style={{ color: c.onSurface, fontSize: 18 * scale, marginTop: 12, textAlign: "center" }}>Admin tools are only available to YouBelong moderators.</Text>
+        <Text style={{ color: c.onSurface, fontSize: 18 * scale, marginTop: 12, textAlign: "center" }}>Admin tools are only available to FriendPlace moderators.</Text>
       </View>
     </View>
   );

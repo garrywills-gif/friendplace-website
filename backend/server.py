@@ -111,7 +111,7 @@ async def current_admin(me: dict = Depends(current_user)):
     return me
 
 
-app = FastAPI(title="YouBelong API")
+app = FastAPI(title="FriendPlace API")
 api = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO)
@@ -578,7 +578,7 @@ async def _ensure_founders_lounge() -> Optional[dict]:
         "id": nid(),
         "name": "Founders Lounge",
         "emoji": "🦋",
-        "description": "A private space for Founding Members to chat, share early feedback, and help shape YouBelong.",
+        "description": "A private space for Founding Members to chat, share early feedback, and help shape FriendPlace.",
         "members": [],
         "is_founder_only": True,
         # System group — hidden from the public Community Groups list
@@ -810,7 +810,7 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     await db.notifications.insert_one({
         "id": nid(), "user_id": user_id, "type": "welcome",
         "title": f"🦋 You're Founding Member #{founder_number}!",
-        "body": "Thanks for being one of the first to join YouBelong. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
+        "body": "Thanks for being one of the first to join FriendPlace. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
         "read": False, "created_at": now_iso(),
     })
 
@@ -882,7 +882,7 @@ async def signup(body: SignupBody, request: Request):
                 "user_id": referrer["id"],
                 "type": "invite_accepted",
                 "title": "Your invite worked!",
-                "body": f"{user.first_name or user.username} just joined YouBelong through your share link. Welcome them in!",
+                "body": f"{user.first_name or user.username} just joined FriendPlace through your share link. Welcome them in!",
                 "data": {"user_id": user.id},
                 "read": False,
                 "created_at": now_iso(),
@@ -935,7 +935,7 @@ async def signup(body: SignupBody, request: Request):
     # Welcome notification to the new user themselves
     await db.notifications.insert_one({
         "id": nid(), "user_id": user.id, "type": "welcome",
-        "title": "Welcome to YouBelong!",
+        "title": "Welcome to FriendPlace!",
         "body": "We're so glad you're here. Take a look at the Coffee Lounge or send a friend request to say hello.",
         "read": False, "created_at": now_iso(),
     })
@@ -945,7 +945,7 @@ async def signup(body: SignupBody, request: Request):
         await db.notifications.insert_one({
             "id": nid(), "user_id": user.id, "type": "welcome",
             "title": f"🦋 You're Founding Member #{doc['founder_number']}!",
-            "body": "Thanks for being one of the first to join YouBelong. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
+            "body": "Thanks for being one of the first to join FriendPlace. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
             "read": False, "created_at": now_iso(),
         })
     # And tell the existing community about a new neighbour
@@ -1133,7 +1133,7 @@ async def auth_google(body: GoogleAuthBody):
             await db.notifications.insert_one({
                 "id": nid(), "user_id": referrer["id"], "type": "invite_accepted",
                 "title": "Your invite worked!",
-                "body": f"{user.first_name or user.username} just joined YouBelong through your share link. Welcome them in!",
+                "body": f"{user.first_name or user.username} just joined FriendPlace through your share link. Welcome them in!",
                 "data": {"user_id": user.id}, "read": False, "created_at": now_iso(),
             })
             # Drop a Flutter on the inviter's Home feed — more visible than
@@ -1178,7 +1178,7 @@ async def auth_google(body: GoogleAuthBody):
         await _check_invite_milestones(doc["invited_by"])
     await db.notifications.insert_one({
         "id": nid(), "user_id": user.id, "type": "welcome",
-        "title": "Welcome to YouBelong!",
+        "title": "Welcome to FriendPlace!",
         "body": "We're so glad you're here. Take a moment to add your interests and join a few groups.",
         "read": False, "created_at": now_iso(),
     })
@@ -1186,7 +1186,7 @@ async def auth_google(body: GoogleAuthBody):
         await db.notifications.insert_one({
             "id": nid(), "user_id": user.id, "type": "welcome",
             "title": f"🦋 You're Founding Member #{doc['founder_number']}!",
-            "body": "Thanks for being one of the first to join YouBelong. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
+            "body": "Thanks for being one of the first to join FriendPlace. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
             "read": False, "created_at": now_iso(),
         })
     try: await _broadcast_new_member(doc)
@@ -1580,7 +1580,7 @@ async def auth_apple(body: AppleAuthBody):
             await db.notifications.insert_one({
                 "id": nid(), "user_id": referrer["id"], "type": "invite_accepted",
                 "title": "Your invite worked!",
-                "body": f"{user.first_name or user.username} just joined YouBelong through your share link. Welcome them in!",
+                "body": f"{user.first_name or user.username} just joined FriendPlace through your share link. Welcome them in!",
                 "data": {"user_id": user.id}, "read": False, "created_at": now_iso(),
             })
             await db.flutters.insert_one(FlutterDoc(
@@ -1621,7 +1621,7 @@ async def auth_apple(body: AppleAuthBody):
         await _check_invite_milestones(doc["invited_by"])
     await db.notifications.insert_one({
         "id": nid(), "user_id": user.id, "type": "welcome",
-        "title": "Welcome to YouBelong!",
+        "title": "Welcome to FriendPlace!",
         "body": "We're so glad you're here. Take a moment to add your interests and join a few groups.",
         "read": False, "created_at": now_iso(),
     })
@@ -1629,7 +1629,7 @@ async def auth_apple(body: AppleAuthBody):
         await db.notifications.insert_one({
             "id": nid(), "user_id": user.id, "type": "welcome",
             "title": f"🦋 You're Founding Member #{doc['founder_number']}!",
-            "body": "Thanks for being one of the first to join YouBelong. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
+            "body": "Thanks for being one of the first to join FriendPlace. You've earned a permanent badge on your profile — and 50 bonus points to get you started.",
             "read": False, "created_at": now_iso(),
         })
     try: await _broadcast_new_member(doc)
@@ -2088,7 +2088,7 @@ async def _check_invite_milestones(referrer_id: str) -> None:
             referrer_id,
             "achievement",
             f"🏆 New badge: {latest}",
-            f"You've earned the {latest} badge — thanks for growing the YouBelong community!",
+            f"You've earned the {latest} badge — thanks for growing the FriendPlace community!",
             {"badge": latest, "invite_count": count},
         )
     except Exception as e:

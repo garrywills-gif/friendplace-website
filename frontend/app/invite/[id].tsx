@@ -16,7 +16,7 @@
  *      so the existing signup + waitlist screens can read it and credit
  *      the inviter at account creation time. (Same key the welcome screen
  *      already writes — keeps the contract consistent.)
- *   3. Render a warm hero: "Margaret invited you to join YouBelong" with
+ *   3. Render a warm hero: "Margaret invited you to join FriendPlace" with
  *      their avatar + Founder badge + the live "X spots remaining" copy.
  *   4. Surface the two next-steps: "Create my profile" (primary) and
  *      "I already have an account" (secondary → /auth/login).
@@ -99,15 +99,15 @@ export default function InviteLanding() {
     return inviter.first_name?.trim() || inviter.username || "A friend";
   }, [inviter]);
 
-  const headline = inviter ? `${displayName} invited you to join YouBelong` : "Welcome to YouBelong";
+  const headline = inviter ? `${displayName} invited you to join FriendPlace` : "Welcome to FriendPlace";
   // Founder-aware tagline — if the inviter is a Founder it makes the
   // pitch much warmer ("join us as we shape this together").
   const tagline = useMemo(() => {
     if (inviter?.is_founder) {
-      return `${displayName} is one of the first Founding Members helping shape YouBelong — and they thought you'd love it too.`;
+      return `${displayName} is one of the first Founding Members helping shape FriendPlace — and they thought you'd love it too.`;
     }
     if (inviter) {
-      return `${displayName} thought you'd love YouBelong — a warm, friendly place to meet new people and stay connected.`;
+      return `${displayName} thought you'd love FriendPlace — a warm, friendly place to meet new people and stay connected.`;
     }
     return "A warm, friendly place for friendship, connection and community.";
   }, [inviter, displayName]);
@@ -139,7 +139,7 @@ export default function InviteLanding() {
           ) : (
             <>
               <View style={styles.brandRow}>
-                <Text style={[styles.brand, { fontSize: 28 * scale }]}>🦋 YouBelong</Text>
+                <Text style={[styles.brand, { fontSize: 28 * scale }]}>🦋 FriendPlace</Text>
               </View>
 
               {/* Inviter card — the heart of this page. Big avatar + name +
@@ -216,7 +216,7 @@ export default function InviteLanding() {
               </Pressable>
 
               <Text style={[styles.footer, { fontSize: 12 * scale }]}>
-                By continuing you agree to YouBelong&apos;s Community Guidelines. Your invite credit will be linked to {inviter ? `${displayName}` : "your inviter"} after you create your profile.
+                By continuing you agree to FriendPlace&apos;s Community Guidelines. Your invite credit will be linked to {inviter ? `${displayName}` : "your inviter"} after you create your profile.
               </Text>
             </>
           )}

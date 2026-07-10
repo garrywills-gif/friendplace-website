@@ -4,7 +4,7 @@
  * Why this exists:
  *   New visitors who tap "Sign Up" from the main welcome screen previously
  *   went straight into an 8-field form. That's overwhelming for the older-
- *   adult audience YouBelong serves. This page softens the landing with a
+ *   adult audience FriendPlace serves. This page softens the landing with a
  *   warm value-prop, a "this only takes ~2 minutes" promise, and a single
  *   clear CTA — *then* routes into the (now 2-step) signup form.
  *
@@ -71,7 +71,7 @@ export default function AuthWelcome() {
       <View style={[styles.overlay, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 28 }]}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.brandRow}>
-            <Text style={[styles.brand, { fontSize: 26 * scale }]}>🦋 YouBelong</Text>
+            <Text style={[styles.brand, { fontSize: 26 * scale }]}>🦋 FriendPlace</Text>
           </View>
 
           {inviter ? (
@@ -86,7 +86,7 @@ export default function AuthWelcome() {
           ) : null}
 
           <View style={{ alignItems: "center", marginTop: 10 }}>
-            <Text style={[styles.hero, { fontSize: 38 * scale }]}>Welcome to YouBelong 🦋</Text>
+            <Text style={[styles.hero, { fontSize: 38 * scale }]}>Welcome to FriendPlace 🦋</Text>
             <Text style={[styles.tagline, { fontSize: 17 * scale }]}>
               Find new friends, join local events, chat in the Coffee Lounge and connect with people who share your interests.
             </Text>

@@ -168,7 +168,7 @@ export default function Friends() {
         <Ionicons name="chevron-forward" size={20} color={c.brand} />
       </Pressable>
 
-      {/* Pre-permission rationale (per YouBelong permission contract) */}
+      {/* Pre-permission rationale (per FriendPlace permission contract) */}
       <Modal visible={showRationale} animationType="fade" transparent onRequestClose={() => setShowRationale(false)}>
         <View style={modalStyles.bg}>
           <View style={[modalStyles.card, { backgroundColor: c.surface }]}>
@@ -194,7 +194,7 @@ export default function Friends() {
             <Text style={{ fontSize: 40 }}>🔒</Text>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale, marginTop: 6 }}>Location is turned off</Text>
             <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center", lineHeight: 22 }}>
-              To use Near Me, open Settings and allow YouBelong to use your location. You can still search by suburb above.
+              To use Near Me, open Settings and allow FriendPlace to use your location. You can still search by suburb above.
             </Text>
             <Pressable testID="loc-open-settings" onPress={() => Linking.openSettings()} style={[modalStyles.primary, { backgroundColor: c.brand }]}>
               <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Open Settings</Text>

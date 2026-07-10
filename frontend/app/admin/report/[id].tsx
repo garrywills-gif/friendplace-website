@@ -61,7 +61,7 @@ export default function AdminReportDetail() {
   };
   const ban = async () => {
     if (!tgt) return;
-    const ok = await confirm({ title: "Ban user?", message: `${tgt.first_name || tgt.username} will lose access to YouBelong. This is reversible from the user's profile.`, confirmLabel: "Ban", destructive: true });
+    const ok = await confirm({ title: "Ban user?", message: `${tgt.first_name || tgt.username} will lose access to FriendPlace. This is reversible from the user's profile.`, confirmLabel: "Ban", destructive: true });
     if (!ok) return;
     setSubmitting("ban");
     try { await api.adminBan({ admin_id: user.id, user_id: tgt.id, reason: note || "Banned by moderator", report_id: r.id }); show("User banned"); load(); }

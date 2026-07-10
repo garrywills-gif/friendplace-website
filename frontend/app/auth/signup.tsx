@@ -6,7 +6,7 @@
  *
  * Why two steps?
  *   The original screen showed ~8 input groups stacked together — too
- *   intimidating for the older-adult audience YouBelong targets. Splitting
+ *   intimidating for the older-adult audience FriendPlace targets. Splitting
  *   creates two short pages, each fits on one phone screen without
  *   scrolling, with a clear "Step X of 2" progress indicator at the top.
  *   Submission happens at the end of Step 2 (single POST /api/auth/signup

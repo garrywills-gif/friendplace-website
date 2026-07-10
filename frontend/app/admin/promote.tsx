@@ -124,7 +124,7 @@ export default function AdminPromote() {
         <View style={{ padding: 24, alignItems: "center" }}>
           <Ionicons name="lock-closed" size={48} color={c.muted} />
           <Text style={{ color: c.onSurface, fontSize: 18 * scale, marginTop: 12, textAlign: "center" }}>
-            Moderator management is only available to YouBelong admins.
+            Moderator management is only available to FriendPlace admins.
           </Text>
         </View>
       </View>

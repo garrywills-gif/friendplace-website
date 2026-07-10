@@ -135,7 +135,7 @@ export default function Home() {
       } else if (msg.includes("rate") || msg.includes("429")) {
         show("Whoa — slow down on the flutters! Try again in a bit.");
       } else if (msg.includes("not found") || msg.includes("404")) {
-        show("That person isn't on YouBelong any more.");
+        show("That person isn't on FriendPlace any more.");
       } else {
         show("Couldn't send flutter. Please try again.");
       }
@@ -313,7 +313,7 @@ export default function Home() {
                   </Text>
                   <Text numberOfLines={2} style={{ color: "#3C2A06", fontWeight: "800", fontSize: 15 * scale, marginTop: 2 }}>
                     {founderStatus.taken > 0
-                      ? `Meet the ${founderStatus.taken.toLocaleString()} Founding Members shaping YouBelong`
+                      ? `Meet the ${founderStatus.taken.toLocaleString()} Founding Members shaping FriendPlace`
                       : `Be among the first ${founderStatus.cap.toLocaleString()} Founding Members`}
                   </Text>
                 </>
@@ -344,7 +344,7 @@ export default function Home() {
               <Pressable key={`a-${u.id}`} onPress={() => router.push(`/user/${u.id}` as any)} style={styles.commRow}>
                 <Text style={styles.commEmoji}>🎉</Text>
                 <Text numberOfLines={1} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
-                  {u.first_name} is celebrating {u.years} year{u.years > 1 ? "s" : ""} with YouBelong!
+                  {u.first_name} is celebrating {u.years} year{u.years > 1 ? "s" : ""} with FriendPlace!
                 </Text>
                 <Ionicons name="chevron-forward" size={18} color={c.muted} />
               </Pressable>
