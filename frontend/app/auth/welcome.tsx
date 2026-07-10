@@ -32,6 +32,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import BrandLockup from "@/src/components/BrandLockup";
 
 export default function AuthWelcome() {
   const router = useRouter();
@@ -71,7 +72,7 @@ export default function AuthWelcome() {
       <View style={[styles.overlay, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 28 }]}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.brandRow}>
-            <Text style={[styles.brand, { fontSize: 26 * scale }]}>🦋 FriendPlace</Text>
+            <BrandLockup width={260} variant="dark" showTagline={false} testID="auth-welcome-brand" />
           </View>
 
           {inviter ? (
@@ -86,9 +87,9 @@ export default function AuthWelcome() {
           ) : null}
 
           <View style={{ alignItems: "center", marginTop: 10 }}>
-            <Text style={[styles.hero, { fontSize: 38 * scale }]}>Welcome to FriendPlace 🦋</Text>
+            <Text style={[styles.hero, { fontSize: 34 * scale }]}>Welcome to FriendPlace</Text>
             <Text style={[styles.tagline, { fontSize: 17 * scale }]}>
-              Find new friends, join local events, chat in the Coffee Lounge and connect with people who share your interests.
+              A welcoming place to meet people, join local events and build lasting friendships.
             </Text>
           </View>
 

@@ -68,10 +68,11 @@ export default function Welcome() {
     })();
     return () => { cancelled = true; };
   }, []);
-  // Brand lockup uses the original PNG wordmark (with the butterfly forming
-  // the "O" in FriendPlace) plus a "COMMUNITY" tagline strap underneath.
-  // Sized in points — caps at 545 so it never overflows on tablet widths.
-  const lockupWidth = Math.round(Math.min(winW - 28, 545));
+  // Brand lockup uses the teal butterfly logo above the FriendPlace
+  // wordmark, plus a small "FIND YOUR PEOPLE" tagline strap underneath.
+  // Sized in points — caps at 460 (padded from screen edges) so it never
+  // overflows on tablet widths, and leaves breathing room on phones.
+  const lockupWidth = Math.round(Math.min(winW - 72, 460));
 
   useEffect(() => {
     // Capture an invitation token (?ref=<user_id>) into AsyncStorage so the
@@ -244,9 +245,9 @@ export default function Welcome() {
             <BrandLockup width={lockupWidth} variant="dark" />
           </View>
 
-          <Text style={[styles.tag1, { fontSize: 30.4 * scale }]} testID="welcome-tag-primary">Find Your People.</Text>
-          <Text style={[styles.welcomeMsg, { fontSize: 14 * scale }]} testID="welcome-message">
-            Meet new friends, discover local events and find your people.
+          <Text style={[styles.tag1, { fontSize: 28 * scale }]} testID="welcome-tag-primary">Welcome to FriendPlace</Text>
+          <Text style={[styles.welcomeMsg, { fontSize: 15 * scale }]} testID="welcome-message">
+            A welcoming place to meet people, join local events and build lasting friendships.
           </Text>
         </View>
 
