@@ -53,15 +53,18 @@ export default function SolitairePlay() {
 
   // Responsive card size — 7 columns + 6 inter-column gaps must always
   // fit inside the felt width. Card height is the standard 1.4x aspect.
-  // We cap the max card width so the deck never sprawls into unusable
-  // giants on ultra-wide surfaces.
+  // Break-points err on the tight side so the deck never overflows a
+  // narrow phone-frame mockup inside a wider iframe preview.
   const { cardW, cardH, tableauGap } = useMemo(() => {
-    const gap = feltWidth >= 700 ? 12 : 6;
+    const gap = feltWidth >= 900 ? 12 : 6;
     const paddingHoriz = 16; // matches the ScrollView's paddingHorizontal
     const available = feltWidth - paddingHoriz - gap * 6;
     const raw = Math.floor(available / 7);
-    const maxW = feltWidth >= 900 ? 140 : feltWidth >= 700 ? 110 : 80;
-    const w = Math.max(38, Math.min(maxW, raw));
+    // Progressive caps — the deck stays compact on medium widths so it
+    // still fits comfortably inside a phone-frame mockup that lives in
+    // a wider outer container (Emergent preview, tablet split-view, etc).
+    const maxW = feltWidth >= 1100 ? 130 : feltWidth >= 800 ? 90 : feltWidth >= 500 ? 68 : 52;
+    const w = Math.max(34, Math.min(maxW, raw));
     return { cardW: w, cardH: Math.round(w * 1.4), tableauGap: gap };
   }, [feltWidth]);
   const slotSize = { width: cardW, height: cardH };
@@ -427,10 +430,12 @@ function CardBack({ season, width, height }: { season: ReturnType<typeof getCurr
 const styles = StyleSheet.create({
   topBar: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 10,
     paddingVertical: 8,
-    gap: 8,
+    gap: 20,
+    flexWrap: "wrap",
   },
   foundationsRow: { flexDirection: "row", gap: 6 },
   stockRow: { flexDirection: "row", gap: 6 },
