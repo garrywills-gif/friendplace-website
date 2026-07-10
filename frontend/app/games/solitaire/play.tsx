@@ -46,16 +46,19 @@ export default function SolitairePlay() {
   const season = useMemo(() => getCurrentSeason(), []);
   const { width: winW } = useWindowDimensions();
 
-  // Responsive card size — the tableau is 7 columns with a 6px gap between
-  // each. Scale the card up on tablets so the felt doesn't look sparse,
-  // and clamp on tiny phones so nothing overflows. Height is a 1.4x ratio
+  // Responsive card size — the tableau is 7 columns with a small gap
+  // between each. On phones we cap around 88px so the deck feels tight;
+  // on tablets we let it stretch to ~140px so the cards fill the felt
+  // instead of clumping in a narrow band. Height is a 1.4x ratio
   // (standard playing-card proportion).
   const { cardW, cardH, tableauGap } = useMemo(() => {
-    const gap = 8;
-    const horizontalPadding = 20; // (10 topBar) + (padding) buffer
+    const isTablet = winW >= 768;
+    const gap = isTablet ? 12 : 8;
+    const horizontalPadding = 24;
     const available = winW - horizontalPadding - gap * 6;
     const raw = Math.floor(available / 7);
-    const w = Math.max(42, Math.min(88, raw));
+    const maxW = isTablet ? 140 : 88;
+    const w = Math.max(42, Math.min(maxW, raw));
     return { cardW: w, cardH: Math.round(w * 1.4), tableauGap: gap };
   }, [winW]);
   const slotSize = { width: cardW, height: cardH };
