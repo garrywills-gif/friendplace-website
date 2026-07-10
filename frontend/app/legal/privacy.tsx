@@ -19,7 +19,7 @@ import Header from "@/src/components/Header";
 // Bump this whenever the policy is materially updated. Used at the top
 // of the page and surfaced to users by date so they can re-read changes.
 const LAST_UPDATED = "18 June 2026";
-const CONTACT_EMAIL = "support@youbelongapp.com";
+const CONTACT_EMAIL = "support@friendplace.com.au";
 
 export default function PrivacyPolicy() {
   const { c, scale } = useTheme();

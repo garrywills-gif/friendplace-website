@@ -22,7 +22,7 @@ const SHARE_BASE_URL: string =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (process.env as any).EXPO_PUBLIC_SHARE_URL ||
   process.env.EXPO_PUBLIC_BACKEND_URL ||
-  "https://youbelong.app";
+  "https://friendplace.com.au";
 
 export default function InviteFlyer() {
   const { c, scale } = useTheme();

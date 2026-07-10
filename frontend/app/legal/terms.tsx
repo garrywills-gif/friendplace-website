@@ -11,7 +11,7 @@ import { useTheme } from "@/src/lib/theme";
 import Header from "@/src/components/Header";
 
 const LAST_UPDATED = "18 June 2026";
-const CONTACT_EMAIL = "support@youbelongapp.com";
+const CONTACT_EMAIL = "support@friendplace.com.au";
 
 export default function Terms() {
   const { c, scale } = useTheme();
