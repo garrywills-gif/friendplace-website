@@ -44,6 +44,7 @@ export default function FoundersWall() {
   const [items, setItems] = useState<Founder[]>([]);
   const [total, setTotal] = useState(0);
   const [cap, setCap] = useState<number | null>(null);
+  const [remaining, setRemaining] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Whether the signed-in viewer is themselves a Founding Member —
@@ -63,7 +64,13 @@ export default function FoundersWall() {
         if (cancelled) return;
         setItems(Array.isArray(w?.items) ? w.items : []);
         setTotal(w?.total || 0);
-        if (s) setCap(s.cap ?? null);
+        if (s) {
+          setCap(s.cap ?? null);
+          // `remaining` powers the "places remaining" chip. Falls back to
+          // (cap - total) when the server doesn't include it explicitly.
+          if (typeof s.remaining === "number") setRemaining(s.remaining);
+          else if (typeof s.cap === "number") setRemaining(Math.max(0, s.cap - (w?.total || 0)));
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -140,7 +147,14 @@ export default function FoundersWall() {
                 ? `${total} of ${cap.toLocaleString()} early members shaping FriendPlace together.`
                 : `${total} early members shaping FriendPlace together.`}
             </Text>
-            <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale, marginTop: 4, letterSpacing: 0.3 }}>
+            {remaining != null && remaining > 0 ? (
+              <View style={styles.remainingPill} testID="founders-remaining-pill">
+                <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale, letterSpacing: 0.3 }}>
+                  🦋 {remaining.toLocaleString()} places remaining
+                </Text>
+              </View>
+            ) : null}
+            <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale, marginTop: 6, letterSpacing: 0.3 }}>
               JOIN FREE AS A FOUNDING MEMBER
             </Text>
           </View>
@@ -255,4 +269,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   avatarWrap: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  remainingPill: {
+    alignSelf: "flex-start",
+    backgroundColor: "#FEF3C7",
+    borderColor: "#D4A017",
+    borderWidth: 1.5,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 8,
+  },
 });
