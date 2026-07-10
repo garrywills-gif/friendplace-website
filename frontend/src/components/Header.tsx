@@ -1,9 +1,14 @@
 import React from "react";
-import { View, Text, Pressable, StyleSheet, Platform } from "react-native";
+import { View, Text, Pressable, StyleSheet, Platform, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../lib/theme";
+
+// Teal FriendPlace butterfly — sits on the right of every page banner so
+// the brand mark is always present even on pages that don't render the
+// full BrandLockup. Small (36px) so it never competes with the page title.
+const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon.png");
 
 /**
  * Header — the "where am I?" banner that appears at the top of every
@@ -96,7 +101,10 @@ export default function Header({
       </View>
 
       {/* Banner row — big bold page title so users always know where
-          they are. Optional emoji on the left + subtitle underneath. */}
+          they are. Optional emoji on the left + subtitle underneath.
+          The FriendPlace butterfly sits on the far right so the brand
+          mark is present on every page (screens without a full lockup
+          still carry the logo). */}
       <View style={styles.bannerRow}>
         {emoji ? (
           <Text style={{ fontSize: 30, marginRight: 10 }} accessibilityRole="image" accessibilityLabel="">
@@ -124,6 +132,12 @@ export default function Header({
             </Text>
           ) : null}
         </View>
+        <Image
+          source={BUTTERFLY_LOGO}
+          style={styles.brandMark}
+          resizeMode="contain"
+          accessibilityLabel="FriendPlace"
+        />
       </View>
     </View>
   );
@@ -160,5 +174,11 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: -0.2,
     flexShrink: 1,
+  },
+  brandMark: {
+    width: 40,
+    height: 40,
+    marginLeft: 10,
+    borderRadius: 10,
   },
 });

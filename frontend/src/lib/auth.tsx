@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { api, setAuthToken } from "./api";
+import { api, setAuthToken, registerUnauthorizedHandler } from "./api";
 import { registerForPush } from "./push";
 
 export type User = {
@@ -80,6 +80,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(t);
     })();
     return () => { cancelled = true; clearTimeout(t); };
+  }, []);
+
+  // Session-expired reset: when api.ts detects a 401 from a protected
+  // endpoint it fires this handler. We clear the stored token + user so
+  // the next `/home` guard bounces the user back to /auth/login instead
+  // of leaving them stranded on repeated "Failed to load" toasts.
+  useEffect(() => {
+    registerUnauthorizedHandler(() => {
+      (async () => {
+        try {
+          await AsyncStorage.removeItem(USER_KEY);
+          await AsyncStorage.removeItem(TOKEN_KEY);
+        } catch { /* no-op */ }
+        setUser(null);
+        setToken(null);
+        setAuthToken(null);
+      })();
+    });
+    return () => { registerUnauthorizedHandler(null); };
   }, []);
 
   const persist = async (u: User | null, tok: string | null) => {

@@ -28,6 +28,28 @@ export async function getAuthToken(): Promise<string | null> {
   return _getToken();
 }
 
+// Callback registered by AuthProvider to react to a 401 (stale/rotated
+// JWT). Clears the local session so the next screen bounce goes back to
+// the welcome page instead of leaving the user stranded on a "Failed to
+// load" toast. Guarded so we don't fire the reset on public endpoints
+// (login/signup) which return 401 as part of normal validation.
+let _onUnauthorized: (() => void) | null = null;
+export function registerUnauthorizedHandler(fn: (() => void) | null) {
+  _onUnauthorized = fn;
+}
+
+// Endpoints that legitimately return 401 as part of their contract and
+// must NOT trigger a forced logout. Anything else that returns 401 means
+// the caller's token was rotated/expired and we should reset the session.
+const _PUBLIC_PATHS = [
+  "/auth/login",
+  "/auth/signup",
+  "/auth/apple",
+  "/auth/google",
+  "/auth/demo-login",
+  "/auth/password/reset",
+];
+
 async function req<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   // SEC-002/004: attach the auth token to every API call so the server
   // can verify the caller. Endpoints that don't need it will simply
@@ -43,6 +65,16 @@ async function req<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   }
   const res = await fetch(`${BASE}/api${path}`, { ...opts, headers });
   if (!res.ok) {
+    // Session-expired handling: any 401 from a protected endpoint means
+    // the stored JWT was rotated or has expired. Clear the local session
+    // so the next screen guard bounces the user back to the welcome page
+    // instead of showing repeated "Failed to load" toasts.
+    if (res.status === 401 && _onUnauthorized) {
+      const isPublic = _PUBLIC_PATHS.some((p) => path.startsWith(p));
+      if (!isPublic && _cachedToken) {
+        try { _onUnauthorized(); } catch { /* no-op */ }
+      }
+    }
     const text = await res.text().catch(() => "");
     throw new Error(`${res.status} ${text}`);
   }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, useWindowDimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -44,6 +44,23 @@ export default function SolitairePlay() {
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const season = useMemo(() => getCurrentSeason(), []);
+  const { width: winW } = useWindowDimensions();
+
+  // Responsive card size — the tableau is 7 columns with a 6px gap between
+  // each. Scale the card up on tablets so the felt doesn't look sparse,
+  // and clamp on tiny phones so nothing overflows. Height is a 1.4x ratio
+  // (standard playing-card proportion).
+  const { cardW, cardH, tableauGap } = useMemo(() => {
+    const gap = 8;
+    const horizontalPadding = 20; // (10 topBar) + (padding) buffer
+    const available = winW - horizontalPadding - gap * 6;
+    const raw = Math.floor(available / 7);
+    const w = Math.max(42, Math.min(88, raw));
+    return { cardW: w, cardH: Math.round(w * 1.4), tableauGap: gap };
+  }, [winW]);
+  const slotSize = { width: cardW, height: cardH };
+  const cardStagger = Math.round(cardH * 0.35);
+  const cardStaggerDown = Math.round(cardH * 0.2);
 
   const [state, setState] = useState<GameState>(() => newGame({ drawCount: 3 }));
   const [history, setHistory] = useState<GameState[]>([]);
@@ -236,10 +253,10 @@ export default function SolitairePlay() {
                 key={s}
                 testID={`foundation-${s}`}
                 onPress={() => onTapFoundation(s)}
-                style={[styles.slot, { borderColor: isFlashed ? season.accent : season.outline }]}
+                style={[styles.slot, slotSize, { borderColor: isFlashed ? season.accent : season.outline }]}
               >
                 {top ? (
-                  <CardFace card={top} />
+                  <CardFace card={top} cardW={cardW} cardH={cardH} />
                 ) : (
                   <Text style={[styles.slotSuit, { color: isRed(s) ? "#FCA5A5" : "#CBD5E1" }]}>{SUIT_SYMBOL[s]}</Text>
                 )}
@@ -248,9 +265,9 @@ export default function SolitairePlay() {
           })}
         </View>
         <View style={styles.stockRow}>
-          <Pressable testID="solitaire-stock" onPress={onDraw} style={[styles.slot, { borderColor: season.outline }]}>
+          <Pressable testID="solitaire-stock" onPress={onDraw} style={[styles.slot, slotSize, { borderColor: season.outline }]}>
             {state.stock.length > 0 ? (
-              <CardBack season={season} />
+              <CardBack season={season} width={cardW} height={cardH} />
             ) : (
               <View style={styles.recycle}>
                 <Ionicons name="refresh" size={26} color="#CBD5E1" />
@@ -260,13 +277,13 @@ export default function SolitairePlay() {
           <Pressable
             testID="solitaire-waste"
             onPress={onTapWaste}
-            style={[styles.slot, {
+            style={[styles.slot, slotSize, {
               borderColor: sel?.kind === "waste" ? season.accent : season.outline,
               borderWidth: sel?.kind === "waste" ? 3 : 2,
             }]}
           >
             {state.waste.length > 0 ? (
-              <CardFace card={state.waste[state.waste.length - 1]} />
+              <CardFace card={state.waste[state.waste.length - 1]} cardW={cardW} cardH={cardH} />
             ) : (
               <Text style={[styles.slotSuit, { color: "#CBD5E1" }]}>—</Text>
             )}
@@ -281,16 +298,16 @@ export default function SolitairePlay() {
         contentContainerStyle={{ paddingHorizontal: 6, paddingTop: 4, paddingBottom: 100 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.tableauRow}>
+        <View style={[styles.tableauRow, { gap: tableauGap }]}>
           {state.tableau.map((pile, pi) => {
             const isFlashed = hintFlash?.pile === pi;
             return (
-              <View key={pi} style={styles.tableauCol}>
+              <View key={pi} style={[styles.tableauCol, { width: cardW }]}>
                 {pile.length === 0 ? (
                   <Pressable
                     testID={`tableau-empty-${pi}`}
                     onPress={() => onTapEmptyTableau(pi)}
-                    style={[styles.slot, styles.tableauEmpty, { borderColor: isFlashed ? season.accent : season.outline }]}
+                    style={[styles.slot, slotSize, styles.tableauEmpty, { borderColor: isFlashed ? season.accent : season.outline }]}
                   >
                     <Text style={[styles.slotSuit, { color: "#CBD5E1" }]}>K</Text>
                   </Pressable>
@@ -304,12 +321,12 @@ export default function SolitairePlay() {
                         onPress={() => onTapTableauCard(pi, ci)}
                         style={[
                           styles.tableauCard,
-                          { top: ci * (card.faceUp ? 24 : 14) },
+                          { width: cardW, height: cardH, top: ci * (card.faceUp ? cardStagger : cardStaggerDown) },
                           isSel && { borderColor: season.accent, borderWidth: 3 },
                           isFlashed && ci === pile.length - 1 && { borderColor: season.accent, borderWidth: 3 },
                         ]}
                       >
-                        {card.faceUp ? <CardFace card={card} /> : <CardBack season={season} />}
+                        {card.faceUp ? <CardFace card={card} cardW={cardW} cardH={cardH} /> : <CardBack season={season} width={cardW} height={cardH} />}
                       </Pressable>
                     );
                   })
@@ -368,31 +385,30 @@ export default function SolitairePlay() {
 
 // ---------- card visuals ----------
 
-function CardFace({ card }: { card: Card }) {
+function CardFace({ card, cardW, cardH }: { card: Card; cardW: number; cardH: number }) {
   const red = isRed(card.suit);
+  const cornerSize = Math.max(11, Math.round(cardW * 0.28));
+  const centerSize = Math.max(20, Math.round(cardW * 0.6));
   return (
     <View style={styles.card}>
-      <Text style={[styles.cardCorner, { color: red ? "#DC2626" : "#0F172A", top: 4, left: 4 }]}>
+      <Text style={[styles.cardCorner, { color: red ? "#DC2626" : "#0F172A", top: 4, left: 4, fontSize: cornerSize, lineHeight: cornerSize }]}>
         {RANK_LABEL[card.rank]}
         {"\n"}
         {SUIT_SYMBOL[card.suit]}
       </Text>
-      <Text style={[styles.cardCenter, { color: red ? "#DC2626" : "#0F172A" }]}>{SUIT_SYMBOL[card.suit]}</Text>
+      <Text style={[styles.cardCenter, { color: red ? "#DC2626" : "#0F172A", fontSize: centerSize, marginTop: Math.round(cardH * 0.25) }]}>{SUIT_SYMBOL[card.suit]}</Text>
     </View>
   );
 }
 
-function CardBack({ season }: { season: ReturnType<typeof getCurrentSeason> }) {
+function CardBack({ season, width, height }: { season: ReturnType<typeof getCurrentSeason>; width: number; height: number }) {
   // Branded FriendPlace butterfly card back — teal + navy body, seasonal
   // accent stripe. Rendered via SVG so it stays crisp from 44px (tableau
-  // card) up to 78px (hub preview) without extra assets.
-  return <ButterflyCardBack width={CARD_W} height={CARD_H} season={season} showCorners={false} />;
+  // card) up to 78px+ (tablet card) without extra assets.
+  return <ButterflyCardBack width={width} height={height} season={season} showCorners={false} />;
 }
 
 // ---------- styles ----------
-
-const CARD_W = 44;
-const CARD_H = 62;
 
 const styles = StyleSheet.create({
   topBar: {
@@ -405,8 +421,6 @@ const styles = StyleSheet.create({
   foundationsRow: { flexDirection: "row", gap: 6 },
   stockRow: { flexDirection: "row", gap: 6 },
   slot: {
-    width: CARD_W,
-    height: CARD_H,
     borderRadius: 6,
     borderWidth: 2,
     borderStyle: "dashed",
@@ -416,13 +430,11 @@ const styles = StyleSheet.create({
   },
   slotSuit: { fontSize: 26, fontWeight: "700" },
   recycle: { alignItems: "center", justifyContent: "center" },
-  tableauRow: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 4, gap: 4 },
-  tableauCol: { width: CARD_W, minHeight: 400, position: "relative" },
+  tableauRow: { flexDirection: "row", justifyContent: "center", paddingHorizontal: 4 },
+  tableauCol: { minHeight: 400, position: "relative" },
   tableauEmpty: { alignSelf: "flex-start" },
   tableauCard: {
     position: "absolute",
-    width: CARD_W,
-    height: CARD_H,
     borderRadius: 6,
     left: 0,
     overflow: "hidden",
@@ -438,8 +450,8 @@ const styles = StyleSheet.create({
     padding: 2,
     justifyContent: "space-between",
   },
-  cardCorner: { position: "absolute", fontSize: 12, fontWeight: "900", lineHeight: 12, textAlign: "left" },
-  cardCenter: { fontSize: 26, alignSelf: "center", marginTop: 16, fontWeight: "700" },
+  cardCorner: { position: "absolute", fontWeight: "900", textAlign: "left" },
+  cardCenter: { alignSelf: "center", fontWeight: "700" },
   cardBack: {
     flex: 1,
     borderRadius: 6,

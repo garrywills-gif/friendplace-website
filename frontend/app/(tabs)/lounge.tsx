@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl, Modal, TextInput, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl, Modal, TextInput, KeyboardAvoidingView, Platform, Image } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +10,10 @@ import { api } from "@/src/lib/api";
 import Button from "@/src/components/Button";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
+
+// The primary FriendPlace butterfly logo — surfaces on every page header
+// so the brand mark stays consistent across the app.
+const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon.png");
 
 function occupancyLabel(seated: number): { label: string; color: string; icon: keyof typeof Ionicons.glyphMap } {
   if (seated === 0) return { label: "Empty Table", color: "#94A3B8", icon: "ellipse-outline" };
@@ -118,6 +122,7 @@ export default function Lounge() {
               </Text>
             </Pressable>
           </View>
+          <Image source={BUTTERFLY_LOGO} style={styles.brandMark} resizeMode="contain" accessibilityLabel="FriendPlace" />
         </View>
         {/* Top-of-screen "Start a new table" CTA, in teal/butterfly green
             (the brand accent). Placed here — above the table list — so
@@ -377,6 +382,7 @@ const styles = StyleSheet.create({
   sub: { fontWeight: "600", marginTop: 4 },
   infoBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   backBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  brandMark: { width: 40, height: 40, borderRadius: 10, marginLeft: 8 },
   card: { borderRadius: 20, padding: 16, shadowColor: "#0F172A", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2, gap: 10 },
   topRow: { flexDirection: "row", alignItems: "center" },
   cardTitle: { fontWeight: "800" },

@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, TextInput, Pressable, ScrollView, Modal, Platform, Linking } from "react-native";
+import { View, Text, StyleSheet, FlatList, TextInput, Pressable, ScrollView, Modal, Platform, Linking, Image } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -10,6 +10,10 @@ import { api } from "@/src/lib/api";
 import * as Location from "expo-location";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
+
+// Primary FriendPlace butterfly logo — surfaces in every header so the
+// brand mark is present even on tabs that don't render the full lockup.
+const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon.png");
 
 const RADIUS_OPTIONS = [5, 10, 25, 50] as const;
 
@@ -130,6 +134,8 @@ export default function Friends() {
             <Ionicons name="chevron-back" size={26} color={c.onSurface} />
           </Pressable>
           <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>Find Friends</Text>
+          <View style={{ flex: 1 }} />
+          <Image source={BUTTERFLY_LOGO} style={styles.brandMark} resizeMode="contain" accessibilityLabel="FriendPlace" />
         </View>
         <View style={[styles.searchRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           <Ionicons name="search" size={22} color={c.muted} />
@@ -251,6 +257,7 @@ const styles = StyleSheet.create({
   head: { paddingHorizontal: 16, paddingBottom: 8, gap: 10 },
   headRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   backBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  brandMark: { width: 40, height: 40, borderRadius: 10 },
   title: { fontWeight: "900" },
   searchRow: { flexDirection: "row", alignItems: "center", borderRadius: 16, paddingHorizontal: 14, borderWidth: 1, minHeight: 52 },
   chipRow: { gap: 8, paddingVertical: 4 },
