@@ -21,7 +21,7 @@ export default function Forgot() {
     try {
       const r: any = await api.forgot(identifier.trim());
       if (r?.dev_code) setDevCode(r.dev_code);
-      show("If that account exists, a reset code was generated.");
+      show("If that account exists, we've sent a reset code to your email.");
       router.push({ pathname: "/auth/reset", params: { identifier: identifier.trim() } });
     } catch {
       show("Could not request reset. Try again.");
@@ -34,7 +34,7 @@ export default function Forgot() {
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={[styles.intro, { color: c.onSurfaceSecondary, fontSize: 17 * scale }]}>
-            Enter your username or email. We'll generate a 6-digit code you can use to set a new password.
+            Enter your username or email. We&apos;ll send a 6-digit reset code to the email address on your account.
           </Text>
           <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Username or email</Text>
           <TextInput

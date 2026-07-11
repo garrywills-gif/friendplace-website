@@ -26,6 +26,11 @@ from sentry_sdk.integrations.asyncio import AsyncioIntegration
 from sentry_sdk.integrations.logging import LoggingIntegration
 
 from config import settings
+from email_service import (
+    is_configured as _email_is_configured,
+    send_email as _email_send,
+    password_reset_template as _email_password_reset_template,
+)
 from crossword_puzzles import (
     levels_summary as _xword_levels,
     active_puzzles as _xword_active,
@@ -1854,12 +1859,40 @@ async def forgot_password(body: ForgotBody):
         "user_id": u["id"], "code": code, "expires_at": expires_at,
         "used": False, "created_at": now_iso(),
     })
-    # SEC-003: NEVER return or log the reset code to the caller. Until an
-    # email/SMS provider is wired we log a redacted acknowledgement only —
-    # the code is generated and stored server-side, but the operator must
-    # look it up in the DB during dev if they want to complete a reset.
-    # In production, wire Resend/SendGrid and email the code directly.
+    # SEC-003: NEVER return or log the reset code to the caller. The code
+    # is generated + stored server-side, then delivered via Resend when
+    # configured. If email delivery isn't configured (dev env with no
+    # RESEND_API_KEY), the code stays in Mongo and can be inspected by
+    # an operator — the endpoint still returns the same generic message
+    # so we never leak whether the account exists.
     logger.info("Password reset code generated for user=%s (code redacted)", u.get("id"))
+
+    # Fire-and-await email delivery. `_email_send` never raises — it
+    # returns False + logs on any failure so we don't block the reset
+    # flow if the third-party is down.
+    email_addr = (u.get("email") or "").strip().lower()
+    if email_addr and _email_is_configured():
+        subject, html, text = _email_password_reset_template(
+            first_name=u.get("first_name"),
+            code=code,
+            ttl_minutes=RESET_TTL_MIN,
+        )
+        await _email_send(to=email_addr, subject=subject, html=html, text=text)
+    elif not _email_is_configured():
+        logger.warning(
+            "Password reset email NOT sent — RESEND_API_KEY is not configured. "
+            "Add it to /app/backend/.env and restart the backend. Reset code "
+            "is stored in Mongo (password_resets collection) and can be "
+            "looked up by an operator for user=%s.",
+            u.get("id"),
+        )
+    elif not email_addr:
+        logger.warning(
+            "Password reset email NOT sent — user=%s has no email on file. "
+            "Reset code is stored in Mongo (password_resets collection).",
+            u.get("id"),
+        )
+
     return {"message": "If that account exists, a reset code was generated. Check your email."}
 
 
