@@ -2,20 +2,25 @@
  * FlutterOverlay — the signature FriendPlace celebration.
  *
  * When `emitFlutter({ targetX?, targetY? })` fires, a single butterfly
- * gently glides from the lower-left thumb region along a soft curved
- * (quadratic Bezier) path, briefly "lands" near the recipient (either
- * the provided target coordinates or a sensible upper-right default),
- * then fades out. A small "🦋 Flutter sent!" toast appears near the
- * top of the screen in parallel for ~1s.
+ * drifts from the lower-left thumb region along a naturalistic curved
+ * path — pausing, bobbing and gently arcing the way a real Monarch
+ * moves through the garden — briefly "lands" near the recipient
+ * (either the provided target coordinates or a sensible upper-right
+ * default), then fades out. A small "🦋 Flutter sent!" toast appears
+ * near the top of the screen for the duration of the flight.
  *
  * Design decisions:
  *   - ONE butterfly (previously 3-5) — feels intimate and personal.
- *   - Timing: fly ~1.15s + land pulse ~260ms + fade ~260ms ≈ 1.4s total.
- *     Fly is intentionally 10-20% slower than the previous multi-fly
- *     version so it reads as a graceful glide, not a zip.
+ *   - Timing: fly ~3.0s + land pulse ~320ms + fade ~400ms ≈ 3.7s total.
+ *     The extra dwell time lets the flight *breathe*: real butterflies
+ *     never zip across a room, so we deliberately give the animation
+ *     enough runway to feel like a nature moment, not a UI ping.
  *   - Curved path: quadratic Bezier with the control point lifted well
  *     above the midpoint so the butterfly arcs up-and-over. A gentle
- *     sinusoidal wobble is layered on top for that fluttery wing feel.
+ *     asymmetric sway (slow, larger side-to-side drift) is layered on
+ *     top of a faster wing-flap wobble for that "living creature" feel.
+ *   - Easing.bezier(0.55, 0.05, 0.45, 0.95) — an ease-in-out that gives
+ *     the butterfly a soft launch and a graceful settle at the target.
  *   - `pointerEvents="none"` on the root — never intercepts taps.
  *   - Uses core RN `Animated` (not Reanimated) so it works on iOS,
  *     Android, and the Expo web preview identically.
@@ -73,22 +78,25 @@ export default function FlutterOverlay() {
       const arcHeight = Math.min(200, Math.max(90, Math.abs(startY - targetY) * 0.55));
       const midY = Math.min(startY, targetY) - arcHeight;
 
-      setFlight({ id: ++nextId, startX, startY, targetX, targetY, midX, midY });
+      const id = ++nextId;
+      setFlight({ id, startX, startY, targetX, targetY, midX, midY });
 
-      // Toast — fades in, holds, fades out. ~1s of visible dwell time.
+      // Toast — fades in, holds for the length of the flight, fades
+      // out. Total dwell (~3s) matches the butterfly's flight time so
+      // both parts of the moment resolve together.
       setToastVisible(true);
       toastOpacity.setValue(0);
       Animated.sequence([
-        Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-        Animated.delay(780),
-        Animated.timing(toastOpacity, { toValue: 0, duration: 240, useNativeDriver: true }),
+        Animated.timing(toastOpacity, { toValue: 1, duration: 260, useNativeDriver: true }),
+        Animated.delay(2600),
+        Animated.timing(toastOpacity, { toValue: 0, duration: 380, useNativeDriver: true }),
       ]).start(() => setToastVisible(false));
 
       // Full animation window (fly + land + fade) — clean up state a
       // little after so React doesn't drop the animated view mid-fade.
       setTimeout(() => {
-        setFlight((cur) => (cur && cur.id === nextId ? null : cur));
-      }, 1700);
+        setFlight((cur) => (cur && cur.id === id ? null : cur));
+      }, 4000);
     });
     return unsub;
   }, [winW, winH, toastOpacity]);
@@ -116,108 +124,134 @@ export default function FlutterOverlay() {
 }
 
 function Butterfly({ flight }: { flight: Flight }) {
-  // Progress along the Bezier (0 → 1). Slower than the old flight so
-  // the arc reads as a graceful glide.
+  // Progress along the Bezier (0 → 1). Extended to ~3s so the butterfly
+  // drifts across the screen at a naturalistic pace rather than zipping.
   const progress = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
-  // Wing wobble — a gentle sinusoidal rotation layered on top of the
-  // main path. Runs faster than the flight so the wings look alive.
+  // Wing wobble — a rapid sinusoidal rotation layered on top of the
+  // main path. Runs at real-butterfly wing speed (~5-8Hz) so even
+  // though the *body* moves slowly, the wings still look alive.
   const wobble = useRef(new Animated.Value(0)).current;
+  // Slow, larger side-to-side sway on top of the Bezier. Real
+  // butterflies never fly a clean arc — they drift left/right as they
+  // go. This is a separate low-frequency oscillator so it can be much
+  // slower (and wider) than the wing flap.
+  const sway = useRef(new Animated.Value(0)).current;
   // Landing "settle" pulse — a tiny scale bounce at the target so the
   // butterfly reads as "arrived" instead of just vanishing mid-flight.
   const landScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     // Fade-in → hold → fade-out driven by absolute timings so it stays
-    // in sync with the fly + landing phases.
+    // in sync with the fly + landing phases (fly 3000 + land 320 + hold
+    // briefly + fade 400 = ~3.7s window).
     Animated.sequence([
-      Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-      Animated.delay(1000),
-      Animated.timing(opacity, { toValue: 0, duration: 260, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 260, useNativeDriver: true }),
+      Animated.delay(3000),
+      Animated.timing(opacity, { toValue: 0, duration: 400, useNativeDriver: true }),
     ]).start();
 
-    // Main flight — 1.15s along the Bezier, then a soft landing pulse.
+    // Main flight — 3.0s along the Bezier, then a soft landing pulse.
+    // Ease-in-out gives the butterfly a soft launch and graceful settle.
     Animated.sequence([
       Animated.timing(progress, {
         toValue: 1,
-        duration: 1150,
-        // easeInOutQuad-ish — starts gently, glides, settles into the
-        // landing spot rather than snapping to the endpoint.
-        easing: Easing.bezier(0.34, 0.05, 0.24, 1),
+        duration: 3000,
+        easing: Easing.bezier(0.55, 0.05, 0.45, 0.95),
         useNativeDriver: true,
       }),
-      Animated.parallel([
-        Animated.sequence([
-          Animated.timing(landScale, {
-            toValue: 1.18,
-            duration: 140,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.timing(landScale, {
-            toValue: 1.0,
-            duration: 160,
-            easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
-          }),
-        ]),
+      Animated.sequence([
+        Animated.timing(landScale, {
+          toValue: 1.22,
+          duration: 160,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(landScale, {
+          toValue: 1.0,
+          duration: 180,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
       ]),
     ]).start();
 
-    // Wing wobble loops the whole flight (well past the landing so the
-    // wings keep beating during the settle pulse). Slightly asymmetric
-    // duration to avoid a metronomic feel.
+    // Wing wobble — fast flaps that continue for the full flight.
+    // Slightly asymmetric duration to avoid a metronomic feel.
     Animated.loop(
       Animated.sequence([
         Animated.timing(wobble, {
           toValue: 1,
-          duration: 190,
+          duration: 170,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
         Animated.timing(wobble, {
           toValue: -1,
-          duration: 210,
+          duration: 190,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
       ]),
-      { iterations: 6 }
+      { iterations: 18 }
     ).start();
-  }, [progress, opacity, wobble, landScale]);
+
+    // Body sway — slow, wide left/right drift so the Bezier path is
+    // *disturbed* rather than followed rigidly. ~4 gentle cycles over
+    // the flight.
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(sway, {
+          toValue: 1,
+          duration: 780,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(sway, {
+          toValue: -1,
+          duration: 780,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ]),
+      { iterations: 4 }
+    ).start();
+  }, [progress, opacity, wobble, sway, landScale]);
 
   // Quadratic Bezier: B(t) = (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
-  // We approximate B(t) via interpolation with sample points at
-  // t = 0, 0.25, 0.5, 0.75, 1.0 so the trajectory follows a real arc
-  // instead of a straight line between endpoints.
-  const bezier = (a: number, b: number, c: number) => {
-    return [0, 0.25, 0.5, 0.75, 1].map((t) => {
+  // Sampled at 9 points along the path so the trajectory follows a
+  // smooth arc even after the animation is slowed to 3s (fewer sample
+  // points would make the linear-interp segments visible).
+  const samples = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1];
+  const bezier = (a: number, b: number, c: number) =>
+    samples.map((t) => {
       const inv = 1 - t;
       return inv * inv * a + 2 * inv * t * b + t * t * c;
     });
-  };
   const xs = bezier(flight.startX, flight.midX, flight.targetX);
   const ys = bezier(flight.startY, flight.midY, flight.targetY);
 
-  const translateX = progress.interpolate({
-    inputRange: [0, 0.25, 0.5, 0.75, 1],
-    outputRange: xs,
-  });
-  const translateY = progress.interpolate({
-    inputRange: [0, 0.25, 0.5, 0.75, 1],
-    outputRange: ys,
-  });
+  const translateX = progress.interpolate({ inputRange: samples, outputRange: xs });
+  const translateY = progress.interpolate({ inputRange: samples, outputRange: ys });
 
-  // Wing wobble maps to a small rotation + tiny vertical bob for a
-  // convincing "flapping wings" impression.
+  // Wing wobble → rotation + a tiny vertical bob for a convincing
+  // "flapping wings" impression.
   const rotate = wobble.interpolate({
     inputRange: [-1, 1],
-    outputRange: ["-14deg", "14deg"],
+    outputRange: ["-16deg", "16deg"],
   });
-  const wobbleY = wobble.interpolate({
+  const wingBob = wobble.interpolate({
     inputRange: [-1, 1],
     outputRange: [-3, 3],
   });
+  // Body sway → horizontal drift that layers over the main flight so
+  // the trajectory looks meandering, not scripted. Amplitude tapers
+  // toward the end so the landing is precise (butterfly steadies as it
+  // approaches its rest spot).
+  const swayX = Animated.multiply(
+    sway.interpolate({ inputRange: [-1, 1], outputRange: [-28, 28] }),
+    progress.interpolate({ inputRange: [0, 0.85, 1], outputRange: [1, 1, 0] })
+  );
 
   return (
     <Animated.View
@@ -229,7 +263,8 @@ function Butterfly({ flight }: { flight: Flight }) {
           transform: [
             { translateX },
             { translateY },
-            { translateY: wobbleY },
+            { translateX: swayX },
+            { translateY: wingBob },
             { rotate },
             { scale: landScale },
           ],
