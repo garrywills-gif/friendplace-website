@@ -24,7 +24,7 @@ export default function Welcome() {
   const { user, loading, loginWithGoogle, loginWithApple } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
-  const { width: winW } = useWindowDimensions();
+  const { width: winW, height: winH } = useWindowDimensions();
   // True while we're swapping a Google session_id for a JWT — also true while
   // the Emergent OAuth tab/redirect is in flight on web so the buttons stay
   // disabled and the user gets a spinner.
@@ -71,10 +71,23 @@ export default function Welcome() {
     return () => { cancelled = true; };
   }, []);
   // Brand lockup uses the teal butterfly logo above the FriendPlace
-  // wordmark, plus a small "FIND YOUR PEOPLE" tagline strap underneath.
-  // Sized in points — caps at 460 (padded from screen edges) so it never
-  // overflows on tablet widths, and leaves breathing room on phones.
-  const lockupWidth = Math.round(Math.min(winW - 72, 460));
+  // wordmark. Sized to a comfortable proportion of the visible width
+  // with generous side padding so the wordmark can never touch the edge
+  // even before adjustsFontSizeToFit kicks in.
+  //
+  // Formula reasoning:
+  //   winW < 380 (iPhone mini) → cap ~ 260
+  //   winW ~ 393-430 (standard iPhone) → cap ~ 320
+  //   winW > 600 (iPad) → cap 440
+  const lockupWidth = Math.round(Math.min(winW - 96, 440));
+  // Butterfly height should also respect the SCREEN HEIGHT so on short
+  // devices (iPhone SE, split-view iPad) it doesn't dominate the hero
+  // and push the CTAs off-screen. Cap at ~22% of screen height.
+  const butterflyPx = Math.max(84, Math.min(180, Math.round(Math.min(lockupWidth * 0.38, winH * 0.22))));
+  // Compact-height mode — trims vertical padding, headline size and
+  // margin when we're on a short phone or landscape orientation so the
+  // Sign Up / Log In buttons stay above the fold.
+  const compact = winH < 720;
 
   useEffect(() => {
     // Capture an invitation token (?ref=<user_id>) into AsyncStorage so the
@@ -246,17 +259,39 @@ export default function Welcome() {
         style={StyleSheet.absoluteFill}
       />
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingTop: Math.max(0, insets.top - 8), paddingBottom: insets.bottom + 24 }]}>
-        {/* Hero — teal butterfly + FriendPlace wordmark + descriptor.
-            Sits tight against the safe-area edge so the empty space
-            above the brand mark stays minimal. */}
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          {
+            // Respect the Dynamic Island / notch by keeping the brand
+            // below the safe-area edge. Removed the previous negative
+            // offset that pushed content up under the island on iPhone.
+            paddingTop: insets.top + (compact ? 6 : 14),
+            paddingBottom: insets.bottom + 20,
+          },
+        ]}
+      >
+        {/* Hero — teal butterfly + FriendPlace wordmark. Sized so nothing
+            can clip on iPhone mini (short & narrow) and so it doesn't
+            dominate iPad. */}
         <View style={styles.hero}>
           <View style={styles.logoWrap} testID="welcome-brand">
-            <BrandLockup width={lockupWidth} variant="dark" />
+            <BrandLockup width={lockupWidth} variant="dark" butterflySize={butterflyPx} />
           </View>
 
-          <Text style={[styles.tag1, { fontSize: 22 * scale }]} testID="welcome-tag-primary">Welcome to FriendPlace</Text>
-          <Text style={[styles.welcomeMsg, { fontSize: 15 * scale }]} testID="welcome-message">
+          <Text
+            style={[styles.tag1, { fontSize: (compact ? 20 : 22) * scale, marginTop: compact ? 10 : 14 }]}
+            testID="welcome-tag-primary"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.7}
+          >
+            Welcome to FriendPlace
+          </Text>
+          <Text
+            style={[styles.welcomeMsg, { fontSize: (compact ? 14 : 15) * scale, marginTop: compact ? 6 : 8 }]}
+            testID="welcome-message"
+          >
             Meet new friends, discover local events and build lasting friendships.
           </Text>
         </View>
