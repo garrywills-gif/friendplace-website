@@ -59,7 +59,7 @@ export default function InviteFlyer() {
         if (doc) {
           const a = doc.createElement("a");
           a.href = previewUrl;
-          a.download = venue.trim() ? `youbelong-flyer-${venue.trim().replace(/\s+/g, "-")}.png` : "youbelong-flyer.png";
+          a.download = venue.trim() ? `friendplace-flyer-${venue.trim().replace(/\s+/g, "-")}.png` : "friendplace-flyer.png";
           doc.body.appendChild(a);
           a.click();
           doc.body.removeChild(a);

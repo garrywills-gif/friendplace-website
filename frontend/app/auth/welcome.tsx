@@ -21,7 +21,6 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
-  ImageBackground,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -64,11 +63,11 @@ export default function AuthWelcome() {
   }, []);
 
   return (
-    <ImageBackground
-      source={require("@/assets/brand/youbelong-logo.png")}
-      style={{ flex: 1, backgroundColor: "#0E1B3D" }}
-      imageStyle={{ resizeMode: "cover", opacity: 0.18 }}
-    >
+    // Solid navy backdrop — was previously an ImageBackground of the
+    // legacy YouBelong wordmark at 18% opacity, which was faintly
+    // legible against dark surfaces. The teal butterfly BrandLockup
+    // below carries the brand on its own so no watermark is needed.
+    <View style={{ flex: 1, backgroundColor: "#0E1B3D" }}>
       <View style={[styles.overlay, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 28 }]}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.brandRow}>
@@ -120,7 +119,7 @@ export default function AuthWelcome() {
           </Pressable>
         </ScrollView>
       </View>
-    </ImageBackground>
+    </View>
   );
 }
 

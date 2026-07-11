@@ -32,7 +32,6 @@ import {
   Pressable,
   ScrollView,
   ActivityIndicator,
-  ImageBackground,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -122,13 +121,11 @@ export default function InviteLanding() {
   }
 
   return (
-    <ImageBackground
-      // Match the main welcome's hero treatment so users feel they've
-      // landed somewhere real, not a side-page.
-      source={require("@/assets/brand/youbelong-logo.png")}
-      style={{ flex: 1, backgroundColor: "#0E1B3D" }}
-      imageStyle={{ resizeMode: "cover", opacity: 0.18 }}
-    >
+    // Solid navy backdrop — was previously an ImageBackground of the
+    // legacy YouBelong wordmark at 18% opacity, which was faintly
+    // legible against the hero copy. Removed so no stale branding
+    // ever bleeds through.
+    <View style={{ flex: 1, backgroundColor: "#0E1B3D" }}>
       <View style={[styles.overlay, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {loading ? (
@@ -222,7 +219,7 @@ export default function InviteLanding() {
           )}
         </ScrollView>
       </View>
-    </ImageBackground>
+    </View>
   );
 }
 
