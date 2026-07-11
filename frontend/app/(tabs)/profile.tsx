@@ -168,6 +168,61 @@ export default function Profile() {
         </Pressable>
       )}
 
+      {/* Complete Your Profile prompt — visible whenever the user is
+          missing quick-signup fields (suburb, avatar, bio, interests).
+          Suburb/avatar/groups were deliberately removed from onboarding
+          to let people start using the app in under a minute, so this
+          nudge is where those pieces get filled in later on. */}
+      {(() => {
+        const missing: { label: string; icon: string }[] = [];
+        const av = (user as any).avatar || "";
+        // Default emoji from signup ("🧑") counts as "not yet set" — we
+        // want people to pick a face that feels like them.
+        if (!av || av === "🧑") missing.push({ label: "Choose your avatar", icon: "person-circle" });
+        if (!(user as any).suburb) missing.push({ label: "Add your suburb", icon: "location" });
+        if (!(user as any).bio) missing.push({ label: "Write a short bio", icon: "chatbubble-ellipses" });
+        if (!(user as any).interests || (user as any).interests.length === 0) {
+          missing.push({ label: "Pick some interests", icon: "heart" });
+        }
+        if (missing.length === 0) return null;
+        return (
+          <Pressable
+            testID="profile-complete-card"
+            onPress={() => router.push("/edit-profile" as any)}
+            accessibilityLabel="Complete your profile"
+            style={({ pressed }) => [
+              styles.completeCard,
+              {
+                backgroundColor: c.brandTertiary,
+                borderColor: c.brand,
+                opacity: pressed ? 0.9 : 1,
+              },
+            ]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Text style={{ fontSize: 26 }}>✨</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>
+                  Complete your profile
+                </Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2, lineHeight: 18 }}>
+                  Add a few details so your neighbours can get to know you.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={c.muted} />
+            </View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+              {missing.slice(0, 4).map((m) => (
+                <View key={m.label} style={[styles.missingChip, { backgroundColor: c.surface, borderColor: c.border }]}>
+                  <Ionicons name={m.icon as any} size={13} color={c.brand} />
+                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 12 * scale }}>{m.label}</Text>
+                </View>
+              ))}
+            </View>
+          </Pressable>
+        );
+      })()}
+
       <View style={[styles.statsCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
         <View style={styles.statBox}>
           <Text style={[styles.statNum, { color: c.brand, fontSize: 32 * scale }]}>{user.points}</Text>
@@ -550,6 +605,25 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 12,
     paddingVertical: 12, paddingHorizontal: 16,
     borderRadius: 14, borderWidth: 1, marginTop: 12,
+  },
+  completeCard: {
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  missingChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
   },
   avatar: { width: 110, height: 110, borderRadius: 55, alignItems: "center", justifyContent: "center" },
   name: { fontWeight: "900", marginTop: 8 },

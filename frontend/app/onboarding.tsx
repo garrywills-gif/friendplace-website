@@ -1,22 +1,38 @@
 /**
- * FriendPlace post-signup onboarding wizard.
+ * FriendPlace onboarding wizard — simplified 4-step first-run flow.
  *
- * Replaces the old feature-tour with a data-collection flow that gets new
- * members engaged in under a minute. Six steps, with a progress bar and
- * Back / Skip / Next on every screen:
+ * Redesigned to get people using the app within a minute. Instead of
+ * asking for profile data upfront, we introduce what FriendPlace is,
+ * cover accessibility + privacy expectations, then collect a single
+ * light-touch personalisation (interests). Everything else — suburb,
+ * avatar, group joins — moves to an optional "Complete Your Profile"
+ * card on the /profile tab.
  *
- *   0  Welcome           — warm hello, butterfly mascot, "Get Started"
- *   1  Choose interests  — tap-to-toggle chips, pick any number
- *   2  Where are you?    — Aussie suburb picker (re-uses signup component)
- *   3  Add a photo       — emoji avatar grid (camera/gallery on native)
- *   4  Join groups       — suggested groups, big "Join All" CTA
- *   5  All set!          — celebration + "Take me to the Coffee Lounge"
+ * Steps:
+ *   0  Welcome — full feature showcase (Coffee Lounge, Find Friends,
+ *      Groups, Events, Recipes, Games, Notice Board, Founders Wall).
+ *      Uses the teal butterfly logo, older-audience-friendly type.
+ *   1  Accessibility — Large text (available), Speak Instead of Type
+ *      + Listen Instead of Read marked "Coming Soon".
+ *   2  Privacy & Safety — blocking, reporting, privacy controls.
+ *   3  Choose your interests — tap-to-toggle chips.
+ *   4  Celebration — brief "You're all set" screen, auto-redirects to
+ *      /home after ~1.5s (or on tap).
  *
- * Submits everything at once via POST /api/onboarding/complete on the final
- * step. Skipping individual steps just sends empty values for those fields.
+ * Submits selected interests via POST /api/onboarding/complete on the
+ * final step. Skipping interests just sends an empty list.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Platform } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  ScrollView,
+  ActivityIndicator,
+  Platform,
+  Image,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,12 +40,44 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
-import SuburbField from "@/src/components/SuburbField";
-import AvatarBubble from "@/src/components/AvatarBubble";
-import PeopleAvatarPicker from "@/src/components/PeopleAvatarPicker";
 
-// Interest chip set — kept friendly and Australia-leaning to match the seed
-// data. 16 keeps the grid balanced on phone widths.
+// FriendPlace teal butterfly — the primary brand mark for every step
+// header. Using the app icon so the artwork stays consistent with the
+// splash/home screens.
+const BUTTERFLY_LOGO = require("../assets/brand/friendplace-app-icon.png");
+
+// Feature showcase — the elevator pitch for FriendPlace. Kept short so
+// the whole list is scannable at a glance, and larger body type so
+// members with reduced vision can read it comfortably.
+const FEATURES: { emoji: string; title: string; body: string }[] = [
+  { emoji: "☕", title: "Coffee Lounge",         body: "Drop into live conversations and chat with friendly faces anytime." },
+  { emoji: "🤝", title: "Find Friends",          body: "Browse member profiles and connect with people who share your interests." },
+  { emoji: "👥", title: "Friendship Groups",     body: "Join groups based on your interests and meet like-minded people." },
+  { emoji: "📅", title: "Local Events",          body: "Discover walks, lunches, meet-ups and community events near you." },
+  { emoji: "🍲", title: "Recipes",               body: "Share your favourite recipes and discover new ones from other members." },
+  { emoji: "🧩", title: "Games Hub",             body: "Enjoy bingo, crosswords, solitaire, puzzles and more." },
+  { emoji: "📌", title: "Community Notice Board", body: "Buy, sell, give away items, ask for help or share community news." },
+  { emoji: "🦋", title: "Founders Wall",         body: "Celebrate our founding members — and become one while places remain." },
+];
+
+// Accessibility features — Large Text is available today; voice
+// features are on the roadmap so we're transparent about that.
+const ACCESSIBILITY: { emoji: string; title: string; body: string; badge?: string }[] = [
+  { emoji: "🔍", title: "Large text everywhere",    body: "The whole app uses generous type sizes so it's easy to read." },
+  { emoji: "🎤", title: "Speak Instead of Type",     body: "Dictate messages, posts and searches with the microphone.", badge: "Coming Soon" },
+  { emoji: "🔊", title: "Listen Instead of Read",    body: "Tap the speaker icon to have messages and content read aloud.", badge: "Coming Soon" },
+];
+
+// Privacy & Safety controls — real features already shipped in the app.
+const PRIVACY: { emoji: string; title: string; body: string }[] = [
+  { emoji: "🛡️", title: "Privacy controls",   body: "Choose who can see you — Everyone, Friends only, or Invisible. Change it any time." },
+  { emoji: "🚫", title: "Block anyone",       body: "Block a member instantly. They can't message you or see your posts." },
+  { emoji: "🚨", title: "Report a concern",   body: "Report any post or message. Our team reviews every report." },
+  { emoji: "🔒", title: "Your data is safe",  body: "Your email address is never shown to other members. Your location is optional." },
+];
+
+// Interest chip set — kept friendly and Australia-leaning to match the
+// seed data. 16 keeps the grid balanced on phone widths.
 const INTERESTS = [
   "Coffee chats", "Walking & fitness", "Books & films", "Cooking",
   "Gardening", "Travel", "Games & puzzles", "Music",
@@ -37,218 +85,348 @@ const INTERESTS = [
   "Pets", "Classic cars", "History", "Local meetups",
 ];
 
-// Same emoji set used by the signup screen so chosen avatars stay consistent
-// if the user already picked one earlier in signup.
-const AVATARS = ["🌸", "🦋", "🌳", "🌻", "🐦", "☕", "📚", "🎵", "🌈", "🍰", "🧶", "🎨", "🏏", "🔨", "🧓"];
-
-type SuggestedGroup = {
-  id: string;
-  name: string;
-  emoji: string;
-  description: string;
-  member_count: number;
-  is_starter: boolean;
-  match: number;
-};
+const STEP_COUNT = 4; // 4 real steps; the celebration screen is separate.
 
 export default function OnboardingWizard() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { c, scale } = useTheme();
-  const { user, refresh } = useAuth();
+  const { user, refresh } = useAuth() as any;
   const { show } = useToast();
 
   const [step, setStep] = useState(0);
+  const [interests, setInterests] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [celebrating, setCelebrating] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Pre-seed from whatever signup may have already collected so the wizard
-  // doesn't feel redundant for email signups.
-  const [interests, setInterests] = useState<string[]>(() => (user?.interests || []).slice());
-  const [suburb, setSuburb] = useState<{ name: string; postcode?: string; state?: string } | null>(
-    user?.suburb ? { name: user.suburb } : null,
-  );
-  const [locationPrivate, setLocationPrivate] = useState(false);
-  const [avatar, setAvatar] = useState<string>(user?.avatar || "🦋");
-  const [groups, setGroups] = useState<SuggestedGroup[]>([]);
-  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
-  const [joinedAll, setJoinedAll] = useState(false);
-  const [groupsLoading, setGroupsLoading] = useState(false);
-
-  // Lazy-load suggested groups when the user lands on the groups step so the
-  // backend can already see their picked interests and rank accordingly.
-  useEffect(() => {
-    if (step !== 1 || !user?.id || groups.length) return;
-    (async () => {
-      setGroupsLoading(true);
-      try {
-        // Persist interests *before* asking for suggestions so the ranker
-        // sees the latest selection. Fire-and-forget — the final commit will
-        // re-send them too.
-        if (interests.length) {
-          try { await api.updateProfile(user.id, { interests }); } catch {}
-        }
-        const r: any = await api.onboardingSuggestedGroups(user.id);
-        const list: SuggestedGroup[] = (r?.groups || []).slice(0, 8);
-        setGroups(list);
-        // Default-select the top 3 to make "Continue" feel like progress.
-        setSelectedGroupIds(list.slice(0, 3).map((g) => g.id));
-      } catch (e) {
-        // Fall back to empty — user can still skip the step.
-      } finally {
-        setGroupsLoading(false);
-      }
-    })();
-  }, [step, user?.id]);
-
-  // Scroll back to the top whenever the step changes so long scrollable steps
-  // don't appear mid-way through.
+  // Scroll to top whenever the step changes so long steps don't leave
+  // the user mid-scroll on the next screen.
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: false });
   }, [step]);
 
-  // Onboarding is now a slim 3-step wizard: Welcome explainer → Groups
-  // picker → Destination picker. The old interests / location / avatar
-  // steps were folded into the new 2-step /auth/signup so we don't ask
-  // for the same thing twice. (Step keys are still 0/1/2 here to keep
-  // the existing stepView memo + footer logic intact.)
-  const totalSteps = 3;
-  const progress = (step + 1) / totalSteps;
-
-  const goNext = () => setStep((s) => Math.min(totalSteps - 1, s + 1));
-  const goBack = () => setStep((s) => Math.max(0, s - 1));
-
   const toggleInterest = (label: string) => {
-    setInterests((cur) =>
-      cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label],
-    );
+    setInterests((prev) => (prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label]));
   };
 
-  const toggleGroup = (id: string) => {
-    setSelectedGroupIds((cur) =>
-      cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id],
-    );
-    setJoinedAll(false);
+  const goHome = () => {
+    if (Platform.OS === "web") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).location.assign("/home");
+    } else {
+      router.replace("/home" as any);
+    }
   };
 
-  const joinAll = () => {
-    setSelectedGroupIds(groups.map((g) => g.id));
-    setJoinedAll(true);
-  };
-
-  const finishWizard = async (skipGroups: boolean = false) => {
+  const finishWizard = async () => {
     if (!user?.id) {
       router.replace("/" as any);
       return;
     }
     setBusy(true);
-    // New signups always land on the Welcome Tour, which introduces the
-    // main sections then drops them onto /home. Destination picker was
-    // removed — Home gives a warmer, richer first impression than any
-    // single tab and lets the user choose their own first step.
-    const destinationRoute = "/welcome-tour";
     try {
       await api.onboardingFinish({
         user_id: user.id,
         interests,
-        suburb: locationPrivate ? "" : suburb?.name || "",
-        suburb_postcode: locationPrivate ? "" : suburb?.postcode || "",
-        suburb_state: locationPrivate ? "" : suburb?.state || "",
-        location_visibility: locationPrivate ? "private" : "suburb",
-        avatar,
-        group_ids: skipGroups ? [] : selectedGroupIds,
-        joined_all: !skipGroups && joinedAll,
+        // Suburb / avatar / groups are now optional post-signup — omit them.
+        suburb: "",
+        suburb_postcode: "",
+        suburb_state: "",
+        location_visibility: "private",
+        avatar: "",
+        group_ids: [],
+        joined_all: false,
       });
       try { await refresh?.(); } catch {}
-      show("You're all set up! Welcome to FriendPlace 🦋");
-      if (Platform.OS === "web") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).location.assign(destinationRoute);
-      } else {
-        router.replace(destinationRoute as any);
-      }
-    } catch (e: any) {
+    } catch {
       show("Couldn't save your choices. You can update them later from Profile.");
-      // Best-effort: still send them to the tour so they're not stuck.
-      try { await refresh?.(); } catch {}
-      if (Platform.OS === "web") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).location.assign("/welcome-tour");
-      } else {
-        router.replace("/welcome-tour" as any);
-      }
     } finally {
       setBusy(false);
     }
+    // Always transition to the celebration screen — even on API error
+    // the user gets a warm hand-off and can retry from Profile.
+    setCelebrating(true);
+    // Auto-redirect after a short beat so the "You're all set" screen
+    // feels like a rewarding moment rather than another button-tap.
+    setTimeout(goHome, 1600);
   };
 
-  // -------- step content --------
-  const Step0 = (
-    <View style={[styles.stepWrap]}>
-      <View style={styles.heroBadge}>
-        <Text style={{ fontSize: 84 }}>🦋</Text>
+  const canNext = step < STEP_COUNT - 1 ? true : true; // interests step allows 0-selected
+  const isLast = step === STEP_COUNT - 1;
+
+  const primaryLabel = step === 0 ? "Get Started"
+    : isLast ? "Take me to FriendPlace"
+    : "Continue";
+
+  // ------- Celebration screen -------
+  if (celebrating) {
+    return (
+      <View style={[styles.celebrateWrap, { backgroundColor: c.brand, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 }}>
+          <View style={styles.celebrateBadge}>
+            <Text style={{ fontSize: 88 }}>🎉</Text>
+          </View>
+          <Text style={[styles.celebrateHero, { fontSize: 34 * scale }]}>You&apos;re all set!</Text>
+          <Text style={[styles.celebrateHeadline, { fontSize: 22 * scale, marginTop: 12 }]}>Welcome to FriendPlace.</Text>
+          <Text style={[styles.celebrateSub, { fontSize: 17 * scale, marginTop: 14 }]}>
+            Let&apos;s find your people.
+          </Text>
+          <ActivityIndicator size="small" color="#FFFFFF" style={{ marginTop: 28 }} />
+        </View>
+        <Pressable
+          onPress={goHome}
+          accessibilityLabel="Continue to Home"
+          hitSlop={12}
+          style={{ alignSelf: "center", paddingVertical: 12 }}
+        >
+          <Text style={{ color: "rgba(255,255,255,0.75)", fontWeight: "700", fontSize: 14 * scale }}>Tap to continue</Text>
+        </Pressable>
       </View>
-      <Text style={[styles.h1, { color: c.onSurface, fontSize: 30 * scale, textAlign: "center" }]}>
+    );
+  }
+
+  // ------- Regular wizard shell -------
+  return (
+    <View style={{ flex: 1, backgroundColor: c.surface }}>
+      {/* Top header — teal butterfly + FriendPlace wordmark + a slim
+          progress bar under the wordmark so users always see where they
+          are in the flow. Progress excludes the celebration screen. */}
+      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+        <View style={styles.brandBar}>
+          <Image source={BUTTERFLY_LOGO} style={styles.brandLogo} resizeMode="contain" />
+          <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+            <Text style={styles.brandFriend}>Friend</Text>
+            <Text style={styles.brandPlace}>Place</Text>
+          </View>
+        </View>
+        <View style={[styles.progressTrack, { backgroundColor: c.border }]}>
+          <View
+            style={[
+              styles.progressFill,
+              { backgroundColor: c.brand, width: `${((step + 1) / STEP_COUNT) * 100}%` },
+            ]}
+          />
+        </View>
+        <Text style={[styles.progressLabel, { color: c.muted, fontSize: 12 * scale }]}>
+          Step {step + 1} of {STEP_COUNT} · About a minute
+        </Text>
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 6 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {step === 0 ? <StepWelcome scale={scale} c={c} /> : null}
+        {step === 1 ? <StepAccessibility scale={scale} c={c} /> : null}
+        {step === 2 ? <StepPrivacy scale={scale} c={c} /> : null}
+        {step === 3 ? (
+          <StepInterests
+            scale={scale}
+            c={c}
+            interests={interests}
+            toggle={toggleInterest}
+          />
+        ) : null}
+      </ScrollView>
+
+      {/* Footer — Back / Skip / Continue. Skip is only shown on the
+          interests step (opt-out is fine); all other steps are
+          quick-read and always want a Continue tap. */}
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 14), borderTopColor: c.border }]}>
+        {step > 0 ? (
+          <Pressable
+            testID="onb-back"
+            onPress={() => setStep((s) => Math.max(0, s - 1))}
+            hitSlop={10}
+            style={styles.backLink}
+          >
+            <Ionicons name="chevron-back" size={20} color={c.muted} />
+            <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale }}>Back</Text>
+          </Pressable>
+        ) : (
+          <View style={{ width: 60 }} />
+        )}
+
+        {step === 3 ? (
+          <Pressable
+            testID="onb-skip"
+            onPress={finishWizard}
+            hitSlop={10}
+            style={{ paddingHorizontal: 12, paddingVertical: 8 }}
+          >
+            <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale }}>Skip</Text>
+          </Pressable>
+        ) : (
+          <View style={{ width: 44 }} />
+        )}
+
+        <Pressable
+          testID="onb-next"
+          onPress={() => (isLast ? finishWizard() : setStep((s) => Math.min(STEP_COUNT - 1, s + 1)))}
+          disabled={busy || !canNext}
+          style={({ pressed }) => [
+            styles.cta,
+            {
+              backgroundColor: c.brand,
+              opacity: pressed || busy ? 0.85 : 1,
+            },
+          ]}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color={c.onBrandPrimary} />
+          ) : (
+            <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 17 * scale, letterSpacing: 0.3 }}>
+              {primaryLabel}
+            </Text>
+          )}
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+// ---------- Step 0 — Welcome + Feature Showcase ----------
+function StepWelcome({ scale, c }: { scale: number; c: any }) {
+  return (
+    <View style={{ gap: 14, paddingTop: 6 }}>
+      <View style={{ alignItems: "center", paddingTop: 4 }}>
+        <Image source={BUTTERFLY_LOGO} style={styles.stepHero} resizeMode="contain" />
+      </View>
+      <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>
         Welcome to FriendPlace
       </Text>
-      <Text style={[styles.body, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
+      <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
         A warm, friendly place for friendship, connection and community.
       </Text>
-
-      {/* Three-bullet "what FriendPlace is" explainer so brand-new users
-          form the right mental model before they start filling forms. */}
-      <View style={[styles.featureList, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-        <View style={styles.featureRow}>
-          <Text style={styles.featureEmoji}>☕</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>Coffee Lounge</Text>
-            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>
-              Drop into a real-time chat with friendly faces — no scheduling needed.
-            </Text>
+      <Text style={[styles.sectionLabel, { color: c.onSurface, fontSize: 15 * scale, marginTop: 8 }]}>
+        Here&apos;s what you&apos;ll discover:
+      </Text>
+      <View style={{ gap: 10 }}>
+        {FEATURES.map((f) => (
+          <View
+            key={f.title}
+            style={[styles.featureRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+          >
+            <Text style={styles.featureEmoji}>{f.emoji}</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>{f.title}</Text>
+              <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2, lineHeight: 19 }}>{f.body}</Text>
+            </View>
           </View>
-        </View>
-        <View style={styles.featureRow}>
-          <Text style={styles.featureEmoji}>📅</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>Local Events</Text>
-            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>
-              Walks, lunches, classes and meet-ups happening right near you.
-            </Text>
-          </View>
-        </View>
-        <View style={styles.featureRow}>
-          <Text style={styles.featureEmoji}>👋</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>Friendship Groups</Text>
-            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>
-              Join groups around your interests and chat with kindred spirits.
-            </Text>
-          </View>
-        </View>
+        ))}
       </View>
-
-      <Text style={[styles.body, { color: c.muted, fontSize: 14 * scale, marginTop: 4, textAlign: "center" }]}>
-        Setup takes about a minute. You can change anything later from your Profile.
+      <Text style={[styles.footerCopy, { color: c.muted, fontSize: 13 * scale }]}>
+        Setup only takes about a minute. You can change anything later from your Profile.
       </Text>
     </View>
   );
+}
 
-  const Step1 = (
-    <View style={styles.stepWrap}>
-      <Text style={[styles.h1, { color: c.onSurface, fontSize: 26 * scale }]}>
-        What do you enjoy?
+// ---------- Step 1 — Accessibility ----------
+function StepAccessibility({ scale, c }: { scale: number; c: any }) {
+  return (
+    <View style={{ gap: 14, paddingTop: 6 }}>
+      <View style={{ alignItems: "center", paddingTop: 4 }}>
+        <Text style={{ fontSize: 72 }}>♿</Text>
+      </View>
+      <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>Made for everyone</Text>
+      <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
+        FriendPlace is designed to be easy to use — whatever your comfort level with technology.
       </Text>
-      <Text style={[styles.body, { color: c.muted, fontSize: 15 * scale }]}>
-        Pick a few — we&apos;ll use these to suggest people and groups. Tap any that interest you.
+      <View style={{ gap: 10, marginTop: 4 }}>
+        {ACCESSIBILITY.map((a) => (
+          <View
+            key={a.title}
+            style={[styles.featureRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+          >
+            <Text style={styles.featureEmoji}>{a.emoji}</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>{a.title}</Text>
+                {a.badge ? (
+                  <View style={styles.comingSoon}>
+                    <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 10 * scale, letterSpacing: 0.6 }}>
+                      {a.badge.toUpperCase()}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 3, lineHeight: 19 }}>{a.body}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+      <Text style={[styles.footerCopy, { color: c.muted, fontSize: 13 * scale }]}>
+        These features will be available anywhere in the app — not hidden away in Settings.
       </Text>
-      <View style={styles.chips}>
+    </View>
+  );
+}
+
+// ---------- Step 2 — Privacy & Safety ----------
+function StepPrivacy({ scale, c }: { scale: number; c: any }) {
+  return (
+    <View style={{ gap: 14, paddingTop: 6 }}>
+      <View style={{ alignItems: "center", paddingTop: 4 }}>
+        <Text style={{ fontSize: 72 }}>🛡️</Text>
+      </View>
+      <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>You&apos;re in control</Text>
+      <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
+        FriendPlace is a friendly space. You choose who sees you, who can reach you, and what you share.
+      </Text>
+      <View style={{ gap: 10, marginTop: 4 }}>
+        {PRIVACY.map((p) => (
+          <View
+            key={p.title}
+            style={[styles.featureRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+          >
+            <Text style={styles.featureEmoji}>{p.emoji}</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>{p.title}</Text>
+              <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 3, lineHeight: 19 }}>{p.body}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+      <Text style={[styles.footerCopy, { color: c.muted, fontSize: 13 * scale }]}>
+        All of these controls live under your Profile → Privacy settings.
+      </Text>
+    </View>
+  );
+}
+
+// ---------- Step 3 — Choose interests ----------
+function StepInterests({
+  scale,
+  c,
+  interests,
+  toggle,
+}: {
+  scale: number;
+  c: any;
+  interests: string[];
+  toggle: (label: string) => void;
+}) {
+  return (
+    <View style={{ gap: 14, paddingTop: 6 }}>
+      <View style={{ alignItems: "center", paddingTop: 4 }}>
+        <Text style={{ fontSize: 72 }}>💛</Text>
+      </View>
+      <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>What do you love?</Text>
+      <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
+        Tap anything that interests you — we&apos;ll use these to suggest friends, groups and events.
+        You can add more or remove any later.
+      </Text>
+      <View style={styles.chipGrid}>
         {INTERESTS.map((label) => {
           const on = interests.includes(label);
           return (
             <Pressable
               key={label}
-              testID={`onb-interest-${label}`}
-              onPress={() => toggleInterest(label)}
+              testID={`onb-int-${label}`}
+              onPress={() => toggle(label)}
               style={[
                 styles.chip,
                 {
@@ -257,344 +435,155 @@ export default function OnboardingWizard() {
                 },
               ]}
             >
-              <Text
-                style={{
-                  color: on ? c.onBrandPrimary : c.onSurface,
-                  fontSize: 15 * scale,
-                  fontWeight: "700",
-                }}
-              >
+              <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
                 {label}
               </Text>
             </Pressable>
           );
         })}
       </View>
-      <Text style={[styles.helper, { color: c.muted, fontSize: 13 * scale }]}>
-        {interests.length === 0 ? "Tip: pick at least 2–3 to get better suggestions" : `${interests.length} selected`}
+      <Text style={[styles.footerCopy, { color: c.muted, fontSize: 13 * scale }]}>
+        {interests.length ? `${interests.length} picked · Skip is fine too.` : "Pick a few or skip — up to you."}
       </Text>
-    </View>
-  );
-
-  const Step2 = (
-    <View style={styles.stepWrap}>
-      <Text style={[styles.h1, { color: c.onSurface, fontSize: 26 * scale }]}>
-        Where are you?
-      </Text>
-      <Text style={[styles.body, { color: c.muted, fontSize: 15 * scale }]}>
-        We&apos;ll show you local events and people nearby. We never share your exact address.
-      </Text>
-      <SuburbField
-        initialValue={suburb?.name || ""}
-        preferNotToSay={locationPrivate}
-        testID="onb-suburb"
-        onChange={(s, pns) => {
-          setSuburb(s);
-          setLocationPrivate(!!pns);
-        }}
-      />
-    </View>
-  );
-
-  const Step3 = (
-    <View style={styles.stepWrap}>
-      <Text style={[styles.h1, { color: c.onSurface, fontSize: 26 * scale }]}>
-        Pick a profile picture
-      </Text>
-      <Text style={[styles.body, { color: c.muted, fontSize: 15 * scale }]}>
-        Build a friendly face — or pick a fun emoji further down.
-      </Text>
-      <View style={{ marginTop: 8 }}>
-        <PeopleAvatarPicker value={avatar} onChange={setAvatar} previewSize={92} />
-      </View>
-      <Text style={[styles.body, { color: c.muted, fontSize: 13 * scale, marginTop: 14 }]}>
-        Or pick a fun emoji
-      </Text>
-      <View style={styles.avatarGrid}>
-        {AVATARS.map((a) => (
-          <Pressable
-            key={a}
-            testID={`onb-avatar-${a}`}
-            onPress={() => setAvatar(a)}
-            style={[
-              styles.avatarBtn,
-              {
-                backgroundColor: avatar === a ? c.brandTertiary : c.surfaceSecondary,
-                borderColor: avatar === a ? c.brand : c.border,
-              },
-            ]}
-          >
-            <Text style={{ fontSize: 30 }}>{a}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
-  );
-
-  const Step4 = (
-    <View style={styles.stepWrap}>
-      <Text style={[styles.h1, { color: c.onSurface, fontSize: 26 * scale }]}>
-        Join a few groups
-      </Text>
-      <Text style={[styles.body, { color: c.muted, fontSize: 15 * scale }]}>
-        Groups are the easiest way to start chatting. Pick any you like — or tap the big button below to join all the popular starter groups in one go.
-      </Text>
-
-      <Pressable
-        testID="onb-join-all"
-        onPress={joinAll}
-        style={[styles.joinAllBtn, { backgroundColor: c.brand }]}
-      >
-        <Ionicons name="sparkles" size={22} color={c.onBrandPrimary} />
-        <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 18 * scale }}>
-          Join All Suggested Groups
-        </Text>
-      </Pressable>
-
-      <Text style={[styles.helper, { color: c.muted, fontSize: 13 * scale, marginBottom: 4 }]}>
-        …or pick & choose:
-      </Text>
-
-      {groupsLoading ? (
-        <View style={{ paddingVertical: 30, alignItems: "center" }}>
-          <ActivityIndicator size="large" color={c.brand} />
-        </View>
-      ) : (
-        groups.map((g) => {
-          const on = selectedGroupIds.includes(g.id);
-          return (
-            <Pressable
-              key={g.id}
-              testID={`onb-group-${g.id}`}
-              onPress={() => toggleGroup(g.id)}
-              style={[
-                styles.groupRow,
-                {
-                  backgroundColor: on ? c.brandTertiary : c.surfaceSecondary,
-                  borderColor: on ? c.brand : c.border,
-                },
-              ]}
-            >
-              <Text style={{ fontSize: 34 }}>{g.emoji}</Text>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 17 * scale }}>{g.name}</Text>
-                  {g.match > 0 && (
-                    <View style={[styles.matchBadge, { backgroundColor: c.brand }]}>
-                      <Text style={{ color: c.onBrandPrimary, fontSize: 11 * scale, fontWeight: "800" }}>GREAT MATCH</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }} numberOfLines={2}>
-                  {g.description}
-                </Text>
-              </View>
-              <Ionicons
-                name={on ? "checkmark-circle" : "ellipse-outline"}
-                size={28}
-                color={on ? c.brand : c.muted}
-              />
-            </Pressable>
-          );
-        })
-      )}
-    </View>
-  );
-
-  const Step5 = (
-    <View style={[styles.stepWrap, { alignItems: "center" }]}>
-      <View style={styles.heroBadge}>
-        <Text style={{ fontSize: 80 }}>🎉</Text>
-      </View>
-      <Text style={[styles.h1, { color: c.onSurface, fontSize: 28 * scale, textAlign: "center" }]}>
-        You&apos;re all set!
-      </Text>
-      <Text style={[styles.body, { color: c.muted, fontSize: 16 * scale, textAlign: "center" }]}>
-        We&apos;ll give you a quick tour so you know where everything lives,
-        then drop you into FriendPlace.
-      </Text>
-
-      {/* Ready-to-launch recap card — reassurance summary of what the
-          user has just set up. No destination picker any more; new
-          signups always start on the Welcome Tour → Home. */}
-      <View style={[styles.recapCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border, marginTop: 16 }]}>
-        <View style={styles.recapRow}>
-          <Ionicons name="heart" size={18} color={c.brand} />
-          <Text style={{ color: c.onSurface, fontSize: 14 * scale, flex: 1 }}>
-            {interests.length ? `${interests.length} interest${interests.length > 1 ? "s" : ""} picked` : "Interests skipped — add them later"}
-          </Text>
-        </View>
-        <View style={styles.recapRow}>
-          <Ionicons name="location" size={18} color={c.brand} />
-          <Text style={{ color: c.onSurface, fontSize: 14 * scale, flex: 1 }}>
-            {locationPrivate ? "Location private" : suburb?.name ? `In ${suburb.name}${suburb.state ? ", " + suburb.state : ""}` : "Suburb not set"}
-          </Text>
-        </View>
-        <View style={styles.recapRow}>
-          <Ionicons name="people" size={18} color={c.brand} />
-          <Text style={{ color: c.onSurface, fontSize: 14 * scale, flex: 1 }}>
-            {selectedGroupIds.length
-              ? `Joining ${selectedGroupIds.length} group${selectedGroupIds.length > 1 ? "s" : ""}`
-              : "No groups joined yet"}
-          </Text>
-        </View>
-      </View>
-    </View>
-  );
-
-  const stepView = useMemo(() => {
-    switch (step) {
-      case 0: return Step0;   // Welcome explainer
-      case 1: return Step4;   // Groups picker (Step3 avatar dropped — collected in signup)
-      case 2: return Step5;   // Destination picker
-      default: return Step0;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, interests, suburb, locationPrivate, avatar, groups, selectedGroupIds, groupsLoading]);
-
-  // -------- footer CTAs --------
-  const isLast = step === totalSteps - 1;
-  const isFirst = step === 0;
-  const showSkip = step > 0 && !isLast;
-  // Final CTA leads into the Welcome Tour rather than a specific tab —
-  // the tour then hands the user off to Home so they can explore.
-  const primaryLabel = isFirst ? "Get Started" : isLast ? "Take me to FriendPlace" : "Continue";
-
-  return (
-    <View style={{ flex: 1, backgroundColor: c.surface, paddingTop: insets.top }}>
-      {/* Header with progress bar */}
-      <View style={[styles.header, { borderBottomColor: c.border }]}>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${progress * 100}%`, backgroundColor: c.brand }]} />
-        </View>
-        <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "700", marginTop: 6 }}>
-          Step {step + 1} of {totalSteps}
-        </Text>
-      </View>
-
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={{ paddingHorizontal: 22, paddingBottom: 24 }}
-        keyboardShouldPersistTaps="handled"
-      >
-        {stepView}
-      </ScrollView>
-
-      {/* Footer — back / skip / next */}
-      <View style={[styles.footer, { borderTopColor: c.border, paddingBottom: Math.max(insets.bottom, 12) }]}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          {!isFirst && (
-            <Pressable
-              testID="onb-back"
-              onPress={goBack}
-              disabled={busy}
-              style={[styles.secondaryBtn, { borderColor: c.border, opacity: busy ? 0.5 : 1 }]}
-            >
-              <Ionicons name="chevron-back" size={20} color={c.onSurface} />
-              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Back</Text>
-            </Pressable>
-          )}
-          {showSkip && (
-            <Pressable
-              testID="onb-skip"
-              onPress={() => goNext()}
-              disabled={busy}
-              style={{ paddingHorizontal: 12, paddingVertical: 10 }}
-            >
-              <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale }}>Skip</Text>
-            </Pressable>
-          )}
-          <View style={{ flex: 1 }} />
-          <Pressable
-            testID="onb-next"
-            disabled={busy}
-            onPress={() => (isLast ? finishWizard(false) : goNext())}
-            style={[styles.primaryBtn, { backgroundColor: c.brand, opacity: busy ? 0.7 : 1 }]}
-          >
-            {busy ? (
-              <ActivityIndicator size="small" color={c.onBrandPrimary} />
-            ) : (
-              <>
-                <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 17 * scale }}>{primaryLabel}</Text>
-                {!isLast && <Ionicons name="chevron-forward" size={20} color={c.onBrandPrimary} />}
-              </>
-            )}
-          </Pressable>
-        </View>
-      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth },
-  progressTrack: { height: 6, borderRadius: 3, backgroundColor: "rgba(0,0,0,0.08)", overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 3 },
-
-  stepWrap: { paddingTop: 18, gap: 14 },
-  heroBadge: { alignSelf: "center", marginTop: 4, marginBottom: 4 },
-
-  h1: { fontWeight: "900", letterSpacing: 0.2 },
-  body: { lineHeight: 23, fontWeight: "500" },
-  helper: { marginTop: 6, fontWeight: "600" },
-
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 4 },
-  chip: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, borderWidth: 2 },
-
-  avatarPreviewWrap: {
-    alignSelf: "center",
-    width: 120, height: 120, borderRadius: 60,
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 3, marginTop: 6, marginBottom: 6,
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    gap: 10,
   },
-  avatarGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 4 },
-  avatarBtn: {
-    width: 60, height: 60, borderRadius: 30,
-    alignItems: "center", justifyContent: "center", borderWidth: 2,
-  },
+  brandBar: { flexDirection: "row", alignItems: "center", gap: 10 },
+  brandLogo: { width: 38, height: 38, borderRadius: 10 },
+  brandFriend: { color: "#1E3A7F", fontWeight: "900", fontSize: 22, letterSpacing: -0.3 },
+  brandPlace: { color: "#0F766E", fontWeight: "900", fontSize: 22, letterSpacing: -0.3 },
 
-  joinAllBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
-    paddingVertical: 18, borderRadius: 16, marginTop: 8, marginBottom: 12,
-    shadowColor: "#0D2A57", shadowOpacity: 0.22, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4,
-  },
-  groupRow: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    paddingVertical: 12, paddingHorizontal: 14, borderRadius: 14, borderWidth: 2, marginTop: 8,
-  },
-  matchBadge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 6 },
-
-  featureList: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    gap: 14,
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: "hidden",
     marginTop: 8,
   },
-  featureRow: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
-  featureEmoji: { fontSize: 36, lineHeight: 40 },
+  progressFill: {
+    height: "100%",
+    borderRadius: 3,
+  },
+  progressLabel: {
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
 
-  destTile: {
+  stepHero: {
+    width: 128,
+    height: 128,
+    borderRadius: 28,
+    marginBottom: 6,
+    // Prominent brand mark for every step's hero position.
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  stepTitle: {
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: 0.2,
+  },
+  stepBody: {
+    lineHeight: 24,
+    paddingHorizontal: 4,
+  },
+  sectionLabel: {
+    fontWeight: "900",
+    letterSpacing: 0.3,
+    marginTop: 4,
+  },
+
+  featureRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 16,
-    borderWidth: 2,
-    minHeight: 76,
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  featureEmoji: {
+    fontSize: 32,
+    width: 42,
+    textAlign: "center",
+  },
+  comingSoon: {
+    backgroundColor: "#FDE68A",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
 
-  recapCard: { width: "100%", borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
-  recapRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  chipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    justifyContent: "center",
+  },
+  chip: {
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 999,
+    borderWidth: 1.5,
+  },
 
-  footer: { paddingHorizontal: 18, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth },
-  primaryBtn: {
-    paddingHorizontal: 18, paddingVertical: 14, borderRadius: 999,
-    flexDirection: "row", alignItems: "center", gap: 6, minHeight: 52,
+  footerCopy: {
+    textAlign: "center",
+    fontStyle: "italic",
+    marginTop: 8,
+    marginBottom: 4,
+    lineHeight: 19,
   },
-  secondaryBtn: {
-    paddingHorizontal: 14, paddingVertical: 11, borderRadius: 999, borderWidth: 2,
-    flexDirection: "row", alignItems: "center", gap: 4,
+
+  footer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 8,
   },
+  backLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 8,
+  },
+  cta: {
+    minHeight: 54,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    minWidth: 190,
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+  },
+
+  // ----- Celebration screen -----
+  celebrateWrap: { flex: 1 },
+  celebrateBadge: {
+    width: 168,
+    height: 168,
+    borderRadius: 84,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  celebrateHero: { color: "#FFFFFF", fontWeight: "900", textAlign: "center", letterSpacing: 0.5 },
+  celebrateHeadline: { color: "#FFFFFF", fontWeight: "800", textAlign: "center" },
+  celebrateSub: { color: "rgba(255,255,255,0.9)", textAlign: "center", fontWeight: "600", lineHeight: 24 },
 });
