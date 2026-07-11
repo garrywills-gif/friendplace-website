@@ -14,6 +14,8 @@
       "buildNumber": "1",
       "usesAppleSignIn": true,
       "infoPlist": {
+        "CFBundleDisplayName": "FriendPlace",
+        "CFBundleName": "FriendPlace",
         "NSLocationWhenInUseUsageDescription": "Used to show neighbours and events near your suburb.",
         "NSPhotoLibraryUsageDescription": "Attach photos to your messages and group posts.",
         "NSCameraUsageDescription": "Take photos to share in chats and group posts.",

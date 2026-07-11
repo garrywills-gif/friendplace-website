@@ -9,14 +9,16 @@ import { View, Text, StyleSheet, Image } from "react-native";
  *   [       Friend[navy]Place[teal] wordmark                        ]
  *   [       FIND YOUR PEOPLE  (optional tagline)                    ]
  *
- * The butterfly is now the primary FriendPlace logo and appears above
- * the wordmark on every screen (welcome, splash, home header, etc.).
- * The wordmark tone still adapts to the surface — `dark` for the navy
- * welcome/splash gradient, `navy` for the white Home surface.
- *
- * The butterfly image ships as a rounded-square app-icon PNG with a
- * teal→blue gradient backdrop. It sits on any background because the
- * artwork owns its own background — no cutout needed.
+ * The lockup is treated as a single responsive unit. It:
+ *  - Constrains its own width so the wordmark can never overflow the
+ *    parent container (prevented iPhone-mini clipping bug).
+ *  - Auto-shrinks the wordmark font if the container is narrower than
+ *    the natural text width would need (belt-and-braces on top of the
+ *    calculated ratio, so old iPhones don't cut off the "F" in
+ *    "FriendPlace" on the left edge).
+ *  - Optionally scales the butterfly icon proportional to available
+ *    HEIGHT as well as width — the welcome screen passes the actual
+ *    hero size to keep the mark from dominating short devices.
  *
  * Variants:
  *   - "light"  → white text (for dark / photo backgrounds)
@@ -39,55 +41,88 @@ export default function BrandLockup({
   variant = "light",
   showTagline = true,
   showButterfly = true,
+  butterflySize,
   testID,
 }: {
   width?: number;
   variant?: BrandLockupVariant;
   showTagline?: boolean;
   showButterfly?: boolean;
+  /** Optional explicit butterfly size (px). If omitted we scale
+   *  proportionally to `width`. Callers that also want to bound the
+   *  butterfly by the available HEIGHT (e.g. the welcome hero on iPhone
+   *  SE) can pass their own computed size. */
+  butterflySize?: number;
   testID?: string;
 }) {
-  // Font size derived from the requested width — keeps the wordmark
-  // rhythm consistent across a huge range (splash 400 → header 120).
-  // Slightly reduced ratio so the butterfly reads as the primary brand
-  // mark and the wordmark plays a supporting role.
-  const fontSize = Math.round(width * 0.17);
-  const tagSize = Math.max(11, Math.round(width * 0.055));
+  // Font ratio picked so that "FriendPlace" (11 letters, ~0.55 aspect at
+  // 900 weight) FITS the requested width with a tiny margin. 0.155 gives
+  // us ~93% coverage of `width` which leaves a couple of pixels of
+  // breathing room on either side even at extreme weights/kerning.
+  const fontSize = Math.round(width * 0.155);
+  const tagSize = Math.max(11, Math.round(width * 0.05));
   const gap = Math.max(4, Math.round(width * 0.02));
 
-  // Butterfly icon sizing — the butterfly is the heart of the FriendPlace
-  // brand and should be the first thing users notice. Sized larger than
-  // the wordmark suggests. Aims for ~150–160px on login, ~210px max on
-  // wide splash surfaces, and ~65px in the compact home header.
-  const butterflySize = Math.max(64, Math.min(210, Math.round(width * 0.46)));
+  // Butterfly icon sizing — proportional to width by default. Callers
+  // (welcome screen) can override with `butterflySize` when they also
+  // want to cap against screen height.
+  const bfy = butterflySize ?? Math.max(64, Math.min(210, Math.round(width * 0.42)));
 
   const friendColor = variant === "navy" ? NAVY_INK : "#FFFFFF";
   const placeColor = variant === "navy" ? TEAL_INK : "#5EEAD4"; // mint on dark
   const tagColor = variant === "navy" ? TAGLINE_INK : variant === "dark" ? "#5EEAD4" : "#E2E8F0";
 
   return (
-    <View style={styles.wrap} testID={testID}>
+    // Fixed width on the outer wrap so children (especially the wordmark
+    // Text row) can never render wider than the requested lockup width.
+    // Combined with numberOfLines={1} + adjustsFontSizeToFit below this
+    // guarantees no left/right clipping on any device.
+    <View style={[styles.wrap, { width, maxWidth: "100%" }]} testID={testID}>
       {showButterfly && (
         <Image
           source={BUTTERFLY_LOGO}
           style={{
-            width: butterflySize,
-            height: butterflySize,
+            width: bfy,
+            height: bfy,
             marginBottom: Math.max(6, Math.round(width * 0.03)),
             // Soft rounded mask — the artwork is already a rounded square
             // but the extra clip guarantees clean edges on all densities.
-            borderRadius: Math.round(butterflySize * 0.22),
+            borderRadius: Math.round(bfy * 0.22),
           }}
           resizeMode="contain"
           accessibilityLabel="FriendPlace butterfly logo"
         />
       )}
-      <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-        <Text style={[styles.word, { color: friendColor, fontSize }]}>Friend</Text>
-        <Text style={[styles.word, { color: placeColor, fontSize }]}>Place</Text>
+      {/* Wordmark row — width-clamped so nothing can push it wider than
+          the lockup container. `numberOfLines` + `adjustsFontSizeToFit`
+          are the second safety net that shrinks the type on ultra-narrow
+          devices instead of clipping. Both Text elements share the same
+          font size so the split colour "Friend | Place" stays balanced. */}
+      <View style={[styles.wordRow, { maxWidth: width }]}>
+        <Text
+          style={[styles.word, { color: friendColor, fontSize }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
+        >
+          Friend
+        </Text>
+        <Text
+          style={[styles.word, { color: placeColor, fontSize }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
+        >
+          Place
+        </Text>
       </View>
       {showTagline && (
-        <Text style={[styles.tagline, { color: tagColor, fontSize: tagSize, marginTop: gap }]}>
+        <Text
+          style={[styles.tagline, { color: tagColor, fontSize: tagSize, marginTop: gap }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
           FIND YOUR PEOPLE
         </Text>
       )}
@@ -98,10 +133,19 @@ export default function BrandLockup({
 const styles = StyleSheet.create({
   wrap: {
     alignItems: "center",
+    // Centred within the parent so any responsive scaling stays visually
+    // balanced regardless of surrounding padding.
+    alignSelf: "center",
+  },
+  wordRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "center",
   },
   word: {
     fontWeight: "900",
     letterSpacing: -0.5,
+    includeFontPadding: false,
   },
   tagline: {
     fontWeight: "800",
