@@ -1431,14 +1431,30 @@ async def auth_apple(body: AppleAuthBody):
     try:
         # python-jose accepts a JWK dict directly; we explicitly allow only
         # RS256 (Apple's algorithm) so the token can't be downgraded.
+        #
+        # NOTE: `python-jose`'s `jwt.decode(audience=...)` requires a
+        # single string, not a list. We support TWO audiences (iOS
+        # bundle + web) so we skip its built-in `verify_aud` check and
+        # validate the `aud` claim ourselves against the allowlist
+        # after signature verification.
         decoded = jwt.decode(
             tok,
             jwk,
             algorithms=["RS256"],
-            audience=list(_APPLE_AUDIENCES),
             issuer=_APPLE_ISSUER,
-            options={"verify_at_hash": False},  # we don't request an access token
+            options={
+                "verify_at_hash": False,  # we don't request an access token
+                "verify_aud": False,      # manual multi-audience check below
+            },
         )
+        # Manual audience allow-list check — Apple always ships a single
+        # `aud` string that matches the client_id used to request the
+        # token; we accept any client_id we've configured (iOS + web).
+        token_aud = decoded.get("aud")
+        if token_aud not in _APPLE_AUDIENCES:
+            raise JWTError(
+                f"aud '{token_aud}' not in allowlist {list(_APPLE_AUDIENCES)}"
+            )
     except JWTError as e:
         # Peek at the token claims (without verification) so the log tells us
         # WHY the JWT failed — usually an `aud` mismatch. TestFlight bugs are
