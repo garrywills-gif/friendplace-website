@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -42,6 +42,29 @@ export default function Home() {
   // offers a secondary "View full profile" button for anyone who wants to
   // keep drilling in. Much less jarring for older users.
   const [pointsInfoOpen, setPointsInfoOpen] = useState(false);
+  // Incoming-flutter arrival animation.
+  //
+  // First time this Home mounts after login (i.e., a fresh session)
+  // AND the initial flutters fetch returns at least one flutter, we
+  // play the "receive" butterfly animation: a small butterfly enters
+  // from the top edge, glides down and lands on the flutter card,
+  // then the card gently fades in. This creates a warm "look who
+  // arrived while you were away" moment.
+  //
+  // Subsequent focuses (tab switches, refreshes) don't replay — the
+  // butterfly's arrival is a signature login-only beat.
+  const flutterCardRef = useRef<View>(null);
+  const flutterCardOpacity = useRef(new Animated.Value(0)).current;
+  const flutterCardTranslate = useRef(new Animated.Value(-8)).current;
+  const receivePlayedRef = useRef<boolean>(false);
+  // Reset the session flag + the fade-in animation whenever the
+  // signed-in user changes so a fresh login (or account switch)
+  // replays the arrival.
+  useEffect(() => {
+    receivePlayedRef.current = false;
+    flutterCardOpacity.setValue(0);
+    flutterCardTranslate.setValue(-8);
+  }, [user?.id, flutterCardOpacity, flutterCardTranslate]);
 
   const shuffleThought = () => setThought((t) => getRandomThought(t));
 
@@ -87,7 +110,60 @@ export default function Home() {
 
   const loadFlutters = async () => {
     if (!user) return;
-    try { setFlutters(await api.myFlutters(user.id)); } catch {}
+    try {
+      const list = (await api.myFlutters(user.id)) as any[];
+      setFlutters(list);
+      // If this is the first Home load after login AND there are
+      // flutters waiting, kick off the signature "receive" arrival
+      // animation: a small butterfly enters from the top of the
+      // screen, lands on the flutter card ref, and the card fades in
+      // right as the butterfly touches down. On subsequent focuses we
+      // just reveal the card immediately (no animation).
+      if (list.length > 0) {
+        if (receivePlayedRef.current) {
+          // Already played this session — just make sure the card is
+          // fully visible (in case it was hidden during navigation).
+          flutterCardOpacity.setValue(1);
+          flutterCardTranslate.setValue(0);
+        } else {
+          receivePlayedRef.current = true;
+          // Give the ScrollView one frame to lay out the flutter card
+          // container so the measurement below returns valid coords.
+          requestAnimationFrame(() => {
+            const { width: winW } = Dimensions.get("window");
+            // Enter from just above the top edge, biased to whichever
+            // side has more room so the arrival trajectory curls
+            // nicely into view.
+            const enterX = winW * (0.15 + Math.random() * 0.7);
+            const enterY = -30;
+            emitFlutter({
+              startX: enterX,
+              startY: enterY,
+              targetRef: flutterCardRef.current || undefined,
+              onLand: () => {
+                Animated.parallel([
+                  Animated.timing(flutterCardOpacity, {
+                    toValue: 1,
+                    duration: 320,
+                    useNativeDriver: true,
+                  }),
+                  Animated.timing(flutterCardTranslate, {
+                    toValue: 0,
+                    duration: 360,
+                    useNativeDriver: true,
+                  }),
+                ]).start();
+              },
+            });
+          });
+        }
+      } else {
+        // No flutters — reset so if the user gets one later this
+        // session and returns to Home, we can replay the arrival.
+        flutterCardOpacity.setValue(0);
+        flutterCardTranslate.setValue(-8);
+      }
+    } catch {}
     try { const r: any = await api.notificationCount(user.id); setUnread(r?.unread || 0); } catch {}
     try { await api.heartbeat(user.id); } catch {}
     try { setCommunity(await api.communityToday(user.id)); } catch {}
@@ -242,7 +318,21 @@ export default function Home() {
         ) : null}
 
         {flutters.length > 0 && (
-          <View style={[styles.flutterBox, { borderColor: "#8B5CF6" }]}>
+          <Animated.View
+            ref={flutterCardRef}
+            collapsable={false}
+            style={[
+              styles.flutterBox,
+              {
+                borderColor: "#8B5CF6",
+                // Hidden (opacity 0, tiny upward offset) until the
+                // butterfly lands on its first appearance this
+                // session — then it fades in with a subtle drop.
+                opacity: flutterCardOpacity,
+                transform: [{ translateY: flutterCardTranslate }],
+              },
+            ]}
+          >
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
               <Text style={{ fontSize: 24 }}>🦋</Text>
               <Text style={{ color: "#6D28D9", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>You&apos;ve got Flutters!</Text>
@@ -288,7 +378,7 @@ export default function Home() {
                 </View>
               </View>
             ))}
-          </View>
+          </Animated.View>
         )}
 
         <Pressable testID="home-points-card" onPress={() => setPointsInfoOpen(true)} style={[styles.pointsCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>

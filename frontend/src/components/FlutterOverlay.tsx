@@ -123,20 +123,43 @@ export default function FlutterOverlay() {
           ? Math.max(margin, Math.min(winH - margin, ty))
           : winH * 0.22;
 
-      // Start position: lower-left thumb region. Slight random jitter
-      // so consecutive flutters don't look robotic.
-      const startX = winW * (0.12 + Math.random() * 0.08);
-      const startY = winH * (0.82 + Math.random() * 0.06);
+      // Start position: lower-left thumb region by default (feels like
+      // a "send"). Callers can override with explicit start coords —
+      // e.g. Home passes coords near the top edge so an incoming
+      // flutter looks like it *arrived* rather than launched. Slight
+      // random jitter keeps consecutive flutters from feeling robotic.
+      const startX =
+        typeof opts.startX === "number"
+          ? Math.max(margin, Math.min(winW - margin, opts.startX))
+          : winW * (0.12 + Math.random() * 0.08);
+      const startY =
+        typeof opts.startY === "number"
+          ? Math.max(margin, Math.min(winH - margin, opts.startY))
+          : winH * (0.82 + Math.random() * 0.06);
 
-      // Control point of the quadratic Bezier: sits above the straight
-      // line between start and target, biased toward the start so the
-      // butterfly rises first then descends to the target — a natural
-      // arc rather than a straight diagonal.
-      const midX = startX + (targetX - startX) * 0.45;
-      // Arc height scales with the vertical distance but is capped so
-      // shorter flights don't loop absurdly high.
-      const arcHeight = Math.min(200, Math.max(90, Math.abs(startY - targetY) * 0.55));
-      const midY = Math.min(startY, targetY) - arcHeight;
+      // Bezier mid-point picks its bulge direction based on whether
+      // the butterfly is flying UP (a "send" — swoops up above both
+      // endpoints so it arcs like a launch) or DOWN (a "receive" —
+      // curls laterally so it enters the screen from above rather
+      // than looping off the top edge).
+      const goingDown = targetY > startY + 40;
+      let midX: number;
+      let midY: number;
+      if (goingDown) {
+        // Lateral arc: nudge midX to one side (biased away from the
+        // nearer screen edge) and keep midY roughly between the
+        // endpoints — the butterfly enters and curls on its way down.
+        const straightMidX = (startX + targetX) / 2;
+        const bias = straightMidX < winW / 2 ? 1 : -1; // curl toward the roomy side
+        midX = straightMidX + bias * 90;
+        midY = (startY + targetY) / 2 - 20;
+      } else {
+        // Send-style upward arc: control point sits above the direct
+        // line so the butterfly rises then descends to the target.
+        midX = startX + (targetX - startX) * 0.45;
+        const arcHeight = Math.min(200, Math.max(90, Math.abs(startY - targetY) * 0.55));
+        midY = Math.min(startY, targetY) - arcHeight;
+      }
 
       const id = ++nextId;
       setFlight({ id, startX, startY, targetX, targetY, midX, midY, onLand: opts.onLand });

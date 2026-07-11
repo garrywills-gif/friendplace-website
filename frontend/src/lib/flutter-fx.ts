@@ -39,6 +39,16 @@ export type FlutterOptions = {
    */
   targetRef?: Measurable | null;
   /**
+   * Optional absolute-window X (px) to start the butterfly from.
+   * Defaults to the lower-left thumb region (the "sending" launch
+   * point). Set both start* values to spawn the butterfly from
+   * elsewhere — for instance the top of the screen so it feels like
+   * an incoming arrival rather than a send.
+   */
+  startX?: number;
+  /** Optional absolute-window Y (px) to start the butterfly from. */
+  startY?: number;
+  /**
    * Fires the moment the butterfly finishes its landing pulse at the
    * target. Use this to show a "Flutter sent to X" toast so it
    * appears when the butterfly *arrives*, not when the tap starts.

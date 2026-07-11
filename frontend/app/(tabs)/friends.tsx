@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput, Pressable, ScrollView, Modal, Platform, Linking, Image } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -31,6 +31,10 @@ export default function Friends() {
   const [askingLoc, setAskingLoc] = useState(false);
   const [showRationale, setShowRationale] = useState(false);
   const [showDeniedHelp, setShowDeniedHelp] = useState(false);
+  // Per-row avatar refs — used by the "send flutter" animation so
+  // the butterfly lands directly on the recipient's avatar instead
+  // of the button next to it. Cleared on unmount by the ref callback.
+  const avatarRefs = useRef<Map<string, View | null>>(new Map());
 
   const load = async () => {
     try {
@@ -101,10 +105,13 @@ export default function Friends() {
     if (!user) return;
     try {
       await api.sendFlutter({ from_id: user.id, to_id: other.id });
-      // Signature single-butterfly celebration. The toast is deferred
-      // until the butterfly *lands* (via onLand) so the message
-      // arrives with the butterfly instead of racing ahead of it.
+      // Signature single-butterfly celebration. Prefer to land on the
+      // recipient's *avatar* (via ref) so the animation clearly ties
+      // the flutter to *them*; fall back to the tap coords when the
+      // avatar can't be measured.
+      const avatarRef = avatarRefs.current.get(other.id) || null;
       emitFlutter({
+        targetRef: avatarRef as any,
         targetX: tap?.pageX,
         targetY: tap?.pageY,
         onLand: () => show(`🦋 Flutter sent to ${other.first_name}!`),
@@ -231,7 +238,14 @@ export default function Friends() {
         renderItem={({ item }) => (
           <View style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <Pressable onPress={() => router.push(`/user/${item.id}` as any)} style={styles.userRow}>
-              <View style={[styles.avatar, { backgroundColor: c.brandTertiary }]}>
+              <View
+                ref={(node) => {
+                  if (node) avatarRefs.current.set(item.id, node);
+                  else avatarRefs.current.delete(item.id);
+                }}
+                collapsable={false}
+                style={[styles.avatar, { backgroundColor: c.brandTertiary }]}
+              >
                 <AvatarBubble value={item.avatar} size={28} fallback="🙂" />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
