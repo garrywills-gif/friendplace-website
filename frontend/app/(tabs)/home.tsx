@@ -117,15 +117,17 @@ export default function Home() {
    * start a chat?". Card is dismissed locally after the send so the
    * recipient sees fresh state next refresh.
    */
-  const flutterBack = async (f: any) => {
+  const flutterBack = async (f: any, tap?: { pageX: number; pageY: number }) => {
     if (!user) return;
     try {
       await api.sendFlutter({ from_id: user.id, to_id: f.from_id });
       await api.markFlutterRead(f.id);
       setFlutters((arr) => arr.filter((x) => x.id !== f.id));
-      // Signature butterfly celebration — fired before the toast so the
-      // Flutter feels like it launches away visibly.
-      emitFlutter(5);
+      // Signature single-butterfly celebration. When we know the tap
+      // coords (from the "Flutter back" pressable) the butterfly lands
+      // right on the sender's card. Otherwise it defaults to a nice
+      // upper-right glide.
+      emitFlutter(tap ? { targetX: tap.pageX, targetY: tap.pageY } : undefined);
       // NOTE: we deliberately do NOT call auth `refresh()` here anymore.
       // It fires /api/users/{id} which occasionally 401s mid-session and
       // was bouncing users back to Home via the global unauthorized
@@ -270,7 +272,7 @@ export default function Home() {
                   {f.message}
                 </Text>
                 <View style={styles.flutterActions}>
-                  <Pressable testID={`flutter-back-${f.id}`} onPress={() => flutterBack(f)} style={[styles.flutterActionBtn, { backgroundColor: "#EDE9FE", borderColor: "#8B5CF6" }]}>
+                  <Pressable testID={`flutter-back-${f.id}`} onPress={(e) => flutterBack(f, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })} style={[styles.flutterActionBtn, { backgroundColor: "#EDE9FE", borderColor: "#8B5CF6" }]}>
                     <Text style={{ fontSize: 14 }}>🦋</Text>
                     <Text style={{ color: "#6D28D9", fontWeight: "800", fontSize: 13 * scale }}>Flutter back</Text>
                   </Pressable>

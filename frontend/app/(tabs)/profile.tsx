@@ -9,6 +9,7 @@ import { useToast } from "@/src/lib/toast";
 import Button from "@/src/components/Button";
 import ShareYouBelong from "@/src/components/ShareYouBelong";
 import { api } from "@/src/lib/api";
+import { emitFlutter } from "@/src/lib/flutter-fx";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderBadge from "@/src/components/FounderBadge";
 import FounderMark from "@/src/components/FounderMark";
@@ -104,7 +105,7 @@ export default function Profile() {
     })();
   }, [user?.id]));
 
-  async function sendHello(invitee: any) {
+  async function sendHello(invitee: any, tap?: { pageX: number; pageY: number }) {
     if (!user?.id || !invitee?.id) return;
     setHelloBusy((m) => ({ ...m, [invitee.id]: true }));
     try {
@@ -113,6 +114,8 @@ export default function Profile() {
         to_id: invitee.id,
         message: `Welcome to FriendPlace, ${invitee.first_name || ""}! So glad you joined 🦋`,
       });
+      // Signature single-butterfly celebration — lands on the pressed row.
+      emitFlutter(tap ? { targetX: tap.pageX, targetY: tap.pageY } : undefined);
       show(`Said hi to ${invitee.first_name || invitee.username || "your friend"} 🦋`);
     } catch (e: any) {
       show(e?.message || "Couldn't send the hello flutter");
@@ -465,7 +468,7 @@ export default function Profile() {
                 <Pressable
                   testID={`invitee-hello-${it.id}`}
                   disabled={!!helloBusy[it.id]}
-                  onPress={() => sendHello(it)}
+                  onPress={(e) => sendHello(it, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })}
                   style={({ pressed }) => [
                     styles.helloBtn,
                     {

@@ -6,6 +6,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import { emitFlutter } from "@/src/lib/flutter-fx";
 import Header from "@/src/components/Header";
 
 const ICON: Record<string, { name: keyof typeof Ionicons.glyphMap; tint: string }> = {
@@ -83,7 +84,7 @@ export default function Notifications() {
     } catch {}
   };
 
-  const sayHi = async (n: any) => {
+  const sayHi = async (n: any, tap?: { pageX: number; pageY: number }) => {
     // Flutter-type notifications don't populate `ref_user_id` — they put
     // the sender's id in payload.from_id. Fall back to that so replying
     // ("Say Hi" ↔ flutter back) actually works from the notifications list.
@@ -93,6 +94,8 @@ export default function Notifications() {
       await api.sendFlutter({ from_id: user.id, to_id: targetId });
       if (!n.read) await api.readNotification(n.id);
       setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      // Signature single-butterfly celebration — lands on the pressed row.
+      emitFlutter(tap ? { targetX: tap.pageX, targetY: tap.pageY } : undefined);
       show("Flutter sent 🦋");
     } catch (e: any) {
       const msg = String(e?.message || "").toLowerCase();
@@ -154,7 +157,7 @@ export default function Notifications() {
                 <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
                   <Pressable
                     testID={`${isFlutter ? "flutter" : "newmember"}-say-hi-${item.id}`}
-                    onPress={() => sayHi(item)}
+                    onPress={(e) => sayHi(item, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })}
                     style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
                   >
                     <Text style={{ fontSize: 16 }}>🦋</Text>

@@ -6,6 +6,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import { emitFlutter } from "@/src/lib/flutter-fx";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import ReportSheet from "@/src/components/ReportSheet";
@@ -52,6 +53,9 @@ export default function UserView() {
     if (!user) return;
     try {
       await api.sendFlutter({ from_id: user.id, to_id: u.id });
+      // Signature single-butterfly celebration. Default landing target
+      // (upper-right glide) reads nicely against the profile header.
+      emitFlutter();
       show(`🦋 Flutter sent to ${u.first_name}!`);
     } catch (e: any) {
       const msg = String(e?.message || "");

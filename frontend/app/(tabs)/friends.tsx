@@ -97,14 +97,15 @@ export default function Friends() {
     } catch { show("Already sent or error"); }
   };
 
-  const sendFlutter = async (other: any) => {
+  const sendFlutter = async (other: any, tap?: { pageX: number; pageY: number }) => {
     if (!user) return;
     try {
       await api.sendFlutter({ from_id: user.id, to_id: other.id });
-      // Celebratory butterfly animation across the whole screen — the
-      // signature FriendPlace moment. Fired before the toast so the
-      // animation feels like it's launching the message on its way.
-      emitFlutter(5);
+      // Signature single-butterfly celebration. Passing the tap coords
+      // makes the butterfly land right on the button the user pressed
+      // — which sits next to the recipient's avatar in this card, so
+      // it reads as "the flutter went to *them*".
+      emitFlutter(tap ? { targetX: tap.pageX, targetY: tap.pageY } : undefined);
       show(`🦋 Flutter sent to ${other.first_name}!`);
       await load();
     } catch { show("Could not send flutter"); }
@@ -245,7 +246,7 @@ export default function Friends() {
                 <Ionicons name="person-add" size={18} color="#FFF" />
                 <Text style={[styles.actionText]}>Add</Text>
               </Pressable>
-              <Pressable testID={`flutter-${item.id}`} onPress={() => sendFlutter(item)} style={[styles.actionBtn, { backgroundColor: "#8B5CF6" }]}>
+              <Pressable testID={`flutter-${item.id}`} onPress={(e) => sendFlutter(item, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })} style={[styles.actionBtn, { backgroundColor: "#8B5CF6" }]}>
                 <Text style={{ fontSize: 16 }}>🦋</Text>
                 <Text style={[styles.actionText]}>Flutter</Text>
               </Pressable>
