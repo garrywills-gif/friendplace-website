@@ -1,26 +1,27 @@
 /**
  * FlutterOverlay — the signature FriendPlace celebration.
  *
- * When `emitFlutter({ targetX?, targetY? })` fires, a single butterfly
- * drifts from the lower-left thumb region along a naturalistic curved
- * path — pausing, bobbing and gently arcing the way a real Monarch
- * moves through the garden — briefly "lands" near the recipient
- * (either the provided target coordinates or a sensible upper-right
- * default), then fades out. A small "🦋 Flutter sent!" toast appears
- * near the top of the screen for the duration of the flight.
+ * When `emitFlutter({ targetX?, targetY?, onLand? })` fires, a single
+ * butterfly drifts from the lower-left thumb region along a
+ * naturalistic curved path — briefly resting mid-flight the way a
+ * real Monarch touches down on a flower, then gliding on to the
+ * recipient. The overlay renders ONLY the butterfly; the caller's
+ * "Flutter sent to X" toast fires via the `onLand` callback so it
+ * lands with the butterfly instead of racing ahead of it.
  *
  * Design decisions:
  *   - ONE butterfly (previously 3-5) — feels intimate and personal.
- *   - Timing: fly-out ~1.2s → mid-flight rest ~700ms → glide-in ~1.5s
- *     → land pulse ~320ms → fade ~400ms ≈ 4.1s total. The rest beat
- *     mimics a real butterfly touching a flower mid-journey and gives
- *     the whole moment a story arc: *launch → pause → arrive*.
- *   - Curved path: quadratic Bezier with the control point lifted well
- *     above the midpoint so the butterfly arcs up-and-over. During
- *     the mid-flight pause the sway keeps oscillating so the butterfly
- *     visibly "flexes" on its perch instead of freezing.
- *   - Easing.bezier(0.55, 0.05, 0.45, 0.95) — an ease-in-out that gives
- *     the butterfly a soft launch and a graceful settle at the target.
+ *   - Timing:
+ *       fly-out ~1.3s → mid-flight rest ~700ms → glide-in ~1.5s →
+ *       landing pulse ~340ms → fade ~460ms ≈ 4.3s total.
+ *     The rest beat mimics a butterfly touching a flower mid-journey
+ *     and gives the whole moment a story arc: launch → pause → arrive.
+ *   - Smoother motion: 17-point Bezier sampling (previously 9) so the
+ *     curve no longer shows tiny linear-interp seams during the long
+ *     glide, gentler wing-flap rotation (±12deg) and a smaller vertical
+ *     wing-bob (±2px) so the butterfly no longer looks jittery, and
+ *     sway amplitude reduced (±22px) so the drift feels graceful
+ *     rather than erratic.
  *   - `pointerEvents="none"` on the root — never intercepts taps.
  *   - Uses core RN `Animated` (not Reanimated) so it works on iOS,
  *     Android, and the Expo web preview identically.
@@ -38,6 +39,7 @@ type Flight = {
   // Mid-point of the quadratic Bezier — controls the arc shape.
   midX: number;
   midY: number;
+  onLand?: () => void;
 };
 
 let nextId = 0;
@@ -45,8 +47,6 @@ let nextId = 0;
 export default function FlutterOverlay() {
   const { width: winW, height: winH } = useWindowDimensions();
   const [flight, setFlight] = useState<Flight | null>(null);
-  const [toastVisible, setToastVisible] = useState(false);
-  const toastOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const unsub = _subscribeFlutter((opts) => {
@@ -79,57 +79,32 @@ export default function FlutterOverlay() {
       const midY = Math.min(startY, targetY) - arcHeight;
 
       const id = ++nextId;
-      setFlight({ id, startX, startY, targetX, targetY, midX, midY });
+      setFlight({ id, startX, startY, targetX, targetY, midX, midY, onLand: opts.onLand });
 
-      // Toast — fades in, holds through the entire flight (fly-out +
-      // mid-flight rest + glide-in), fades out as the butterfly lands.
-      setToastVisible(true);
-      toastOpacity.setValue(0);
-      Animated.sequence([
-        Animated.timing(toastOpacity, { toValue: 1, duration: 280, useNativeDriver: true }),
-        Animated.delay(3100),
-        Animated.timing(toastOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
-      ]).start(() => setToastVisible(false));
-
-      // Full animation window (fly-out + pause + glide-in + land + fade)
-      // — clean up a little after the fade so React doesn't drop the
-      // animated view mid-transition.
+      // Full animation window (fly-out + rest + glide-in + landing +
+      // fade) — clean up a bit after the fade so React doesn't drop
+      // the animated view mid-transition.
       setTimeout(() => {
         setFlight((cur) => (cur && cur.id === id ? null : cur));
-      }, 4400);
+      }, 4600);
     });
     return unsub;
-  }, [winW, winH, toastOpacity]);
+  }, [winW, winH]);
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       {flight && <Butterfly key={flight.id} flight={flight} />}
-      {toastVisible && (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.toastWrap,
-            { top: Math.max(56, winH * 0.12), opacity: toastOpacity },
-          ]}
-          accessibilityLiveRegion="polite"
-          accessibilityRole="alert"
-        >
-          <View style={styles.toast}>
-            <Text style={styles.toastText}>🦋 Flutter sent!</Text>
-          </View>
-        </Animated.View>
-      )}
     </View>
   );
 }
 
 function Butterfly({ flight }: { flight: Flight }) {
-  // Progress along the Bezier (0 → 1). Split into three phases so the
-  // butterfly can pause mid-flight — see the flight sequence below.
+  // Progress along the Bezier (0 → 1). Split into three phases (see
+  // the flight sequence below) so the butterfly can pause mid-flight.
   const progress = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   // Wing wobble — a rapid sinusoidal rotation layered on top of the
-  // main path. Runs at real-butterfly wing speed (~5-8Hz) so even
+  // main path. Runs at real-butterfly wing speed (~4-5Hz) so even
   // though the *body* moves slowly, the wings still look alive.
   const wobble = useRef(new Animated.Value(0)).current;
   // Slow, larger side-to-side sway on top of the Bezier. Real
@@ -138,48 +113,50 @@ function Butterfly({ flight }: { flight: Flight }) {
   // slower (and wider) than the wing flap.
   const sway = useRef(new Animated.Value(0)).current;
   // Scale is driven by TWO events:
-  //   1. A soft "settle" pulse during the mid-flight rest (as if the
-  //      butterfly touched down on a flower).
-  //   2. A final "landing" pulse when it reaches the recipient.
-  // We keep both on the same Animated.Value so the transform stays
-  // native-driver friendly.
+  //   1. A soft "settle" pulse during the mid-flight rest.
+  //   2. A final "landing" pulse when the butterfly reaches the
+  //      recipient.
   const scaleV = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     // Fade-in → hold → fade-out. Held across all three flight phases
-    // (fly-out ~1200ms + rest ~700ms + glide-in ~1500ms + landing
-    // ~340ms ≈ 3.74s) then a 400ms fade-out.
+    // (fly-out ~1300ms + rest ~700ms + glide-in ~1500ms + landing
+    // ~340ms ≈ 3.84s) then a 460ms fade-out.
     Animated.sequence([
-      Animated.timing(opacity, { toValue: 1, duration: 280, useNativeDriver: true }),
-      Animated.delay(3400),
-      Animated.timing(opacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.delay(3540),
+      Animated.timing(opacity, { toValue: 0, duration: 460, useNativeDriver: true }),
     ]).start();
 
     // Flight sequence:
-    //   PHASE 1 (fly-out, 1200ms): progress 0 → 0.42 with ease-out so
-    //     the butterfly launches confidently then softens as it nears
-    //     the rest point.
-    //   REST (700ms): progress holds at 0.42. During this beat the
-    //     wing wobble and sway keep going (they're separate loops), so
-    //     the butterfly visibly "flexes" on its imaginary flower. A
-    //     tiny scale bump (1.0 → 1.1 → 1.0) reinforces the "settle".
+    //   PHASE 1 (fly-out, 1300ms): progress 0 → 0.42 with ease-in-out
+    //     so the butterfly launches softly and eases into the rest
+    //     point (no abrupt stop).
+    //   REST (700ms): progress holds at 0.42. Wing wobble and sway
+    //     keep going (they're separate loops), so the butterfly
+    //     visibly "flexes" on its imaginary flower. A tiny scale bump
+    //     (1.0 → 1.08 → 1.0) reinforces the settle.
     //   PHASE 2 (glide-in, 1500ms): progress 0.42 → 1 with ease-in-out
     //     so the butterfly builds momentum out of the rest, then
-    //     softly decelerates onto the target.
+    //     softly decelerates onto the target — matching the exit
+    //     velocity of phase 1 for continuous-looking motion.
     //   LANDING (340ms): a bigger scale pulse (1.0 → 1.22 → 1.0) at
-    //     the target so it reads as "arrived".
+    //     the target so it reads as "arrived". After the pulse we
+    //     fire `onLand` — that's when the caller's "Flutter sent to X"
+    //     toast appears, so the message arrives *with* the butterfly.
     Animated.sequence([
       Animated.timing(progress, {
         toValue: 0.42,
-        duration: 1200,
-        easing: Easing.bezier(0.5, 0, 0.6, 0.85),
+        duration: 1300,
+        // Symmetric ease-in-out: zero velocity at both boundaries so
+        // the transition into the rest is buttery smooth.
+        easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,
       }),
-      // Mid-flight rest — settle pulse in parallel with the pause.
       Animated.parallel([
         Animated.sequence([
           Animated.timing(scaleV, {
-            toValue: 1.1,
+            toValue: 1.08,
             duration: 220,
             easing: Easing.out(Easing.quad),
             useNativeDriver: true,
@@ -193,14 +170,16 @@ function Butterfly({ flight }: { flight: Flight }) {
           }),
         ]),
       ]),
-      // Glide-in to the recipient.
       Animated.timing(progress, {
         toValue: 1,
         duration: 1500,
-        easing: Easing.bezier(0.4, 0.05, 0.45, 0.95),
+        // Ease-in-out again: matches the exit velocity of phase 1
+        // (zero) so the resume out of the rest is imperceptible in
+        // terms of velocity change, and the arrival at the target is
+        // a gentle settle rather than a snap.
+        easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,
       }),
-      // Landing pulse at the recipient.
       Animated.sequence([
         Animated.timing(scaleV, {
           toValue: 1.22,
@@ -215,57 +194,67 @@ function Butterfly({ flight }: { flight: Flight }) {
           useNativeDriver: true,
         }),
       ]),
-    ]).start();
+    ]).start(({ finished }) => {
+      if (finished && flight.onLand) {
+        try {
+          flight.onLand();
+        } catch {
+          /* never let a bad callback break the animation */
+        }
+      }
+    });
 
-    // Wing wobble — fast flaps that run for the full animation (fly +
-    // rest + glide + landing ≈ 3.7s). Asymmetric durations avoid a
-    // metronomic feel.
+    // Wing wobble — moderate flaps that run for the full animation.
+    // Slower than before (a rapid flap made the whole thing feel
+    // jittery when the body barely moves during the rest beat).
+    // Asymmetric durations avoid a metronomic feel.
     Animated.loop(
       Animated.sequence([
         Animated.timing(wobble, {
           toValue: 1,
-          duration: 170,
+          duration: 220,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
         Animated.timing(wobble, {
           toValue: -1,
-          duration: 190,
+          duration: 240,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
       ]),
-      { iterations: 22 }
+      { iterations: 18 }
     ).start();
 
-    // Body sway — slow, wide left/right drift so the Bezier path is
-    // *disturbed* rather than followed rigidly. Continues through the
-    // rest beat so the butterfly gently rocks on its "flower".
+    // Body sway — slow, gentle left/right drift so the Bezier path is
+    // *disturbed* rather than followed rigidly. Longer cycles than
+    // before (was 820ms) so the drift feels leisurely instead of
+    // anxious.
     Animated.loop(
       Animated.sequence([
         Animated.timing(sway, {
           toValue: 1,
-          duration: 820,
+          duration: 950,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
         Animated.timing(sway, {
           toValue: -1,
-          duration: 820,
+          duration: 950,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
       ]),
       { iterations: 5 }
     ).start();
-  }, [progress, opacity, wobble, sway, scaleV]);
+  }, [progress, opacity, wobble, sway, scaleV, flight]);
 
   // Quadratic Bezier: B(t) = (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
-  // Sampled at 9 points along the path so the trajectory follows a
-  // smooth arc even after the animation is slowed to ~2.7s of active
-  // motion (fewer sample points would make the linear-interp segments
-  // visible during the glide-in phase).
-  const samples = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1];
+  // Sampled at 17 evenly-spaced points along the path (up from 9) so
+  // the trajectory reads as a continuous smooth arc even during the
+  // long ~1.5s glide-in phase. Fewer samples showed subtle "seams" at
+  // segment boundaries when the eye tracked the butterfly.
+  const samples = Array.from({ length: 17 }, (_, i) => i / 16);
   const bezier = (a: number, b: number, c: number) =>
     samples.map((t) => {
       const inv = 1 - t;
@@ -278,21 +267,22 @@ function Butterfly({ flight }: { flight: Flight }) {
   const translateY = progress.interpolate({ inputRange: samples, outputRange: ys });
 
   // Wing wobble → rotation + a tiny vertical bob for a convincing
-  // "flapping wings" impression.
+  // "flapping wings" impression. Reduced amplitudes (±12deg / ±2px)
+  // so the flap reads as *alive*, not *manic*.
   const rotate = wobble.interpolate({
     inputRange: [-1, 1],
-    outputRange: ["-16deg", "16deg"],
+    outputRange: ["-12deg", "12deg"],
   });
   const wingBob = wobble.interpolate({
     inputRange: [-1, 1],
-    outputRange: [-3, 3],
+    outputRange: [-2, 2],
   });
   // Body sway → horizontal drift that layers over the main flight so
   // the trajectory looks meandering, not scripted. Amplitude tapers
-  // toward the end so the landing is precise (butterfly steadies as it
-  // approaches its rest spot).
+  // toward the end so the landing is precise (butterfly steadies as
+  // it approaches its rest spot).
   const swayX = Animated.multiply(
-    sway.interpolate({ inputRange: [-1, 1], outputRange: [-28, 28] }),
+    sway.interpolate({ inputRange: [-1, 1], outputRange: [-22, 22] }),
     progress.interpolate({ inputRange: [0, 0.9, 1], outputRange: [1, 1, 0] })
   );
 
@@ -332,28 +322,5 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(139,92,246,0.35)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 8,
-  },
-  toastWrap: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  toast: {
-    backgroundColor: "rgba(30, 41, 59, 0.94)", // slate-800 @ ~94%
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 999,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  toastText: {
-    color: "#FFFFFF",
-    fontWeight: "800",
-    fontSize: 16,
-    letterSpacing: 0.2,
   },
 });

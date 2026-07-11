@@ -94,9 +94,14 @@ export default function Notifications() {
       await api.sendFlutter({ from_id: user.id, to_id: targetId });
       if (!n.read) await api.readNotification(n.id);
       setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
-      // Signature single-butterfly celebration — lands on the pressed row.
-      emitFlutter(tap ? { targetX: tap.pageX, targetY: tap.pageY } : undefined);
-      show("Flutter sent 🦋");
+      // Signature single-butterfly celebration — lands on the pressed
+      // row. Toast is deferred until landing (via onLand) so it
+      // arrives with the butterfly.
+      emitFlutter({
+        targetX: tap?.pageX,
+        targetY: tap?.pageY,
+        onLand: () => show("Flutter sent 🦋"),
+      });
     } catch (e: any) {
       const msg = String(e?.message || "").toLowerCase();
       if (msg.includes("cannot flutter") || msg.includes("blocked")) show("They're not taking flutters right now.");

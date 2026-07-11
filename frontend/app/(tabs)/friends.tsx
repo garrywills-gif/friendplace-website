@@ -101,12 +101,14 @@ export default function Friends() {
     if (!user) return;
     try {
       await api.sendFlutter({ from_id: user.id, to_id: other.id });
-      // Signature single-butterfly celebration. Passing the tap coords
-      // makes the butterfly land right on the button the user pressed
-      // — which sits next to the recipient's avatar in this card, so
-      // it reads as "the flutter went to *them*".
-      emitFlutter(tap ? { targetX: tap.pageX, targetY: tap.pageY } : undefined);
-      show(`🦋 Flutter sent to ${other.first_name}!`);
+      // Signature single-butterfly celebration. The toast is deferred
+      // until the butterfly *lands* (via onLand) so the message
+      // arrives with the butterfly instead of racing ahead of it.
+      emitFlutter({
+        targetX: tap?.pageX,
+        targetY: tap?.pageY,
+        onLand: () => show(`🦋 Flutter sent to ${other.first_name}!`),
+      });
       await load();
     } catch { show("Could not send flutter"); }
   };

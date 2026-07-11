@@ -3,17 +3,14 @@
  * gliding across the screen" moment. Any screen can trigger the
  * animation without wiring refs through props.
  *
- * v2 design (single-butterfly signature moment):
- *   - Exactly ONE butterfly, gently gliding along a curved path
- *   - Total flight ~1.2s + landing pause + fade ~1.5s end-to-end
- *   - Optional { targetX, targetY } lets callers land the butterfly
- *     near the recipient (usually derived from the tap coords)
- *   - A "🦋 Flutter sent!" toast fades in/out in parallel for ~1s
- *
- * Usage:
- *   import { emitFlutter } from "@/src/lib/flutter-fx";
- *   emitFlutter();                                   // default landing
- *   emitFlutter({ targetX: 300, targetY: 200 });     // land near a tap
+ * v3 API:
+ *   emitFlutter({
+ *     targetX,  // where to land (window px)
+ *     targetY,
+ *     onLand,   // fires right after the landing pulse completes so
+ *               // callers can show their toast AT THE MOMENT the
+ *               // butterfly arrives (not when the tap fired).
+ *   });
  *
  * The <FlutterOverlay /> component (mounted once at the root layout)
  * subscribes and renders the animation over the entire app.
@@ -24,6 +21,12 @@ export type FlutterOptions = {
   targetX?: number;
   /** Absolute-window Y (px) where the butterfly should land. */
   targetY?: number;
+  /**
+   * Fires immediately after the butterfly finishes its landing pulse
+   * at the target. Use this to show a "Flutter sent to X" toast so it
+   * appears when the butterfly *arrives*, not when the tap starts.
+   */
+  onLand?: () => void;
 };
 
 type Listener = (opts: FlutterOptions) => void;

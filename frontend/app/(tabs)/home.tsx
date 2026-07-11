@@ -123,16 +123,18 @@ export default function Home() {
       await api.sendFlutter({ from_id: user.id, to_id: f.from_id });
       await api.markFlutterRead(f.id);
       setFlutters((arr) => arr.filter((x) => x.id !== f.id));
-      // Signature single-butterfly celebration. When we know the tap
-      // coords (from the "Flutter back" pressable) the butterfly lands
-      // right on the sender's card. Otherwise it defaults to a nice
-      // upper-right glide.
-      emitFlutter(tap ? { targetX: tap.pageX, targetY: tap.pageY } : undefined);
+      // Signature single-butterfly celebration. The toast is deferred
+      // until the butterfly lands (via onLand) so the message arrives
+      // with the butterfly.
+      emitFlutter({
+        targetX: tap?.pageX,
+        targetY: tap?.pageY,
+        onLand: () => show(`Flutter sent to ${f.from_name || "them"} 🦋`),
+      });
       // NOTE: we deliberately do NOT call auth `refresh()` here anymore.
       // It fires /api/users/{id} which occasionally 401s mid-session and
       // was bouncing users back to Home via the global unauthorized
       // handler. Butterfly points show correctly on next focus/refresh.
-      show(`Flutter sent to ${f.from_name || "them"} 🦋`);
     } catch (e: any) {
       const msg = String(e?.message || "").toLowerCase();
       // Backend returns "Cannot flutter this user" (lowercased here) when

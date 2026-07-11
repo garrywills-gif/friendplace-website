@@ -53,10 +53,12 @@ export default function UserView() {
     if (!user) return;
     try {
       await api.sendFlutter({ from_id: user.id, to_id: u.id });
-      // Signature single-butterfly celebration. Default landing target
-      // (upper-right glide) reads nicely against the profile header.
-      emitFlutter();
-      show(`🦋 Flutter sent to ${u.first_name}!`);
+      // Signature single-butterfly celebration. Toast is deferred to
+      // the moment the butterfly lands (via onLand) so the message
+      // arrives with the butterfly.
+      emitFlutter({
+        onLand: () => show(`🦋 Flutter sent to ${u.first_name}!`),
+      });
     } catch (e: any) {
       const msg = String(e?.message || "");
       if (msg.includes("rate") || msg.includes("recent")) show("You've sent a Flutter recently — try again in a bit");

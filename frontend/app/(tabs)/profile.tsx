@@ -114,9 +114,14 @@ export default function Profile() {
         to_id: invitee.id,
         message: `Welcome to FriendPlace, ${invitee.first_name || ""}! So glad you joined 🦋`,
       });
-      // Signature single-butterfly celebration — lands on the pressed row.
-      emitFlutter(tap ? { targetX: tap.pageX, targetY: tap.pageY } : undefined);
-      show(`Said hi to ${invitee.first_name || invitee.username || "your friend"} 🦋`);
+      // Signature single-butterfly celebration — lands on the pressed
+      // row. Toast is deferred until landing (via onLand) so it
+      // arrives with the butterfly.
+      emitFlutter({
+        targetX: tap?.pageX,
+        targetY: tap?.pageY,
+        onLand: () => show(`Said hi to ${invitee.first_name || invitee.username || "your friend"} 🦋`),
+      });
     } catch (e: any) {
       show(e?.message || "Couldn't send the hello flutter");
     } finally {
