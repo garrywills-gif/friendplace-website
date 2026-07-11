@@ -124,13 +124,14 @@ export default function FoundersWall() {
                 <Text style={{ color: "#0F766E", fontWeight: "900", fontSize: 14 * scale }}>Founders Lounge</Text>
               </Pressable>
               <Pressable
-                testID="founders-wall-go-profile"
-                onPress={() => router.push("/(tabs)/profile" as any)}
+                testID="founders-wall-go-home"
+                onPress={() => router.push("/home" as any)}
                 accessibilityRole="button"
+                accessibilityLabel="Go to FriendPlace home"
                 style={({ pressed }) => [styles.statusBtn, { backgroundColor: "rgba(236, 254, 255, 0.18)", borderWidth: 1.2, borderColor: "#A7F3D0", opacity: pressed ? 0.85 : 1 }]}
               >
-                <Ionicons name="person-circle" size={18} color="#ECFEFF" />
-                <Text style={{ color: "#ECFEFF", fontWeight: "900", fontSize: 14 * scale }}>My Profile</Text>
+                <Ionicons name="home" size={18} color="#ECFEFF" />
+                <Text style={{ color: "#ECFEFF", fontWeight: "900", fontSize: 14 * scale }}>Home</Text>
               </Pressable>
             </View>
           </View>
