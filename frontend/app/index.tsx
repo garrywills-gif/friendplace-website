@@ -10,7 +10,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { startGoogleSignIn, consumePendingSession } from "@/src/lib/googleSignIn";
-import { isAppleSignInAvailable, startAppleSignIn } from "@/src/lib/appleSignIn";
+import { shouldShowAppleButton, startAppleSignIn } from "@/src/lib/appleSignIn";
 import { api } from "@/src/lib/api";
 import BrandLockup from "@/src/components/BrandLockup";
 
@@ -59,10 +59,12 @@ export default function Welcome() {
         /* no banner, no harm */
       }
     })();
-    // Probe Apple Sign-In availability once on mount. iOS only.
+    // Probe Apple Sign-In visibility once on mount. Renders on iOS
+    // (fully functional) and web (preview / design-review use). Hidden
+    // on Android where the option doesn't apply.
     (async () => {
       try {
-        const ok = await isAppleSignInAvailable();
+        const ok = await shouldShowAppleButton();
         if (!cancelled) setAppleReady(ok);
       } catch { /* button stays hidden, no harm */ }
     })();
@@ -169,6 +171,13 @@ export default function Welcome() {
       return;
     }
     if (provider === "Apple") {
+      // Web preview mode — Apple's native sheet doesn't exist here.
+      // Show a helpful toast so reviewers know the button IS wired up
+      // and works on real iOS builds. Prevents a confusing dead-tap.
+      if (Platform.OS !== "ios") {
+        show("Sign in with Apple works on iPhone / iPad. In the web preview, please use Google or email.");
+        return;
+      }
       try {
         setAuthBusyProvider("apple");
         const credential = await startAppleSignIn();

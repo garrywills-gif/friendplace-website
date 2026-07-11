@@ -14,7 +14,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 // returning users get the same reliable OAuth flow whether they land on
 // the welcome page or tap "Log In" directly.
 import { startGoogleSignIn, consumePendingSession } from "@/src/lib/googleSignIn";
-import { isAppleSignInAvailable, startAppleSignIn } from "@/src/lib/appleSignIn";
+import { shouldShowAppleButton, startAppleSignIn } from "@/src/lib/appleSignIn";
 
 type DemoAccount = { username: string; first_name: string; avatar: string; suburb: string };
 
@@ -60,12 +60,14 @@ export default function Login() {
     })();
   }, []);
 
-  // Probe Apple Sign-In availability once on mount. iOS-only.
+  // Probe Apple button visibility once on mount. Renders on iOS
+  // (fully functional) and web (preview / design-review). Hidden on
+  // Android where Apple Sign-In doesn't apply.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const ok = await isAppleSignInAvailable();
+        const ok = await shouldShowAppleButton();
         if (!cancelled) setAppleReady(ok);
       } catch {
         if (!cancelled) setAppleReady(false);
@@ -82,7 +84,11 @@ export default function Login() {
     (async () => {
       try {
         const r = await consumePendingSession(loginWithGoogle);
-        if (r && !cancelled) {
+        // Only redirect when we actually consumed a session_id from the URL.
+        // `consumePendingSession` ALWAYS returns an object (truthy), so
+        // gating on `r` alone was silently bouncing every visitor to /home
+        // and hiding the login form entirely.
+        if (r?.handled && !cancelled) {
           show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
           goHome(router);
         }
@@ -149,6 +155,12 @@ export default function Login() {
       return;
     }
     if (provider === "Apple") {
+      // Web preview mode — no native Apple sheet exists. Toast the
+      // reviewer instead of silently swallowing the tap.
+      if (Platform.OS !== "ios") {
+        show("Sign in with Apple works on iPhone / iPad. In the web preview, please use Google or email.");
+        return;
+      }
       try {
         setAuthBusyProvider("apple");
         const credential = await startAppleSignIn();

@@ -41,6 +41,22 @@ export async function isAppleSignInAvailable(): Promise<boolean> {
   }
 }
 
+/** Whether the Apple button should be RENDERED (even if it won't be fully
+ *  functional in the current runtime). We show it in the Emergent web
+ *  preview so product owners reviewing the app on iPad Safari can see
+ *  the button lives on this screen — it just displays a "preview only"
+ *  toast when tapped instead of trying to launch a non-existent native
+ *  sheet. On Android we hide it entirely (Apple Sign-In doesn't apply). */
+export async function shouldShowAppleButton(): Promise<boolean> {
+  if (Platform.OS === "ios") return isAppleSignInAvailable();
+  // Emergent web preview → render the button so the design/review looks
+  // identical to the TestFlight build. Tapping it will show a helpful
+  // toast rather than crash.
+  if (Platform.OS === "web") return true;
+  // Android → Apple ID sign-in doesn't apply, so nothing to show.
+  return false;
+}
+
 /** Kicks off the native Apple Sign-In sheet. Returns `null` if the user
  *  cancels the dialog, throws on any other error so the caller can show a
  *  toast. The identityToken is always set when status is success. */

@@ -1,0 +1,49 @@
+{
+  "summary": "Frontend-only verification of the Apple + Google Sign-In buttons on both / (Welcome) and /auth/login. Welcome screen passed on first run: Apple button renders (black bg #000, 58px, 999px radius) with 'Continue with Apple' text and white Apple glyph next to a 'Continue with Google' button; tapping Apple shows the expected 'Sign in with Apple works on iPhone / iPad. In the web preview, please use Google or email.' toast. However, /auth/login was UNREACHABLE for any anonymous visitor — the screen immediately bounced to /home on mount. Root cause identified and fixed (see rca_of_issue): the login screen's consumePendingSession useEffect was truthy-checking the returned object instead of its `.handled` field, so it always ran `goHome(router)` regardless of whether a Google session_id was actually consumed. After the 1-line fix, the /auth/login screen renders correctly: Apple button visible (black bg, 52px, 999px radius, 'Sign in with Apple' text), Google button visible, email/password inputs work (Invalid credentials shown on bad login), demo account maggie login navigates to /home. No React Native red screens. Only benign deprecation warnings in console (shadow*, textShadow*, pointerEvents, useNativeDriver) — pre-existing, not caused by this change.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "app/auth/login.tsx (consumePendingSession useEffect)",
+        "issue": "consumePendingSession returns an ALWAYS-truthy object { handled, isNew }. The old guard `if (r && !cancelled)` unconditionally called goHome(router), so the Log In screen was invisible to every anonymous user — they got redirected to /home immediately. This directly caused the product owner's report that the Apple button was 'not showing' on the Log In screen (they never even saw the screen).",
+        "testID": "login-apple / login-google / login-identifier / login-submit / login-toggle-demos",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Applied fix: changed `if (r && !cancelled)` to `if (r?.handled && !cancelled)` in /app/frontend/app/auth/login.tsx (line 87). Please retain the fix — without it, the /auth/login screen is unreachable and the Apple / Google / email login options never render for a signed-out user.",
+    "Consider tightening the return type of consumePendingSession() to `{handled: true, isNew: boolean} | {handled: false}` so this class of truthy-object mistake is caught at compile time.",
+    "Optional cosmetic follow-up: on the Log In screen the Apple button uses a Text-based glyph () while the Welcome screen uses Ionicons `logo-apple`. Both render correctly, but unifying on Ionicons would be more resilient to font-loading differences."
+  ],
+  "critical_code_review_comments": [
+    "app/auth/login.tsx line 87 — truthy-check on an object that is always non-null; must gate on r?.handled (fixed in this iteration).",
+    "app/(tabs)/home.tsx — the Home screen has no explicit anonymous-user guard, so anonymous visitors see a fallback greeting ('Friend 🦋') and no user-scoped data loads. Not a blocker for this review, but worth confirming this is intentional (otherwise anyone with the URL can see an authenticated-looking shell)."
+  ],
+  "updated_files": [
+    "/app/frontend/app/auth/login.tsx"
+  ],
+  "success_rate": {
+    "backend": "not tested (frontend-only request)",
+    "frontend": "100% after fix (was ~50% before — Welcome screen ok, Log In screen unreachable)"
+  },
+  "seed_data_creation": "None. Used the pre-existing 'maggie' demo account via the 'Try a demo account' pill.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Web preview served at https://belong-together.preview.emergentagent.com. Auth token/user are stored under localStorage keys yb_user / yb_token (AsyncStorage web adapter). To simulate a signed-out visitor from Playwright, use page.add_init_script to clear localStorage BEFORE navigation, plus page.context.clear_cookies(). Do NOT do the clear on about:blank — the origin won't match. The /home route has no anonymous-user guard, so a bare 'Friend 🦋' greeting there does NOT prove a user is logged in; use the presence/absence of the yb_token localStorage key instead.",
+  "rca_of_issue": {
+    "symptom": "Product owner: 'Still no apple sign in button' on /auth/login.",
+    "actual_defect": "The Apple button code on /auth/login was correct and shouldShowAppleButton() returns true on web. The button was never rendered because the /auth/login screen itself was never reachable — a broken useEffect immediately redirected the user to /home on mount.",
+    "reproduction": "1. Open a private/incognito browser (no yb_token in localStorage). 2. Navigate to /auth/login. 3. Observe: URL flips to /home within ~50ms; login form (and both social buttons) never appear.",
+    "root_cause": "/app/frontend/app/auth/login.tsx line 82-96: `const r = await consumePendingSession(loginWithGoogle); if (r && !cancelled) { show(...); goHome(router); }`. consumePendingSession ALWAYS resolves to an object of shape `{handled: boolean, isNew: boolean}` — even when no session_id is in the URL — so the truthy check was always true and every /auth/login visit was treated as a completed Google OAuth handoff.",
+    "fix_applied": "Changed the guard to `if (r?.handled && !cancelled)` so the redirect only fires when consumePendingSession reports it actually processed a session_id.",
+    "verification": "After the fix + expo restart, a fresh anonymous visit to /auth/login stays on /auth/login, and all elements render: login-apple (black pill, 'Sign in with Apple'), login-google, login-identifier, login-pw, login-submit, login-toggle-demos → demo-maggie. Bad creds show 'Invalid username or password'; demo-maggie tap navigates to /home. Tapping login-apple in the web preview shows the expected informational toast."
+  }
+}
