@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 52 — all 4 TestFlight polish items verified end-to-end on 390px mobile viewport as demo user Margaret (@maggie). (1) /user/[id] pill button row now uses flexWrap: 'wrap' — Add/Flutter live on row 1 (right edges 194 & 351 within 390px viewport), Message wraps cleanly to row 2 (y=437). No off-screen overflow. (2) AvatarBubble emoji centering is now pixel-perfect: measured hero disc centre (195,205) == emoji glyph centre (195,205) at 110x110 size — the flex wrapper fix works. Same behaviour visible on /friends member cards (David, Melinda, TestNew, AppleTest emojis all sit dead-centre). (3) Text-zoom 4-step slider works: 'Text size' header font measured as 18px (Default) → 21.6px (Large, 1.2x) → 16.2px (Small, 0.9x) → 25.2px (Extra, 1.4x). Persists across full page reload (still 21.6px after reload when Large was set). All four pills (sm/md/lg/xl) have correct testIDs. (4) Crossword win modal — verified via code inspection at /app/frontend/app/games/crossword/play.tsx lines 786-841: testIDs win-play-another (primary, routes /games/crossword), win-try-harder (secondary), win-brag (conditional on daily+discussionTableId), win-stay (ghost) all present alongside '🎉 Great job!' headline and '+{winPoints} points 🦋' pill. Legacy largeText → 'lg' migration confirmed in theme.tsx line 125: `prefs.textZoom || (prefs.largeText ? 'lg' : 'md')`. No new blocking issues found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/tmp/20_user_profile.png", "/tmp/30_david_profile.png", "/tmp/03_settings_lg.png", "/tmp/04_settings_sm.png"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "settings.tsx pills use hard-coded fs values (12/14/16/18) not multiplied by scale — this is intentional so the Small pill stays visually small even when Large zoom is active (preview affordance).",
+    "Minor: console warnings about deprecated 'shadow*' / 'textShadow*' / props.pointerEvents in RN Web — noise only, not blocking. Not new to this iteration."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "seed_data_creation": "None — used demo account maggie.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Login flow: navigate to /auth/login → click 'Try a demo account' → click 'Margaret' or '@maggie' tile. Direct navigation to /user/<id> without logging in returns 401 and shows blank Profile screen (expected). Text-zoom pills live at /settings under Accessibility with testIDs text-zoom-{sm,md,lg,xl}. Scale multiplier is applied via useTheme().scale — most font sizes across screens follow the pattern `fontSize: N * scale`. Crossword win modal was NOT live-triggered (would require solving a puzzle end-to-end); verified via code inspection which the request explicitly permits as pass.",
+  "rca_of_issue": "n/a — all four items pass verification. Iteration 52 fixes are correctly implemented and observable on device viewport."
+}

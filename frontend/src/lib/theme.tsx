@@ -1,9 +1,18 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+export type TextZoom = "sm" | "md" | "lg" | "xl";
+
 export type ThemePrefs = {
-  /** Larger text for older eyes. Scales fonts ~20%. */
+  /** Larger text for older eyes. Scales fonts ~20%. Kept for backwards
+   *  compatibility with existing UI toggles; the new `textZoom` field is
+   *  the finer-grained control. */
   largeText: boolean;
+  /** Text-zoom step — the primary accessibility knob. Multiplies every
+   *  font-size call site via `useTheme().scale`. sm 0.9 → md 1.0 →
+   *  lg 1.2 → xl 1.4. Replaces the coarse `largeText` toggle for users
+   *  who want a lighter or heavier scale. */
+  textZoom: TextZoom;
   /** Higher contrast palette for low vision. */
   highContrast: boolean;
   /** Simplified mode — larger buttons, more padding, less clutter. */
@@ -18,6 +27,7 @@ export type ThemePrefs = {
 
 const DEFAULT: ThemePrefs = {
   largeText: false,
+  textZoom: "md",
   highContrast: false,
   simplified: false,
   readMessagesAloud: true,
@@ -27,7 +37,7 @@ const DEFAULT: ThemePrefs = {
 
 type Ctx = {
   prefs: ThemePrefs;
-  setPref: (k: keyof ThemePrefs, v: boolean) => void;
+  setPref: <K extends keyof ThemePrefs>(k: K, v: ThemePrefs[K]) => void;
   c: typeof palette.normal;
   scale: number;
   /** Multiplier used by Simplified mode for button heights / paddings. */
@@ -101,14 +111,19 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const setPref = (k: keyof ThemePrefs, v: boolean) => {
+  const setPref = <K extends keyof ThemePrefs>(k: K, v: ThemePrefs[K]) => {
     const next = { ...prefs, [k]: v };
     setPrefs(next);
     AsyncStorage.setItem(KEY, JSON.stringify(next)).catch(() => {});
   };
 
   const value = useMemo<Ctx>(() => {
-    const baseScale = prefs.largeText ? 1.2 : 1;
+    // Text-zoom scale — primary knob users adjust from Settings. Keeps
+    // the legacy `largeText` toggle working (it now maps to the "lg"
+    // step) so migrations from older builds still enlarge type.
+    const zoomScale: Record<TextZoom, number> = { sm: 0.9, md: 1.0, lg: 1.2, xl: 1.4 };
+    const effectiveZoom: TextZoom = prefs.textZoom || (prefs.largeText ? "lg" : "md");
+    const baseScale = zoomScale[effectiveZoom];
     const simplifiedScale = prefs.simplified ? 1.1 : 1;
     return {
       prefs,

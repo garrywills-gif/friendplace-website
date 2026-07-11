@@ -783,36 +783,58 @@ export default function CrosswordPlay() {
         </View>
       </View>
 
-      {/* Win modal */}
+      {/* Win modal — celebratory finale with encouraging next-step
+          options so players never feel stranded after a solve. */}
       <Modal transparent visible={showWin} animationType="fade" onRequestClose={() => setShowWin(false)}>
         <View style={styles.modalBg}>
           <View style={[styles.modalCard, { backgroundColor: c.surface, borderColor: c.brand }]}>
-            <Text style={{ fontSize: 52, textAlign: "center" }}>🎉</Text>
-            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, textAlign: "center" }}>
-              You solved it!
+            <Text style={{ fontSize: 56, textAlign: "center" }}>🎉</Text>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 26 * scale, textAlign: "center", marginTop: 4 }}>
+              Great job!
             </Text>
-            <Text style={{ color: c.muted, textAlign: "center", marginTop: 6, fontSize: 14 * scale }}>
-              {puzzle.theme} · {formatTime(seconds)}
+            <Text style={{ color: c.brand, fontWeight: "800", fontSize: 16 * scale, textAlign: "center", marginTop: 2 }}>
+              You solved &ldquo;{puzzle.theme}&rdquo; in {formatTime(seconds)}
             </Text>
             {winPoints > 0 && (
               <View style={[styles.pointsPill, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
-                <Text style={{ color: c.brand, fontWeight: "900", fontSize: 16 * scale }}>+{winPoints} points</Text>
+                <Text style={{ color: c.brand, fontWeight: "900", fontSize: 16 * scale }}>+{winPoints} points 🦋</Text>
               </View>
             )}
+            {/* Primary next-step: pick another puzzle right away. */}
+            <Pressable
+              testID="win-play-another"
+              style={[styles.modalBtn, { backgroundColor: c.brand }]}
+              onPress={() => { setShowWin(false); router.replace("/games/crossword" as any); }}
+            >
+              <Ionicons name="grid" size={18} color="#FFF" />
+              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Play another puzzle</Text>
+            </Pressable>
+            {/* Try harder — same daily / archive picker, hint that
+                harder puzzles are available at the hub. */}
+            <Pressable
+              testID="win-try-harder"
+              style={[styles.modalBtn, { backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.brand }]}
+              onPress={() => { setShowWin(false); router.replace("/games/crossword" as any); }}
+            >
+              <Ionicons name="rocket" size={18} color={c.brand} />
+              <Text style={{ color: c.brand, fontWeight: "900", fontSize: 15 * scale }}>Try a harder puzzle</Text>
+            </Pressable>
             {isDaily && discussionTableId && (
               <Pressable
-                style={[styles.modalBtn, { backgroundColor: c.brand }]}
+                testID="win-brag"
+                style={[styles.modalBtn, { backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border }]}
                 onPress={() => { setShowWin(false); router.push(`/table/${discussionTableId}` as any); }}
               >
-                <Ionicons name="cafe" size={18} color="#FFF" />
-                <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Brag in the Coffee Lounge ☕</Text>
+                <Ionicons name="cafe" size={18} color={c.onSurface} />
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Brag in the Coffee Lounge ☕</Text>
               </Pressable>
             )}
             <Pressable
-              style={[styles.modalBtn, { backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border }]}
+              testID="win-stay"
+              style={[styles.modalBtn, { backgroundColor: "transparent" }]}
               onPress={() => setShowWin(false)}
             >
-              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Stay on puzzle</Text>
+              <Text style={{ color: c.muted, fontWeight: "700", fontSize: 14 * scale }}>Stay on this puzzle</Text>
             </Pressable>
           </View>
         </View>

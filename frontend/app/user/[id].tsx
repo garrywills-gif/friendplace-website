@@ -186,8 +186,11 @@ export default function UserView() {
 const styles = StyleSheet.create({
   hero: { padding: 20, borderRadius: 22, alignItems: "center", gap: 8 },
   av: { width: 110, height: 110, borderRadius: 55, alignItems: "center", justifyContent: "center" },
-  name: { fontWeight: "900", marginTop: 6 },
-  actions: { flexDirection: "row", gap: 10 },
+  name: { fontWeight: "900", marginTop: 6, textAlign: "center" },
+  // Action pill row — wraps to next line on narrow devices so buttons
+  // never overflow the visible screen area. Older layout was a flat
+  // flexDirection: row that pushed the last pill off-screen on iPhone.
+  actions: { flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center" },
   card: { borderRadius: 18, padding: 14, borderWidth: 1 },
   h: { fontWeight: "800" },
   danger: { padding: 16, borderRadius: 14, borderWidth: 2, flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center" },

@@ -92,9 +92,33 @@ export default function AvatarBubble({
       accessibilityIgnoresInvertColors
     />
   ) : (
-    <Text style={[{ fontSize: fs, lineHeight: Math.max(fs + 2, size) }, textStyle]}>
-      {base || fallback}
-    </Text>
+    // Emoji avatar — wrap the Text in a fixed-size flex container so the
+    // glyph sits perfectly centred (both axes) regardless of the emoji's
+    // natural baseline. Without this wrapper the previous flat Text
+    // rendered slightly bottom-left, giving the "crooked" look users
+    // reported on Profile / New Members / member list surfaces.
+    <View
+      style={{
+        width: size,
+        height: size,
+        alignItems: "center",
+        justifyContent: "center",
+        // Emoji uses its own coloured glyph; the wrapper doesn't need
+        // a background of its own — the parent surface (chair, tile,
+        // avatar row) provides the disc.
+      }}
+    >
+      <Text
+        style={[
+          { fontSize: fs, lineHeight: fs + 2, textAlign: "center", includeFontPadding: false },
+          textStyle,
+        ]}
+        accessibilityElementsHidden
+        importantForAccessibility="no"
+      >
+        {base || fallback}
+      </Text>
+    </View>
   );
 
   if (!glasses) {

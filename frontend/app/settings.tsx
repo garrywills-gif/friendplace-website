@@ -71,12 +71,45 @@ export default function Settings() {
       <Header title="Settings" emoji="⚙️" subtitle="Preferences · Account · Accessibility" />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
         <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>Accessibility</Text>
-        <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>Large text</Text>
-            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Increase font size across the app</Text>
+        {/* Text zoom — 4-step slider that scales every font in the app.
+            Replaces the coarse "Large text" toggle for users who want a
+            gentler bump or an even bigger boost. Live preview: tapping
+            each option immediately re-renders every screen at the new
+            scale. */}
+        <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border, flexDirection: "column", alignItems: "stretch", gap: 10 }]}>
+          <View>
+            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>Text size</Text>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Adjust how large text appears across the whole app</Text>
           </View>
-          <Switch testID="toggle-large-text" value={prefs.largeText} onValueChange={(v) => setPref("largeText", v)} trackColor={{ true: c.brand, false: c.border }} />
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {([
+              { key: "sm", label: "Small",   fs: 12 },
+              { key: "md", label: "Default", fs: 14 },
+              { key: "lg", label: "Large",   fs: 16 },
+              { key: "xl", label: "Extra",   fs: 18 },
+            ] as const).map((opt) => {
+              const active = (prefs.textZoom || (prefs.largeText ? "lg" : "md")) === opt.key;
+              return (
+                <Pressable
+                  key={opt.key}
+                  testID={`text-zoom-${opt.key}`}
+                  accessibilityLabel={`Text size ${opt.label}`}
+                  onPress={() => { setPref("textZoom", opt.key); if (prefs.largeText && opt.key !== "lg") setPref("largeText", false); }}
+                  style={[
+                    styles.zoomPill,
+                    {
+                      backgroundColor: active ? c.brand : c.surface,
+                      borderColor: active ? c.brand : c.border,
+                    },
+                  ]}
+                >
+                  <Text style={{ color: active ? c.onBrandPrimary : c.onSurface, fontWeight: "900", fontSize: opt.fs }}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
         <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           <View style={{ flex: 1 }}>
@@ -194,6 +227,15 @@ export default function Settings() {
 const styles = StyleSheet.create({
   section: { fontWeight: "800", marginTop: 8 },
   row: { flexDirection: "row", alignItems: "center", padding: 16, borderRadius: 16, borderWidth: 1, gap: 12 },
+  zoomPill: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+  },
   cardBig: { padding: 16, borderRadius: 16 },
   linkRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
