@@ -136,6 +136,63 @@ export default function FoundersWall() {
           </View>
         ) : null}
 
+        {/* Upgrade banner — surfaced when the viewer is signed in but
+            NOT yet a Founding Member and the cohort still has open slots.
+            Gives normal members a clear second chance to claim founder
+            status, complete with a live "X places remaining" counter so
+            the scarcity is honest. Tap opens the Founder Info page which
+            handles the actual claim + confirmation flow. */}
+        {!viewerIsFounder && user?.id && remaining != null && remaining > 0 ? (
+          <Pressable
+            testID="founders-wall-upgrade-banner"
+            onPress={() => router.push("/founders/info" as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Become a Founding Member"
+            style={({ pressed }) => [
+              styles.upgradeCard,
+              { opacity: pressed ? 0.9 : 1 },
+            ]}
+          >
+            <View style={styles.upgradeInner}>
+              <Text style={{ fontSize: 32 }}>🦋</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 * scale, lineHeight: 22 }}>
+                  Become one of our first {cap?.toLocaleString() ?? 500} Founding Members
+                </Text>
+                <Text style={{ color: "#FDE68A", fontWeight: "800", fontSize: 14 * scale, marginTop: 4, letterSpacing: 0.3 }}>
+                  {remaining.toLocaleString()} places remaining
+                </Text>
+              </View>
+            </View>
+            <View style={styles.upgradeCta}>
+              <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale, letterSpacing: 0.3 }}>
+                Become a Founding Member
+              </Text>
+              <Ionicons name="arrow-forward-circle" size={22} color="#7C5300" />
+            </View>
+          </Pressable>
+        ) : null}
+
+        {/* Cohort-full state — a non-founder still gets a warm explanation
+            of what the wall is showing even after the 500 places are gone.
+            Keeps the page feeling inclusive rather than a "you missed
+            out" dead-end. */}
+        {!viewerIsFounder && user?.id && remaining === 0 ? (
+          <View style={[styles.upgradeCard, { backgroundColor: "#334155", borderColor: "#94A3B8" }]}>
+            <View style={styles.upgradeInner}>
+              <Text style={{ fontSize: 32 }}>🦋</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 * scale, lineHeight: 22 }}>
+                  Founding Members Full
+                </Text>
+                <Text style={{ color: "#CBD5E1", fontWeight: "700", fontSize: 13 * scale, marginTop: 4, lineHeight: 18 }}>
+                  All 500 places are taken — thank you for being part of the community regardless.
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
         <View style={[styles.heroCard, { backgroundColor: c.brandTertiary, borderColor: "#D4A017" }]}>
           <Text style={{ fontSize: 36 }}>🦋</Text>
           <View style={{ flex: 1 }}>
@@ -278,5 +335,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     marginTop: 8,
+  },
+  upgradeCard: {
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#D4A017",
+    backgroundColor: "#1E3A7F",
+    padding: 16,
+    gap: 12,
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  upgradeInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  upgradeCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FDE68A",
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
 });

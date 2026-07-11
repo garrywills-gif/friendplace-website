@@ -52,6 +52,11 @@ export default function Profile() {
   // Who invited me here? Shown as a friendly "You joined because Garry
   // invited you" card under the hero. null means nobody (organic signup).
   const [inviter, setInviter] = useState<any | null>(null);
+  // Founder cohort snapshot — powers the "Become a Founding Member"
+  // upgrade card that non-founders see. `null` means we haven't fetched
+  // yet (card stays hidden so it doesn't flash in and out).
+  const [founderCap, setFounderCap] = useState<number | null>(null);
+  const [founderRemaining, setFounderRemaining] = useState<number | null>(null);
 
   useFocusEffect(useCallback(() => {
     // Focus effect is intentionally lightweight — we skip the network
@@ -82,6 +87,19 @@ export default function Profile() {
           const r: any = await api.inviter(user.id);
           setInviter(r?.inviter || null);
         } catch {}
+        // Founder cohort status — used to render the upgrade card (or
+        // hide it entirely once the cohort is full). Silently ignored on
+        // failure so profile still renders offline / when the endpoint
+        // isn't available.
+        if (!(user as any)?.is_founder) {
+          try {
+            const s: any = await api.founderStatus();
+            if (!cancelled && s) {
+              setFounderCap(typeof s.cap === "number" ? s.cap : null);
+              if (typeof s.remaining === "number") setFounderRemaining(s.remaining);
+            }
+          } catch {}
+        }
       }
     })();
   }, [user?.id]));
@@ -197,7 +215,7 @@ export default function Profile() {
 
       <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>👯 Friends</Text>
       {friends.length === 0 ? (
-        <Text style={{ color: c.muted, fontSize: 15 * scale }}>No friends yet — head to "Find Friends" to say hi!</Text>
+        <Text style={{ color: c.muted, fontSize: 15 * scale }}>No friends yet — head to &quot;Find Friends&quot; to say hi!</Text>
       ) : (
         <View style={styles.row}>
           {friends.map((f) => (
@@ -275,35 +293,84 @@ export default function Profile() {
       <View style={{ height: 16 }} />
       <Button label="Edit Profile" variant="outline" onPress={() => router.push("/edit-profile")} testID="profile-edit" />
       <View style={{ height: 8 }} />
-      {/* Founders Wall entry — visible to everyone. For founders this is
-          their crest celebration; for everyone else it's a tap into the
-          Founder Info / opt-in flow where they can claim their badge. */}
-      <Pressable
-        testID="profile-founders-wall"
-        onPress={() => router.push((user as any).is_founder ? "/founders" : "/founders/info")}
-        accessibilityLabel={(user as any).is_founder ? "View the Founders Wall" : "Learn about Founding Members"}
-        style={({ pressed }) => [
-          styles.founderRow,
-          {
-            backgroundColor: "#FEF3C7",
-            borderColor: "#D4A017",
-            opacity: pressed ? 0.85 : 1,
-          },
-        ]}
-      >
-        <Text style={{ fontSize: 26 }}>🦋</Text>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.6 }}>
-            FOUNDERS WALL
-          </Text>
-          <Text numberOfLines={2} style={{ color: "#3C2A06", fontWeight: "800", fontSize: 15 * scale, marginTop: 2 }}>
-            {(user as any).is_founder
-              ? `See yourself — you're Founding Member #${(user as any).founder_number ?? ""}`
-              : "Join free as a Founding Member"}
-          </Text>
+      {/* Founders Wall entry — behaviour differs by member state:
+          - Founder: warm crest celebration + link to the Wall.
+          - Non-founder with slots left: prominent "Become a Founding
+            Member" upgrade card with live remaining-places counter.
+          - Non-founder + cohort full: "Founding Members Full" info card
+            (no CTA, but still a warm explanation so nobody feels shut
+            out). */}
+      {(user as any).is_founder ? (
+        <Pressable
+          testID="profile-founders-wall"
+          onPress={() => router.push("/founders")}
+          accessibilityLabel="View the Founders Wall"
+          style={({ pressed }) => [
+            styles.founderRow,
+            { backgroundColor: "#FEF3C7", borderColor: "#D4A017", opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <Text style={{ fontSize: 26 }}>🦋</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.6 }}>
+              FOUNDERS WALL
+            </Text>
+            <Text numberOfLines={2} style={{ color: "#3C2A06", fontWeight: "800", fontSize: 15 * scale, marginTop: 2 }}>
+              See yourself — you&apos;re Founding Member #{(user as any).founder_number ?? ""}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#7C5300" />
+        </Pressable>
+      ) : founderRemaining != null && founderRemaining === 0 ? (
+        <View style={[styles.founderRow, { backgroundColor: "#F1F5F9", borderColor: "#CBD5E1" }]}>
+          <Text style={{ fontSize: 26 }}>🦋</Text>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={{ color: "#334155", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.6 }}>
+              FOUNDING MEMBERS FULL
+            </Text>
+            <Text numberOfLines={2} style={{ color: "#475569", fontWeight: "700", fontSize: 13 * scale, marginTop: 2 }}>
+              All {founderCap?.toLocaleString() ?? 500} places are taken — thank you for being here!
+            </Text>
+          </View>
         </View>
-        <Ionicons name="chevron-forward" size={20} color="#7C5300" />
-      </Pressable>
+      ) : (
+        <Pressable
+          testID="profile-become-founder"
+          onPress={() => router.push("/founders/info")}
+          accessibilityLabel="Become a Founding Member"
+          style={({ pressed }) => [
+            styles.upgradeFounderCard,
+            { opacity: pressed ? 0.9 : 1 },
+          ]}
+        >
+          <View style={styles.upgradeFounderRow}>
+            <Text style={{ fontSize: 34 }}>🦋</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: "#FDE68A", fontWeight: "900", fontSize: 11 * scale, letterSpacing: 0.8 }}>
+                LIMITED SPOTS · JOIN FREE
+              </Text>
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 * scale, marginTop: 3, lineHeight: 21 }}>
+                Become a Founding Member
+              </Text>
+              {founderRemaining != null ? (
+                <Text style={{ color: "#FDE68A", fontWeight: "800", fontSize: 13 * scale, marginTop: 4 }}>
+                  {founderRemaining.toLocaleString()} of {founderCap?.toLocaleString() ?? 500} places remaining
+                </Text>
+              ) : (
+                <Text style={{ color: "#CBD5E1", fontWeight: "700", fontSize: 13 * scale, marginTop: 4 }}>
+                  Claim your place in FriendPlace history
+                </Text>
+              )}
+            </View>
+          </View>
+          <View style={styles.upgradeFounderCta}>
+            <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale, letterSpacing: 0.3 }}>
+              Become a Founding Member
+            </Text>
+            <Ionicons name="arrow-forward-circle" size={22} color="#7C5300" />
+          </View>
+        </Pressable>
+      )}
       <View style={{ height: 12 }} />
       <ShareYouBelong variant="ghost" testID="profile-share" />
 
@@ -508,6 +575,34 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     paddingVertical: 12,
     paddingHorizontal: 14,
+  },
+  upgradeFounderCard: {
+    backgroundColor: "#1E3A7F",
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#D4A017",
+    padding: 16,
+    gap: 14,
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 5,
+  },
+  upgradeFounderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  upgradeFounderCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#FDE68A",
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   inviteeRow: {
     flexDirection: "row",
