@@ -1,0 +1,35 @@
+{
+  "summary": "Verified all 5 navigation bug fixes on iPhone 390x844 viewport using maggie demo account. All critical scenarios pass: (1) Profile/Lounge/Friends tile taps stay on target screen (no bounce to Home); (2) Flutter + Friend-Request buttons on /friends stay on /friends (toast appears, URL unchanged); (3) Daily Butterfly Bonus claim stays on /games (no bounce); (4) BrandLockup tagline 'FIND YOUR PEOPLE' now renders at 13px (bumped from ~7px) on the 140px home lockup. Welcome + login screens still render cleanly with no red-screen errors. One minor caveat on web preview only: at the smaller 140px lockup on 390px viewport the tagline text visually truncates to 'FIND YOUR ...' because RN Web doesn't honour adjustsFontSizeToFit; on native iOS this would shrink instead of clipping — non-blocking for TestFlight but worth a follow-up.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "BrandLockup (home header)",
+        "issue": "On 390px web viewport the 'FIND YOUR PEOPLE' tagline visually truncates to 'FIND YOUR ...' at the 140px home lockup width because React Native Web ignores adjustsFontSizeToFit. Size did increase from ~7px to 13px per the fix; iOS native will shrink correctly. Consider clamping tagSize by width or setting numberOfLines={1} adjustsFontSizeToFit + explicit letterSpacing scaling. Reference: /app/frontend/src/components/BrandLockup.tsx:68",
+        "testID": "home-brand-lockup",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_50.json"],
+  "action_items": [
+    "Optional polish: fine-tune BrandLockup tagline sizing so 'FIND YOUR PEOPLE' fully fits within a 140px lockup on RN Web (native iOS already handles it via adjustsFontSizeToFit). Not required for the TestFlight bug fix batch."
+  ],
+  "critical_code_review_comments": [
+    "friends.tsx sendReq/sendFlutter correctly dropped auth refresh() (fix verified).",
+    "games/index.tsx claimBonus correctly dropped auth refresh() (fix verified).",
+    "events.tsx and notices.tsx both pass backHref='/home' to Header (fix verified).",
+    "home.tsx goTo() now uses router.push and window.location.assign on web (fix verified).",
+    "Note: home.tsx still destructures `refresh` from useAuth on line 22 and calls it in flutterBack() line 129 — this path is not covered by the current 5 bug fixes but uses the same pattern that caused the friends.tsx bounces. If a Flutter-back tap ever bounces to Home, this is the culprit."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only iteration)", "frontend": "100% for the 5 targeted bugs"},
+  "seed_data_creation": "None — used maggie demo account.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 50 covered nav bounce fixes only. Out-of-scope queued bugs (crooked avatars, invite friends dismiss, flutter animation, crossword celebration, new-members pill overflow, pinch to zoom) were intentionally not tested per E1's note. Playwright test URL flow: welcome → 'Try a demo account' → tap 'Margaret' → lands /home. All testIDs work: tile-profile, tile-lounge, tile-friends, add-friend-<id>, flutter-<id>, daily-bonus-claim, daily-bonus-claimed, header-back.",
+  "rca_of_issue": "N/A — verification pass, no new bugs. All 5 fixes are correctly implemented in code and confirmed working in browser automation on 390x844 viewport."
+}

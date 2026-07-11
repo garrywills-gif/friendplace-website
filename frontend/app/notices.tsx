@@ -254,7 +254,7 @@ export default function Notices() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Notice Board" emoji="📋" subtitle="Local notices · Share what's on" right={(
+      <Header title="Notice Board" backHref="/home" emoji="📋" subtitle="Local notices · Share what's on" right={(
         <Pressable testID="new-notice" onPress={startCreate} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brand, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
           <Ionicons name="add" size={20} color="#FFF" />
           <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale }}>Add Post</Text>

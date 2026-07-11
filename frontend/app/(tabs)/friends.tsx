@@ -19,7 +19,7 @@ const RADIUS_OPTIONS = [5, 10, 25, 50] as const;
 
 export default function Friends() {
   const { c, scale } = useTheme();
-  const { user, refresh } = useAuth();
+  const { user } = useAuth();
   const { show } = useToast();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -88,7 +88,11 @@ export default function Friends() {
     try {
       await api.sendFriendReq(user.id, other.id);
       show(`Friend request sent to ${other.first_name} 🦋`);
-      await refresh();
+      // Refresh the local nearby-members list only — do NOT touch the
+      // auth `refresh()` here. Calling it caused a transient user
+      // re-fetch which occasionally bounced the tab to /home when the
+      // API round-trip was slow or momentarily 401'd.
+      await load();
     } catch { show("Already sent or error"); }
   };
 
@@ -97,7 +101,7 @@ export default function Friends() {
     try {
       await api.sendFlutter({ from_id: user.id, to_id: other.id });
       show(`🦋 Flutter sent to ${other.first_name}!`);
-      await refresh();
+      await load();
     } catch { show("Could not send flutter"); }
   };
 

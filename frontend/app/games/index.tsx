@@ -69,7 +69,7 @@ function ScheduleChip({ sched, tint }: { sched: Schedule | undefined; tint: stri
 export default function GamesHub() {
   const router = useRouter();
   const { c, scale } = useTheme();
-  const { user, refresh } = useAuth();
+  const { user } = useAuth();
   const { show } = useToast();
   const [stats, setStats] = useState<any>(null);
   const [dailies, setDailies] = useState<any>(null);
@@ -94,7 +94,13 @@ export default function GamesHub() {
       const r: any = await api.dailyBonusClaim(user.id);
       if (r.claimed) {
         setBonus((b) => (b ? { ...b, claimed_today: true, streak_days: r.streak_days } : b));
-        refresh().catch(() => {});
+        // Note: we intentionally do NOT call auth `refresh()` here.
+        // It kicks off an /api/users/{id} round-trip that can throw
+        // 401 mid-session and trigger the global unauthorized handler,
+        // which used to bounce the player back to Home immediately
+        // after claiming their bonus. Local state update above is
+        // enough — the fresh point total shows next time the page
+        // refetches (pull-to-refresh, tab switch, etc).
         const pts = r.points_awarded ?? bonus?.points ?? 5;
         if (r.badge_earned) {
           show(`+${pts} Butterfly Points · Daily Devotee badge unlocked! 🏆`);

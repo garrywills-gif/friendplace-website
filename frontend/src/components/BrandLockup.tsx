@@ -62,7 +62,10 @@ export default function BrandLockup({
   // on very narrow phones (iPhone mini) or when accessibility text
   // scaling is on.
   const fontSize = Math.round(width * 0.14);
-  const tagSize = Math.max(11, Math.round(width * 0.05));
+  // Tagline size — bumped so the "FIND YOUR PEOPLE" strap doesn't get
+  // lost under the wordmark, especially at the smaller lockup widths
+  // used on the Home header (~140px). Older-audience readability.
+  const tagSize = Math.max(13, Math.round(width * 0.075));
   const gap = Math.max(4, Math.round(width * 0.02));
 
   // Butterfly icon sizing — proportional to width by default. Callers

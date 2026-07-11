@@ -51,11 +51,15 @@ export default function Home() {
    * change there. On native, router.replace works correctly.
    */
   const goTo = useCallback((href: string) => {
+    // Use push (not replace) so tab-to-tab navigation adds to the nav
+    // stack rather than swapping in place. Fixes an iPad bug where
+    // tapping tiles that route to tab screens (/profile, /friends,
+    // /lounge) would flash and immediately return to Home.
     if (Platform.OS === "web") {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).location.assign(href);
     } else {
-      router.replace(href as any);
+      router.push(href as any);
     }
   }, [router]);
 

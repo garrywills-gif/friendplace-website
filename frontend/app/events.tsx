@@ -92,7 +92,7 @@ export default function Events() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Local Events" />
+      <Header title="Local Events" backHref="/home" />
       <Pressable testID="event-new" onPress={() => router.push("/events/new" as any)} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 999, backgroundColor: c.brand }}>
         <Ionicons name="add-circle" size={20} color="#FFF" />
         <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Host a new event</Text>
