@@ -60,9 +60,6 @@ export default function OnboardingWizard() {
 
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
-  // Step 5 lets the user pick where to land. Defaults to Coffee Lounge —
-  // proven to be the warmest first-touch (real-time chat, no scheduling).
-  const [finishDestination, setFinishDestination] = useState<"lounge" | "events" | "friends">("lounge");
   const scrollRef = useRef<ScrollView>(null);
 
   // Pre-seed from whatever signup may have already collected so the wizard
@@ -145,12 +142,11 @@ export default function OnboardingWizard() {
       return;
     }
     setBusy(true);
-    // Where to send the user after onboarding. Coffee Lounge is the default
-    // (warmest first touch). They can override via the tiles on Step 5.
-    const destinationRoute =
-      finishDestination === "events" ? "/events" :
-      finishDestination === "friends" ? "/friends" :
-      "/lounge";
+    // New signups always land on the Welcome Tour, which introduces the
+    // main sections then drops them onto /home. Destination picker was
+    // removed — Home gives a warmer, richer first impression than any
+    // single tab and lets the user choose their own first step.
+    const destinationRoute = "/welcome-tour";
     try {
       await api.onboardingFinish({
         user_id: user.id,
@@ -173,13 +169,13 @@ export default function OnboardingWizard() {
       }
     } catch (e: any) {
       show("Couldn't save your choices. You can update them later from Profile.");
-      // Best-effort: still send them to home so they're not stuck.
+      // Best-effort: still send them to the tour so they're not stuck.
       try { await refresh?.(); } catch {}
       if (Platform.OS === "web") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).location.assign("/home");
+        (window as any).location.assign("/welcome-tour");
       } else {
-        router.replace("/home" as any);
+        router.replace("/welcome-tour" as any);
       }
     } finally {
       setBusy(false);
@@ -414,50 +410,13 @@ export default function OnboardingWizard() {
         You&apos;re all set!
       </Text>
       <Text style={[styles.body, { color: c.muted, fontSize: 16 * scale, textAlign: "center" }]}>
-        Where would you like to start? Tap one and we&apos;ll take you straight there.
+        We&apos;ll give you a quick tour so you know where everything lives,
+        then drop you into FriendPlace.
       </Text>
 
-      {/* Destination picker — the warmth of FriendPlace comes from real
-          contact with other members, so we give the user three concrete
-          first-touch options rather than dumping them onto Home. The
-          footer CTA below mirrors whichever tile is selected. */}
-      <View style={{ width: "100%", gap: 10, marginTop: 6 }}>
-        {([
-          { key: "lounge",  emoji: "☕", title: "Coffee Lounge", body: "Drop into a real-time chat — friendly faces are usually around." },
-          { key: "events",  emoji: "📅", title: "Local Events",   body: "See what's happening near you this week — walks, lunches, classes." },
-          { key: "friends", emoji: "👋", title: "Find Friends",   body: "Say hi to a neighbour who shares your interests." },
-        ] as const).map((d) => {
-          const on = finishDestination === d.key;
-          return (
-            <Pressable
-              key={d.key}
-              testID={`onb-dest-${d.key}`}
-              onPress={() => setFinishDestination(d.key)}
-              style={[
-                styles.destTile,
-                {
-                  backgroundColor: on ? c.brandTertiary : c.surfaceSecondary,
-                  borderColor: on ? c.brand : c.border,
-                },
-              ]}
-            >
-              <Text style={{ fontSize: 32 }}>{d.emoji}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 17 * scale }}>{d.title}</Text>
-                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }} numberOfLines={2}>
-                  {d.body}
-                </Text>
-              </View>
-              <Ionicons
-                name={on ? "checkmark-circle" : "ellipse-outline"}
-                size={26}
-                color={on ? c.brand : c.muted}
-              />
-            </Pressable>
-          );
-        })}
-      </View>
-
+      {/* Ready-to-launch recap card — reassurance summary of what the
+          user has just set up. No destination picker any more; new
+          signups always start on the Welcome Tour → Home. */}
       <View style={[styles.recapCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border, marginTop: 16 }]}>
         <View style={styles.recapRow}>
           <Ionicons name="heart" size={18} color={c.brand} />
@@ -491,17 +450,15 @@ export default function OnboardingWizard() {
       default: return Step0;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, interests, suburb, locationPrivate, avatar, groups, selectedGroupIds, groupsLoading, finishDestination]);
+  }, [step, interests, suburb, locationPrivate, avatar, groups, selectedGroupIds, groupsLoading]);
 
   // -------- footer CTAs --------
   const isLast = step === totalSteps - 1;
   const isFirst = step === 0;
   const showSkip = step > 0 && !isLast;
-  const lastLabel =
-    finishDestination === "events" ? "Browse events" :
-    finishDestination === "friends" ? "Find friends" :
-    "Take me to the Coffee Lounge";
-  const primaryLabel = isFirst ? "Get Started" : isLast ? lastLabel : "Continue";
+  // Final CTA leads into the Welcome Tour rather than a specific tab —
+  // the tour then hands the user off to Home so they can explore.
+  const primaryLabel = isFirst ? "Get Started" : isLast ? "Take me to FriendPlace" : "Continue";
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface, paddingTop: insets.top }}>
