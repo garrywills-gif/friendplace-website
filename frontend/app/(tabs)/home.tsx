@@ -7,6 +7,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import { emitFlutter } from "@/src/lib/flutter-fx";
 import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import ShareYouBelong from "@/src/components/ShareYouBelong";
@@ -19,7 +20,7 @@ type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; 
 export default function Home() {
   const router = useRouter();
   const { c, scale, prefs } = useTheme();
-  const { user, refresh } = useAuth();
+  const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const [flutters, setFlutters] = useState<any[]>([]);
@@ -122,11 +123,13 @@ export default function Home() {
       await api.sendFlutter({ from_id: user.id, to_id: f.from_id });
       await api.markFlutterRead(f.id);
       setFlutters((arr) => arr.filter((x) => x.id !== f.id));
-      // Sender earns +2 pts — refresh here so the Butterfly Points card
-      // on Home (and the Profile tab if the user navigates there next)
-      // shows the new total immediately instead of flickering between
-      // the stale and fresh value on focus.
-      refresh().catch(() => {});
+      // Signature butterfly celebration — fired before the toast so the
+      // Flutter feels like it launches away visibly.
+      emitFlutter(5);
+      // NOTE: we deliberately do NOT call auth `refresh()` here anymore.
+      // It fires /api/users/{id} which occasionally 401s mid-session and
+      // was bouncing users back to Home via the global unauthorized
+      // handler. Butterfly points show correctly on next focus/refresh.
       show(`Flutter sent to ${f.from_name || "them"} 🦋`);
     } catch (e: any) {
       const msg = String(e?.message || "").toLowerCase();
@@ -242,23 +245,43 @@ export default function Home() {
             </View>
             {flutters.slice(0, 3).map((f) => (
               <View key={f.id} style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#EDE9FE" }]}>
-                <AvatarBubble value={f.from_avatar} size={22} fallback="🙂" />
-                <Text style={{ color: "#1E293B", flex: 1, marginLeft: 8, fontSize: 14 * scale }} numberOfLines={3}>
-                  <Text style={{ fontWeight: "800" }}>{f.from_name}</Text> {f.message}
+                {/* Sender identity row — the whole strip is a Pressable
+                    that opens the sender's profile so recipients can
+                    learn a little about them before Chat / Flutter Back. */}
+                <Pressable
+                  testID={`flutter-open-profile-${f.id}`}
+                  onPress={() => router.push(`/user/${f.from_id}` as any)}
+                  accessibilityLabel={`View ${f.from_name}'s profile`}
+                  style={styles.flutterSenderRow}
+                  hitSlop={4}
+                >
+                  <AvatarBubble value={f.from_avatar} size={36} fallback="🙂" />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: "#1E293B", fontWeight: "900", fontSize: 15 * scale }} numberOfLines={1}>
+                      {f.from_name}
+                    </Text>
+                    <Text style={{ color: "#64748B", fontSize: 12 * scale, fontWeight: "600" }}>
+                      Tap to see their profile
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                </Pressable>
+                <Text style={{ color: "#1E293B", fontSize: 15 * scale, marginTop: 8, lineHeight: 20 }} numberOfLines={4}>
+                  {f.message}
                 </Text>
                 <View style={styles.flutterActions}>
                   <Pressable testID={`flutter-back-${f.id}`} onPress={() => flutterBack(f)} style={[styles.flutterActionBtn, { backgroundColor: "#EDE9FE", borderColor: "#8B5CF6" }]}>
                     <Text style={{ fontSize: 14 }}>🦋</Text>
-                    <Text style={{ color: "#6D28D9", fontWeight: "800", fontSize: 12 * scale }}>Flutter back</Text>
+                    <Text style={{ color: "#6D28D9", fontWeight: "800", fontSize: 13 * scale }}>Flutter back</Text>
                   </Pressable>
                   <Pressable testID={`flutter-chat-${f.id}`} onPress={() => chatFromFlutter(f)} style={[styles.flutterActionBtn, { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" }]}>
                     <Ionicons name="chatbubble" size={12} color="#FFF" />
-                    <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 12 * scale }}>Chat</Text>
+                    <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Chat</Text>
+                  </Pressable>
+                  <Pressable testID={`flutter-dismiss-${f.id}`} onPress={() => dismissFlutter(f)} style={styles.dismissBtn}>
+                    <Ionicons name="close" size={18} color="#94A3B8" />
                   </Pressable>
                 </View>
-                <Pressable testID={`flutter-dismiss-${f.id}`} onPress={() => dismissFlutter(f)} style={styles.dismissBtn}>
-                  <Ionicons name="close" size={18} color="#94A3B8" />
-                </Pressable>
               </View>
             ))}
           </View>
@@ -531,7 +554,13 @@ const styles = StyleSheet.create({
   name: { fontWeight: "900", marginTop: 2 },
   iconBtn: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   flutterBox: { borderWidth: 2, borderRadius: 18, padding: 14, backgroundColor: "#F5F3FF", gap: 8 },
-  flutterItem: { flexDirection: "row", alignItems: "center", padding: 10, borderRadius: 12, borderWidth: 1, gap: 6, flexWrap: "wrap" },
+  flutterItem: { padding: 12, borderRadius: 14, borderWidth: 1, gap: 4 },
+  flutterSenderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 2,
+  },
   flutterActions: { flexDirection: "row", alignItems: "center", gap: 6 },
   flutterActionBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, borderWidth: 1.5 },
   replyBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },

@@ -12,6 +12,7 @@ import { AuthProvider } from "@/src/lib/auth";
 import { ToastProvider } from "@/src/lib/toast";
 import SplashGate from "@/src/components/SplashGate";
 import ErrorBoundary from "@/src/components/ErrorBoundary";
+import FlutterOverlay from "@/src/components/FlutterOverlay";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -36,6 +37,10 @@ export default function RootLayout() {
                 <SplashGate>
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
                 </SplashGate>
+                {/* Global celebration overlay — mounted above every
+                    screen so `emitFlutter()` can fire the butterfly
+                    animation from anywhere in the app. */}
+                <FlutterOverlay />
               </ToastProvider>
             </AuthProvider>
           </ThemeProvider>

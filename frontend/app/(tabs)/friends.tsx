@@ -7,6 +7,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import { emitFlutter } from "@/src/lib/flutter-fx";
 import * as Location from "expo-location";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
@@ -100,6 +101,10 @@ export default function Friends() {
     if (!user) return;
     try {
       await api.sendFlutter({ from_id: user.id, to_id: other.id });
+      // Celebratory butterfly animation across the whole screen — the
+      // signature FriendPlace moment. Fired before the toast so the
+      // animation feels like it's launching the message on its way.
+      emitFlutter(5);
       show(`🦋 Flutter sent to ${other.first_name}!`);
       await load();
     } catch { show("Could not send flutter"); }

@@ -300,10 +300,14 @@ export default function ShareYouBelong({
               <Pressable
                 testID="share-close"
                 onPress={() => { setShowQR(false); setOpen(false); }}
-                hitSlop={12}
-                style={styles.closeBtn}
+                hitSlop={16}
+                accessibilityLabel="Close invite friends"
+                style={({ pressed }) => [
+                  styles.closeBtn,
+                  { backgroundColor: c.surfaceSecondary, borderColor: c.border, opacity: pressed ? 0.85 : 1 },
+                ]}
               >
-                <Ionicons name="close" size={26} color={c.muted} />
+                <Ionicons name="close" size={26} color={c.onSurface} />
               </Pressable>
             </View>
 
@@ -376,6 +380,20 @@ export default function ShareYouBelong({
                   sub="Copy the invite to paste into any app"
                   onPress={copyLink}
                 />
+                {/* Prominent Cancel/Done button so the invite sheet is
+                    easy to dismiss on any device (adds a clear escape
+                    for users who tap the sheet open by mistake). */}
+                <Pressable
+                  testID="share-cancel"
+                  onPress={() => { setShowQR(false); setOpen(false); }}
+                  accessibilityLabel="Close invite friends"
+                  style={({ pressed }) => [
+                    styles.cancelBtn,
+                    { backgroundColor: c.surfaceSecondary, borderColor: c.border, opacity: pressed ? 0.85 : 1 },
+                  ]}
+                >
+                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Cancel</Text>
+                </Pressable>
               </View>
             )}
           </Pressable>
@@ -484,7 +502,22 @@ const styles = StyleSheet.create({
   handle: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, backgroundColor: "#CBD5E1", marginVertical: 8 },
   headRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
   title: { fontWeight: "900" },
-  closeBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 },
+  closeBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 22,
+    borderWidth: 1.5,
+  },
+  cancelBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+  },
   preview: { padding: 12, borderRadius: 12, borderWidth: 1, lineHeight: 20, marginBottom: 4 },
   row: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 16, borderWidth: 1, gap: 12, minHeight: 64 },
   rowIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
