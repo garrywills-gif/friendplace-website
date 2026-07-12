@@ -155,41 +155,56 @@ _BG_SOFT = "#F8FAFC"         # slate-50 background
 
 
 def _branded_footer_html() -> str:
-    """The shared "FriendPlace" branded footer used at the bottom of every
-    outgoing email. Renders the wide horizontal FriendPlace banner
-    (butterfly + wordmark + tagline + contact info) as a hosted image,
-    with a plain-HTML fallback caption underneath so mail clients that
-    block images (default Gmail behaviour on first-time senders) still
-    show the brand info as text.
+    """The shared "FriendPlace" branded footer — pure HTML/CSS on the
+    same dark navy background as the email body so the whole message
+    reads as a single continuous premium canvas (Apple / Tesla /
+    Airbnb style) rather than "dark email with a picture dropped in".
 
-    The image is served from the emergent customer-assets CDN. Once
-    friendplace.com.au is DNS-verified we'll swap it for a same-domain
-    URL (`https://www.friendplace.com.au/email/banner.png`) which will
-    boost deliverability further (SPF/DKIM alignment love same-domain
-    image hosts).
+    No external images = renders identically in every mail client,
+    even with images blocked. Structure mirrors the horizontal brand
+    banner:
+      - Two-tone FriendPlace wordmark (white + sky-blue)
+      - "Because you belong too. 🦋" tagline
+      - Contact row (email icon + website icon) — clickable links
+      - Italic signature line
+      - Small disclaimer explaining why the recipient got the email
     """
-    # NOTE: this URL is publicly accessible and stable for the artifact's
-    # lifetime. When domain is set up, replace with the site-hosted URL.
-    banner_url = "https://customer-assets.emergentagent.com/job_belong-together/artifacts/8fw8lp5v_image.png"
     return f"""\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
   <tr>
-    <td align="center">
-      <!-- Horizontal brand banner. Set explicit width so Outlook renders it.
-           The `alt` text mirrors the banner content so image-blocked
-           clients still see the wordmark + tagline. -->
-      <a href="https://www.friendplace.com.au" style="text-decoration:none;">
-        <img
-          src="{banner_url}"
-          alt="FriendPlace — Because you belong too. hello@friendplace.com.au · www.friendplace.com.au"
-          width="520"
-          style="width:100%;max-width:520px;height:auto;border-radius:14px;display:block;border:0;outline:none;text-decoration:none;"
-        />
-      </a>
-      <!-- Text-only fallback caption underneath the banner — visible in
-           clients that don't render images. Uses the same tone/copy so
-           the brand reads clearly even without art. -->
-      <div style="color:#94A3B8;font-size:11px;line-height:16px;margin-top:12px;padding:0 12px;">
+    <td align="center" style="padding:8px 4px 4px 4px;">
+      <!-- Wordmark -->
+      <div style="font-size:32px;font-weight:900;letter-spacing:-0.6px;line-height:1;">
+        <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+      </div>
+      <!-- Tagline -->
+      <div style="color:#CBD5E1;font-size:15px;font-weight:600;margin-top:8px;">
+        Because you belong too. 🦋
+      </div>
+      <!-- Divider -->
+      <div style="height:1px;background:#1E3A6B;margin:22px 0;"></div>
+      <!-- Contact row: two pill-style icons + links -->
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+        <tr>
+          <td style="padding:0 12px;">
+            <span style="display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:{_INK_SKY};border-radius:11px;font-size:12px;vertical-align:middle;">📧</span>
+            &nbsp;<a href="mailto:hello@friendplace.com.au" style="color:#DBEAFE;text-decoration:none;font-size:13px;vertical-align:middle;">hello@friendplace.com.au</a>
+          </td>
+          <td style="padding:0 12px;color:#1E3A6B;">|</td>
+          <td style="padding:0 12px;">
+            <span style="display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:{_INK_SKY};border-radius:11px;font-size:12px;vertical-align:middle;">🌐</span>
+            &nbsp;<a href="https://www.friendplace.com.au" style="color:#DBEAFE;text-decoration:none;font-size:13px;vertical-align:middle;">www.friendplace.com.au</a>
+          </td>
+        </tr>
+      </table>
+      <!-- Italic signature line -->
+      <div style="color:#93C5FD;font-style:italic;font-size:14px;margin-top:20px;">
+        Finding your people, one friendship at a time. 🦋
+      </div>
+      <!-- Divider -->
+      <div style="height:1px;background:#1E3A6B;margin:22px 0 14px;"></div>
+      <!-- Disclaimer -->
+      <div style="color:#94A3B8;font-size:11px;line-height:16px;">
         You&rsquo;re receiving this email from FriendPlace because you have a FriendPlace account.
       </div>
     </td>
@@ -212,72 +227,85 @@ def _branded_footer_text() -> str:
 
 
 def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: int) -> tuple[str, str, str]:
-    """Build the password-reset email content.
-
-    Copy is deliberately warm and personal — matches the "Because you
-    belong too" voice rather than the clinical tone of typical system
-    emails. Includes:
-      - Butterfly emoji subject line
-      - Named greeting
-      - Prominent, easy-to-copy code (large teal chip)
-      - Explicit 15-minute expiry callout
-      - Reassuring "safe to ignore" line for users who didn't request it
-      - Community-thank-you closer
-      - Shared branded footer
+    """Build the password-reset email content — full-bleed dark navy
+    theme, one continuous canvas from top to bottom (no white body, no
+    "picture dropped in").
     """
     name = (first_name or "there").strip()
     subject = "🦋 Reset your FriendPlace password"
     html = f"""\
 <!doctype html>
 <html>
-  <body style="margin:0;padding:0;background:{_BG_SOFT};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:{_INK_NAVY};">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 0;">
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
+    <!-- Outer navy canvas — no white anywhere. -->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
       <tr>
         <td align="center">
-          <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;">
-            <!-- Body card -->
+          <!-- Content column — 560px wide, almost full-bleed on mobile
+               with just a little side padding on the outer canvas. -->
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+            <!-- Header: wordmark + subline. Blends into the body. -->
             <tr>
-              <td style="background:#FFFFFF;border-radius:16px;padding:36px 28px;border:1px solid #E2E8F0;">
-                <!-- Wordmark header -->
-                <div style="text-align:center;font-size:22px;font-weight:900;letter-spacing:-0.4px;line-height:1;margin-bottom:6px;">
-                  <span style="color:{_INK_NAVY};">Friend</span><span style="color:{_INK_TEAL};">Place</span>
-                  <span style="font-size:20px;">🦋</span>
+              <td align="center" style="padding:8px 22px 6px 22px;">
+                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+                  <span style="font-size:22px;">🦋</span>
                 </div>
-                <div style="text-align:center;color:{_INK_MUTED};font-size:12px;letter-spacing:2px;font-weight:700;margin-bottom:22px;">
+                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
                   RESET YOUR PASSWORD
                 </div>
+              </td>
+            </tr>
 
-                <!-- Greeting + body -->
-                <div style="font-size:16px;line-height:24px;color:{_INK_BODY};">
+            <!-- Greeting + body copy on the same navy — no card, no border. -->
+            <tr>
+              <td style="padding:24px 22px 6px 22px;">
+                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
                   Hi {name},<br><br>
                   We received a request to reset your FriendPlace password.<br><br>
-                  Use the secure code below to reset your password. For your security, this code will expire in <strong>{ttl_minutes} minutes</strong>.
+                  Use the secure code below to reset your password. For your security, this code will expire in <strong style="color:#FFFFFF;">{ttl_minutes} minutes</strong>.
                 </div>
+              </td>
+            </tr>
 
-                <!-- Reset code chip -->
-                <div style="text-align:center;margin:26px 0 6px 0;">
-                  <div style="font-size:36px;font-weight:900;letter-spacing:10px;color:{_INK_TEAL};padding:16px 22px;border-radius:14px;background:#F0FDFA;display:inline-block;border:1px solid #99F6E4;">
-                    {code}
-                  </div>
+            <!-- Reset code — glowing teal chip on navy. Sits on the same
+                 background so it reads as an inline "highlight" rather
+                 than a separate white box. -->
+            <tr>
+              <td align="center" style="padding:22px 22px 4px 22px;">
+                <div style="font-size:40px;font-weight:900;letter-spacing:12px;color:#5EEAD4;padding:20px 26px;border-radius:16px;background:rgba(20,184,166,0.12);display:inline-block;border:1px solid rgba(94,234,212,0.35);">
+                  {code}
                 </div>
+              </td>
+            </tr>
 
-                <!-- Safety note -->
-                <div style="font-size:14px;line-height:22px;color:{_INK_MUTED};margin-top:22px;">
+            <!-- Safety note -->
+            <tr>
+              <td style="padding:22px 22px 4px 22px;">
+                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
                   If you didn&rsquo;t request a password reset, you can safely ignore this email. Your account will remain secure and no changes will be made.
                 </div>
+              </td>
+            </tr>
 
-                <!-- Community close -->
-                <div style="font-size:15px;line-height:22px;color:{_INK_BODY};margin-top:22px;">
+            <!-- Community close -->
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
                   Thank you for being part of the FriendPlace community.
                 </div>
-                <div style="font-size:14px;font-style:italic;color:{_INK_TEAL};margin-top:6px;">
+                <div style="font-size:14px;font-style:italic;color:{_INK_SKY};margin-top:6px;">
                   Finding your people, one friendship at a time. 🦋
                 </div>
               </td>
             </tr>
-            <!-- Branded footer -->
+
+            <!-- Spacer before the footer -->
+            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+
+            <!-- Branded footer — same navy, seamless -->
             <tr>
-              <td>
+              <td style="padding:0 12px;">
                 {_branded_footer_html()}
               </td>
             </tr>
