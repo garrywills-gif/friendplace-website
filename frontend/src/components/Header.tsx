@@ -8,7 +8,7 @@ import { useTheme } from "../lib/theme";
 // Teal FriendPlace butterfly — sits on the right of every page banner so
 // the brand mark is always present even on pages that don't render the
 // full BrandLockup. Small (36px) so it never competes with the page title.
-const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v2.png");
+const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v3.png");
 
 /**
  * Header — the "where am I?" banner that appears at the top of every

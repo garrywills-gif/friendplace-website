@@ -21,7 +21,7 @@ import type { SeasonTheme } from "@/src/lib/seasons";
  * Usage:
  *   <ButterflyCardBack width={44} height={62} season={season} />
  */
-const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v2.png");
+const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v3.png");
 
 export function ButterflyCardBack({
   width,

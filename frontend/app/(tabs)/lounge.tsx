@@ -13,7 +13,7 @@ import FounderMark from "@/src/components/FounderMark";
 
 // The primary FriendPlace butterfly logo — surfaces on every page header
 // so the brand mark stays consistent across the app.
-const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v2.png");
+const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v3.png");
 
 function occupancyLabel(seated: number): { label: string; color: string; icon: keyof typeof Ionicons.glyphMap } {
   if (seated === 0) return { label: "Empty Table", color: "#94A3B8", icon: "ellipse-outline" };

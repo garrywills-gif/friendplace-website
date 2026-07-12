@@ -35,11 +35,12 @@ const TAGLINE_INK = "#708EAA";
 // The definitive teal butterfly logo — the primary FriendPlace brand mark.
 // Rendered as a rounded-square icon (the artwork ships with its own subtle
 // teal→blue gradient tile so it reads on both dark and light backgrounds).
-// NOTE: filename versioned (`-v2.png`) to guarantee Metro's asset
-// hasher generates a fresh identifier when we tweak the icon. In-
-// place overwrites of `friendplace-app-icon.png` were served stale
-// from the bundler cache on preview even after `expo start --clear`.
-const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v2.png");
+// NOTE: filename versioned (`-v3.png`) to guarantee Metro's asset
+// hasher generates a fresh identifier when we tweak the icon. v3
+// increases the transparent margin around the butterfly to ~23%
+// on all four sides so the wings never appear cropped by the tile
+// edges, no matter how small the icon is rendered.
+const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v3.png");
 
 export default function BrandLockup({
   width = 320,
