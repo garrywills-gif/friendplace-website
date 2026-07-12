@@ -217,7 +217,7 @@ def _branded_footer_html() -> str:
       </div>
       <!-- Primary brand tagline -->
       <div style="color:#CBD5E1;font-size:14px;font-weight:600;margin-top:8px;">
-        Because you belong too. 🦋
+        Because you belong too.
       </div>
       <!-- Divider -->
       <div style="height:1px;background:#1E3A6B;margin:22px auto;max-width:280px;"></div>
@@ -249,7 +249,7 @@ def _branded_footer_text() -> str:
     return (
         "\n\n"
         "— FriendPlace —\n"
-        "Because you belong too. 🦋\n\n"
+        "Because you belong too.\n\n"
         "hello@friendplace.com.au  ·  www.friendplace.com.au\n\n"
         "You're receiving this email from FriendPlace because you have a "
         "FriendPlace account."
@@ -279,7 +279,6 @@ def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: i
               <td align="center" style="padding:8px 22px 6px 22px;">
                 <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
                   <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
-                  <span style="font-size:22px;">🦋</span>
                 </div>
                 <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
                   RESET YOUR PASSWORD
@@ -328,7 +327,7 @@ def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: i
             <tr>
               <td style="padding:24px 22px 4px 22px;">
                 <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-                  Thank you for being part of the FriendPlace family. 🦋
+                  Thank you for being part of the FriendPlace community.
                 </div>
               </td>
             </tr>
@@ -357,7 +356,7 @@ def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: i
         f"    {code}\n\n"
         f"If you didn't request a password reset, you can safely ignore this "
         f"email. Your account will remain secure and no changes will be made.\n\n"
-        f"Thank you for being part of the FriendPlace family. 🦋"
+        f"Thank you for being part of the FriendPlace community."
         f"{_branded_footer_text()}"
     )
     return subject, html, text
