@@ -156,45 +156,40 @@ _BG_SOFT = "#F8FAFC"         # slate-50 background
 
 def _branded_footer_html() -> str:
     """The shared "FriendPlace" branded footer used at the bottom of every
-    outgoing email. Renders as a self-contained dark navy panel — no
-    external images so it works on every client (Gmail, Outlook, Apple
-    Mail, Yahoo) even with images blocked.
+    outgoing email. Renders the wide horizontal FriendPlace banner
+    (butterfly + wordmark + tagline + contact info) as a hosted image,
+    with a plain-HTML fallback caption underneath so mail clients that
+    block images (default Gmail behaviour on first-time senders) still
+    show the brand info as text.
 
-    Structure mirrors the attached brand banner:
-      - Two-tone FriendPlace wordmark (white "Friend" + sky-blue "Place")
-      - "Because you belong too. 🦋"
-      - Contact row: 📧 hello@friendplace.com.au  ·  🌐 www.friendplace.com.au
-      - Cursive-italic tagline: "Finding your people, one friendship at a time. 🦋"
-      - Small disclaimer line explaining why the user received the email
+    The image is served from the emergent customer-assets CDN. Once
+    friendplace.com.au is DNS-verified we'll swap it for a same-domain
+    URL (`https://www.friendplace.com.au/email/banner.png`) which will
+    boost deliverability further (SPF/DKIM alignment love same-domain
+    image hosts).
     """
+    # NOTE: this URL is publicly accessible and stable for the artifact's
+    # lifetime. When domain is set up, replace with the site-hosted URL.
+    banner_url = "https://customer-assets.emergentagent.com/job_belong-together/artifacts/8fw8lp5v_image.png"
     return f"""\
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px;">
   <tr>
-    <td align="center" style="background:{_INK_NAVY_DEEP};border-radius:16px;padding:28px 22px;">
-      <!-- Wordmark -->
-      <div style="font-size:28px;font-weight:900;letter-spacing:-0.5px;line-height:1;">
-        <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
-      </div>
-      <!-- Tagline under the wordmark -->
-      <div style="color:#CBD5E1;font-size:14px;font-weight:600;margin-top:6px;">
-        Because you belong too. 🦋
-      </div>
-      <!-- Divider -->
-      <div style="height:1px;background:#1E3A6B;margin:20px 0;"></div>
-      <!-- Contact row -->
-      <div style="color:#CBD5E1;font-size:13px;line-height:22px;">
-        📧 <a href="mailto:hello@friendplace.com.au" style="color:#93C5FD;text-decoration:none;">hello@friendplace.com.au</a>
-        &nbsp;&middot;&nbsp;
-        🌐 <a href="https://www.friendplace.com.au" style="color:#93C5FD;text-decoration:none;">www.friendplace.com.au</a>
-      </div>
-      <!-- Signature line -->
-      <div style="color:#93C5FD;font-style:italic;font-size:13px;margin-top:14px;">
-        Finding your people, one friendship at a time. 🦋
-      </div>
-      <!-- Divider -->
-      <div style="height:1px;background:#1E3A6B;margin:20px 0 12px;"></div>
-      <!-- Disclaimer -->
-      <div style="color:#94A3B8;font-size:11px;line-height:16px;">
+    <td align="center">
+      <!-- Horizontal brand banner. Set explicit width so Outlook renders it.
+           The `alt` text mirrors the banner content so image-blocked
+           clients still see the wordmark + tagline. -->
+      <a href="https://www.friendplace.com.au" style="text-decoration:none;">
+        <img
+          src="{banner_url}"
+          alt="FriendPlace — Because you belong too. hello@friendplace.com.au · www.friendplace.com.au"
+          width="520"
+          style="width:100%;max-width:520px;height:auto;border-radius:14px;display:block;border:0;outline:none;text-decoration:none;"
+        />
+      </a>
+      <!-- Text-only fallback caption underneath the banner — visible in
+           clients that don't render images. Uses the same tone/copy so
+           the brand reads clearly even without art. -->
+      <div style="color:#94A3B8;font-size:11px;line-height:16px;margin-top:12px;padding:0 12px;">
         You&rsquo;re receiving this email from FriendPlace because you have a FriendPlace account.
       </div>
     </td>
