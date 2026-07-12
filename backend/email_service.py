@@ -202,7 +202,7 @@ def _branded_footer_html() -> str:
     """
     icon_html = (
         f'<img src="data:image/png;base64,{_BUTTERFLY_ICON_B64}" '
-        f'alt="FriendPlace" width="72" height="72" '
+        f'alt="FriendPlace" width="83" height="83" '
         f'style="display:block;margin:0 auto;border:0;outline:none;background:{_INK_NAVY_DEEP};" />'
         if _BUTTERFLY_ICON_B64 else ""
     )
