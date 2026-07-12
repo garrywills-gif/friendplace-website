@@ -44,7 +44,7 @@ import { api } from "@/src/lib/api";
 // FriendPlace teal butterfly — the primary brand mark for every step
 // header. Using the app icon so the artwork stays consistent with the
 // splash/home screens.
-const BUTTERFLY_LOGO = require("../assets/brand/friendplace-app-icon.png");
+const BUTTERFLY_LOGO = require("../assets/brand/friendplace-app-icon-v2.png");
 
 // Feature showcase — the elevator pitch for FriendPlace. Kept short so
 // the whole list is scannable at a glance, and larger body type so
