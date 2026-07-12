@@ -14,7 +14,7 @@ import FounderMark from "@/src/components/FounderMark";
 
 // Primary FriendPlace butterfly logo — surfaces in every header so the
 // brand mark is present even on tabs that don't render the full lockup.
-const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v4.png");
+const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v5.png");
 
 const RADIUS_OPTIONS = [5, 10, 25, 50] as const;
 
