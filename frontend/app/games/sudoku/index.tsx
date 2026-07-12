@@ -6,6 +6,8 @@ import { useTheme } from "@/src/lib/theme";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import SeasonBanner from "@/src/components/SeasonBanner";
+import { getCurrentSeason } from "@/src/lib/seasons";
 
 type Difficulty = { key: string; label: string; clues: number; points: number; hints: number; max_mistakes: number };
 
@@ -28,6 +30,7 @@ export default function SudokuHub() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Sudoku" />
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 60, gap: 14 }}>
+        <SeasonBanner season={getCurrentSeason()} prefix="Sudoku" c={c} scale={scale} />
         <View style={[styles.intro, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>HOW TO PLAY</Text>

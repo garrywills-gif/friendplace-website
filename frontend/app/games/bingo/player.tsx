@@ -8,8 +8,9 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import GameWinModal from "@/src/components/GameWinModal";
+import { getCurrentSeason } from "@/src/lib/seasons";
 import SpeakButton from "@/src/components/SpeakButton";
-import Button from "@/src/components/Button";
 import GameZoomControls, { useGameZoom } from "@/src/components/GameZoomControls";
 
 type Session = {
@@ -105,28 +106,42 @@ export default function BingoPlayer() {
   if (loading || !s) return <View style={{ flex: 1, backgroundColor: c.surface }}><Header title="Bingo" /><View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}><ActivityIndicator size="large" color={c.brand} /></View></View>;
 
   if (completion || s.completed) {
+    // Shared celebration modal on top of a peaceful backdrop — matches
+    // the finale used across Solitaire, Sudoku, Word Search, etc.
+    const achievements = (completion?.granted || []) as string[];
+    const subtitleBits: string[] = [];
+    if (completion) {
+      subtitleBits.push(`${completion.calls_used} calls`);
+      subtitleBits.push(`${completion.duration_seconds}s`);
+    }
     return (
       <View style={{ flex: 1, backgroundColor: c.surface }}>
         <Header title="Bingo" />
-        <ScrollView contentContainerStyle={{ padding: 18, alignItems: "center", gap: 12 }}>
-          <Text style={{ fontSize: 80 }}>\uD83C\uDF89</Text>
+        <ScrollView contentContainerStyle={{ padding: 24, alignItems: "center", gap: 8 }}>
+          <Text style={{ fontSize: 80 }}>🎉</Text>
           <Text style={{ color: c.brand, fontWeight: "900", fontSize: 42 * scale }}>BINGO!</Text>
-          {!!completion && <>
-            <Text style={{ color: c.onSurface, fontSize: 18 * scale }}>You earned +{completion.points_earned} Butterfly Points</Text>
-            <Text style={{ color: c.muted, fontSize: 14 * scale }}>{completion.calls_used} calls \u00B7 {completion.duration_seconds}s</Text>
-            {(completion.granted || []).length > 0 && (
-              <View style={{ gap: 4, marginTop: 6 }}>
-                {completion.granted.map((g: string) => (
-                  <Text key={g} style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>{"\u2728"} New achievement: {g}</Text>
-                ))}
-              </View>
-            )}
-          </>}
-          <View style={{ width: "100%", gap: 10, marginTop: 20 }}>
-            <Button label="Play again" onPress={() => router.replace("/games/bingo")} />
-            <Button label="Back to Games Hub" variant="outline" onPress={() => router.replace("/games")} />
-          </View>
+          {achievements.map((g) => (
+            <Text key={g} style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, textAlign: "center" }}>
+              ✨ New achievement: {g}
+            </Text>
+          ))}
         </ScrollView>
+        <GameWinModal
+          visible={true}
+          onRequestClose={() => router.replace("/games/bingo")}
+          emoji="🎉"
+          title="BINGO!"
+          subtitle={subtitleBits.length ? subtitleBits.join(" · ") : "Nice win!"}
+          points={completion?.points_earned || 0}
+          season={getCurrentSeason()}
+          c={c}
+          scale={scale}
+          actions={[
+            { testID: "bingo-win-again", label: "Play another round", icon: "play", variant: "primary", onPress: () => router.replace("/games/bingo") },
+            { testID: "bingo-win-hub", label: "Try another game", icon: "grid", variant: "secondary", onPress: () => router.replace("/games") },
+            { testID: "bingo-win-home", label: "Back home", variant: "ghost", onPress: () => router.replace("/home") },
+          ]}
+        />
       </View>
     );
   }

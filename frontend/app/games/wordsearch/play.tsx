@@ -9,6 +9,8 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import GameZoomControls, { useGameZoom } from "@/src/components/GameZoomControls";
+import GameWinModal from "@/src/components/GameWinModal";
+import { getCurrentSeason } from "@/src/lib/seasons";
 
 type Cell = [number, number];
 
@@ -517,23 +519,22 @@ export default function WordSearchPlayer() {
       </Modal>
 
       {/* Win modal */}
-      <Modal visible={showWin} animationType="fade" transparent onRequestClose={() => setShowWin(false)}>
-        <View style={styles.modalBg}>
-          <View style={[styles.modalCard, { backgroundColor: c.surface, alignItems: "center" }]}>
-            <Text style={{ fontSize: 54 }}>🎉</Text>
-            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, marginTop: 8 }}>You found them all!</Text>
-            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center" }}>
-              {puzzle.theme_label} · {puzzle.difficulty_label} · {minutes}:{secs.toString().padStart(2, "0")}{"\n"}+{puzzle.points} Butterfly Points
-            </Text>
-            {(puzzle.difficulty === "hard" || puzzle.difficulty === "nightmare") && (
-              <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, marginTop: 8, textAlign: "center" }}>🦋 Friends will see a celebration Flutter</Text>
-            )}
-            <Pressable testID="ws-win-back" onPress={() => { setShowWin(false); router.replace("/games/wordsearch"); }} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}>
-              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Pick another puzzle</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      <GameWinModal
+        visible={showWin}
+        onRequestClose={() => setShowWin(false)}
+        emoji="🎉"
+        title="You found them all!"
+        subtitle={`${puzzle.theme_label} · ${puzzle.difficulty_label} · ${minutes}:${secs.toString().padStart(2, "0")}`}
+        points={puzzle.points}
+        season={getCurrentSeason()}
+        c={c}
+        scale={scale}
+        actions={[
+          { testID: "ws-win-another", label: "Pick another puzzle", icon: "search", variant: "primary", onPress: () => { setShowWin(false); router.replace("/games/wordsearch"); } },
+          { testID: "ws-win-harder", label: "Try a harder puzzle", icon: "rocket", variant: "secondary", onPress: () => { setShowWin(false); router.replace("/games/wordsearch"); } },
+          { testID: "ws-win-stay", label: "Stay on this puzzle", variant: "ghost", onPress: () => setShowWin(false) },
+        ]}
+      />
     </View>
   );
 }

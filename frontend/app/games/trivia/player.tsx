@@ -8,6 +8,8 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import Button from "@/src/components/Button";
+import GameWinModal from "@/src/components/GameWinModal";
+import { getCurrentSeason } from "@/src/lib/seasons";
 
 type Question = { id: string; category: string; difficulty: string; q: string; choices: string[] };
 type Session = {
@@ -38,6 +40,17 @@ export default function TriviaPlayer() {
   const [hiddenChoices, setHiddenChoices] = useState<number[]>([]);
   const [completion, setCompletion] = useState<any>(null);
   const [confirm, setConfirm] = useState<null | { title: string; body: string; cta: string; onConfirm: () => void }>(null);
+  // Celebration modal — opens for a beat when the result page first
+  // appears so the finale gets a warm "🎉 Great job!" moment before
+  // the (long, scrollable) per-question recap. Dismissable manually.
+  const [showWin, setShowWin] = useState(false);
+  useEffect(() => {
+    if (completion || session?.completed) {
+      // Fire once when we land on the result view.
+      const t = setTimeout(() => setShowWin(true), 200);
+      return () => clearTimeout(t);
+    }
+  }, [completion, session?.completed]);
 
   const load = useCallback(async () => {
     if (!user || !sid) return;
@@ -152,6 +165,24 @@ export default function TriviaPlayer() {
             <Button label="Back to Games Hub" variant="outline" onPress={() => router.replace("/games")} />
           </View>
         </ScrollView>
+        {/* Celebration modal — opens automatically for the "🎉 Great
+            job!" moment, then dismisses to reveal the recap below. */}
+        <GameWinModal
+          visible={showWin}
+          onRequestClose={() => setShowWin(false)}
+          emoji={pct >= 60 ? "🏆" : "🍀"}
+          title={pct >= 80 ? "Brilliant!" : pct >= 60 ? "Great job!" : pct >= 40 ? "Nice try!" : "Good effort!"}
+          subtitle={`${score} of ${total} correct · ${pct}%`}
+          points={pts}
+          season={getCurrentSeason()}
+          c={c}
+          scale={scale}
+          actions={[
+            { testID: "trivia-win-review", label: "Review my answers", icon: "list", variant: "primary", onPress: () => setShowWin(false) },
+            { testID: "trivia-win-another", label: "Play another round", icon: "play", variant: "secondary", onPress: () => router.replace("/games/trivia") },
+            { testID: "trivia-win-hub", label: "Try another game", variant: "ghost", onPress: () => router.replace("/games") },
+          ]}
+        />
       </View>
     );
   }

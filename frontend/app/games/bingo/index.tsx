@@ -7,6 +7,8 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import SeasonBanner from "@/src/components/SeasonBanner";
+import { getCurrentSeason } from "@/src/lib/seasons";
 
 const INSTRUCTIONS = "Welcome to Bingo. Pick a difficulty and tap Start. Each number gets called one at a time \u2014 tap it on your card to mark it. Hard and Nightmare auto-call every few seconds. When you spot a winning pattern, tap Call Bingo. Your progress saves automatically.";
 
@@ -46,7 +48,8 @@ export default function BingoHub() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Bingo" />
-      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />} contentContainerStyle={{ padding: 14, paddingBottom: 60 }}>
+      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />} contentContainerStyle={{ padding: 14, paddingBottom: 60, gap: 12 }}>
+        <SeasonBanner season={getCurrentSeason()} prefix="Bingo" c={c} scale={scale} />
         <View style={[styles.intro, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
           <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
             <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>HOW TO PLAY</Text>

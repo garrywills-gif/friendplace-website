@@ -2,12 +2,18 @@ import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import { ButterflyCardBack } from "@/src/components/ButterflyCardBack";
 import { getCurrentSeason } from "@/src/lib/seasons";
+
+// AsyncStorage key for the Draw 1 vs Draw 3 preference. Persisted so
+// the choice sticks across sessions without cluttering server state.
+const DRAW_PREF_KEY = "youbelong.solitaire.drawCount";
+type DrawCount = 1 | 3;
 
 /**
  * Solitaire landing — the signature "never resets" game per the launch
@@ -19,7 +25,25 @@ export default function SolitaireHub() {
   const { c, scale } = useTheme();
   const { user } = useAuth();
   const [stats, setStats] = useState<{ lifetime_wins: number; lifetime_played: number }>({ lifetime_wins: 0, lifetime_played: 0 });
+  const [drawCount, setDrawCount] = useState<DrawCount>(3);
   const season = getCurrentSeason();
+
+  // Load the persisted draw preference on mount so the toggle reflects
+  // the player's last choice. Default is Draw 3 (the "classic" mode).
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(DRAW_PREF_KEY);
+        if (raw === "1") setDrawCount(1);
+        else if (raw === "3") setDrawCount(3);
+      } catch { /* AsyncStorage rarely fails; just keep the default */ }
+    })();
+  }, []);
+
+  const chooseDraw = async (n: DrawCount) => {
+    setDrawCount(n);
+    try { await AsyncStorage.setItem(DRAW_PREF_KEY, String(n)); } catch {}
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -31,7 +55,7 @@ export default function SolitaireHub() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Solitaire" emoji="🦋" subtitle="Klondike · Draw 3" backHref="/games" />
+      <Header title="Solitaire" emoji="🦋" subtitle={`Klondike · Draw ${drawCount}`} backHref="/games" />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
         {/* Seasonal hero */}
         <View style={[styles.hero, { backgroundColor: season.felt, borderColor: season.outline }]}>
@@ -74,7 +98,7 @@ export default function SolitaireHub() {
         <View style={[styles.featureCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale, marginBottom: 8 }}>What&apos;s in the game</Text>
           {[
-            { icon: "layers", label: "Classic Klondike · Draw 3 cards" },
+            { icon: "layers", label: `Classic Klondike · Draw ${drawCount} cards` },
             { icon: "arrow-undo", label: "Unlimited Undo — take your time" },
             { icon: "bulb", label: "Hint button when you get stuck" },
             { icon: "sparkles", label: "Auto-complete when you're nearly there" },
@@ -87,10 +111,50 @@ export default function SolitaireHub() {
           ))}
         </View>
 
+        {/* Draw 1 vs Draw 3 toggle — segmented control that persists to
+            AsyncStorage. Draw 1 is easier (higher win rate); Draw 3 is
+            the "classic" spec. Small helper text explains the trade-off. */}
+        <View style={[styles.drawCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 15 * scale }}>Draw style</Text>
+          <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>
+            Draw 1 is a bit easier · Draw 3 is the classic mode
+          </Text>
+          <View style={styles.drawRow}>
+            {([1, 3] as DrawCount[]).map((n) => {
+              const active = drawCount === n;
+              return (
+                <Pressable
+                  key={n}
+                  testID={`solitaire-draw-${n}`}
+                  onPress={() => chooseDraw(n)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={({ pressed }) => [
+                    styles.drawPill,
+                    {
+                      backgroundColor: active ? c.brand : c.surface,
+                      borderColor: active ? c.brand : c.border,
+                      opacity: pressed ? 0.85 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={{
+                    color: active ? "#FFFFFF" : c.onSurface,
+                    fontWeight: "900",
+                    fontSize: 15 * scale,
+                  }}>
+                    Draw {n}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
         {/* Play button */}
         <Pressable
           testID="solitaire-play"
-          onPress={() => router.push("/games/solitaire/play" as any)}
+          onPress={() => router.push(`/games/solitaire/play?draw=${drawCount}` as any)}
           style={({ pressed }) => [styles.playBtn, { backgroundColor: c.brand, opacity: pressed ? 0.85 : 1 }]}
           accessibilityRole="button"
           accessibilityLabel="Play Klondike Solitaire"
@@ -154,6 +218,20 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   featureRow: { flexDirection: "row", alignItems: "center", paddingVertical: 6 },
+  drawCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+  },
+  drawRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  drawPill: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 999,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   playBtn: {
     minHeight: 56,
     borderRadius: 999,

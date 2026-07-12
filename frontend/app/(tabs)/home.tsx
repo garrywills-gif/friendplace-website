@@ -266,7 +266,7 @@ export default function Home() {
               butterfly/people in the "O" read clearly on the white Home
               surface. Identical artwork to the welcome screen, just
               colour-reversed. */}
-          <BrandLockup width={140} variant="navy" testID="home-brand-lockup" />
+          <BrandLockup width={160} variant="navy" testID="home-brand-lockup" />
           <View style={styles.headerActions}>
             <Pressable testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <Ionicons name="notifications-outline" size={24} color={c.onSurface} />

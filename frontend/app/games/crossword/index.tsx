@@ -12,6 +12,8 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import Header from "@/src/components/Header";
+import SeasonBanner from "@/src/components/SeasonBanner";
+import { getCurrentSeason } from "@/src/lib/seasons";
 import { api } from "@/src/lib/api";
 
 type LevelRow = {
@@ -78,6 +80,7 @@ export default function CrosswordHub() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Crossword" />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 16 }}>
+        <SeasonBanner season={getCurrentSeason()} prefix="Crossword" c={c} scale={scale} />
         {/* Daily — featured at top */}
         {daily && (
           <Pressable

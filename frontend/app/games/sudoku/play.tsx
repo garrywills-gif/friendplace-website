@@ -9,6 +9,8 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import GameZoomControls, { useGameZoom } from "@/src/components/GameZoomControls";
+import GameWinModal from "@/src/components/GameWinModal";
+import { getCurrentSeason } from "@/src/lib/seasons";
 
 const HOW_TO = "Sudoku. Fill every row, column, and 3 by 3 box with the digits 1 through 9. Tap a cell, then tap a number. Tap the pencil to write small candidate notes. You have 3 mistakes before the puzzle ends. Use a hint if you get stuck. Auto-save is on.";
 
@@ -381,24 +383,24 @@ export default function SudokuPlayer() {
         </View>
       </Modal>
 
-      {/* Win modal */}
-      <Modal visible={showWin} animationType="fade" transparent onRequestClose={() => setShowWin(false)}>
-        <View style={styles.modalBg}>
-          <View style={[styles.modalCard, { backgroundColor: c.surface, alignItems: "center" }]}>
-            <Text style={{ fontSize: 54 }}>🎉</Text>
-            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, marginTop: 8 }}>Solved!</Text>
-            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center" }}>
-              {puzzle.difficulty_label} · {m}:{s.toString().padStart(2, "0")} · {mistakes} mistakes{"\n"}+{puzzle.points} Butterfly Points
-            </Text>
-            {(puzzle.difficulty === "hard" || puzzle.difficulty === "nightmare") && (
-              <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, marginTop: 8, textAlign: "center" }}>🦋 Friends will see a celebration Flutter</Text>
-            )}
-            <Pressable testID="sd-win-back" onPress={() => { setShowWin(false); router.replace("/games/sudoku"); }} style={[styles.closeBtn, { backgroundColor: c.brand, marginTop: 16 }]}>
-              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Pick another puzzle</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      {/* Win modal — shared celebration modal keeps every game's finale
+          feeling consistent and encouraging. */}
+      <GameWinModal
+        visible={showWin}
+        onRequestClose={() => setShowWin(false)}
+        emoji="🎉"
+        title="Solved!"
+        subtitle={`${puzzle.difficulty_label} · ${m}:${s.toString().padStart(2, "0")} · ${mistakes} mistake${mistakes === 1 ? "" : "s"}`}
+        points={puzzle.points}
+        season={getCurrentSeason()}
+        c={c}
+        scale={scale}
+        actions={[
+          { testID: "sd-win-another", label: "Play another puzzle", icon: "grid", variant: "primary", onPress: () => { setShowWin(false); router.replace("/games/sudoku"); } },
+          { testID: "sd-win-harder", label: "Try a harder puzzle", icon: "rocket", variant: "secondary", onPress: () => { setShowWin(false); router.replace("/games/sudoku"); } },
+          { testID: "sd-win-stay", label: "Stay on this puzzle", variant: "ghost", onPress: () => setShowWin(false) },
+        ]}
+      />
 
       {/* Lose modal */}
       <Modal visible={showLose} animationType="fade" transparent onRequestClose={() => setShowLose(false)}>

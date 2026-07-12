@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
@@ -10,6 +10,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import { ButterflyCardBack } from "@/src/components/ButterflyCardBack";
 import { getCurrentSeason } from "@/src/lib/seasons";
+import GameWinModal from "@/src/components/GameWinModal";
 import {
   newGame, draw, moveWasteToTableau, moveWasteToFoundation,
   moveTableauToTableau, moveTableauToFoundation, autoComplete, canAutoComplete,
@@ -44,6 +45,10 @@ export default function SolitairePlay() {
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const season = useMemo(() => getCurrentSeason(), []);
+  // Draw count from the hub — passed via ?draw=1 or ?draw=3. Defaults
+  // to the classic Draw 3 mode when absent or invalid.
+  const params = useLocalSearchParams<{ draw?: string }>();
+  const drawCount: 1 | 3 = params?.draw === "1" ? 1 : 3;
 
   // Measure the actual felt width via onLayout — using window dimensions
   // would over-estimate on emulator/iframe previews and cause the 7 tableau
@@ -71,11 +76,12 @@ export default function SolitairePlay() {
   const cardStagger = Math.round(cardH * 0.35);
   const cardStaggerDown = Math.round(cardH * 0.2);
 
-  const [state, setState] = useState<GameState>(() => newGame({ drawCount: 3 }));
+  const [state, setState] = useState<GameState>(() => newGame({ drawCount }));
   const [history, setHistory] = useState<GameState[]>([]);
   const [sel, setSel] = useState<null | { kind: "waste" } | { kind: "tableau"; pile: number; index: number }>(null);
   const [hintFlash, setHintFlash] = useState<null | { pile?: number; suit?: Suit; label: string }>(null);
   const [awarded, setAwarded] = useState<"played" | "won" | null>(null);
+  const [showWin, setShowWin] = useState<boolean>(false);
   const startedAt = useRef<number>(Date.now());
   const [lifetime, setLifetime] = useState<{ wins: number; played: number }>({ wins: 0, played: 0 });
 
@@ -98,7 +104,9 @@ export default function SolitairePlay() {
           })
           .catch(() => {});
       }
-      show("🦋 You won! +10 Butterfly Points");
+      // Small delay so the last card's landing animation resolves
+      // before the celebratory modal covers the felt.
+      setTimeout(() => setShowWin(true), 400);
     }
   }, [state, awarded, user?.id, refresh, show]);
 
@@ -376,26 +384,23 @@ export default function SolitairePlay() {
         </Pressable>
       </View>
 
-      {/* Win overlay */}
-      {won && (
-        <View pointerEvents="box-none" style={styles.winOverlay}>
-          <View style={[styles.winCard, { backgroundColor: c.surface, borderColor: season.accent }]}>
-            <Text style={{ fontSize: 44 }}>🦋</Text>
-            <Text style={[styles.winTitle, { color: c.onSurface, fontSize: 24 * scale }]}>You won!</Text>
-            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 4 }}>
-              +10 Butterfly Points · lifetime wins {lifetime.wins}
-            </Text>
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 16, alignSelf: "stretch" }}>
-              <Pressable testID="solitaire-win-close" onPress={() => router.replace("/games/solitaire" as any)} style={[styles.winBtn, { borderColor: c.border, borderWidth: 1.5 }]}>
-                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Done</Text>
-              </Pressable>
-              <Pressable testID="solitaire-win-again" onPress={newDeal} style={[styles.winBtn, { backgroundColor: season.accent }]}>
-                <Text style={{ color: "#0F172A", fontWeight: "900", fontSize: 15 * scale }}>Play again</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      )}
+      {/* Shared celebration modal — matches Crossword / Sudoku etc. */}
+      <GameWinModal
+        visible={showWin}
+        onRequestClose={() => setShowWin(false)}
+        emoji="🦋"
+        title="You beat the deck!"
+        subtitle={`Lifetime wins: ${lifetime.wins} · Games played: ${lifetime.played}`}
+        points={10}
+        season={season}
+        c={c}
+        scale={scale}
+        actions={[
+          { testID: "solitaire-win-again", label: "Play another deal", icon: "play", variant: "primary", onPress: () => { setShowWin(false); newDeal(); } },
+          { testID: "solitaire-win-switch", label: `Switch to Draw ${drawCount === 1 ? 3 : 1}`, icon: "swap-horizontal", variant: "secondary", onPress: () => { setShowWin(false); router.replace(`/games/solitaire/play?draw=${drawCount === 1 ? 3 : 1}` as any); } },
+          { testID: "solitaire-win-done", label: "Back to Solitaire hub", variant: "ghost", onPress: () => { setShowWin(false); router.replace("/games/solitaire" as any); } },
+        ]}
+      />
     </View>
   );
 }

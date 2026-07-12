@@ -65,8 +65,15 @@ export default function BrandLockup({
   // Tagline size — bumped so the "FIND YOUR PEOPLE" strap doesn't get
   // lost under the wordmark, especially at the smaller lockup widths
   // used on the Home header (~140px). Older-audience readability.
-  const tagSize = Math.max(13, Math.round(width * 0.075));
+  const tagSize = Math.max(11, Math.round(width * 0.075));
   const gap = Math.max(4, Math.round(width * 0.02));
+  // Letter-spacing scales with width — at very narrow lockups (≤160px)
+  // the previous fixed 4px spacing pushed "FIND YOUR PEOPLE" past the
+  // container even after `adjustsFontSizeToFit`, causing the trailing
+  // "LE" to be truncated to "FIND YOUR PEOP…" on the Home header.
+  // Below 220px we ramp the spacing down proportionally so the strap
+  // always fits without losing its airy uppercase feel at larger sizes.
+  const tagLetterSpacing = width >= 220 ? 4 : Math.max(1, Math.round((width - 120) / 40));
 
   // Butterfly icon sizing — proportional to width by default. Callers
   // (welcome screen) can override with `butterflySize` to also cap
@@ -115,10 +122,14 @@ export default function BrandLockup({
       </Text>
       {showTagline && (
         <Text
-          style={[styles.tagline, { color: tagColor, fontSize: tagSize, marginTop: gap }]}
+          style={[styles.tagline, { color: tagColor, fontSize: tagSize, letterSpacing: tagLetterSpacing, marginTop: gap }]}
           numberOfLines={1}
           adjustsFontSizeToFit
-          minimumFontScale={0.7}
+          minimumFontScale={0.6}
+          // Clip instead of adding "…" — if we ever run out of room the
+          // trailing edge just gets trimmed silently rather than
+          // showing the reader a broken word.
+          ellipsizeMode="clip"
         >
           FIND YOUR PEOPLE
         </Text>
@@ -143,7 +154,9 @@ const styles = StyleSheet.create({
   },
   tagline: {
     fontWeight: "800",
-    letterSpacing: 4,
+    // NOTE: letterSpacing is applied dynamically via inline style
+    // (see the render) so narrow lockups can shrink it and avoid the
+    // "FIND YOUR PEOP…" truncation on small screens.
     textAlign: "center",
   },
 });
