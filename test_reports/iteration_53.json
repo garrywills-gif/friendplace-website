@@ -1,0 +1,39 @@
+{
+  "summary": "Verified the FriendPlace butterfly padding fix on the Welcome screen. The `friendplace-app-icon-v2.png` asset (1024x1024) is being served and rendered by BrandLockup with clearly visible breathing room on ALL FOUR sides. Programmatic bounding-box analysis of the PNG shows padding of left=26.5%, right=26.8%, top=31.3%, bottom=20.4% — wing tips, head-dots and lower wing tips all sit well inside the dark-navy rounded container. In the live Expo web preview (390x844 viewport) the icon renders as a 159x159 rounded-navy square at the top of the hero with obvious solid-navy padding around the artwork. Login screen top-right shows the smaller 40x40 butterfly (not cropped, wings not touching edges). Home screen header uses BrandLockup which correctly serves the v2 icon at 64x64 with breathing room. NOTE (see design_issues): 6+ non-hero screens (Header.tsx, lounge.tsx, friends.tsx, onboarding.tsx, ButterflyCardBack.tsx) still `require` the OLD `friendplace-app-icon.png` (left/right padding ~21% vs v2's ~27%) so the icon padding is not uniform across the app.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Login screen (/auth/login) top-right & multiple non-hero screens",
+        "issues": [
+          "Header.tsx and several other screens (lounge, friends, onboarding, ButterflyCardBack) still reference the OLD `friendplace-app-icon.png` (padding ~21%/15% top-bottom) rather than the new `friendplace-app-icon-v2.png` (padding ~27%/20%). The Login screen's top-right icon is not cropped and wings do not touch the edges, but it is the older, tighter-padded artwork — inconsistent with the Welcome hero. Recommend switching all `require(\"...friendplace-app-icon.png\")` references to the v2 file for a uniform breathing-room feel across the app."
+        ]
+      },
+      {
+        "screen": "Welcome hero — v2 icon padding symmetry",
+        "issues": [
+          "The v2 artwork itself has ~11 pp more empty space above than below (top 31.3% vs bottom 20.4%). Not a blocker (all four sides have generous breathing room and the bug is resolved), but if the requester wanted PERFECTLY equal padding on all four sides the artwork could be re-centered so top and bottom match."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_53.json"],
+  "action_items": [
+    "OPTIONAL / consistency: Update remaining `require(\"...friendplace-app-icon.png\")` in /app/frontend/src/components/Header.tsx, /app/frontend/app/(tabs)/lounge.tsx, /app/frontend/app/(tabs)/friends.tsx, /app/frontend/app/onboarding.tsx and /app/frontend/src/components/ButterflyCardBack.tsx to use `friendplace-app-icon-v2.png` so the Login/Events/Settings/Games headers show the same generously-padded butterfly as the Welcome hero.",
+    "OPTIONAL: If the intent was mathematically equal padding on all four sides, re-export the v2 artwork with the butterfly re-centered vertically (currently top 31% vs bottom 20%)."
+  ],
+  "critical_code_review_comments": [
+    "BrandLockup.tsx is well-scoped and the version-suffix trick (`-v2.png`) is a solid cache-busting solution — worth applying to the other 5+ direct requires so the app doesn't split-brain between two icon variants.",
+    "Consider centralising the butterfly asset behind a shared `assets/brand/butterfly.ts` re-export so future icon revisions only need to update ONE file."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only test)", "frontend": "100% for the requested bug fix — Welcome hero butterfly renders with clear breathing room on all four sides"},
+  "seed_data_creation": "None. Used the built-in Margaret demo account via `Try a demo account` on /auth/login to verify the Home header.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Screenshots captured: /tmp/welcome_hero.png (Welcome screen, 390x844 viewport — v2 icon 159x159 with clear padding), /tmp/login_screen.png (Login top-right 40x40 butterfly — old asset but not cropped), /tmp/home_screen.png (Home header 64x64 — v2 asset with padding). The served asset URL on Welcome/Home is `.../assets/brand/friendplace-app-icon-v2.png`; on Login/Events/Settings/Games it is still `.../assets/brand/friendplace-app-icon.png`.",
+  "rca_of_issue": "Original bug: butterfly wings appeared to touch the edges of the dark navy rounded square on the Welcome hero. Fix applied by main agent: (1) exported a new 1024x1024 PNG with ~27% side padding as `friendplace-app-icon-v2.png`, (2) updated BrandLockup.tsx to `require` the v2 filename (renamed rather than overwritten to defeat Metro's asset-hash cache). Verification: PIL bounding-box analysis of the PNG + live DOM inspection of the rendered <img> at 390x844 both confirm ≥20% solid-navy padding on every side. Bug is resolved on the Welcome screen. The remaining inconsistency (older non-hero screens still pointing at the v1 file) is a separate consistency issue, not a regression of the original bug."
+}

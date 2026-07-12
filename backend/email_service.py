@@ -154,39 +154,83 @@ _INK_MUTED = "#64748B"       # slate-500 subtle copy
 _BG_SOFT = "#F8FAFC"         # slate-50 background
 
 
-def _branded_footer_html() -> str:
-    """The shared "FriendPlace" branded footer used at the bottom of
-    every outgoing email.
+def _load_butterfly_icon_b64() -> str:
+    """Load the pre-computed base64 butterfly icon at import time.
 
-    Now that the email body is all-navy, the horizontal FriendPlace
-    banner (butterfly + wordmark + tagline + contact info, already on
-    dark navy) blends seamlessly with the surrounding canvas — no more
-    "dark email with a picture dropped in". This keeps the butterfly
-    logo present as the brand icon (per Garry's Nov note) without
-    forcing HTML to reinvent the artwork.
+    Kept in a sidecar file (`_butterfly_icon_b64.txt`) rather than
+    inlined here so this module stays readable. The icon is a small
+    (240×240, ~21KB) PNG of the FriendPlace butterfly on the exact
+    same navy `#0B1F45` background as the email — no lighter card
+    edges, no white canvas.
 
-    Below the banner sits only a small disclaimer line so the footer
-    stays uncluttered — the wordier "Finding your people, one
-    friendship at a time." brand line lives inside the banner artwork
-    itself, keeping "Because you belong too." as the primary spoken
-    brand promise in the email body copy.
+    Falls back to an empty string if the sidecar is missing so the
+    footer degrades to text-only rather than crashing the send.
     """
-    banner_url = "https://customer-assets.emergentagent.com/job_belong-together/artifacts/8fw8lp5v_image.png"
+    import os
+    path = os.path.join(os.path.dirname(__file__), "_butterfly_icon_b64.txt")
+    try:
+        with open(path, "r") as fh:
+            return fh.read().strip()
+    except Exception:
+        return ""
+
+
+_BUTTERFLY_ICON_B64 = _load_butterfly_icon_b64()
+
+
+def _branded_footer_html() -> str:
+    """The shared "FriendPlace" branded footer.
+
+    Rendered as **pure HTML/CSS with a single inline data-URI butterfly**
+    icon at the top. There is no externally-hosted image and no lighter
+    "card" region — every pixel is either the butterfly artwork itself
+    (on the same navy the email uses) or the surrounding navy `#0B1F45`.
+
+    Why data-URI instead of a hosted `<img src="https://…">`:
+      - No CDN, no domain-verification lag, no third-party fetch.
+      - The banner PNG we previously used had a slightly lighter
+        internal "card" boundary — visible as a white/lighter box
+        against the darker email surround. Embedding a tightly-cropped
+        butterfly on the exact same navy eliminates that seam.
+      - 21KB is well within every mail client's data-URI limits
+        (Apple Mail, iOS Mail, Yahoo, Outlook.com all support this;
+        Gmail supports up to ~50KB inline).
+
+    Below the icon sits a pure HTML wordmark, primary tagline, contact
+    row, and a small disclaimer — everything on the same navy so the
+    footer flows as one continuous piece of the email.
+    """
+    icon_html = (
+        f'<img src="data:image/png;base64,{_BUTTERFLY_ICON_B64}" '
+        f'alt="FriendPlace" width="72" height="72" '
+        f'style="display:block;margin:0 auto;border:0;outline:none;background:{_INK_NAVY_DEEP};" />'
+        if _BUTTERFLY_ICON_B64 else ""
+    )
     return f"""\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
   <tr>
-    <td align="center" style="padding:8px 0 4px 0;">
-      <a href="https://www.friendplace.com.au" style="text-decoration:none;display:block;">
-        <img
-          src="{banner_url}"
-          alt="FriendPlace — Because you belong too. hello@friendplace.com.au · www.friendplace.com.au"
-          width="560"
-          style="width:100%;max-width:560px;height:auto;display:block;border:0;outline:none;text-decoration:none;"
-        />
-      </a>
-      <!-- Just enough disclaimer to explain the email. Small, muted,
-           single-line so it never competes with the banner artwork. -->
-      <div style="color:#94A3B8;font-size:11px;line-height:16px;margin-top:14px;padding:0 12px;">
+    <td align="center" style="background:{_INK_NAVY_DEEP};padding:12px 12px 4px 12px;">
+      {icon_html}
+      <!-- Wordmark, sits directly under the butterfly icon -->
+      <div style="font-size:26px;font-weight:900;letter-spacing:-0.5px;line-height:1;margin-top:14px;">
+        <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+      </div>
+      <!-- Primary brand tagline -->
+      <div style="color:#CBD5E1;font-size:14px;font-weight:600;margin-top:8px;">
+        Because you belong too. 🦋
+      </div>
+      <!-- Divider -->
+      <div style="height:1px;background:#1E3A6B;margin:22px auto;max-width:280px;"></div>
+      <!-- Contact links -->
+      <div style="color:#93C5FD;font-size:13px;line-height:22px;">
+        <a href="mailto:hello@friendplace.com.au" style="color:#DBEAFE;text-decoration:none;">hello@friendplace.com.au</a>
+        &nbsp;·&nbsp;
+        <a href="https://www.friendplace.com.au" style="color:#DBEAFE;text-decoration:none;">www.friendplace.com.au</a>
+      </div>
+      <!-- Divider -->
+      <div style="height:1px;background:#1E3A6B;margin:22px auto 14px;max-width:280px;"></div>
+      <!-- Disclaimer -->
+      <div style="color:#94A3B8;font-size:11px;line-height:16px;padding:0 12px 12px 12px;">
         You&rsquo;re receiving this email from FriendPlace because you have a FriendPlace account.
       </div>
     </td>
