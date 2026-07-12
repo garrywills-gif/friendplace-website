@@ -143,53 +143,147 @@ def _redact_email(addr: str) -> str:
 # Each template returns (subject, html_body, plaintext_body). Keep them
 # in one place so branding tweaks are trivial and consistent.
 
+# Brand palette used across every FriendPlace email. Mirrors the app.
+_INK_NAVY = "#17326B"        # primary brand text
+_INK_NAVY_DEEP = "#0B1F45"   # deep footer bg
+_INK_TEAL = "#0F766E"        # accent (code chip, links)
+_INK_SKY = "#38BDF8"         # PLACE-half of the wordmark
+_INK_MINT = "#5EEAD4"        # tagline colour on dark bg
+_INK_BODY = "#334155"        # slate-700 body copy
+_INK_MUTED = "#64748B"       # slate-500 subtle copy
+_BG_SOFT = "#F8FAFC"         # slate-50 background
+
+
+def _branded_footer_html() -> str:
+    """The shared "FriendPlace" branded footer used at the bottom of every
+    outgoing email. Renders as a self-contained dark navy panel — no
+    external images so it works on every client (Gmail, Outlook, Apple
+    Mail, Yahoo) even with images blocked.
+
+    Structure mirrors the attached brand banner:
+      - Two-tone FriendPlace wordmark (white "Friend" + sky-blue "Place")
+      - "Because you belong too. 🦋"
+      - Contact row: 📧 hello@friendplace.com.au  ·  🌐 www.friendplace.com.au
+      - Cursive-italic tagline: "Finding your people, one friendship at a time. 🦋"
+      - Small disclaimer line explaining why the user received the email
+    """
+    return f"""\
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:22px;">
+  <tr>
+    <td align="center" style="background:{_INK_NAVY_DEEP};border-radius:16px;padding:28px 22px;">
+      <!-- Wordmark -->
+      <div style="font-size:28px;font-weight:900;letter-spacing:-0.5px;line-height:1;">
+        <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+      </div>
+      <!-- Tagline under the wordmark -->
+      <div style="color:#CBD5E1;font-size:14px;font-weight:600;margin-top:6px;">
+        Because you belong too. 🦋
+      </div>
+      <!-- Divider -->
+      <div style="height:1px;background:#1E3A6B;margin:20px 0;"></div>
+      <!-- Contact row -->
+      <div style="color:#CBD5E1;font-size:13px;line-height:22px;">
+        📧 <a href="mailto:hello@friendplace.com.au" style="color:#93C5FD;text-decoration:none;">hello@friendplace.com.au</a>
+        &nbsp;&middot;&nbsp;
+        🌐 <a href="https://www.friendplace.com.au" style="color:#93C5FD;text-decoration:none;">www.friendplace.com.au</a>
+      </div>
+      <!-- Signature line -->
+      <div style="color:#93C5FD;font-style:italic;font-size:13px;margin-top:14px;">
+        Finding your people, one friendship at a time. 🦋
+      </div>
+      <!-- Divider -->
+      <div style="height:1px;background:#1E3A6B;margin:20px 0 12px;"></div>
+      <!-- Disclaimer -->
+      <div style="color:#94A3B8;font-size:11px;line-height:16px;">
+        You&rsquo;re receiving this email from FriendPlace because you have a FriendPlace account.
+      </div>
+    </td>
+  </tr>
+</table>
+"""
+
+
+def _branded_footer_text() -> str:
+    """Plain-text counterpart to `_branded_footer_html`."""
+    return (
+        "\n\n"
+        "— FriendPlace —\n"
+        "Because you belong too. 🦋\n\n"
+        "hello@friendplace.com.au  ·  www.friendplace.com.au\n\n"
+        "Finding your people, one friendship at a time. 🦋\n\n"
+        "You're receiving this email from FriendPlace because you have a "
+        "FriendPlace account."
+    )
+
+
 def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: int) -> tuple[str, str, str]:
-    """Build the password-reset email content."""
+    """Build the password-reset email content.
+
+    Copy is deliberately warm and personal — matches the "Because you
+    belong too" voice rather than the clinical tone of typical system
+    emails. Includes:
+      - Butterfly emoji subject line
+      - Named greeting
+      - Prominent, easy-to-copy code (large teal chip)
+      - Explicit 15-minute expiry callout
+      - Reassuring "safe to ignore" line for users who didn't request it
+      - Community-thank-you closer
+      - Shared branded footer
+    """
     name = (first_name or "there").strip()
-    subject = f"Your FriendPlace reset code: {code}"
-    # Simple, brand-lite HTML — inline styles only so it renders in every
-    # major mail client without CSS filtering. Emoji butterflies match
-    # the app's signature moment.
+    subject = "🦋 Reset your FriendPlace password"
     html = f"""\
 <!doctype html>
 <html>
-  <body style="margin:0;padding:0;background:#F8FAFC;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#0F172A;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:24px 0;">
+  <body style="margin:0;padding:0;background:{_BG_SOFT};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:{_INK_NAVY};">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:28px 0;">
       <tr>
         <td align="center">
-          <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border-radius:16px;padding:32px 28px;border:1px solid #E2E8F0;">
+          <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;">
+            <!-- Body card -->
             <tr>
-              <td align="center" style="padding-bottom:8px;">
-                <div style="font-size:36px;">🦋</div>
-              </td>
-            </tr>
-            <tr>
-              <td align="center" style="font-size:22px;font-weight:800;color:#0F172A;letter-spacing:0.2px;padding-bottom:10px;">
-                FriendPlace
-              </td>
-            </tr>
-            <tr>
-              <td style="font-size:16px;line-height:24px;color:#334155;padding-top:8px;">
-                Hi {name},<br><br>
-                We received a request to reset your FriendPlace password. Use the code below to complete the reset — it expires in {ttl_minutes} minutes.
-              </td>
-            </tr>
-            <tr>
-              <td align="center" style="padding:22px 0 6px 0;">
-                <div style="font-size:34px;font-weight:900;letter-spacing:8px;color:#0F766E;padding:14px 18px;border-radius:12px;background:#F0FDFA;display:inline-block;">
-                  {code}
+              <td style="background:#FFFFFF;border-radius:16px;padding:36px 28px;border:1px solid #E2E8F0;">
+                <!-- Wordmark header -->
+                <div style="text-align:center;font-size:22px;font-weight:900;letter-spacing:-0.4px;line-height:1;margin-bottom:6px;">
+                  <span style="color:{_INK_NAVY};">Friend</span><span style="color:{_INK_TEAL};">Place</span>
+                  <span style="font-size:20px;">🦋</span>
+                </div>
+                <div style="text-align:center;color:{_INK_MUTED};font-size:12px;letter-spacing:2px;font-weight:700;margin-bottom:22px;">
+                  RESET YOUR PASSWORD
+                </div>
+
+                <!-- Greeting + body -->
+                <div style="font-size:16px;line-height:24px;color:{_INK_BODY};">
+                  Hi {name},<br><br>
+                  We received a request to reset your FriendPlace password.<br><br>
+                  Use the secure code below to reset your password. For your security, this code will expire in <strong>{ttl_minutes} minutes</strong>.
+                </div>
+
+                <!-- Reset code chip -->
+                <div style="text-align:center;margin:26px 0 6px 0;">
+                  <div style="font-size:36px;font-weight:900;letter-spacing:10px;color:{_INK_TEAL};padding:16px 22px;border-radius:14px;background:#F0FDFA;display:inline-block;border:1px solid #99F6E4;">
+                    {code}
+                  </div>
+                </div>
+
+                <!-- Safety note -->
+                <div style="font-size:14px;line-height:22px;color:{_INK_MUTED};margin-top:22px;">
+                  If you didn&rsquo;t request a password reset, you can safely ignore this email. Your account will remain secure and no changes will be made.
+                </div>
+
+                <!-- Community close -->
+                <div style="font-size:15px;line-height:22px;color:{_INK_BODY};margin-top:22px;">
+                  Thank you for being part of the FriendPlace community.
+                </div>
+                <div style="font-size:14px;font-style:italic;color:{_INK_TEAL};margin-top:6px;">
+                  Finding your people, one friendship at a time. 🦋
                 </div>
               </td>
             </tr>
+            <!-- Branded footer -->
             <tr>
-              <td style="font-size:14px;line-height:22px;color:#64748B;padding-top:14px;">
-                If you didn't request this, you can safely ignore this email — your password won't change.
-              </td>
-            </tr>
-            <tr>
-              <td style="font-size:12px;color:#94A3B8;padding-top:22px;border-top:1px solid #F1F5F9;margin-top:22px;">
-                &nbsp;<br>
-                Sent by FriendPlace · Please don't reply to this email.
+              <td>
+                {_branded_footer_html()}
               </td>
             </tr>
           </table>
@@ -201,11 +295,14 @@ def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: i
 """
     text = (
         f"Hi {name},\n\n"
-        f"We received a request to reset your FriendPlace password.\n"
-        f"Your reset code is: {code}\n"
-        f"It expires in {ttl_minutes} minutes.\n\n"
-        f"If you didn't request this, you can safely ignore this email — "
-        f"your password won't change.\n\n"
-        f"— FriendPlace"
+        f"We received a request to reset your FriendPlace password.\n\n"
+        f"Use the secure code below to reset your password. For your security, "
+        f"this code will expire in {ttl_minutes} minutes.\n\n"
+        f"    {code}\n\n"
+        f"If you didn't request a password reset, you can safely ignore this "
+        f"email. Your account will remain secure and no changes will be made.\n\n"
+        f"Thank you for being part of the FriendPlace community.\n"
+        f"Finding your people, one friendship at a time. 🦋"
+        f"{_branded_footer_text()}"
     )
     return subject, html, text
