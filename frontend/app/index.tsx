@@ -70,20 +70,21 @@ export default function Welcome() {
     })();
     return () => { cancelled = true; };
   }, []);
-  // Brand lockup uses the teal butterfly logo above the FriendPlace
-  // wordmark. Sized to a comfortable proportion of the visible width
-  // with generous side padding so the wordmark can never touch the edge
-  // even before adjustsFontSizeToFit kicks in.
+  // Welcome-page hero — deliberately BIG so the FriendPlace butterfly +
+  // wordmark are the first thing a new user sees. Sits above the
+  // signature "Because you belong too." tagline, then the welcome copy
+  // and CTAs. The old iconic width (~320px cap) was tastefully small;
+  // this one leans confidently premium.
   //
-  // Formula reasoning:
-  //   winW < 380 (iPhone mini) → cap ~ 260
-  //   winW ~ 393-430 (standard iPhone) → cap ~ 320
-  //   winW > 600 (iPad) → cap 440
-  const lockupWidth = Math.round(Math.min(winW - 96, 440));
-  // Butterfly height should also respect the SCREEN HEIGHT so on short
-  // devices (iPhone SE, split-view iPad) it doesn't dominate the hero
-  // and push the CTAs off-screen. Cap at ~22% of screen height.
-  const butterflyPx = Math.max(84, Math.min(180, Math.round(Math.min(lockupWidth * 0.38, winH * 0.22))));
+  // Sizing goals:
+  //   winW < 380 (iPhone mini) → cap ~ 320
+  //   winW ~ 393-430 (standard iPhone) → cap ~ 380
+  //   winW > 600 (iPad)  → cap 520
+  const lockupWidth = Math.round(Math.min(winW - 72, 520));
+  // Butterfly height — grown to ~30% of the lockup so it reads as the
+  // hero. Still capped by screen height so the CTAs stay above the fold
+  // on short devices (iPhone SE, split-view iPad).
+  const butterflyPx = Math.max(120, Math.min(240, Math.round(Math.min(lockupWidth * 0.5, winH * 0.28))));
   // Compact-height mode — trims vertical padding, headline size and
   // margin when we're on a short phone or landscape orientation so the
   // Sign Up / Log In buttons stay above the fold.
@@ -271,28 +272,40 @@ export default function Welcome() {
           },
         ]}
       >
-        {/* Hero — teal butterfly + FriendPlace wordmark. Sized so nothing
-            can clip on iPhone mini (short & narrow) and so it doesn't
-            dominate iPad. */}
+        {/* Hero — the FriendPlace brand IS the page. Big butterfly +
+            wordmark, then the signature italic "Because you belong
+            too." tagline directly beneath, then a warm welcome line.
+            Everything reads as ONE brand moment before the reader's
+            eye reaches the CTAs. */}
         <View style={styles.hero}>
           <View style={styles.logoWrap} testID="welcome-brand">
-            <BrandLockup width={lockupWidth} variant="dark" butterflySize={butterflyPx} />
+            {/* `showTagline={false}` because we render the signature
+                brand tagline ourselves below — bigger, italic, and in
+                the accent teal so it commands the space it deserves. */}
+            <BrandLockup width={lockupWidth} variant="dark" butterflySize={butterflyPx} showTagline={false} />
           </View>
 
+          {/* Signature brand promise — the primary FriendPlace tagline.
+              Bigger, italic, mint-teal on navy. Sized generously so it
+              anchors the hero the way "Think Different." anchored old
+              Apple ads. */}
           <Text
-            style={[styles.tag1, { fontSize: (compact ? 20 : 22) * scale, marginTop: compact ? 10 : 14 }]}
-            testID="welcome-tag-primary"
+            style={[styles.heroTagline, { fontSize: (compact ? 22 : 26) * scale, marginTop: compact ? 14 : 20 }]}
+            testID="welcome-brand-tagline"
             numberOfLines={1}
             adjustsFontSizeToFit
             minimumFontScale={0.7}
           >
-            Welcome to FriendPlace
+            Because you belong too.
           </Text>
+
+          {/* Softer welcome line — invites the reader IN without
+              competing with the brand promise above it. */}
           <Text
-            style={[styles.welcomeMsg, { fontSize: (compact ? 14 : 15) * scale, marginTop: compact ? 6 : 8 }]}
+            style={[styles.welcomeMsg, { fontSize: (compact ? 15 : 16) * scale, marginTop: compact ? 10 : 14 }]}
             testID="welcome-message"
           >
-            Meet new friends, discover local events and build lasting friendships.
+            Meet new friends, discover local events, and build lasting friendships.
           </Text>
         </View>
 
@@ -403,6 +416,20 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(0,0,0,0.25)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 6,
+  },
+  // Signature FriendPlace tagline styling — italic mint-teal on the
+  // navy hero, big enough to anchor the Welcome screen without shouting.
+  // Soft glow so it reads clearly against the community photo watermark.
+  heroTagline: {
+    color: "#CCFBF1",           // mint-100 — reads warmly on the navy/teal gradient
+    fontStyle: "italic",
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: 0.4,
+    paddingHorizontal: 12,
+    textShadowColor: "rgba(0,0,0,0.35)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   brandLine: {
     color: "#CCFBF1",

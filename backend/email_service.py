@@ -155,56 +155,38 @@ _BG_SOFT = "#F8FAFC"         # slate-50 background
 
 
 def _branded_footer_html() -> str:
-    """The shared "FriendPlace" branded footer — pure HTML/CSS on the
-    same dark navy background as the email body so the whole message
-    reads as a single continuous premium canvas (Apple / Tesla /
-    Airbnb style) rather than "dark email with a picture dropped in".
+    """The shared "FriendPlace" branded footer used at the bottom of
+    every outgoing email.
 
-    No external images = renders identically in every mail client,
-    even with images blocked. Structure mirrors the horizontal brand
-    banner:
-      - Two-tone FriendPlace wordmark (white + sky-blue)
-      - "Because you belong too. 🦋" tagline
-      - Contact row (email icon + website icon) — clickable links
-      - Italic signature line
-      - Small disclaimer explaining why the recipient got the email
+    Now that the email body is all-navy, the horizontal FriendPlace
+    banner (butterfly + wordmark + tagline + contact info, already on
+    dark navy) blends seamlessly with the surrounding canvas — no more
+    "dark email with a picture dropped in". This keeps the butterfly
+    logo present as the brand icon (per Garry's Nov note) without
+    forcing HTML to reinvent the artwork.
+
+    Below the banner sits only a small disclaimer line so the footer
+    stays uncluttered — the wordier "Finding your people, one
+    friendship at a time." brand line lives inside the banner artwork
+    itself, keeping "Because you belong too." as the primary spoken
+    brand promise in the email body copy.
     """
+    banner_url = "https://customer-assets.emergentagent.com/job_belong-together/artifacts/8fw8lp5v_image.png"
     return f"""\
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
   <tr>
-    <td align="center" style="padding:8px 4px 4px 4px;">
-      <!-- Wordmark -->
-      <div style="font-size:32px;font-weight:900;letter-spacing:-0.6px;line-height:1;">
-        <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
-      </div>
-      <!-- Tagline -->
-      <div style="color:#CBD5E1;font-size:15px;font-weight:600;margin-top:8px;">
-        Because you belong too. 🦋
-      </div>
-      <!-- Divider -->
-      <div style="height:1px;background:#1E3A6B;margin:22px 0;"></div>
-      <!-- Contact row: two pill-style icons + links -->
-      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
-        <tr>
-          <td style="padding:0 12px;">
-            <span style="display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:{_INK_SKY};border-radius:11px;font-size:12px;vertical-align:middle;">📧</span>
-            &nbsp;<a href="mailto:hello@friendplace.com.au" style="color:#DBEAFE;text-decoration:none;font-size:13px;vertical-align:middle;">hello@friendplace.com.au</a>
-          </td>
-          <td style="padding:0 12px;color:#1E3A6B;">|</td>
-          <td style="padding:0 12px;">
-            <span style="display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:{_INK_SKY};border-radius:11px;font-size:12px;vertical-align:middle;">🌐</span>
-            &nbsp;<a href="https://www.friendplace.com.au" style="color:#DBEAFE;text-decoration:none;font-size:13px;vertical-align:middle;">www.friendplace.com.au</a>
-          </td>
-        </tr>
-      </table>
-      <!-- Italic signature line -->
-      <div style="color:#93C5FD;font-style:italic;font-size:14px;margin-top:20px;">
-        Finding your people, one friendship at a time. 🦋
-      </div>
-      <!-- Divider -->
-      <div style="height:1px;background:#1E3A6B;margin:22px 0 14px;"></div>
-      <!-- Disclaimer -->
-      <div style="color:#94A3B8;font-size:11px;line-height:16px;">
+    <td align="center" style="padding:8px 0 4px 0;">
+      <a href="https://www.friendplace.com.au" style="text-decoration:none;display:block;">
+        <img
+          src="{banner_url}"
+          alt="FriendPlace — Because you belong too. hello@friendplace.com.au · www.friendplace.com.au"
+          width="560"
+          style="width:100%;max-width:560px;height:auto;display:block;border:0;outline:none;text-decoration:none;"
+        />
+      </a>
+      <!-- Just enough disclaimer to explain the email. Small, muted,
+           single-line so it never competes with the banner artwork. -->
+      <div style="color:#94A3B8;font-size:11px;line-height:16px;margin-top:14px;padding:0 12px;">
         You&rsquo;re receiving this email from FriendPlace because you have a FriendPlace account.
       </div>
     </td>
@@ -214,13 +196,17 @@ def _branded_footer_html() -> str:
 
 
 def _branded_footer_text() -> str:
-    """Plain-text counterpart to `_branded_footer_html`."""
+    """Plain-text counterpart to `_branded_footer_html`.
+
+    Kept minimal — "Finding your people…" is used sparingly per brand
+    guidance, so only the primary "Because you belong too." tagline
+    appears here.
+    """
     return (
         "\n\n"
         "— FriendPlace —\n"
         "Because you belong too. 🦋\n\n"
         "hello@friendplace.com.au  ·  www.friendplace.com.au\n\n"
-        "Finding your people, one friendship at a time. 🦋\n\n"
         "You're receiving this email from FriendPlace because you have a "
         "FriendPlace account."
     )
@@ -268,12 +254,14 @@ def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: i
               </td>
             </tr>
 
-            <!-- Reset code — glowing teal chip on navy. Sits on the same
-                 background so it reads as an inline "highlight" rather
-                 than a separate white box. -->
+            <!-- Reset code — bumped ~12% larger (font 40→46, letter-
+                 spacing 12→14, padding 20/26 → 24/32) so it's even
+                 easier to spot at a glance. Glowing teal on navy,
+                 still reads as an inline highlight rather than a
+                 separate card. -->
             <tr>
               <td align="center" style="padding:22px 22px 4px 22px;">
-                <div style="font-size:40px;font-weight:900;letter-spacing:12px;color:#5EEAD4;padding:20px 26px;border-radius:16px;background:rgba(20,184,166,0.12);display:inline-block;border:1px solid rgba(94,234,212,0.35);">
+                <div style="font-size:46px;font-weight:900;letter-spacing:14px;color:#5EEAD4;padding:24px 32px;border-radius:18px;background:rgba(20,184,166,0.12);display:inline-block;border:1px solid rgba(94,234,212,0.35);">
                   {code}
                 </div>
               </td>
@@ -281,21 +269,22 @@ def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: i
 
             <!-- Safety note -->
             <tr>
-              <td style="padding:22px 22px 4px 22px;">
+              <td style="padding:24px 22px 4px 22px;">
                 <div style="font-size:14px;line-height:22px;color:#94A3B8;">
                   If you didn&rsquo;t request a password reset, you can safely ignore this email. Your account will remain secure and no changes will be made.
                 </div>
               </td>
             </tr>
 
-            <!-- Community close -->
+            <!-- Community-close — "family" reads warmer than the
+                 previous "community" wording. The "Finding your
+                 people…" line is deliberately removed here so
+                 "Because you belong too." (spoken elsewhere in the
+                 brand voice) stays the primary tagline in body copy. -->
             <tr>
               <td style="padding:24px 22px 4px 22px;">
                 <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-                  Thank you for being part of the FriendPlace community.
-                </div>
-                <div style="font-size:14px;font-style:italic;color:{_INK_SKY};margin-top:6px;">
-                  Finding your people, one friendship at a time. 🦋
+                  Thank you for being part of the FriendPlace family. 🦋
                 </div>
               </td>
             </tr>
@@ -324,8 +313,7 @@ def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: i
         f"    {code}\n\n"
         f"If you didn't request a password reset, you can safely ignore this "
         f"email. Your account will remain secure and no changes will be made.\n\n"
-        f"Thank you for being part of the FriendPlace community.\n"
-        f"Finding your people, one friendship at a time. 🦋"
+        f"Thank you for being part of the FriendPlace family. 🦋"
         f"{_branded_footer_text()}"
     )
     return subject, html, text
