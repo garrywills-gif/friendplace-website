@@ -20,6 +20,8 @@ Environment variables (all optional; endpoint keeps working without them):
     RESEND_API_KEY         — obtained from https://resend.com/api-keys
     RESEND_FROM_EMAIL      — sender address (default: onboarding@resend.dev)
     RESEND_FROM_NAME       — display name (default: FriendPlace)
+    RESEND_REPLY_TO        — where replies should go (e.g. hello@friendplace.com.au).
+                             Applied automatically to every outbound email.
 """
 from __future__ import annotations
 
@@ -36,8 +38,8 @@ except ImportError:  # pragma: no cover — resend is in requirements.txt
 logger = logging.getLogger("youbelong.email")
 
 
-def _config() -> tuple[Optional[str], str, str]:
-    """Return (api_key, from_email, from_name) at call-time.
+def _config() -> tuple[Optional[str], str, str, Optional[str]]:
+    """Return (api_key, from_email, from_name, reply_to) at call-time.
 
     Re-read from env on every call so operators can toggle values via
     supervisorctl without a full backend rebuild.
@@ -45,12 +47,13 @@ def _config() -> tuple[Optional[str], str, str]:
     api_key = os.getenv("RESEND_API_KEY") or None
     from_email = (os.getenv("RESEND_FROM_EMAIL") or "onboarding@resend.dev").strip()
     from_name = (os.getenv("RESEND_FROM_NAME") or "FriendPlace").strip()
-    return api_key, from_email, from_name
+    reply_to = (os.getenv("RESEND_REPLY_TO") or "").strip() or None
+    return api_key, from_email, from_name, reply_to
 
 
 def is_configured() -> bool:
     """Return True iff an outbound email would actually be attempted."""
-    api_key, _, _ = _config()
+    api_key, _, _, _ = _config()
     return bool(api_key) and resend is not None
 
 
@@ -75,7 +78,7 @@ async def send_email(
         - `html` is the primary body. `text` is optional; Resend will
           auto-generate a plaintext version if omitted.
     """
-    api_key, from_email, from_name = _config()
+    api_key, from_email, from_name, env_reply_to = _config()
     if not api_key or resend is None:
         logger.warning(
             "email.send skipped: RESEND_API_KEY not set (to=%s subject=%r)",
@@ -84,6 +87,9 @@ async def send_email(
         return False
 
     from_field = f"{from_name} <{from_email}>" if from_name else from_email
+    # Per-call `reply_to` wins over the env default so specific flows
+    # (e.g. a support ticket reply) can still override for that message.
+    effective_reply_to = reply_to or env_reply_to
 
     def _send_sync() -> dict:
         # Set the api_key on every call so a rotated key takes effect
@@ -97,8 +103,8 @@ async def send_email(
         }
         if text:
             params["text"] = text
-        if reply_to:
-            params["reply_to"] = reply_to
+        if effective_reply_to:
+            params["reply_to"] = effective_reply_to
         return resend.Emails.send(params)  # type: ignore[no-any-return]
 
     try:
