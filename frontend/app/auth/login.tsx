@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { useTheme } from "@/src/lib/theme";
@@ -40,6 +40,12 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [demos, setDemos] = useState<DemoAccount[]>([]);
   const [showDemos, setShowDemos] = useState(false);
+  // Ref to the outer ScrollView so we can programmatically scroll to
+  // the bottom when the user expands the demo-account picker. Without
+  // this, on narrow phones the demo grid renders below the fold and
+  // the user thinks nothing happened when they tapped "Try a demo
+  // account" (test-user feedback).
+  const scrollRef = useRef<ScrollView>(null);
   // Per-provider busy state — matches the welcome page so both sign-in
   // surfaces feel identical. Also lets us disable the other button while
   // one provider is mid-flow.
@@ -209,7 +215,7 @@ export default function Login() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Log In" />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={[styles.intro, { color: c.onSurfaceSecondary, fontSize: 17 * scale }]}>Welcome back!</Text>
 
           {/* Social sign-in — same buttons users see on the welcome
@@ -285,12 +291,35 @@ export default function Login() {
 
           <Button testID="login-submit" label="Log in" onPress={submit} loading={busy} />
 
-          <Pressable testID="login-toggle-demos" onPress={() => setShowDemos((v) => !v)} hitSlop={8} style={{ marginTop: 18, alignSelf: "center" }}>
+          <Pressable testID="login-toggle-demos" onPress={() => {
+            setShowDemos((v) => {
+              const next = !v;
+              // Scroll to end after the panel expands so the demo tiles
+              // are visible. requestAnimationFrame + a small setTimeout
+              // give React one frame to lay out the new content before
+              // we ask the ScrollView to jump — otherwise scrollToEnd
+              // fires before the demo grid has any height.
+              if (next && scrollRef.current) {
+                setTimeout(() => {
+                  scrollRef.current?.scrollToEnd({ animated: true });
+                }, 80);
+              }
+              return next;
+            });
+          }} hitSlop={8} style={{ marginTop: 18, alignSelf: "center" }}>
             <Text style={{ color: c.brand, fontWeight: "800", fontSize: 16 * scale }}>{showDemos ? "Hide demo accounts" : "Try a demo account"}</Text>
           </Pressable>
 
           {showDemos && (
-            <View>
+            <View
+              // onLayout gives us a second chance to scroll: when the demo
+              // panel finishes measuring (which can lag the state update on
+              // low-end devices), fire another scroll-to-end so slower
+              // phones don't miss the reveal.
+              onLayout={() => {
+                scrollRef.current?.scrollToEnd({ animated: true });
+              }}
+            >
               <Text style={[styles.demoIntro, { color: c.muted, fontSize: 13 * scale }]}>
                 Demo accounts are kept separate from real signups. Tap one to explore.
               </Text>
