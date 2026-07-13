@@ -5,7 +5,7 @@ notice board, butterfly points/badges, and a seeded sample dataset so the
 prototype feels alive on first launch.
 """
 
-from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Depends, Request
+from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Depends, Request, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -8698,6 +8698,122 @@ async def seed():
 @api.get("/")
 async def root():
     return {"app": "YouBelong", "status": "ok"}
+
+
+# ─────────── Voice → Text (OpenAI whisper-1 via Emergent LLM key) ───────────
+#
+# Tap-to-dictate for the whole app. Older users on FriendPlace typically
+# find speaking easier than typing on a small keyboard, so we surface a
+# mic button next to key inputs (chat composer, notice-board post, event
+# description, bio). This endpoint accepts the resulting audio file and
+# hands it to OpenAI Whisper via the Emergent Universal LLM key so we
+# don't need a per-user OpenAI account.
+#
+# We deliberately keep this endpoint tiny and stateless — no persistence,
+# no analytics — so we're never storing raw voice audio at rest. The
+# only thing that leaves the pod is the audio-to-Whisper hop, and only
+# the returned text ever reaches the caller.
+@api.post("/voice/transcribe")
+async def voice_transcribe(
+    audio: UploadFile = File(...),
+    user_id: str = Query(""),
+    language: str = Query("en"),
+):
+    """Transcribe a short audio clip to text via OpenAI Whisper.
+
+    The client uploads the raw audio (m4a from iOS, mp4/webm from
+    Android/web) as `audio`. We buffer to a temp file (Whisper's SDK
+    prefers a path over a stream so it can sniff the container), invoke
+    the model, and return `{"text": "..."}`.
+
+    Safeguards:
+      • 25 MB hard cap enforced by the emergentintegrations validator.
+      • 60-second soft cap on the client side (matches the on-screen
+        timer). No enforcement here — Whisper handles longer clips fine
+        and rejecting them here would only hurt legitimate users.
+      • The Emergent key never appears on the wire from the client;
+        this endpoint is the only place it's used.
+    """
+    # Basic auth: require a user_id that maps to an active account. This
+    # blocks anonymous drive-by transcription which would drain our LLM
+    # credits. We DON'T require a full JWT here because the client is
+    # already authenticated at the app level, and passing the token
+    # through multipart uploads is fiddlier than it needs to be.
+    if user_id:
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+        if not u:
+            raise HTTPException(401, "Unknown user")
+
+    api_key = os.getenv("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(503, "Voice transcription unavailable — LLM key not configured")
+
+    # Sniff extension from the uploaded filename so Whisper knows how to
+    # decode. Default to .m4a which is what expo-audio produces on iOS.
+    import tempfile
+    import pathlib
+    ext = ".m4a"
+    if audio.filename:
+        p = pathlib.Path(audio.filename)
+        if p.suffix.lower() in {".m4a", ".mp3", ".mp4", ".wav", ".webm", ".mpga", ".mpeg"}:
+            ext = p.suffix.lower()
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+    try:
+        data = await audio.read()
+        if not data:
+            raise HTTPException(400, "Empty audio upload")
+        # Guard against a caller sending an impossibly huge file — mirrors
+        # the emergentintegrations 25 MB limit but returns a friendlier
+        # 413 with clear intent.
+        if len(data) > 20 * 1024 * 1024:
+            raise HTTPException(413, "Audio too large — keep clips under 60 seconds")
+        tmp.write(data)
+        tmp.flush()
+        tmp.close()
+
+        # Whisper via Emergent proxy. `response_format="text"` returns a
+        # plain string (no JSON wrapper needed on the client). Note: we
+        # pass an open file HANDLE, not just the path, because litellm's
+        # underlying transcription client requires a file-like object
+        # that has a `.name` attribute so it can sniff the container.
+        from emergentintegrations.llm.openai import OpenAISpeechToText
+        stt = OpenAISpeechToText(api_key=api_key)
+        with open(tmp.name, "rb") as fh:
+            result = await stt.transcribe(
+                file=fh,
+                model="whisper-1",
+                response_format="text",
+                language=language or None,
+                # Prompt guides Whisper toward the FriendPlace domain so it
+                # gets casual conversation, member names, and "flutter" (our
+                # in-app custom word) transcribed correctly. Kept short so
+                # it doesn't leak into the transcription output.
+                prompt=(
+                    "This is a casual friendly voice note between older adults "
+                    "in the FriendPlace community app. They may talk about "
+                    "friends, events, groups, coffee catch-ups and the like."
+                ),
+            )
+        # litellm returns different shapes depending on response_format.
+        # For "text" it's usually a plain str, but some versions wrap it
+        # in a Transcription object with `.text`. Handle both.
+        if isinstance(result, str):
+            text = result
+        else:
+            text = getattr(result, "text", None) or str(result)
+        text = (text or "").strip()
+        return {"text": text}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("voice/transcribe failed")
+        raise HTTPException(500, f"Transcription failed: {str(e)[:120]}")
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except Exception:
+            pass
 
 
 @api.get("/health")

@@ -16,6 +16,7 @@ import CoffeeTableSeating from "@/src/components/CoffeeTableSeating";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import ZoomableImageViewer from "@/src/components/ZoomableImageViewer";
+import VoiceInputButton from "@/src/components/VoiceInputButton";
 
 type Msg = {
   id: string;
@@ -34,7 +35,7 @@ type Msg = {
 
 export default function TableChat() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { c, scale } = useTheme();
+  const { c, scale, prefs } = useTheme();
   const { user, token } = useAuth();
   const router = useRouter();
   const { show } = useToast();
@@ -339,6 +340,22 @@ export default function TableChat() {
             multiline
             onSubmitEditing={send}
           />
+          {/* Tap-to-dictate mic — sits between the input and the send
+              button so users can naturally: type OR speak, then hit
+              send. On short taps the transcribed text is appended to
+              whatever's already there, so half-typed messages don't get
+              lost. Gated on the Accessibility → Voice input pref so
+              users who prefer typing can switch it off. */}
+          {prefs.voiceInputEnabled && (
+            <VoiceInputButton
+              testID="table-voice"
+              value={text}
+              onChangeText={setText}
+              userId={user?.id}
+              onError={show}
+              size={40}
+            />
+          )}
           <Pressable testID="table-send" onPress={send} style={[styles.sendBtn, { backgroundColor: c.brand }]}>
             <Ionicons name="send" size={20} color="#FFF" />
           </Pressable>

@@ -12,6 +12,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 import ReportSheet from "@/src/components/ReportSheet";
 import { parseAvatar } from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
+import VoiceInputButton from "@/src/components/VoiceInputButton";
 
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
@@ -54,13 +55,9 @@ export default function DM() {
     setText("");
   };
 
-  const onMicPress = () => {
-    // Native dictation is the recommended path today — the OS keyboard
-    // already has a mic key on iPad / iPhone / Android. The in-app dictation
-    // panel is a future feature; this button just nudges users toward what
-    // already works so they're not stuck.
-    show("Tip: tap the 🎤 on your keyboard to dictate. (An in-app voice button is coming soon.)");
-  };
+  // NOTE: onMicPress was a stub that told users to use the OS keyboard's
+  // dictate key. Replaced with a real <VoiceInputButton> below which
+  // records via expo-audio and transcribes via whisper-1.
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
@@ -100,9 +97,14 @@ export default function DM() {
         />
         <View style={[styles.composer, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           {prefs.voiceInputEnabled && (
-            <Pressable testID="dm-mic" onPress={onMicPress} accessibilityLabel="Voice input" style={[styles.micBtn, { backgroundColor: c.brandTertiary }]}>
-              <Ionicons name="mic" size={20} color={c.brand} />
-            </Pressable>
+            <VoiceInputButton
+              testID="dm-mic"
+              value={text}
+              onChangeText={setText}
+              userId={user?.id}
+              onError={show}
+              size={40}
+            />
           )}
           <TextInput
             testID="dm-input" value={text} onChangeText={setText} placeholder="Type a message…" placeholderTextColor={c.muted}

@@ -32,7 +32,10 @@ const DEFAULT: ThemePrefs = {
   simplified: false,
   readMessagesAloud: true,
   autoReadNewMessages: false,
-  voiceInputEnabled: false,
+  // Voice input is on by default now that the whisper-1 backend and the
+  // real <VoiceInputButton> are wired in. Users who prefer typing can
+  // switch it off from Settings → Accessibility.
+  voiceInputEnabled: true,
 };
 
 type Ctx = {
