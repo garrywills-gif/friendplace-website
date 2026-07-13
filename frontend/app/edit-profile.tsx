@@ -10,6 +10,7 @@ import SuburbField from "@/src/components/SuburbField";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import ZoomableImageViewer from "@/src/components/ZoomableImageViewer";
 import PeopleAvatarPicker from "@/src/components/PeopleAvatarPicker";
 
 const EMOJI_AVATARS = ["\uD83E\uDD8B", "\uD83C\uDF38", "\uD83C\uDF3A", "\u2615\uFE0F", "\uD83C\uDFA8", "\uD83C\uDFB5", "\uD83C\uDFB2", "\uD83C\uDF31", "\uD83D\uDC15", "\uD83D\uDC08", "\uD83C\uDF55", "\uD83C\uDF70"];
@@ -27,6 +28,8 @@ export default function ProfileEdit() {
   const [avatar, setAvatar] = useState((user as any)?.avatar || "\uD83E\uDD8B");
   const [interests, setInterests] = useState<string[]>((user as any)?.interests || []);
   const [favourite_games, setFavGames] = useState<string[]>((user as any)?.favourite_games || []);
+  // Zoom state for tapping the avatar preview at the top of the screen.
+  const [avatarZoomOpen, setAvatarZoomOpen] = useState(false);
   const [birthday, setBirthday] = useState((user as any)?.birthday || "");
   // Account contact details — editable here so members can change
   // their email or username without writing to support. Google-managed
@@ -177,7 +180,15 @@ export default function ProfileEdit() {
           <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
             <View style={[styles.avatarPreview, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
               {avatar?.startsWith("data:") || avatar?.startsWith("http") ? (
-                <Image source={{ uri: avatar }} style={{ width: 92, height: 92, borderRadius: 46 }} />
+                <Pressable
+                  testID="profile-avatar-zoom"
+                  onPress={() => setAvatarZoomOpen(true)}
+                  hitSlop={6}
+                  accessibilityRole="imagebutton"
+                  accessibilityLabel="View your photo larger"
+                >
+                  <Image source={{ uri: avatar }} style={{ width: 92, height: 92, borderRadius: 46 }} />
+                </Pressable>
               ) : (
                 <AvatarBubble value={avatar} size={52} />
               )}
@@ -416,6 +427,11 @@ export default function ProfileEdit() {
           {saving ? <ActivityIndicator color="#FFF" /> : <Text style={[styles.btnText, { fontSize: 17 * scale }]}>Save changes</Text>}
         </Pressable>
       </ScrollView>
+      {/* Full-screen viewer opened when the user taps their avatar photo. */}
+      <ZoomableImageViewer
+        uri={avatarZoomOpen && (avatar?.startsWith("http") || avatar?.startsWith("data:")) ? avatar : null}
+        onClose={() => setAvatarZoomOpen(false)}
+      />
     </View>
   );
 }

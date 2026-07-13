@@ -134,7 +134,7 @@ export default function Profile() {
   return (
     <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 16, backgroundColor: c.surface, paddingBottom: 100 }]}>
       <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
-        <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}><AvatarBubble value={user.avatar} size={user.avatar && /^https?:\/\//i.test(user.avatar) ? 110 : 110} textSize={88} fallback="🙂" /></View>
+        <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}><AvatarBubble value={user.avatar} size={user.avatar && /^https?:\/\//i.test(user.avatar) ? 110 : 110} textSize={88} fallback="🙂" zoomable /></View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" }}>
           <Text style={[styles.name, { color: c.onSurface, fontSize: 30 * scale }]} testID="profile-name">{user.first_name}</Text>
           <FounderMark user={user as any} size={22} testID="profile-name-founder" />

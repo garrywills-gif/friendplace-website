@@ -15,6 +15,7 @@ import Header from "@/src/components/Header";
 import CoffeeTableSeating from "@/src/components/CoffeeTableSeating";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
+import ZoomableImageViewer from "@/src/components/ZoomableImageViewer";
 
 type Msg = {
   id: string;
@@ -344,15 +345,8 @@ export default function TableChat() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* Full-screen image viewer */}
-      <Modal visible={!!zoom} transparent animationType="fade" onRequestClose={() => setZoom(null)}>
-        <Pressable style={styles.zoomBg} onPress={() => setZoom(null)}>
-          {zoom && <Image source={{ uri: zoom }} style={styles.zoomImg} resizeMode="contain" />}
-          <Pressable onPress={() => setZoom(null)} style={styles.zoomClose} hitSlop={10}>
-            <Ionicons name="close-circle" size={42} color="#FFFFFFEE" />
-          </Pressable>
-        </Pressable>
-      </Modal>
+      {/* Full-screen zoomable image viewer — pinch / pan / double-tap. */}
+      <ZoomableImageViewer uri={zoom} onClose={() => setZoom(null)} testID="table-zoom-viewer" />
 
       {/* Permanent-deny → open device Settings */}
       <Modal visible={permBlocked} transparent animationType="fade" onRequestClose={() => setPermBlocked(false)}>
@@ -411,9 +405,6 @@ const styles = StyleSheet.create({
   draftBar: { flexDirection: "row", alignItems: "center", padding: 10, borderTopWidth: 1, gap: 6 },
   draftThumb: { width: 56, height: 56, borderRadius: 10, backgroundColor: "#E2E8F0" },
   draftClose: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  zoomBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center" },
-  zoomImg: { width: "100%", height: "100%" },
-  zoomClose: { position: "absolute", top: 40, right: 18 },
   permBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
   permCard: { width: "100%", maxWidth: 420, borderRadius: 20, padding: 22, alignItems: "center" },
   permBtn: { marginTop: 14, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 999, minHeight: 48, alignItems: "center", justifyContent: "center", alignSelf: "stretch" },

@@ -21,8 +21,9 @@
  *   <AvatarBubble value={user.avatar} size={40} />
  *   <AvatarBubble value={user.avatar} size={60} fallback="🙂" />
  */
-import React from "react";
-import { View, Image, Text, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
+import React, { useState } from "react";
+import { View, Image, Text, Pressable, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
+import ZoomableImageViewer from "./ZoomableImageViewer";
 
 type Props = {
   value?: string | null;
@@ -40,6 +41,11 @@ type Props = {
   imageStyle?: StyleProp<ImageStyle>;
   /** Optional wrapper style — only used when an accessory overlay is rendered. */
   containerStyle?: StyleProp<ViewStyle>;
+  /** When true AND the avatar is a photo URL (not an emoji), tapping opens
+   * a full-screen pinch/pan/double-tap viewer. Perfect for the profile
+   * screen where users want to see faces up close. Emoji avatars are
+   * never zoomable — there's nothing to see at higher resolution. */
+  zoomable?: boolean;
 };
 
 const URL_RE = /^https?:\/\//i;
@@ -69,14 +75,16 @@ export default function AvatarBubble({
   textStyle,
   imageStyle,
   containerStyle,
+  zoomable = false,
 }: Props) {
   const { base, glasses } = parseAvatar(value);
+  const [zoomOpen, setZoomOpen] = useState(false);
 
   // Treat http(s) URLs as photos; everything else (emoji or empty) as text.
   const isUrl = !!(base && URL_RE.test(base));
   const fs = textSize ?? Math.round(size * 0.7);
 
-  const inner = isUrl ? (
+  const imageEl = (
     <Image
       source={{ uri: base as string }}
       // resizeMode="cover" ensures the photo fills the circular frame
@@ -91,6 +99,30 @@ export default function AvatarBubble({
       ]}
       accessibilityIgnoresInvertColors
     />
+  );
+
+  const inner = isUrl ? (
+    zoomable ? (
+      // Pressable wraps the photo so a tap opens the full-screen
+      // zoomable viewer. hitSlop keeps small avatar tap targets forgiving
+      // (Apple's 44pt guidance for older users).
+      <>
+        <Pressable
+          onPress={() => setZoomOpen(true)}
+          hitSlop={8}
+          accessibilityRole="imagebutton"
+          accessibilityLabel="View photo larger"
+        >
+          {imageEl}
+        </Pressable>
+        <ZoomableImageViewer
+          uri={zoomOpen ? (base as string) : null}
+          onClose={() => setZoomOpen(false)}
+        />
+      </>
+    ) : (
+      imageEl
+    )
   ) : (
     // Emoji avatar — wrap the Text in a fixed-size flex container so the
     // glyph sits perfectly centred (both axes) regardless of the emoji's

@@ -1,4 +1,8 @@
 import "react-native-gesture-handler";
+// Side-effect import: sets Text.defaultProps.allowFontScaling + maxFontSizeMultiplier
+// so every screen respects iOS Dynamic Type / Android font-size settings,
+// capped at 1.4× to protect our older-adult-tuned layouts. See file for detail.
+import "@/src/lib/text-scaling";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
