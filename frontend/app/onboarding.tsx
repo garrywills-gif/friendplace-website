@@ -85,7 +85,7 @@ const INTERESTS = [
   "Pets", "Classic cars", "History", "Local meetups",
 ];
 
-const STEP_COUNT = 4; // 4 real steps; the celebration screen is separate.
+const STEP_COUNT = 5; // 5 real steps: Welcome, Accessibility, Privacy, Interests, Suggested Groups. Celebration is separate.
 
 export default function OnboardingWizard() {
   const router = useRouter();
@@ -96,6 +96,14 @@ export default function OnboardingWizard() {
 
   const [step, setStep] = useState(0);
   const [interests, setInterests] = useState<string[]>([]);
+  // Suggested groups step — fetched lazily the first time we enter step 4
+  // so the endpoint runs against the interests the user just picked.
+  // `groupsLoading` shows a spinner while fetching; `selectedGroupIds`
+  // tracks which pre-suggested groups the user has ticked for auto-join
+  // on completion.
+  const [suggestedGroups, setSuggestedGroups] = useState<any[] | null>(null);
+  const [groupsLoading, setGroupsLoading] = useState(false);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -109,6 +117,45 @@ export default function OnboardingWizard() {
   const toggleInterest = (label: string) => {
     setInterests((prev) => (prev.includes(label) ? prev.filter((x) => x !== label) : [...prev, label]));
   };
+
+  const toggleGroup = (id: string) => {
+    setSelectedGroupIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  // Lazily fetch suggested groups the first time we enter the groups
+  // step. We do it inside an effect (not in the button handler) so it
+  // also fires when the user navigates back-then-forward, and so the
+  // interests-based ranking uses the LATEST interest selection.
+  useEffect(() => {
+    if (step === 4 && !suggestedGroups && !groupsLoading && user?.id) {
+      setGroupsLoading(true);
+      // First push the freshly-picked interests up to the backend so the
+      // suggested-groups scorer can rank against them. We don't await
+      // failure — the endpoint is idempotent and the ranker falls back
+      // gracefully to the stored interests if the sync races.
+      (async () => {
+        try {
+          await api.updateProfile(user.id, { interests });
+        } catch {}
+        try {
+          const r: any = await api.onboardingSuggestedGroups(user.id);
+          const list = (r?.groups || []) as any[];
+          setSuggestedGroups(list);
+          // Pre-tick the top 3 great-matches so the user has a
+          // sensible default and can just tap "Continue".
+          const preSelected = list
+            .filter((g: any) => (g.match || 0) > 0)
+            .slice(0, 3)
+            .map((g: any) => g.id);
+          setSelectedGroupIds(preSelected);
+        } catch {
+          setSuggestedGroups([]);
+        } finally {
+          setGroupsLoading(false);
+        }
+      })();
+    }
+  }, [step, user?.id, interests, suggestedGroups, groupsLoading]);
 
   const goHome = () => {
     if (Platform.OS === "web") {
@@ -129,13 +176,15 @@ export default function OnboardingWizard() {
       await api.onboardingFinish({
         user_id: user.id,
         interests,
-        // Suburb / avatar / groups are now optional post-signup — omit them.
+        // Suburb / avatar are still optional post-signup — omit them.
         suburb: "",
         suburb_postcode: "",
         suburb_state: "",
         location_visibility: "private",
         avatar: "",
-        group_ids: [],
+        // Pass through any suggested groups the user ticked. The backend
+        // joins them in one atomic $addToSet operation.
+        group_ids: selectedGroupIds,
         joined_all: false,
       });
       try { await refresh?.(); } catch {}
@@ -229,6 +278,16 @@ export default function OnboardingWizard() {
             toggle={toggleInterest}
           />
         ) : null}
+        {step === 4 ? (
+          <StepGroups
+            scale={scale}
+            c={c}
+            groups={suggestedGroups}
+            loading={groupsLoading}
+            selectedIds={selectedGroupIds}
+            toggle={toggleGroup}
+          />
+        ) : null}
       </ScrollView>
 
       {/* Footer — Back / Skip / Continue. Skip is only shown on the
@@ -249,7 +308,7 @@ export default function OnboardingWizard() {
           <View style={{ width: 60 }} />
         )}
 
-        {step === 3 ? (
+        {step === 3 || step === 4 ? (
           <Pressable
             testID="onb-skip"
             onPress={finishWizard}
@@ -449,6 +508,111 @@ function StepInterests({
   );
 }
 
+// ---------- Step 4 — Suggested Groups ----------
+// Shown right after the interests step. Uses the backend's
+// /onboarding/suggested-groups endpoint which ranks groups by
+// interest-tag overlap so the "great match" ones bubble to the top.
+// Great-matches (match > 0) get a green badge and are pre-selected by
+// default so a user who taps "Continue" without touching anything still
+// lands in FriendPlace with a small starter set of communities.
+function StepGroups({
+  scale,
+  c,
+  groups,
+  loading,
+  selectedIds,
+  toggle,
+}: {
+  scale: number;
+  c: any;
+  groups: any[] | null;
+  loading: boolean;
+  selectedIds: string[];
+  toggle: (id: string) => void;
+}) {
+  return (
+    <View style={{ gap: 14, paddingTop: 6 }}>
+      <View style={{ alignItems: "center", paddingTop: 4 }}>
+        <Text style={{ fontSize: 72 }}>👥</Text>
+      </View>
+      <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>Join some groups</Text>
+      <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
+        Based on what you love, here are some communities we think you&apos;ll enjoy. Tap any to join —
+        you can always leave later.
+      </Text>
+      {loading ? (
+        <View style={{ alignItems: "center", paddingVertical: 30 }}>
+          <ActivityIndicator color={c.brand} size="large" />
+          <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 10 }}>
+            Finding your best matches…
+          </Text>
+        </View>
+      ) : !groups || groups.length === 0 ? (
+        <Text style={[styles.footerCopy, { color: c.muted, fontSize: 14 * scale }]}>
+          No groups to suggest just yet — you can browse and join from the Friends tab any time.
+        </Text>
+      ) : (
+        <View style={{ gap: 10, marginTop: 4 }}>
+          {groups.map((g: any) => {
+            const on = selectedIds.includes(g.id);
+            const great = (g.match || 0) > 0;
+            return (
+              <Pressable
+                key={g.id}
+                testID={`onb-group-${g.id}`}
+                onPress={() => toggle(g.id)}
+                style={[
+                  styles.featureRow,
+                  {
+                    backgroundColor: on ? c.brandTertiary : c.surfaceSecondary,
+                    borderColor: on ? c.brand : c.border,
+                    borderWidth: on ? 2 : 1,
+                  },
+                ]}
+              >
+                <Text style={styles.featureEmoji}>{g.emoji || "👥"}</Text>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>{g.name}</Text>
+                    {great ? (
+                      <View style={styles.matchBadge}>
+                        <Text style={{ color: "#065F46", fontWeight: "900", fontSize: 10 * scale, letterSpacing: 0.6 }}>
+                          GREAT MATCH
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  {g.description ? (
+                    <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 3, lineHeight: 18 }} numberOfLines={2}>
+                      {g.description}
+                    </Text>
+                  ) : null}
+                  <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 4 }}>
+                    {g.member_count || 0} member{(g.member_count || 0) === 1 ? "" : "s"}
+                  </Text>
+                </View>
+                {/* Check circle indicates selection status. Big enough
+                    for older-user fingers, always visible so the state
+                    reads at a glance. */}
+                <Ionicons
+                  name={on ? "checkmark-circle" : "add-circle-outline"}
+                  size={30}
+                  color={on ? c.brand : c.muted}
+                />
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+      <Text style={[styles.footerCopy, { color: c.muted, fontSize: 13 * scale }]}>
+        {selectedIds.length
+          ? `You'll join ${selectedIds.length} group${selectedIds.length === 1 ? "" : "s"} · you can leave anytime.`
+          : "Tap any group to join — or skip and browse later from Friends."}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 20,
@@ -458,7 +622,7 @@ const styles = StyleSheet.create({
   brandBar: { flexDirection: "row", alignItems: "center", gap: 10 },
   brandLogo: { width: 38, height: 38, borderRadius: 10 },
   brandFriend: { color: "#1E3A7F", fontWeight: "900", fontSize: 22, letterSpacing: -0.3 },
-  brandPlace: { color: "#0F766E", fontWeight: "900", fontSize: 22, letterSpacing: -0.3 },
+  brandPlace: { color: "#14B8A6", fontWeight: "900", fontSize: 22, letterSpacing: -0.3 },
 
   progressTrack: {
     height: 6,
@@ -517,6 +681,14 @@ const styles = StyleSheet.create({
   },
   comingSoon: {
     backgroundColor: "#FDE68A",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  // "GREAT MATCH" pill shown on interest-matched suggested groups so the
+  // top picks read as an obvious highlight.
+  matchBadge: {
+    backgroundColor: "#A7F3D0",
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3,

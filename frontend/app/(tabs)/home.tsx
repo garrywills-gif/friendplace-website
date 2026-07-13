@@ -54,6 +54,10 @@ export default function Home() {
   // Subsequent focuses (tab switches, refreshes) don't replay — the
   // butterfly's arrival is a signature login-only beat.
   const flutterCardRef = useRef<View>(null);
+  // Ref to the notification bell pill in the top-right of the header —
+  // the "receive" flutter animation flies from the bottom of the screen
+  // up onto this bell (fits the "you have a new notification" story).
+  const bellRef = useRef<View>(null);
   const flutterCardOpacity = useRef(new Animated.Value(0)).current;
   const flutterCardTranslate = useRef(new Animated.Value(-8)).current;
   const receivePlayedRef = useRef<boolean>(false);
@@ -130,16 +134,24 @@ export default function Home() {
           // Give the ScrollView one frame to lay out the flutter card
           // container so the measurement below returns valid coords.
           requestAnimationFrame(() => {
-            const { width: winW } = Dimensions.get("window");
-            // Enter from just above the top edge, biased to whichever
-            // side has more room so the arrival trajectory curls
-            // nicely into view.
-            const enterX = winW * (0.15 + Math.random() * 0.7);
-            const enterY = -30;
+            const { width: winW, height: winH } = Dimensions.get("window");
+            // On first login the butterfly enters from the BOTTOM edge
+            // of the screen and glides UP to land on the notification
+            // bell in the top-right of the header. This connects the
+            // celebratory flutter animation directly to the notification
+            // affordance — the user immediately understands "you have
+            // something waiting for you up there". Previously the
+            // butterfly entered from the top and landed on the flutter
+            // card, which felt disconnected from the notification icon
+            // where the unread count actually lives.
+            const enterX = winW * (0.2 + Math.random() * 0.6);
+            const enterY = winH + 40;
             emitFlutter({
               startX: enterX,
               startY: enterY,
-              targetRef: flutterCardRef.current || undefined,
+              // Land on the bell if we can measure it, otherwise fall
+              // back to the flutter card (older layout behaviour).
+              targetRef: bellRef.current || flutterCardRef.current || undefined,
               onLand: () => {
                 Animated.parallel([
                   Animated.timing(flutterCardOpacity, {
@@ -273,7 +285,7 @@ export default function Home() {
               tagline was pushing the row too tall. */}
           <BrandLockup width={140} variant="navy" showTagline={false} testID="home-brand-lockup" />
           <View style={styles.headerActions}>
-            <Pressable testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Pressable ref={bellRef} testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <Ionicons name="notifications-outline" size={24} color={c.onSurface} />
               {unread > 0 && (
                 <View style={[styles.bellBadge, { backgroundColor: c.error }]}>

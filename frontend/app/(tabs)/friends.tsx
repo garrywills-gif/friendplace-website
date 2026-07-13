@@ -31,6 +31,13 @@ export default function Friends() {
   const [askingLoc, setAskingLoc] = useState(false);
   const [showRationale, setShowRationale] = useState(false);
   const [showDeniedHelp, setShowDeniedHelp] = useState(false);
+  // Persistent flag: TRUE once the user has declined location, permission
+  // check has failed, or the geo lookup has errored. Drives the friendly
+  // inline banner that tells the user to use the suburb input instead —
+  // more discoverable than the transient toast we used to show, which
+  // disappeared after a couple of seconds and left older users unsure
+  // how to proceed.
+  const [locationDeclined, setLocationDeclined] = useState(false);
   // Per-row avatar refs — used by the "send flutter" animation so
   // the butterfly lands directly on the recipient's avatar instead
   // of the button next to it. Cleared on unmount by the ref callback.
@@ -59,12 +66,13 @@ export default function Friends() {
       if (!current.granted) {
         if (!current.canAskAgain) {
           setShowDeniedHelp(true);
+          setLocationDeclined(true);
           return;
         }
         const req = await Location.requestForegroundPermissionsAsync();
         if (!req.granted) {
           if (!req.canAskAgain) setShowDeniedHelp(true);
-          else show("Location not used — you can still search by suburb name");
+          setLocationDeclined(true);
           return;
         }
       }
@@ -74,13 +82,15 @@ export default function Friends() {
       const n = nearest?.nearest;
       if (n) {
         setNearMe({ lat: n.lat, lng: n.lng, suburb: n.name });
+        setLocationDeclined(false);
         show(`Showing members near ${n.name}`);
       } else {
         setNearMe({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocationDeclined(false);
         show("Showing members near you");
       }
     } catch (e: any) {
-      show("Couldn't get your location — you can still search by suburb");
+      setLocationDeclined(true);
     } finally {
       setAskingLoc(false);
     }
@@ -186,6 +196,25 @@ export default function Friends() {
             <Text style={{ color: c.muted, fontSize: 13 * scale, alignSelf: "center", marginLeft: 8 }}>or type a suburb above</Text>
           )}
         </ScrollView>
+        {/* Persistent hint banner: shown after a denied/failed location
+            lookup so older users don't feel stuck. Highlights the suburb
+            search input right above with a big arrow icon. Replaces the
+            fleeting "Location not used" toast we used to show. */}
+        {locationDeclined && !nearMe && (
+          <View style={[styles.locHint, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+            <Ionicons name="arrow-up" size={22} color={c.brand} />
+            <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale, flex: 1 }}>
+              No worries — you can still find friends by typing a suburb name in the search box above.
+            </Text>
+            <Pressable
+              onPress={() => setLocationDeclined(false)}
+              hitSlop={8}
+              accessibilityLabel="Dismiss hint"
+            >
+              <Ionicons name="close" size={20} color={c.brand} />
+            </Pressable>
+          </View>
+        )}
       </View>
       <Pressable testID="messages-btn" onPress={() => router.push("/messages")} style={[styles.inboxRow, { backgroundColor: c.brandTertiary }]}>
         <Ionicons name="chatbubbles" size={22} color={c.brand} />
@@ -288,6 +317,10 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: "row", alignItems: "center", borderRadius: 16, paddingHorizontal: 14, borderWidth: 1, minHeight: 52 },
   chipRow: { gap: 8, paddingVertical: 4 },
   chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 2, minHeight: 40, justifyContent: "center" },
+  // Persistent inline banner shown after a declined/failed location
+  // lookup. Uses the brandTertiary/brand palette so it reads as helpful
+  // guidance rather than an error.
+  locHint: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, borderWidth: 1.5, paddingHorizontal: 12, paddingVertical: 10, marginTop: 4 },
   inboxRow: { marginHorizontal: 16, padding: 14, borderRadius: 16, flexDirection: "row", alignItems: "center", gap: 8 },
   inboxText: { flex: 1, fontWeight: "700" },
   card: { borderRadius: 18, padding: 14, borderWidth: 1, gap: 10 },

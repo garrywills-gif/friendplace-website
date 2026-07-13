@@ -5877,48 +5877,95 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = "", _me:
         return y
 
     # ─── Top banner: official YouBelong brand mark (matches the Welcome
-    # screen). The PNG ships with a baked-in white outer glow + navy halo so
-    # the wordmark sits crisply on the navy banner exactly the same way it
-    # does on the photo backdrop in-app — keeping print + app branding 1:1.
-    # Top banner — tightened so the body has room for big text.
-    BANNER_H = 270
-    d.rectangle([0, 0, W, BANNER_H], fill=NAVY)
+    # ─── Top banner ────────────────────────────────────────────────────
+    # Dark-navy header modelled on the FriendPlace brand banner: butterfly
+    # logo on the left, then the wordmark ("Friend" in white + "Place" in
+    # sky-teal) stacked above the tagline. A thin divider separates the
+    # brand block from the contact strip ("hello@friendplace.com.au" and
+    # "www.friendplace.com.au") which sits along the bottom of the banner.
+    # Everything is drawn dynamically — no shipped banner-image asset — so
+    # tweaks to typography, colour or copy live entirely in this Python
+    # code and stay consistent with the in-app BrandLockup.
+    BANNER_H = 360
+    # BANNER_NAVY intentionally matches the exact navy inside the
+    # butterfly-icon-v5 PNG (sampled at #0B1F45) so the icon's baked-in
+    # square background melds seamlessly into the banner without a
+    # visible seam. If the icon is ever re-generated with a different
+    # navy, resample and update this constant.
+    BANNER_NAVY = "#0B1F45"
+    BRAND_WHITE = "#FFFFFF"
+    BRAND_SKY = "#7DB1FF"     # light sky-blue for the "Place" span
+    BRAND_MUTED = "#B7C7E5"   # muted blue for the contact strip
+    d.rectangle([0, 0, W, BANNER_H], fill=BANNER_NAVY)
     SIDE = 100  # body-text margin used elsewhere on the page
 
     import os as _os
-    BRAND_LOGO_PATH = _os.path.join(_os.path.dirname(__file__), "assets",
-                                    "youbelong-logo-bold.png")
+    BUTTERFLY_PATH = _os.path.join(_os.path.dirname(__file__), "assets",
+                                   "friendplace-app-icon-v5.png")
     try:
-        brand_logo = Image.open(BRAND_LOGO_PATH).convert("RGBA")
-        # Fit the wordmark to a generous portion of the banner. The asset is
-        # 1066×326 (aspect ≈3.27); cap by width so the brand mark dominates.
-        target_w = min(W - 2 * SIDE, 980)
-        scale = target_w / brand_logo.width
-        target_h = int(brand_logo.height * scale)
-        brand_logo = brand_logo.resize((target_w, target_h), Image.LANCZOS)
-        lx = (W - target_w) // 2
-        ly = (BANNER_H - target_h) // 2
-        # Paste with alpha so the baked-in glow/halo blends onto the navy.
-        img.paste(brand_logo, (lx, ly), brand_logo)
+        butterfly = Image.open(BUTTERFLY_PATH).convert("RGBA")
+        # Butterfly occupies ~72% of banner height, kept flush with the
+        # left margin. We DON'T repaint the navy tile behind it because
+        # the source PNG already has the same navy tile baked in — the
+        # tile visually melds into the banner background.
+        bfy_h = int(BANNER_H * 0.72)
+        bfy_scale = bfy_h / butterfly.height
+        bfy_w = int(butterfly.width * bfy_scale)
+        butterfly = butterfly.resize((bfy_w, bfy_h), Image.LANCZOS)
+        bfy_x = SIDE - 40  # slight bleed toward the left edge
+        bfy_y = (BANNER_H - bfy_h) // 2
+        img.paste(butterfly, (bfy_x, bfy_y), butterfly)
+        text_left = bfy_x + bfy_w + 30
     except Exception:
-        # Fallback: condensed-bold wordmark if the brand PNG is missing for
-        # any reason (keeps the endpoint resilient in dev/test environments).
-        text = "YOUBELONG"
-        size = 200
-        while size > 160:
-            f_logo = font(size, bold=True, condensed=True)
-            if text_w(text, f_logo) <= W - 60:
-                break
-            size -= 6
-        f_logo = font(size, bold=True, condensed=True)
-        tw = text_w(text, f_logo); th = text_h(text, f_logo)
-        d.text(((W - tw) // 2, (BANNER_H - th) // 2 - 6), text,
-               font=f_logo, fill="#FFFFFF")
+        # If the butterfly asset is missing for some reason, fall back to
+        # a plain text banner so the endpoint doesn't error out.
+        text_left = SIDE
+
+    # ─── Wordmark: "Friend" (white) + "Place" (sky-teal) ───────────────
+    # Auto-fit the wordmark so it doesn't overrun the right margin no
+    # matter how much room the butterfly leaves.
+    ideal_wm = 130
+    wm_max_w = W - SIDE - text_left
+    wm_size = ideal_wm
+    while wm_size > 80:
+        f_wm = font(wm_size, bold=True)
+        if text_w("FriendPlace", f_wm) <= wm_max_w:
+            break
+        wm_size -= 4
+    f_wm = font(wm_size, bold=True)
+    wm_y = 46
+    friend_w = text_w("Friend", f_wm)
+    d.text((text_left, wm_y), "Friend", font=f_wm, fill=BRAND_WHITE)
+    d.text((text_left + friend_w, wm_y), "Place", font=f_wm, fill=BRAND_SKY)
+    wm_bottom = wm_y + text_h("FriendPlace", f_wm)
+
+    # ─── Tagline: "Because you belong too." ────────────────────────────
+    f_tag = font(42, bold=True)
+    d.text((text_left, wm_bottom + 14), "Because you belong too.",
+           font=f_tag, fill=BRAND_WHITE)
+
+    # ─── Contact strip along the bottom of the banner ──────────────────
+    # A thin light-navy divider, then two contact rows: email + website,
+    # separated by a vertical bar. Uses BRAND_MUTED so the strip reads as
+    # supporting information (not part of the primary brand block).
+    div_y = BANNER_H - 78
+    d.line([(text_left, div_y), (W - SIDE, div_y)], fill="#22336D", width=2)
+
+    f_contact = font(28, bold=False)
+    contact_y = div_y + 22
+    email = "hello@friendplace.com.au"
+    site = "www.friendplace.com.au"
+    d.text((text_left, contact_y), email, font=f_contact, fill=BRAND_MUTED)
+    # Separator "·"
+    sep_x = text_left + text_w(email, f_contact) + 22
+    d.text((sep_x, contact_y), "·", font=f_contact, fill=BRAND_MUTED)
+    d.text((sep_x + 22, contact_y), site, font=f_contact, fill=BRAND_MUTED)
 
     # ─── Headline (deliberately HUGE so passers-by can read it from across
-    # a room). Bumped from 110pt to 170pt; condensed bold lets the line
-    # fit within the side margins of a 1240px-wide page.
-    HEAD_Y = BANNER_H + 25
+    # a room). 170pt condensed bold lets the line fit within the side
+    # margins of a 1240px-wide page. Extra breathing room below the taller
+    # branded banner keeps the whole layout balanced.
+    HEAD_Y = BANNER_H + 35
     fit_centred("FIND YOUR PEOPLE.", HEAD_Y, W - 2 * SIDE,
                 start_size=180, min_size=130, fill=NAVY, bold=True,
                 condensed=True)

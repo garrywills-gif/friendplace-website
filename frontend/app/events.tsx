@@ -275,7 +275,12 @@ export default function Events() {
 
 const styles = StyleSheet.create({
   card: { borderRadius: 18, padding: 14, borderWidth: 1, gap: 10 },
-  row: { flexDirection: "row", alignItems: "center" },
+  // alignItems: "flex-start" so multi-line event details (title + date +
+  // location on three lines) don't vertically-centre the SpeakButton /
+  // Edit column against the middle of the writing — previously the
+  // speaker icon appeared "in the middle of the writing" whenever the
+  // location line pushed the row to 3+ lines.
+  row: { flexDirection: "row", alignItems: "flex-start" },
   emojiBox: { width: 62, height: 62, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   title: { fontWeight: "800" },
   meta: { marginTop: 2, fontWeight: "500" },
