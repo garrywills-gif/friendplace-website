@@ -24,16 +24,16 @@ const ROWS: RowDef[] = [
   { key: "largeText", title: "Larger text mode", desc: "Increase the size of text across the app for easier reading.", icon: "text" },
   { key: "highContrast", title: "High contrast mode", desc: "Stronger colours and bolder borders to help low-vision users.", icon: "contrast" },
   { key: "simplified", title: "Simplified mode", desc: "Larger buttons and more breathing room; reduces visual clutter.", icon: "layers" },
-  // Voice typing — we lean on the device's own keyboard dictation, which
-  // works out of the box on iPhone, iPad and Android. Our in-app mic button
-  // is a separate, richer "tap to talk" panel still in design (no backend
-  // service required for the keyboard route — keeps costs at zero).
+  // Voice typing — the in-app tap-to-dictate mic ships with FriendPlace
+  // (uses expo-audio for capture + OpenAI whisper-1 via the Emergent
+  // Universal LLM key for transcription). The device's own keyboard
+  // dictation still works everywhere in FriendPlace too, and users can
+  // switch off the in-app mic if they prefer typing.
   {
     key: "voiceInputEnabled",
     title: "Voice typing",
-    desc: "Tap any message box, then tap the 🎤 on your device's keyboard to dictate instead of typing. Works on iPhone, iPad and Android.",
+    desc: "Tap the mic beside any message box to dictate — your speech becomes text automatically. You can also use the 🎤 on your device's keyboard.",
     icon: "mic",
-    note: "Coming Soon — an extra in-app microphone button with live transcription. Until then, your keyboard's microphone works everywhere in FriendPlace.",
   },
 ];
 

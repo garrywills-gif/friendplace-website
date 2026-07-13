@@ -12,8 +12,8 @@
  *   0  Welcome — full feature showcase (Coffee Lounge, Find Friends,
  *      Groups, Events, Recipes, Games, Notice Board, Founders Wall).
  *      Uses the teal butterfly logo, older-audience-friendly type.
- *   1  Accessibility — Large text (available), Speak Instead of Type
- *      + Listen Instead of Read marked "Coming Soon".
+ *   1  Accessibility — Large text, Speak Instead of Type, and Listen
+ *      Instead of Read (all three shipped and available today).
  *   2  Privacy & Safety — blocking, reporting, privacy controls.
  *   3  Choose your interests — tap-to-toggle chips.
  *   4  Celebration — brief "You're all set" screen, auto-redirects to
@@ -60,12 +60,14 @@ const FEATURES: { emoji: string; title: string; body: string }[] = [
   { emoji: "🦋", title: "Founders Wall",         body: "Celebrate our founding members — and become one while places remain." },
 ];
 
-// Accessibility features — Large Text is available today; voice
-// features are on the roadmap so we're transparent about that.
+// Accessibility features — all three are shipped and available today.
+// The "Coming Soon" badges used to sit next to the voice features while
+// they were stubs; removed once tap-to-dictate landed via whisper-1 and
+// tap-to-listen landed via expo-speech + our per-user Accessibility toggles.
 const ACCESSIBILITY: { emoji: string; title: string; body: string; badge?: string }[] = [
   { emoji: "🔍", title: "Large text everywhere",    body: "The whole app uses generous type sizes so it's easy to read." },
-  { emoji: "🎤", title: "Speak Instead of Type",     body: "Dictate messages, posts and searches with the microphone.", badge: "Coming Soon" },
-  { emoji: "🔊", title: "Listen Instead of Read",    body: "Tap the speaker icon to have messages and content read aloud.", badge: "Coming Soon" },
+  { emoji: "🎤", title: "Speak Instead of Type",     body: "Tap the mic in any message box to dictate — your speech is turned into text automatically." },
+  { emoji: "🔊", title: "Listen Instead of Read",    body: "Tap the speaker icon on any message or post to have it read aloud." },
 ];
 
 // Privacy & Safety controls — real features already shipped in the app.
