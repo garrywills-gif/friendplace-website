@@ -103,10 +103,12 @@ export default function AvatarBubble({
 
   const inner = isUrl ? (
     zoomable ? (
-      // Pressable wraps the photo so a tap opens the full-screen
-      // zoomable viewer. hitSlop keeps small avatar tap targets forgiving
-      // (Apple's 44pt guidance for older users).
-      <>
+      // Safari on iPad/iOS is strict about Fragments-containing-Modal
+      // when the parent has overflow:"hidden" (which the Profile avatar
+      // circle uses to clip the photo). Wrapping in an explicit View
+      // gives React Native Web a stable container to portal the Modal
+      // off, and avoids the blank-tab crash we hit on the Profile page.
+      <View style={{ width: size, height: size }}>
         <Pressable
           onPress={() => setZoomOpen(true)}
           hitSlop={8}
@@ -119,7 +121,7 @@ export default function AvatarBubble({
           uri={zoomOpen ? (base as string) : null}
           onClose={() => setZoomOpen(false)}
         />
-      </>
+      </View>
     ) : (
       imageEl
     )
