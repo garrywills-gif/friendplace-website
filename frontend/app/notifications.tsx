@@ -13,6 +13,10 @@ const ICON: Record<string, { name: keyof typeof Ionicons.glyphMap; tint: string 
   friend_request: { name: "person-add", tint: "#2E9EE2" },
   friend_accepted: { name: "people", tint: "#16A34A" },
   dm: { name: "chatbubble", tint: "#1E3A7F" },
+  // dm_request uses a slightly warmer icon so first-message notifications
+  // read as "someone reaching out" rather than "another message in a
+  // conversation you already have".
+  dm_request: { name: "chatbubble-ellipses", tint: "#14B8A6" },
   event_invite: { name: "calendar", tint: "#B45309" },
   table_join: { name: "cafe", tint: "#0F766E" },
   notice_comment: { name: "newspaper", tint: "#7C3AED" },
@@ -55,7 +59,7 @@ export default function Notifications() {
   const onItemPress = async (n: any) => {
     try { if (!n.read) { await api.readNotification(n.id); load(); } } catch {}
     if (n.type === "friend_request" || n.type === "friend_accepted") return router.push("/friends/inbox");
-    if (n.type === "dm" && n.payload?.dm_id) return router.push(`/dm/${n.payload.dm_id}?other_id=${n.payload.from_id || ""}`);
+    if ((n.type === "dm" || n.type === "dm_request") && n.payload?.dm_id) return router.push(`/dm/${n.payload.dm_id}?other_id=${n.payload.from_id || ""}`);
     if (n.type === "table_join" && n.payload?.table_id) return router.push(`/table/${n.payload.table_id}`);
     // Flutter notifications carry the sender's id in payload.from_id (not
     // ref_user_id). Route straight to that user's profile so the recipient
@@ -130,13 +134,18 @@ export default function Notifications() {
         ListEmptyComponent={() => (
           <View style={{ paddingTop: 60, alignItems: "center" }}>
             <Ionicons name="notifications-outline" size={48} color={c.muted} />
-            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 10, fontSize: 16 * scale }}>You're all caught up.</Text>
+            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 10, fontSize: 16 * scale }}>You&apos;re all caught up.</Text>
           </View>
         )}
         renderItem={({ item }) => {
           const ic = ICON[item.type] || { name: "notifications", tint: c.brand };
           const isAchievement = item.type === "achievement" && item.payload?.actor_id;
           const isDm = item.type === "dm";
+          // First-message chat requests get a distinct "Reply / Decline"
+          // action pair (per user feedback), so surface them as a
+          // separate flag rather than lumping them into the regular DM
+          // Chat/Dismiss row.
+          const isDmRequest = item.type === "dm_request";
           const isNewMember = item.type === "new_member" && !!item.ref_user_id;
           // Flutter notifications get the same quick-action row as new-member
           // pings so recipients can reply with a flutter or open the sender's
@@ -150,7 +159,7 @@ export default function Notifications() {
                 <View style={[styles.iconBox, { backgroundColor: "#FFFFFF" }]}><Ionicons name={ic.name} size={20} color={ic.tint} /></View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>{item.title}</Text>
-                  {!!item.body && <Text style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }} numberOfLines={isDm ? 3 : 2}>{isDm ? `“${item.body}”` : item.body}</Text>}
+                  {!!item.body && <Text style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }} numberOfLines={isDm || isDmRequest ? 3 : 2}>{isDm || isDmRequest ? `“${item.body}”` : item.body}</Text>}
                   <Text style={{ color: c.muted, marginTop: 4, fontSize: 12 * scale }}>{relTime(item.created_at)}</Text>
                 </View>
                 {!item.read && <View style={[styles.dot, { backgroundColor: c.brandSecondary }]} />}
@@ -177,6 +186,38 @@ export default function Notifications() {
                   >
                     <Ionicons name="person" size={16} color={c.brand} />
                     <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale, marginLeft: 6 }}>View profile</Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {/* First-message chat requests — richer Reply / Decline
+                  pair as requested by test users, replacing the generic
+                  "Chat / Dismiss" row for ongoing conversations. Reply
+                  opens the DM screen (same as tapping the row); Decline
+                  marks the notification as read so it disappears from
+                  the badge without needing to open the chat. We
+                  intentionally don't delete the conversation on Decline
+                  — that would prevent the sender from ever reaching
+                  the recipient again and could feel too harsh for our
+                  audience. Users can still block the sender from their
+                  profile if they want a hard cut-off. */}
+              {isDmRequest && (
+                <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  <Pressable
+                    testID={`dmreq-reply-${item.id}`}
+                    onPress={() => onItemPress(item)}
+                    style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
+                  >
+                    <Ionicons name="chatbubble-ellipses" size={18} color="#FFF" />
+                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale, marginLeft: 6 }}>Reply</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`dmreq-decline-${item.id}`}
+                    onPress={() => dismissOne(item)}
+                    style={[styles.dmActionBtn, { backgroundColor: c.surface, borderColor: c.border, flex: 1 }]}
+                  >
+                    <Ionicons name="close-circle" size={18} color={c.muted} />
+                    <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale, marginLeft: 6 }}>Decline</Text>
                   </Pressable>
                 </View>
               )}

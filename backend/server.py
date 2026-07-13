@@ -2180,6 +2180,7 @@ async def push_notification(user_id: str, n_type: str, title: str, body: str = "
             "friend_request": "/messages",
             "friend_accepted": "/friends",
             "dm": "/messages",
+            "dm_request": "/messages",
             "table_join": "/coffee",
             "table_invite": "/coffee",
             "event_invite": "/events",
@@ -8389,19 +8390,39 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                 if user.get("founder_number") is not None:
                     out["user_founder_number"] = user.get("founder_number")
             await hub.broadcast(room, {"type": "message", "message": out})
-            # notify the OTHER participant about a new DM
+            # notify the OTHER participant about a new DM. We differentiate
+            # the FIRST message from this sender in this conversation from
+            # subsequent messages so the notification screen can show a
+            # richer "started a chat with you" card with Reply / Decline
+            # actions (per test-user feedback: they wanted to know when
+            # someone new was reaching out for the first time vs a
+            # continuing thread).
             try:
                 conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0})
                 if conv:
-                    others = [x for x in (conv.get("user_ids") or []) if x != user_id]
+                    others = [x for x in (conv.get("participants") or []) if x != user_id]
                     sender_name = (user or {}).get("first_name") or "Someone"
                     sender_avatar = (user or {}).get("avatar") or "🦋"
+                    # Count messages from THIS sender in THIS conversation
+                    # to detect a first-message ("chat request") state. We
+                    # count including the message we just inserted, so any
+                    # value of exactly 1 means this was the opener.
+                    sender_msg_count = await db.messages.count_documents(
+                        {"dm_id": conv_id, "user_id": user_id}
+                    )
+                    is_chat_request = sender_msg_count <= 1
+                    n_type = "dm_request" if is_chat_request else "dm"
+                    title = (
+                        f"{sender_avatar} {sender_name} started a chat with you"
+                        if is_chat_request
+                        else f"{sender_avatar} {sender_name} sent you a message"
+                    )
                     for other_id in others:
                         await push_notification(
                             other_id,
-                            "dm",
-                            f"{sender_avatar} {sender_name} sent you a message",
-                            text[:120],
+                            n_type,
+                            title,
+                            text[:180],
                             {"dm_id": conv_id, "from_id": user_id},
                         )
             except Exception as e:
