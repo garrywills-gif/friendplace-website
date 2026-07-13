@@ -14,6 +14,7 @@ import ShareYouBelong from "@/src/components/ShareYouBelong";
 import FirstRunCard from "@/src/components/FirstRunCard";
 import BrandLockup from "@/src/components/BrandLockup";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; route: string; bg: string; full?: boolean };
 
@@ -60,12 +61,14 @@ export default function Home() {
   const bellRef = useRef<View>(null);
   const flutterCardOpacity = useRef(new Animated.Value(0)).current;
   const flutterCardTranslate = useRef(new Animated.Value(-8)).current;
-  const receivePlayedRef = useRef<boolean>(false);
   // Reset the session flag + the fade-in animation whenever the
   // signed-in user changes so a fresh login (or account switch)
   // replays the arrival.
+  // Reset the arrival card's animated values when the logged-in user
+  // changes (e.g., someone switches accounts). The "already welcomed
+  // flutter IDs" set is keyed per-user in AsyncStorage so it's isolated
+  // automatically — no reset needed here.
   useEffect(() => {
-    receivePlayedRef.current = false;
     flutterCardOpacity.setValue(0);
     flutterCardTranslate.setValue(-8);
   }, [user?.id, flutterCardOpacity, flutterCardTranslate]);
@@ -117,63 +120,76 @@ export default function Home() {
     try {
       const list = (await api.myFlutters(user.id)) as any[];
       setFlutters(list);
-      // If this is the first Home load after login AND there are
-      // flutters waiting, kick off the signature "receive" arrival
-      // animation: a small butterfly enters from the top of the
-      // screen, lands on the flutter card ref, and the card fades in
-      // right as the butterfly touches down. On subsequent focuses we
-      // just reveal the card immediately (no animation).
-      if (list.length > 0) {
-        if (receivePlayedRef.current) {
-          // Already played this session — just make sure the card is
-          // fully visible (in case it was hidden during navigation).
+      // Play the "arrival" butterfly animation ONLY when at least one
+      // flutter in the current list is genuinely new — i.e., we haven't
+      // already welcomed it in a previous session. We persist the set
+      // of welcomed flutter IDs to AsyncStorage per user so the check
+      // survives: tab switches (which unmount Home), app restarts, and
+      // even device restarts. First arrival → animation plays; every
+      // subsequent Home focus with the same flutter still waiting →
+      // silent (card just appears). This directly addresses tester
+      // feedback that the flutter was replaying on every navigation.
+      const seenKey = `flutter_welcomed_ids::${user.id}`;
+      let seen: Set<string>;
+      try {
+        const raw = await AsyncStorage.getItem(seenKey);
+        seen = new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+      } catch {
+        seen = new Set<string>();
+      }
+      const currentIds = list.map((f: any) => String(f.id)).filter(Boolean);
+      const unwelcomed = currentIds.filter((id) => !seen.has(id));
+
+      if (list.length > 0 && unwelcomed.length > 0) {
+        // Persist the welcomed-set FIRST so a fast second focus (e.g.
+        // the user tabs away and back before the animation finishes)
+        // doesn't accidentally kick off a second butterfly.
+        unwelcomed.forEach((id) => seen.add(id));
+        try {
+          await AsyncStorage.setItem(seenKey, JSON.stringify(Array.from(seen)));
+        } catch {}
+
+        // Give the ScrollView one frame to lay out the flutter card
+        // container so the measurement below returns valid coords.
+        requestAnimationFrame(() => {
+          const { width: winW, height: winH } = Dimensions.get("window");
+          // Butterfly enters from the BOTTOM edge of the screen and
+          // glides UP to land on the notification bell in the top-right
+          // of the header — ties the celebration directly to the bell
+          // where the unread count lives.
+          const enterX = winW * (0.2 + Math.random() * 0.6);
+          const enterY = winH + 40;
+          emitFlutter({
+            startX: enterX,
+            startY: enterY,
+            targetRef: bellRef.current || flutterCardRef.current || undefined,
+            onLand: () => {
+              Animated.parallel([
+                Animated.timing(flutterCardOpacity, {
+                  toValue: 1,
+                  duration: 320,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(flutterCardTranslate, {
+                  toValue: 0,
+                  duration: 360,
+                  useNativeDriver: true,
+                }),
+              ]).start();
+            },
+          });
+        });
+      } else {
+        // Either no flutters at all, OR every flutter has already been
+        // welcomed on a previous focus. Skip the animation and just
+        // reveal the card immediately (or keep it hidden if no flutters).
+        if (list.length > 0) {
           flutterCardOpacity.setValue(1);
           flutterCardTranslate.setValue(0);
         } else {
-          receivePlayedRef.current = true;
-          // Give the ScrollView one frame to lay out the flutter card
-          // container so the measurement below returns valid coords.
-          requestAnimationFrame(() => {
-            const { width: winW, height: winH } = Dimensions.get("window");
-            // On first login the butterfly enters from the BOTTOM edge
-            // of the screen and glides UP to land on the notification
-            // bell in the top-right of the header. This connects the
-            // celebratory flutter animation directly to the notification
-            // affordance — the user immediately understands "you have
-            // something waiting for you up there". Previously the
-            // butterfly entered from the top and landed on the flutter
-            // card, which felt disconnected from the notification icon
-            // where the unread count actually lives.
-            const enterX = winW * (0.2 + Math.random() * 0.6);
-            const enterY = winH + 40;
-            emitFlutter({
-              startX: enterX,
-              startY: enterY,
-              // Land on the bell if we can measure it, otherwise fall
-              // back to the flutter card (older layout behaviour).
-              targetRef: bellRef.current || flutterCardRef.current || undefined,
-              onLand: () => {
-                Animated.parallel([
-                  Animated.timing(flutterCardOpacity, {
-                    toValue: 1,
-                    duration: 320,
-                    useNativeDriver: true,
-                  }),
-                  Animated.timing(flutterCardTranslate, {
-                    toValue: 0,
-                    duration: 360,
-                    useNativeDriver: true,
-                  }),
-                ]).start();
-              },
-            });
-          });
+          flutterCardOpacity.setValue(0);
+          flutterCardTranslate.setValue(-8);
         }
-      } else {
-        // No flutters — reset so if the user gets one later this
-        // session and returns to Home, we can replay the arrival.
-        flutterCardOpacity.setValue(0);
-        flutterCardTranslate.setValue(-8);
       }
     } catch {}
     try { const r: any = await api.notificationCount(user.id); setUnread(r?.unread || 0); } catch {}
