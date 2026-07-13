@@ -50,11 +50,9 @@ import {
   Pressable,
   StyleSheet,
   Modal,
-  Alert,
   Linking,
   Animated,
   Easing,
-  Platform,
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -87,7 +85,6 @@ type Props = {
 };
 
 const BACKEND_URL: string =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (process.env as any).EXPO_PUBLIC_BACKEND_URL ||
   (process.env as any).EXPO_BACKEND_URL ||
   "";
@@ -217,12 +214,24 @@ export default function VoiceInputButton({
         userId ? `?user_id=${encodeURIComponent(userId)}&language=en` : "?language=en"
       }`;
       const form = new FormData();
-      // React Native's FormData accepts { uri, name, type } objects for
-      // file uploads even though the DOM FormData API doesn't. m4a is
-      // what iOS/expo-audio produces by default.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      form.append("audio", { uri: audioUri, name: "voice.m4a", type: "audio/m4a" } as any);
-      const resp = await fetch(url, { method: "POST", body: form as any });
+      // Cross-platform file upload: on web, React Native's shortcut
+      // `{ uri, name, type }` FormData object gets stringified to
+      // "[object Object]" (backend then rejects with a 422 "expected
+      // UploadFile, received str"). On iOS/Android the shortcut works
+      // but so does the Blob path. Fetching the local file:// URI and
+      // appending the resulting Blob is the ONE approach that works on
+      // every runtime we ship on — web preview, Expo Go, native dev
+      // build, and TestFlight — so we use it unconditionally.
+      const audioResp = await fetch(audioUri);
+      const audioBlob = await audioResp.blob();
+      // Some Safari versions strip the type from a file:// blob — fill
+      // it in explicitly so multipart correctly labels the payload.
+      const typedBlob =
+        audioBlob.type && audioBlob.type !== ""
+          ? audioBlob
+          : new Blob([audioBlob], { type: "audio/m4a" });
+      form.append("audio", typedBlob, "voice.m4a");
+      const resp = await fetch(url, { method: "POST", body: form });
       if (!resp.ok) {
         const errBody = await resp.text().catch(() => "");
         throw new Error(errBody?.slice(0, 140) || `HTTP ${resp.status}`);
