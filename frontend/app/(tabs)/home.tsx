@@ -259,14 +259,19 @@ export default function Home() {
         }
       >
         <View style={styles.headerRow}>
-          {/* Left spacer matches the bell+settings width so the brand
-              lockup optically centers in the header without flexing. */}
+          {/* Left spacer keeps the brand optically balanced without
+              stealing horizontal room from the notification/settings
+              icons on the right. On narrow iPhones the previous 112pt
+              spacer + 160pt lockup + 112pt actions overflowed the
+              content area, hiding the bell entirely. 44pt is enough
+              for visual balance while leaving plenty of room. */}
           <View style={styles.headerSideSpacer} pointerEvents="none" />
           {/* Brand lockup — uses the navy-ink variant so the wordmark + the
               butterfly/people in the "O" read clearly on the white Home
-              surface. Identical artwork to the welcome screen, just
-              colour-reversed. */}
-          <BrandLockup width={160} variant="navy" testID="home-brand-lockup" />
+              surface. Header variant is compact: no tagline, since the
+              wordmark alone is enough branding at that size, and the
+              tagline was pushing the row too tall. */}
+          <BrandLockup width={140} variant="navy" showTagline={false} testID="home-brand-lockup" />
           <View style={styles.headerActions}>
             <Pressable testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <Ionicons name="notifications-outline" size={24} color={c.onSurface} />
@@ -639,9 +644,11 @@ export default function Home() {
 const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  // Reserves width equal to the bell+settings group (52 + 8 + 52 = 112) so
-  // the brand lockup sits optically centered in the header row.
-  headerSideSpacer: { width: 112, height: 1 },
+  // 44pt spacer balances the row visually while leaving enough real
+  // estate for the bell+settings pair on narrow iPhones. Previously
+  // 112pt (matching the actions width) pushed the actions off-screen
+  // when combined with a 160pt lockup on iPhone SE/12 mini widths.
+  headerSideSpacer: { width: 44, height: 1 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   brand: { fontWeight: "900", letterSpacing: 0.3 },
   hello: { fontWeight: "600", marginTop: 6 },

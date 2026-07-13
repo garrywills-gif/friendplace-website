@@ -29,7 +29,14 @@ import { View, Text, StyleSheet, Image } from "react-native";
 export type BrandLockupVariant = "light" | "dark" | "navy";
 
 const NAVY_INK = "#17326B";
-const TEAL_INK = "#0F766E";
+// Brighter, cleaner teal for the "Place" span on light backgrounds.
+// The previous #0F766E (Tailwind teal-700) is technically teal but sits
+// close enough to forest-green in hue that older eyes read it as
+// "green" — especially when placed next to the deep navy "Friend" span.
+// #14B8A6 (Tailwind teal-500) is unambiguously teal to virtually every
+// user, still passes AA contrast on white, and stays visually harmonious
+// with the mint (#5EEAD4) we use on the welcome/dark hero.
+const TEAL_INK = "#14B8A6";
 const TAGLINE_INK = "#708EAA";
 
 // The definitive teal butterfly logo — the primary FriendPlace brand mark.
