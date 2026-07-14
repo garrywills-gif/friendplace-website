@@ -1,0 +1,37 @@
+{
+  "summary": "Iter-57 backend fix verified end-to-end. The invite-flyer 'Become a Founding Member' ribbon is now STATIC – no live 'X of 500 places remaining' phrase renders on the PNG – and the ribbon auto-hides when the founder cohort is full, at which point the QR block correctly shifts up the page. 7/7 pytest cases pass in /app/backend/tests/test_iter57_flyer_static_ribbon.py: (1) GET /api/admin/invite-flyer?admin_id=7452ce79-…&venue=North%20Ryde%20RSL returns HTTP 200, image/png, 1240x1754 (A4@150dpi), filename ending in .png; (2) pytesseract OCR of the ribbon crop (y=830..1070, x=60..1180) CONTAINS 'FOUNDING MEMBER' and 'Free to join', and full-page OCR does NOT contain 'remaining', 'N of 500', or 'N spots/places left' patterns (case-insensitive regex); (3) gold ribbon (#FBBF24) pixels present in the ribbon band while cohort is open (baseline max 168 gold hits per scanned row); (4) after seeding 500+10 dummy is_founder:true / is_demo:false users into MongoDB (tagged seeded_by=iter57_cohortfull_seed), the same endpoint no longer draws the gold rectangle (worst row gold_hits < 15, well within anti-alias tolerance) AND full-page OCR loses 'FOUNDING MEMBER'; (5) with the ribbon hidden the QR navy frame top border moves from baseline y≈1080 to y≈<980 (>100px upward shift, confirming the dynamic ribbon_bottom_y fallback path at server.py:6045); (6) endpoint still works with NO Authorization header; (7) Content-Disposition filename still ends in .png. Full cleanup verified – Mongo returns to 76 users / 4 non-demo founders after teardown. Iter-55 (10 tests) and iter-56 (7 tests) full flyer + profile regression suites still 100% green, so no side-effects from the static-copy change.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter57_flyer_static_ribbon.py",
+    "/app/test_reports/pytest/iter57.xml"
+  ],
+  "action_items": [
+    "None – iter-57 fix is complete and verified. Ribbon copy is now static and cohort-full auto-hide works as designed.",
+    "OPTIONAL follow-up carried over from iter-56 (not this iteration): the 'Posted by <venue>' credit line at RIBBON_BOTTOM+8 with font 18 still grazes the QR frame top border by ~2px – cosmetic only."
+  ],
+  "critical_code_review_comments": [
+    "server.py:6114-6124 — ribbon copy is now three purely static strings (ribbon_lead / ribbon_benefit / ribbon_sub); no f-string interpolation of `remaining`, `founder_count`, or `cohort_cap` anywhere in the visible text. Verified by grep + pixel OCR.",
+    "server.py:6056 guard `if cohort_cap > 0 and founder_count < cohort_cap:` remains intact and correctly branches around the entire ribbon draw when the cohort is full, so the ribbon disappears atomically instead of leaving a hollow rectangle behind. Verified with a 500-user seed.",
+    "server.py:6045 `ribbon_bottom_y = LABEL_Y + 60` fallback is what allows the QR block to slide up cleanly – the pixel test measured a >100px upward shift of the navy frame when the ribbon was hidden. This is the intended behaviour.",
+    "settings.founding_member_cap is read once per request (line 6047) – no memoisation bug that would let a stale count linger; the pixel test explicitly toggles the cohort state between calls and gets the correct render each time.",
+    "count_documents uses `is_demo: {'$ne': True}` filter so demo/seed accounts don't inflate the founder count. Test seed respects this convention (is_demo=False)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter57_flyer_static_ribbon.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "n/a (backend-only iteration)"},
+  "seed_data_creation": "Class-scoped pytest fixture inserted 510 dummy user docs into test_database.users with {is_founder: True, is_demo: False, seeded_by: 'iter57_cohortfull_seed'} to force the cohort-full branch. Cleanup runs in the fixture's finally block via delete_many({'seeded_by': 'iter57_cohortfull_seed'}) – confirmed Mongo returned to the pre-test baseline of 76 users / 4 non-demo founders.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter-57 covers the flyer ribbon static-copy + cohort-full auto-hide invariants. Reuse /app/backend/tests/test_iter57_flyer_static_ribbon.py::TestFlyerStaticRibbon and ::TestFlyerRibbonHiddenWhenCohortFull for any future ribbon or QR-position changes. Required system deps for these tests: `tesseract-ocr` (apt) + `pytesseract` (pip) – install these if the runner is fresh. Cohort-full seed uses `seeded_by=iter57_cohortfull_seed` tag; if a run is interrupted, run `db.users.delete_many({'seeded_by': 'iter57_cohortfull_seed'})` to reset. The pytest fixtures already gate the baseline QR scan behind a cohort-open assertion so leftover seed data will fail the test loudly rather than produce a false positive.",
+  "rca_of_issue": "N/A – this iteration verified an intentional product fix rather than a bug. The prior behaviour interpolated `remaining` and `cohort_cap` into the ribbon; the fix removes those two f-string substitutions and replaces the second and third ribbon lines with hard-coded copy. The pre-existing outer guard `if cohort_cap > 0 and founder_count < cohort_cap:` was already correct and unchanged, so the auto-hide behaviour is preserved by the same logic that previously governed whether the ribbon was drawn at all."
+}

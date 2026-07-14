@@ -6111,14 +6111,17 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
             d.ellipse([cx + upper_w - 22, cy - upper_h // 2 - 4,
                        cx + upper_w - 8, cy - upper_h // 2 + 10], fill=accent)
 
-        # Three lines inside the ribbon (lead + benefit + count), centred.
+        # Three lines inside the ribbon (lead + benefit + call-to-join),
+        # centred. Copy is deliberately STATIC — no live "X of 500
+        # remaining" count — because printed flyers stay on noticeboards
+        # for weeks and any dynamic number would be stale by the time
+        # someone reads it. The ribbon itself only renders while the
+        # cohort still has space; once it's full the whole ribbon
+        # disappears from the flyer, so we don't have to advertise
+        # "remaining" at all — presence of the ribbon is the signal.
         ribbon_lead = "BECOME A FOUNDING MEMBER"
         ribbon_benefit = "Founding Member badge + early access to new features"
-        if founder_count > 0:
-            ribbon_sub = f"{remaining:,} of {cohort_cap:,} places remaining · Free to join"
-        else:
-            ribbon_lead = "BE A FOUNDING MEMBER"
-            ribbon_sub = f"Among the first {cohort_cap:,} · Free to join"
+        ribbon_sub = "Free to join · Limited to the first supporters"
         try:
             # ── Lead line: auto-fit so the text + butterfly icon fit width ─
             ICON_SPAN = 70  # butterfly width in px
