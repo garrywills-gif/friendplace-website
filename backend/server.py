@@ -6197,7 +6197,7 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     # stack at the bottom of the page so it can't overlap either the
     # QR outline or the "SCAN TO JOIN FREE" line.
     if venue:
-        centre(f"Posted by {venue}", RIBBON_BOTTOM + 14, font(20, bold=False), SLATE)
+        centre(f"Posted by {venue}", RIBBON_BOTTOM + 8, font(18, bold=False), SLATE)
 
     # ─── CTA stack ────────────────────────────────────────────────────────
     # Layout budget from qr_y+qr_size onward:
