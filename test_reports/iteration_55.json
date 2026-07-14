@@ -1,0 +1,40 @@
+{
+  "summary": "Verified all three iPad-Safari flyer/profile bug fixes end-to-end. Backend: 10/10 pytest cases pass in /app/backend/tests/test_iter55_flyer_and_profile.py — GET /api/admin/invite-flyer now returns HTTP 200 without any Bearer token (only admin_id capability check), body starts with PNG magic bytes 89 50 4E 47, Content-Disposition is 'inline; filename=\"friendplace-flyer-North-Ryde-RSL.png\"' (no more .json suffix, venue slug sanitized, quotes/spaces/path chars all stripped from special-char venue names), X-Content-Type-Options: nosniff header present, non-admin demo user (frankie) → 403, unknown UUID → 403, missing admin_id → 422. Frontend (mobile viewport 390×844): logged in as Margaret via 'Try a demo account' → Log In → Margaret; Profile tab renders all 4 stat cells on one line each — Butterfly Points shows '731' at fontSize 26px (3-digit rule) in a 43px-wide box inside an 80px cell, other stats at 32px, no overflow, no wrapping. Admin → Invite Flyer page loads the preview image successfully (naturalWidth=1240, naturalHeight=1754 confirming A4 PNG served without auth); clicking 'Download PNG' now injects an <a> with target='_blank' rel='noopener' (verified via appendChild instrumentation), which gives Safari a proper new tab with X close button — the previous <a download>/blob-401 path is gone.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Profile", "issues": ["Cosmetic-only: 'Butterfly Points' label wraps to 2 lines (label alone is ~15 chars), making the leftmost stat cell 68px tall vs the other three at 52px. Alignment is still visually acceptable and the number is not squashed — but if pixel-perfect symmetry is desired, consider a shorter label like 'Points' or a fixed statBox height. Not blocking, not part of the reported bug."]}
+    ],
+    "react_native_issues": [
+      {"component": "RNW deprecation warnings (repo-wide)", "issue": "Console spam on every screen: '\"shadow*\" style props are deprecated. Use \"boxShadow\"', '\"textShadow*\" style props are deprecated. Use \"textShadow\"', 'props.pointerEvents is deprecated. Use style.pointerEvents'. These are pre-existing across the codebase, not new regressions from this fix — flagging for a future cleanup pass in StyleSheet.create() blocks."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter55_flyer_and_profile.py",
+    "/app/test_reports/pytest/iter55.xml"
+  ],
+  "action_items": [
+    "No action required for the three reported bugs — all verified fixed on both backend and frontend.",
+    "Optional cleanup (low priority): migrate shadow*, textShadow*, pointerEvents props to their new RN Web equivalents to silence console warnings."
+  ],
+  "critical_code_review_comments": [
+    "Backend flyer endpoint correctly documents the intentional no-auth-token stance (admin_id UUID acts as capability token). The comment at server.py:5731-5740 makes the security tradeoff explicit — good.",
+    "Filename sanitization at server.py:6191-6193 uses re.sub(r'[^A-Za-z0-9._-]+', '-') which is safe against Safari's fake-extension sniffing (verified with 'Bob\\'s Bar & Grill / ../etc.png' input — output has no quotes, slashes, or spaces).",
+    "profile.tsx digitFs() step function is well chosen (32/26/22pt for 1-2/3/4+ digits) and belt-and-braces adjustsFontSizeToFit + minimumFontScale=0.6 handles pathological cases (e.g. 100k+ Butterfly Points).",
+    "flyer.tsx web download path correctly uses target='_blank' rel='noopener' — no window.open pop-up blocker issues, and Safari preserves the auth-less GET so no 401→.json bug can recur."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter55_flyer_and_profile.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Used existing demo accounts maggie (admin) and frankie (non-admin) via /api/auth/demo-login.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter 55 verified three iPad-Safari fixes: (1) flyer PNG serves without Bearer + sanitized filename + nosniff, (2) frontend opens flyer in _blank tab, (3) Butterfly Points stat font shrinks for 3+ digits. Full pytest coverage lives in test_iter55_flyer_and_profile.py — reuse for regression. Admin id used for testing is the actual maggie demo id fetched at test-time; the review-provided constant 7452ce79-7027-4a94-9669-0ee3a521a5ec happens to match maggie in this DB.",
+  "rca_of_issue": "Root cause of the original 'friendplace-flyer-*.png.json' bug: the endpoint required Depends(current_admin) which reads a Bearer token, but iOS Safari's <a download> path fires a top-level GET with no Authorization header, so it hit 401, and the tiny JSON error body was saved with Safari's sniff-guess extension. Fix chain: (a) remove the Depends(current_admin) — admin_id in the URL is enough capability, (b) explicit Content-Disposition with sanitized filename ending in .png, (c) X-Content-Type-Options: nosniff to stop Safari's MIME override, (d) frontend switches to target='_blank' so users get a real close affordance. All four layers verified independently in this iteration."
+}

@@ -52,25 +52,30 @@ export default function InviteFlyer() {
     setBusy(true);
     try {
       if (Platform.OS === "web") {
-        // Force a download attribute via an anchor click so the browser saves
-        // it to disk instead of just opening it in a new tab.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // Open the flyer in a NEW browser tab so Safari renders it as a
+        // proper image (with its own address bar and X close button) — the
+        // previous <a download> path could 401 on iOS Safari because it
+        // fired a top-level navigation without our auth headers, ending
+        // up as an unopenable "*.png.json" blob. The endpoint is now
+        // Bearer-free so a plain new-tab open works everywhere and gives
+        // the user a real "close tab" affordance.
         const doc: any = (globalThis as any).document;
         if (doc) {
           const a = doc.createElement("a");
           a.href = previewUrl;
-          a.download = venue.trim() ? `friendplace-flyer-${venue.trim().replace(/\s+/g, "-")}.png` : "friendplace-flyer.png";
+          a.target = "_blank";
+          a.rel = "noopener";
           doc.body.appendChild(a);
           a.click();
           doc.body.removeChild(a);
-          show("Flyer downloaded — happy printing!");
+          show("Flyer opened — tap the share icon in Safari to save or print");
         }
       } else {
         await Linking.openURL(previewUrl);
         show("Flyer opened — long-press to save");
       }
     } catch {
-      show("Could not download flyer");
+      show("Could not open flyer");
     } finally {
       setBusy(false);
     }

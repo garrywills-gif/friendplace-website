@@ -231,27 +231,60 @@ export default function Profile() {
         );
       })()}
 
-      <View style={[styles.statsCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-        <View style={styles.statBox}>
-          <Text style={[styles.statNum, { color: c.brand, fontSize: 32 * scale }]}>{user.points}</Text>
-          <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Butterfly Points</Text>
-        </View>
-        <View style={[styles.divider, { backgroundColor: c.border }]} />
-        <View style={styles.statBox}>
-          <Text style={[styles.statNum, { color: c.brand, fontSize: 32 * scale }]}>{friends.length}</Text>
-          <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Friends</Text>
-        </View>
-        <View style={[styles.divider, { backgroundColor: c.border }]} />
-        <View style={styles.statBox}>
-          <Text style={[styles.statNum, { color: c.brand, fontSize: 32 * scale }]}>{user.badges?.length || 0}</Text>
-          <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Badges</Text>
-        </View>
-        <View style={[styles.divider, { backgroundColor: c.border }]} />
-        <View style={styles.statBox} testID="profile-invites-stat">
-          <Text style={[styles.statNum, { color: c.brand, fontSize: 32 * scale }]}>{inviteCount}</Text>
-          <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Invites</Text>
-        </View>
-      </View>
+      {(() => {
+        // Shrink the stat number's font size for 3+ digit values so
+        // "731 Butterfly Points" doesn't squash / wrap into the tiny
+        // stat-box column. The steps are chosen empirically against the
+        // narrowest iPhone width (~92pt per stat cell):
+        //   1-2 digits  → 32pt  (default)
+        //   3   digits  → 26pt
+        //   4+  digits  → 22pt
+        const digitFs = (n: number): number => {
+          const len = String(Math.max(0, n | 0)).length;
+          if (len >= 4) return 22;
+          if (len === 3) return 26;
+          return 32;
+        };
+        const numStyle = (n: number) => [styles.statNum, {
+          color: c.brand,
+          fontSize: digitFs(n) * scale,
+          // Line-height matched to the smallest font so the four cells
+          // stay vertically aligned regardless of which one shrinks.
+          lineHeight: 34 * scale,
+          // adjustsFontSizeToFit as a belt-and-braces for wildly high
+          // numbers (e.g., 10k+).
+        }];
+        return (
+          <View style={[styles.statsCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <View style={styles.statBox}>
+              <Text
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
+                style={numStyle(user.points || 0)}
+              >
+                {user.points}
+              </Text>
+              <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Butterfly Points</Text>
+            </View>
+            <View style={[styles.divider, { backgroundColor: c.border }]} />
+            <View style={styles.statBox}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(friends.length)}>{friends.length}</Text>
+              <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Friends</Text>
+            </View>
+            <View style={[styles.divider, { backgroundColor: c.border }]} />
+            <View style={styles.statBox}>
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(user.badges?.length || 0)}>{user.badges?.length || 0}</Text>
+              <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Badges</Text>
+            </View>
+            <View style={[styles.divider, { backgroundColor: c.border }]} />
+            <View style={styles.statBox} testID="profile-invites-stat">
+              <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(inviteCount)}>{inviteCount}</Text>
+              <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Invites</Text>
+            </View>
+          </View>
+        );
+      })()}
 
       <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>🦋 Badges</Text>
       <View style={styles.badgeWrap}>

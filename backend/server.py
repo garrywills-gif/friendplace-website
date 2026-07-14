@@ -5723,25 +5723,21 @@ class AdminHardDeleteBody(BaseModel):
 
 
 @api.get("/admin/invite-flyer")
-async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = "", _me: dict = Depends(current_admin)):
+async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
     for printing and pinning up at noticeboards. The layout is intentionally
-    BOLD and TYPOGRAPHIC so it works at a glance from across a room:
+    BOLD and TYPOGRAPHIC so it works at a glance from across a room.
 
-        ┌────────────────────────────┐
-        │     YOUBELONG (huge)       │  ← navy banner, fills top
-        ├────────────────────────────┤
-        │  FIND YOUR PEOPLE.         │  ← big bold headline
-        │                            │
-        │  Lead description (large)  │
-        │  Sub description (medium)  │
-        │                            │
-        │     [ Large QR code ]      │  ← higher on page
-        │     Scan to Join Free      │
-        │     youbelongapp.com       │
-        │                            │
-        │ Because You Belong Too.    │  ← footer line
-        └────────────────────────────┘
+    NOTE ON AUTH:
+      This endpoint is deliberately reachable WITHOUT a Bearer token — it
+      only checks that ?admin_id points to an existing admin. That's
+      because iOS Safari's `<a download>` shortcut fires a plain top-level
+      navigation with no Authorization header, which used to 401 → give
+      us back a tiny JSON body → and Safari would then save the file as
+      "friendplace-flyer-*.png.json" (an unopenable blob). The flyer
+      contains only public info (app name, QR code, admin's referral id)
+      so treating the admin_id as a capability token is acceptable —
+      guessing a UUID v4 is cryptographically infeasible.
     """
     await _require_admin(admin_id)
     import io
@@ -6188,12 +6184,28 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = "", _me:
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
+    # Use a venue-scoped filename so downloaded posters are self-labelling
+    # in the user's Downloads folder. Sanitize aggressively — Safari treats
+    # unsafe characters as a signal to append a fake extension (.json etc)
+    # and refuses to preview the file.
+    import re as _re
+    safe_venue = _re.sub(r"[^A-Za-z0-9._-]+", "-", (venue or "").strip()).strip("-")
+    file_name = f"friendplace-flyer-{safe_venue}.png" if safe_venue else "friendplace-flyer.png"
     return Response(
         content=buf.getvalue(),
         media_type="image/png",
         headers={
-            "Content-Disposition": 'inline; filename="youbelong-flyer.png"',
+            # `inline` lets Safari preview the PNG in a normal image viewer
+            # (with a proper X close button), rather than showing the file
+            # picker "Open in WeChat / More…" sheet that appears whenever
+            # the media type isn't recognised. Explicitly quoting the
+            # filename works around Safari's weirdness with hyphens too.
+            "Content-Disposition": f'inline; filename="{file_name}"',
             "Cache-Control": "no-store",
+            # A hint to Safari that this really is an image — some
+            # versions ignore Content-Type when preceded by an auth
+            # redirect and fall back to sniffing this header.
+            "X-Content-Type-Options": "nosniff",
         },
     )
 
