@@ -265,22 +265,22 @@ export default function Profile() {
               >
                 {user.points}
               </Text>
-              <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Butterfly Points</Text>
+              <Text style={[styles.statLab, { color: c.muted, fontSize: 13 * scale }]}>🦋 Points</Text>
             </View>
             <View style={[styles.divider, { backgroundColor: c.border }]} />
             <View style={styles.statBox}>
               <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(friends.length)}>{friends.length}</Text>
-              <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Friends</Text>
+              <Text style={[styles.statLab, { color: c.muted, fontSize: 13 * scale }]}>Friends</Text>
             </View>
             <View style={[styles.divider, { backgroundColor: c.border }]} />
             <View style={styles.statBox}>
               <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(user.badges?.length || 0)}>{user.badges?.length || 0}</Text>
-              <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Badges</Text>
+              <Text style={[styles.statLab, { color: c.muted, fontSize: 13 * scale }]}>Badges</Text>
             </View>
             <View style={[styles.divider, { backgroundColor: c.border }]} />
             <View style={styles.statBox} testID="profile-invites-stat">
               <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6} style={numStyle(inviteCount)}>{inviteCount}</Text>
-              <Text style={[styles.statLab, { color: c.muted, fontSize: 14 * scale }]}>Invites</Text>
+              <Text style={[styles.statLab, { color: c.muted, fontSize: 13 * scale }]}>Invites</Text>
             </View>
           </View>
         );

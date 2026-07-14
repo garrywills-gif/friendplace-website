@@ -6036,6 +6036,13 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     # Live count makes the urgency real: someone reading the poster sees
     # exactly how many spots are still open. Fails gracefully (hidden ribbon)
     # if the founder cohort programme is closed or the count lookup fails.
+    #
+    # `ribbon_bottom_y` is set INSIDE the render branch so the QR block
+    # further down can position itself immediately below the ribbon,
+    # regardless of whether it rendered or was hidden. This is the key
+    # to avoiding the earlier bug where a hardcoded qr_y=960 overlapped
+    # the ribbon at ~y=1050.
+    ribbon_bottom_y = LABEL_Y + 60  # sensible default when ribbon is hidden
     try:
         cohort_cap = int(settings.founding_member_cap or 0)
     except Exception:
@@ -6055,6 +6062,7 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
         # separate without wasting vertical real estate).
         RIBBON_Y = LABEL_Y + 90
         RIBBON_H = 195
+        ribbon_bottom_y = RIBBON_Y + RIBBON_H
         # Slightly taller ribbon — needs to hold a benefit line + count
         # below the lead, plus a hand-drawn butterfly icon to its left
         # (Liberation Sans doesn't ship with the 🦋 emoji glyph so we draw
@@ -6153,9 +6161,14 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
         except Exception:
             pass
 
-    # ─── QR code — bumped back up to 680px (just over 4½ inches printed) so
-    # older readers can scan from further away. Vertical anchor moved up
-    # slightly to keep the bottom CTA on the page without crowding.
+    # ─── QR code — sized to still scan easily from ~1.5m away while
+    # leaving room for the CTA + tagline within the A4 page height. The
+    # QR sits DIRECTLY BELOW the founding-member ribbon rather than at a
+    # hardcoded y, so however tall the ribbon ends up we can never
+    # overlap it (the earlier hardcoded qr_y=960 clashed with the ribbon
+    # bottom at y≈1047). We also fell back to sane defaults if the
+    # ribbon was hidden.
+    RIBBON_BOTTOM = ribbon_bottom_y
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -6164,23 +6177,40 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     qr.add_data(target_url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color=INK, back_color="#FFFFFF").convert("RGB")
-    qr_size = 680
+    # 520px @ 150 dpi = 3.5" printed — well above the ~1" minimum for a
+    # phone camera to lock on at reading distance, and small enough to
+    # leave headroom for the CTA + tagline below without clipping the
+    # bottom of the page.
+    qr_size = 520
     qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
     qr_x = (W - qr_size) // 2
-    qr_y = 960
+    # 30px gap between the ribbon and the QR frame so they don't visually
+    # touch. If a "Posted by" line is present it sits BELOW the QR now
+    # (see below) so we don't need any headroom above it here.
+    qr_y = RIBBON_BOTTOM + 46
     img.paste(qr_img, (qr_x, qr_y))
     d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14],
                 outline=NAVY, width=4)
 
+    # "Posted by <venue>" credit — tucked into the gap between the
+    # ribbon and the QR frame. This keeps it far away from the CTA
+    # stack at the bottom of the page so it can't overlap either the
+    # QR outline or the "SCAN TO JOIN FREE" line.
+    if venue:
+        centre(f"Posted by {venue}", RIBBON_BOTTOM + 14, font(20, bold=False), SLATE)
+
     # ─── CTA stack ────────────────────────────────────────────────────────
+    # Layout budget from qr_y+qr_size onward:
+    #   +22px gap → SCAN TO JOIN FREE (~78pt / 82px)
+    #   +82px → Because You Belong Too. (~34pt / 42px)
+    # Total: ~146px trailing content. Page height 1754, so we need
+    # qr_y + qr_size ≤ ~1580. With qr_y ≈ 1077 and qr_size = 520 we sit
+    # at 1597 — leaving 157px for the CTA + tagline which fits neatly.
     cta_y = qr_y + qr_size + 22
     fit_centred("SCAN TO JOIN FREE", cta_y, W - 2 * SIDE,
-                start_size=78, min_size=60, fill=NAVY, bold=True,
+                start_size=72, min_size=56, fill=NAVY, bold=True,
                 condensed=True)
-    centre("Because You Belong Too.", cta_y + 82, font(34, italic=True), TEAL)
-
-    if venue:
-        centre(f"Posted by {venue}", qr_y - 32, font(24, bold=False), SLATE)
+    centre("Because You Belong Too.", cta_y + 78, font(30, italic=True), TEAL)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)

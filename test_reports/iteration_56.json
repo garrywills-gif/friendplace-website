@@ -1,0 +1,40 @@
+{
+  "summary": "Verified both iter-56 follow-up fixes end-to-end. Backend (7/7 pytest passing in /app/backend/tests/test_iter56_flyer_layout_and_profile.py): GET /api/admin/invite-flyer for maggie returns HTTP 200 with a 1240x1754 PNG (A4@150dpi); non-admin (frankie) → 403; the known-admin-id supplied in the review (7452ce79-…) works and returns a PNG. Pixel inspection of the flyer confirms (a) a clean white gap (~30-40px) between the gold 'Become a Founding Member' ribbon and the navy QR-frame outline — no overlap — and (b) the 'Because You Belong Too.' teal tagline is rendered near the bottom of the page WITHOUT clipping (row H-1 is background/white, tagline colour detected in the last 120 rows). Frontend (390x844 mobile viewport): logged in as Margaret via 'Try a demo account', navigated to /profile; all 4 stat cells render inline with UNIFORM height 51px x width 80px — previous 68 vs 52 discrepancy is gone. Every label ('🦋 Points', 'Friends', 'Badges', 'Invites') renders at fontSize 13px on exactly 1 line, so the user's 'friends/badges/invites disappeared' regression is fully resolved. Visual flyer inspection confirmed via saved PNG.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/admin/invite-flyer", "issue": "'Posted by <venue>' credit line at RIBBON_BOTTOM+14 with font size 20 grazes the top of the QR frame outline (drawn at qr_y-14 = RIBBON_BOTTOM+32) — the text baseline sits ~2-4px inside the frame's top border. It is still legible in the rendered PNG but strictly overlaps the border by a couple of pixels. Consider RIBBON_BOTTOM+8 with the smaller 20pt font ending at ~28 so it clears the border at 32. Not a regression from this iteration and does NOT recreate the reported ribbon↔QR overlap."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "RNW deprecation warnings (repo-wide)", "issue": "Pre-existing console spam still present on every screen: '\"shadow*\" style props are deprecated. Use \"boxShadow\"', '\"textShadow*\" style props are deprecated. Use \"textShadow\"', 'props.pointerEvents is deprecated. Use style.pointerEvents'. Carried over from iter-55 — not blocking, flagged for a future style-sheet cleanup pass."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter56_flyer_layout_and_profile.py",
+    "/app/test_reports/pytest/iter56.xml"
+  ],
+  "action_items": [
+    "Both reported bugs are fixed and verified — no action required.",
+    "OPTIONAL (cosmetic follow-up): tighten the 'Posted by <venue>' line position so it doesn't graze the QR frame's top border (e.g. drop it to RIBBON_BOTTOM+8 or shrink to font 18)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:6045-6065 correctly hoists `ribbon_bottom_y` out of the `if cohort_cap > 0` branch with a sensible fallback (LABEL_Y+60) — this is what allows the qr_y math to stay valid when the founding-member cohort is closed.",
+    "server.py:6190 `qr_y = RIBBON_BOTTOM + 46` now DYNAMICALLY positions the QR based on the actual ribbon height — the original bug (hardcoded 960) is structurally impossible to recreate.",
+    "server.py:6209-6213 CTA + tagline budget documented inline (comment lines 6203-6208). Math verified: qr_y≈1077 + qr_size 520 = 1597, +22 gap = 1619 for CTA, +78 = 1697 for tagline, +30 font ≈ 1727 — safely inside H=1754. Confirmed by pixel test.",
+    "profile.tsx:268/273/278/283 all four stat labels now use fontSize 13*scale (down from 14) AND '🦋 Points' is a single word — labels no longer wrap. Verified in browser: labelApproxLines=1 for all four."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter56_flyer_layout_and_profile.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None — used existing demo accounts maggie (admin) and frankie (non-admin) via /api/auth/demo-login.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iter 56 verified: (1) flyer no longer has ribbon↔QR overlap (dynamic qr_y = ribbon_bottom_y + 46), (2) tagline no longer clipped (qr_size 520 + smaller CTA fonts leave room), (3) profile stats now uniform 51px height with single-line labels after renaming 'Butterfly Points' → '🦋 Points' and shrinking to fontSize 13. Pixel-level layout regression is covered by test_iter56_flyer_layout_and_profile.py::TestFlyerLayout — the two tests scan for the gold-ribbon→navy-QR gap and for teal-tagline presence in the last 120 rows. Reuse for future flyer tweaks. Minor: 'Posted by <venue>' credit line grazes QR top border by a couple of px — cosmetic only.",
+  "rca_of_issue": "Root cause of BOTH reported bugs was hardcoded layout constants. Bug 1 (label wrap): 'Butterfly Points' is 15 chars vs 6-7 for its siblings, so on narrow phones the label wrapped to 2 lines and pushed cell height 68px vs 52px — user perceived the whole cell as broken, thinking Friends/Badges/Invites had disappeared. Fix: shorten to '🦋 Points' + drop 14→13pt. Bug 2 (flyer): qr_y was hardcoded to 960 while the founder ribbon extends to ~y=1050, and the 680px QR + 78pt CTA + 34pt tagline pushed the bottom line to y≈1780 (clipped past 1754). Fix chain: dynamic qr_y = ribbon_bottom_y + 46 (no possible overlap), shrink QR 680→520, shrink CTA 78→72 min 56, shrink tagline 34→30, and move 'Posted by' up into the ribbon→QR gap. All four changes are individually verified by the pixel-level tests in test_iter56."
+}
