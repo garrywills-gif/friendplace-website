@@ -1,4 +1,4 @@
-"""YouBelong — User-selectable status system regression suite.
+"""FriendPlace — User-selectable status system regression suite.
 
 Covers:
 - GET /api/status-options returns the 5 status options (label/code/emoji)

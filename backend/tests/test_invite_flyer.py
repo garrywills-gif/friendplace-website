@@ -104,7 +104,7 @@ class TestInviteAttribution:
 # 2. Admin invite flyer PNG
 class TestInviteFlyer:
     def test_flyer_returns_png_correct_dimensions(self, session, maggie_id):
-        params = {"admin_id": maggie_id, "venue": "Sydney Library", "url": "https://youbelong.app/?ref=abc"}
+        params = {"admin_id": maggie_id, "venue": "Sydney Library", "url": "https://friendplace.com.au/?ref=abc"}
         r = session.get(f"{API}/admin/invite-flyer", params=params)
         assert r.status_code == 200, r.text
         assert r.headers.get("content-type", "").startswith("image/png")
@@ -112,13 +112,13 @@ class TestInviteFlyer:
         assert img.size == (1240, 1754), f"Got {img.size}"
 
     def test_flyer_without_venue_ok(self, session, maggie_id):
-        r = session.get(f"{API}/admin/invite-flyer", params={"admin_id": maggie_id, "url": "https://youbelong.app"})
+        r = session.get(f"{API}/admin/invite-flyer", params={"admin_id": maggie_id, "url": "https://friendplace.com.au"})
         assert r.status_code == 200
         assert r.headers.get("content-type", "").startswith("image/png")
 
     def test_flyer_non_admin_forbidden(self, session, frankie_id):
         # frankie is not admin
-        r = session.get(f"{API}/admin/invite-flyer", params={"admin_id": frankie_id, "url": "https://youbelong.app"})
+        r = session.get(f"{API}/admin/invite-flyer", params={"admin_id": frankie_id, "url": "https://friendplace.com.au"})
         assert r.status_code == 403, f"expected 403, got {r.status_code}: {r.text[:200]}"
 
 

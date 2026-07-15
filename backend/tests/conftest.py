@@ -1,4 +1,4 @@
-"""Pytest conftest for YouBelong backend tests.
+"""Pytest conftest for FriendPlace backend tests.
 
 - Ensures /app/backend is on sys.path so test files can import server modules
   (e.g., `from trivia_data import QUESTIONS`).

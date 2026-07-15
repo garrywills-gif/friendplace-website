@@ -1,4 +1,4 @@
-"""YouBelong backend API tests."""
+"""FriendPlace backend API tests."""
 import os
 import json
 import asyncio

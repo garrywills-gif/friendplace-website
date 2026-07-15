@@ -1,5 +1,5 @@
 """
-Backend tests for the Sudoku game (YouBelong).
+Backend tests for the Sudoku game (FriendPlace).
 
 Covers:
  - GET /api/games/sudoku/catalog (4 difficulties, clues 40/32/26/20, points 5/10/15/25, hints 3/3/2/1, max_mistakes=3)

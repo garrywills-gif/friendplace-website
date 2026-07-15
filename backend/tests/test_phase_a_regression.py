@@ -1,4 +1,4 @@
-"""YouBelong — Phase A Launch Readiness regression suite.
+"""FriendPlace — Phase A Launch Readiness regression suite.
 
 Covers the explicit spec items for the final pre-Phase-B verification:
 

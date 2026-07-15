@@ -1,4 +1,4 @@
-"""Backend tests for the Trivia Game feature in YouBelong's Games Hub.
+"""Backend tests for the Trivia Game feature in FriendPlace's Games Hub.
 
 Covers:
 - Catalog (categories, difficulties, difficulty_meta with points)

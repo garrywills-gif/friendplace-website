@@ -1,5 +1,5 @@
 """
-Backend tests for the Word Search game (YouBelong).
+Backend tests for the Word Search game (FriendPlace).
 
 Covers:
  - GET /api/games/wordsearch/catalog (20 themes + 4 difficulties)

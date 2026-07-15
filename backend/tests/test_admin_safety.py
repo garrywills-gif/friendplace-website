@@ -1,4 +1,4 @@
-"""YouBelong Admin Moderation & Safety backend tests.
+"""FriendPlace Admin Moderation & Safety backend tests.
 
 Covers:
 - /api/safety/report-reasons (6-reason taxonomy)
