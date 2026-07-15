@@ -152,7 +152,15 @@ export default function Welcome() {
         router.replace("/home" as any);
       }
     }
-  }, [loading, user]);
+    // CRITICAL: depend on `user?.id` (stable primitive) — NOT on the
+    // `user` object reference. AuthProvider.refresh() creates a new
+    // user object on every background refresh (silent or not), even
+    // when the data is identical. If this effect depended on the whole
+    // object, every tab's useFocusEffect that called refresh() would
+    // trigger this hook, which calls router.replace("/home") and
+    // yanks the user back to the Home tab. Reported bug: Profile tab
+    // rendered fully with data, then bounced to Home ~500ms later.
+  }, [loading, user?.id]);
 
   if (loading) {
     return (
