@@ -489,12 +489,19 @@ export const api = {
     req(`/notices/${id}/report/${user_id}`, { method: "POST", body: JSON.stringify({ reason }) }),
 
   // dm
-  myConversations: (uid: string) => req(`/dm/${uid}/conversations`),
+  myConversations: (uid: string, filter: "active" | "archived" | "all" = "active") =>
+    req(`/dm/${uid}/conversations?filter=${filter}`),
   // Silent variant — used by the bottom-tab Chats badge poll so a
   // background refresh never nukes the session on a transient 401.
-  myConversationsSilent: (uid: string) => req(`/dm/${uid}/conversations`, {}, { silent: true }),
+  myConversationsSilent: (uid: string, filter: "active" | "archived" | "all" = "active") =>
+    req(`/dm/${uid}/conversations?filter=${filter}`, {}, { silent: true }),
   dmUnreadTotal: (uid: string) => req(`/dm/${uid}/unread-total`, {}, { silent: true }),
+  dmArchivedCount: (uid: string) => req(`/dm/${uid}/archived-count`, {}, { silent: true }),
   dmMarkRead: (convId: string) => req(`/dm/${convId}/mark-read`, { method: "POST" }),
+  dmArchive: (convId: string) => req(`/dm/${convId}/archive`, { method: "POST" }),
+  dmUnarchive: (convId: string) => req(`/dm/${convId}/unarchive`, { method: "POST" }),
+  dmHide: (convId: string) => req(`/dm/${convId}/hide`, { method: "POST" }),
+  dmUnhide: (convId: string) => req(`/dm/${convId}/unhide`, { method: "POST" }),
   startDm: (uid: string, other: string) => req("/dm/start", { method: "POST", body: JSON.stringify({ user_id: uid, other_id: other }) }),
   dmMessages: (cid: string) => req(`/dm/${cid}/messages`),
 

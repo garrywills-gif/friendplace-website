@@ -7952,11 +7952,33 @@ def dm_conv_id(a: str, b: str) -> str:
 
 
 @api.get("/dm/{user_id}/conversations")
-async def my_conversations(user_id: str, me: dict = Depends(current_user)):
+async def my_conversations(user_id: str, filter: str = "active", me: dict = Depends(current_user)):
+    """List the caller's DM conversations.
+
+    Query param `filter`:
+      • "active"   (default) — visible in the main Chats list.
+                    Excludes anything the caller archived or soft-deleted.
+      • "archived" — only the caller's archived threads. Soft-deleted
+                    threads are still hidden (delete outranks archive).
+      • "all"      — includes archived, still hides soft-deleted.
+                    Useful for admin/debug — not currently used by UI.
+
+    Archive & soft-delete are per-user: `dm_conversations.archived_for`
+    and `dm_conversations.hidden_for` are lists of user_ids. The peer
+    is completely unaffected by either action.
+    """
     # SEC-101: only the owner can enumerate their conversations.
     if me.get("id") != user_id:
         raise HTTPException(403, "Not authorised")
-    docs = await db.dm_conversations.find({"participants": user_id}, {"_id": 0}).sort("updated_at", -1).to_list(100)
+    docs = await db.dm_conversations.find({"participants": user_id}, {"_id": 0}).sort("updated_at", -1).to_list(200)
+    # Filter based on per-user archive/hide flags. Soft-deleted ("hidden")
+    # threads are always excluded from every filter except an admin
+    # debug path — see docstring.
+    docs = [d for d in docs if user_id not in (d.get("hidden_for") or [])]
+    if filter == "active":
+        docs = [d for d in docs if user_id not in (d.get("archived_for") or [])]
+    elif filter == "archived":
+        docs = [d for d in docs if user_id in (d.get("archived_for") or [])]
     # attach other user info + last message + unread_count + peer status
     out = []
     for c in docs:
@@ -7989,8 +8011,99 @@ async def my_conversations(user_id: str, me: dict = Depends(current_user)):
         if last_read_ts:
             unread_query["created_at"] = {"$gt": last_read_ts}
         unread_count = await db.messages.count_documents(unread_query)
-        out.append({**c, "other": other_safe, "last": last, "unread_count": unread_count})
+        out.append({
+            **c,
+            "other": other_safe,
+            "last": last,
+            "unread_count": unread_count,
+            "is_archived": user_id in (c.get("archived_for") or []),
+        })
     return out
+
+
+@api.get("/dm/{user_id}/archived-count")
+async def dm_archived_count(user_id: str, me: dict = Depends(current_user)):
+    """Number of archived threads for the caller.
+    Powers the small "Archived (N)" pill at the top of the Chats list.
+    """
+    if me.get("id") != user_id:
+        raise HTTPException(403, "Not authorised")
+    n = await db.dm_conversations.count_documents({
+        "participants": user_id,
+        "archived_for": user_id,
+        "hidden_for": {"$ne": user_id},
+    })
+    return {"count": n}
+
+
+async def _dm_participant_or_404(conv_id: str, me: dict) -> dict:
+    """Shared guard used by archive/unarchive/hide/unhide.
+    Raises 404 if conv doesn't exist, 403 if the caller isn't a participant.
+    Returns the conv doc on success.
+    """
+    conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    uid = me.get("id")
+    if uid not in (conv.get("participants") or []):
+        raise HTTPException(403, "Not a participant")
+    return conv
+
+
+@api.post("/dm/{conv_id}/archive")
+async def dm_archive(conv_id: str, me: dict = Depends(current_user)):
+    """Archive this conversation for the caller only.
+    The peer is completely unaffected. If the peer sends a new message
+    the WS message handler auto-clears archived_for so the thread
+    resurfaces on the caller's Chats tab.
+    """
+    await _dm_participant_or_404(conv_id, me)
+    await db.dm_conversations.update_one(
+        {"id": conv_id},
+        {"$addToSet": {"archived_for": me.get("id")}},
+    )
+    return {"ok": True}
+
+
+@api.post("/dm/{conv_id}/unarchive")
+async def dm_unarchive(conv_id: str, me: dict = Depends(current_user)):
+    """Undo archive — move the thread back to the main Chats list."""
+    await _dm_participant_or_404(conv_id, me)
+    await db.dm_conversations.update_one(
+        {"id": conv_id},
+        {"$pull": {"archived_for": me.get("id")}},
+    )
+    return {"ok": True}
+
+
+@api.post("/dm/{conv_id}/hide")
+async def dm_hide(conv_id: str, me: dict = Depends(current_user)):
+    """Soft-delete this conversation for the caller only.
+    Per iMessage/WhatsApp semantics: the thread disappears from THIS
+    user's Chats list, but the peer still sees it with the full history.
+    If the peer messages again, the WS message handler auto-clears
+    hidden_for so the thread returns (with the new message unread).
+
+    Undo: call POST /dm/{conv_id}/unhide within the 5s Undo window on
+    the client, or send a new message.
+    """
+    await _dm_participant_or_404(conv_id, me)
+    await db.dm_conversations.update_one(
+        {"id": conv_id},
+        {"$addToSet": {"hidden_for": me.get("id")}},
+    )
+    return {"ok": True}
+
+
+@api.post("/dm/{conv_id}/unhide")
+async def dm_unhide(conv_id: str, me: dict = Depends(current_user)):
+    """Undo a soft-delete — powers the 5-second Undo Snackbar."""
+    await _dm_participant_or_404(conv_id, me)
+    await db.dm_conversations.update_one(
+        {"id": conv_id},
+        {"$pull": {"hidden_for": me.get("id")}},
+    )
+    return {"ok": True}
 
 
 @api.get("/dm/{user_id}/unread-total")
@@ -7998,11 +8111,16 @@ async def dm_unread_total(user_id: str, me: dict = Depends(current_user)):
     """Total unread DM count across all conversations for the given user.
     Used by the bottom-tab Chats icon badge so it can flash a "3" the
     moment a new message lands without having to fetch every conversation.
+
+    Archived threads still contribute (WhatsApp behaviour — an unread
+    message in an archived chat is still important). Soft-deleted
+    threads do NOT contribute, since the user explicitly asked for them
+    to disappear.
     """
     if me.get("id") != user_id:
         raise HTTPException(403, "Not authorised")
     convs = await db.dm_conversations.find(
-        {"participants": user_id},
+        {"participants": user_id, "hidden_for": {"$ne": user_id}},
         {"_id": 0, "id": 1, "last_read_at": 1},
     ).to_list(500)
     total = 0
@@ -8490,7 +8608,14 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                 text=text,
             )
             await db.messages.insert_one(msg.dict())
-            await db.dm_conversations.update_one({"id": conv_id}, {"$set": {"updated_at": now_iso()}})
+            # Bump updated_at AND auto-unarchive/unhide the participants
+            # so a new incoming message resurfaces the thread on the
+            # recipient's Chats tab — WhatsApp-style behaviour. Sending
+            # a message is a clear signal both sides want it visible.
+            await db.dm_conversations.update_one(
+                {"id": conv_id},
+                {"$set": {"updated_at": now_iso(), "archived_for": [], "hidden_for": []}},
+            )
             # Same founder-stamp treatment as the table room — live butterfly
             # appears on the receiver's screen as soon as the message arrives.
             out = msg.dict()
