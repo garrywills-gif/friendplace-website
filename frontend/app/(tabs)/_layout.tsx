@@ -122,11 +122,22 @@ export default function TabsLayout() {
       // bounces to Home" bug that hits when a background refresh
       // temporarily sets user to null.
       backBehavior="history"
+      // Solid scene background — without this, tab transitions on iOS can
+      // flash through to the OS home screen for ~0.5 s while the next
+      // screen mounts (visible bug reproduced in Expo Go). A solid
+      // colour gives the transitioning frames something to render
+      // against.
+      sceneContainerStyle={{ backgroundColor: c.surface }}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: c.brand,
         tabBarInactiveTintColor: c.muted,
         tabBarHideOnKeyboard: true,
+        // Keep every tab screen mounted after its first visit but
+        // FROZEN when not focused. This avoids the expensive re-mount
+        // (and its flicker) when re-tapping Profile/Lounge/etc., while
+        // still saving CPU because the frozen scene isn't ticking.
+        freezeOnBlur: true,
         tabBarButton: (props) => <TabBtn {...props} />,
         tabBarStyle: {
           backgroundColor: c.surfaceSecondary,

@@ -39,7 +39,14 @@ export default function RootLayout() {
               <ToastProvider>
                 <StatusBar style="dark" />
                 <SplashGate>
-                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" } }} />
+                  {/* contentStyle sets the Stack's scene background so
+                      screen-to-screen transitions never flash through
+                      to the OS home screen (visible bug reproduced in
+                      Expo Go on iOS, ~0.5 s flicker when switching
+                      tabs). Same neutral surface used across the app.
+                      `animation: "none"` avoids a subtle 200ms cross-
+                      fade that ALSO exposed the transparent frame. */}
+                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" }, animation: "none" }} />
                 </SplashGate>
                 {/* Global celebration overlay — mounted above every
                     screen so `emitFlutter()` can fire the butterfly

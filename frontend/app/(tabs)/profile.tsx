@@ -132,7 +132,10 @@ export default function Profile() {
   if (!user) return <View style={{ flex: 1, backgroundColor: c.surface }} />;
 
   return (
-    <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 16, backgroundColor: c.surface, paddingBottom: 100 }]}>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: c.surface }}
+      contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 16, backgroundColor: c.surface, paddingBottom: 100 }]}
+    >
       <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
         <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}><AvatarBubble value={user.avatar} size={user.avatar && /^https?:\/\//i.test(user.avatar) ? 110 : 110} textSize={88} fallback="🙂" zoomable /></View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" }}>
