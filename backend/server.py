@@ -8909,7 +8909,18 @@ async def public_contact(payload: dict, request: Request):
     # 5-submissions-per-hour cap per IP. If Redis were available we'd
     # use it; a MongoDB count over the last hour is fine at our scale
     # and needs no extra infra.
-    ip = (request.client.host if request and request.client else "unknown") or "unknown"
+    #
+    # Behind the Kubernetes ingress the raw `request.client.host` is the
+    # ingress pod IP (which rotates), so all real clients would appear
+    # to be the same "IP" for a few seconds at a time and then a
+    # different one — either falsely rate-limiting everyone or letting
+    # the same abuser bypass the cap. `X-Forwarded-For` carries the
+    # true client chain; the first entry is the actual visitor.
+    xff = request.headers.get("x-forwarded-for") if request else None
+    if xff:
+        ip = xff.split(",")[0].strip() or "unknown"
+    else:
+        ip = (request.client.host if request and request.client else "unknown") or "unknown"
     hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     try:
         recent = await db.contact_submissions.count_documents({"ip": ip, "created_at": {"$gt": hour_ago}})
