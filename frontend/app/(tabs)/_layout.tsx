@@ -116,12 +116,6 @@ export default function TabsLayout() {
   const TAB_HEIGHT = 56;
   return (
     <Tabs
-      // "history" keeps the previously-visited tab as the back destination,
-      // NEVER falling back to the first tab (Home) when a focus effect
-      // briefly re-renders. This prevents the "Profile flickers on then
-      // bounces to Home" bug that hits when a background refresh
-      // temporarily sets user to null.
-      backBehavior="history"
       // Solid scene background — without this, tab transitions on iOS can
       // flash through to the OS home screen for ~0.5 s while the next
       // screen mounts (visible bug reproduced in Expo Go). A solid
@@ -133,11 +127,6 @@ export default function TabsLayout() {
         tabBarActiveTintColor: c.brand,
         tabBarInactiveTintColor: c.muted,
         tabBarHideOnKeyboard: true,
-        // Keep every tab screen mounted after its first visit but
-        // FROZEN when not focused. This avoids the expensive re-mount
-        // (and its flicker) when re-tapping Profile/Lounge/etc., while
-        // still saving CPU because the frozen scene isn't ticking.
-        freezeOnBlur: true,
         tabBarButton: (props) => <TabBtn {...props} />,
         tabBarStyle: {
           backgroundColor: c.surfaceSecondary,
