@@ -2493,7 +2493,7 @@ async def onboarding_complete(user_id: str):
 STARTER_GROUPS = [
     {"name": "Sydney Locals", "emoji": "🏙️", "description": "For everyone who calls Sydney home — share favourite spots, meetups and neighbourhood news.",
      "tags": ["local", "sydney", "meetups", "neighbourhood"]},
-    {"name": "New Friends", "emoji": "👋", "description": "Brand new to YouBelong? Say hello and meet other members who just joined.",
+    {"name": "New Friends", "emoji": "👋", "description": "Brand new to FriendPlace? Say hello and meet other members who just joined.",
      "tags": ["new", "introductions", "welcome"]},
     {"name": "Pet Lovers", "emoji": "🐾", "description": "Cats, dogs, chooks, fish — share pet stories, photos and walking buddies.",
      "tags": ["pets", "dogs", "cats", "animals"]},
@@ -2802,7 +2802,7 @@ async def _broadcast_new_member(user: Dict):
     note_template = {
         "type": "new_member",
         "title": "Say hello to a new member",
-        "body": f"{user.get('first_name') or user.get('username','?')} just joined YouBelong from {user.get('suburb') or 'nearby'}. Send a wave!",
+        "body": f"{user.get('first_name') or user.get('username','?')} just joined FriendPlace from {user.get('suburb') or 'nearby'}. Send a wave!",
         "ref_user_id": user["id"],
     }
     for r in recipients:
@@ -2987,7 +2987,7 @@ ACHIEVEMENT_DEFS = {
     "streak_7":          {"title": "7-Day Streak",             "body": "You've played 7 days in a row. Keep it going!",            "points": 25},
     "streak_30":         {"title": "30-Day Streak",            "body": "A month of daily play — incredible!",                      "points": 80},
     "century":           {"title": "100 Games Completed",      "body": "Wow! 100 games done. The community salutes you.",          "points": 100},
-    "daily_devotee":     {"title": "Daily Devotee",             "body": "7 days of playing YouBelong in a row — thank you for showing up.", "points": 50},
+    "daily_devotee":     {"title": "Daily Devotee",             "body": "7 days of playing FriendPlace in a row — thank you for showing up.", "points": 50},
 }
 
 # Difficulties that DO trigger achievement notifications to friends.
@@ -4018,7 +4018,7 @@ async def missed_you_check(days_idle: int = 30):
             u["id"],
             "missed_you",
             "💛 We've missed you",
-            "Your friends at YouBelong would love to see you again.",
+            "Your friends at FriendPlace would love to see you again.",
             {"days_idle": int(days_idle)},
         )
         await db.users.update_one({"id": u["id"]}, {"$set": {"missed_you_last_sent": today_tag}})
@@ -7121,7 +7121,7 @@ async def admin_warn_user(body: AdminUserActionBody, _me: dict = Depends(current
     await db.users.update_one({"id": body.user_id}, {"$push": {"warnings": {"id": nid(), "reason": body.reason, "issued_at": now_iso(), "by": body.admin_id}}})
     await db.notifications.insert_one({
         "id": nid(), "user_id": body.user_id, "type": "moderation_warning",
-        "title": "Warning from the YouBelong team",
+        "title": "Warning from the FriendPlace team",
         "body": body.reason or "Please review our community guidelines.",
         "read": False, "created_at": now_iso(),
     })
@@ -7519,7 +7519,7 @@ async def admin_set_admin_flag(body: AdminPromoteBody, _me: dict = Depends(curre
         "id": nid(),
         "user_id": body.target_user_id,
         "type": "admin_role_change",
-        "title": "You're now a YouBelong moderator" if desired else "Your moderator access was removed",
+        "title": "You're now a FriendPlace moderator" if desired else "Your moderator access was removed",
         "body": body.reason or ("You can now access Admin tools from your Profile." if desired else "An admin has removed your moderator role."),
         "read": False,
         "created_at": now_iso(),
