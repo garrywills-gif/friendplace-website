@@ -45,6 +45,12 @@ export default function TabsLayout() {
   const TAB_HEIGHT = 56;
   return (
     <Tabs
+      // "history" keeps the previously-visited tab as the back destination,
+      // NEVER falling back to the first tab (Home) when a focus effect
+      // briefly re-renders. This prevents the "Profile flickers on then
+      // bounces to Home" bug that hits when a background refresh
+      // temporarily sets user to null.
+      backBehavior="history"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarActiveTintColor: c.brand,

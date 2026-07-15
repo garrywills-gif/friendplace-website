@@ -1,7 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
-const TOKEN_STORAGE_KEY = "friendplace.auth.token";
+// IMPORTANT: this MUST match the TOKEN_KEY used by AuthProvider in
+// src/lib/auth.tsx. If they diverge, on cold-start (before AuthProvider's
+// bootstrap effect fires setAuthToken()) requests will read a stale/empty
+// token from AsyncStorage, hit 401, and prematurely clear the session —
+// the classic "Profile flickers on then bounces to Home" symptom.
+const TOKEN_STORAGE_KEY = "yb_token";
 
 // In-memory mirror of the AsyncStorage token so requests fired back-to-back
 // don't each pay a storage round-trip. AuthProvider calls `setAuthToken()`
@@ -50,7 +55,7 @@ const _PUBLIC_PATHS = [
   "/auth/password/reset",
 ];
 
-async function req<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
+async function req<T = any>(path: string, opts: RequestInit = {}, options: { silent?: boolean } = {}): Promise<T> {
   // SEC-002/004: attach the auth token to every API call so the server
   // can verify the caller. Endpoints that don't need it will simply
   // ignore the header. This means we can lock down `/api/users`,
@@ -69,7 +74,13 @@ async function req<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
     // the stored JWT was rotated or has expired. Clear the local session
     // so the next screen guard bounces the user back to the welcome page
     // instead of showing repeated "Failed to load" toasts.
-    if (res.status === 401 && _onUnauthorized) {
+    //
+    // `silent: true` opts out of this — used for background/best-effort
+    // refreshes (e.g., useFocusEffect on tabs) so a transient 401 doesn't
+    // nuke the session and cause Profile → Home flicker while the user
+    // is actively navigating. The next user-initiated call will still
+    // trigger the reset if the token really is dead.
+    if (res.status === 401 && _onUnauthorized && !options.silent) {
       const isPublic = _PUBLIC_PATHS.some((p) => path.startsWith(p));
       if (!isPublic && _cachedToken) {
         try { _onUnauthorized(); } catch { /* no-op */ }
@@ -142,6 +153,10 @@ export const api = {
     return req(`/users${qs ? `?${qs}` : ""}`);
   },
   getUser: (id: string) => req(`/users/${id}`),
+  // Silent variant — never clears the local session on 401. Used by
+  // useFocusEffect refreshers so tapping a tab doesn't logout+bounce the
+  // user back to Home on a transient auth blip. See api.req() docstring.
+  getUserSilent: (id: string) => req(`/users/${id}`, {}, { silent: true }),
   blockUser: (uid: string, other: string) => req(`/users/${uid}/block/${other}`, { method: "POST" }),
   unblockUser: (uid: string, other: string) => req(`/users/${uid}/unblock/${other}`, { method: "POST" }),
   reportUser: (uid: string, other: string, reason = "") =>

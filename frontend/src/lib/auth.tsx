@@ -54,6 +54,11 @@ type Ctx = {
 };
 
 const AuthCtx = createContext<Ctx | null>(null);
+// Storage keys. Kept as `yb_*` so users upgrading from earlier builds
+// don't get silently logged out on the next launch after the rebrand —
+// their saved token/user survives untouched. New signups write to the
+// same keys. If we ever want to migrate off these, we'll do it with a
+// one-time copy step, not a rename here.
 const USER_KEY = "yb_user";
 const TOKEN_KEY = "yb_token";
 
@@ -153,7 +158,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refresh: async () => {
           if (!user) return;
           try {
-            const u = await api.getUser(user.id);
+            // Silent variant — a background focus refresh must NEVER nuke
+            // the local session on a transient 401, otherwise tabs like
+            // Profile flicker on then bounce back to Home. If the token is
+            // really dead the user's next explicit action (send message,
+            // rsvp, etc.) will hit the standard 401 path and log them out
+            // cleanly then.
+            const u = await api.getUserSilent(user.id);
             setUser(u as User);
             await AsyncStorage.setItem(USER_KEY, JSON.stringify(u));
           } catch {}
