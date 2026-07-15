@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, Any
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
@@ -8766,6 +8766,347 @@ async def root():
     return {"app": "YouBelong", "status": "ok"}
 
 
+# ────────────────────────────────────────────────────────────────────────
+#  PUBLIC WEB SURFACE — endpoints designed to power the marketing website
+#  at friendplace.com.au (Home / About / Features / FAQs / Contact / etc.)
+#
+#  All routes under /api/public/* are UNAUTHENTICATED by design so a
+#  visiting browser doesn't need a token to read the marketing copy.
+#  Content is served from the `site_content` MongoDB collection, which
+#  can be edited later from the admin portal without a code deploy —
+#  same-database philosophy: single source of truth for the whole
+#  platform (app + website + admin), which was Garry's explicit
+#  requirement.
+# ────────────────────────────────────────────────────────────────────────
+
+# Default content shipped inline so a brand-new deployment has usable
+# copy on Day 1 even before the admin portal is built. Each block has a
+# stable `key` we can update via a PATCH once the admin CMS ships. The
+# structure intentionally mirrors the page titles Garry listed so the
+# website frontend can literally do `content.about` → About page.
+_DEFAULT_SITE_CONTENT = {
+    "about": {
+        "title": "About FriendPlace",
+        "lead": "A warm, safe community for grown-ups who want to make new friends.",
+        "body": (
+            "FriendPlace was built for anyone over 40 who's felt that making new "
+            "friends gets harder with each passing year. It's a warm, welcoming "
+            "app where you can meet people in your area, join local events, share "
+            "recipes and stories, and rediscover the joy of community — without "
+            "endless scrolling, cold algorithms or noise."
+        ),
+    },
+    "features": [
+        {"emoji": "☕", "title": "Coffee Lounge", "body": "Drop into a virtual table with folks nearby."},
+        {"emoji": "📅", "title": "Local Events", "body": "Real gatherings in your neighbourhood, not just online chatter."},
+        {"emoji": "👥", "title": "Community Groups", "body": "Book clubs, walkers, bakers, players — find your people."},
+        {"emoji": "🦋", "title": "Flutters", "body": "Send a small note of kindness. Someone always needs one."},
+        {"emoji": "🎤", "title": "Speak Instead of Type", "body": "Tap to dictate — your voice becomes text automatically."},
+        {"emoji": "🔊", "title": "Listen Instead of Read", "body": "Tap the speaker to have messages read aloud."},
+    ],
+    "faqs": [
+        {"q": "Is FriendPlace free?", "a": "Yes. Founding members get free access for life, plus a special badge on their profile."},
+        {"q": "Who is it for?", "a": "Anyone over 40 who wants to make new friends locally. Nothing romantic — it's a friendship app."},
+        {"q": "Is my data safe?", "a": "Your data is stored securely and never sold. You can delete your account any time from Settings."},
+        {"q": "Do I need to be tech-savvy?", "a": "No. FriendPlace is designed for older adults — large text, voice input, tap-to-listen, and a friendly welcome team."},
+        {"q": "How do I get help?", "a": "Email hello@friendplace.com.au or use the contact form — a real person answers."},
+    ],
+    "founders": {
+        "title": "Become a Founding Member",
+        "lead": "The first supporters shape what FriendPlace becomes.",
+        "body": (
+            "Founding Members get a distinctive badge on their profile, early access "
+            "to new features, a direct line to the team for feedback, and lifetime free "
+            "access as our thanks for helping us build the community from day one."
+        ),
+        "benefits": [
+            "Founder badge on your profile",
+            "Early access to new features",
+            "Lifetime free membership",
+            "Direct feedback line to the team",
+        ],
+    },
+    "success_stories": [
+        # Populated by the admin portal once we have consenting members to
+        # feature. Kept as an empty list rather than dummy stories so the
+        # website can show a "coming soon" placeholder honestly.
+    ],
+    "download": {
+        "apple": "",   # populated once the App Store listing is live
+        "google": "",  # populated once the Play Store listing is live
+    },
+}
+
+
+async def _get_site_content_doc() -> dict:
+    """Load the single site-content document, seeding defaults if missing.
+
+    We store all copy in a single `site_content` document keyed `"main"`
+    because it's small, always read together, and we never need
+    partial-field concurrency (the admin edits one block at a time via a
+    PATCH). This keeps the read path a single MongoDB round-trip.
+    """
+    doc = await db.site_content.find_one({"key": "main"}, {"_id": 0})
+    if not doc:
+        doc = {"key": "main", **_DEFAULT_SITE_CONTENT, "updated_at": now_iso()}
+        try:
+            await db.site_content.insert_one(dict(doc))
+        except Exception:
+            pass
+    doc.pop("_id", None)
+    doc.pop("key", None)
+    return doc
+
+
+@api.get("/public/content")
+async def public_content():
+    """Bulk endpoint returning ALL public marketing copy in one call.
+
+    Why one call and not per-page endpoints (/public/about, /public/faqs,
+    etc.)? Because the entire content payload is <10 KB and the website
+    renders every page on the same client-side router. Fetching it once
+    at boot means every subsequent page-change is instant.
+    """
+    return await _get_site_content_doc()
+
+
+@api.get("/public/founders/count")
+async def public_founders_count():
+    """Live founder count for the "Founding Members" marketing block.
+
+    Deliberately does NOT expose the total or the remaining count —
+    only the current number of founding members — so the website can
+    show a growing badge ("500+ Founding Members" once we hit that) with-
+    out reveal-of-privacy risks. Returns 0 gracefully if the collection
+    is empty.
+    """
+    try:
+        n = await db.users.count_documents({"is_founder": True, "is_demo": {"$ne": True}})
+    except Exception:
+        n = 0
+    return {"count": int(n)}
+
+
+@api.post("/public/contact")
+async def public_contact(payload: dict, request: Request):
+    """Public contact form submission (no auth).
+
+    Stored in the `contact_submissions` collection so the admin portal
+    can list them. Also fires an email to hello@friendplace.com.au via
+    Resend so the team gets a real-time nudge. Extremely light
+    rate-limiting by IP — enough to deter drive-by spam without hurting
+    legitimate users behind shared NAT.
+    """
+    name = str(payload.get("name") or "").strip()[:120]
+    email = str(payload.get("email") or "").strip().lower()[:180]
+    subject = str(payload.get("subject") or "").strip()[:180] or "Contact from FriendPlace website"
+    message = str(payload.get("message") or "").strip()[:4000]
+    if not name or not email or not message:
+        raise HTTPException(400, "Please fill in your name, email and message.")
+    if "@" not in email or "." not in email:
+        raise HTTPException(400, "That doesn't look like a valid email address.")
+
+    # 5-submissions-per-hour cap per IP. If Redis were available we'd
+    # use it; a MongoDB count over the last hour is fine at our scale
+    # and needs no extra infra.
+    ip = (request.client.host if request and request.client else "unknown") or "unknown"
+    hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    try:
+        recent = await db.contact_submissions.count_documents({"ip": ip, "created_at": {"$gt": hour_ago}})
+    except Exception:
+        recent = 0
+    if recent >= 5:
+        raise HTTPException(429, "Too many messages from this address — please try again later.")
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "email": email,
+        "subject": subject,
+        "message": message,
+        "ip": ip,
+        "status": "new",  # new | read | replied | archived — set by admin
+        "created_at": now_iso(),
+    }
+    try:
+        await db.contact_submissions.insert_one(dict(doc))
+    except Exception:
+        logger.exception("failed to persist contact submission")
+
+    # Fire an email to hello@ so the admin gets a notification. Never
+    # fails the request if email is misconfigured — the DB record is
+    # the source of truth.
+    try:
+        from email_service import send_email
+        html_body = (
+            f"<p><b>From:</b> {name} &lt;{email}&gt;</p>"
+            f"<p><b>Subject:</b> {subject}</p>"
+            f"<p><b>Message:</b></p><pre style='white-space:pre-wrap;font-family:inherit;'>"
+            f"{message}</pre>"
+        )
+        await send_email(
+            to="hello@friendplace.com.au",
+            subject=f"[FriendPlace contact] {subject}",
+            html=html_body,
+            text=f"From: {name} <{email}>\nSubject: {subject}\n\n{message}",
+        )
+    except Exception:
+        logger.exception("failed to send contact-form notification email")
+
+    return {"ok": True, "id": doc["id"]}
+
+
+# ────────────────────────────────────────────────────────────────────────
+#  ADMIN ANALYTICS — pre-aggregated summary + growth endpoints
+#
+#  These endpoints will power the admin dashboard cards / charts. They're
+#  built now (ahead of the admin portal UI) so the frontend can start
+#  wiring against real endpoints from day one. Each endpoint requires
+#  admin_id in the query string — same lightweight auth pattern used by
+#  the invite-flyer endpoint, protected by MongoDB UUID unpredictability.
+# ────────────────────────────────────────────────────────────────────────
+
+@api.get("/admin/analytics/summary")
+async def admin_analytics_summary(admin_id: str):
+    """Headline counts for the admin dashboard's top row of cards.
+
+    Deliberately fast (all $count queries with no aggregation stages).
+    Numbers are wall-clock accurate at the moment of the request. Demo
+    users are excluded so the reported member count reflects real
+    community activity, not test fixtures.
+    """
+    await _require_admin(admin_id)
+    now = datetime.now(timezone.utc)
+    week_ago = (now - timedelta(days=7)).isoformat()
+
+    async def _count(coll: str, q: dict) -> int:
+        try:
+            return int(await db[coll].count_documents(q))
+        except Exception:
+            return 0
+
+    real_users_q = {"is_demo": {"$ne": True}}
+    return {
+        "total_members": await _count("users", real_users_q),
+        "founding_members": await _count("users", {**real_users_q, "is_founder": True}),
+        "new_members_7d": await _count("users", {**real_users_q, "created_at": {"$gt": week_ago}}),
+        "total_events": await _count("events", {}),
+        "upcoming_events": await _count("events", {"date": {"$gt": now.isoformat()}}),
+        "total_groups": await _count("groups", {}),
+        "messages_7d": await _count("messages", {"created_at": {"$gt": week_ago}}),
+        "open_reports": await _count("reports", {"status": {"$in": ["new", "open", "pending"]}}),
+        "open_feedback": await _count("feedback", {"status": {"$in": [None, "new", "open"]}}),
+        "new_contact_forms": await _count("contact_submissions", {"status": "new"}),
+        "generated_at": now_iso(),
+    }
+
+
+@api.get("/admin/analytics/growth")
+async def admin_analytics_growth(admin_id: str, days: int = 30):
+    """Daily new-member counts for a line chart (default: last 30 days).
+
+    Uses a single Mongo `$group` aggregation on the yyyy-mm-dd prefix of
+    each user's `created_at` timestamp — cheap and index-friendly given
+    the size of the users collection. Fills gaps with zero-count days so
+    the frontend can chart it directly without post-processing.
+    """
+    await _require_admin(admin_id)
+    days = max(1, min(int(days or 30), 180))
+    since = datetime.now(timezone.utc) - timedelta(days=days - 1)
+    since_iso = since.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    pipeline = [
+        {"$match": {"is_demo": {"$ne": True}, "created_at": {"$gte": since_iso}}},
+        {"$project": {"day": {"$substr": ["$created_at", 0, 10]}}},
+        {"$group": {"_id": "$day", "count": {"$sum": 1}}},
+    ]
+    buckets: Dict[str, int] = {}
+    try:
+        async for row in db.users.aggregate(pipeline):
+            buckets[row["_id"]] = int(row["count"])
+    except Exception:
+        buckets = {}
+
+    # Fill in zero-count days so the chart is continuous.
+    out = []
+    for i in range(days):
+        d = (since + timedelta(days=i)).strftime("%Y-%m-%d")
+        out.append({"date": d, "count": buckets.get(d, 0)})
+    return {"days": days, "series": out}
+
+
+@api.get("/admin/analytics/engagement")
+async def admin_analytics_engagement(admin_id: str):
+    """DAU/WAU/MAU engagement buckets based on `last_active`.
+
+    Definitions:
+      DAU — users active in the last 24 hours
+      WAU — users active in the last 7 days
+      MAU — users active in the last 30 days
+    We fall back to `updated_at` and `created_at` if a user record
+    doesn't yet have a `last_active` field (older schemas), so migration
+    isn't required to see meaningful numbers.
+    """
+    await _require_admin(admin_id)
+    now = datetime.now(timezone.utc)
+    day_ago = (now - timedelta(days=1)).isoformat()
+    week_ago = (now - timedelta(days=7)).isoformat()
+    month_ago = (now - timedelta(days=30)).isoformat()
+
+    def _q(cutoff_iso: str) -> dict:
+        return {
+            "is_demo": {"$ne": True},
+            "$or": [
+                {"last_active": {"$gt": cutoff_iso}},
+                # Older accounts pre-`last_active` — approximate with
+                # `updated_at` so they still appear in the buckets.
+                {"last_active": {"$exists": False}, "updated_at": {"$gt": cutoff_iso}},
+            ],
+        }
+
+    try:
+        dau = int(await db.users.count_documents(_q(day_ago)))
+        wau = int(await db.users.count_documents(_q(week_ago)))
+        mau = int(await db.users.count_documents(_q(month_ago)))
+    except Exception:
+        dau = wau = mau = 0
+    return {"dau": dau, "wau": wau, "mau": mau, "generated_at": now_iso()}
+
+
+@api.get("/admin/contact-submissions")
+async def admin_contact_submissions(admin_id: str, status: str = "", limit: int = 50):
+    """List contact-form submissions for the admin portal.
+
+    Filter by `status` (new/read/replied/archived) or omit to get all.
+    Newest first, capped at 200 rows so a runaway spam wave can't OOM
+    the admin browser.
+    """
+    await _require_admin(admin_id)
+    q: Dict[str, Any] = {}
+    if status:
+        q["status"] = status
+    limit = max(1, min(int(limit or 50), 200))
+    rows = await db.contact_submissions.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return {"count": len(rows), "items": rows}
+
+
+@api.patch("/admin/contact-submissions/{sub_id}")
+async def admin_contact_submissions_update(sub_id: str, payload: dict):
+    """Update a contact submission's status (mark as read / replied / archived)."""
+    admin_id = str(payload.get("admin_id") or "")
+    await _require_admin(admin_id)
+    new_status = str(payload.get("status") or "").strip().lower()
+    if new_status not in {"new", "read", "replied", "archived"}:
+        raise HTTPException(400, "status must be one of: new, read, replied, archived")
+    result = await db.contact_submissions.update_one(
+        {"id": sub_id},
+        {"$set": {"status": new_status, "updated_at": now_iso()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Contact submission not found")
+    return {"ok": True}
+
+
 # ─────────── Voice → Text (OpenAI whisper-1 via Emergent LLM key) ───────────
 #
 # Tap-to-dictate for the whole app. Older users on FriendPlace typically
@@ -8923,7 +9264,16 @@ _CORS_DEFAULT = (
     "http://localhost:3000,"
     "http://localhost:19006,"
     "https://youbelong.au,"
-    "https://www.youbelong.au"
+    "https://www.youbelong.au,"
+    # FriendPlace public web surfaces — added ahead of the website build
+    # so the API is CORS-ready the moment the frontend is deployed. The
+    # website will live on friendplace.com.au (+ www), the admin portal on
+    # admin.friendplace.com.au. If we later split into subdomains for
+    # staging (e.g. staging.friendplace.com.au), extend CORS_ORIGINS in the
+    # environment rather than editing this default list.
+    "https://friendplace.com.au,"
+    "https://www.friendplace.com.au,"
+    "https://admin.friendplace.com.au"
 )
 _cors_env = os.getenv("CORS_ORIGINS", _CORS_DEFAULT)
 _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
