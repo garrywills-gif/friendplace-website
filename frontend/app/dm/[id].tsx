@@ -32,6 +32,10 @@ export default function DM() {
       const msgs = await api.dmMessages(id);
       setMessages(msgs);
       if (other_id) try { setOther(await api.getUser(other_id)); } catch {}
+      // Mark this conversation as read the moment we open it so the tab
+      // badge + list unread count drop to zero. Best-effort — a network
+      // hiccup here shouldn't block the chat itself from loading.
+      try { await api.dmMarkRead(id); } catch {}
     })();
     const ws = new WebSocket(wsUrl(`/ws/dm/${id}?user_id=${user.id}&token=${encodeURIComponent(token || "")}`));
     wsRef.current = ws;
@@ -43,6 +47,11 @@ export default function DM() {
         // Auto-read incoming messages from the OTHER person if the user enabled it
         if (prefs.autoReadNewMessages && data.message?.user_id !== user.id && data.message?.text) {
           Speech.speak(String(data.message.text), { language: "en-US", rate: 0.95, pitch: 1.02 });
+        }
+        // Since we're actively viewing this thread, keep it marked as read
+        // so a fresh incoming message doesn't leave a "1" badge behind.
+        if (data.message?.user_id !== user.id) {
+          api.dmMarkRead(id).catch(() => {});
         }
       }
     };

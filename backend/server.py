@@ -7957,7 +7957,7 @@ async def my_conversations(user_id: str, me: dict = Depends(current_user)):
     if me.get("id") != user_id:
         raise HTTPException(403, "Not authorised")
     docs = await db.dm_conversations.find({"participants": user_id}, {"_id": 0}).sort("updated_at", -1).to_list(100)
-    # attach other user info + last message
+    # attach other user info + last message + unread_count + peer status
     out = []
     for c in docs:
         other_id = next((p for p in c["participants"] if p != user_id), None)
@@ -7965,10 +7965,74 @@ async def my_conversations(user_id: str, me: dict = Depends(current_user)):
         if other:
             # Never leak email/apple_id/refresh tokens of the peer in the
             # conversations list (SEC-002 pattern applied here too).
-            other = _peer_user(other, viewer_is_owner=False, viewer_is_admin=bool(me.get("is_admin")))
+            other_safe = _peer_user(other, viewer_is_owner=False, viewer_is_admin=bool(me.get("is_admin")))
+            # Attach a live presence chip so the Chats tab can show a green
+            # dot next to actively-online peers. Respects the peer's own
+            # privacy setting via `_status_from`.
+            other_safe["status"] = _status_from(
+                other.get("last_seen_at"),
+                other.get("privacy", "everyone"),
+                other.get("status"),
+            )
+        else:
+            other_safe = None
         last = await db.messages.find_one({"dm_id": c["id"]}, {"_id": 0}, sort=[("created_at", -1)])
-        out.append({**c, "other": other, "last": last})
+        # Unread count = messages in this conv AFTER this user's last_read_at
+        # timestamp that were NOT sent by this user. If the field is missing
+        # (older convs), fall back to counting messages from the peer only.
+        last_read_map = (c.get("last_read_at") or {})
+        last_read_ts = last_read_map.get(user_id)
+        unread_query: Dict[str, Any] = {
+            "dm_id": c["id"],
+            "user_id": {"$ne": user_id},
+        }
+        if last_read_ts:
+            unread_query["created_at"] = {"$gt": last_read_ts}
+        unread_count = await db.messages.count_documents(unread_query)
+        out.append({**c, "other": other_safe, "last": last, "unread_count": unread_count})
     return out
+
+
+@api.get("/dm/{user_id}/unread-total")
+async def dm_unread_total(user_id: str, me: dict = Depends(current_user)):
+    """Total unread DM count across all conversations for the given user.
+    Used by the bottom-tab Chats icon badge so it can flash a "3" the
+    moment a new message lands without having to fetch every conversation.
+    """
+    if me.get("id") != user_id:
+        raise HTTPException(403, "Not authorised")
+    convs = await db.dm_conversations.find(
+        {"participants": user_id},
+        {"_id": 0, "id": 1, "last_read_at": 1},
+    ).to_list(500)
+    total = 0
+    for c in convs:
+        last_read_map = (c.get("last_read_at") or {})
+        last_read_ts = last_read_map.get(user_id)
+        q: Dict[str, Any] = {"dm_id": c["id"], "user_id": {"$ne": user_id}}
+        if last_read_ts:
+            q["created_at"] = {"$gt": last_read_ts}
+        total += await db.messages.count_documents(q)
+    return {"unread": total}
+
+
+@api.post("/dm/{conv_id}/mark-read")
+async def dm_mark_read(conv_id: str, me: dict = Depends(current_user)):
+    """Mark all messages in this conversation as read by the caller.
+    Sets `last_read_at[user_id] = now` on the conversation doc, which the
+    conversations & unread-total endpoints use to compute the badge count.
+    """
+    conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0, "participants": 1})
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    uid = me.get("id")
+    if uid not in (conv.get("participants") or []):
+        raise HTTPException(403, "Not a participant")
+    await db.dm_conversations.update_one(
+        {"id": conv_id},
+        {"$set": {f"last_read_at.{uid}": now_iso()}},
+    )
+    return {"ok": True}
 
 
 @api.get("/dm/{conv_id}/messages")

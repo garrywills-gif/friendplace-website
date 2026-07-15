@@ -490,6 +490,11 @@ export const api = {
 
   // dm
   myConversations: (uid: string) => req(`/dm/${uid}/conversations`),
+  // Silent variant — used by the bottom-tab Chats badge poll so a
+  // background refresh never nukes the session on a transient 401.
+  myConversationsSilent: (uid: string) => req(`/dm/${uid}/conversations`, {}, { silent: true }),
+  dmUnreadTotal: (uid: string) => req(`/dm/${uid}/unread-total`, {}, { silent: true }),
+  dmMarkRead: (convId: string) => req(`/dm/${convId}/mark-read`, { method: "POST" }),
   startDm: (uid: string, other: string) => req("/dm/start", { method: "POST", body: JSON.stringify({ user_id: uid, other_id: other }) }),
   dmMessages: (cid: string) => req(`/dm/${cid}/messages`),
 
