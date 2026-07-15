@@ -175,9 +175,9 @@ export default function Login() {
           return;
         }
         let ref: string | null = null;
-        try { ref = await AsyncStorage.getItem("youbelong.invite.ref"); } catch {}
+        try { ref = await AsyncStorage.getItem("friendplace.invite.ref"); } catch {}
         const r = await loginWithApple(credential.identityToken, credential.authorizationCode, credential.firstName, credential.lastName, ref);
-        try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch {}
+        try { await AsyncStorage.removeItem("friendplace.invite.ref"); } catch {}
         show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
         const dest = r.isNew ? "/onboarding" : "/home";
         if (Platform.OS === "web") {

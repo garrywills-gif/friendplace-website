@@ -7,7 +7,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import Button from "@/src/components/Button";
-import ShareYouBelong from "@/src/components/ShareYouBelong";
+import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import { api } from "@/src/lib/api";
 import { emitFlutter } from "@/src/lib/flutter-fx";
 import AvatarBubble from "@/src/components/AvatarBubble";
@@ -468,7 +468,7 @@ export default function Profile() {
         </Pressable>
       )}
       <View style={{ height: 12 }} />
-      <ShareYouBelong variant="ghost" testID="profile-share" />
+      <ShareFriendPlace variant="ghost" testID="profile-share" />
 
       {/* Your invites panel — shows recent friends who joined through this
           user's invite link with a quick "Say hi" flutter button. Hidden

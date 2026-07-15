@@ -3,7 +3,7 @@ Curated Australian suburbs dataset — ~250 entries spanning every state/territo
 capital + major regional centres + popular regional areas.
 
 Each row: (name, postcode, state, lat, lng). Hand-picked for coverage of the
-audience YouBelong targets. Easy to extend.
+audience FriendPlace targets. Easy to extend.
 """
 from __future__ import annotations
 

@@ -3,7 +3,7 @@
  *
  * Why this exists:
  *   When someone receives a share link from a friend it currently arrives
- *   as `https://youbelong.app/?ref=<friend_id>` and drops them on the
+ *   as `https://friendplace.com.au/?ref=<friend_id>` and drops them on the
  *   generic welcome screen. The new flow routes invite links through
  *   `/invite/[friend_id]` so the visitor sees a warm, personalised page —
  *   their friend's name, avatar, Founding Member badge (if applicable) —
@@ -12,7 +12,7 @@
  *
  * What it does:
  *   1. Look up the inviter via GET /api/users/{id}.
- *   2. Stash the inviter id in AsyncStorage under "youbelong.invite.ref"
+ *   2. Stash the inviter id in AsyncStorage under "friendplace.invite.ref"
  *      so the existing signup + waitlist screens can read it and credit
  *      the inviter at account creation time. (Same key the welcome screen
  *      already writes — keeps the contract consistent.)
@@ -76,7 +76,7 @@ export default function InviteLanding() {
       }
       // Persist the referrer attribution so /auth/signup picks it up later.
       try {
-        await AsyncStorage.setItem("youbelong.invite.ref", refId);
+        await AsyncStorage.setItem("friendplace.invite.ref", refId);
       } catch { /* best-effort */ }
       try {
         const [u, f]: any[] = await Promise.all([
@@ -122,7 +122,7 @@ export default function InviteLanding() {
 
   return (
     // Solid navy backdrop — was previously an ImageBackground of the
-    // legacy YouBelong wordmark at 18% opacity, which was faintly
+    // legacy wordmark at 18% opacity, which was faintly
     // legible against the hero copy. Removed so no stale branding
     // ever bleeds through.
     <View style={{ flex: 1, backgroundColor: "#0E1B3D" }}>

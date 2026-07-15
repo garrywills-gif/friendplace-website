@@ -1,16 +1,16 @@
 {
   "expo": {
     "name": "FriendPlace",
-    "slug": "youbelong",
+    "slug": "friendplace",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "youbelong",
+    "scheme": "friendplace",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.youbelong.community",
+      "bundleIdentifier": "au.com.friendplace.app",
       "buildNumber": "1",
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -53,7 +53,7 @@
       }
     },
     "android": {
-      "package": "com.youbelong.community",
+      "package": "au.com.friendplace.app",
       "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",

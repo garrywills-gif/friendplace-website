@@ -53,7 +53,7 @@ class TestAppleSignInNegative:
         """JWT signed with HS256 + junk secret → must be rejected (alg not allowed)."""
         payload = {
             "iss": "https://appleid.apple.com",
-            "aud": "com.youbelong.community",
+            "aud": "au.com.friendplace.app",
             "sub": "abc123.deadbeef",
             "email": "test@example.com",
             "exp": int(time.time()) + 600,
@@ -80,7 +80,7 @@ class TestAppleSignInNegative:
         ).decode()
         payload = {
             "iss": "https://appleid.apple.com",
-            "aud": "com.youbelong.community",
+            "aud": "au.com.friendplace.app",
             "sub": "fake.sub.999",
             "email": "fake@example.com",
             "exp": int(time.time()) + 600,
@@ -100,7 +100,7 @@ class TestAppleSignInNegative:
         # We cannot easily encode a JWT without a kid using python-jose without
         # also providing one, so construct manually with HS256 (no kid header).
         tok = jose_jwt.encode(
-            {"iss": "https://appleid.apple.com", "aud": "com.youbelong.community", "sub": "x", "exp": int(time.time()) + 600},
+            {"iss": "https://appleid.apple.com", "aud": "au.com.friendplace.app", "sub": "x", "exp": int(time.time()) + 600},
             "secret",
             algorithm="HS256",
         )

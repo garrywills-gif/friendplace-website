@@ -24,7 +24,7 @@ import BrandLockup from "./BrandLockup";
  */
 const HOLD_MS = 900;
 const FADE_MS = 280;
-const WEB_THROTTLE_KEY = "youbelong.splash.lastShown";
+const WEB_THROTTLE_KEY = "friendplace.splash.lastShown";
 const WEB_THROTTLE_MS = 1000 * 60 * 60 * 6; // 6 hours
 
 export default function SplashGate({ children }: { children: React.ReactNode }) {

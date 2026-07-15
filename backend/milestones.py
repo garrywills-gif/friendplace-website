@@ -1,5 +1,5 @@
 """
-YouBelong Milestones engine.
+FriendPlace Milestones engine.
 
 Curated, community-focused milestones (NOT competitive). Each milestone has:
   * key            — stable id
@@ -40,10 +40,10 @@ def _days_on_platform(user: Dict) -> int:
 MILESTONES: List[Dict] = [
     # Welcome & Community
     {"key": "new_member",     "group": "Welcome",   "label": "New member",                  "emoji": "👋", "threshold": 1,
-     "message": "Welcome to YouBelong — we're so glad you're here.",
+     "message": "Welcome to FriendPlace — we're so glad you're here.",
      "value": lambda u, s: 1},
     {"key": "first_friend",   "group": "Welcome",   "label": "First friend made",           "emoji": "🤝", "threshold": 1,
-     "message": "You made your first friend on YouBelong!",
+     "message": "You made your first friend on FriendPlace!",
      "value": lambda u, s: len(u.get("friends") or [])},
     {"key": "friends_5",      "group": "Welcome",   "label": "5 friends",                   "emoji": "👥", "threshold": 5,
      "message": "5 friends — your circle is growing!",
@@ -63,7 +63,7 @@ MILESTONES: List[Dict] = [
      "message": "First event attended — what a lovely way to meet people.",
      "value": lambda u, s: s.get("events_attended", 0)},
     {"key": "first_game",     "group": "Activity",  "label": "First game completed",        "emoji": "🎮", "threshold": 1,
-     "message": "Your first game on YouBelong — well done!",
+     "message": "Your first game on FriendPlace — well done!",
      "value": lambda u, s: s.get("games_completed", 0)},
     {"key": "games_10",       "group": "Activity",  "label": "10 games completed",          "emoji": "🧩", "threshold": 10,
      "message": "10 games — you're getting the hang of it!",
@@ -72,7 +72,7 @@ MILESTONES: List[Dict] = [
      "message": "50 games — what a lovely streak of fun.",
      "value": lambda u, s: s.get("games_completed", 0)},
     {"key": "games_100",      "group": "Activity",  "label": "100 games completed",         "emoji": "🎖️", "threshold": 100,
-     "message": "100 games — a true YouBelong regular!",
+     "message": "100 games — a true FriendPlace regular!",
      "value": lambda u, s: s.get("games_completed", 0)},
 
     # Butterfly Points
@@ -83,24 +83,24 @@ MILESTONES: List[Dict] = [
      "message": "500 Butterfly Points — what a lovely contribution.",
      "value": lambda u, s: int(u.get("points") or 0)},
     {"key": "points_1000",    "group": "Points",    "label": "1,000 Butterfly Points",       "emoji": "💫", "threshold": 1000,
-     "message": "1,000 Butterfly Points — you're a YouBelong star.",
+     "message": "1,000 Butterfly Points — you're a FriendPlace star.",
      "value": lambda u, s: int(u.get("points") or 0)},
     {"key": "points_5000",    "group": "Points",    "label": "5,000 Butterfly Points",       "emoji": "🏵️", "threshold": 5000,
      "message": "5,000 Butterfly Points — extraordinary!",
      "value": lambda u, s: int(u.get("points") or 0)},
 
-    # YouBelong Anniversaries
-    {"key": "anniv_1m",       "group": "Anniversary", "label": "1 month on YouBelong",       "emoji": "🌱", "threshold": 30,
-     "message": "Happy 1-month anniversary on YouBelong!",
+    # FriendPlace Anniversaries
+    {"key": "anniv_1m",       "group": "Anniversary", "label": "1 month on FriendPlace",       "emoji": "🌱", "threshold": 30,
+     "message": "Happy 1-month anniversary on FriendPlace!",
      "value": lambda u, s: _days_on_platform(u)},
-    {"key": "anniv_6m",       "group": "Anniversary", "label": "6 months on YouBelong",      "emoji": "🌿", "threshold": 180,
-     "message": "6 months in — thank you for being part of YouBelong.",
+    {"key": "anniv_6m",       "group": "Anniversary", "label": "6 months on FriendPlace",      "emoji": "🌿", "threshold": 180,
+     "message": "6 months in — thank you for being part of FriendPlace.",
      "value": lambda u, s: _days_on_platform(u)},
-    {"key": "anniv_1y",       "group": "Anniversary", "label": "1 year on YouBelong",        "emoji": "🎂", "threshold": 365,
-     "message": "Happy YouBelong-versary — 1 wonderful year!",
+    {"key": "anniv_1y",       "group": "Anniversary", "label": "1 year on FriendPlace",        "emoji": "🎂", "threshold": 365,
+     "message": "Happy FriendPlace-versary — 1 wonderful year!",
      "value": lambda u, s: _days_on_platform(u)},
-    {"key": "anniv_2y",       "group": "Anniversary", "label": "2 years on YouBelong",       "emoji": "🌳", "threshold": 730,
-     "message": "2 years on YouBelong — what a journey!",
+    {"key": "anniv_2y",       "group": "Anniversary", "label": "2 years on FriendPlace",       "emoji": "🌳", "threshold": 730,
+     "message": "2 years on FriendPlace — what a journey!",
      "value": lambda u, s: _days_on_platform(u)},
 
     # Community Spirit badges (mirror existing badge names; awarded by badge presence)

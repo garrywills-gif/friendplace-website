@@ -10,7 +10,7 @@ import { api } from "@/src/lib/api";
 import { emitFlutter } from "@/src/lib/flutter-fx";
 import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
-import ShareYouBelong from "@/src/components/ShareYouBelong";
+import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import FirstRunCard from "@/src/components/FirstRunCard";
 import BrandLockup from "@/src/components/BrandLockup";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
@@ -479,7 +479,7 @@ export default function Home() {
 
         {/* Prominent invite card — sits above-the-fold so growth is one tap away. */}
         <View style={{ marginTop: 4 }}>
-          <ShareYouBelong variant="highlight" testID="home-invite-highlight" invitedCount={invitedCount} />
+          <ShareFriendPlace variant="highlight" testID="home-invite-highlight" invitedCount={invitedCount} />
         </View>
 
         {community && (community.birthdays?.length || community.new_members?.length || community.anniversaries?.length || community.milestones?.last_reached) ? (

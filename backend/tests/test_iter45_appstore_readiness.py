@@ -177,7 +177,7 @@ class TestBuildAppleClientSecret:
         monkeypatch.setenv("APPLE_SIWA_TEAM_ID", "6XRMF8PK98")
         monkeypatch.setenv("APPLE_SIWA_KEY_ID", "TESTKEY123")
         monkeypatch.setenv("APPLE_SIWA_PRIVATE_KEY", pem)
-        monkeypatch.setenv("APPLE_SIWA_CLIENT_ID", "com.youbelong.community")
+        monkeypatch.setenv("APPLE_SIWA_CLIENT_ID", "au.com.friendplace.app")
 
         import server  # noqa: E402
         importlib.reload(server) if False else None  # not needed; helper reads env on each call
@@ -202,7 +202,7 @@ class TestBuildAppleClientSecret:
             audience="https://appleid.apple.com",
         )
         assert claims["iss"] == "6XRMF8PK98"
-        assert claims["sub"] == "com.youbelong.community"
+        assert claims["sub"] == "au.com.friendplace.app"
         assert claims["aud"] == "https://appleid.apple.com"
         assert "iat" in claims and "exp" in claims
         # exp must be ≤ iat + 6 months (Apple max). We use 30 min so this is easy.
@@ -260,7 +260,7 @@ class TestAppJsonStructure:
     def test_app_json_valid(self):
         data = self._load()
         assert "expo" in data
-        assert data["expo"]["bundleIdentifier" if False else "slug"] == "youbelong"
+        assert data["expo"]["bundleIdentifier" if False else "slug"] == "friendplace"
 
     def test_privacy_manifests_present(self):
         d = self._load()

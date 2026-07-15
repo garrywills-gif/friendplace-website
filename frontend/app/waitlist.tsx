@@ -96,7 +96,7 @@ export default function WaitlistScreen() {
       // detour rather than signing up straight away.
       let referrer: string | null = null;
       try {
-        referrer = await AsyncStorage.getItem("youbelong.invite.ref");
+        referrer = await AsyncStorage.getItem("friendplace.invite.ref");
       } catch { /* no-op */ }
       const r: any = await api.joinWaitlist({
         email: trimmedEmail,

@@ -215,7 +215,7 @@ class TestFounderAutoEnrolmentAtSignup:
         assert r.status_code == 200, r.text
         notifs = r.json()
         titles = [n.get("title", "") for n in notifs]
-        assert any("Welcome to YouBelong" in t for t in titles), f"welcome missing: {titles}"
+        assert any("Welcome to FriendPlace" in t for t in titles), f"welcome missing: {titles}"
         assert any("Founding Member" in t for t in titles), f"founder notif missing: {titles}"
 
     def test_founders_status_incremented(self, api, state, new_founder):

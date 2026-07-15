@@ -35,7 +35,7 @@ try:
 except ImportError:  # pragma: no cover — resend is in requirements.txt
     resend = None  # type: ignore[assignment]
 
-logger = logging.getLogger("youbelong.email")
+logger = logging.getLogger("friendplace.email")
 
 
 def _config() -> tuple[Optional[str], str, str, Optional[str]]:

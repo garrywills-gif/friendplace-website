@@ -1,4 +1,4 @@
-"""YouBelong backend — FastAPI + MongoDB + WebSockets.
+"""FriendPlace backend — FastAPI + MongoDB + WebSockets.
 
 Real-time Coffee Lounge tables, private messaging, community groups, events,
 notice board, butterfly points/badges, and a seeded sample dataset so the
@@ -120,7 +120,7 @@ app = FastAPI(title="FriendPlace API")
 api = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("youbelong")
+logger = logging.getLogger("friendplace")
 
 # ---------------- Sentry (no-op when DSN unset) ----------------
 # Init *after* logger creation so the LoggingIntegration captures our own
@@ -206,7 +206,7 @@ class User(BaseModel):
     is_founder: bool = False
     founder_number: Optional[int] = None  # 1-indexed position in cohort
     # ─── Business / venue flags ──────────────────────────────────────────
-    # YouBelong invites local businesses (cafés, RSLs, bowling clubs, etc.)
+    # FriendPlace invites local businesses (cafés, RSLs, bowling clubs, etc.)
     # to list their events under a subscription. The first month is a free
     # trial with a 5-listing-per-period cap; paid weekly / monthly tiers
     # are coming soon. These fields track that journey:
@@ -1047,11 +1047,11 @@ class GoogleAuthBody(BaseModel):
 
 @api.post("/auth/google")
 async def auth_google(body: GoogleAuthBody):
-    """Exchange an Emergent Google OAuth session_id for a YouBelong JWT.
+    """Exchange an Emergent Google OAuth session_id for a FriendPlace JWT.
 
     Emergent issues a one-time `session_id` in the redirect URL. We swap that
     server-side for the verified user profile (email/name/picture) and either
-    link to an existing YouBelong account (matched by email) or create a brand
+    link to an existing FriendPlace account (matched by email) or create a brand
     new account. Returns the same envelope as `/auth/login` so the existing
     auth context on the client keeps working unchanged.
     """
@@ -1222,8 +1222,8 @@ async def auth_google(body: GoogleAuthBody):
 _APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
 _APPLE_ISSUER = "https://appleid.apple.com"
 _APPLE_AUDIENCES = (
-    os.getenv("APPLE_CLIENT_ID_IOS") or "com.youbelong.community",
-    os.getenv("APPLE_CLIENT_ID_WEB") or "com.youbelong.community.web",
+    os.getenv("APPLE_CLIENT_ID_IOS") or "au.com.friendplace.app",
+    os.getenv("APPLE_CLIENT_ID_WEB") or "au.com.friendplace.app.web",
 )
 
 # Cache the JWK set in-memory for an hour. Apple rotates keys roughly twice a
@@ -1289,7 +1289,7 @@ class AppleAuthBody(BaseModel):
 #   APPLE_SIWA_PRIVATE_KEY   — full contents of the .p8 file (PEM, newlines
 #                              preserved). Wrap in quotes in .env.
 #   APPLE_SIWA_CLIENT_ID     — usually the same as APPLE_CLIENT_ID_IOS
-#                              (com.youbelong.community). Override if you want
+#                              (au.com.friendplace.app). Override if you want
 #                              to use the .web Services ID instead.
 
 def _siwa_configured() -> bool:
@@ -1314,7 +1314,7 @@ def _build_apple_client_secret() -> str:
     """
     team_id = os.getenv("APPLE_SIWA_TEAM_ID", "")
     key_id = os.getenv("APPLE_SIWA_KEY_ID", "")
-    client_id = os.getenv("APPLE_SIWA_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID_IOS") or "com.youbelong.community"
+    client_id = os.getenv("APPLE_SIWA_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID_IOS") or "au.com.friendplace.app"
     pkey = os.getenv("APPLE_SIWA_PRIVATE_KEY", "").replace("\\n", "\n")
     now_ts = int(_time.time())
     return jwt.encode(
@@ -1341,7 +1341,7 @@ async def _apple_exchange_code(auth_code: str) -> Dict[str, object]:
     if not _siwa_configured():
         return {}
     import httpx as _httpx
-    client_id = os.getenv("APPLE_SIWA_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID_IOS") or "com.youbelong.community"
+    client_id = os.getenv("APPLE_SIWA_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID_IOS") or "au.com.friendplace.app"
     try:
         secret = _build_apple_client_secret()
         async with _httpx.AsyncClient(timeout=10.0) as http:
@@ -1373,7 +1373,7 @@ async def _apple_revoke_token(token: str, token_type_hint: str = "refresh_token"
     if not _siwa_configured() or not token:
         return False
     import httpx as _httpx
-    client_id = os.getenv("APPLE_SIWA_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID_IOS") or "com.youbelong.community"
+    client_id = os.getenv("APPLE_SIWA_CLIENT_ID") or os.getenv("APPLE_CLIENT_ID_IOS") or "au.com.friendplace.app"
     try:
         secret = _build_apple_client_secret()
         async with _httpx.AsyncClient(timeout=10.0) as http:
@@ -1396,7 +1396,7 @@ async def _apple_revoke_token(token: str, token_type_hint: str = "refresh_token"
 
 @api.post("/auth/apple")
 async def auth_apple(body: AppleAuthBody):
-    """Exchange an Apple identity_token for a YouBelong JWT.
+    """Exchange an Apple identity_token for a FriendPlace JWT.
 
     Verifies the JWT signature against Apple's public keys, checks issuer &
     audience, then either logs in the existing user (matched by apple_id, then
@@ -2065,7 +2065,7 @@ async def get_user(user_id: str, me: dict = Depends(current_user)):
 
 @api.get("/users/{user_id}/invite-stats")
 async def invite_stats(user_id: str, limit: int = 10):
-    """How many real (non-demo) users joined YouBelong via this user's share
+    """How many real (non-demo) users joined FriendPlace via this user's share
     link, plus a few recent first names so the inviter can see who arrived.
     """
     if not await db.users.find_one({"id": user_id}, {"id": 1, "_id": 0}):
@@ -2486,7 +2486,7 @@ async def onboarding_complete(user_id: str):
 
 
 # ---------------- Onboarding wizard ----------------
-# A small, curated list of starter community groups that brand-new YouBelong
+# A small, curated list of starter community groups that brand-new FriendPlace
 # members can join with a single tap during the post-signup wizard. Sydney/AU
 # leaning to match the seed dataset. The wizard mixes these with the existing
 # seeded groups (Walking, Garden Club, etc.) — interest-matched first.
@@ -5204,7 +5204,7 @@ def _looks_like_business_event(title: str, description: str = "", location: str 
     """Heuristic — does this event look like a business pitch rather than a
     community gathering?
 
-    YouBelong is for the community. We're happy to host **one free** business
+    FriendPlace is for the community. We're happy to host **one free** business
     listing as a gesture (lots of local cafés, RSLs and bowling clubs run
     great events worth knowing about). After that we ask businesses to chip
     in. This function returns the cues that tripped the detector so the
@@ -5745,7 +5745,7 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
     from PIL import Image, ImageDraw, ImageFont
     from fastapi.responses import Response
 
-    target_url = (url or "").strip() or "https://youbelongapp.com"
+    target_url = (url or "").strip() or "https://friendplace.com.au"
     venue = (venue or "").strip()[:80]
 
     # A4 portrait at ~150 dpi
@@ -5873,7 +5873,7 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
             y += (b[3] - b[1]) + line_gap
         return y
 
-    # ─── Top banner: official YouBelong brand mark (matches the Welcome
+    # ─── Top banner: official FriendPlace brand mark (matches the Welcome
     # ─── Top banner ────────────────────────────────────────────────────
     # Dark-navy header modelled on the FriendPlace brand banner: butterfly
     # logo on the left, then the wordmark ("Friend" in white + "Place" in
@@ -6854,7 +6854,7 @@ async def _log_moderation_action(
 
 
 async def _apply_moderation_policy(target_user_id: str) -> Dict:
-    """Apply the YouBelong moderation policy (per house rules).
+    """Apply the FriendPlace moderation policy (per house rules).
 
     Counts unique reporters against the target within the last
     MODERATION_WINDOW_DAYS. Returns a summary dict so callers (and the report
@@ -7434,7 +7434,7 @@ async def admin_clear_restriction(body: ModerationLiftBody, _me: dict = Depends(
 
 @api.get("/admin/policy")
 async def admin_policy():
-    """Public-readable summary of YouBelong's moderation policy."""
+    """Public-readable summary of FriendPlace's moderation policy."""
     return {
         "flag_threshold": MODERATION_FLAG_THRESHOLD,
         "restrict_threshold": MODERATION_RESTRICT_THRESHOLD,
@@ -8539,7 +8539,7 @@ SAMPLE_GROUP_POSTS = [
 
 @app.on_event("startup")
 async def _ensure_indexes():
-    """Create / verify the hot-path MongoDB indexes that YouBelong relies on
+    """Create / verify the hot-path MongoDB indexes that FriendPlace relies on
     at every scale. `create_index` is idempotent (safe to run on every boot)
     and uses background builds — never blocks startup.
 
@@ -8682,7 +8682,7 @@ async def seed():
     if users_count > 0:
         logger.info("Seed skipped — data already present (%s users)", users_count)
         return
-    logger.info("Seeding YouBelong sample data…")
+    logger.info("Seeding FriendPlace sample data…")
 
     users = []
     for u in SAMPLE_USERS:
@@ -8763,7 +8763,7 @@ async def seed():
 
 @api.get("/")
 async def root():
-    return {"app": "YouBelong", "status": "ok"}
+    return {"app": "FriendPlace", "status": "ok"}
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -9274,8 +9274,6 @@ app.mount("/api/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 _CORS_DEFAULT = (
     "http://localhost:3000,"
     "http://localhost:19006,"
-    "https://youbelong.au,"
-    "https://www.youbelong.au,"
     # FriendPlace public web surfaces — added ahead of the website build
     # so the API is CORS-ready the moment the frontend is deployed. The
     # website will live on friendplace.com.au (+ www), the admin portal on

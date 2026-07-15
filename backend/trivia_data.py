@@ -1,4 +1,4 @@
-"""Trivia question bank for YouBelong's Games Hub.
+"""Trivia question bank for FriendPlace's Games Hub.
 
 Curated, family-friendly, evergreen questions across all required categories.
 Each question is tagged with a difficulty so the game can pick from the right

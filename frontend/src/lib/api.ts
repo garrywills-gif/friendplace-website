@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
-const TOKEN_STORAGE_KEY = "youbelong.auth.token";
+const TOKEN_STORAGE_KEY = "friendplace.auth.token";
 
 // In-memory mirror of the AsyncStorage token so requests fired back-to-back
 // don't each pay a storage round-trip. AuthProvider calls `setAuthToken()`

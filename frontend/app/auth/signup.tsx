@@ -18,7 +18,7 @@
  *   - Step 2 fields are all optional; users can submit with just the
  *     defaults and refine later from Profile.
  *   - "Back" on Step 2 returns to Step 1 without losing what they typed.
- *   - The pickup of any pending `youbelong.invite.ref` (set by the
+ *   - The pickup of any pending `friendplace.invite.ref` (set by the
  *     /invite/[id] landing) is preserved so attribution still flows through.
  */
 import React, { useEffect, useMemo, useState } from "react";
@@ -81,7 +81,7 @@ export default function Signup() {
   useEffect(() => {
     (async () => {
       try {
-        const stored = await AsyncStorage.getItem("youbelong.invite.ref");
+        const stored = await AsyncStorage.getItem("friendplace.invite.ref");
         if (stored) setReferrerId(stored);
       } catch { /* no-op */ }
     })();
@@ -132,7 +132,7 @@ export default function Signup() {
         birthday: birthdayString || undefined,
         referrer_id: referrerId || undefined,
       });
-      try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch { /* no-op */ }
+      try { await AsyncStorage.removeItem("friendplace.invite.ref"); } catch { /* no-op */ }
       show(`Welcome${firstName ? `, ${firstName.trim()}` : ""}! 🦋`);
       router.replace("/onboarding");
     } catch (e: any) {

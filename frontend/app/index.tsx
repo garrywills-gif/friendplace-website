@@ -102,7 +102,7 @@ export default function Welcome() {
         const params = new URLSearchParams(w?.location?.search || "");
         const ref = params.get("ref");
         if (ref && /^[A-Za-z0-9_-]{6,64}$/.test(ref)) {
-          AsyncStorage.setItem("youbelong.invite.ref", ref).catch(() => {});
+          AsyncStorage.setItem("friendplace.invite.ref", ref).catch(() => {});
         }
       } catch {}
     }
@@ -202,9 +202,9 @@ export default function Welcome() {
         }
         // Best-effort pickup of an invite ref captured at app launch.
         let ref: string | null = null;
-        try { ref = await AsyncStorage.getItem("youbelong.invite.ref"); } catch {}
+        try { ref = await AsyncStorage.getItem("friendplace.invite.ref"); } catch {}
         const r = await loginWithApple(credential.identityToken, credential.authorizationCode, credential.firstName, credential.lastName, ref);
-        try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch {}
+        try { await AsyncStorage.removeItem("friendplace.invite.ref"); } catch {}
         show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
         const dest = r.isNew ? "/onboarding" : "/home";
         router.replace(dest as any);

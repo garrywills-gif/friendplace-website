@@ -53,7 +53,7 @@ export default function AuthWelcome() {
     let cancelled = false;
     (async () => {
       try {
-        const ref = await AsyncStorage.getItem("youbelong.invite.ref");
+        const ref = await AsyncStorage.getItem("friendplace.invite.ref");
         if (!ref) return;
         const u: any = await api.getUser(ref).catch(() => null);
         if (!cancelled && u?.id) setInviter(u);
@@ -64,7 +64,7 @@ export default function AuthWelcome() {
 
   return (
     // Solid navy backdrop — was previously an ImageBackground of the
-    // legacy YouBelong wordmark at 18% opacity, which was faintly
+    // legacy wordmark at 18% opacity, which was faintly
     // legible against dark surfaces. The teal butterfly BrandLockup
     // below carries the brand on its own so no watermark is needed.
     <View style={{ flex: 1, backgroundColor: "#0E1B3D" }}>

@@ -90,9 +90,9 @@ export async function consumePendingSession(
   }
   if (!sid) return { handled: false, isNew: false };
   let ref: string | null = null;
-  try { ref = await AsyncStorage.getItem("youbelong.invite.ref"); } catch {}
+  try { ref = await AsyncStorage.getItem("friendplace.invite.ref"); } catch {}
   const r = await loginWithGoogle(sid, ref);
   // Clear the invite ref now that it's been attributed
-  try { await AsyncStorage.removeItem("youbelong.invite.ref"); } catch {}
+  try { await AsyncStorage.removeItem("friendplace.invite.ref"); } catch {}
   return { handled: true, isNew: r.isNew };
 }

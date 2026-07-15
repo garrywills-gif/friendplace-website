@@ -11,7 +11,7 @@
  *   sessions so it never nags returning users.
  *
  * Storage:
- *   Persists a tiny JSON record under `youbelong.firstrun.<user_id>` in
+ *   Persists a tiny JSON record under `friendplace.firstrun.<user_id>` in
  *   AsyncStorage:
  *     { dismissed: bool, opens: number, last_open_iso: string }
  *   - `dismissed=true` hides the card forever.
@@ -35,7 +35,7 @@ type StorageRecord = {
 };
 
 function keyFor(userId: string) {
-  return `youbelong.firstrun.${userId}`;
+  return `friendplace.firstrun.${userId}`;
 }
 
 type Step = {

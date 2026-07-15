@@ -1,4 +1,4 @@
-"""YouBelong — Emergent-managed push notification relay.
+"""FriendPlace — Emergent-managed push notification relay.
 
 Backend talks to https://integrations.emergentagent.com using the
 EMERGENT_PUSH_KEY pod secret. The frontend NEVER touches that URL.
@@ -22,7 +22,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-logger = logging.getLogger("youbelong.push")
+logger = logging.getLogger("friendplace.push")
 
 PUSH_BASE_URL = "https://integrations.emergentagent.com"
 PUSH_KEY = os.environ.get("EMERGENT_PUSH_KEY", "placeholder")
@@ -85,7 +85,7 @@ async def send_push(
 ) -> None:
     """Fire-and-(mostly)-forget push send.
 
-    `recipients` are YouBelong user ids — SuprSend resolves tokens server-side.
+    `recipients` are FriendPlace user ids — SuprSend resolves tokens server-side.
     `data` MUST include `title` and `message`. Optional: `subtext`,
     `image_url` (https), `action_url` (becomes data.action_url on device).
     """

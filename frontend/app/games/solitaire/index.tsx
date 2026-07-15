@@ -12,7 +12,7 @@ import { getCurrentSeason } from "@/src/lib/seasons";
 
 // AsyncStorage key for the Draw 1 vs Draw 3 preference. Persisted so
 // the choice sticks across sessions without cluttering server state.
-const DRAW_PREF_KEY = "youbelong.solitaire.drawCount";
+const DRAW_PREF_KEY = "friendplace.solitaire.drawCount";
 type DrawCount = 1 | 3;
 
 /**
