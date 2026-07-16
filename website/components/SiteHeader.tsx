@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { BrandMark } from './Butterfly';
+import { brandAssets } from '@/lib/brand-assets';
 import { site } from '@/lib/brand';
 
 /**
@@ -30,7 +30,14 @@ export default function SiteHeader() {
     >
       <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72 }}>
         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-          <BrandMark size={36} color="#14B8A6" />
+          {/* Official butterfly (transparent), proportionally scaled. */}
+          <img
+            src={brandAssets.butterfly.src}
+            alt={brandAssets.butterfly.alt}
+            width={brandAssets.butterfly.width}
+            height={brandAssets.butterfly.height}
+            style={{ width: 36, height: 'auto', display: 'block' }}
+          />
           <span style={{ fontWeight: 900, fontSize: 22, color: '#0A2540', letterSpacing: '-0.02em' }}>
             Friend<span style={{ color: '#14B8A6' }}>Place</span>
           </span>

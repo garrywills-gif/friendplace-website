@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import Butterfly from '@/components/Butterfly';
 import { site } from '@/lib/brand';
 import { cms } from '@/lib/api';
+import { brandAssets } from '@/lib/brand-assets';
 
 /**
  * FriendPlace Home page.
@@ -41,18 +41,21 @@ export default async function HomePage() {
   return (
     <>
       {/* ---------- 0. SLIM BRAND STRIP ---------- */}
-      {/* Edge-to-edge, no white surround — the banner is now a slim
-          full-width brand strip that sits between the nav and the hero.
-          Uses `object-fit: cover` with a fixed slim height so on wide
-          screens the banner crops sensibly instead of dominating. */}
+      {/* Edge-to-edge full-width brand strip using the OFFICIAL banner
+          from /brand-assets (single source of truth). Height reduced
+          ~50% vs first pass so it complements — never dominates — the
+          hero underneath. Aspect ratio locked to the master 2:1 by
+          only setting height and letting width fill the viewport. */}
       <section style={{ background: '#0A2540' }}>
         <img
-          src="/friendplace-banner.png"
-          alt="FriendPlace — Because you belong too. Finding your people, one friendship at a time."
+          src={brandAssets.banner.src}
+          alt={brandAssets.banner.alt}
+          width={brandAssets.banner.width}
+          height={brandAssets.banner.height}
           style={{
             display: 'block',
             width: '100%',
-            maxHeight: 180,
+            height: 'clamp(72px, 10vw, 110px)', // slim strip on all screens
             objectFit: 'cover',
             objectPosition: 'center',
           }}
@@ -63,7 +66,7 @@ export default async function HomePage() {
       <section style={{
         position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(180deg, #0A2540 0%, #12365B 100%)',
-        color: '#FFFFFF', paddingTop: 72, paddingBottom: 96,
+        color: '#FFFFFF', paddingTop: 96, paddingBottom: 120,
       }}>
         {/* soft teal glow behind the butterfly */}
         <div aria-hidden style={{
@@ -79,18 +82,18 @@ export default async function HomePage() {
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 padding: '6px 14px', borderRadius: 999,
                 background: 'rgba(94,234,212,0.15)', border: '1px solid rgba(94,234,212,0.35)',
-                color: '#5EEAD4', fontSize: 13, fontWeight: 700, marginBottom: 24,
+                color: '#5EEAD4', fontSize: 13, fontWeight: 700, marginBottom: 32,
               }}>
                 🦋 Now welcoming Founding Members
               </div>
-              <h1 style={{ color: '#FFFFFF', marginBottom: 24 }}>
+              <h1 style={{ color: '#FFFFFF', marginBottom: 32, lineHeight: 1.05 }}>
                 Find your <span style={{ color: '#5EEAD4' }}>people</span>.
               </h1>
-              <p style={{ fontSize: 22, color: '#FFFFFF', lineHeight: 1.45, marginBottom: 20, maxWidth: 560, fontWeight: 600 }}>
+              <p style={{ fontSize: 22, color: '#FFFFFF', lineHeight: 1.5, marginBottom: 24, maxWidth: 560, fontWeight: 600 }}>
                 Real friendships. Real communities.<br />
                 Right where you live.
               </p>
-              <p style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.55, marginBottom: 32, maxWidth: 560 }}>
+              <p style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.65, marginBottom: 40, maxWidth: 560 }}>
                 <strong style={{ color: '#FFFFFF' }}>{site.tagline}</strong> — a warm, welcoming community for meeting genuine people in your neighbourhood. No swiping, no followers, no popularity contests.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
@@ -105,24 +108,28 @@ export default async function HomePage() {
             <div style={{ display: 'flex', justifyContent: 'center' }}>
               <div className="butterfly-float" style={{ position: 'relative' }}>
                 <div aria-hidden className="butterfly-glow" />
-                {/* Use the actual FriendPlace app icon so what the user sees
-                    on the website is BYTE-IDENTICAL to what they'll see on
-                    their phone's home screen. Rounded corners + soft
-                    shadow presents it as a floating app-icon tile — a
-                    common marketing pattern that also matches iOS. */}
+                {/* OFFICIAL butterfly (transparent background) from the
+                    master brand-assets folder. Aspect ratio 512:503 is
+                    preserved by only setting WIDTH — the height auto-
+                    derives via `height: auto`. NEVER scale width/height
+                    independently.
+
+                    Reserved for HERO + brand-presentation contexts only.
+                    The app-icon squircle is kept for the /#download
+                    section where we're showing "what the icon looks
+                    like on your phone". */}
                 <img
-                  src="/friendplace-butterfly.png"
-                  alt="FriendPlace app icon"
+                  src={brandAssets.butterfly.src}
+                  alt={brandAssets.butterfly.alt}
+                  width={brandAssets.butterfly.width}
+                  height={brandAssets.butterfly.height}
                   className="hero-butterfly"
                   style={{
                     position: 'relative',
                     zIndex: 1,
-                    width: 320,
-                    height: 320,
-                    objectFit: 'contain',
+                    width: 420,       // proportional — height auto
+                    height: 'auto',   // preserves 512:503 exactly
                     display: 'block',
-                    borderRadius: 72, // iOS app-icon squircle
-                    boxShadow: '0 40px 80px rgba(0,0,0,0.35), 0 0 0 1px rgba(94,234,212,0.15)',
                   }}
                 />
               </div>
@@ -135,10 +142,10 @@ export default async function HomePage() {
             .hero-grid { grid-template-columns: 1.2fr 1fr !important; }
           }
           @media (max-width: 899px) {
-            .hero-butterfly { width: 260px !important; height: 260px !important; }
+            .hero-butterfly { width: 260px !important; }
           }
 
-          /* Gentle floating animation — the butterfly hovers like it's
+          /* Gentle floating animation. The butterfly hovers like it is
              thinking about landing on your finger. 6s cycle keeps it
              calming rather than distracting. Respects reduced-motion. */
           @keyframes float {
@@ -477,9 +484,20 @@ export default async function HomePage() {
                   borderRadius: 12,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <div style={{ background: '#FFFFFF', padding: 10, borderRadius: 8 }}>
-                    <Butterfly size={40} color="#14B8A6" />
-                  </div>
+                  {/* This IS the app-icon-showing-on-phone context, so the
+                      squircle-framed full app icon is intentional here.
+                      Preserves the 1:1 aspect ratio. */}
+                  <img
+                    src={brandAssets.appIcon.src}
+                    alt={brandAssets.appIcon.alt}
+                    width={brandAssets.appIcon.width}
+                    height={brandAssets.appIcon.height}
+                    style={{
+                      width: 72, height: 72, // 1:1
+                      borderRadius: 16, background: '#FFFFFF',
+                      padding: 4,
+                    }}
+                  />
                 </div>
                 <p style={{ color: '#0A2540', fontSize: 13, fontWeight: 700, marginTop: 12 }}>
                   Scan to download
@@ -498,10 +516,14 @@ export default async function HomePage() {
       {/* ---------- 10. CLOSING CTA ---------- */}
       <section style={{ padding: '96px 0 32px', background: '#FEFCF8', textAlign: 'center' }}>
         <div className="container">
+          {/* Official transparent butterfly — brand presentation context,
+              so no squircle. Proportional sizing via width-only. */}
           <img
-            src="/friendplace-butterfly.png"
+            src={brandAssets.butterfly.src}
             alt=""
-            style={{ width: 72, height: 72, objectFit: 'contain', display: 'inline-block' }}
+            width={brandAssets.butterfly.width}
+            height={brandAssets.butterfly.height}
+            style={{ width: 80, height: 'auto', display: 'inline-block' }}
           />
           <h2 style={{ marginTop: 24, marginBottom: 12 }}>{site.tagline}</h2>
           <p style={{ color: '#475569', fontSize: 18, maxWidth: 560, margin: '0 auto 32px' }}>

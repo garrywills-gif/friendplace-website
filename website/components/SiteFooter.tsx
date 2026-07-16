@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BrandMark } from './Butterfly';
+import { brandAssets } from '@/lib/brand-assets';
 import { site } from '@/lib/brand';
 
 /**
@@ -20,7 +20,13 @@ export default function SiteFooter() {
         {/* Top brand block — butterfly + tagline + strapline */}
         <div style={{ textAlign: 'center', marginBottom: 56, paddingBottom: 48, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <BrandMark size={40} color="#5EEAD4" />
+            <img
+              src={brandAssets.butterfly.src}
+              alt={brandAssets.butterfly.alt}
+              width={brandAssets.butterfly.width}
+              height={brandAssets.butterfly.height}
+              style={{ width: 44, height: 'auto', display: 'block' }}
+            />
             <span style={{ fontWeight: 900, fontSize: 28, color: '#FFFFFF', letterSpacing: '-0.02em' }}>
               Friend<span style={{ color: '#5EEAD4' }}>Place</span>
             </span>
