@@ -19,7 +19,7 @@ export default function SiteFooter() {
       <div className="container" style={{ padding: '72px 24px 32px' }}>
         {/* Top brand block — butterfly + tagline + strapline */}
         <div style={{ textAlign: 'center', marginBottom: 56, paddingBottom: 48, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
             <img
               src={brandAssets.butterfly.src}
               alt={brandAssets.butterfly.alt}
@@ -31,10 +31,22 @@ export default function SiteFooter() {
               Friend<span style={{ color: '#5EEAD4' }}>Place</span>
             </span>
           </div>
-          <p style={{ color: '#FFFFFF', fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+          {/* Tagline — the anchor. Bold + white so it sits above the
+              strapline in the visual hierarchy. */}
+          <p style={{ color: '#FFFFFF', fontSize: 20, fontWeight: 800, marginBottom: 14, letterSpacing: '-0.01em' }}>
             {site.tagline}
           </p>
-          <p style={{ color: '#94A3B8', fontSize: 15, fontStyle: 'italic', maxWidth: 480, margin: '0 auto' }}>
+          {/* Strapline — promoted to a proper brand line. Larger, teal-
+              tinted, non-italic so it reads as a real brand promise
+              rather than a caption. */}
+          <p style={{
+            color: '#5EEAD4',
+            fontSize: 18,
+            fontWeight: 600,
+            maxWidth: 560,
+            margin: '0 auto',
+            letterSpacing: '0.005em',
+          }}>
             Finding your people, one friendship at a time.
           </p>
         </div>

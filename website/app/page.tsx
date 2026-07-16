@@ -79,7 +79,7 @@ export default async function HomePage() {
                 Right where you live.
               </p>
               <p style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.65, marginBottom: 40, maxWidth: 560 }}>
-                <strong style={{ color: '#FFFFFF' }}>{site.tagline}</strong> — a warm, welcoming community for meeting genuine people in your neighbourhood. No swiping, no followers, no popularity contests.
+                FriendPlace is where genuine friendships begin. Meet local people, discover welcoming communities and enjoy real conversations — without swiping, followers or popularity contests.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                 <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
@@ -346,12 +346,19 @@ export default async function HomePage() {
             </p>
             <div style={{
               display: 'inline-flex', alignItems: 'center', gap: 10,
-              padding: '10px 20px', borderRadius: 999,
+              padding: '12px 24px', borderRadius: 999,
               background: '#0A2540', color: '#FFFFFF',
               fontWeight: 800, fontSize: 15,
             }}>
               <span style={{ color: '#5EEAD4' }}>🦋</span>
-              <span>{founderCount} of {founderCap} welcomed</span>
+              {/* Show a warm invitation while we're pre-launch. Once
+                  people start joining the count flips to a live "N of
+                  250 welcomed" pill. */}
+              <span>
+                {founderCount > 0
+                  ? `${founderCount} of ${founderCap} welcomed`
+                  : `Be one of our first ${founderCap} Founding Members`}
+              </span>
             </div>
           </div>
           {founderMembers.length > 0 ? (
