@@ -40,21 +40,23 @@ export default async function HomePage() {
 
   return (
     <>
-      {/* ---------- 0. BRAND BANNER (from the invite flyer) ---------- */}
-      <section style={{ background: '#FEFCF8', padding: '32px 0 0' }}>
-        <div className="container" style={{ maxWidth: 1120 }}>
-          <img
-            src="/friendplace-banner.png"
-            alt="FriendPlace — Because you belong too."
-            style={{
-              width: '100%',
-              height: 'auto',
-              borderRadius: 20,
-              boxShadow: '0 20px 60px rgba(10,37,64,0.18)',
-              display: 'block',
-            }}
-          />
-        </div>
+      {/* ---------- 0. SLIM BRAND STRIP ---------- */}
+      {/* Edge-to-edge, no white surround — the banner is now a slim
+          full-width brand strip that sits between the nav and the hero.
+          Uses `object-fit: cover` with a fixed slim height so on wide
+          screens the banner crops sensibly instead of dominating. */}
+      <section style={{ background: '#0A2540' }}>
+        <img
+          src="/friendplace-banner.png"
+          alt="FriendPlace — Because you belong too. Finding your people, one friendship at a time."
+          style={{
+            display: 'block',
+            width: '100%',
+            maxHeight: 180,
+            objectFit: 'cover',
+            objectPosition: 'center',
+          }}
+        />
       </section>
 
       {/* ---------- 1. HERO ---------- */}
@@ -62,7 +64,6 @@ export default async function HomePage() {
         position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(180deg, #0A2540 0%, #12365B 100%)',
         color: '#FFFFFF', paddingTop: 72, paddingBottom: 96,
-        marginTop: 32,
       }}>
         {/* soft teal glow behind the butterfly */}
         <div aria-hidden style={{
@@ -104,9 +105,26 @@ export default async function HomePage() {
             <div style={{ display: 'flex', justifyContent: 'center' }}>
               <div className="butterfly-float" style={{ position: 'relative' }}>
                 <div aria-hidden className="butterfly-glow" />
-                <div style={{ position: 'relative', zIndex: 1 }}>
-                  <Butterfly size={360} color="#5EEAD4" />
-                </div>
+                {/* Use the actual FriendPlace app icon so what the user sees
+                    on the website is BYTE-IDENTICAL to what they'll see on
+                    their phone's home screen. Rounded corners + soft
+                    shadow presents it as a floating app-icon tile — a
+                    common marketing pattern that also matches iOS. */}
+                <img
+                  src="/friendplace-butterfly.png"
+                  alt="FriendPlace app icon"
+                  className="hero-butterfly"
+                  style={{
+                    position: 'relative',
+                    zIndex: 1,
+                    width: 320,
+                    height: 320,
+                    objectFit: 'contain',
+                    display: 'block',
+                    borderRadius: 72, // iOS app-icon squircle
+                    boxShadow: '0 40px 80px rgba(0,0,0,0.35), 0 0 0 1px rgba(94,234,212,0.15)',
+                  }}
+                />
               </div>
             </div>
           </div>
@@ -117,7 +135,7 @@ export default async function HomePage() {
             .hero-grid { grid-template-columns: 1.2fr 1fr !important; }
           }
           @media (max-width: 899px) {
-            .butterfly-float svg { width: 240px !important; height: 240px !important; }
+            .hero-butterfly { width: 260px !important; height: 260px !important; }
           }
 
           /* Gentle floating animation — the butterfly hovers like it's
@@ -480,7 +498,11 @@ export default async function HomePage() {
       {/* ---------- 10. CLOSING CTA ---------- */}
       <section style={{ padding: '96px 0 32px', background: '#FEFCF8', textAlign: 'center' }}>
         <div className="container">
-          <Butterfly size={56} color="#14B8A6" />
+          <img
+            src="/friendplace-butterfly.png"
+            alt=""
+            style={{ width: 72, height: 72, objectFit: 'contain', display: 'inline-block' }}
+          />
           <h2 style={{ marginTop: 24, marginBottom: 12 }}>{site.tagline}</h2>
           <p style={{ color: '#475569', fontSize: 18, maxWidth: 560, margin: '0 auto 32px' }}>
             Somewhere near you, someone is looking for exactly what you'd love to talk about too.

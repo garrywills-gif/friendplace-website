@@ -8,7 +8,7 @@ const DEFAULT_FAQS = [
   { q: 'Is it really free?', a: 'Yes. FriendPlace is free forever for members. We do not sell your data, and we do not run ads.' },
   { q: 'How is FriendPlace different from Facebook or Meetup?', a: "We're smaller, warmer and focused on real life. There are no likes, no infinite scroll, no algorithm optimising your engagement. Just gentle nudges toward genuine belonging." },
   { q: 'Is FriendPlace safe?', a: 'Every member is verified, and we have a real human moderation team. You can report or block anyone with one tap. Community guidelines are enforced firmly but kindly.' },
-  { q: 'Who runs FriendPlace?', a: 'A small Australian team based in Melbourne, backed by Founding Members like you. We are member-supported, not investor-owned.' },
+  { q: 'Who runs FriendPlace?', a: 'A small Australian team based in New South Wales, backed by Founding Members like you. We are member-supported, not investor-owned.' },
   { q: 'When will it be on the App Store?', a: 'Very soon. We are welcoming a first wave of Founding Members through TestFlight and Google Play early access while we finish the final polish.' },
   { q: 'What data do you collect?', a: 'The minimum to run the app safely: name, email, suburb, and what you post yourself. Full details in our Privacy Policy.' },
   { q: 'How do I become a Founding Member?', a: 'Sign up in the first weeks of launch. The first 250 members are recognised forever with a Founding Member badge.' },

@@ -65,7 +65,7 @@ export default function TermsPage() {
             <p>We’ll notify existing members via in-app notice or email if we make material changes. Continued use after the effective date means you accept the updated Terms.</p>
 
             <h2>12. Governing law</h2>
-            <p>These Terms are governed by the laws of Victoria, Australia. Any dispute will be handled by the courts of Victoria.</p>
+            <p>These Terms are governed by the laws of New South Wales, Australia. Any dispute will be handled by the courts of New South Wales.</p>
 
             <h2>13. Contact</h2>
             <p>Questions or feedback: <a href={`mailto:${site.emailContact}`}>{site.emailContact}</a>.</p>

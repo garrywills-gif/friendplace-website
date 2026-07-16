@@ -31,7 +31,7 @@ export default function ContactPage() {
               <div style={{ background: '#FFFFFF', padding: 24, borderRadius: 16, border: '1px solid #E2E8F0' }}>
                 <h3 style={{ fontSize: 15, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#14B8A6' }}>Direct contact</h3>
                 <p style={{ fontSize: 15, color: '#475569', marginBottom: 8 }}>📧 <a href={`mailto:${site.emailContact}`} style={{ color: '#0A2540', fontWeight: 700 }}>{site.emailContact}</a></p>
-                <p style={{ fontSize: 15, color: '#475569' }}>🇬🇧 Based in Melbourne, Australia</p>
+                <p style={{ fontSize: 15, color: '#475569' }}>🇦🇺 Based in New South Wales, Australia</p>
               </div>
             </div>
             <div>
