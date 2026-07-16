@@ -7,18 +7,21 @@ import { cms } from '@/lib/api';
  * FriendPlace Home page.
  *
  * Sections (top → bottom):
- *   1. Hero      — big brand promise + primary CTA + butterfly halo
- *   2. How-Works — 3-step visual explainer
- *   3. Features  — CMS-driven cards (falls back to defaults if API down)
- *   4. Founders  — the "Founding Members" strip with live count
- *   5. Stories   — Success Stories placeholder (empty state now,
- *                  auto-populates when admin adds via CMS later)
- *   6. Download  — App Store / Google Play buttons + QR code
- *   7. Closing   — final soft CTA before the footer
+ *   1. Hero              — "Find your people." emotional headline +
+ *                          large butterfly with soft float animation
+ *   2. Why FriendPlace?  — 4 negative-space differentiators
+ *   3. Who is it for?    — persona pill grid ("New to the area",
+ *                          "Empty nesters", ...)
+ *   4. Three Simple Steps — compact numbered strip
+ *   5. Features          — CMS-driven feature cards
+ *   6. Life at FriendPlace — warm lifestyle photo strip
+ *   7. Founding Members  — live count + first-250 wall
+ *   8. Success Stories   — placeholder (auto-shows when admin adds)
+ *   9. Download          — App Store / Play + QR
+ *  10. Closing CTA       — final "Because you belong too."
  *
- * ALL content is fetched server-side from `/api/public/*`. Falls back
- * gracefully when the backend is unreachable so the site never
- * white-screens.
+ * ALL content fetched server-side from `/api/public/*` → CMS-ready.
+ * Falls back gracefully if the backend is unreachable.
  */
 export default async function HomePage() {
   const [features, founders, stories] = await Promise.all([
@@ -30,29 +33,42 @@ export default async function HomePage() {
   const featureCards = features?.features && features.features.length > 0
     ? features.features
     : DEFAULT_FEATURES;
-
   const founderMembers = founders?.members || [];
   const founderCount = founders?.count ?? founderMembers.length;
   const founderCap = founders?.cap ?? 250;
-
   const storiesList = stories?.stories || [];
 
   return (
     <>
-      {/* ---------- HERO ---------- */}
+      {/* ---------- 0. BRAND BANNER (from the invite flyer) ---------- */}
+      <section style={{ background: '#FEFCF8', padding: '32px 0 0' }}>
+        <div className="container" style={{ maxWidth: 1120 }}>
+          <img
+            src="/friendplace-banner.png"
+            alt="FriendPlace — Because you belong too."
+            style={{
+              width: '100%',
+              height: 'auto',
+              borderRadius: 20,
+              boxShadow: '0 20px 60px rgba(10,37,64,0.18)',
+              display: 'block',
+            }}
+          />
+        </div>
+      </section>
+
+      {/* ---------- 1. HERO ---------- */}
       <section style={{
-        position: 'relative',
-        overflow: 'hidden',
+        position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(180deg, #0A2540 0%, #12365B 100%)',
-        color: '#FFFFFF',
-        paddingTop: 72,
-        paddingBottom: 96,
+        color: '#FFFFFF', paddingTop: 72, paddingBottom: 96,
+        marginTop: 32,
       }}>
         {/* soft teal glow behind the butterfly */}
         <div aria-hidden style={{
           position: 'absolute', right: '-10%', top: '-20%',
-          width: 600, height: 600, borderRadius: '50%',
-          background: 'radial-gradient(closest-side, rgba(94,234,212,0.24), transparent)',
+          width: 720, height: 720, borderRadius: '50%',
+          background: 'radial-gradient(closest-side, rgba(94,234,212,0.22), transparent)',
           pointerEvents: 'none',
         }} />
         <div className="container" style={{ position: 'relative', zIndex: 1 }}>
@@ -66,12 +82,15 @@ export default async function HomePage() {
               }}>
                 🦋 Now welcoming Founding Members
               </div>
-              <h1 style={{ color: '#FFFFFF', marginBottom: 20 }}>
-                Real friendships,<br />
-                <span style={{ color: '#5EEAD4' }}>close to home.</span>
+              <h1 style={{ color: '#FFFFFF', marginBottom: 24 }}>
+                Find your <span style={{ color: '#5EEAD4' }}>people</span>.
               </h1>
-              <p style={{ fontSize: 20, color: '#CBD5E1', lineHeight: 1.55, marginBottom: 32, maxWidth: 560 }}>
-                <strong style={{ color: '#FFFFFF' }}>{site.tagline}</strong> FriendPlace is a warm community app for meeting genuine people in your neighbourhood — coffee catch-ups, hobby groups, local events. No dating, no swiping. Just belonging.
+              <p style={{ fontSize: 22, color: '#FFFFFF', lineHeight: 1.45, marginBottom: 20, maxWidth: 560, fontWeight: 600 }}>
+                Real friendships. Real communities.<br />
+                Right where you live.
+              </p>
+              <p style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.55, marginBottom: 32, maxWidth: 560 }}>
+                <strong style={{ color: '#FFFFFF' }}>{site.tagline}</strong> — a warm, welcoming community for meeting genuine people in your neighbourhood. No swiping, no followers, no popularity contests.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                 <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
@@ -83,61 +102,166 @@ export default async function HomePage() {
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <div style={{ position: 'relative' }}>
-                <div aria-hidden style={{
-                  position: 'absolute', inset: '-30%',
-                  background: 'radial-gradient(closest-side, rgba(20,184,166,0.35), transparent)',
-                  filter: 'blur(30px)',
-                }} />
-                <div style={{ position: 'relative' }}>
-                  <Butterfly size={280} color="#5EEAD4" />
+              <div className="butterfly-float" style={{ position: 'relative' }}>
+                <div aria-hidden className="butterfly-glow" />
+                <div style={{ position: 'relative', zIndex: 1 }}>
+                  <Butterfly size={360} color="#5EEAD4" />
                 </div>
               </div>
             </div>
           </div>
         </div>
+
         <style>{`
           @media (min-width: 900px) {
             .hero-grid { grid-template-columns: 1.2fr 1fr !important; }
           }
+          @media (max-width: 899px) {
+            .butterfly-float svg { width: 240px !important; height: 240px !important; }
+          }
+
+          /* Gentle floating animation — the butterfly hovers like it's
+             thinking about landing on your finger. 6s cycle keeps it
+             calming rather than distracting. Respects reduced-motion. */
+          @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-14px) rotate(-1.5deg); }
+          }
+          @keyframes pulseGlow {
+            0%, 100% { opacity: 0.55; transform: scale(1); }
+            50% { opacity: 0.85; transform: scale(1.08); }
+          }
+          .butterfly-float {
+            animation: float 6s ease-in-out infinite;
+          }
+          .butterfly-glow {
+            position: absolute; inset: -25%;
+            background: radial-gradient(closest-side, rgba(20,184,166,0.55), rgba(94,234,212,0.15) 45%, transparent 70%);
+            filter: blur(28px);
+            animation: pulseGlow 5s ease-in-out infinite;
+            pointer-events: none;
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .butterfly-float, .butterfly-glow { animation: none !important; }
+          }
         `}</style>
       </section>
 
-      {/* ---------- HOW IT WORKS ---------- */}
+      {/* ---------- 2. WHY FRIENDPLACE ---------- */}
       <section style={{ padding: '96px 0', background: '#FEFCF8' }}>
         <div className="container">
-          <SectionEyebrow>Three simple steps</SectionEyebrow>
-          <h2 style={{ textAlign: 'center', marginBottom: 12 }}>Belonging, made effortless</h2>
-          <p style={{ textAlign: 'center', color: '#475569', fontSize: 18, maxWidth: 640, margin: '0 auto 64px' }}>
-            No awkward icebreakers. No pressure. Just a warm nudge from someone nearby who probably makes their coffee the same way you do.
-          </p>
+          <div style={{ textAlign: 'center', marginBottom: 56 }}>
+            <SectionEyebrow>Why FriendPlace?</SectionEyebrow>
+            <h2 style={{ margin: '0 auto 12px', maxWidth: 640 }}>❤️ Not what you're used to. In the best way.</h2>
+            <p style={{ color: '#475569', fontSize: 18, maxWidth: 620, margin: '0 auto' }}>
+              Just genuine friendships and community — the way it used to feel.
+            </p>
+          </div>
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-            gap: 32,
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 20, maxWidth: 1000, margin: '0 auto',
           }}>
-            {STEPS.map((s, i) => (
+            {WHY.map((w, i) => (
               <div key={i} style={{
-                background: '#FFFFFF', padding: 32, borderRadius: 24,
-                border: '1px solid #E2E8F0',
-                boxShadow: '0 4px 24px rgba(10,37,64,0.04)',
-                transition: 'transform 220ms, box-shadow 220ms',
-              }} className="lift-card">
+                background: '#FFFFFF', padding: 28, borderRadius: 20,
+                border: '1px solid #E2E8F0', textAlign: 'center',
+              }}>
                 <div style={{
-                  width: 56, height: 56, borderRadius: 16,
-                  background: 'linear-gradient(135deg, #14B8A6, #38BDF8)',
-                  color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 24, fontWeight: 900, marginBottom: 20,
-                }}>{i + 1}</div>
-                <h3 style={{ marginBottom: 8 }}>{s.title}</h3>
-                <p style={{ color: '#475569', fontSize: 16, lineHeight: 1.6 }}>{s.body}</p>
+                  width: 56, height: 56, borderRadius: 999,
+                  background: 'rgba(239,68,68,0.1)',
+                  color: '#EF4444', display: 'flex',
+                  alignItems: 'center', justifyContent: 'center',
+                  fontSize: 26, fontWeight: 900, margin: '0 auto 16px',
+                }}>✕</div>
+                <div style={{ color: '#94A3B8', fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                  Not here
+                </div>
+                <div style={{ color: '#0A2540', fontSize: 18, fontWeight: 800 }}>{w}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{
+            marginTop: 32, textAlign: 'center',
+            padding: '24px 32px', borderRadius: 999,
+            background: 'linear-gradient(135deg, #14B8A6, #38BDF8)',
+            color: '#FFFFFF', display: 'inline-flex', alignItems: 'center', gap: 12,
+            fontSize: 17, fontWeight: 800, boxShadow: '0 12px 40px rgba(20,184,166,0.35)',
+            width: 'auto', margin: '32px auto 0',
+          }} className="why-cta-wrap">
+            <span>✨ Just genuine friendships and community.</span>
+          </div>
+          <div style={{ textAlign: 'center', marginTop: 32 }} />
+        </div>
+      </section>
+
+      {/* ---------- 3. WHO IS IT FOR ---------- */}
+      <section style={{
+        padding: '96px 0',
+        background: 'linear-gradient(180deg, #F0FDFA 0%, #FEFCF8 100%)',
+      }}>
+        <div className="container">
+          <div style={{ textAlign: 'center', marginBottom: 56 }}>
+            <SectionEyebrow>Who is FriendPlace for?</SectionEyebrow>
+            <h2 style={{ margin: '0 auto 12px', maxWidth: 640 }}>👥 Anyone wanting more connection.</h2>
+            <p style={{ color: '#475569', fontSize: 18, maxWidth: 620, margin: '0 auto' }}>
+              We built FriendPlace with real Australians in mind.
+            </p>
+          </div>
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: 16,
+            maxWidth: 900, margin: '0 auto', justifyContent: 'center',
+          }}>
+            {WHO.map((w, i) => (
+              <div key={i} style={{
+                background: '#FFFFFF', padding: '18px 26px', borderRadius: 999,
+                border: '1.5px solid #14B8A6',
+                display: 'inline-flex', alignItems: 'center', gap: 10,
+                fontSize: 17, fontWeight: 700, color: '#0A2540',
+                boxShadow: '0 4px 12px rgba(20,184,166,0.1)',
+              }}>
+                <span style={{ fontSize: 22 }}>{w.emoji}</span>
+                <span>{w.label}</span>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ---------- FEATURES ---------- */}
+      {/* ---------- 4. THREE SIMPLE STEPS ---------- */}
+      <section style={{ padding: '96px 0', background: '#0A2540', color: '#FFFFFF' }}>
+        <div className="container">
+          <div style={{ textAlign: 'center', marginBottom: 56 }}>
+            <SectionEyebrow color="#5EEAD4">Three simple steps</SectionEyebrow>
+            <h2 style={{ color: '#FFFFFF', margin: '0 auto 12px', maxWidth: 640 }}>⭐ It's as easy as this.</h2>
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 24, maxWidth: 900, margin: '0 auto',
+          }}>
+            {STEPS_COMPACT.map((s, i) => (
+              <div key={i} style={{
+                textAlign: 'center',
+                padding: '28px 20px', borderRadius: 24,
+                background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(94,234,212,0.2)',
+              }}>
+                <div style={{
+                  width: 60, height: 60, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #14B8A6, #5EEAD4)',
+                  color: '#0A2540', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 26, fontWeight: 900, margin: '0 auto 16px',
+                }}>{i + 1}</div>
+                <h3 style={{ color: '#FFFFFF', fontSize: 20, marginBottom: 8 }}>{s.title}</h3>
+                <p style={{ color: '#CBD5E1', fontSize: 15, lineHeight: 1.6 }}>{s.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- 5. FEATURES ---------- */}
       <section style={{ padding: '96px 0', background: '#F8FAFC' }}>
         <div className="container">
           <SectionEyebrow>What's inside</SectionEyebrow>
@@ -147,11 +271,11 @@ export default async function HomePage() {
             gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
             gap: 24,
           }}>
-            {featureCards.map((f, i) => (
+            {featureCards.slice(0, 6).map((f: any, i: number) => (
               <div key={i} style={{
                 background: '#FFFFFF', padding: 28, borderRadius: 20,
                 border: '1px solid #E2E8F0',
-              }}>
+              }} className="lift-card">
                 <div style={{ fontSize: 32, marginBottom: 12 }}>{f.icon}</div>
                 <h3 style={{ fontSize: 18, marginBottom: 8 }}>{f.title}</h3>
                 <p style={{ color: '#475569', fontSize: 15, lineHeight: 1.6 }}>{f.body}</p>
@@ -161,8 +285,48 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ---------- FOUNDING MEMBERS ---------- */}
-      <section id="founders" style={{ padding: '96px 0', background: '#FEFCF8' }}>
+      {/* ---------- 6. LIFE AT FRIENDPLACE (photo strip) ---------- */}
+      <section style={{ padding: '96px 0', background: '#FEFCF8' }}>
+        <div className="container">
+          <div style={{ textAlign: 'center', marginBottom: 48 }}>
+            <SectionEyebrow>Life at FriendPlace</SectionEyebrow>
+            <h2 style={{ margin: '0 auto 12px', maxWidth: 640 }}>Little moments, big belonging.</h2>
+            <p style={{ color: '#475569', fontSize: 18, maxWidth: 620, margin: '0 auto' }}>
+              Coffee catch-ups, community walks, backyard BBQs, gardening groups — this is what FriendPlace looks like.
+            </p>
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+            gap: 16,
+          }}>
+            {LIFE_PHOTOS.map((p, i) => (
+              <div
+                key={i}
+                style={{
+                  aspectRatio: '4/3',
+                  borderRadius: 20, overflow: 'hidden',
+                  backgroundImage: `linear-gradient(180deg, rgba(10,37,64,0) 40%, rgba(10,37,64,0.65) 100%), url(${p.src})`,
+                  backgroundSize: 'cover', backgroundPosition: 'center',
+                  position: 'relative',
+                  boxShadow: '0 12px 32px rgba(10,37,64,0.12)',
+                }}
+              >
+                <div style={{
+                  position: 'absolute', bottom: 16, left: 16, right: 16,
+                  color: '#FFFFFF', fontWeight: 800, fontSize: 16,
+                  textShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                }}>
+                  {p.caption}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- 7. FOUNDING MEMBERS ---------- */}
+      <section id="founders" style={{ padding: '96px 0', background: '#F8FAFC' }}>
         <div className="container">
           <div style={{ textAlign: 'center', marginBottom: 48 }}>
             <SectionEyebrow>Our first 250</SectionEyebrow>
@@ -180,13 +344,11 @@ export default async function HomePage() {
               <span>{founderCount} of {founderCap} welcomed</span>
             </div>
           </div>
-
           {founderMembers.length > 0 ? (
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-              gap: 16,
-              maxWidth: 900, margin: '0 auto',
+              gap: 16, maxWidth: 900, margin: '0 auto',
             }}>
               {founderMembers.slice(0, 12).map((m, i) => (
                 <div key={i} style={{
@@ -197,11 +359,8 @@ export default async function HomePage() {
                     width: 56, height: 56, borderRadius: '50%',
                     background: 'linear-gradient(135deg, #14B8A6, #38BDF8)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#FFFFFF', fontWeight: 900, fontSize: 22,
-                    margin: '0 auto 12px',
-                  }}>
-                    {m.avatar || m.name.charAt(0).toUpperCase()}
-                  </div>
+                    color: '#FFFFFF', fontWeight: 900, fontSize: 22, margin: '0 auto 12px',
+                  }}>{m.avatar || m.name.charAt(0).toUpperCase()}</div>
                   <div style={{ fontWeight: 800, color: '#0A2540', marginBottom: 4 }}>{m.name}</div>
                   <div style={{ fontSize: 12, color: '#94A3B8', fontWeight: 700 }}>#{m.number}</div>
                 </div>
@@ -220,8 +379,8 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ---------- SUCCESS STORIES (placeholder) ---------- */}
-      <section id="stories" style={{ padding: '96px 0', background: '#F8FAFC' }}>
+      {/* ---------- 8. SUCCESS STORIES ---------- */}
+      <section id="stories" style={{ padding: '96px 0', background: '#FEFCF8' }}>
         <div className="container">
           <SectionEyebrow>Real people, real belonging</SectionEyebrow>
           <h2 style={{ textAlign: 'center', marginBottom: 48 }}>Success stories</h2>
@@ -269,7 +428,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ---------- DOWNLOAD ---------- */}
+      {/* ---------- 9. DOWNLOAD ---------- */}
       <section id="download" style={{ padding: '96px 0', background: '#0A2540', color: '#FFFFFF' }}>
         <div className="container">
           <div style={{
@@ -294,7 +453,6 @@ export default async function HomePage() {
                 display: 'inline-block', background: '#FFFFFF', padding: 24, borderRadius: 24,
                 boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
               }}>
-                {/* Placeholder QR block — actual QR generated on final deploy */}
                 <div style={{
                   width: 200, height: 200,
                   background: 'repeating-linear-gradient(45deg, #0A2540 0 8px, #FFFFFF 8px 16px)',
@@ -319,11 +477,11 @@ export default async function HomePage() {
         `}</style>
       </section>
 
-      {/* ---------- CLOSING CTA ---------- */}
+      {/* ---------- 10. CLOSING CTA ---------- */}
       <section style={{ padding: '96px 0 32px', background: '#FEFCF8', textAlign: 'center' }}>
         <div className="container">
           <Butterfly size={56} color="#14B8A6" />
-          <h2 style={{ marginTop: 24, marginBottom: 12 }}>Because you belong too.</h2>
+          <h2 style={{ marginTop: 24, marginBottom: 12 }}>{site.tagline}</h2>
           <p style={{ color: '#475569', fontSize: 18, maxWidth: 560, margin: '0 auto 32px' }}>
             Somewhere near you, someone is looking for exactly what you'd love to talk about too.
           </p>
@@ -334,6 +492,7 @@ export default async function HomePage() {
       </section>
 
       <style>{`
+        .lift-card { transition: transform 220ms, box-shadow 220ms; }
         .lift-card:hover {
           transform: translateY(-4px);
           box-shadow: 0 14px 48px rgba(10,37,64,0.10);
@@ -366,8 +525,7 @@ function StoreBtn({ store, href }: { store: 'Apple' | 'Google'; href: string }) 
       display: 'inline-flex', alignItems: 'center', gap: 12,
       background: '#FFFFFF', color: '#0A2540',
       padding: '12px 22px', borderRadius: 16,
-      fontWeight: 700, fontSize: 14,
-      textDecoration: 'none',
+      fontWeight: 700, fontSize: 14, textDecoration: 'none',
       minWidth: 180,
     }}>
       <span style={{ fontSize: 28 }}>{isApple ? '' : '▶'}</span>
@@ -383,19 +541,34 @@ function StoreBtn({ store, href }: { store: 'Apple' | 'Google'; href: string }) 
   );
 }
 
-const STEPS = [
-  {
-    title: 'Join with a warm welcome',
-    body: 'Sign up in minutes with Apple, Google, or email. Answer a few gentle questions so we can suggest people you\'d genuinely enjoy meeting.',
-  },
-  {
-    title: 'Discover your Lounge',
-    body: 'Your Coffee Lounge is a soft place to say hello, share a thought, or reply to someone else\'s. No pressure, no likes — just conversation.',
-  },
-  {
-    title: 'Meet up, in real life',
-    body: 'Local events, hobby groups, and one-on-one coffee catch-ups. Everyone is verified, and every event is welcoming to newcomers.',
-  },
+const WHY = [
+  'No swiping',
+  'No followers',
+  'No popularity contests',
+  'No fake connections',
+];
+
+const WHO = [
+  { emoji: '🏡', label: 'New to the area' },
+  { emoji: '🪺', label: 'Empty nesters' },
+  { emoji: '👴', label: 'Retirees' },
+  { emoji: '🌙', label: 'Shift workers' },
+  { emoji: '💫', label: 'Anyone wanting more connection' },
+];
+
+const STEPS_COMPACT = [
+  { title: 'Join FriendPlace', body: 'Sign up in minutes with Apple, Google or email. Free forever for members.' },
+  { title: 'Meet local people', body: 'Discover neighbours who share your interests. Send a warm hello — never a swipe.' },
+  { title: 'Find your community', body: 'Coffee catch-ups, hobby nights, local events. Belonging in real life.' },
+];
+
+const LIFE_PHOTOS = [
+  { src: 'https://images.unsplash.com/photo-1773504356091-222ee58cfd23?crop=entropy&cs=srgb&fm=jpg&w=800&q=80', caption: 'Coffee catch-ups' },
+  { src: 'https://images.unsplash.com/photo-1604852483450-f88e9f046a8a?crop=entropy&cs=srgb&fm=jpg&w=800&q=80', caption: 'Backyard BBQs' },
+  { src: 'https://images.unsplash.com/photo-1689783553640-e8b76148fb22?crop=entropy&cs=srgb&fm=jpg&w=800&q=80', caption: 'Dog walking' },
+  { src: 'https://images.unsplash.com/photo-1781785273371-a959f34bfab0?crop=entropy&cs=srgb&fm=jpg&w=800&q=80', caption: 'Community gardens' },
+  { src: 'https://images.unsplash.com/photo-1544928147-79a2dbc1f389?crop=entropy&cs=srgb&fm=jpg&w=800&q=80', caption: 'Craft workshops' },
+  { src: 'https://images.unsplash.com/photo-1549057446-9f5c6ac91a04?crop=entropy&cs=srgb&fm=jpg&w=800&q=80', caption: 'Walking groups' },
 ];
 
 const DEFAULT_FEATURES: { icon: string; title: string; body: string }[] = [

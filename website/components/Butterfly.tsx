@@ -1,52 +1,149 @@
 /**
- * Slim FriendPlace butterfly — the same silhouette as the mobile app's
- * v5 icon, redrawn inline as SVG so it stays razor-crisp at every
- * viewport size + can be recoloured via CSS `currentColor`.
+ * FriendPlace Butterfly — vector recreation of the EXACT two-tone
+ * butterfly used in the mobile app (see /app/frontend/src/components/
+ * ButterflyLogo.tsx).
  *
- * Symmetric on the vertical axis: matches the app-icon rebuild that
- * fixed the earlier cropping/asymmetry issue.
+ * Composition:
+ *   • Top-left wing:    deep teal        #0E7490
+ *   • Top-right wing:   mint             #5EEAD4
+ *   • Bottom-left wing: darker teal      #0F766E
+ *   • Bottom-right wing:light mint       #99F6E4
+ *   • Body + antennae: deep navy         #083344
+ *
+ * Rendered as inline SVG so it stays crisp at every viewport size and
+ * can float/animate without image-drag or bandwidth hits. Uses the same
+ * proportional geometry as the RN ButterflyLogo (46 % wing width,
+ * 42 % body height, 22° / 32° rotations).
+ *
+ * For the tiny 24–32px header/footer marks we still render inline SVG
+ * (see BrandMark component) so the whole site uses a single consistent
+ * butterfly source, no PNG/SVG mismatch.
  */
-export default function Butterfly({ size = 32, color }: { size?: number; color?: string }) {
-  const c = color || 'currentColor';
+export default function Butterfly({ size = 320 }: { size?: number }) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 64 64"
-      fill="none"
+      viewBox="0 0 200 200"
       xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
+      aria-label="FriendPlace butterfly"
+      role="img"
     >
-      {/* Body */}
-      <path
-        d="M32 12c1 0 1.6.7 1.6 1.6v36.8c0 .9-.6 1.6-1.6 1.6s-1.6-.7-1.6-1.6V13.6c0-.9.7-1.6 1.6-1.6z"
-        fill={c}
+      {/* Top-left wing — deep teal */}
+      <g transform="translate(100, 100) rotate(-22)">
+        <path
+          d="M -46 -52 Q -92 -52 -92 -6 Q -92 32 -46 32 L 0 32 L 0 -52 Z"
+          fill="#0E7490"
+          transform="translate(-4, -6)"
+        />
+      </g>
+
+      {/* Top-right wing — mint */}
+      <g transform="translate(100, 100) rotate(22)">
+        <path
+          d="M 46 -52 Q 92 -52 92 -6 Q 92 32 46 32 L 0 32 L 0 -52 Z"
+          fill="#5EEAD4"
+          transform="translate(4, -6)"
+        />
+      </g>
+
+      {/* Bottom-left wing — darker teal */}
+      <g transform="translate(100, 100) rotate(32)">
+        <ellipse
+          cx="-24"
+          cy="34"
+          rx="34"
+          ry="30"
+          fill="#0F766E"
+        />
+      </g>
+
+      {/* Bottom-right wing — light mint */}
+      <g transform="translate(100, 100) rotate(-32)">
+        <ellipse
+          cx="24"
+          cy="34"
+          rx="34"
+          ry="30"
+          fill="#99F6E4"
+        />
+      </g>
+
+      {/* Body — deep navy vertical capsule */}
+      <rect
+        x="94"
+        y="44"
+        width="12"
+        height="84"
+        rx="6"
+        fill="#083344"
       />
-      {/* Left upper wing */}
-      <path
-        d="M30.4 22.4c0-6.5-5.5-11.5-11.9-10.7C10.6 12.6 6.2 20 8.3 27.5c1.5 5.5 6.4 9.7 12.1 10.4 4.7.6 9.2-1.4 10-4.7 0-3.9 0-6.4 0-10.8z"
-        fill={c}
+
+      {/* Head — larger circle at top of body */}
+      <circle
+        cx="100"
+        cy="42"
+        r="11"
+        fill="#083344"
       />
-      {/* Right upper wing */}
+
+      {/* Left antenna */}
       <path
-        d="M33.6 22.4c0-6.5 5.5-11.5 11.9-10.7 7.9.9 12.3 8.3 10.2 15.8-1.5 5.5-6.4 9.7-12.1 10.4-4.7.6-9.2-1.4-10-4.7 0-3.9 0-6.4 0-10.8z"
-        fill={c}
+        d="M 92 22 Q 82 8 74 4"
+        stroke="#083344"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        fill="none"
       />
-      {/* Left lower wing */}
+      {/* Right antenna */}
       <path
-        d="M30.4 34c0 5.1-3.9 9.9-9.5 10.5-6 .6-10.7-3.6-10.9-9.4-.1-4.7 3-9 7.4-10.1 4-1 7.9.2 10 3 1.5 2 3 3.7 3 6z"
-        fill={c}
-        opacity="0.85"
+        d="M 108 22 Q 118 8 126 4"
+        stroke="#083344"
+        strokeWidth="3.5"
+        strokeLinecap="round"
+        fill="none"
       />
-      {/* Right lower wing */}
-      <path
-        d="M33.6 34c0 5.1 3.9 9.9 9.5 10.5 6 .6 10.7-3.6 10.9-9.4.1-4.7-3-9-7.4-10.1-4-1-7.9.2-10 3-1.5 2-3 3.7-3 6z"
-        fill={c}
-        opacity="0.85"
-      />
-      {/* Antennae */}
-      <path d="M30.4 12c-1.5-2-4-3.4-6.4-3" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M33.6 12c1.5-2 4-3.4 6.4-3" stroke={c} strokeWidth="1.5" strokeLinecap="round" />
+
+      {/* Tiny antenna tips */}
+      <circle cx="74" cy="4" r="2.5" fill="#083344" />
+      <circle cx="126" cy="4" r="2.5" fill="#083344" />
+    </svg>
+  );
+}
+
+/**
+ * Small mono-colour mark used in nav / footer. Accepts a `color` so
+ * we can show a mint mark against the dark footer OR a teal mark
+ * against the cream header without loading a second asset.
+ *
+ * NOTE: uses the SAME silhouette as the full butterfly above so the
+ * brand feels cohesive across contexts.
+ */
+export function BrandMark({ size = 32, color = '#14B8A6' }: { size?: number; color?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 200 200"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+    >
+      {/* All wings in the accent colour — small enough that two-tone
+          gets muddy, so we go single-colour for max clarity. */}
+      <g transform="translate(100, 100) rotate(-22)">
+        <path d="M -46 -52 Q -92 -52 -92 -6 Q -92 32 -46 32 L 0 32 L 0 -52 Z" fill={color} transform="translate(-4, -6)" />
+      </g>
+      <g transform="translate(100, 100) rotate(22)">
+        <path d="M 46 -52 Q 92 -52 92 -6 Q 92 32 46 32 L 0 32 L 0 -52 Z" fill={color} transform="translate(4, -6)" />
+      </g>
+      <g transform="translate(100, 100) rotate(32)">
+        <ellipse cx="-24" cy="34" rx="34" ry="30" fill={color} opacity="0.75" />
+      </g>
+      <g transform="translate(100, 100) rotate(-32)">
+        <ellipse cx="24" cy="34" rx="34" ry="30" fill={color} opacity="0.75" />
+      </g>
+      <rect x="94" y="44" width="12" height="84" rx="6" fill={color === '#14B8A6' ? '#0A2540' : color} />
+      <circle cx="100" cy="42" r="11" fill={color === '#14B8A6' ? '#0A2540' : color} />
     </svg>
   );
 }

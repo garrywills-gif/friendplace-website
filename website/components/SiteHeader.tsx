@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import Butterfly from './Butterfly';
+import { BrandMark } from './Butterfly';
 import { site } from '@/lib/brand';
 
 /**
@@ -30,7 +30,7 @@ export default function SiteHeader() {
     >
       <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72 }}>
         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-          <Butterfly size={32} color="#14B8A6" />
+          <BrandMark size={36} color="#14B8A6" />
           <span style={{ fontWeight: 900, fontSize: 22, color: '#0A2540', letterSpacing: '-0.02em' }}>
             Friend<span style={{ color: '#14B8A6' }}>Place</span>
           </span>
