@@ -5,8 +5,8 @@ export const metadata = { title: 'About Us' };
 
 export default async function AboutPage() {
   const data = await cms.about();
-  const heading = data?.heading || 'We started FriendPlace because loneliness is quietly everywhere.';
-  const body = data?.body || "FriendPlace grew out of a simple observation. So many wonderful people — kind, funny, interesting people — feel invisible in their own street. We built FriendPlace as a warm alternative to swipe-based apps and noisy social feeds. Somewhere you can just be yourself, meet a neighbour, and remember that belonging is a right, not a luxury.";
+  const heading = data?.heading || 'Everyone deserves a place to belong.';
+  const body = data?.body || "FriendPlace was created to help people build genuine friendships, discover local communities and create meaningful connections. We believe belonging shouldn't happen by chance — it should be something everyone can experience. Whether you're new to the area, looking to expand your circle, or simply wanting to meet like-minded people, FriendPlace is here to help you find your people.";
   const mission = data?.mission || 'To make everyday belonging effortless — one gentle hello at a time.';
 
   return (
