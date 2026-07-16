@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { site } from '@/lib/brand';
 import { cms } from '@/lib/api';
 import { brandAssets } from '@/lib/brand-assets';
+import BrandMasthead from '@/components/BrandMasthead';
 
 /**
  * FriendPlace Home page.
@@ -40,27 +41,11 @@ export default async function HomePage() {
 
   return (
     <>
-      {/* ---------- 0. SLIM BRAND STRIP ---------- */}
-      {/* Edge-to-edge full-width brand strip using the OFFICIAL banner
-          from /brand-assets (single source of truth). Height reduced
-          ~50% vs first pass so it complements — never dominates — the
-          hero underneath. Aspect ratio locked to the master 2:1 by
-          only setting height and letting width fill the viewport. */}
-      <section style={{ background: '#0A2540' }}>
-        <img
-          src={brandAssets.banner.src}
-          alt={brandAssets.banner.alt}
-          width={brandAssets.banner.width}
-          height={brandAssets.banner.height}
-          style={{
-            display: 'block',
-            width: '100%',
-            height: 'clamp(72px, 10vw, 110px)', // slim strip on all screens
-            objectFit: 'cover',
-            objectPosition: 'center',
-          }}
-        />
-      </section>
+      {/* ---------- 0. NAVY BRANDING STRIP ---------- */}
+      {/* Real HTML/CSS masthead, NOT the flyer image. Slim 80 px band
+          that scales gracefully on mobile — contact rail hides below
+          900 px, tagline hides below 520 px. All copy is CMS-ready. */}
+      <BrandMasthead />
 
       {/* ---------- 1. HERO ---------- */}
       <section style={{
