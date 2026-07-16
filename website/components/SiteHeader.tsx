@@ -65,14 +65,6 @@ export default function SiteHeader() {
               href={n.href}
               className={`nav-link ${isActive(n.href) ? 'nav-link-active' : ''}`}
               data-first={i === 0 ? 'true' : undefined}
-              style={{
-                position: 'relative',
-                color: '#0A2540',
-                fontWeight: 600,
-                fontSize: 15,
-                padding: '10px 20px',
-                textDecoration: 'none',
-              }}
             >
               {n.label}
             </Link>
@@ -132,8 +124,37 @@ export default function SiteHeader() {
       )}
 
       <style dangerouslySetInnerHTML={{ __html: `
+        /* Base nav-link styling — full hover + tap responsiveness.
+           Uses a soft teal wash background on hover so the button
+           gives clear visual feedback the moment the cursor lands.
+           The click flash (:active) also brightens the wash slightly
+           so tapping feels tactile. */
+        .nav-link {
+          position: relative;
+          color: #0A2540;
+          font-weight: 600;
+          font-size: 15px;
+          padding: 10px 20px;
+          border-radius: 10px;
+          text-decoration: none;
+          cursor: pointer;
+          transition: color 140ms ease, background 140ms ease, transform 100ms ease;
+        }
+        .nav-link:hover {
+          color: #0F766E;
+          background: rgba(20, 184, 166, 0.08);
+        }
+        .nav-link:active {
+          transform: translateY(1px);
+          background: rgba(20, 184, 166, 0.14);
+        }
+        .nav-link:focus-visible {
+          outline: 2px solid #14B8A6;
+          outline-offset: 2px;
+        }
+
         /* Subtle teal separator between adjacent nav items. Drawn via
-           ::before as a 14 px vertical bar at 15 % opacity — visible
+           ::before as a 14 px vertical bar at 22 % opacity — visible
            enough to structure the row, quiet enough not to compete
            with the wordmark. Skipped on the first item so we do not
            create a leading rule. */
@@ -146,30 +167,35 @@ export default function SiteHeader() {
           width: 1px;
           height: 14px;
           background: rgba(20, 184, 166, 0.22);
+          pointer-events: none;
         }
         .nav-link[data-first]::before { display: none; }
 
-        /* Teal underline on active page. Uses ::after so it never
-           reflows layout — animates smoothly if we later add
-           hover-preview states. */
+        /* Teal underline on active page + hover-preview. Uses ::after
+           so it never reflows layout — animates smoothly in from
+           0 → 100 % width on hover, and stays fully drawn when active. */
         .nav-link::after {
           content: '';
           position: absolute;
-          left: 20px;
-          right: 20px;
+          left: 50%;
+          right: 50%;
           bottom: 2px;
           height: 2px;
           border-radius: 2px;
-          background: transparent;
-          transition: background 180ms ease;
+          background: rgba(20, 184, 166, 0.4);
+          transition: left 220ms ease, right 220ms ease, background 180ms ease;
+          pointer-events: none;
         }
         .nav-link:hover::after {
-          background: rgba(20, 184, 166, 0.35);
+          left: 20px;
+          right: 20px;
         }
         .nav-link-active {
           color: #0F766E !important;
         }
         .nav-link-active::after {
+          left: 20px !important;
+          right: 20px !important;
           background: #14B8A6 !important;
         }
 

@@ -5,7 +5,7 @@ export const metadata = { title: 'Frequently Asked Questions' };
 
 const DEFAULT_FAQS = [
   { q: 'What is FriendPlace?', a: 'FriendPlace is a warm community app for making real, everyday friendships — local coffee catch-ups, hobby groups and community events. It is not a dating app.' },
-  { q: 'Is it really free?', a: 'Yes. FriendPlace is free forever for members. We do not sell your data, and we do not run ads.' },
+  { q: 'Is it really free?', a: 'Yes, FriendPlace is free for members and will always have a free tier. Down the track, local businesses may pay to run community-friendly sponsored events, listings or partnerships (think a café hosting a book club) — but that is separate from the member experience, and we will never sell your personal data or fill the app with ads.' },
   { q: 'How is FriendPlace different from Facebook or Meetup?', a: "We're smaller, warmer and focused on real life. There are no likes, no infinite scroll, no algorithm optimising your engagement. Just gentle nudges toward genuine belonging." },
   { q: 'Is FriendPlace safe?', a: 'Every member is verified, and we have a real human moderation team. You can report or block anyone with one tap. Community guidelines are enforced firmly but kindly.' },
   { q: 'Who runs FriendPlace?', a: 'A small Australian team based in New South Wales, backed by Founding Members like you. We are member-supported, not investor-owned.' },
