@@ -1,36 +1,49 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { brandAssets } from '@/lib/brand-assets';
-import { site } from '@/lib/brand';
 
 /**
- * Site header — sticky, translucent nav bar with the butterfly wordmark
- * on the left and the primary nav on the right. Collapses to a hamburger
- * on mobile.
+ * Site header — sticky white nav bar with:
+ *   • butterfly + wordmark on the left
+ *   • primary nav on the right
+ *   • hamburger on mobile
  *
- * Behaviour notes:
- *   • `client component` because it needs interactive mobile-nav state.
- *   • Uses backdrop-filter for a frosted-glass effect on scroll.
- *   • The Butterfly is teal against the cream background — mirrors the
- *     app icon's colour scheme so returning users get an instant
- *     brand-recognition hit.
+ * Premium polish added:
+ *   • Subtle 1 px light-grey divider + soft drop shadow underneath so
+ *     the header separates cleanly from the navy masthead below.
+ *   • Very subtle teal separators between menu items (14 px tall,
+ *     15% opacity — visible only if you look for them).
+ *   • Teal underline on the active page, drawn with a ::after pseudo
+ *     so it never affects layout, only visual state.
  */
 export default function SiteHeader() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+
+  const isActive = (href: string) => {
+    if (href === '/') return pathname === '/';
+    return pathname === href || pathname.startsWith(href + '/');
+  };
+
   return (
     <header
       style={{
         position: 'sticky', top: 0, zIndex: 50,
         backdropFilter: 'saturate(180%) blur(12px)',
-        background: 'rgba(254, 252, 248, 0.85)',
-        borderBottom: '1px solid rgba(226, 232, 240, 0.6)',
+        background: 'rgba(254, 252, 248, 0.92)',
+        // Subtle 1 px grey divider + soft drop shadow. Together they
+        // give the header a premium lift without any single element
+        // being loud. The shadow uses a slate tint (rather than pure
+        // black) so it blends with the cream background.
+        borderBottom: '1px solid #E5E9EF',
+        boxShadow: '0 1px 4px rgba(15, 23, 42, 0.04)',
       }}
     >
       <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72 }}>
         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-          {/* Official butterfly (transparent), proportionally scaled. */}
           <img
             src={brandAssets.butterfly.src}
             alt={brandAssets.butterfly.alt}
@@ -43,14 +56,28 @@ export default function SiteHeader() {
           </span>
         </Link>
 
-        {/* Desktop nav */}
-        <nav className="nav-desktop" style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-          {NAV.map((n) => (
-            <Link key={n.href} href={n.href} style={{ color: '#0A2540', fontWeight: 600, fontSize: 15 }}>
+        {/* Desktop nav — gap:0 because separators are drawn between
+            items via ::before pseudo-elements. */}
+        <nav className="nav-desktop" style={{ display: 'flex', alignItems: 'center' }}>
+          {NAV.map((n, i) => (
+            <Link
+              key={n.href}
+              href={n.href}
+              className={`nav-link ${isActive(n.href) ? 'nav-link-active' : ''}`}
+              data-first={i === 0 ? 'true' : undefined}
+              style={{
+                position: 'relative',
+                color: '#0A2540',
+                fontWeight: 600,
+                fontSize: 15,
+                padding: '10px 20px',
+                textDecoration: 'none',
+              }}
+            >
               {n.label}
             </Link>
           ))}
-          <Link href="/#download" className="btn btn-primary" style={{ padding: '10px 20px', fontSize: 14 }}>
+          <Link href="/#download" className="btn btn-primary" style={{ padding: '10px 20px', fontSize: 14, marginLeft: 20 }}>
             Get the App
           </Link>
         </nav>
@@ -81,13 +108,19 @@ export default function SiteHeader() {
 
       {/* Mobile menu drop-panel */}
       {open && (
-        <div className="nav-mobile-panel" style={{ background: '#FEFCF8', borderTop: '1px solid #E2E8F0', padding: '16px 24px' }}>
+        <div className="nav-mobile-panel" style={{ background: '#FEFCF8', borderTop: '1px solid #E5E9EF', padding: '16px 24px' }}>
           {NAV.map((n) => (
             <Link
               key={n.href}
               href={n.href}
               onClick={() => setOpen(false)}
-              style={{ display: 'block', padding: '12px 0', fontWeight: 600, color: '#0A2540', borderBottom: '1px solid #F1F5F9' }}
+              style={{
+                display: 'block', padding: '12px 0', fontWeight: 600,
+                color: isActive(n.href) ? '#14B8A6' : '#0A2540',
+                borderBottom: '1px solid #F1F5F9',
+                borderLeft: isActive(n.href) ? '3px solid #14B8A6' : '3px solid transparent',
+                paddingLeft: 12,
+              }}
             >
               {n.label}
             </Link>
@@ -98,12 +131,53 @@ export default function SiteHeader() {
         </div>
       )}
 
-      <style>{`
+      <style dangerouslySetInnerHTML={{ __html: `
+        /* Subtle teal separator between adjacent nav items. Drawn via
+           ::before as a 14 px vertical bar at 15 % opacity — visible
+           enough to structure the row, quiet enough not to compete
+           with the wordmark. Skipped on the first item so we do not
+           create a leading rule. */
+        .nav-link::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 1px;
+          height: 14px;
+          background: rgba(20, 184, 166, 0.22);
+        }
+        .nav-link[data-first]::before { display: none; }
+
+        /* Teal underline on active page. Uses ::after so it never
+           reflows layout — animates smoothly if we later add
+           hover-preview states. */
+        .nav-link::after {
+          content: '';
+          position: absolute;
+          left: 20px;
+          right: 20px;
+          bottom: 2px;
+          height: 2px;
+          border-radius: 2px;
+          background: transparent;
+          transition: background 180ms ease;
+        }
+        .nav-link:hover::after {
+          background: rgba(20, 184, 166, 0.35);
+        }
+        .nav-link-active {
+          color: #0F766E !important;
+        }
+        .nav-link-active::after {
+          background: #14B8A6 !important;
+        }
+
         @media (max-width: 900px) {
           .nav-desktop { display: none !important; }
           .nav-mobile-toggle { display: block !important; }
         }
-      `}</style>
+      ` }} />
     </header>
   );
 }
@@ -115,6 +189,3 @@ const NAV = [
   { label: 'FAQs', href: '/faqs' },
   { label: 'Contact', href: '/contact' },
 ];
-
-// suppress unused var to satisfy TS strict on site import
-void site;

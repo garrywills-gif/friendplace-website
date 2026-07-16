@@ -1,5 +1,5 @@
 import { cms } from '@/lib/api';
-import Butterfly from '@/components/Butterfly';
+import { brandAssets } from '@/lib/brand-assets';
 
 export const metadata = { title: 'About Us' };
 
@@ -21,7 +21,13 @@ export default async function AboutPage() {
             background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 24,
             padding: 40, textAlign: 'center', marginTop: 48,
           }}>
-            <Butterfly size={48} color="#14B8A6" />
+            <img
+              src={brandAssets.butterfly.src}
+              alt=""
+              width={brandAssets.butterfly.width}
+              height={brandAssets.butterfly.height}
+              style={{ width: 60, height: 'auto', display: 'inline-block' }}
+            />
             <div style={{
               textTransform: 'uppercase', letterSpacing: '0.15em', fontSize: 12,
               fontWeight: 800, color: '#14B8A6', margin: '16px 0 8px',
