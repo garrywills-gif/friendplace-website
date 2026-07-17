@@ -175,3 +175,29 @@ Only render when the underlying data source exists:
 4. **Phase F** (Global search) — once we have >10 editable objects.
 5. **Phase D** (Widgets) — parallel to the analytics dashboard already
    in the earlier backlog block; may collapse into that one.
+
+---
+
+## ✅ Success Stories editor — SHIPPED (17 July 2026)
+
+Completed in this session:
+- Dedicated `cms_success_stories` MongoDB collection with own timestamps and ordering
+- Full CRUD backend at `/api/cms/success-stories/*` (18/18 pytests passing)
+- Two-page admin UX: list at `/admin/success-stories`, editor at `/admin/success-stories/[id]`
+- Rich text (TipTap) body, author name/role/location, avatar via Media Library picker
+- **Draft / Published toggle** (separate from Hidden)
+- **Hidden toggle** — published stories can be temporarily hidden without demoting to draft
+- **Preview modal** rendered with the shared `<StoryCard>` component (WYSIWYG parity with public site)
+- Up/down reorder controls with bulk /reorder endpoint
+- Created / Last Updated dates visible on the editor header
+- Public page live at `/success-stories` (grid of published+visible stories, 60s ISR)
+- Dashboard: new "Success stories" summary tile + Quick Action "Add Success Story" enabled
+- Sidebar nav: new "Success Stories" entry
+- Public API projection stripped so admin-only fields (created_by / created_at) never leak
+
+Also in this session:
+- Quick Actions strip on dashboard (Add FAQ / Upload Image / Add Success Story live;
+  Add Founding Member / Add Event pending)
+- Expanded System Status panel (Website / API / Database / Last publish / Version)
+- Nginx proxy extended to serve all marketing site public routes on the preview URL,
+  so `/success-stories`, `/about`, `/faqs` etc. render the CMS-driven website locally

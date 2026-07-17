@@ -726,8 +726,26 @@ def build_public_router(db) -> APIRouter:
         # entries so nothing goes missing during the migration window.
         try:
             cur = db.cms_success_stories.find(
-                {"status": "published", "hidden": {"$ne": True}}, {"_id": 0}
-            ).sort([("order", 1), ("created_at", -1)])
+                {
+                    "status": "published",
+                    "hidden": {"$ne": True},
+                },
+                # Explicit projection — admin-only fields like created_by
+                # / created_at MUST NOT leak on the public API. Only ship
+                # what the public StoryCard actually needs.
+                {
+                    "_id": 0,
+                    "id": 1,
+                    "title": 1,
+                    "body_html": 1,
+                    "author_name": 1,
+                    "author_role": 1,
+                    "author_location": 1,
+                    "author_avatar_url": 1,
+                    "order": 1,
+                    "updated_at": 1,
+                },
+            ).sort([("order", 1), ("updated_at", -1)])
             items = await cur.to_list(length=None)
         except Exception:
             items = []
