@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { site } from '@/lib/brand';
 import './globals.css';
 import SiteHeader from '@/components/SiteHeader';
@@ -21,6 +21,19 @@ export const metadata: Metadata = {
     'social community',
   ],
   authors: [{ name: 'FriendPlace' }],
+  // Pre-launch privacy: force noindex on EVERY page unless the Vercel
+  // env var FRIENDPLACE_INDEXABLE is explicitly set to "true". Combined
+  // with robots.txt + X-Robots-Tag header this makes three layers of
+  // defence — the site cannot be crawled or listed until launch.
+  robots:
+    process.env.FRIENDPLACE_INDEXABLE === 'true'
+      ? { index: true, follow: true }
+      : {
+          index: false,
+          follow: false,
+          nocache: true,
+          googleBot: { index: false, follow: false, noimageindex: true },
+        },
   openGraph: {
     title: `${site.name} — ${site.tagline}`,
     description: site.description,
@@ -35,10 +48,18 @@ export const metadata: Metadata = {
     description: site.description,
   },
   icons: {
-    icon: '/favicon.png',
-    apple: '/apple-touch-icon.png',
+    icon: '/brand-assets/favicon.png',
+    apple: '/brand-assets/favicon.png',
   },
+};
+
+// Next.js 14 wants viewport-related fields in a separate `viewport`
+// export (rather than the deprecated position inside `metadata`). Kept
+// here so the browser tab colour matches our navy brand.
+export const viewport: Viewport = {
   themeColor: '#0A2540',
+  width: 'device-width',
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
