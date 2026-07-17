@@ -30,6 +30,7 @@ from email_service import (
     is_configured as _email_is_configured,
     send_email as _email_send,
     password_reset_template as _email_password_reset_template,
+    support_acknowledgement_template as _email_support_ack_template,
 )
 from crossword_puzzles import (
     levels_summary as _xword_levels,
@@ -7274,8 +7275,14 @@ class SupportTicketBody(BaseModel):
 
 @api.post("/support/tickets")
 async def submit_support_ticket(body: SupportTicketBody):
+    ticket_id = nid()
+    # A short, human-friendly reference we can quote to users. Derived
+    # deterministically from the UUID so we can still map back if we
+    # only have the display id (e.g. from a user email reply).
+    display_id = "FP-" + ticket_id.replace("-", "")[:6].upper()
     doc = {
-        "id": nid(), "user_id": body.user_id, "user_email": body.user_email,
+        "id": ticket_id, "display_id": display_id,
+        "user_id": body.user_id, "user_email": body.user_email,
         "category": body.category, "subject": body.subject, "message": body.message,
         "status": "open",                 # open | resolved
         "created_at": now_iso(), "updated_at": now_iso(),
@@ -7289,18 +7296,19 @@ async def submit_support_ticket(body: SupportTicketBody):
     })
 
     # ------------------------------------------------------------------
-    # Fire an email to support@ so a human can act on the ticket.
-    # The DB record above is the source of truth — this is best-effort;
-    # if Resend is misconfigured we still return success to the mobile
-    # app. The `SUPPORT_EMAIL` env var lets ops override the destination
-    # without a code change.
+    # Fire an email to support@ so a human can act on the ticket, AND
+    # a branded acknowledgement back to the user so they know the message
+    # landed safely. Both are best-effort — the DB record above is the
+    # source of truth; if Resend is misconfigured we still return success
+    # to the mobile app. The `SUPPORT_EMAIL` env var lets ops override
+    # the destination without a code change.
     # ------------------------------------------------------------------
+    user_first_name: Optional[str] = None
+    user_name: Optional[str] = None
+    user_username: Optional[str] = None
     try:
-        # Enrich the email with the sender's profile when we have a
-        # logged-in user_id (name, username, avatar-free). Falls back
-        # gracefully to whatever the client supplied.
-        user_name = None
-        user_username = None
+        # Enrich with the sender's profile when we have a logged-in
+        # user_id (first name, username). Falls back gracefully.
         if body.user_id:
             try:
                 u = await db.users.find_one(
@@ -7308,6 +7316,7 @@ async def submit_support_ticket(body: SupportTicketBody):
                     {"_id": 0, "first_name": 1, "last_name": 1, "username": 1, "email": 1},
                 )
                 if u:
+                    user_first_name = (u.get("first_name") or "").strip() or None
                     user_name = " ".join(
                         [(u.get("first_name") or "").strip(), (u.get("last_name") or "").strip()]
                     ).strip() or None
@@ -7325,7 +7334,7 @@ async def submit_support_ticket(body: SupportTicketBody):
         subject_line = f"[{body.category}] {body.subject}"
         # Build a header meta table for scannability.
         meta_rows = [
-            ("Ticket ID", doc["id"]),
+            ("Ticket ID", display_id),
             ("Category", body.category or "Other"),
             ("Subject",  body.subject or "(no subject)"),
             ("From",     user_name or user_username or "Anonymous"),
@@ -7344,7 +7353,8 @@ async def submit_support_ticket(body: SupportTicketBody):
             "<div style=\"max-width:640px;margin:0 auto;background:#FFFFFF;border:1px solid #E2E8F0;"
             "border-radius:12px;overflow:hidden;\">"
             "<div style=\"padding:20px 24px;background:#0B1F45;color:#FFFFFF;\">"
-            "<div style=\"font-size:12px;letter-spacing:1.5px;color:#93C5FD;font-weight:700;\">FRIENDPLACE · SUPPORT</div>"
+            "<div style=\"font-size:12px;letter-spacing:1.5px;color:#93C5FD;font-weight:700;\">"
+            f"FRIENDPLACE · SUPPORT · {_esc(display_id)}</div>"
             f"<div style=\"font-size:20px;font-weight:800;margin-top:6px;\">{_esc(subject_line)}</div>"
             "</div>"
             "<div style=\"padding:20px 24px;\">"
@@ -7365,7 +7375,7 @@ async def submit_support_ticket(body: SupportTicketBody):
         )
         text_body = (
             f"New support ticket: {subject_line}\n\n"
-            f"Ticket ID: {doc['id']}\n"
+            f"Ticket ID: {display_id}\n"
             f"Category:  {body.category}\n"
             f"From:      {user_name or user_username or 'Anonymous'}\n"
             f"Email:     {body.user_email or '—'}\n"
@@ -7387,7 +7397,37 @@ async def submit_support_ticket(body: SupportTicketBody):
     except Exception:
         logger.exception("failed to send support-ticket notification email")
 
-    return {"ok": True, "ticket_id": doc["id"], "message": "Thank you. We've received your message and will get back to you soon."}
+    # ------------------------------------------------------------------
+    # Acknowledgement email back to the user — only if we have an
+    # address on file, and only best-effort.
+    # ------------------------------------------------------------------
+    if body.user_email:
+        try:
+            ack_subject, ack_html, ack_text = _email_support_ack_template(
+                first_name=user_first_name,
+                ticket_ref=display_id,
+                category=body.category or "Support",
+                subject_snippet=body.subject or "",
+            )
+            support_reply_to = (os.getenv("SUPPORT_EMAIL") or "support@friendplace.com.au").strip()
+            await _email_send(
+                to=body.user_email,
+                subject=ack_subject,
+                html=ack_html,
+                text=ack_text,
+                # If the user hits reply on our confirmation email, route
+                # it straight to the support inbox rather than noreply.
+                reply_to=support_reply_to,
+            )
+        except Exception:
+            logger.exception("failed to send support-ticket acknowledgement email")
+
+    return {
+        "ok": True,
+        "ticket_id": doc["id"],
+        "display_id": display_id,
+        "message": "Thank you. We've received your message and will get back to you soon.",
+    }
 
 
 @api.get("/admin/support/tickets")

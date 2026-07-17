@@ -360,3 +360,153 @@ def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: i
         f"{_branded_footer_text()}"
     )
     return subject, html, text
+
+
+
+def support_acknowledgement_template(
+    *,
+    first_name: str | None,
+    ticket_ref: str,
+    category: str,
+    subject_snippet: str,
+) -> tuple[str, str, str]:
+    """Build the branded "we received your message" email sent to the
+    user who submitted a Contact Support or Report a Problem request.
+
+    Uses the same full-bleed navy canvas as the password-reset email so
+    the two feel like siblings. Includes:
+      - a short human ticket ref (e.g. FP-13EF62) they can quote in
+        follow-ups,
+      - the category + one-line subject echo so they can visually
+        confirm we received the right thing,
+      - a soft nudge to the FAQ / George in case an answer is already
+        available.
+
+    Args:
+        first_name:      recipient's first name, if we know it.
+        ticket_ref:      display ID to quote (e.g. "FP-13EF62").
+        category:        category the user picked (e.g. "Report a Problem").
+        subject_snippet: user-supplied subject; will be truncated for
+                         email safety.
+    """
+    from html import escape as _esc
+    name = (first_name or "there").strip()
+    snippet = (subject_snippet or "").strip()
+    # Keep the echoed subject small — protects against runaway lines
+    # in the email body while still being useful for reassurance.
+    if len(snippet) > 120:
+        snippet = snippet[:117] + "…"
+
+    email_subject = "We’ve received your message 💜"
+    safe_ref = _esc(ticket_ref)
+    safe_category = _esc(category or "Support")
+    safe_snippet = _esc(snippet) if snippet else ""
+
+    subject_echo_html = (
+        f'<div style="color:#94A3B8;font-size:13px;line-height:20px;margin-top:6px;">'
+        f'"{safe_snippet}"</div>'
+        if safe_snippet else ""
+    )
+
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+            <!-- Header -->
+            <tr>
+              <td align="center" style="padding:8px 22px 6px 22px;">
+                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+                </div>
+                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
+                  SUPPORT · MESSAGE RECEIVED
+                </div>
+              </td>
+            </tr>
+
+            <!-- Greeting -->
+            <tr>
+              <td style="padding:24px 22px 6px 22px;">
+                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+                  Hi {_esc(name)},<br><br>
+                  Thanks for contacting the FriendPlace Support Team.<br><br>
+                  We&rsquo;ve received your message and one of our team members will get back to you as soon as possible.
+                </div>
+              </td>
+            </tr>
+
+            <!-- Ticket reference chip + subject echo -->
+            <tr>
+              <td align="center" style="padding:22px 22px 4px 22px;">
+                <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
+                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR SUPPORT TICKET</div>
+                  <div style="color:#5EEAD4;font-size:26px;font-weight:900;letter-spacing:3px;line-height:1;margin-top:6px;">
+                    {safe_ref}
+                  </div>
+                  <div style="color:#CBD5E1;font-size:12px;margin-top:8px;">
+                    {safe_category}
+                  </div>
+                  {subject_echo_html}
+                </div>
+              </td>
+            </tr>
+
+            <!-- Meanwhile nudge -->
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
+                  In the meantime, you might find an answer in our
+                  <a href="https://www.friendplace.com.au/faq" style="color:#93C5FD;text-decoration:none;font-weight:600;">FAQs</a>,
+                  or <strong style="color:#E2E8F0;">George</strong> may be able to help with general questions.
+                </div>
+              </td>
+            </tr>
+
+            <!-- Community close -->
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+                  Thank you for being part of the FriendPlace community.<br><br>
+                  💜 The FriendPlace Support Team
+                </div>
+              </td>
+            </tr>
+
+            <!-- Spacer before the footer -->
+            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+
+            <!-- Branded footer -->
+            <tr>
+              <td style="padding:0 12px;">
+                {_branded_footer_html()}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
+
+    text = (
+        f"Hi {name},\n\n"
+        f"Thanks for contacting the FriendPlace Support Team.\n\n"
+        f"We've received your message and one of our team members will get "
+        f"back to you as soon as possible.\n\n"
+        f"    Your support ticket: {ticket_ref}\n"
+        f"    Category: {category}\n"
+        + (f'    Subject: "{snippet}"\n' if snippet else "")
+        + "\n"
+        f"In the meantime, you might find an answer in our FAQs "
+        f"(https://www.friendplace.com.au/faq), or George may be able to "
+        f"help with general questions.\n\n"
+        f"Thank you for being part of the FriendPlace community.\n\n"
+        f"💜 The FriendPlace Support Team"
+        f"{_branded_footer_text()}"
+    )
+    return email_subject, html, text
