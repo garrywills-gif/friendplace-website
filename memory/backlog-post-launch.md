@@ -96,3 +96,82 @@ sponsors, and community health.
 - [ ] **Maintenance mode toggle** in the badge — clicking flips
       `FRIENDPLACE_INDEXABLE` (or a new `MAINTENANCE_MODE` env) and
       shows a friendly holding page on the public site
+
+
+---
+
+## 🚀 Mission Control — dashboard enhancement ideas (round 2)
+
+**Requested by:** Garry
+**When:** Session 17 July 2026 (afternoon)
+**Priority:** Not urgent — preserve the clean/uncluttered feel
+
+**Guiding principle Garry set:** "Simplicity is one of the strengths of
+Mission Control, and I'd rather build on that than overload it."
+Every item below MUST justify its space on the dashboard.
+
+### A. Quick Actions strip (small, high-value)
+A single compact row of icon buttons directly under the welcome
+subtitle for the actions Garry uses daily:
+- [ ] ➕ Add FAQ            → jumps to /admin/faqs and focuses a new blank row
+- [ ] 🖼️ Upload Image        → opens Media Library upload picker inline
+- [ ] 📖 Add Success Story  → (waits on Success Stories editor)
+- [ ] 👥 Add Founding Member → (waits on Founding Members editor)
+- [ ] 📅 Add Event           → (waits on Events module)
+
+### B. System Status panel (fits inside/next to the Website Status card)
+Compact — one small card, four coloured dots, no big header:
+- [ ] 🌐 Website: reuses existing Private/Live/Maintenance state
+- [ ] 🟢 API: pings `/api/ping` on load; red on failure
+- [ ] 🟢 Database: read from a new `/api/cms/health/db` endpoint that
+      pings Mongo
+- [ ] 🚀 Last Publish: shows relative time from `site_content.updated_at`
+      (already stored; just needs surfacing)
+- [ ] 📦 Version: shows a build/version constant baked at deploy time
+      (Vercel env var `VERCEL_GIT_COMMIT_SHA` or a hand-cut `APP_VERSION`)
+
+### C. Recent Activity feed (own section, opt-in-visible)
+Every save writes to a new `cms_activity_log` collection:
+- [ ] Automatic activity events on: page updated · FAQ added ·
+      image uploaded · founding member joined · website published ·
+      settings changed
+- [ ] Dashboard section shows the last 5–8 with relative timestamps
+      and an "actor" (which admin did it)
+- [ ] Link to a full `/admin/activity` page with filtering by type
+
+### D. Future widget stack (each behind a feature flag)
+Only render when the underlying data source exists:
+- [ ] 👥 Total registered users (from `users` collection)
+- [ ] 🦋 Founding Members trend (weekly delta)
+- [ ] 📅 Upcoming events (after Events module ships)
+- [ ] 💬 New contact-form messages / support enquiries
+- [ ] 📈 Website visitors (needs analytics — Plausible? Umami?)
+- [ ] 📲 App downloads (App Store Connect + Play Console APIs — big lift)
+- [ ] ❤️ Community engagement stats (posts/day, reactions/day)
+
+### E. Notifications centre (small bell in top-right of the shell)
+- [ ] `cms_notifications` collection populated by system events
+- [ ] Bell icon with unread pill in AdminShell header
+- [ ] Dropdown panel with items: New Founding Member · Contact form
+      enquiry · Failed upload · System alert · Update available
+- [ ] Mark-as-read, dismiss, "settings" for what to notify on
+
+### F. Global search (⌘K)
+- [ ] Command-K palette that indexes every CMS-managed thing:
+      pages, FAQs (question text), success stories, founding members,
+      media (filename + alt), events
+- [ ] Fuzzy match, keyboard-first UX, jumps to the editor with the
+      item focused
+- [ ] Server-side: probably a lightweight `/api/cms/search?q=` that
+      unions the collections until we outgrow it, then swap for a
+      real index (Meilisearch/Typesense) if warranted
+
+**Suggested phasing when we come back to this:**
+1. **Phase A + B** (Quick Actions + System Status) — fit the current
+   aesthetic, low risk, high daily-utility value. Small footprint.
+2. **Phase C** (Activity feed) — needs the log table + write-side
+   integration in every mutating endpoint. Medium build.
+3. **Phase E** (Notifications) — builds on C's activity plumbing.
+4. **Phase F** (Global search) — once we have >10 editable objects.
+5. **Phase D** (Widgets) — parallel to the analytics dashboard already
+   in the earlier backlog block; may collapse into that one.
