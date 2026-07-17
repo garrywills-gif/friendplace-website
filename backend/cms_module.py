@@ -149,6 +149,31 @@ class CmsContentPatch(BaseModel):
     founding_members: Optional[List[Dict[str, Any]]] = None
 
 
+class SuccessStoryIn(BaseModel):
+    """Payload for creating or updating a Success Story.
+
+    Every field is optional on PATCH so partial updates are cheap; on
+    POST we accept nothing but title (which auto-fills so new drafts
+    are always addressable in the list view).
+    """
+    title: Optional[str] = None
+    body_html: Optional[str] = None
+    author_name: Optional[str] = None
+    author_role: Optional[str] = None
+    author_location: Optional[str] = None
+    author_avatar_url: Optional[str] = None
+    # `status` = editorial state; `hidden` = visibility override so a
+    # published story can be temporarily hidden without demoting it
+    # back to draft. Public site shows only status=published & !hidden.
+    status: Optional[str] = None  # "draft" | "published"
+    hidden: Optional[bool] = None
+
+
+class SuccessStoriesReorderIn(BaseModel):
+    """POST /cms/success-stories/reorder body — new full ordering by id."""
+    ids: List[str] = Field(default_factory=list)
+
+
 # ---- Router factory ------------------------------------------------------
 
 def build_router(db) -> APIRouter:
@@ -332,6 +357,10 @@ def build_router(db) -> APIRouter:
             )
         except Exception:
             founder_count = 0
+        try:
+            success_stories_count = await db.cms_success_stories.count_documents({})
+        except Exception:
+            success_stories_count = 0
         # `pages_count` is fixed today — Home / About / FAQs / Founders.
         # Grows automatically as new CMS-editable pages come online.
         pages_count = 4
@@ -357,7 +386,7 @@ def build_router(db) -> APIRouter:
             "pages_count": pages_count,
             "media_count": int(media_count),
             "faqs_count": len(content.get("faqs") or []),
-            "success_stories_count": len(content.get("success_stories") or []),
+            "success_stories_count": int(success_stories_count),
             "founding_members_count_editable": len(content.get("founding_members") or []),
             "founder_signups_count": int(founder_count),
             "status": status,
@@ -406,6 +435,114 @@ def build_router(db) -> APIRouter:
         if doc:
             doc.pop("key", None)
         return doc or {}
+
+    # ============================================================
+    # SUCCESS STORIES
+    # ============================================================
+    # Dedicated collection so each story has its own id, timestamps,
+    # ordering, and editorial state. Public site consumes only
+    # published & non-hidden rows via /api/public/stories.
+
+    async def _load_stories(only_public: bool = False) -> List[Dict[str, Any]]:
+        q: Dict[str, Any] = {}
+        if only_public:
+            q = {"status": "published", "hidden": {"$ne": True}}
+        cur = db.cms_success_stories.find(q, {"_id": 0}).sort([("order", 1), ("created_at", -1)])
+        return await cur.to_list(length=None)
+
+    @router.get("/success-stories")
+    async def list_stories(admin: dict = Depends(current_cms_admin)):
+        """Admin list — includes drafts and hidden stories."""
+        items = await _load_stories(only_public=False)
+        return {"items": items, "count": len(items)}
+
+    @router.post("/success-stories")
+    async def create_story(
+        body: Optional[SuccessStoryIn] = None,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        # New drafts get a placeholder title so the list view has
+        # something to click on — Garry can edit it immediately.
+        try:
+            existing = await db.cms_success_stories.count_documents({})
+        except Exception:
+            existing = 0
+        story_id = str(uuid.uuid4())
+        now = _now_iso()
+        doc: Dict[str, Any] = {
+            "id": story_id,
+            "title": (body.title if body and body.title else "Untitled story"),
+            "body_html": (body.body_html if body else "") or "",
+            "author_name": (body.author_name if body else "") or "",
+            "author_role": (body.author_role if body else "") or "",
+            "author_location": (body.author_location if body else "") or "",
+            "author_avatar_url": (body.author_avatar_url if body else "") or "",
+            "status": (body.status if body and body.status else "draft"),
+            "hidden": bool(body.hidden) if body and body.hidden is not None else False,
+            "order": int(existing),  # append at end
+            "created_at": now,
+            "updated_at": now,
+            "created_by": admin.get("email"),
+        }
+        await db.cms_success_stories.insert_one(dict(doc))
+        return doc
+
+    @router.get("/success-stories/{story_id}")
+    async def get_story(
+        story_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        doc = await db.cms_success_stories.find_one({"id": story_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(404, "Story not found")
+        return doc
+
+    @router.patch("/success-stories/{story_id}")
+    async def patch_story(
+        story_id: str,
+        body: SuccessStoryIn,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        update: Dict[str, Any] = {"updated_at": _now_iso()}
+        # Only include explicitly-supplied fields so PATCH remains partial.
+        for field in (
+            "title", "body_html", "author_name", "author_role",
+            "author_location", "author_avatar_url", "status", "hidden",
+        ):
+            val = getattr(body, field)
+            if val is not None:
+                update[field] = val
+        if "status" in update and update["status"] not in ("draft", "published"):
+            raise HTTPException(400, "status must be 'draft' or 'published'")
+        res = await db.cms_success_stories.update_one({"id": story_id}, {"$set": update})
+        if res.matched_count == 0:
+            raise HTTPException(404, "Story not found")
+        doc = await db.cms_success_stories.find_one({"id": story_id}, {"_id": 0})
+        return doc
+
+    @router.delete("/success-stories/{story_id}")
+    async def delete_story(
+        story_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        res = await db.cms_success_stories.delete_one({"id": story_id})
+        if res.deleted_count == 0:
+            raise HTTPException(404, "Story not found")
+        return {"ok": True}
+
+    @router.post("/success-stories/reorder")
+    async def reorder_stories(
+        body: SuccessStoriesReorderIn,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Bulk reorder — client sends the full desired ordering by id."""
+        for idx, story_id in enumerate(body.ids):
+            await db.cms_success_stories.update_one(
+                {"id": story_id}, {"$set": {"order": idx, "updated_at": _now_iso()}}
+            )
+        items = await _load_stories(only_public=False)
+        return {"items": items, "count": len(items)}
+
 
     # ============================================================
     # MEDIA LIBRARY
@@ -584,7 +721,19 @@ def build_public_router(db) -> APIRouter:
 
     @router.get("/stories")
     async def stories():
-        c = await _content()
-        return {"stories": c.get("success_stories") or []}
+        # Read from the dedicated collection when it exists, filtered to
+        # published & non-hidden. Falls back to legacy site_content
+        # entries so nothing goes missing during the migration window.
+        try:
+            cur = db.cms_success_stories.find(
+                {"status": "published", "hidden": {"$ne": True}}, {"_id": 0}
+            ).sort([("order", 1), ("created_at", -1)])
+            items = await cur.to_list(length=None)
+        except Exception:
+            items = []
+        if not items:
+            c = await _content()
+            items = c.get("success_stories") or []
+        return {"stories": items}
 
     return router

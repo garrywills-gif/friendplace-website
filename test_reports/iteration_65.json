@@ -1,0 +1,68 @@
+{
+  "summary": "Full E2E test of the FriendPlace Mini-CMS Success Stories module. BACKEND: 18/18 pytest cases pass — auth guards on every admin endpoint, CRUD (create with empty body auto-fills 'Untitled story' + status='draft' + hidden=false; GET/PATCH partial update; PATCH invalid status rejected 400; PATCH/GET on missing → 404; DELETE idempotency), the publish/draft/hidden state machine (published+visible appears on /api/public/stories, draft removed, hidden published removed, unhide restores), reorder (order field persists + /api/public/stories reflects the new ordering), and the /cms/stats.success_stories_count matches the admin list count. FRONTEND (Mission Control, Next.js website): sidebar shows the new 'Success Stories' nav item and it's clickable to /admin/success-stories; unauthenticated visits to /admin/success-stories and /admin/success-stories/{id} redirect to /admin/login (verified); empty-state '📖 No stories yet' renders; '+ New story' creates a draft and routes to the editor; editor allows filling title, TipTap body, author name/role/location; 👁️ Preview modal opens and renders the story using the same StoryCard component as the public page (visual parity confirmed via screenshot); 🚀 Publish moves the story to status=published, hides that button, exposes 'Move to draft', and the story becomes immediately visible on /api/public/stories; 'Move to draft' removes it from the public feed; Delete button removes the row from the list and the DB; Dashboard 'Success stories' summary tile renders and the 'Add Success Story' Quick Action navigates via ?new=1 which auto-creates a draft and drops the admin straight into the editor. IMPORTANT INFRA FINDING: on the preview URL, /success-stories is routed to the Expo mobile app (not to the Next.js marketing page at /app/website/app/success-stories/page.tsx), so the shared <StoryCard>-based public grid + '🦋 The first stories are being written.' empty state cannot be exercised through the emergent preview — nginx routes only /admin, /_next and /api/uploads to the Next.js website. Non-blocking for prod (site lives on its own hostname there) but Garry cannot preview the public page in this environment. Cleanup: every cms_success_stories row created during testing was deleted (Mongo count = 0, /api/public/stories returns []). Admin password NOT touched — used _make_admin_token() to mint a JWT for the existing 'hello@friendplace.com.au' admin.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/cms/success-stories",
+        "issue": "New draft auto-appends order = <count of existing docs>. If a story is later deleted from the middle, subsequent creates can collide with an existing order value (multiple rows sharing the same order). The /reorder endpoint fixes it, but the initial list sort ('order' asc, 'created_at' desc) will produce a stable ordering only because of the tie-break. Not a bug today, but consider using max(order)+1 or resequencing after delete."
+      },
+      {
+        "endpoint": "POST /api/cms/success-stories",
+        "issue": "created_by is stored as admin['email'] but never returned to the client type (SuccessStory) — harmless but adds a stray field on GETs. Not blocking."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Public marketing page /success-stories on the emergent preview",
+        "issue": "Nginx (/app/config/nginx/app-proxy.conf) routes only /admin, /_next, and /api/uploads to the Next.js website (port 3001). Every other frontend path — including /success-stories — falls through to the Expo mobile app on port 3002. Result: visiting https://<preview>/success-stories serves the Expo web build (title 'FriendPlace' + expo-router bundle), not the Next.js 'Real people. Real belonging.' page with the shared <StoryCard>. So the item-12 empty state and the grid rendering can only be verified in production or by running the website dev server directly on :3001. The /api/public/stories endpoint itself is correct and returns the expected filtered payload.",
+        "affected_testIDs": []
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "/admin/success-stories/{id} (editor)",
+        "issues": [
+          "TipTap emits a startup warning: `[tiptap warn]: Duplicate extension names found: ['link']`. Not visible to users but adds noise to the console and can lead to subtle link-mark bugs when a starter kit already provides Link and the code adds it again. Consider removing the extra Link.configure() or disabling StarterKit's link.",
+          "Editor has NO explicit testID attributes on the header buttons (Preview, Save draft, Publish, Move to draft, Hide) or on the form inputs. Selectors have to fall back to text-content matching, which works in English only. Adding data-testid values would harden future automated testing."
+        ]
+      },
+      {
+        "screen": "/admin/success-stories (list)",
+        "issues": [
+          "Row actions (↑, ↓, Edit, Delete) don't have data-testid; automated tests must rely on class .cms-btn-danger and button text. Fine for now but flag for future."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_success_stories.py",
+    "/app/test_reports/pytest/iter65_success_stories.xml"
+  ],
+  "action_items": [
+    "Optional: add data-testid attributes to the admin editor buttons (preview-btn, publish-btn, move-to-draft-btn, save-draft-btn, hide-btn) and the list row actions so future test agents don't have to depend on emoji-prefixed button text.",
+    "Optional: dedupe the TipTap Link extension so the console warning disappears (`Duplicate extension names found: ['link']`).",
+    "Consider re-sequencing `order` on delete (or using max(order)+1 on create) to avoid duplicate order values after mid-list deletions. Not user-visible today because /reorder repairs it, but a latent hazard.",
+    "Environment/nginx note only: if you want Garry to eyeball the public /success-stories page in the emergent preview, add a location rule mapping /success-stories → website_upstream in /app/config/nginx/app-proxy.conf. Prod deployment (Vercel) is unaffected."
+  ],
+  "critical_code_review_comments": [
+    "cms_module.py list_stories / _load_stories don't strip the `created_by` field before returning to admin/public — leaks the admin's email address to the public /api/public/stories response. Low sensitivity (email is already on the About page) but worth stripping for tidiness.",
+    "Editor page relies on the ProseMirror div for the TipTap body — no testID/data-testid, so keyboard-only or programmatic value setting is fragile.",
+    "PreviewModal in /app/website/app/admin/success-stories/[id]/page.tsx uses the current in-memory story state, so if the admin hasn't clicked Save, they may preview stale/newer content depending on when they opened the modal. That's actually the DESIRED behaviour (Preview shows what's on screen), but it means Preview does NOT round-trip through the DB — worth documenting so testers don't expect DB-truth.",
+    "The public /success-stories Next.js page fetches with `next.revalidate = 60`. In production this caches for 60s so newly-published stories can be up to a minute stale. Acceptable, but the review request implies immediate freshness — flag to Garry."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_success_stories.py (new — 18 pytest cases)",
+    "/app/test_reports/pytest/iter65_success_stories.xml (new — JUnit output)"
+  ],
+  "success_rate": {"backend": "100% (18/18 pytest)", "frontend": "100% of the 12 admin/dashboard flows I could exercise via the preview URL — the 13th (public marketing page rendering) is unreachable via the preview due to nginx routing (see integration_issues)."},
+  "seed_data_creation": "During testing, 5 cms_success_stories rows were created (pytest fixture + Playwright flows). ALL of them were deleted on teardown — verified via GET /api/cms/success-stories (count=0) and GET /api/public/stories (stories=[]). Garry starts with an empty list. Admin account 'hello@friendplace.com.au' was NOT touched (no password change, no delete) — a JWT was minted via cms_module._make_admin_token() for testing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend test suite: `MONGO_URL=mongodb://localhost:27017 DB_NAME=test_database JWT_SECRET=$(grep JWT_SECRET /app/backend/.env|cut -d= -f2) pytest /app/backend/tests/test_success_stories.py -v`. The suite mints a JWT for the pre-existing admin (no password required) and wipes every cms_success_stories row on teardown, so it's safe to re-run repeatedly. For frontend testing, inject the localStorage keys `fp_cms_token` (a valid JWT) and `fp_cms_admin` (JSON `{id,email,display_name}`) BEFORE navigating to any /admin route — no login page interaction needed. Reminder: /success-stories on the preview URL is served by the Expo mobile app, NOT the Next.js website — verify public rendering either by hitting the website dev server on port 3001 directly, or via the /api/public/stories JSON payload.",
+  "rca_of_issue": "N/A — no functional bugs found in the Success Stories module. The only real environmental gap is nginx routing (see integration_issues) which is a preview-environment concern, not a code bug."
+}

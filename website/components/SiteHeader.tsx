@@ -218,6 +218,7 @@ const NAV = [
   { label: 'About', href: '/about' },
   { label: 'How It Works', href: '/how-it-works' },
   { label: 'Features', href: '/features' },
+  { label: 'Stories', href: '/success-stories' },
   { label: 'FAQs', href: '/faqs' },
   { label: 'Contact', href: '/contact' },
 ];

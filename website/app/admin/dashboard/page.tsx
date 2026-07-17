@@ -27,7 +27,7 @@ const QUICK_ACTIONS: Array<{
 }> = [
   { icon: '➕', label: 'Add FAQ',            href: '/admin/faqs?new=1',   hint: 'Jump to FAQs & focus a fresh row',    enabled: true  },
   { icon: '🖼️', label: 'Upload Image',        href: '/admin/media?upload=1', hint: 'Open the Media Library uploader', enabled: true  },
-  { icon: '📖', label: 'Add Success Story',  href: '/admin/success-stories', hint: 'Coming soon',                     enabled: false },
+  { icon: '📖', label: 'Add Success Story',  href: '/admin/success-stories?new=1', hint: 'Draft a new success story',   enabled: true  },
   { icon: '👥', label: 'Add Founding Member', href: '/admin/founding-members', hint: 'Coming soon',                   enabled: false },
   { icon: '📅', label: 'Add Event',          href: '/admin/events',       hint: 'Coming soon',                        enabled: false },
 ];
@@ -105,7 +105,8 @@ export default function DashboardPage() {
         <SummaryCard emoji="📝" label="Website pages"     value={stats?.pages_count} tone="teal" />
         <SummaryCard emoji="🖼️" label="Media library"     value={stats?.media_count} tone="navy" />
         <SummaryCard emoji="❓" label="FAQs"              value={stats?.faqs_count} tone="teal" />
-        <SummaryCard emoji="👥" label="Founding members"  value={stats?.founder_signups_count} tone="navy" />
+        <SummaryCard emoji="📖" label="Success stories"   value={stats?.success_stories_count} tone="navy" />
+        <SummaryCard emoji="👥" label="Founding members"  value={stats?.founder_signups_count} tone="teal" />
       </div>
 
       {/* Expanded System Status card */}

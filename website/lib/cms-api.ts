@@ -86,4 +86,28 @@ export const cmsApi = {
   },
   updateMedia: (id: string, patch: any) => req<any>('PATCH', `/cms/media/${id}`, patch),
   deleteMedia: (id: string) => req<{ ok: true }>('DELETE', `/cms/media/${id}`),
+
+  // Success Stories
+  listStories: () => req<{ items: SuccessStory[]; count: number }>('GET', '/cms/success-stories'),
+  createStory: (data?: Partial<SuccessStory>) => req<SuccessStory>('POST', '/cms/success-stories', data || {}),
+  getStory: (id: string) => req<SuccessStory>('GET', `/cms/success-stories/${id}`),
+  updateStory: (id: string, patch: Partial<SuccessStory>) => req<SuccessStory>('PATCH', `/cms/success-stories/${id}`, patch),
+  deleteStory: (id: string) => req<{ ok: true }>('DELETE', `/cms/success-stories/${id}`),
+  reorderStories: (ids: string[]) => req<{ items: SuccessStory[] }>('POST', '/cms/success-stories/reorder', { ids }),
+};
+
+export type SuccessStory = {
+  id: string;
+  title: string;
+  body_html: string;
+  author_name: string;
+  author_role?: string;
+  author_location?: string;
+  author_avatar_url?: string;
+  status: 'draft' | 'published';
+  hidden?: boolean;
+  order?: number;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
 };
