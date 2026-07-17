@@ -434,7 +434,7 @@ def support_acknowledgement_template(
                 <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
                   Hi {_esc(name)},<br><br>
                   Thanks for contacting the FriendPlace Support Team.<br><br>
-                  We&rsquo;ve received your message and one of our team members will get back to you as soon as possible.
+                  We&rsquo;ve received your message and one of our team members will get back to you as soon as possible. We aim to respond within <strong style="color:#FFFFFF;">24 hours</strong> (often much sooner).
                 </div>
               </td>
             </tr>
@@ -462,6 +462,15 @@ def support_acknowledgement_template(
                   In the meantime, you might find an answer in our
                   <a href="https://www.friendplace.com.au/faq" style="color:#93C5FD;text-decoration:none;font-weight:600;">FAQs</a>,
                   or <strong style="color:#E2E8F0;">George</strong> may be able to help with general questions.
+                </div>
+              </td>
+            </tr>
+
+            <!-- Reply-to-add note -->
+            <tr>
+              <td style="padding:18px 22px 4px 22px;">
+                <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
+                  If your issue is urgent or you have any extra information to add, simply reply to this email and it&rsquo;ll be added to your support ticket.
                 </div>
               </td>
             </tr>
@@ -497,7 +506,8 @@ def support_acknowledgement_template(
         f"Hi {name},\n\n"
         f"Thanks for contacting the FriendPlace Support Team.\n\n"
         f"We've received your message and one of our team members will get "
-        f"back to you as soon as possible.\n\n"
+        f"back to you as soon as possible. We aim to respond within 24 hours "
+        f"(often much sooner).\n\n"
         f"    Your support ticket: {ticket_ref}\n"
         f"    Category: {category}\n"
         + (f'    Subject: "{snippet}"\n' if snippet else "")
@@ -505,6 +515,9 @@ def support_acknowledgement_template(
         f"In the meantime, you might find an answer in our FAQs "
         f"(https://www.friendplace.com.au/faq), or George may be able to "
         f"help with general questions.\n\n"
+        f"If your issue is urgent or you have any extra information to add, "
+        f"simply reply to this email and it'll be added to your support "
+        f"ticket.\n\n"
         f"Thank you for being part of the FriendPlace community.\n\n"
         f"💜 The FriendPlace Support Team"
         f"{_branded_footer_text()}"
