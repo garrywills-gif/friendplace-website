@@ -243,6 +243,19 @@ class EventRsvpIn(BaseModel):
     status: Optional[str] = None                 # "going" | "waitlist" | "cancelled"
 
 
+class PublicRsvpIn(BaseModel):
+    """Payload for anonymous public RSVPs (marketing website form).
+
+    Kept separate from the admin `EventRsvpIn` so the public form
+    can validate `name` + `email` as required — the admin path
+    treats every field as optional (partial edits).
+    """
+    name: str = Field(min_length=1, max_length=120)
+    email: EmailStr
+    guests_count: Optional[int] = 0
+    note: Optional[str] = None
+
+
 # ---- Router factory ------------------------------------------------------
 
 def build_router(db) -> APIRouter:
@@ -1302,6 +1315,67 @@ def build_public_router(db) -> APIRouter:
             ev["rsvp_counts"] = {"going": int(going), "waitlist": int(waitlist)}
         return {"events": upcoming}
 
+    # ── EVENT RSVP + ICS (public) ─────────────────────────────────
+    # NOTE: the `.ics` route is declared BEFORE `/events/{slug}` so
+    # FastAPI matches it first — otherwise the slug matcher would
+    # swallow "test-morning-coffee.ics" as a literal slug.
+
+    async def _fetch_public_event(slug: str) -> Dict[str, Any]:
+        """Slug → published+visible event, or 404."""
+        doc = await db.cms_events.find_one(
+            {"slug": slug, "status": "published", "hidden": {"$ne": True}},
+            {"_id": 0},
+        )
+        if not doc:
+            raise HTTPException(404, "Event not found")
+        return doc
+
+    def _format_event_when(event: Dict[str, Any]) -> str:
+        """Human-friendly Australia-formatted date string for email/UX."""
+        starts_at = event.get("starts_at") or ""
+        tz_name = event.get("timezone") or "Australia/Sydney"
+        if not starts_at:
+            return "Date TBD"
+        try:
+            dt = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+        except Exception:
+            return starts_at
+        try:
+            from zoneinfo import ZoneInfo
+            dt = dt.astimezone(ZoneInfo(tz_name))
+            tz_short = dt.tzname() or ""
+        except Exception:
+            tz_short = ""
+        s = dt.strftime("%a %d/%m/%Y, %I:%M %p")
+        s = s.replace(" 0", " ").replace(", 0", ", ")
+        if tz_short:
+            s = f"{s} {tz_short}"
+        return s
+
+    def _format_event_where(event: Dict[str, Any]) -> str:
+        if event.get("is_online"):
+            return event.get("meeting_url") or "Online"
+        parts = [event.get("venue_name") or "", event.get("venue_address") or ""]
+        return " · ".join(p for p in parts if p) or "Location TBD"
+
+    def _short_rsvp_ref(rsvp_id: str) -> str:
+        return "FP-EV-" + rsvp_id.replace("-", "")[:6].upper()
+
+    @router.get("/events/{slug}.ics")
+    async def public_event_ics(slug: str):
+        """Return the raw iCalendar file for an event so users can
+        subscribe/add it to their own calendar without RSVPing."""
+        from fastapi.responses import Response
+        from ics_builder import event_to_ics
+        event = await _fetch_public_event(slug)
+        site_url = os.getenv("FRIENDPLACE_PUBLIC_URL", "https://www.friendplace.com.au")
+        ics_text = event_to_ics(event, site_url=site_url)
+        return Response(
+            content=ics_text,
+            media_type="text/calendar; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{slug}.ics"'},
+        )
+
     @router.get("/events/{slug}")
     async def public_event_by_slug(slug: str):
         doc = await db.cms_events.find_one(
@@ -1322,5 +1396,258 @@ def build_public_router(db) -> APIRouter:
         waitlist = await db.event_rsvps.count_documents({"event_id": doc["id"], "status": "waitlist"})
         doc["rsvp_counts"] = {"going": int(going), "waitlist": int(waitlist)}
         return doc
+
+    @router.post("/events/{slug}/rsvp")
+    async def public_event_rsvp(slug: str, body: PublicRsvpIn):
+        """Create a public RSVP by name+email.
+
+        - Waitlists automatically when the event is at capacity.
+        - Idempotent per email: if the same email RSVPs twice, we
+          update the existing row instead of creating a duplicate.
+        - Sends a branded confirmation email with an .ics attachment
+          and a magic-link URL to manage/cancel the RSVP.
+        """
+        event = await _fetch_public_event(slug)
+        event_id = event["id"]
+        email = (body.email or "").strip().lower()
+        name = (body.name or "").strip()
+        if not name:
+            raise HTTPException(400, "Please add your name.")
+        # RSVP-deadline check (soft; only rejects if a deadline exists).
+        deadline = event.get("rsvp_deadline_at") or ""
+        if deadline:
+            try:
+                if datetime.fromisoformat(deadline.replace("Z", "+00:00")) < datetime.now(timezone.utc):
+                    raise HTTPException(400, "RSVPs for this event have closed.")
+            except HTTPException:
+                raise
+            except Exception:
+                pass  # invalid ISO — treat as no deadline
+
+        # Determine going vs waitlist based on current capacity usage.
+        capacity = event.get("capacity")
+        going_now = await db.event_rsvps.count_documents(
+            {"event_id": event_id, "status": "going"}
+        )
+        target_status = "going"
+        if isinstance(capacity, int) and capacity > 0 and going_now >= capacity:
+            target_status = "waitlist"
+
+        now = _now_iso()
+        existing = await db.event_rsvps.find_one(
+            {"event_id": event_id, "email": email}, {"_id": 0}
+        )
+
+        if existing:
+            # Re-submitting flips a "cancelled" row back to
+            # going/waitlist and refreshes name/guests/note. Keeps
+            # the original id + cancel_token stable so previous
+            # confirmation-email links keep working.
+            new_status = target_status if existing.get("status") == "cancelled" else existing.get("status")
+            await db.event_rsvps.update_one(
+                {"id": existing["id"]},
+                {"$set": {
+                    "name": name,
+                    "guests_count": int(body.guests_count or 0),
+                    "note": (body.note or "").strip(),
+                    "status": new_status,
+                    "updated_at": now,
+                }},
+            )
+            rsvp_doc = await db.event_rsvps.find_one({"id": existing["id"]}, {"_id": 0})
+        else:
+            rsvp_id = str(uuid.uuid4())
+            cancel_token = uuid.uuid4().hex + uuid.uuid4().hex  # 64-char opaque
+            rsvp_doc = {
+                "id": rsvp_id,
+                "event_id": event_id,
+                "cancel_token": cancel_token,
+                "name": name,
+                "email": email,
+                "user_id": None,
+                "guests_count": int(body.guests_count or 0),
+                "note": (body.note or "").strip(),
+                "status": target_status,
+                "created_at": now,
+                "updated_at": now,
+                "created_by": "public-web",
+            }
+            await db.event_rsvps.insert_one(dict(rsvp_doc))
+
+        # Build the confirmation email + ICS attachment (best-effort).
+        try:
+            from email_service import send_email, event_rsvp_confirmation_template
+            from ics_builder import event_to_ics
+            import base64 as _b64
+
+            site_url = os.getenv("FRIENDPLACE_PUBLIC_URL", "https://www.friendplace.com.au").rstrip("/")
+            event_url = f"{site_url}/events/{slug}"
+            manage_url = f"{site_url}/events/{slug}/rsvp/{rsvp_doc.get('cancel_token', '')}"
+            ticket_ref = _short_rsvp_ref(rsvp_doc["id"])
+
+            when_display = _format_event_when(event)
+            where_display = _format_event_where(event)
+            cost_display = event.get("cost_display") or None
+            first_name = name.split(" ")[0] if name else None
+
+            subject, html, text = event_rsvp_confirmation_template(
+                first_name=first_name,
+                event_title=event.get("title") or "your event",
+                event_when_display=when_display,
+                event_where_display=where_display,
+                event_cost_display=cost_display,
+                event_url=event_url,
+                manage_url=manage_url,
+                rsvp_status=rsvp_doc.get("status") or "going",
+                guests_count=int(rsvp_doc.get("guests_count") or 0),
+                ticket_ref=ticket_ref,
+            )
+            ics_text = event_to_ics(event, site_url=site_url)
+            attachments = [{
+                "filename": f"{slug}.ics",
+                "content": _b64.b64encode(ics_text.encode("utf-8")).decode("ascii"),
+                # Resend supports MIME content-type via `content_type` on
+                # attachments; if the SDK is older it just falls back to
+                # application/octet-stream — still opens in every calendar.
+                "content_type": "text/calendar",
+            }]
+            await send_email(
+                to=email,
+                subject=subject,
+                html=html,
+                text=text,
+                attachments=attachments,
+            )
+        except Exception:
+            # Log-and-continue: the RSVP itself is saved.
+            import logging as _logging
+            _logging.getLogger("friendplace.events").exception(
+                "public RSVP saved but confirmation email failed"
+            )
+
+        # Response omits `cancel_token` from the body (the user only
+        # needs it via the emailed link — the site UI reads the token
+        # from the URL, not from this response).
+        rsvp_doc.pop("cancel_token", None)
+        rsvp_doc["display_ref"] = _short_rsvp_ref(rsvp_doc["id"])
+        return {
+            "ok": True,
+            "rsvp": rsvp_doc,
+            "message": (
+                "You're all set — check your inbox for your calendar invite."
+                if rsvp_doc.get("status") == "going"
+                else "This event is fully booked, so you're now on the waitlist."
+            ),
+        }
+
+    @router.get("/events/{slug}/rsvp/{token}")
+    async def public_event_rsvp_lookup(slug: str, token: str):
+        """Resolve a cancel_token to its RSVP + parent event so the
+        website can render a personalised manage/cancel page.
+
+        Deliberately kept minimal — returns only what the page needs
+        to show and does not leak other attendees.
+        """
+        event = await _fetch_public_event(slug)
+        rsvp = await db.event_rsvps.find_one(
+            {"event_id": event["id"], "cancel_token": token},
+            {"_id": 0, "cancel_token": 0},
+        )
+        if not rsvp:
+            raise HTTPException(404, "RSVP not found or already cancelled")
+        return {
+            "event": {
+                "id": event["id"], "slug": event["slug"], "title": event["title"],
+                "starts_at": event.get("starts_at"), "ends_at": event.get("ends_at"),
+                "timezone": event.get("timezone"),
+                "venue_name": event.get("venue_name"), "venue_address": event.get("venue_address"),
+                "is_online": event.get("is_online"), "meeting_url": event.get("meeting_url"),
+                "cover_image_url": event.get("cover_image_url"),
+                "cost_display": event.get("cost_display"),
+            },
+            "rsvp": {**rsvp, "display_ref": _short_rsvp_ref(rsvp["id"])},
+        }
+
+    @router.post("/events/{slug}/rsvp/{token}/cancel")
+    async def public_event_rsvp_cancel(slug: str, token: str):
+        """Cancel a public RSVP via magic-link token.
+
+        - Sets `status=cancelled` on the RSVP.
+        - If a spot opens up (capacity was set), promotes the next
+          waitlist entry to `going` and (best-effort) emails them
+          the good news.
+        """
+        event = await _fetch_public_event(slug)
+        rsvp = await db.event_rsvps.find_one(
+            {"event_id": event["id"], "cancel_token": token}, {"_id": 0}
+        )
+        if not rsvp:
+            raise HTTPException(404, "RSVP not found or already cancelled")
+        if rsvp.get("status") == "cancelled":
+            return {"ok": True, "already_cancelled": True}
+
+        was_going = rsvp.get("status") == "going"
+        await db.event_rsvps.update_one(
+            {"id": rsvp["id"]},
+            {"$set": {"status": "cancelled", "updated_at": _now_iso()}},
+        )
+
+        # Promote next waitlist entry if capacity allows.
+        promoted = None
+        capacity = event.get("capacity")
+        if was_going and isinstance(capacity, int) and capacity > 0:
+            going_now = await db.event_rsvps.count_documents(
+                {"event_id": event["id"], "status": "going"}
+            )
+            if going_now < capacity:
+                next_up = await db.event_rsvps.find_one(
+                    {"event_id": event["id"], "status": "waitlist"},
+                    {"_id": 0},
+                    sort=[("created_at", 1)],
+                )
+                if next_up:
+                    await db.event_rsvps.update_one(
+                        {"id": next_up["id"]},
+                        {"$set": {"status": "going", "updated_at": _now_iso()}},
+                    )
+                    promoted = next_up
+                    # Send them the "you're in!" email.
+                    try:
+                        from email_service import send_email, event_rsvp_confirmation_template
+                        from ics_builder import event_to_ics
+                        import base64 as _b64
+                        site_url = os.getenv("FRIENDPLACE_PUBLIC_URL", "https://www.friendplace.com.au").rstrip("/")
+                        event_url = f"{site_url}/events/{event['slug']}"
+                        manage_url = f"{site_url}/events/{event['slug']}/rsvp/{next_up.get('cancel_token', '')}"
+                        subject, html, text = event_rsvp_confirmation_template(
+                            first_name=(next_up.get("name") or "").split(" ")[0] or None,
+                            event_title=event.get("title") or "your event",
+                            event_when_display=_format_event_when(event),
+                            event_where_display=_format_event_where(event),
+                            event_cost_display=event.get("cost_display") or None,
+                            event_url=event_url,
+                            manage_url=manage_url,
+                            rsvp_status="going",
+                            guests_count=int(next_up.get("guests_count") or 0),
+                            ticket_ref=_short_rsvp_ref(next_up["id"]),
+                        )
+                        ics_text = event_to_ics(event, site_url=site_url)
+                        attachments = [{
+                            "filename": f"{event['slug']}.ics",
+                            "content": _b64.b64encode(ics_text.encode("utf-8")).decode("ascii"),
+                            "content_type": "text/calendar",
+                        }]
+                        await send_email(
+                            to=(next_up.get("email") or "").strip(),
+                            subject=subject, html=html, text=text,
+                            attachments=attachments,
+                        )
+                    except Exception:
+                        import logging as _logging
+                        _logging.getLogger("friendplace.events").exception(
+                            "waitlist promotion email failed"
+                        )
+
+        return {"ok": True, "promoted_email": bool(promoted)}
 
     return router

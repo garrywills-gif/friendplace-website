@@ -64,6 +64,7 @@ async def send_email(
     html: str,
     text: Optional[str] = None,
     reply_to: Optional[str] = None,
+    attachments: Optional[list] = None,
 ) -> bool:
     """Send a transactional email via Resend.
 
@@ -77,6 +78,9 @@ async def send_email(
           accept a list.
         - `html` is the primary body. `text` is optional; Resend will
           auto-generate a plaintext version if omitted.
+        - `attachments` accepts Resend's shape: a list of dicts with
+          `filename` + either `content` (base64 str) or `path` (URL).
+          Used e.g. for ICS calendar attachments on event RSVPs.
     """
     api_key, from_email, from_name, env_reply_to = _config()
     if not api_key or resend is None:
@@ -105,6 +109,8 @@ async def send_email(
             params["text"] = text
         if effective_reply_to:
             params["reply_to"] = effective_reply_to
+        if attachments:
+            params["attachments"] = attachments
         return resend.Emails.send(params)  # type: ignore[no-any-return]
 
     try:
@@ -557,6 +563,342 @@ def support_acknowledgement_template(
         f"ticket.\n\n"
         f"Thank you for being part of the FriendPlace community.\n\n"
         f"💜 The FriendPlace Support Team"
+        f"{_branded_footer_text()}"
+    )
+    return email_subject, html, text
+
+
+def event_rsvp_confirmation_template(
+    *,
+    first_name: str | None,
+    event_title: str,
+    event_when_display: str,
+    event_where_display: str,
+    event_cost_display: str | None,
+    event_url: str,
+    manage_url: str,
+    rsvp_status: str,          # "going" | "waitlist"
+    guests_count: int,
+    ticket_ref: str,           # short display id for the RSVP
+) -> tuple[str, str, str]:
+    """Confirmation email for a public RSVP.
+
+    Two flavours based on `rsvp_status`:
+      - "going":   "You're in! 🎉 ..." with green pill
+      - "waitlist":"You're on the waitlist 💜 ..." with amber pill
+
+    Args:
+        event_when_display:  Pre-formatted string like
+                             "Sun 30/07/2026, 10:00 am AEST".
+        event_where_display: One-line human string like
+                             "Merewether Beach · 1 Henderson Pde".
+        manage_url:          Public URL where the user can view or
+                             cancel their RSVP (magic-link token
+                             embedded).
+        ticket_ref:          Short human ref (e.g. "FP-EV-12AB") so
+                             users can quote it if they contact us.
+    """
+    from html import escape as _esc
+    name = (first_name or "there").strip()
+
+    status_norm = (rsvp_status or "going").lower()
+    if status_norm == "waitlist":
+        email_subject = f"You’re on the waitlist for {event_title} 💜  ·  {ticket_ref}"
+        chip_bg = "rgba(251, 191, 36, 0.15)"
+        chip_border = "rgba(253, 224, 71, 0.45)"
+        chip_color = "#FCD34D"
+        chip_label = "YOU’RE ON THE WAITLIST"
+        opening_html = (
+            f"Hi {_esc(name)},<br><br>"
+            "Thanks for your RSVP — this event is fully booked, so you&rsquo;re now on "
+            "the <strong style=\"color:#FFFFFF;\">waitlist</strong>. If a spot opens up, "
+            "we&rsquo;ll bump you across and email you straight away."
+        )
+        opening_text = (
+            f"Hi {name},\n\n"
+            "Thanks for your RSVP — this event is fully booked, so you're now on the "
+            "waitlist. If a spot opens up, we'll bump you across and email you "
+            "straight away."
+        )
+    else:
+        email_subject = f"You’re in for {event_title} 🎉  ·  {ticket_ref}"
+        chip_bg = "rgba(20, 184, 166, 0.12)"
+        chip_border = "rgba(94, 234, 212, 0.35)"
+        chip_color = "#5EEAD4"
+        chip_label = "YOU’RE GOING"
+        opening_html = (
+            f"Hi {_esc(name)},<br><br>"
+            "You&rsquo;re all set — we&rsquo;ve saved your spot. Can&rsquo;t wait to see you there!"
+        )
+        opening_text = (
+            f"Hi {name},\n\n"
+            "You're all set — we've saved your spot. Can't wait to see you there!"
+        )
+
+    guest_line_html = (
+        f'<div style="color:#94A3B8;font-size:12px;margin-top:6px;">Plus {guests_count} '
+        f'guest{"s" if guests_count != 1 else ""}</div>'
+        if guests_count and guests_count > 0 else ""
+    )
+
+    ics_note_html = (
+        "We&rsquo;ve attached an <strong style=\"color:#E2E8F0;\">.ics</strong> calendar "
+        "invite so you can add it to Apple, Google or Outlook in one tap."
+    )
+    ics_note_text = (
+        "We've attached an .ics calendar invite so you can add it to Apple, Google or "
+        "Outlook in one tap."
+    )
+
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+            <!-- Header -->
+            <tr>
+              <td align="center" style="padding:8px 22px 6px 22px;">
+                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+                </div>
+                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
+                  EVENTS · RSVP CONFIRMED
+                </div>
+              </td>
+            </tr>
+
+            <!-- Opening -->
+            <tr>
+              <td style="padding:24px 22px 6px 22px;">
+                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+                  {opening_html}
+                </div>
+              </td>
+            </tr>
+
+            <!-- Status chip -->
+            <tr>
+              <td align="center" style="padding:22px 22px 4px 22px;">
+                <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:{chip_bg};border:1px solid {chip_border};">
+                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">{chip_label}</div>
+                  <div style="color:{chip_color};font-size:20px;font-weight:900;letter-spacing:0.5px;line-height:1;margin-top:8px;">
+                    {_esc(event_title)}
+                  </div>
+                  {guest_line_html}
+                </div>
+              </td>
+            </tr>
+
+            <!-- Details block -->
+            <tr>
+              <td style="padding:22px 22px 4px 22px;">
+                <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(148,163,184,0.18);border-radius:14px;padding:16px 18px;font-size:14px;line-height:22px;color:#E2E8F0;">
+                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHEN</div>
+                  <div>{_esc(event_when_display)}</div>
+                  <div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>
+                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHERE</div>
+                  <div>{_esc(event_where_display)}</div>
+                  {(
+                    f'<div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>'
+                    f'<div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">COST</div>'
+                    f'<div>{_esc(event_cost_display)}</div>'
+                  ) if event_cost_display else ""}
+                </div>
+              </td>
+            </tr>
+
+            <!-- Buttons: event page + manage RSVP -->
+            <tr>
+              <td align="center" style="padding:20px 22px 4px 22px;">
+                <a href="{_esc(event_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#38BDF8;color:#0B1F45;font-weight:800;text-decoration:none;font-size:14px;margin:0 4px;">View event page</a>
+                <a href="{_esc(manage_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:rgba(255,255,255,0.06);color:#E2E8F0;font-weight:800;text-decoration:none;font-size:14px;border:1px solid rgba(148,163,184,0.35);margin:0 4px;">View / cancel RSVP</a>
+              </td>
+            </tr>
+
+            <!-- ICS note -->
+            <tr>
+              <td style="padding:20px 22px 4px 22px;">
+                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
+                  {ics_note_html}
+                </div>
+              </td>
+            </tr>
+
+            <!-- Ticket ref for their records -->
+            <tr>
+              <td style="padding:8px 22px 4px 22px;">
+                <div style="font-size:12px;color:#64748B;">
+                  Your booking reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
+                </div>
+              </td>
+            </tr>
+
+            <!-- Sign-off -->
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+                  See you there.<br><br>
+                  💜 The FriendPlace Events Team
+                </div>
+              </td>
+            </tr>
+
+            <!-- Spacer -->
+            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+
+            <!-- Branded footer -->
+            <tr>
+              <td style="padding:0 12px;">
+                {_branded_footer_html()}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
+
+    text = (
+        f"{opening_text}\n\n"
+        f"    Event:     {event_title}\n"
+        f"    When:      {event_when_display}\n"
+        f"    Where:     {event_where_display}\n"
+        + (f"    Cost:      {event_cost_display}\n" if event_cost_display else "")
+        + (f"    Guests:    +{guests_count}\n" if guests_count and guests_count > 0 else "")
+        + f"    Reference: {ticket_ref}\n\n"
+        f"View the event page: {event_url}\n"
+        f"View / cancel your RSVP: {manage_url}\n\n"
+        f"{ics_note_text}\n\n"
+        f"See you there.\n\n"
+        f"💜 The FriendPlace Events Team"
+        f"{_branded_footer_text()}"
+    )
+    return email_subject, html, text
+
+
+def event_cancelled_template(
+    *,
+    first_name: str | None,
+    event_title: str,
+    event_when_display: str,
+    reason: str | None,
+    ticket_ref: str,
+) -> tuple[str, str, str]:
+    """Email sent to everyone with an active RSVP when the admin
+    cancels an event. Kept intentionally plain and apologetic —
+    this is bad news, not a marketing moment.
+
+    Args:
+        reason: Optional human explanation from the admin. Rendered
+                verbatim (after escaping) so the tone stays theirs.
+    """
+    from html import escape as _esc
+    name = (first_name or "there").strip()
+    email_subject = f"Update: {event_title} has been cancelled  ·  {ticket_ref}"
+
+    reason_html = (
+        f'<div style="background:rgba(255,255,255,0.05);border-left:3px solid #94A3B8;'
+        f'padding:12px 16px;color:#CBD5E1;font-size:14px;line-height:22px;margin-top:12px;'
+        f'border-radius:6px;">{_esc(reason)}</div>'
+        if (reason or "").strip() else ""
+    )
+    reason_text = (
+        f"\n\nMessage from the organiser:\n  {reason.strip()}\n" if (reason or "").strip() else ""
+    )
+
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+            <tr>
+              <td align="center" style="padding:8px 22px 6px 22px;">
+                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+                </div>
+                <div style="color:#FCA5A5;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
+                  EVENT CANCELLED
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:24px 22px 6px 22px;">
+                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+                  Hi {_esc(name)},<br><br>
+                  Sorry to be the bearer of not-great news — <strong style="color:#FFFFFF;">{_esc(event_title)}</strong> ({_esc(event_when_display)}) has been <strong style="color:#FFFFFF;">cancelled</strong>.<br><br>
+                  Your RSVP has been released and your spot is no longer being held. Your calendar should update automatically if you accepted our invite.
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 22px 4px 22px;">
+                {reason_html}
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:20px 22px 4px 22px;">
+                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
+                  Keep an eye on our
+                  <a href="https://www.friendplace.com.au/events" style="color:#93C5FD;text-decoration:none;font-weight:600;">events page</a>
+                  — there&rsquo;s always another one being planned.
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:8px 22px 4px 22px;">
+                <div style="font-size:12px;color:#64748B;">
+                  Reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+                  Thank you for understanding.<br><br>
+                  💜 The FriendPlace Events Team
+                </div>
+              </td>
+            </tr>
+
+            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+            <tr>
+              <td style="padding:0 12px;">
+                {_branded_footer_html()}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
+
+    text = (
+        f"Hi {name},\n\n"
+        f"Sorry to be the bearer of not-great news — {event_title} ({event_when_display}) "
+        f"has been cancelled.\n\n"
+        f"Your RSVP has been released and your spot is no longer being held. Your "
+        f"calendar should update automatically if you accepted our invite."
+        f"{reason_text}\n\n"
+        f"Keep an eye on our events page — there's always another one being planned.\n"
+        f"    https://www.friendplace.com.au/events\n\n"
+        f"Reference: {ticket_ref}\n\n"
+        f"Thank you for understanding.\n\n"
+        f"💜 The FriendPlace Events Team"
         f"{_branded_footer_text()}"
     )
     return email_subject, html, text

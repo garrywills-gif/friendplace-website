@@ -44,7 +44,8 @@ export default async function EventsPage() {
             const going = ev.rsvp_counts?.going ?? 0;
             const remaining = ev.capacity ? Math.max(0, ev.capacity - going) : null;
             return (
-              <article key={ev.id} style={{ background: '#FFFFFF', borderRadius: 20, border: '1px solid #E2E8F0', overflow: 'hidden', boxShadow: '0 4px 16px rgba(10,37,64,0.05)', display: 'flex', flexDirection: 'column' }}>
+              <Link key={ev.id} href={`/events/${ev.slug}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
+                <article style={{ background: '#FFFFFF', borderRadius: 20, border: '1px solid #E2E8F0', overflow: 'hidden', boxShadow: '0 4px 16px rgba(10,37,64,0.05)', display: 'flex', flexDirection: 'column', height: '100%', transition: 'transform 0.15s ease, box-shadow 0.15s ease' }}>
                 <div style={{ aspectRatio: '16 / 9', background: cover ? '#F1F5F9' : 'linear-gradient(135deg, #14B8A6, #38BDF8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFFFFF', fontSize: 40 }}>
                   {cover ? (
                      
@@ -66,7 +67,8 @@ export default async function EventsPage() {
                     )}
                   </div>
                 </div>
-              </article>
+                </article>
+              </Link>
             );
           })}
         </div>
