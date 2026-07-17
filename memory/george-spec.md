@@ -207,3 +207,46 @@ Smallest surface area, safest place to iterate the personality.
 - Sensitive-topic trigger rate by category
 - Voice usage rate (STT and TTS separately)
 - User "forget my history" clicks (privacy signal)
+
+---
+
+## 💰 Cost model — outstanding decision (17 July 2026)
+
+Garry's point: "if they want to use George more than the allocation should
+they pay? Which means it's not free." Fair — a soft cap turns silently into
+"George is a paid feature after N messages."
+
+**Three options I've drafted for Garry to choose from:**
+
+### Option A — George is completely free (all users, all the time)
+- Pros: simplest, warmest, no billing infrastructure, on-brand
+- Cons: LLM costs scale with usage; a single power user could burn
+  significant credit; abuse potential
+- Mitigation: hard per-user daily cap of ~150 msg with a warm
+  "come back tomorrow" message. Anti-abuse rate limit at 20 msg/hour.
+
+### Option B — Free tier + "FriendPlace+" subscription (my lean)
+- Free: 50 messages/day + tap-to-listen limited to 20/day
+- **FriendPlace+ (~AU$5/month)**:
+  - Unlimited George conversations
+  - Unlimited voice
+  - Priority event RSVPs (skip the waitlist)
+  - Bigger media upload limits (avatar / video)
+  - Founding Members get FriendPlace+ FREE for life (already promised)
+- Pros: sustainable, warm framing (not "buy more of George"),
+  bundled value beyond just AI, keeps free tier generous
+- Cons: needs Stripe integration + subscription lifecycle handling
+
+### Option C — Day-pass top-ups
+- Free 50/day. When you hit it: "You've had a lovely chat with George
+  today. Want a Day Pass? AU$1.50 for unlimited today."
+- Pros: pay-as-you-need, no commitment
+- Cons: more transactional feel; more billing events; still needs Stripe
+
+**Garry's implicit preference from earlier conversations:**
+- Founding Members = free unlimited forever ✓ (all options honour this)
+- "For everyone" branding ✓ (avoid framing George as premium-only)
+
+**Waiting on Garry's decision before Session A of George build begins.**
+My recommendation: **Option B (FriendPlace+ subscription)** because it
+naturally extends into other perks and avoids per-message money anxiety.

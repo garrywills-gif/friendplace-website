@@ -257,7 +257,7 @@ function relativeTime(iso?: string): string {
   if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
   const d = Math.round(h / 24);
   if (d < 30) return `${d} day${d === 1 ? '' : 's'} ago`;
-  return new Date(iso).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString('en-AU', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 // ---------- Style objects -------------------------------------------------

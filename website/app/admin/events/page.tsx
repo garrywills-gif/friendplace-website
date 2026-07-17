@@ -156,7 +156,7 @@ export function formatEventWhen(iso: string | undefined, tz: string = 'Australia
   if (Number.isNaN(d.getTime())) return 'Date TBD';
   try {
     return d.toLocaleString('en-AU', {
-      weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+      weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric',
       hour: 'numeric', minute: '2-digit', timeZone: tz,
     });
   } catch { return d.toLocaleString('en-AU'); }
