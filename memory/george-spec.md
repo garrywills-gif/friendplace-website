@@ -277,3 +277,89 @@ Same pattern as Safety Net scripted responses. Per-context copy:
 - Voice quota exhausted (if we ever separate STT/TTS from text)
 - FriendPlace+ member fallback (should never trigger, but sanity)
 - Something's broken on our end (graceful degradation)
+
+---
+
+## ☕ Phase 6 — George as Coffee Lounge host (added 17 July 2026)
+
+**Requested by:** Garry
+**Status:** Roadmap — deferred (not built now)
+**Why it matters:** Changes "waiting alone" to "we're doing something
+together until everyone gets here." Fits FriendPlace's icebreaker DNA
+perfectly.
+
+### The core interaction
+
+When a user enters the Coffee Lounge and is **alone**, or is
+**waiting for specific friends** who haven't arrived yet, George
+gently offers to keep them company:
+
+**Alone in the lounge:**
+> 🦋 Looks like you're the first one here!
+>
+> While we're waiting for others to join, would you like to play
+> a quick game together?
+>
+> 🎲 Spot the Difference   🧩 Jigsaw Puzzle   📝 Word Search
+> 🎯 Trivia Quiz          🔤 Word Challenge
+>
+> As more people arrive, they can jump in too.
+
+**Waiting for specific friends:**
+> 🦋 While you're waiting for your friends to join, would you like
+> to play a game together?
+>
+> It's a fun way to pass the time, and others can join in as they arrive.
+
+### Design principles (Garry's ask)
+
+- **Never pressure.** George offers once, gracefully. If declined,
+  he sits back — doesn't nag every 30 seconds.
+- **Games are social, not solo.** Every game supports "Join Game"
+  once started. New arrivals see an in-progress game and tap in.
+- **Icebreaker over competition.** No aggressive scoring or leader-
+  boards on the lounge variant. The game is a conversation-starter,
+  not a contest.
+- **Zero learning curve.** Games George suggests are things anyone
+  can join mid-round without reading rules.
+
+### What we already have (from `/app/backend/`)
+
+Solo versions of some games already exist:
+- `trivia_data.py` — trivia question bank
+- `word_search.py` — word search generator
+- `sudoku.py` — sudoku boards
+- `suburbs.py` — suburb-guessing game (Aussie-specific 🎯)
+- Spot the Difference has backdrops at `/app/backend/static/spot_bg/`
+
+### What Phase 6 adds
+
+- **Multiplayer game room state** — a new `coffee_lounge_games`
+  collection tracking who's playing what, whose turn it is, and
+  a Join Game invite link
+- **WebSockets or SSE for realtime sync** (already have websockets
+  in requirements.txt from earlier work)
+- **George's game-suggestion prompts** — small system-prompt
+  variant that lets him choose which game to suggest based on
+  time of day, lounge size, and what's already in progress
+- **"Join Game" button** appears on the lounge for anyone who
+  walks in while a game is running
+- Mission Control section to **edit George's game-suggestion copy**
+  and toggle which games are enabled per lounge/time
+
+### Rough phasing when we return to it
+
+1. Pick one game to prototype the multiplayer pattern (Trivia is
+   easiest — turn-based, low state)
+2. Add George's suggestion prompt + accept/decline flow
+3. Add Join Game for late arrivals
+4. Roll pattern out to remaining games
+5. Long-term: leaderboards *at Coffee Lounge level*, not
+   per-user (so it's celebratory, not competitive)
+
+### Cross-refs
+
+- Depends on George Phase 2 (mobile) — needs the butterfly
+  bubble in the Coffee Lounge screen
+- Sits alongside the future Events module Sponsorships work
+  (a local business could sponsor "Wednesday Trivia Night")

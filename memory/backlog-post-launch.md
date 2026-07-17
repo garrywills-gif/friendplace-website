@@ -248,3 +248,21 @@ Deferred to Session B:
 - Add-to-calendar (ICS download)
 - Mobile app RSVP UX (new Events tab)
 - Automatic cancellation email via Resend when admin cancels an event
+
+---
+
+## ☕ Coffee Lounge — George as host + social games (roadmap)
+
+**Requested by:** Garry, 17 July 2026 (not building now)
+
+George gently offers a game to lounge visitors who are alone or
+waiting for friends. Games become multiplayer/joinable so late
+arrivals can tap "Join Game" and slot in. Turns "waiting alone" into
+"we're doing something together."
+
+Full spec: `/app/memory/george-spec.md` → "Phase 6 — Coffee Lounge host"
+
+Depends on George Phase 2 (mobile) shipping first. Some game
+foundations already exist in `/app/backend/` (trivia, word search,
+sudoku, suburbs, spot-the-difference backdrops) — the new work is
+the social multiplayer layer + George's host prompts.
