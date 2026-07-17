@@ -655,6 +655,13 @@ def build_router(db) -> APIRouter:
                 update[field] = val
         if "status" in update and update["status"] not in ("draft", "published"):
             raise HTTPException(400, "status must be 'draft' or 'published'")
+        # Belt-and-braces: never let a published founding member exist
+        # with number < 1, regardless of what the client sent.
+        if update.get("status") == "published":
+            current = await db.cms_founding_members.find_one({"id": member_id}, {"_id": 0}) or {}
+            effective_number = update.get("number", current.get("number"))
+            if not isinstance(effective_number, int) or effective_number < 1:
+                raise HTTPException(400, "Add a member number of 1 or higher before publishing")
         res = await db.cms_founding_members.update_one({"id": member_id}, {"$set": update})
         if res.matched_count == 0:
             raise HTTPException(404, "Member not found")

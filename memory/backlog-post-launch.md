@@ -201,3 +201,22 @@ Also in this session:
 - Expanded System Status panel (Website / API / Database / Last publish / Version)
 - Nginx proxy extended to serve all marketing site public routes on the preview URL,
   so `/success-stories`, `/about`, `/faqs` etc. render the CMS-driven website locally
+
+---
+
+## ✅ Founding Members editor — SHIPPED (17 July 2026)
+
+Completed in this session:
+- Dedicated `cms_founding_members` MongoDB collection with own timestamps + ordering + member number
+- Full CRUD backend at `/api/cms/founding-members/*` (22/22 pytests passing)
+- Two-page admin UX: list at `/admin/founding-members`, editor at `/admin/founding-members/[id]`
+- Fields: name, member number (auto-suggests max+1 on create), role, location, avatar (Media Library), TipTap bio
+- **Draft / Published + Hidden** toggles (same 3-state model as Success Stories)
+- **Preview modal** with shared `<FoundingMemberCard>` component — badge shows "FOUNDING MEMBER #<n>"
+- Reorder ↑↓ with bulk POST /reorder endpoint
+- Public `/api/public/founders` now reads from new collection (legacy fallback preserved during migration)
+- Public payload strips admin metadata (created_by / created_at / status / hidden never leak)
+- Dashboard: 5th summary tile now bound to `founding_members_count_editable` (editable roster, not signup count)
+- Sidebar nav: "Founding Members" entry with 👥 icon
+- Quick Action "Add Founding Member" enabled (was placeholder before)
+- HIGH-priority bug fix: publish() now enforces `number >= 1` on BOTH client guard AND backend PATCH — a founding member #0 can never be published from any surface

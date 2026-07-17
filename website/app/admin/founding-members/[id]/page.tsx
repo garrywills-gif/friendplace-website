@@ -72,7 +72,10 @@ export default function FoundingMemberEditorPage() {
   const publish = async () => {
     if (!member) return;
     if (!member.name?.trim()) { flash('Add a name before publishing', 2600); return; }
-    if (!Number.isFinite(member.number)) { flash('Add a member number before publishing', 2600); return; }
+    if (!Number.isFinite(member.number) || member.number < 1) {
+      flash('Add a member number of 1 or higher before publishing', 2800);
+      return;
+    }
     await save({ status: 'published', hidden: false });
     flash('Published — visible on the website');
   };
