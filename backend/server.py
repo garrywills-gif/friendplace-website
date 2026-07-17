@@ -7332,6 +7332,11 @@ async def submit_support_ticket(body: SupportTicketBody):
         support_to = (os.getenv("SUPPORT_EMAIL") or "support@friendplace.com.au").strip()
 
         subject_line = f"[{body.category}] {body.subject}"
+        # Full subject appended with the ticket reference so every
+        # notification email is globally unique — helps operators
+        # search their inbox and prevents mailbox providers from
+        # accidentally threading unrelated tickets together.
+        subject_with_ref = f"{subject_line}  ·  {display_id}"
         # Build a header meta table for scannability.
         meta_rows = [
             ("Ticket ID", display_id),
@@ -7389,7 +7394,7 @@ async def submit_support_ticket(body: SupportTicketBody):
         reply_to = body.user_email if body.user_email else None
         await _email_send(
             to=support_to,
-            subject=subject_line,
+            subject=subject_with_ref,
             html=html_body,
             text=text_body,
             reply_to=reply_to,

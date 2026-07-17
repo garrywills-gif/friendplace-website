@@ -402,6 +402,45 @@ def support_acknowledgement_template(
     safe_category = _esc(category or "Support")
     safe_snippet = _esc(snippet) if snippet else ""
 
+    # ── Variant copy so Report-a-Problem feels a touch more urgent
+    # than a generic Contact-Support message. Also disambiguates the
+    # subject line so mailbox providers (looking at you, Yahoo) don't
+    # thread/collapse two acknowledgements sent within seconds of
+    # each other. The ticket ref is appended for the same reason —
+    # every acknowledgement now has a globally unique subject.
+    _cat_lower = (category or "").lower()
+    if "report" in _cat_lower or "bug" in _cat_lower or "technical" in _cat_lower:
+        email_subject = f"We’ve received your report 💜  ·  {ticket_ref}"
+        opening_line = (
+            "Thanks for taking the time to report this to the FriendPlace "
+            "Support Team."
+        )
+        promise_line = (
+            "We&rsquo;ve logged your report and one of our team members will "
+            "look into it and get back to you as soon as possible. We aim to "
+            'respond within <strong style="color:#FFFFFF;">24 hours</strong> '
+            "(often much sooner)."
+        )
+        promise_text = (
+            "We've logged your report and one of our team members will look "
+            "into it and get back to you as soon as possible. We aim to "
+            "respond within 24 hours (often much sooner)."
+        )
+    else:
+        email_subject = f"We’ve received your message 💜  ·  {ticket_ref}"
+        opening_line = "Thanks for contacting the FriendPlace Support Team."
+        promise_line = (
+            "We&rsquo;ve received your message and one of our team members "
+            "will get back to you as soon as possible. We aim to respond "
+            'within <strong style="color:#FFFFFF;">24 hours</strong> '
+            "(often much sooner)."
+        )
+        promise_text = (
+            "We've received your message and one of our team members will "
+            "get back to you as soon as possible. We aim to respond within "
+            "24 hours (often much sooner)."
+        )
+
     subject_echo_html = (
         f'<div style="color:#94A3B8;font-size:13px;line-height:20px;margin-top:6px;">'
         f'"{safe_snippet}"</div>'
@@ -433,8 +472,8 @@ def support_acknowledgement_template(
               <td style="padding:24px 22px 6px 22px;">
                 <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
                   Hi {_esc(name)},<br><br>
-                  Thanks for contacting the FriendPlace Support Team.<br><br>
-                  We&rsquo;ve received your message and one of our team members will get back to you as soon as possible. We aim to respond within <strong style="color:#FFFFFF;">24 hours</strong> (often much sooner).
+                  {opening_line}<br><br>
+                  {promise_line}
                 </div>
               </td>
             </tr>
@@ -504,10 +543,8 @@ def support_acknowledgement_template(
 
     text = (
         f"Hi {name},\n\n"
-        f"Thanks for contacting the FriendPlace Support Team.\n\n"
-        f"We've received your message and one of our team members will get "
-        f"back to you as soon as possible. We aim to respond within 24 hours "
-        f"(often much sooner).\n\n"
+        f"{opening_line}\n\n"
+        f"{promise_text}\n\n"
         f"    Your support ticket: {ticket_ref}\n"
         f"    Category: {category}\n"
         + (f'    Subject: "{snippet}"\n' if snippet else "")
