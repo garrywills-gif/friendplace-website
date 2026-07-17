@@ -47,10 +47,10 @@ export default function AboutEditorPage() {
 
       <div style={s.card}>
         <label style={s.label}>Page heading</label>
-        <input style={s.input} value={title} onChange={e => setTitle(e.target.value)} placeholder="About FriendPlace" />
+        <input className="cms-input" style={s.input} value={title} onChange={e => setTitle(e.target.value)} placeholder="About FriendPlace" />
         <div style={{ height: 16 }} />
         <label style={s.label}>Lead / mission (short)</label>
-        <textarea style={s.textarea} value={lead} onChange={e => setLead(e.target.value)} placeholder="A warm, safe community for grown-ups who want to make new friends." />
+        <textarea className="cms-textarea" style={s.textarea} value={lead} onChange={e => setLead(e.target.value)} placeholder="A warm, safe community for grown-ups who want to make new friends." />
         <div style={s.helper}>Shown as the tagline directly under the heading.</div>
       </div>
 
@@ -61,7 +61,7 @@ export default function AboutEditorPage() {
       </div>
 
       <div style={{ display: 'flex', gap: 12 }}>
-        <button onClick={save} style={{ ...s.primaryBtn, opacity: saving ? 0.65 : 1 }} disabled={saving}>
+        <button onClick={save} className="cms-btn-primary" style={{ ...s.primaryBtn, opacity: saving ? 0.65 : 1 }} disabled={saving}>
           {saving ? 'Saving…' : 'Save about page'}
         </button>
       </div>

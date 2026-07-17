@@ -39,12 +39,12 @@ function ResetForm() {
       {error && <div style={s.errorBox}>{error}</div>}
       <form onSubmit={submit}>
         <label style={s.label}>New password</label>
-        <input style={s.input} value={password} onChange={e => setPassword(e.target.value)} type="password" required autoComplete="new-password" />
+        <input className="cms-input" style={s.input} value={password} onChange={e => setPassword(e.target.value)} type="password" required autoComplete="new-password" />
         <div style={{ height: 14 }} />
         <label style={s.label}>Confirm password</label>
-        <input style={s.input} value={confirm} onChange={e => setConfirm(e.target.value)} type="password" required autoComplete="new-password" />
+        <input className="cms-input" style={s.input} value={confirm} onChange={e => setConfirm(e.target.value)} type="password" required autoComplete="new-password" />
         <div style={{ height: 24 }} />
-        <button type="submit" style={{ ...s.primaryBtn, opacity: busy ? 0.65 : 1 }} disabled={busy}>
+        <button type="submit" className="cms-btn-primary" style={{ ...s.primaryBtn, opacity: busy ? 0.65 : 1 }} disabled={busy}>
           {busy ? 'Saving…' : 'Save new password'}
         </button>
         <div style={{ marginTop: 20, textAlign: 'center' }}>

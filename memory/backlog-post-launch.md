@@ -56,3 +56,43 @@ Website:
 - After the website is deployed to friendplace.com.au ✅
 - Ideally paired with the Mission Control media library so David can
   swap the pool from the admin UI without any dev help
+
+
+---
+
+## 🎛 Mission Control expansion (Mini-CMS → full admin suite)
+
+**Requested by:** Garry
+**When:** Session 17 July 2026
+**Priority:** Not urgent — post-launch polish
+
+**The idea:**
+Grow the Mini-CMS into a proper FriendPlace Mission Control that
+covers content editing plus operational visibility for events,
+sponsors, and community health.
+
+**Shipped in this session (quick wins):**
+- [x] Rename dashboard heading → "FriendPlace Mission Control"
+- [x] Subtitle: "Welcome back, Garry. Manage your website, content and media from one place."
+- [x] Dashboard summary cards with live counts (Pages / Media / FAQs /
+      Founding Members / Website Status)
+- [x] Website status badge — 🟠 Private / 🟢 Live / 🔴 Maintenance —
+      auto-reads `FRIENDPLACE_INDEXABLE`
+- [x] Sidebar FriendPlace logo scaled up ~25%
+
+**Still to build (deferred):**
+- [ ] **Success Stories editor** — CRUD with rich text, author name +
+      avatar via Media Library, ordering
+- [ ] **Founding Members editor** — name, number, blurb, avatar,
+      published/hidden toggle, ordering
+- [ ] **Events module** — list + create + RSVP roster, tied to Local
+      Business Sponsorships (see line item elsewhere in this file)
+- [ ] **Partnerships module** — sponsor logos, sponsorship tiers,
+      testimonials, downloadable media kit
+- [ ] **Analytics dashboard** — sign-ups by day, active users,
+      event RSVPs, public-site → mobile-download funnel
+- [ ] **Settings module** — brand copy (tagline / straplines),
+      email templates, admin invites, danger zone (wipe/export)
+- [ ] **Maintenance mode toggle** in the badge — clicking flips
+      `FRIENDPLACE_INDEXABLE` (or a new `MAINTENANCE_MODE` env) and
+      shows a friendly holding page on the public site

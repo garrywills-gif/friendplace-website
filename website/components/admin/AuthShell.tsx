@@ -20,7 +20,7 @@ export function AuthShell({ title, subtitle, children }: {
           <span>FriendPlace</span>
         </Link>
         <div style={{ marginTop: 8, fontSize: 12, letterSpacing: '0.15em', color: '#14B8A6', fontWeight: 800, textTransform: 'uppercase' }}>
-          Mini-CMS
+          Mission Control
         </div>
         <h1 style={h1}>{title}</h1>
         {subtitle && <p style={sub}>{subtitle}</p>}

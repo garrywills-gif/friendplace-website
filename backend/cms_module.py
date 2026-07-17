@@ -308,6 +308,48 @@ def build_router(db) -> APIRouter:
         doc.pop("key", None)
         return doc
 
+    # ------------------------------------------------------------------
+    # DASHBOARD STATS
+    # ------------------------------------------------------------------
+    # Powers the Mission Control summary cards. Kept as a single call so
+    # the dashboard renders in one round-trip and doesn't fan out to five
+    # separate endpoints.
+
+    @router.get("/stats")
+    async def dashboard_stats(admin: dict = Depends(current_cms_admin)):
+        content = await db.site_content.find_one({"key": "main"}, {"_id": 0}) or {}
+        try:
+            media_count = await db.cms_media.count_documents({})
+        except Exception:
+            media_count = 0
+        try:
+            founder_count = await db.users.count_documents(
+                {"is_founder": True, "is_demo": {"$ne": True}}
+            )
+        except Exception:
+            founder_count = 0
+        # `pages_count` is fixed today — Home / About / FAQs / Founders.
+        # Grows automatically as new CMS-editable pages come online.
+        pages_count = 4
+        indexable = os.getenv("FRIENDPLACE_INDEXABLE", "false").lower() == "true"
+        maintenance = os.getenv("FRIENDPLACE_MAINTENANCE", "false").lower() == "true"
+        if maintenance:
+            status = {"label": "Maintenance", "color": "red", "dot": "🔴"}
+        elif indexable:
+            status = {"label": "Live", "color": "green", "dot": "🟢"}
+        else:
+            status = {"label": "Private (No Index)", "color": "amber", "dot": "🟠"}
+        return {
+            "pages_count": pages_count,
+            "media_count": int(media_count),
+            "faqs_count": len(content.get("faqs") or []),
+            "success_stories_count": len(content.get("success_stories") or []),
+            "founding_members_count_editable": len(content.get("founding_members") or []),
+            "founder_signups_count": int(founder_count),
+            "status": status,
+            "updated_at": content.get("updated_at"),
+        }
+
     @router.patch("/content")
     async def patch_content(
         patch: CmsContentPatch,

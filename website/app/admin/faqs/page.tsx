@@ -57,24 +57,24 @@ export default function FaqsEditorPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Question {i + 1}</div>
               <div style={{ display: 'flex', gap: 6 }}>
-                <button style={s.ghostBtn} onClick={() => move(i, -1)} disabled={i === 0} type="button">↑</button>
-                <button style={s.ghostBtn} onClick={() => move(i, +1)} disabled={i === faqs.length - 1} type="button">↓</button>
-                <button style={s.dangerBtn} onClick={() => remove(i)} type="button">Delete</button>
+                <button className="cms-btn-ghost" style={s.ghostBtn} onClick={() => move(i, -1)} disabled={i === 0} type="button">↑</button>
+                <button className="cms-btn-ghost" style={s.ghostBtn} onClick={() => move(i, +1)} disabled={i === faqs.length - 1} type="button">↓</button>
+                <button className="cms-btn-danger" style={s.dangerBtn} onClick={() => remove(i)} type="button">Delete</button>
               </div>
             </div>
             <label style={s.label}>Question</label>
-            <input style={s.input} value={f.q} onChange={e => update(i, { q: e.target.value })} placeholder="Is FriendPlace free?" />
+            <input className="cms-input" style={s.input} value={f.q} onChange={e => update(i, { q: e.target.value })} placeholder="Is FriendPlace free?" />
             <div style={{ height: 10 }} />
             <label style={s.label}>Answer</label>
-            <textarea style={s.textarea} value={f.a} onChange={e => update(i, { a: e.target.value })} placeholder="Yes. Founding members…" />
+            <textarea className="cms-textarea" style={s.textarea} value={f.a} onChange={e => update(i, { a: e.target.value })} placeholder="Yes. Founding members…" />
           </div>
         ))}
         <div style={{ marginTop: 20 }}>
-          <button type="button" onClick={add} style={s.ghostBtn}>+ Add FAQ</button>
+          <button type="button" onClick={add} className="cms-btn-ghost" style={s.ghostBtn}>+ Add FAQ</button>
         </div>
       </div>
 
-      <button onClick={save} style={{ ...s.primaryBtn, opacity: saving ? 0.65 : 1 }} disabled={saving}>
+      <button onClick={save} className="cms-btn-primary" style={{ ...s.primaryBtn, opacity: saving ? 0.65 : 1 }} disabled={saving}>
         {saving ? 'Saving…' : 'Save FAQs'}
       </button>
 

@@ -35,12 +35,12 @@ export default function LoginPage() {
       {error && <div style={s.errorBox}>{error}</div>}
       <form onSubmit={submit}>
         <label style={s.label}>Email</label>
-        <input style={s.input} value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" />
+        <input className="cms-input" style={s.input} value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" />
         <div style={{ height: 14 }} />
         <label style={s.label}>Password</label>
-        <input style={s.input} value={password} onChange={e => setPassword(e.target.value)} type="password" required autoComplete="current-password" />
+        <input className="cms-input" style={s.input} value={password} onChange={e => setPassword(e.target.value)} type="password" required autoComplete="current-password" />
         <div style={{ height: 24 }} />
-        <button type="submit" style={{ ...s.primaryBtn, opacity: busy ? 0.65 : 1 }} disabled={busy}>
+        <button type="submit" className="cms-btn-primary" style={{ ...s.primaryBtn, opacity: busy ? 0.65 : 1 }} disabled={busy}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>

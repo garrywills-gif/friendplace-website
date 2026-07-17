@@ -74,18 +74,18 @@ export default function SetupPage() {
       {error && <div style={s.errorBox}>{error}</div>}
       <form onSubmit={submit}>
         <label style={s.label}>Your name</label>
-        <input style={s.input} value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Garry" autoComplete="name" />
+        <input className="cms-input" style={s.input} value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Garry" autoComplete="name" />
         <div style={{ height: 14 }} />
         <label style={s.label}>Email</label>
-        <input style={s.input} value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" />
+        <input className="cms-input" style={s.input} value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" />
         <div style={{ height: 14 }} />
         <label style={s.label}>Password (min 8 characters)</label>
-        <input style={s.input} value={password} onChange={e => setPassword(e.target.value)} type="password" required autoComplete="new-password" />
+        <input className="cms-input" style={s.input} value={password} onChange={e => setPassword(e.target.value)} type="password" required autoComplete="new-password" />
         <div style={{ height: 14 }} />
         <label style={s.label}>Confirm password</label>
-        <input style={s.input} value={confirm} onChange={e => setConfirm(e.target.value)} type="password" required autoComplete="new-password" />
+        <input className="cms-input" style={s.input} value={confirm} onChange={e => setConfirm(e.target.value)} type="password" required autoComplete="new-password" />
         <div style={{ height: 24 }} />
-        <button type="submit" style={{ ...s.primaryBtn, opacity: busy ? 0.65 : 1 }} disabled={busy}>
+        <button type="submit" className="cms-btn-primary" style={{ ...s.primaryBtn, opacity: busy ? 0.65 : 1 }} disabled={busy}>
           {busy ? 'Creating…' : 'Create admin account'}
         </button>
       </form>

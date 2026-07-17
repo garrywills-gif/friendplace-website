@@ -58,10 +58,10 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
     <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: 'Public Sans, system-ui, sans-serif', display: 'flex' }}>
       <aside style={sidebar}>
         <Link href="/admin/dashboard" style={sidebarBrand}>
-          <span style={{ fontSize: 26 }}>🦋</span>
+          <span style={{ fontSize: 34, lineHeight: 1 }}>🦋</span>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 900, color: '#FFFFFF' }}>FriendPlace</div>
-            <div style={{ fontSize: 11, letterSpacing: '0.1em', color: '#5EEAD4', fontWeight: 800, textTransform: 'uppercase' }}>Mini-CMS</div>
+            <div style={{ fontSize: 19, fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.01em' }}>FriendPlace</div>
+            <div style={{ fontSize: 11, letterSpacing: '0.14em', color: '#5EEAD4', fontWeight: 800, textTransform: 'uppercase', marginTop: 2 }}>Mission Control</div>
           </div>
         </Link>
 
@@ -69,12 +69,13 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
           {NAV.map(item => {
             const active = pathname?.startsWith(item.href);
             return (
-              <Link key={item.href} href={item.href} style={{
-                ...navLink,
-                background: active ? 'rgba(94,234,212,0.15)' : 'transparent',
-                color: active ? '#5EEAD4' : '#CBD5E1',
-                borderLeft: active ? '3px solid #5EEAD4' : '3px solid transparent',
-              }}>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`cms-nav-link${active ? ' cms-nav-link-active' : ''}`}
+                style={navLink}
+                data-active={active ? '1' : '0'}
+              >
                 <span style={{ fontSize: 18 }}>{item.icon}</span>
                 <span>{item.label}</span>
               </Link>
@@ -85,7 +86,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '16px 20px' }}>
           <div style={{ color: '#94A3B8', fontSize: 12, marginBottom: 4 }}>Signed in as</div>
           <div style={{ color: '#FFFFFF', fontWeight: 700, fontSize: 14, marginBottom: 12, wordBreak: 'break-all' }}>{admin?.email}</div>
-          <button onClick={signOut} style={signOutBtn}>Sign out</button>
+          <button onClick={signOut} className="cms-sign-out" style={signOutBtn}>Sign out</button>
         </div>
       </aside>
 

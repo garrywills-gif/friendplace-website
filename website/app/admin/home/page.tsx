@@ -66,29 +66,29 @@ export default function HomeEditorPage() {
           <div key={i} style={{ display: 'grid', gridTemplateColumns: '80px 1fr auto', gap: 12, alignItems: 'start', padding: '16px 0', borderTop: i > 0 ? '1px solid #F1F5F9' : 'none' }}>
             <div>
               <label style={s.label}>Icon</label>
-              <input style={s.input} value={f.icon} onChange={e => update(i, { icon: e.target.value })} maxLength={4} />
+              <input className="cms-input" style={s.input} value={f.icon} onChange={e => update(i, { icon: e.target.value })} maxLength={4} />
             </div>
             <div>
               <label style={s.label}>Title</label>
-              <input style={s.input} value={f.title} onChange={e => update(i, { title: e.target.value })} placeholder="Coffee Lounge" />
+              <input className="cms-input" style={s.input} value={f.title} onChange={e => update(i, { title: e.target.value })} placeholder="Coffee Lounge" />
               <div style={{ height: 8 }} />
               <label style={s.label}>Body</label>
-              <textarea style={s.textarea} value={f.body} onChange={e => update(i, { body: e.target.value })} placeholder="A soft place to think out loud…" />
+              <textarea className="cms-textarea" style={s.textarea} value={f.body} onChange={e => update(i, { body: e.target.value })} placeholder="A soft place to think out loud…" />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 24 }}>
-              <button style={s.ghostBtn} onClick={() => moveRow(i, -1)} disabled={i === 0} type="button">↑</button>
-              <button style={s.ghostBtn} onClick={() => moveRow(i, +1)} disabled={i === features.length - 1} type="button">↓</button>
-              <button style={s.dangerBtn} onClick={() => removeRow(i)} type="button">Delete</button>
+              <button className="cms-btn-ghost" style={s.ghostBtn} onClick={() => moveRow(i, -1)} disabled={i === 0} type="button">↑</button>
+              <button className="cms-btn-ghost" style={s.ghostBtn} onClick={() => moveRow(i, +1)} disabled={i === features.length - 1} type="button">↓</button>
+              <button className="cms-btn-danger" style={s.dangerBtn} onClick={() => removeRow(i)} type="button">Delete</button>
             </div>
           </div>
         ))}
         <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
-          <button type="button" onClick={addRow} style={s.ghostBtn}>+ Add feature card</button>
+          <button type="button" onClick={addRow} className="cms-btn-ghost" style={s.ghostBtn}>+ Add feature card</button>
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: 12 }}>
-        <button onClick={save} style={{ ...s.primaryBtn, opacity: saving ? 0.65 : 1 }} disabled={saving}>
+        <button onClick={save} className="cms-btn-primary" style={{ ...s.primaryBtn, opacity: saving ? 0.65 : 1 }} disabled={saving}>
           {saving ? 'Saving…' : 'Save home page'}
         </button>
       </div>

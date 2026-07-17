@@ -95,7 +95,7 @@ export default function MediaLibraryPage() {
       </p>
 
       <div style={{ ...s.card, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <label style={{ ...s.primaryBtn, display: 'inline-block', textAlign: 'center' }}>
+        <label className="cms-btn-primary" style={{ ...s.primaryBtn, display: 'inline-block', textAlign: 'center' }}>
           <input type="file" accept="image/*" multiple style={{ display: 'none' }}
                  onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
           {uploading ? 'Uploading…' : '+ Upload images'}
@@ -128,15 +128,15 @@ export default function MediaLibraryPage() {
                   </div>
                   <label style={{ ...s.label, fontSize: 11 }}>Alt text (for accessibility)</label>
                   <input
-                    style={{ ...s.input, padding: '8px 10px', fontSize: 13 }}
+                    className="cms-input" style={{ ...s.input, padding: '8px 10px', fontSize: 13 }}
                     value={currentAlt}
                     onChange={e => setEditingAlt(prev => ({ ...prev, [m.id]: e.target.value }))}
                     onBlur={() => { if (editingAlt[m.id] !== undefined) saveAlt(m.id); }}
                     placeholder="e.g. Two women laughing over coffee"
                   />
                   <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                    <button style={{ ...s.ghostBtn, padding: '8px 12px', fontSize: 12, flex: 1 }} onClick={() => copyUrl(url)}>Copy URL</button>
-                    <button style={{ ...s.dangerBtn, padding: '8px 12px', fontSize: 12 }} onClick={() => remove(m.id)}>Delete</button>
+                    <button className="cms-btn-ghost" style={{ ...s.ghostBtn, padding: '8px 12px', fontSize: 12, flex: 1 }} onClick={() => copyUrl(url)}>Copy URL</button>
+                    <button className="cms-btn-danger" style={{ ...s.dangerBtn, padding: '8px 12px', fontSize: 12 }} onClick={() => remove(m.id)}>Delete</button>
                   </div>
                 </div>
               </div>

@@ -38,9 +38,9 @@ export default function ForgotPage() {
       ) : (
         <form onSubmit={submit}>
           <label style={s.label}>Your admin email</label>
-          <input style={s.input} value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" />
+          <input className="cms-input" style={s.input} value={email} onChange={e => setEmail(e.target.value)} type="email" required autoComplete="email" />
           <div style={{ height: 24 }} />
-          <button type="submit" style={{ ...s.primaryBtn, opacity: busy ? 0.65 : 1 }} disabled={busy}>
+          <button type="submit" className="cms-btn-primary" style={{ ...s.primaryBtn, opacity: busy ? 0.65 : 1 }} disabled={busy}>
             {busy ? 'Sending…' : 'Send reset link'}
           </button>
           <div style={{ marginTop: 20, textAlign: 'center' }}>

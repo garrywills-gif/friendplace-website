@@ -59,6 +59,16 @@ export const cmsApi = {
   // Content
   getContent: () => req<any>('GET', '/cms/content'),
   patchContent: (patch: any) => req<any>('PATCH', '/cms/content', patch),
+  stats: () => req<{
+    pages_count: number;
+    media_count: number;
+    faqs_count: number;
+    success_stories_count: number;
+    founding_members_count_editable: number;
+    founder_signups_count: number;
+    status: { label: string; color: 'amber' | 'green' | 'red'; dot: string };
+    updated_at?: string;
+  }>('GET', '/cms/stats'),
 
   // Media
   listMedia: () => req<{ items: any[]; count: number }>('GET', '/cms/media'),
