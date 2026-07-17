@@ -94,6 +94,14 @@ export const cmsApi = {
   updateStory: (id: string, patch: Partial<SuccessStory>) => req<SuccessStory>('PATCH', `/cms/success-stories/${id}`, patch),
   deleteStory: (id: string) => req<{ ok: true }>('DELETE', `/cms/success-stories/${id}`),
   reorderStories: (ids: string[]) => req<{ items: SuccessStory[] }>('POST', '/cms/success-stories/reorder', { ids }),
+
+  // Founding Members
+  listFoundingMembers: () => req<{ items: FoundingMember[]; count: number }>('GET', '/cms/founding-members'),
+  createFoundingMember: (data?: Partial<FoundingMember>) => req<FoundingMember>('POST', '/cms/founding-members', data || {}),
+  getFoundingMember: (id: string) => req<FoundingMember>('GET', `/cms/founding-members/${id}`),
+  updateFoundingMember: (id: string, patch: Partial<FoundingMember>) => req<FoundingMember>('PATCH', `/cms/founding-members/${id}`, patch),
+  deleteFoundingMember: (id: string) => req<{ ok: true }>('DELETE', `/cms/founding-members/${id}`),
+  reorderFoundingMembers: (ids: string[]) => req<{ items: FoundingMember[] }>('POST', '/cms/founding-members/reorder', { ids }),
 };
 
 export type SuccessStory = {
@@ -104,6 +112,22 @@ export type SuccessStory = {
   author_role?: string;
   author_location?: string;
   author_avatar_url?: string;
+  status: 'draft' | 'published';
+  hidden?: boolean;
+  order?: number;
+  created_at: string;
+  updated_at: string;
+  created_by?: string;
+};
+
+export type FoundingMember = {
+  id: string;
+  name: string;
+  number: number;
+  bio_html: string;
+  role?: string;
+  location?: string;
+  avatar_url?: string;
   status: 'draft' | 'published';
   hidden?: boolean;
   order?: number;

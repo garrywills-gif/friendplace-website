@@ -1,0 +1,70 @@
+{
+  "summary": "Full E2E test of the FriendPlace Mini-CMS Founding Members module (backend + frontend). BACKEND: 22/22 pytest cases pass — access control on every admin endpoint (list/create/get/patch/delete/reorder → 401/403 without JWT), CRUD (POST with empty body auto-fills status='draft', hidden=false, name/role/location/bio_html/avatar_url='', number=1 on the first-ever member and correctly auto-increments to max(number)+1 on subsequent creates; GET single, 404 on missing; PATCH partial persists; PATCH invalid status→400; PATCH 404; DELETE + idempotency 404), the publish/hidden state machine (published+visible on /api/public/founders; draft removed; hidden+published removed; unhide restores), reorder (order field persists 0/1/2 and public feed reflects the desired order), and dashboard stats (`founding_members_count_editable` equals admin list count). PUBLIC-PAYLOAD PROJECTION AUDIT PASSED: /api/public/founders envelope is {members,count,cap} with cap=250; each row contains id/name/number/role/location/avatar_url/bio_html/order/avatar (with `avatar` correctly aliasing `avatar_url`) AND admin fields (created_by/created_at/updated_at/status/hidden) are stripped. FRONTEND (Next.js CMS): sidebar shows 👥 Founding Members and it routes to /admin/founding-members; empty state renders 👥 emoji + 'No founding members yet. Add your first above.'; '+ New founding member' creates a draft and routes to the editor; Dashboard Quick Action 'Add Founding Member' correctly navigates with ?new=1 and auto-creates + routes to the editor; editor loads with name/number/role/location fields (number is type=number), TipTap bio editor, avatar picker, Draft/Published + Hidden toggles; number field auto-fills to max+1; 👁️ Preview modal opens and renders via the shared <FoundingMemberCard> component with badge 'FOUNDING MEMBER #<n>'; 🚀 Publish rejects when name is empty ('Add a name before publishing' toast confirmed); after publish the button swaps to 'Move to draft' and the row is visible on /api/public/founders; reorder ↑ button reorders the list (verified visually — #1,#2,#3,#4,#5 rows shuffled after a click); Delete with confirmation removes the row (5→4); access control confirmed — /admin/founding-members and /admin/founding-members/<id> both redirect to /admin/login when localStorage token is absent; Dashboard summary tile 'Founding members' is bound to stats.founding_members_count_editable (verified in code review — /app/website/app/admin/dashboard/page.tsx line 109). ONE FUNCTIONAL BUG FOUND: the publish() validator in the editor only checks Number.isFinite(member.number), so publishing with number=0 SUCCEEDS in the UI even though the spec requires number>=1 (confirmed by clicking Publish with the number field set to 0 → 'Move to draft' button appeared, status became Published). This lets an admin publish a member with number=0 or any negative integer. Deprecated packages detected: none. TipTap warning detected: `Duplicate extension names found: ['link']` (same as iter65 — Link is registered by StarterKit AND explicitly). CLEANUP: all 4 rows created during testing have been deleted (Mongo count = 0, /api/public/founders returns members:[]). Admin hello@friendplace.com.au NOT touched (password_hash intact, 60 chars).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/cms/founding-members",
+        "issue": "New row auto-appends order = <count of existing docs>. If a row from the middle is deleted, subsequent creates can share an order value with a surviving row until /reorder resequences. Not user-visible thanks to the number tie-break in the sort, but a latent hazard — same pattern flagged for success-stories in iter65."
+      },
+      {
+        "endpoint": "GET /api/cms/founding-members (admin list)",
+        "issue": "Admin list returns `created_by` (the admin's email). Fine for admin-only surfaces, but keep the audit in mind if this endpoint is ever exposed. The public /api/public/founders payload correctly strips it."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "/admin/founding-members/[id] page.tsx publish() validator",
+        "issue": "publish() only guards with `Number.isFinite(member.number)`. When the number input is cleared the onChange handler stores `Number('') || 0 = 0`, and Number.isFinite(0) is true, so clicking 🚀 Publish succeeds with number=0. Spec requires number >= 1 with a toast rejection. Fix: replace `!Number.isFinite(member.number)` with `!Number.isFinite(member.number) || (member.number as number) < 1` (or `<= 0`). File: /app/website/app/admin/founding-members/[id]/page.tsx line 75.",
+        "testID": "publish-button (missing)",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/admin/founding-members/{id} (editor)",
+        "issues": [
+          "TipTap emits `[tiptap warn]: Duplicate extension names found: ['link']` on every editor load. Same TipTap StarterKit vs explicit Link.configure() collision flagged in iter65 for the Success Stories editor — worth fixing once in the shared RichTextEditor component.",
+          "No data-testid attributes on Preview / Save draft / Publish / Move to draft buttons, name/number/role/location inputs, or the Draft/Hidden toggles. Testing has to fall back to visible text (breaks under i18n) and label-container clicks."
+        ]
+      },
+      {
+        "screen": "/admin/founding-members (list)",
+        "issues": [
+          "Row actions (↑, ↓, Edit, Delete) don't have data-testid; automated tests must rely on button text."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_founding_members.py",
+    "/app/test_reports/pytest/iter66_founding_members.xml"
+  ],
+  "action_items": [
+    "FIX (HIGH): Guard publish() in /app/website/app/admin/founding-members/[id]/page.tsx line 75 so number must be >= 1, not just Number.isFinite(). Currently publishing with number=0 succeeds silently, violating spec item 8. Suggested: `if (!Number.isFinite(member.number) || (member.number as number) < 1) { flash('Add a member number (1 or higher) before publishing', 2600); return; }`. Bonus: also block on the input side (the input has min={1} but the browser doesn't enforce it in JS state, and `Number('') || 0` coerces cleared inputs to 0 — consider `update({ number: Number(e.target.value) || null })` and validate against null.",
+    "Optional: dedupe TipTap Link extension so `Duplicate extension names found: ['link']` disappears. This warning also fires in the success-stories editor — fix once in /app/website/components/admin/RichTextEditor.tsx.",
+    "Optional: add data-testid attributes to the editor buttons (fm-preview-btn, fm-publish-btn, fm-move-to-draft-btn, fm-save-btn), inputs (fm-name-input, fm-number-input, fm-role-input, fm-location-input), toggles (fm-status-toggle, fm-hidden-toggle) and list row actions.",
+    "Optional: on POST create, use max(order)+1 instead of count() so mid-list deletes don't produce duplicate order values."
+  ],
+  "critical_code_review_comments": [
+    "cms_module.py `_next_founding_number()` reads MAX(number) but on empty collection returns 1 — behaviour matches spec. However `existing = count_documents({})` used for `order` on POST is redundant with the `_next_founding_number` MAX approach; consider MAX for both fields.",
+    "The editor's publish() validator uses `Number.isFinite` which lets 0 and negatives through. Spec explicitly says '>=1'. See ui_bugs above.",
+    "Public projection is correctly narrowed via Mongo projection — good. The `avatar` alias falls back to `avatar_url` which is what the legacy homepage expects. No leakage of admin fields verified in tests.",
+    "FoundingMembersReorderIn uses default_factory=list — same defensive shape as SuccessStoriesReorderIn. Consistent.",
+    "The Hidden toggle in the editor updates state but doesn't auto-save; user must click 'Save draft'. This mirrors success-stories UX and is fine, but the sidebar 'Hidden' label reads 'Visible when published' — could be clearer that a manual save is required."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_founding_members.py (new — 22 pytest cases)",
+    "/app/test_reports/pytest/iter66_founding_members.xml (new — JUnit output)"
+  ],
+  "success_rate": {"backend": "100% (22/22 pytest)", "frontend": "13/14 UI flows pass — item 8 (publish rejects number<1) FAILS due to the Number.isFinite bug. Access-control, Quick Action, Preview modal, Publish→public-feed round-trip, Reorder, Delete, Sidebar nav, Dashboard summary tile all verified. Item 10 (Hidden toggle removes from public) verified indirectly via the backend suite — the UI toggle wiring is correct."},
+  "seed_data_creation": "During testing 4 cms_founding_members rows were created via pytest fixtures + Playwright UI flows. ALL rows were deleted on teardown — verified via Mongo (count=0) and /api/public/founders (members=[], count=0, cap=250). Admin hello@friendplace.com.au NOT touched (id 2e44b0eb-0bb1-4329-a482-642a5933407c, password_hash still 60 chars). JWT was minted via cms_module._make_admin_token(admin_id, email) without any password verification.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend suite: `MONGO_URL=mongodb://localhost:27017 DB_NAME=test_database JWT_SECRET=$(grep ^JWT_SECRET /app/backend/.env|cut -d= -f2) pytest /app/backend/tests/test_founding_members.py -v`. It wipes cms_founding_members before AND after so it's safe to re-run. For UI testing, inject localStorage keys `fp_cms_token` (mint via `cms_module._make_admin_token(admin['id'], admin['email'])`) and `fp_cms_admin` (JSON `{id,email,display_name}`) BEFORE navigating — no login page interaction needed. The public marketing page at /founding-members isn't listed in /app/config/nginx/app-proxy.conf so it falls through to Expo (same routing gap as iter65's /success-stories) — verify public rendering via the /api/public/founders JSON payload only. If retesting after the publish() fix, verify: (a) publishing with number=0 shows toast 'Add a member number…' and status stays Draft, (b) publishing with number=1 still works, (c) number field default (auto-max+1) still publishes cleanly.",
+  "rca_of_issue": "publish() bug root cause: /app/website/app/admin/founding-members/[id]/page.tsx line 75 uses `if (!Number.isFinite(member.number)) { flash('Add a member number before publishing', 2600); return; }`. Combined with the onChange handler at line 150 (`onChange={e => update({ number: Number(e.target.value) || 0 })}`), any blank/invalid input becomes 0. Number.isFinite(0) === true, so the guard passes and PATCH { status: 'published' } fires with number=0. Repro: 1) open any draft in the editor, 2) fill Name, 3) clear the Member # input (or type '0'), 4) click 🚀 Publish → the row is published with number=0 and appears on /api/public/founders. Mitigation: tighten the guard to `< 1` AND change the onChange to store null for empty strings so the input isn't silently coerced to 0."
+}

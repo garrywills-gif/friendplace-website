@@ -174,6 +174,26 @@ class SuccessStoriesReorderIn(BaseModel):
     ids: List[str] = Field(default_factory=list)
 
 
+class FoundingMemberIn(BaseModel):
+    """Payload for creating or updating a Founding Member card.
+
+    All fields optional so the same model serves POST (empty defaults)
+    and PATCH (partial updates).
+    """
+    name: Optional[str] = None
+    number: Optional[int] = None
+    bio_html: Optional[str] = None
+    role: Optional[str] = None
+    location: Optional[str] = None
+    avatar_url: Optional[str] = None
+    status: Optional[str] = None  # "draft" | "published"
+    hidden: Optional[bool] = None
+
+
+class FoundingMembersReorderIn(BaseModel):
+    ids: List[str] = Field(default_factory=list)
+
+
 # ---- Router factory ------------------------------------------------------
 
 def build_router(db) -> APIRouter:
@@ -361,6 +381,10 @@ def build_router(db) -> APIRouter:
             success_stories_count = await db.cms_success_stories.count_documents({})
         except Exception:
             success_stories_count = 0
+        try:
+            founding_members_editable_count = await db.cms_founding_members.count_documents({})
+        except Exception:
+            founding_members_editable_count = 0
         # `pages_count` is fixed today — Home / About / FAQs / Founders.
         # Grows automatically as new CMS-editable pages come online.
         pages_count = 4
@@ -387,7 +411,7 @@ def build_router(db) -> APIRouter:
             "media_count": int(media_count),
             "faqs_count": len(content.get("faqs") or []),
             "success_stories_count": int(success_stories_count),
-            "founding_members_count_editable": len(content.get("founding_members") or []),
+            "founding_members_count_editable": int(founding_members_editable_count),
             "founder_signups_count": int(founder_count),
             "status": status,
             "updated_at": content.get("updated_at"),
@@ -541,6 +565,122 @@ def build_router(db) -> APIRouter:
                 {"id": story_id}, {"$set": {"order": idx, "updated_at": _now_iso()}}
             )
         items = await _load_stories(only_public=False)
+        return {"items": items, "count": len(items)}
+
+
+    # ============================================================
+    # FOUNDING MEMBERS
+    # ============================================================
+    # Dedicated collection so each showcased founding member has its
+    # own id, member number, timestamps and ordering. Public site
+    # renders only published & non-hidden rows via /api/public/founders.
+
+    async def _load_founding_members(only_public: bool = False) -> List[Dict[str, Any]]:
+        q: Dict[str, Any] = {}
+        if only_public:
+            q = {"status": "published", "hidden": {"$ne": True}}
+        cur = db.cms_founding_members.find(q, {"_id": 0}).sort([("order", 1), ("number", 1)])
+        return await cur.to_list(length=None)
+
+    async def _next_founding_number() -> int:
+        """Auto-suggest the next member number so new drafts don't
+        clash. If numbers get sparse (someone deletes #4) we still just
+        pick MAX+1; Garry can override in the editor."""
+        try:
+            cur = db.cms_founding_members.find({}, {"_id": 0, "number": 1}).sort("number", -1).limit(1)
+            docs = await cur.to_list(length=1)
+            if docs and isinstance(docs[0].get("number"), int):
+                return int(docs[0]["number"]) + 1
+        except Exception:
+            pass
+        return 1
+
+    @router.get("/founding-members")
+    async def list_founding_members(admin: dict = Depends(current_cms_admin)):
+        items = await _load_founding_members(only_public=False)
+        return {"items": items, "count": len(items)}
+
+    @router.post("/founding-members")
+    async def create_founding_member(
+        body: Optional[FoundingMemberIn] = None,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        try:
+            existing = await db.cms_founding_members.count_documents({})
+        except Exception:
+            existing = 0
+        member_id = str(uuid.uuid4())
+        now = _now_iso()
+        # Number defaults to next-available; Garry can change it later.
+        next_num = await _next_founding_number()
+        doc: Dict[str, Any] = {
+            "id": member_id,
+            "name": (body.name if body and body.name else ""),
+            "number": (body.number if body and body.number is not None else next_num),
+            "bio_html": (body.bio_html if body else "") or "",
+            "role": (body.role if body else "") or "",
+            "location": (body.location if body else "") or "",
+            "avatar_url": (body.avatar_url if body else "") or "",
+            "status": (body.status if body and body.status else "draft"),
+            "hidden": bool(body.hidden) if body and body.hidden is not None else False,
+            "order": int(existing),
+            "created_at": now,
+            "updated_at": now,
+            "created_by": admin.get("email"),
+        }
+        await db.cms_founding_members.insert_one(dict(doc))
+        return doc
+
+    @router.get("/founding-members/{member_id}")
+    async def get_founding_member(
+        member_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        doc = await db.cms_founding_members.find_one({"id": member_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(404, "Member not found")
+        return doc
+
+    @router.patch("/founding-members/{member_id}")
+    async def patch_founding_member(
+        member_id: str,
+        body: FoundingMemberIn,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        update: Dict[str, Any] = {"updated_at": _now_iso()}
+        for field in ("name", "number", "bio_html", "role", "location",
+                      "avatar_url", "status", "hidden"):
+            val = getattr(body, field)
+            if val is not None:
+                update[field] = val
+        if "status" in update and update["status"] not in ("draft", "published"):
+            raise HTTPException(400, "status must be 'draft' or 'published'")
+        res = await db.cms_founding_members.update_one({"id": member_id}, {"$set": update})
+        if res.matched_count == 0:
+            raise HTTPException(404, "Member not found")
+        doc = await db.cms_founding_members.find_one({"id": member_id}, {"_id": 0})
+        return doc
+
+    @router.delete("/founding-members/{member_id}")
+    async def delete_founding_member(
+        member_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        res = await db.cms_founding_members.delete_one({"id": member_id})
+        if res.deleted_count == 0:
+            raise HTTPException(404, "Member not found")
+        return {"ok": True}
+
+    @router.post("/founding-members/reorder")
+    async def reorder_founding_members(
+        body: FoundingMembersReorderIn,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        for idx, member_id in enumerate(body.ids):
+            await db.cms_founding_members.update_one(
+                {"id": member_id}, {"$set": {"order": idx, "updated_at": _now_iso()}}
+            )
+        items = await _load_founding_members(only_public=False)
         return {"items": items, "count": len(items)}
 
 
@@ -712,7 +852,44 @@ def build_public_router(db) -> APIRouter:
     @router.get("/founders")
     async def founders():
         c = await _content()
-        members = c.get("founding_members") or []
+        # Prefer the dedicated CMS collection when it has published rows.
+        # Falls back to legacy site_content.founding_members during
+        # migration so nothing goes missing.
+        try:
+            cur = db.cms_founding_members.find(
+                {"status": "published", "hidden": {"$ne": True}},
+                # Public projection — admin metadata never ships.
+                {
+                    "_id": 0,
+                    "id": 1,
+                    "name": 1,
+                    "number": 1,
+                    "role": 1,
+                    "location": 1,
+                    "avatar_url": 1,
+                    "bio_html": 1,
+                    "order": 1,
+                },
+            ).sort([("order", 1), ("number", 1)])
+            cms_members = await cur.to_list(length=None)
+        except Exception:
+            cms_members = []
+        # Homepage grid consumes m.name / m.number / m.avatar. Provide
+        # `avatar` as an alias so existing rendering keeps working
+        # regardless of which shape came through.
+        members: List[Dict[str, Any]] = []
+        if cms_members:
+            for m in cms_members:
+                members.append({
+                    **m,
+                    # Fallback to legacy `avatar` key so the homepage's
+                    # `m.avatar || m.name.charAt(0)` line renders images
+                    # via the new avatar_url without any page changes.
+                    "avatar": m.get("avatar_url") or "",
+                })
+        else:
+            members = c.get("founding_members") or []
+
         try:
             count = await db.users.count_documents({"is_founder": True, "is_demo": {"$ne": True}})
         except Exception:

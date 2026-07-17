@@ -7,12 +7,13 @@ import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi } from '@/lib/cms-api';
 
 const NAV = [
-  { href: '/admin/dashboard',        label: 'Dashboard',       icon: '📊' },
-  { href: '/admin/home',             label: 'Home page',       icon: '🏠' },
-  { href: '/admin/about',            label: 'About page',      icon: 'ℹ️' },
-  { href: '/admin/faqs',             label: 'FAQs',            icon: '❓' },
-  { href: '/admin/success-stories',  label: 'Success Stories', icon: '📖' },
-  { href: '/admin/media',            label: 'Media library',   icon: '🖼️' },
+  { href: '/admin/dashboard',        label: 'Dashboard',         icon: '📊' },
+  { href: '/admin/home',             label: 'Home page',         icon: '🏠' },
+  { href: '/admin/about',            label: 'About page',        icon: 'ℹ️' },
+  { href: '/admin/faqs',             label: 'FAQs',              icon: '❓' },
+  { href: '/admin/success-stories',  label: 'Success Stories',   icon: '📖' },
+  { href: '/admin/founding-members', label: 'Founding Members',  icon: '👥' },
+  { href: '/admin/media',            label: 'Media library',     icon: '🖼️' },
 ];
 
 /**
