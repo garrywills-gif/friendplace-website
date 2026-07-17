@@ -210,43 +210,70 @@ Smallest surface area, safest place to iterate the personality.
 
 ---
 
-## 💰 Cost model — outstanding decision (17 July 2026)
 
-Garry's point: "if they want to use George more than the allocation should
-they pay? Which means it's not free." Fair — a soft cap turns silently into
-"George is a paid feature after N messages."
+---
 
-**Three options I've drafted for Garry to choose from:**
+## 💰 Cost model — LOCKED (17 July 2026, Garry's decision)
 
-### Option A — George is completely free (all users, all the time)
-- Pros: simplest, warmest, no billing infrastructure, on-brand
-- Cons: LLM costs scale with usage; a single power user could burn
-  significant credit; abuse potential
-- Mitigation: hard per-user daily cap of ~150 msg with a warm
-  "come back tomorrow" message. Anti-abuse rate limit at 20 msg/hour.
+**Framing rule (must never be violated):** FriendPlace+ is a
+**membership that includes benefits**. George is one of those
+benefits. George MUST NOT be described, marketed, or presented as
+"a paid feature" or "premium AI".
 
-### Option B — Free tier + "FriendPlace+" subscription (my lean)
-- Free: 50 messages/day + tap-to-listen limited to 20/day
-- **FriendPlace+ (~AU$5/month)**:
-  - Unlimited George conversations
-  - Unlimited voice
-  - Priority event RSVPs (skip the waitlist)
-  - Bigger media upload limits (avatar / video)
-  - Founding Members get FriendPlace+ FREE for life (already promised)
-- Pros: sustainable, warm framing (not "buy more of George"),
-  bundled value beyond just AI, keeps free tier generous
-- Cons: needs Stripe integration + subscription lifecycle handling
+### Free FriendPlace (default for everyone)
 
-### Option C — Day-pass top-ups
-- Free 50/day. When you hit it: "You've had a lovely chat with George
-  today. Want a Day Pass? AU$1.50 for unlimited today."
-- Pros: pay-as-you-need, no commitment
-- Cons: more transactional feel; more billing events; still needs Stripe
+Every user gets a genuinely useful experience with no pressure to pay:
 
-**Garry's implicit preference from earlier conversations:**
-- Founding Members = free unlimited forever ✓ (all options honour this)
-- "For everyone" branding ✓ (avoid framing George as premium-only)
+- **~50 George messages per day** (starting figure; tune with real usage)
+- **Voice support included** within that allowance (STT + TTS count as messages)
+- **Full access** to finding friends, groups and events
+- **RSVP to events** (subject to individual event capacity)
+- The complete core FriendPlace experience
 
-**Waiting on Garry's decision before Session A of George build begins.**
-My recommendation: **Option B (FriendPlace+ subscription)** because it
-naturally extends into other perks and avoids per-message money anxiety.
+### FriendPlace+ (~AU$5/month)
+
+A membership, not a paywall. Includes:
+
+- **Unlimited George** conversations
+- **Unlimited voice** conversations
+- **Priority event RSVP** where appropriate (auto-jumps waitlist)
+- **Larger photo uploads**
+- **Early access** to new features
+- **Additional premium features** as FriendPlace evolves
+
+### Founding Members
+
+**FriendPlace+ free for life.** Promise already made — honour indefinitely.
+Being a Founding Member becomes genuinely valuable and reinforces the
+appreciation for early supporters.
+
+---
+
+## 🗣 George's daily-limit copy (verbatim, editable in Mission Control)
+
+When a free-tier user reaches their daily allowance, George says
+**exactly this** (or a close variant preserving the warmth):
+
+> **You've had lots of great chats with me today!**
+>
+> I'll be here again tomorrow, or if you'd like to keep chatting
+> whenever you want, FriendPlace+ includes unlimited conversations,
+> along with a range of other member benefits.
+
+**Copy George MUST NEVER use:**
+- ❌ "You've reached your limit."
+- ❌ "You've used all your free messages."
+- ❌ "Upgrade to keep chatting."
+- ❌ Any variant that centres the *user's failure* or the *paid gate*
+  rather than the natural end of a lovely day of chats.
+
+Continues George's personality: warm, patient, encouraging, never
+judgmental.
+
+### Editable in Mission Control (Settings → George scripts)
+
+Same pattern as Safety Net scripted responses. Per-context copy:
+- Reached daily limit (above)
+- Voice quota exhausted (if we ever separate STT/TTS from text)
+- FriendPlace+ member fallback (should never trigger, but sanity)
+- Something's broken on our end (graceful degradation)
