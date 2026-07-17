@@ -7287,6 +7287,106 @@ async def submit_support_ticket(body: SupportTicketBody):
         "body": f"[{body.category}] {body.subject}",
         "ref_ticket_id": doc["id"],
     })
+
+    # ------------------------------------------------------------------
+    # Fire an email to support@ so a human can act on the ticket.
+    # The DB record above is the source of truth — this is best-effort;
+    # if Resend is misconfigured we still return success to the mobile
+    # app. The `SUPPORT_EMAIL` env var lets ops override the destination
+    # without a code change.
+    # ------------------------------------------------------------------
+    try:
+        # Enrich the email with the sender's profile when we have a
+        # logged-in user_id (name, username, avatar-free). Falls back
+        # gracefully to whatever the client supplied.
+        user_name = None
+        user_username = None
+        if body.user_id:
+            try:
+                u = await db.users.find_one(
+                    {"id": body.user_id},
+                    {"_id": 0, "first_name": 1, "last_name": 1, "username": 1, "email": 1},
+                )
+                if u:
+                    user_name = " ".join(
+                        [(u.get("first_name") or "").strip(), (u.get("last_name") or "").strip()]
+                    ).strip() or None
+                    user_username = u.get("username")
+                    # If the ticket body didn't carry an email, backfill
+                    # from the profile so replies land in the right inbox.
+                    if not body.user_email:
+                        body.user_email = u.get("email")
+            except Exception:
+                logger.exception("support-ticket: failed to enrich with user profile")
+
+        from html import escape as _esc
+        support_to = (os.getenv("SUPPORT_EMAIL") or "support@friendplace.com.au").strip()
+
+        subject_line = f"[{body.category}] {body.subject}"
+        # Build a header meta table for scannability.
+        meta_rows = [
+            ("Ticket ID", doc["id"]),
+            ("Category", body.category or "Other"),
+            ("Subject",  body.subject or "(no subject)"),
+            ("From",     user_name or user_username or "Anonymous"),
+            ("Email",    body.user_email or "—"),
+            ("User ID",  body.user_id or "—"),
+            ("Received", doc["created_at"]),
+        ]
+        rows_html = "".join(
+            f'<tr><td style="padding:4px 12px 4px 0;color:#64748B;font-size:13px;white-space:nowrap;">{_esc(k)}</td>'
+            f'<td style="padding:4px 0;color:#0F172A;font-size:13px;">{_esc(str(v))}</td></tr>'
+            for k, v in meta_rows
+        )
+        html_body = (
+            "<!doctype html><html><body style=\"margin:0;padding:24px;background:#F8FAFC;"
+            "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#0F172A;\">"
+            "<div style=\"max-width:640px;margin:0 auto;background:#FFFFFF;border:1px solid #E2E8F0;"
+            "border-radius:12px;overflow:hidden;\">"
+            "<div style=\"padding:20px 24px;background:#0B1F45;color:#FFFFFF;\">"
+            "<div style=\"font-size:12px;letter-spacing:1.5px;color:#93C5FD;font-weight:700;\">FRIENDPLACE · SUPPORT</div>"
+            f"<div style=\"font-size:20px;font-weight:800;margin-top:6px;\">{_esc(subject_line)}</div>"
+            "</div>"
+            "<div style=\"padding:20px 24px;\">"
+            f"<table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\">{rows_html}</table>"
+            "<div style=\"height:1px;background:#E2E8F0;margin:16px 0;\"></div>"
+            "<div style=\"font-size:12px;letter-spacing:1.2px;color:#64748B;font-weight:700;margin-bottom:8px;\">MESSAGE</div>"
+            "<pre style=\"white-space:pre-wrap;word-wrap:break-word;font-family:inherit;"
+            "font-size:14px;line-height:22px;margin:0;color:#0F172A;\">"
+            f"{_esc(body.message or '')}"
+            "</pre>"
+            "</div>"
+            "<div style=\"padding:12px 24px;background:#F8FAFC;border-top:1px solid #E2E8F0;"
+            "font-size:12px;color:#64748B;\">"
+            "Reply directly to this email to respond to the user "
+            f"({_esc(body.user_email or 'no address on file')})."
+            "</div>"
+            "</div></body></html>"
+        )
+        text_body = (
+            f"New support ticket: {subject_line}\n\n"
+            f"Ticket ID: {doc['id']}\n"
+            f"Category:  {body.category}\n"
+            f"From:      {user_name or user_username or 'Anonymous'}\n"
+            f"Email:     {body.user_email or '—'}\n"
+            f"User ID:   {body.user_id or '—'}\n"
+            f"Received:  {doc['created_at']}\n\n"
+            f"Message:\n{body.message or ''}\n"
+        )
+        # Set reply_to to the user's email so the support agent can just
+        # hit "Reply" — but only if we actually have one, otherwise Resend
+        # would reject the request.
+        reply_to = body.user_email if body.user_email else None
+        await _email_send(
+            to=support_to,
+            subject=subject_line,
+            html=html_body,
+            text=text_body,
+            reply_to=reply_to,
+        )
+    except Exception:
+        logger.exception("failed to send support-ticket notification email")
+
     return {"ok": True, "ticket_id": doc["id"], "message": "Thank you. We've received your message and will get back to you soon."}
 
 
