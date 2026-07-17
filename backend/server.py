@@ -9446,12 +9446,31 @@ app.include_router(api)
 from push import router as push_router  # noqa: E402
 app.include_router(push_router, prefix="/api")
 
+# Mini-CMS for the marketing website. Kept in its own module so
+# server.py doesn't grow another 500-line block. Two routers:
+#   * cms/*      — admin-only editing surface (JWT-guarded)
+#   * public/*   — granular per-section reads used by lib/api.ts
+# Both mount under /api/ to match the ingress prefix.
+from cms_module import build_router as _build_cms_router, build_public_router as _build_public_router  # noqa: E402
+app.include_router(_build_cms_router(db), prefix="/api")
+app.include_router(_build_public_router(db), prefix="/api")
+
 # Static assets — currently used for Spot the Difference lifelike backdrops.
 # Files live at /app/backend/static/spot_bg/<theme>.jpg and are served under
 # /api/static/... so the Kubernetes ingress correctly proxies them to backend.
 _STATIC_DIR = ROOT_DIR / "static"
 _STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/api/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+# Mini-CMS media library — user-uploaded images live on local disk at
+# /app/backend/uploads/cms/{uuid}.{ext} and are served under
+# /api/uploads/cms/... . When we migrate to Cloudinary the router-level
+# handler in cms_module.py changes; this mount can stay as a fallback
+# for any legacy files.
+_UPLOADS_DIR = ROOT_DIR / "uploads"
+_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+(_UPLOADS_DIR / "cms").mkdir(parents=True, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=str(_UPLOADS_DIR)), name="uploads")
 
 # CORS — locked-down allowlist for production, with the local Metro/Expo
 # dev proxy allowed for development. Wildcard `*` combined with
@@ -9462,6 +9481,7 @@ app.mount("/api/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 # dev server, and the two live app origins.
 _CORS_DEFAULT = (
     "http://localhost:3000,"
+    "http://localhost:3001,"
     "http://localhost:19006,"
     # FriendPlace public web surfaces — added ahead of the website build
     # so the API is CORS-ready the moment the frontend is deployed. The

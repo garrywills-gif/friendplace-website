@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { brandAssets } from '@/lib/brand-assets';
 import { site } from '@/lib/brand';
 
@@ -14,6 +17,9 @@ import { site } from '@/lib/brand';
  * will surface the same tagline / strapline / email fields.
  */
 export default function SiteFooter() {
+  const pathname = usePathname();
+  // Hide on Mini-CMS admin routes (which have their own shell).
+  if (pathname?.startsWith('/admin')) return null;
   return (
     <footer style={{ background: '#0A2540', color: '#CBD5E1', marginTop: 96 }}>
       <div className="container" style={{ padding: '72px 24px 32px' }}>

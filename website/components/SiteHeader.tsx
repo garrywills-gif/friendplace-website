@@ -23,6 +23,12 @@ export default function SiteHeader() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
+  // The Mini-CMS admin section has its own shell (sidebar layout, no
+  // marketing header/footer). Bail out before rendering anything so the
+  // /admin/* pages look like a proper app, not a marketing page with an
+  // embedded editor.
+  if (pathname?.startsWith('/admin')) return null;
+
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname === href || pathname.startsWith(href + '/');
