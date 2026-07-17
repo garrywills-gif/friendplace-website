@@ -411,7 +411,16 @@ def build_router(db) -> APIRouter:
             "created_at": _now_iso(),
             "uploaded_by": admin.get("email"),
         }
-        await db.cms_media.insert_one(dict(doc))
+        try:
+            await db.cms_media.insert_one(dict(doc))
+        except Exception:
+            # Roll back the disk write so we don't accumulate orphan files
+            # whenever Mongo is unreachable / duplicate-keys / etc.
+            try:
+                dest.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise
         return doc
 
     @router.patch("/media/{media_id}")
