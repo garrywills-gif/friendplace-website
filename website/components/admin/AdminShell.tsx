@@ -13,6 +13,7 @@ const NAV = [
   { href: '/admin/faqs',             label: 'FAQs',              icon: '❓' },
   { href: '/admin/success-stories',  label: 'Success Stories',   icon: '📖' },
   { href: '/admin/founding-members', label: 'Founding Members',  icon: '👥' },
+  { href: '/admin/events',           label: 'Events',            icon: '📅' },
   { href: '/admin/media',            label: 'Media library',     icon: '🖼️' },
 ];
 

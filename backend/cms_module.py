@@ -194,6 +194,55 @@ class FoundingMembersReorderIn(BaseModel):
     ids: List[str] = Field(default_factory=list)
 
 
+class EventSponsorIn(BaseModel):
+    """One sponsor row inside an event. All fields optional so Garry
+    can save partial rows while editing."""
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    website_url: Optional[str] = None
+
+
+class EventIn(BaseModel):
+    """Create/update payload for an event. All fields optional so PATCH
+    is truly partial."""
+    title: Optional[str] = None
+    description: Optional[str] = None            # short (~200 char) summary
+    body_html: Optional[str] = None              # rich long description
+    cover_image_url: Optional[str] = None
+    starts_at: Optional[str] = None              # ISO-8601 datetime
+    ends_at: Optional[str] = None
+    timezone: Optional[str] = None
+    is_online: Optional[bool] = None
+    venue_name: Optional[str] = None
+    venue_address: Optional[str] = None
+    venue_url: Optional[str] = None
+    meeting_url: Optional[str] = None
+    capacity: Optional[int] = None               # null = unlimited
+    rsvp_deadline_at: Optional[str] = None
+    cost_type: Optional[str] = None              # "free" | "paid"
+    cost_display: Optional[str] = None           # e.g. "Free", "$15 pp", "Gold coin"
+    organiser_name: Optional[str] = None
+    organiser_contact: Optional[str] = None
+    accessibility_info: Optional[str] = None
+    sponsors: Optional[List[EventSponsorIn]] = None
+    status: Optional[str] = None                 # "draft" | "published"
+    hidden: Optional[bool] = None
+
+
+class EventsReorderIn(BaseModel):
+    ids: List[str] = Field(default_factory=list)
+
+
+class EventRsvpIn(BaseModel):
+    """Admin path for adding/editing an RSVP row."""
+    name: Optional[str] = None
+    email: Optional[str] = None
+    user_id: Optional[str] = None
+    guests_count: Optional[int] = None
+    note: Optional[str] = None
+    status: Optional[str] = None                 # "going" | "waitlist" | "cancelled"
+
+
 # ---- Router factory ------------------------------------------------------
 
 def build_router(db) -> APIRouter:
@@ -385,6 +434,19 @@ def build_router(db) -> APIRouter:
             founding_members_editable_count = await db.cms_founding_members.count_documents({})
         except Exception:
             founding_members_editable_count = 0
+        try:
+            # Count events that are still in the future (published+visible only).
+            events_upcoming = await db.cms_events.count_documents({
+                "status": "published",
+                "hidden": {"$ne": True},
+                "starts_at": {"$gte": _now_iso()},
+            })
+        except Exception:
+            events_upcoming = 0
+        try:
+            events_all = await db.cms_events.count_documents({})
+        except Exception:
+            events_all = 0
         # `pages_count` is fixed today — Home / About / FAQs / Founders.
         # Grows automatically as new CMS-editable pages come online.
         pages_count = 4
@@ -412,6 +474,8 @@ def build_router(db) -> APIRouter:
             "faqs_count": len(content.get("faqs") or []),
             "success_stories_count": int(success_stories_count),
             "founding_members_count_editable": int(founding_members_editable_count),
+            "events_count": int(events_all),
+            "events_upcoming_count": int(events_upcoming),
             "founder_signups_count": int(founder_count),
             "status": status,
             "updated_at": content.get("updated_at"),
@@ -692,6 +756,275 @@ def build_router(db) -> APIRouter:
 
 
     # ============================================================
+    # EVENTS
+    # ============================================================
+    # `cms_events` — full event record with sponsors embedded.
+    # `event_rsvps` — one row per RSVP with waitlist status.
+    # Slugs are auto-generated from the title, dedup with numeric suffix.
+
+    def _slugify(title: str) -> str:
+        base = re.sub(r"[^a-z0-9]+", "-", (title or "").lower()).strip("-")
+        return base or "event"
+
+    async def _unique_slug(title: str, ignore_id: Optional[str] = None) -> str:
+        base = _slugify(title)
+        candidate = base
+        i = 1
+        while True:
+            q: Dict[str, Any] = {"slug": candidate}
+            if ignore_id:
+                q["id"] = {"$ne": ignore_id}
+            exists = await db.cms_events.find_one(q, {"_id": 0, "id": 1})
+            if not exists:
+                return candidate
+            i += 1
+            candidate = f"{base}-{i}"
+
+    async def _rsvp_counts_for(event_id: str) -> Dict[str, int]:
+        going = await db.event_rsvps.count_documents(
+            {"event_id": event_id, "status": "going"}
+        )
+        waitlist = await db.event_rsvps.count_documents(
+            {"event_id": event_id, "status": "waitlist"}
+        )
+        return {"going": int(going), "waitlist": int(waitlist)}
+
+    async def _load_events(only_public: bool = False) -> List[Dict[str, Any]]:
+        q: Dict[str, Any] = {}
+        if only_public:
+            q = {"status": "published", "hidden": {"$ne": True}}
+        cur = db.cms_events.find(q, {"_id": 0}).sort([("starts_at", 1), ("created_at", 1)])
+        events = await cur.to_list(length=None)
+        # Enrich each event with live RSVP counts so the list view can
+        # show "12/40" without a second round-trip per row.
+        for ev in events:
+            ev["rsvp_counts"] = await _rsvp_counts_for(ev["id"])
+        return events
+
+    @router.get("/events")
+    async def list_events(admin: dict = Depends(current_cms_admin)):
+        items = await _load_events(only_public=False)
+        return {"items": items, "count": len(items)}
+
+    @router.post("/events")
+    async def create_event(
+        body: Optional[EventIn] = None,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        event_id = str(uuid.uuid4())
+        now = _now_iso()
+        title = (body.title if body and body.title else "New event")
+        slug = await _unique_slug(title)
+        doc: Dict[str, Any] = {
+            "id": event_id,
+            "slug": slug,
+            "title": title,
+            "description": (body.description if body else "") or "",
+            "body_html": (body.body_html if body else "") or "",
+            "cover_image_url": (body.cover_image_url if body else "") or "",
+            "starts_at": (body.starts_at if body else "") or "",
+            "ends_at": (body.ends_at if body else "") or "",
+            "timezone": (body.timezone if body and body.timezone else "Australia/Sydney"),
+            "is_online": bool(body.is_online) if body and body.is_online is not None else False,
+            "venue_name": (body.venue_name if body else "") or "",
+            "venue_address": (body.venue_address if body else "") or "",
+            "venue_url": (body.venue_url if body else "") or "",
+            "meeting_url": (body.meeting_url if body else "") or "",
+            "capacity": (body.capacity if body and body.capacity is not None else None),
+            "rsvp_deadline_at": (body.rsvp_deadline_at if body else "") or "",
+            "cost_type": (body.cost_type if body and body.cost_type else "free"),
+            "cost_display": (body.cost_display if body else "") or "Free",
+            "organiser_name": (body.organiser_name if body else "") or "",
+            "organiser_contact": (body.organiser_contact if body else "") or "",
+            "accessibility_info": (body.accessibility_info if body else "") or "",
+            "sponsors": [dict(s) for s in (body.sponsors if body and body.sponsors else [])],
+            "status": (body.status if body and body.status else "draft"),
+            "hidden": bool(body.hidden) if body and body.hidden is not None else False,
+            "created_at": now,
+            "updated_at": now,
+            "created_by": admin.get("email"),
+        }
+        await db.cms_events.insert_one(dict(doc))
+        doc["rsvp_counts"] = {"going": 0, "waitlist": 0}
+        return doc
+
+    @router.get("/events/{event_id}")
+    async def get_event(
+        event_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        doc = await db.cms_events.find_one({"id": event_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(404, "Event not found")
+        doc["rsvp_counts"] = await _rsvp_counts_for(event_id)
+        return doc
+
+    @router.patch("/events/{event_id}")
+    async def patch_event(
+        event_id: str,
+        body: EventIn,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        update: Dict[str, Any] = {"updated_at": _now_iso()}
+        # Only take fields explicitly sent so PATCH is truly partial.
+        simple_fields = (
+            "description", "body_html", "cover_image_url",
+            "starts_at", "ends_at", "timezone", "is_online",
+            "venue_name", "venue_address", "venue_url", "meeting_url",
+            "capacity", "rsvp_deadline_at", "cost_type", "cost_display",
+            "organiser_name", "organiser_contact", "accessibility_info",
+            "status", "hidden",
+        )
+        for field in simple_fields:
+            val = getattr(body, field)
+            if val is not None:
+                update[field] = val
+        if body.sponsors is not None:
+            update["sponsors"] = [dict(s) for s in body.sponsors]
+        # If title changed, regenerate slug (unique within collection).
+        if body.title is not None:
+            update["title"] = body.title
+            update["slug"] = await _unique_slug(body.title, ignore_id=event_id)
+        # Belt-and-braces: never let a published event exist without a title.
+        if update.get("status") == "published":
+            current = await db.cms_events.find_one({"id": event_id}, {"_id": 0}) or {}
+            title = update.get("title", current.get("title"))
+            starts = update.get("starts_at", current.get("starts_at"))
+            if not (title or "").strip():
+                raise HTTPException(400, "Add a title before publishing")
+            if not (starts or "").strip():
+                raise HTTPException(400, "Add a start date/time before publishing")
+        if "status" in update and update["status"] not in ("draft", "published"):
+            raise HTTPException(400, "status must be 'draft' or 'published'")
+
+        res = await db.cms_events.update_one({"id": event_id}, {"$set": update})
+        if res.matched_count == 0:
+            raise HTTPException(404, "Event not found")
+        doc = await db.cms_events.find_one({"id": event_id}, {"_id": 0})
+        if doc:
+            doc["rsvp_counts"] = await _rsvp_counts_for(event_id)
+        return doc
+
+    @router.delete("/events/{event_id}")
+    async def delete_event(
+        event_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        res = await db.cms_events.delete_one({"id": event_id})
+        if res.deleted_count == 0:
+            raise HTTPException(404, "Event not found")
+        # Cascade RSVPs — nobody wants orphans in the roster query.
+        await db.event_rsvps.delete_many({"event_id": event_id})
+        return {"ok": True}
+
+    # ---- RSVPs (admin-side management) --------------------------------
+    # Public RSVP endpoint (from marketing site / mobile app) comes in
+    # Session B. For v1 the admin can add RSVPs manually.
+
+    @router.get("/events/{event_id}/rsvps")
+    async def event_rsvps(
+        event_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        ev = await db.cms_events.find_one({"id": event_id}, {"_id": 0, "id": 1, "capacity": 1})
+        if not ev:
+            raise HTTPException(404, "Event not found")
+        cur = db.event_rsvps.find({"event_id": event_id}, {"_id": 0}).sort("created_at", 1)
+        rows = await cur.to_list(length=None)
+        counts = await _rsvp_counts_for(event_id)
+        return {
+            "items": rows,
+            "counts": counts,
+            "capacity": ev.get("capacity"),
+        }
+
+    @router.post("/events/{event_id}/rsvps")
+    async def add_rsvp(
+        event_id: str,
+        body: EventRsvpIn,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        ev = await db.cms_events.find_one({"id": event_id}, {"_id": 0})
+        if not ev:
+            raise HTTPException(404, "Event not found")
+        # Waitlist logic: if capacity is set and 'going' is at/above
+        # capacity, new RSVPs default to 'waitlist'.
+        counts = await _rsvp_counts_for(event_id)
+        capacity = ev.get("capacity")
+        requested = (body.status or "going").lower()
+        if requested not in ("going", "waitlist", "cancelled"):
+            raise HTTPException(400, "status must be going/waitlist/cancelled")
+        if requested == "going" and isinstance(capacity, int) and capacity > 0 and counts["going"] >= capacity:
+            requested = "waitlist"
+        rsvp_id = str(uuid.uuid4())
+        now = _now_iso()
+        doc = {
+            "id": rsvp_id,
+            "event_id": event_id,
+            "name": (body.name or "").strip(),
+            "email": (body.email or "").strip().lower(),
+            "user_id": body.user_id or None,
+            "guests_count": int(body.guests_count) if body.guests_count is not None else 0,
+            "note": (body.note or "").strip(),
+            "status": requested,
+            "created_at": now,
+            "updated_at": now,
+            "created_by": admin.get("email"),
+        }
+        await db.event_rsvps.insert_one(dict(doc))
+        return doc
+
+    @router.patch("/events/{event_id}/rsvps/{rsvp_id}")
+    async def patch_rsvp(
+        event_id: str,
+        rsvp_id: str,
+        body: EventRsvpIn,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        update: Dict[str, Any] = {"updated_at": _now_iso()}
+        for field in ("name", "email", "user_id", "guests_count", "note", "status"):
+            val = getattr(body, field)
+            if val is not None:
+                update[field] = val
+        if "status" in update and update["status"] not in ("going", "waitlist", "cancelled"):
+            raise HTTPException(400, "status must be going/waitlist/cancelled")
+        res = await db.event_rsvps.update_one(
+            {"id": rsvp_id, "event_id": event_id}, {"$set": update}
+        )
+        if res.matched_count == 0:
+            raise HTTPException(404, "RSVP not found")
+        # Auto-promote first waitlist entry to 'going' when a going slot
+        # opens up (someone cancels).
+        if update.get("status") == "cancelled":
+            ev = await db.cms_events.find_one({"id": event_id}, {"_id": 0, "capacity": 1})
+            cap = (ev or {}).get("capacity")
+            counts = await _rsvp_counts_for(event_id)
+            if isinstance(cap, int) and cap > 0 and counts["going"] < cap:
+                next_up = await db.event_rsvps.find_one(
+                    {"event_id": event_id, "status": "waitlist"},
+                    {"_id": 0}, sort=[("created_at", 1)]
+                )
+                if next_up:
+                    await db.event_rsvps.update_one(
+                        {"id": next_up["id"]},
+                        {"$set": {"status": "going", "updated_at": _now_iso()}}
+                    )
+        doc = await db.event_rsvps.find_one({"id": rsvp_id}, {"_id": 0})
+        return doc
+
+    @router.delete("/events/{event_id}/rsvps/{rsvp_id}")
+    async def delete_rsvp(
+        event_id: str,
+        rsvp_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        res = await db.event_rsvps.delete_one({"id": rsvp_id, "event_id": event_id})
+        if res.deleted_count == 0:
+            raise HTTPException(404, "RSVP not found")
+        return {"ok": True}
+
+
+    # ============================================================
     # MEDIA LIBRARY
     # ============================================================
 
@@ -937,5 +1270,57 @@ def build_public_router(db) -> APIRouter:
             c = await _content()
             items = c.get("success_stories") or []
         return {"stories": items}
+
+    # ── EVENTS (public) ─────────────────────────────────────────────
+    @router.get("/events")
+    async def public_events():
+        """Upcoming published+visible events, ordered by start time.
+        Admin metadata is stripped; RSVP counts included for capacity
+        indicators on the public grid."""
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            cur = db.cms_events.find(
+                {"status": "published", "hidden": {"$ne": True}},
+                {
+                    "_id": 0,
+                    "id": 1, "slug": 1, "title": 1, "description": 1, "body_html": 1,
+                    "cover_image_url": 1, "starts_at": 1, "ends_at": 1, "timezone": 1,
+                    "is_online": 1, "venue_name": 1, "venue_address": 1, "venue_url": 1,
+                    "meeting_url": 1, "capacity": 1, "rsvp_deadline_at": 1,
+                    "cost_type": 1, "cost_display": 1, "organiser_name": 1,
+                    "organiser_contact": 1, "accessibility_info": 1, "sponsors": 1,
+                },
+            ).sort([("starts_at", 1)])
+            items = await cur.to_list(length=None)
+        except Exception:
+            items = []
+        # Filter out past events and annotate with going/waitlist counts.
+        upcoming = [ev for ev in items if not ev.get("starts_at") or ev["starts_at"] >= now]
+        for ev in upcoming:
+            going = await db.event_rsvps.count_documents({"event_id": ev["id"], "status": "going"})
+            waitlist = await db.event_rsvps.count_documents({"event_id": ev["id"], "status": "waitlist"})
+            ev["rsvp_counts"] = {"going": int(going), "waitlist": int(waitlist)}
+        return {"events": upcoming}
+
+    @router.get("/events/{slug}")
+    async def public_event_by_slug(slug: str):
+        doc = await db.cms_events.find_one(
+            {"slug": slug, "status": "published", "hidden": {"$ne": True}},
+            {
+                "_id": 0,
+                "id": 1, "slug": 1, "title": 1, "description": 1, "body_html": 1,
+                "cover_image_url": 1, "starts_at": 1, "ends_at": 1, "timezone": 1,
+                "is_online": 1, "venue_name": 1, "venue_address": 1, "venue_url": 1,
+                "meeting_url": 1, "capacity": 1, "rsvp_deadline_at": 1,
+                "cost_type": 1, "cost_display": 1, "organiser_name": 1,
+                "organiser_contact": 1, "accessibility_info": 1, "sponsors": 1,
+            },
+        )
+        if not doc:
+            raise HTTPException(404, "Event not found")
+        going = await db.event_rsvps.count_documents({"event_id": doc["id"], "status": "going"})
+        waitlist = await db.event_rsvps.count_documents({"event_id": doc["id"], "status": "waitlist"})
+        doc["rsvp_counts"] = {"going": int(going), "waitlist": int(waitlist)}
+        return doc
 
     return router

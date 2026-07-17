@@ -29,7 +29,7 @@ const QUICK_ACTIONS: Array<{
   { icon: '🖼️', label: 'Upload Image',        href: '/admin/media?upload=1', hint: 'Open the Media Library uploader', enabled: true  },
   { icon: '📖', label: 'Add Success Story',  href: '/admin/success-stories?new=1', hint: 'Draft a new success story',   enabled: true  },
   { icon: '👥', label: 'Add Founding Member', href: '/admin/founding-members?new=1', hint: 'Draft a new founding member', enabled: true  },
-  { icon: '📅', label: 'Add Event',          href: '/admin/events',       hint: 'Coming soon',                        enabled: false },
+  { icon: '📅', label: 'Add Event',          href: '/admin/events?new=1', hint: 'Draft a new event',                enabled: true  },
 ];
 
 const MODULE_CARDS = [
@@ -107,6 +107,7 @@ export default function DashboardPage() {
         <SummaryCard emoji="❓" label="FAQs"              value={stats?.faqs_count} tone="teal" />
         <SummaryCard emoji="📖" label="Success stories"   value={stats?.success_stories_count} tone="navy" />
         <SummaryCard emoji="👥" label="Founding members"  value={stats?.founding_members_count_editable} tone="teal" />
+        <SummaryCard emoji="📅" label="Upcoming events"   value={stats?.events_upcoming_count} tone="navy" />
       </div>
 
       {/* Expanded System Status card */}

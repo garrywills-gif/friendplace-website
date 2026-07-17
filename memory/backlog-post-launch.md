@@ -220,3 +220,31 @@ Completed in this session:
 - Sidebar nav: "Founding Members" entry with 👥 icon
 - Quick Action "Add Founding Member" enabled (was placeholder before)
 - HIGH-priority bug fix: publish() now enforces `number >= 1` on BOTH client guard AND backend PATCH — a founding member #0 can never be published from any surface
+
+---
+
+## ✅ Events Module — Session A SHIPPED (17 July 2026)
+
+Completed this session:
+- Dedicated `cms_events` + `event_rsvps` MongoDB collections
+- Full admin CRUD at `/api/cms/events/*` + RSVP roster + waitlist auto-flip on capacity
+- Auto-generated unique slug from title
+- Cascade delete: removing an event wipes its RSVPs
+- Two-page admin UX: `/admin/events` list + `/admin/events/[id]` editor
+- All Garry-requested v1 fields: title, description, rich body, cover image, start/end/timezone,
+  in-person vs online, venue name/address/URL, meeting URL, capacity, RSVP deadline,
+  cost (free/paid + display), organiser name/contact, accessibility notes, sponsors repeater
+- Preview modal renders "PROUDLY SUPPORTED BY" sponsor band + all key metadata
+- Automatic waitlist when capacity is reached; auto-promotes waitlist → going on cancellation
+- Admin can add RSVPs manually (roster panel in editor)
+- Public /events page with RSVP counters and "N spots left"/"Waitlist open" pill
+- Public /api/public/events (upcoming only) and /api/public/events/{slug}
+- Public payload strips admin metadata (created_by, status, hidden never leak)
+- Dashboard: 6th tile "Upcoming events" + Quick Action "Add Event" enabled + sidebar nav entry
+- Nginx proxy extended to serve `/events` on the preview URL
+
+Deferred to Session B:
+- Public /events/[slug] detail page + public RSVP form (email capture, no login)
+- Add-to-calendar (ICS download)
+- Mobile app RSVP UX (new Events tab)
+- Automatic cancellation email via Resend when admin cancels an event

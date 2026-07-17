@@ -219,6 +219,7 @@ const NAV = [
   { label: 'How It Works', href: '/how-it-works' },
   { label: 'Features', href: '/features' },
   { label: 'Stories', href: '/success-stories' },
+  { label: 'Events', href: '/events' },
   { label: 'FAQs', href: '/faqs' },
   { label: 'Contact', href: '/contact' },
 ];
