@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { cmsApi } from '@/lib/cms-api';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 
@@ -15,7 +16,10 @@ type MediaItem = {
   provider?: string;
 };
 
-export default function MediaLibraryPage() {
+function MediaLibraryInner() {
+  const search = useSearchParams();
+  const shouldAutoOpen = search.get('upload') === '1';
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -37,6 +41,17 @@ export default function MediaLibraryPage() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Deep-link support: /admin/media?upload=1 auto-opens the native
+  // file picker once the page has mounted. Powered by the "Upload
+  // Image" Quick Action on the Mission Control dashboard.
+  useEffect(() => {
+    if (shouldAutoOpen && uploadInputRef.current) {
+      // Defer to next tick so the input is definitely in the DOM.
+      const t = setTimeout(() => uploadInputRef.current?.click(), 120);
+      return () => clearTimeout(t);
+    }
+  }, [shouldAutoOpen]);
 
   const uploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -96,7 +111,7 @@ export default function MediaLibraryPage() {
 
       <div style={{ ...s.card, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <label className="cms-btn-primary" style={{ ...s.primaryBtn, display: 'inline-block', textAlign: 'center' }}>
-          <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+          <input ref={uploadInputRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
                  onChange={e => { uploadFiles(e.target.files); e.target.value = ''; }} />
           {uploading ? 'Uploading…' : '+ Upload images'}
         </label>
@@ -147,5 +162,18 @@ export default function MediaLibraryPage() {
 
       {toast && <div style={s.toast}>{toast}</div>}
     </AdminShell>
+  );
+}
+
+/**
+ * `useSearchParams` requires a Suspense boundary in the Next.js App
+ * Router so static rendering doesn't bail out. This wrapper keeps the
+ * page prerenderable and only defers reading the query string.
+ */
+export default function MediaLibraryPage() {
+  return (
+    <Suspense fallback={<AdminShell title="Media library"><p style={{ color: '#64748B' }}>Loading…</p></AdminShell>}>
+      <MediaLibraryInner />
+    </Suspense>
   );
 }

@@ -101,6 +101,19 @@ const ADMIN_GLOBAL_CSS = `
     box-shadow: 0 10px 22px rgba(10,37,64,0.06);
   }
 
+  /* Quick Action pills --------------------------------------------- */
+  .cms-quick-action {
+    transition: transform 160ms ease, box-shadow 220ms ease,
+                border-color 200ms ease, background-color 200ms ease;
+  }
+  .cms-quick-action:hover {
+    transform: translateY(-1px);
+    border-color: rgba(20,184,166,0.55);
+    background: linear-gradient(135deg, #F0FDFA 0%, #FFFFFF 100%);
+    box-shadow: 0 8px 18px rgba(20,184,166,0.15);
+  }
+  .cms-quick-action:active { transform: translateY(0); }
+
   /* Toolbar buttons inside the TipTap editor ------------------------ */
   .cms-tt-btn { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }
   .cms-tt-btn:hover { background: #F1F5F9; border-color: #94A3B8; }

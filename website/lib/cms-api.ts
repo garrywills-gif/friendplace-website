@@ -68,6 +68,13 @@ export const cmsApi = {
     founder_signups_count: number;
     status: { label: string; color: 'amber' | 'green' | 'red'; dot: string };
     updated_at?: string;
+    system: {
+      website: { label: string; color: 'amber' | 'green' | 'red'; dot: string };
+      api: { ok: boolean; label: string };
+      database: { ok: boolean; label: string };
+      last_publish_at?: string;
+      app_version: string;
+    };
   }>('GET', '/cms/stats'),
 
   // Media

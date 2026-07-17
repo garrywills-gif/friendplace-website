@@ -1,12 +1,36 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AdminShell, adminStyles } from '@/components/admin/AdminShell';
 import { cmsApi } from '@/lib/cms-api';
 import { getAdmin } from '@/lib/cms-auth';
 
 type Stats = Awaited<ReturnType<typeof cmsApi.stats>>;
+
+/**
+ * Quick Actions strip.
+ *
+ * Live shortcuts route to the relevant editor; disabled ones stay
+ * visible (in muted styling) so Garry can *see* what's coming without
+ * being able to click through to a broken page. As each future module
+ * ships, flipping `enabled: true` here lights the button up — no other
+ * change needed on the dashboard.
+ */
+const QUICK_ACTIONS: Array<{
+  icon: string;
+  label: string;
+  href: string;
+  hint: string;
+  enabled: boolean;
+}> = [
+  { icon: '➕', label: 'Add FAQ',            href: '/admin/faqs?new=1',   hint: 'Jump to FAQs & focus a fresh row',    enabled: true  },
+  { icon: '🖼️', label: 'Upload Image',        href: '/admin/media?upload=1', hint: 'Open the Media Library uploader', enabled: true  },
+  { icon: '📖', label: 'Add Success Story',  href: '/admin/success-stories', hint: 'Coming soon',                     enabled: false },
+  { icon: '👥', label: 'Add Founding Member', href: '/admin/founding-members', hint: 'Coming soon',                   enabled: false },
+  { icon: '📅', label: 'Add Event',          href: '/admin/events',       hint: 'Coming soon',                        enabled: false },
+];
 
 const MODULE_CARDS = [
   { href: '/admin/home',  title: 'Home page',     body: 'Feature cards, hero copy and callouts on the landing page.',   icon: '🏠' },
@@ -16,6 +40,7 @@ const MODULE_CARDS = [
 ];
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const admin = typeof window !== 'undefined' ? getAdmin() : null;
   const firstName =
@@ -31,18 +56,60 @@ export default function DashboardPage() {
 
   return (
     <AdminShell title="FriendPlace Mission Control">
-      <p style={{ color: '#475569', fontSize: 16, maxWidth: 720, marginTop: -12, marginBottom: 28 }}>
+      <p style={{ color: '#475569', fontSize: 16, maxWidth: 720, marginTop: -12, marginBottom: 20 }}>
         Welcome back, {firstName}. Manage your website, content and media from one place.
       </p>
 
+      {/* Quick Actions — small icon strip. Kept compact so it doesn't
+          compete with the summary tiles for attention. */}
+      <div style={quickActionsRow}>
+        {QUICK_ACTIONS.map(a => {
+          const btnStyle: React.CSSProperties = {
+            ...quickActionBtn,
+            opacity: a.enabled ? 1 : 0.5,
+            cursor: a.enabled ? 'pointer' : 'not-allowed',
+          };
+          if (a.enabled) {
+            return (
+              <button
+                key={a.label}
+                type="button"
+                className="cms-quick-action"
+                style={btnStyle}
+                onClick={() => router.push(a.href)}
+                title={a.hint}
+              >
+                <span style={{ fontSize: 22 }}>{a.icon}</span>
+                <span>{a.label}</span>
+              </button>
+            );
+          }
+          return (
+            <button
+              key={a.label}
+              type="button"
+              style={btnStyle}
+              disabled
+              title={a.hint}
+            >
+              <span style={{ fontSize: 22 }}>{a.icon}</span>
+              <span>{a.label}</span>
+              <span style={quickActionBadge}>Soon</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Live summary strip */}
       <div style={summaryGrid}>
-        <SummaryCard emoji="📝" label="Website pages" value={stats?.pages_count} tone="teal" />
-        <SummaryCard emoji="🖼️" label="Media library" value={stats?.media_count} tone="navy" />
-        <SummaryCard emoji="❓" label="FAQs" value={stats?.faqs_count} tone="teal" />
-        <SummaryCard emoji="👥" label="Founding members" value={stats?.founder_signups_count} tone="navy" />
-        <StatusCard status={stats?.status} />
+        <SummaryCard emoji="📝" label="Website pages"     value={stats?.pages_count} tone="teal" />
+        <SummaryCard emoji="🖼️" label="Media library"     value={stats?.media_count} tone="navy" />
+        <SummaryCard emoji="❓" label="FAQs"              value={stats?.faqs_count} tone="teal" />
+        <SummaryCard emoji="👥" label="Founding members"  value={stats?.founder_signups_count} tone="navy" />
       </div>
+
+      {/* Expanded System Status card */}
+      <SystemStatusPanel system={stats?.system} />
 
       {/* Module tiles */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20, marginTop: 32 }}>
@@ -92,39 +159,153 @@ function SummaryCard({ emoji, label, value, tone }: {
   );
 }
 
-/** Website status pill — Live / Private / Maintenance. */
-function StatusCard({ status }: { status?: Stats['status'] }) {
-  const s = status || { label: 'Loading…', color: 'amber' as const, dot: '⚪' };
-  const palette: Record<Stats['status']['color'], { bg: string; border: string; ring: string; text: string }> = {
-    amber: { bg: 'linear-gradient(140deg, #FEF3C7 0%, #FFFBEB 100%)', border: 'rgba(245,158,11,0.35)', ring: '#F59E0B', text: '#92400E' },
-    green: { bg: 'linear-gradient(140deg, #DCFCE7 0%, #F0FDF4 100%)', border: 'rgba(16,185,129,0.35)', ring: '#10B981', text: '#065F46' },
-    red:   { bg: 'linear-gradient(140deg, #FEE2E2 0%, #FEF2F2 100%)', border: 'rgba(239,68,68,0.35)',  ring: '#EF4444', text: '#991B1B' },
-  };
-  const p = palette[s.color] || palette.amber;
+/** Expanded System Status card — one wide panel, five signals. */
+function SystemStatusPanel({ system }: { system?: Stats['system'] }) {
+  const loading = !system;
+  const website = system?.website;
+  const api = system?.api;
+  const database = system?.database;
+
+  const websiteTone = website?.color || 'amber';
+  const websitePalette = STATUS_PALETTE[websiteTone];
+
+  const apiOk = api?.ok ?? true;
+  const dbOk  = database?.ok ?? true;
+
   return (
-    <div className="cms-summary-card" style={{
-      ...summaryCardBase, background: p.bg, borderColor: p.border,
-    }}>
-      <div style={{ fontSize: 28, marginBottom: 8 }}>🌐</div>
-      <div style={{ fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 800, color: p.text }}>
-        Website status
+    <div style={systemPanel}>
+      <div style={systemPanelHeader}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 20 }}>🩺</span>
+          <div>
+            <div style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 800, color: '#64748B' }}>System status</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: '#0A2540', marginTop: 2 }}>
+              Everything you need to know at a glance
+            </div>
+          </div>
+        </div>
+        <div style={systemVersionPill}>
+          <span style={{ opacity: 0.75 }}>📦</span>
+          <span>v{system?.app_version || '—'}</span>
+        </div>
       </div>
-      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-        <span style={{
-          width: 10, height: 10, borderRadius: 999, background: p.ring,
-          boxShadow: `0 0 0 4px ${p.ring}22`, display: 'inline-block',
-        }} />
-        <span style={{ fontSize: 18, fontWeight: 900, color: '#0A2540' }}>{s.label}</span>
+
+      <div style={systemGrid}>
+        <StatusRow
+          icon="🌐" label="Website"
+          value={loading ? '…' : (website?.label || '—')}
+          dotColor={websitePalette.ring}
+          tint={websitePalette.tint}
+        />
+        <StatusRow
+          icon="⚡" label="API"
+          value={loading ? '…' : (api?.label || '—')}
+          dotColor={apiOk ? '#10B981' : '#EF4444'}
+          tint={apiOk ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)'}
+        />
+        <StatusRow
+          icon="🗄️" label="Database"
+          value={loading ? '…' : (database?.label || '—')}
+          dotColor={dbOk ? '#10B981' : '#EF4444'}
+          tint={dbOk ? 'rgba(16,185,129,0.10)' : 'rgba(239,68,68,0.10)'}
+        />
+        <StatusRow
+          icon="🚀" label="Last publish"
+          value={loading ? '…' : relativeTime(system?.last_publish_at)}
+          dotColor="#14B8A6"
+          tint="rgba(20,184,166,0.10)"
+        />
       </div>
     </div>
   );
 }
+
+function StatusRow({ icon, label, value, dotColor, tint }: {
+  icon: string; label: string; value: string; dotColor: string; tint: string;
+}) {
+  return (
+    <div style={{ ...statusRow, background: tint }}>
+      <span style={{ fontSize: 18, opacity: 0.85 }}>{icon}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748B', fontWeight: 800 }}>{label}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#0A2540', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {value}
+        </div>
+      </div>
+      <span style={{
+        width: 10, height: 10, borderRadius: 999, background: dotColor,
+        boxShadow: `0 0 0 4px ${dotColor}22`, flexShrink: 0,
+      }} />
+    </div>
+  );
+}
+
+/** ISO → "2 minutes ago" / "just now" / "3 days ago". */
+function relativeTime(iso?: string): string {
+  if (!iso) return 'Never';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return 'Never';
+  const diff = Math.max(0, Date.now() - then);
+  const s = Math.round(diff / 1000);
+  if (s < 30) return 'Just now';
+  if (s < 60) return `${s}s ago`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min${m === 1 ? '' : 's'} ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  const d = Math.round(h / 24);
+  if (d < 30) return `${d} day${d === 1 ? '' : 's'} ago`;
+  return new Date(iso).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// ---------- Style objects -------------------------------------------------
+
+const STATUS_PALETTE: Record<'amber' | 'green' | 'red', { ring: string; tint: string }> = {
+  amber: { ring: '#F59E0B', tint: 'rgba(245,158,11,0.12)' },
+  green: { ring: '#10B981', tint: 'rgba(16,185,129,0.10)' },
+  red:   { ring: '#EF4444', tint: 'rgba(239,68,68,0.12)' },
+};
+
+const quickActionsRow: React.CSSProperties = {
+  display: 'flex',
+  gap: 12,
+  flexWrap: 'wrap',
+  marginBottom: 20,
+};
+
+const quickActionBtn: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '10px 16px',
+  borderRadius: 999,
+  border: '1.5px solid #E2E8F0',
+  background: '#FFFFFF',
+  color: '#0A2540',
+  fontSize: 14,
+  fontWeight: 700,
+  fontFamily: 'inherit',
+  boxShadow: '0 2px 6px rgba(10,37,64,0.04)',
+};
+
+const quickActionBadge: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 900,
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  color: '#94A3B8',
+  background: '#F1F5F9',
+  padding: '2px 8px',
+  borderRadius: 999,
+  marginLeft: 4,
+};
 
 const summaryGrid: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
   gap: 14,
 };
+
 const summaryCardBase: React.CSSProperties = {
   padding: 20,
   borderRadius: 18,
@@ -134,4 +315,50 @@ const summaryCardBase: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   justifyContent: 'flex-start',
+};
+
+const systemPanel: React.CSSProperties = {
+  marginTop: 18,
+  padding: 20,
+  borderRadius: 20,
+  border: '1px solid #E2E8F0',
+  background: 'linear-gradient(160deg, #FFFFFF 0%, #F8FAFC 100%)',
+};
+
+const systemPanelHeader: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 16,
+  flexWrap: 'wrap',
+  gap: 12,
+};
+
+const systemVersionPill: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '4px 12px',
+  borderRadius: 999,
+  background: '#F1F5F9',
+  color: '#0A2540',
+  fontSize: 12,
+  fontWeight: 800,
+  fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+};
+
+const systemGrid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  gap: 10,
+};
+
+const statusRow: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '12px 14px',
+  borderRadius: 14,
+  border: '1px solid rgba(226,232,240,0.7)',
+  minHeight: 62,
 };

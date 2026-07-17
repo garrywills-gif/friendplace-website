@@ -67,6 +67,10 @@ UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
 ALLOWED_MIME_PREFIXES = ("image/",)
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB per file
 
+# Bumped on any release that adds/changes a user-visible CMS surface.
+# Surfaced in the Mission Control System Status card.
+APP_VERSION = "1.0.0"
+
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
 
@@ -339,6 +343,16 @@ def build_router(db) -> APIRouter:
             status = {"label": "Live", "color": "green", "dot": "🟢"}
         else:
             status = {"label": "Private (No Index)", "color": "amber", "dot": "🟠"}
+
+        # Live system-health signals for the expanded System Status card.
+        # If we can hit this route the API is up by definition; the DB
+        # ping tells us whether Mongo is reachable *right now*.
+        db_ok = True
+        try:
+            await db.command("ping")
+        except Exception:
+            db_ok = False
+
         return {
             "pages_count": pages_count,
             "media_count": int(media_count),
@@ -348,6 +362,14 @@ def build_router(db) -> APIRouter:
             "founder_signups_count": int(founder_count),
             "status": status,
             "updated_at": content.get("updated_at"),
+            # ── System Status panel ─────────────────────────────────
+            "system": {
+                "website": status,
+                "api": {"ok": True, "label": "Online"},
+                "database": {"ok": db_ok, "label": "Connected" if db_ok else "Disconnected"},
+                "last_publish_at": content.get("updated_at"),
+                "app_version": APP_VERSION,
+            },
         }
 
     @router.patch("/content")
