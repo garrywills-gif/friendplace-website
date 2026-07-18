@@ -36,8 +36,6 @@ export default function Events() {
   const router = useRouter();
   const [events, setEvents] = useState<any[]>([]);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
-  // Month filter — "all" | "YYYY-MM"
-  const [monthFilter, setMonthFilter] = useState<string>("all");
   // FriendPlace curated events (CMS-driven). Loaded once on focus,
   // then re-fetched after every RSVP so counts update immediately.
   const [fpEvents, setFpEvents] = useState<any[]>([]);
@@ -67,37 +65,36 @@ export default function Events() {
   useFocusEffect(useCallback(() => { load(); loadFp(); }, [loadFp]));
 
   // Build the list of months that actually have events, anchored on the
-  // current calendar month + next month for predictability — members
-  // shouldn't have to scroll a year of empty months.
-  const monthOptions = useMemo(() => {
-    const now = new Date();
-    const ym = (y: number, m: number) => `${y}-${String(m + 1).padStart(2, "0")}`;
-    const label = (y: number, m: number) => new Date(y, m, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    const cur = { value: ym(now.getFullYear(), now.getMonth()), label: "This month" };
-    const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const nxt = { value: ym(next.getFullYear(), next.getMonth()), label: "Next month" };
-    // Any other months present in events.
-    const seen = new Set<string>([cur.value, nxt.value]);
-    const extras: { value: string; label: string }[] = [];
-    for (const e of events) {
-      const m = /^(\d{4})-(\d{2})/.exec(e?.date || "");
-      if (!m) continue;
-      const v = `${m[1]}-${m[2]}`;
-      if (seen.has(v)) continue;
-      seen.add(v);
-      const y = parseInt(m[1], 10);
-      const mm = parseInt(m[2], 10) - 1;
-      extras.push({ value: v, label: label(y, mm) });
-    }
-    // Sort extras by chronological order.
-    extras.sort((a, b) => (a.value < b.value ? -1 : 1));
-    return [{ value: "all", label: "All upcoming" }, cur, nxt, ...extras];
-  }, [events]);
+  // Discovery-focused filter set. Answers the primary question a member
+  // opening the app has — "what can I do NOW?" — with time-relative
+  // shortcuts. Deep-future browsing is deliberately absent from this
+  // row: organisers who need to plan months ahead post via the "Host
+  // a new event" flow above, and members who want to look ahead just
+  // pick "All upcoming" and scroll. Adding a full calendar picker is
+  // a future enhancement — this row is the fast lane.
+  //
+  // "Near me" uses the caller's own suburb (from their profile) as a
+  // substring match against the event's location string. It's not
+  // geo-accurate, but it's honest: FriendPlace stores suburb, not
+  // lat/lng, and matching by suburb reflects what a member would
+  // eyeball ("is this in my area?"). If the user has no suburb set
+  // we surface a friendly nudge to add it — see the empty-state
+  // handling in the list below.
+  type FilterKey = "all" | "today" | "this_week" | "this_weekend" | "this_month" | "near_me";
+  const filterOptions: { value: FilterKey; label: string }[] = useMemo(() => ([
+    { value: "all",           label: "All upcoming" },
+    { value: "today",         label: "Today" },
+    { value: "this_week",     label: "This week" },
+    { value: "this_weekend",  label: "This weekend" },
+    { value: "this_month",    label: "This month" },
+    { value: "near_me",       label: "Near me" },
+  ]), []);
+  const [filter, setFilter] = useState<FilterKey>("all");
 
   const visibleEvents = useMemo(() => {
-    if (monthFilter === "all") return events;
-    return events.filter((e) => (e.date || "").startsWith(monthFilter));
-  }, [events, monthFilter]);
+    if (filter === "all") return events;
+    return events.filter((e) => matchesEventFilter(e, filter, user));
+  }, [events, filter, user]);
 
   const setRsvp = async (e: any, resp: "going" | "maybe" | "cant") => {
     if (!user) return;
@@ -134,6 +131,9 @@ export default function Events() {
         data={visibleEvents}
         keyExtractor={(e) => e.id}
         contentContainerStyle={{ padding: 16, gap: 12 }}
+        ListEmptyComponent={
+          <EventsEmptyState filter={filter} user={user} onClearFilter={() => setFilter("all")} c={c} scale={scale} />
+        }
         ListHeaderComponent={
           <View style={{ marginBottom: 8 }}>
             {/* FriendPlace curated events section (Mission Control-driven). */}
@@ -149,20 +149,23 @@ export default function Events() {
                 "This month" / "Next month". */}
             <View style={{ height: 56, marginHorizontal: -16, marginTop: 8 }}>
               <ScrollView
-                testID="event-month-pills"
+                testID="event-filter-pills"
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 16, alignItems: "center", gap: 8 }}
               >
-                {monthOptions.map((m) => {
-                  const on = monthFilter === m.value;
+                {filterOptions.map((m) => {
+                  const on = filter === m.value;
                   return (
                     <Pressable
                       key={m.value}
-                      testID={`month-pill-${m.value}`}
-                      onPress={() => setMonthFilter(m.value)}
-                      style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? c.brand : c.surfaceSecondary, borderWidth: 1.5, borderColor: on ? c.brand : c.border }}
+                      testID={`filter-pill-${m.value}`}
+                      onPress={() => setFilter(m.value)}
+                      style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? c.brand : c.surfaceSecondary, borderWidth: 1.5, borderColor: on ? c.brand : c.border, flexDirection: "row", alignItems: "center", gap: 5 }}
                     >
+                      {m.value === "near_me" && (
+                        <Ionicons name="location" size={12} color={on ? "#FFF" : c.brand} />
+                      )}
                       <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{m.label}</Text>
                     </Pressable>
                   );
@@ -767,6 +770,148 @@ function formatFpDateLong(iso?: string, tz: string = "Australia/Sydney"): string
     const time = d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", timeZone: tz, timeZoneName: "short" });
     return `${date} · ${time}`;
   } catch { return d.toLocaleString("en-AU"); }
+}
+
+/* ------------------------------------------------------------------
+   Discovery-filter matcher — evaluates whether a community event
+   passes the current chip selection. Kept as a pure function so the
+   `visibleEvents` memo stays simple and unit-testable.
+   ------------------------------------------------------------------ */
+
+function matchesEventFilter(e: any, key: string, user: any): boolean {
+  // Community events store the date as a `YYYY-MM-DD` string.
+  const raw = (e?.date || "").toString();
+  if (!raw) return key === "all";
+  const eventDate = new Date(raw + "T00:00:00");
+  if (Number.isNaN(eventDate.getTime())) return key === "all";
+
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  switch (key) {
+    case "today": {
+      const startOfTomorrow = new Date(startOfToday);
+      startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+      return eventDate >= startOfToday && eventDate < startOfTomorrow;
+    }
+    case "this_week": {
+      // Australia treats Monday as the start of the week — bring
+      // Sunday (0) back to 7 so we always land on Monday-of-this-week.
+      const dow = now.getDay() === 0 ? 7 : now.getDay();
+      const monday = new Date(startOfToday);
+      monday.setDate(monday.getDate() - (dow - 1));
+      const nextMonday = new Date(monday);
+      nextMonday.setDate(nextMonday.getDate() + 7);
+      return eventDate >= monday && eventDate < nextMonday;
+    }
+    case "this_weekend": {
+      // Saturday 00:00 → Monday 00:00 (whichever weekend is upcoming
+      // from *today*: if today is Mon-Fri, use this coming Sat/Sun;
+      // if today is Sat/Sun, use today+tomorrow as the "weekend").
+      const dow = now.getDay(); // 0=Sun … 6=Sat
+      const saturday = new Date(startOfToday);
+      if (dow === 0) {
+        // Sunday — the "weekend" already began yesterday; treat
+        // today as the tail end.
+        saturday.setDate(saturday.getDate() - 1);
+      } else if (dow === 6) {
+        // Saturday — that's today.
+      } else {
+        saturday.setDate(saturday.getDate() + (6 - dow));
+      }
+      const monday = new Date(saturday);
+      monday.setDate(monday.getDate() + 2);
+      return eventDate >= saturday && eventDate < monday;
+    }
+    case "this_month": {
+      return (
+        eventDate.getFullYear() === now.getFullYear() &&
+        eventDate.getMonth() === now.getMonth()
+      );
+    }
+    case "near_me": {
+      const suburb = (user?.suburb || "").toString().trim().toLowerCase();
+      if (!suburb) return false; // Empty state handles this case gracefully.
+      const hay = ((e?.location || "") + " " + (e?.venue_name || "") + " " + (e?.venue_address || "")).toLowerCase();
+      return hay.includes(suburb);
+    }
+    case "all":
+    default:
+      return true;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Empty-state shown inside the community events FlatList when the
+   current filter yields zero events. Copy is tailored per filter so
+   it never feels dead-endy — always suggests a next step.
+   ------------------------------------------------------------------ */
+
+function EventsEmptyState({
+  filter, user, onClearFilter, c, scale,
+}: {
+  filter: string;
+  user: any;
+  onClearFilter: () => void;
+  c: any;
+  scale: number;
+}) {
+  const router = useRouter();
+  const suburb = (user?.suburb || "").toString().trim();
+  const needsSuburb = filter === "near_me" && !suburb;
+
+  const copy: { emoji: string; title: string; body: string; cta?: { label: string; onPress: () => void } } =
+    needsSuburb ? {
+      emoji: "📍",
+      title: "Add your suburb to see nearby events",
+      body: "We use your suburb to match events happening in your local area. Just a suburb — no need for exact location.",
+      cta: { label: "Update my profile", onPress: () => router.push("/edit-profile" as any) },
+    } : filter === "near_me" ? {
+      emoji: "🌏",
+      title: `Nothing near ${suburb} just yet`,
+      body: "Try widening your search — or host an event and be the one who kicks it off.",
+      cta: { label: "See all upcoming", onPress: onClearFilter },
+    } : filter === "today" ? {
+      emoji: "☕",
+      title: "Nothing on today",
+      body: "Check what's on this week — or start something spontaneous by hosting your own.",
+      cta: { label: "See this week", onPress: onClearFilter },
+    } : filter === "this_weekend" ? {
+      emoji: "🌤️",
+      title: "No weekend plans yet",
+      body: "The weekend's still open — how about hosting a walk, coffee, or catch-up?",
+      cta: { label: "See all upcoming", onPress: onClearFilter },
+    } : filter === "this_week" ? {
+      emoji: "🗓️",
+      title: "Nothing on this week",
+      body: "Have a look further ahead or plant the seed by posting your own event.",
+      cta: { label: "See all upcoming", onPress: onClearFilter },
+    } : filter === "this_month" ? {
+      emoji: "📅",
+      title: "Nothing on this month",
+      body: "Have a look further ahead or plant the seed by posting your own event.",
+      cta: { label: "See all upcoming", onPress: onClearFilter },
+    } : {
+      emoji: "🌱",
+      title: "No community events yet",
+      body: "Be the first — tap Host a new event above to get things started.",
+    };
+
+  return (
+    <View style={{ marginTop: 12, padding: 22, borderRadius: 18, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, alignItems: "center" }}>
+      <Text style={{ fontSize: 36, marginBottom: 10 }}>{copy.emoji}</Text>
+      <Text style={{ fontSize: 15 * scale, fontWeight: "800", color: c.onSurface, textAlign: "center" }}>{copy.title}</Text>
+      <Text style={{ fontSize: 13 * scale, color: c.muted, textAlign: "center", marginTop: 6, lineHeight: 18, maxWidth: 300 }}>{copy.body}</Text>
+      {copy.cta && (
+        <Pressable
+          onPress={copy.cta.onPress}
+          style={{ marginTop: 16, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 999, backgroundColor: c.brand }}
+        >
+          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale }}>{copy.cta.label}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
