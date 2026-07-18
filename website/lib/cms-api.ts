@@ -111,6 +111,8 @@ export const cmsApi = {
   getEvent: (id: string) => req<EventRow>('GET', `/cms/events/${id}`),
   updateEvent: (id: string, patch: Partial<EventRow>) => req<EventRow>('PATCH', `/cms/events/${id}`, patch),
   deleteEvent: (id: string) => req<{ ok: true }>('DELETE', `/cms/events/${id}`),
+  cancelEvent: (id: string, reason?: string) =>
+    req<{ ok: true; emailed: number; event: EventRow; already_cancelled?: boolean }>('POST', `/cms/events/${id}/cancel`, reason ? { reason } : {}),
   // RSVPs
   listRsvps: (eventId: string) => req<{ items: EventRsvp[]; counts: { going: number; waitlist: number }; capacity: number | null }>('GET', `/cms/events/${eventId}/rsvps`),
   addRsvp: (eventId: string, data: Partial<EventRsvp>) => req<EventRsvp>('POST', `/cms/events/${eventId}/rsvps`, data),
@@ -179,8 +181,10 @@ export type EventRow = {
   organiser_contact?: string;
   accessibility_info?: string;
   sponsors: EventSponsor[];
-  status: 'draft' | 'published';
+  status: 'draft' | 'published' | 'cancelled';
   hidden?: boolean;
+  cancelled_at?: string;
+  cancellation_reason?: string;
   created_at: string;
   updated_at: string;
   created_by?: string;

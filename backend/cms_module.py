@@ -79,6 +79,49 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# ---- Event display helpers (shared by admin + public routers) ----------
+
+def _format_event_when(event: Dict[str, Any]) -> str:
+    """Human-friendly Australia-formatted date string.
+
+    Uses the event's own timezone if set; falls back to Australia/Sydney.
+    Shared by both the public RSVP flow (confirmation emails) and the
+    admin cancel flow (cancellation emails) so date wording never drifts
+    between the two surfaces.
+    """
+    starts_at = event.get("starts_at") or ""
+    tz_name = event.get("timezone") or "Australia/Sydney"
+    if not starts_at:
+        return "Date TBD"
+    try:
+        dt = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
+    except Exception:
+        return starts_at
+    try:
+        from zoneinfo import ZoneInfo
+        dt = dt.astimezone(ZoneInfo(tz_name))
+        tz_short = dt.tzname() or ""
+    except Exception:
+        tz_short = ""
+    s = dt.strftime("%a %d/%m/%Y, %I:%M %p")
+    s = s.replace(" 0", " ").replace(", 0", ", ")
+    if tz_short:
+        s = f"{s} {tz_short}"
+    return s
+
+
+def _format_event_where(event: Dict[str, Any]) -> str:
+    if event.get("is_online"):
+        return event.get("meeting_url") or "Online"
+    parts = [event.get("venue_name") or "", event.get("venue_address") or ""]
+    return " · ".join(p for p in parts if p) or "Location TBD"
+
+
+def _short_rsvp_ref(rsvp_id: str) -> str:
+    """Compact human-quotable ref like `FP-EV-9B12C4`."""
+    return "FP-EV-" + rsvp_id.replace("-", "")[:6].upper()
+
+
 # ---- Auth helpers --------------------------------------------------------
 
 def _jwt_secret() -> str:
@@ -244,16 +287,30 @@ class EventRsvpIn(BaseModel):
 
 
 class PublicRsvpIn(BaseModel):
-    """Payload for anonymous public RSVPs (marketing website form).
+    """Payload for public RSVPs (marketing website form + mobile app).
 
     Kept separate from the admin `EventRsvpIn` so the public form
     can validate `name` + `email` as required — the admin path
     treats every field as optional (partial edits).
+
+    `user_id` is optional: the mobile app sends the logged-in user's
+    id so their RSVPs are linked to their account (enabling the
+    "My upcoming events" list). Anonymous website RSVPs leave it null.
     """
     name: str = Field(min_length=1, max_length=120)
     email: EmailStr
     guests_count: Optional[int] = 0
     note: Optional[str] = None
+    user_id: Optional[str] = None
+
+
+class CancelEventIn(BaseModel):
+    """Payload for admin-triggered event cancellation.
+
+    Only optional field: a short reason string that gets rendered
+    inside the outbound cancellation email so attendees know why.
+    """
+    reason: Optional[str] = None
 
 
 # ---- Router factory ------------------------------------------------------
@@ -613,8 +670,8 @@ def build_router(db) -> APIRouter:
             val = getattr(body, field)
             if val is not None:
                 update[field] = val
-        if "status" in update and update["status"] not in ("draft", "published"):
-            raise HTTPException(400, "status must be 'draft' or 'published'")
+        if "status" in update and update["status"] not in ("draft", "published", "cancelled"):
+            raise HTTPException(400, "status must be 'draft', 'published' or 'cancelled'")
         res = await db.cms_success_stories.update_one({"id": story_id}, {"$set": update})
         if res.matched_count == 0:
             raise HTTPException(404, "Story not found")
@@ -730,8 +787,8 @@ def build_router(db) -> APIRouter:
             val = getattr(body, field)
             if val is not None:
                 update[field] = val
-        if "status" in update and update["status"] not in ("draft", "published"):
-            raise HTTPException(400, "status must be 'draft' or 'published'")
+        if "status" in update and update["status"] not in ("draft", "published", "cancelled"):
+            raise HTTPException(400, "status must be 'draft', 'published' or 'cancelled'")
         # Belt-and-braces: never let a published founding member exist
         # with number < 1, regardless of what the client sent.
         if update.get("status") == "published":
@@ -907,8 +964,8 @@ def build_router(db) -> APIRouter:
                 raise HTTPException(400, "Add a title before publishing")
             if not (starts or "").strip():
                 raise HTTPException(400, "Add a start date/time before publishing")
-        if "status" in update and update["status"] not in ("draft", "published"):
-            raise HTTPException(400, "status must be 'draft' or 'published'")
+        if "status" in update and update["status"] not in ("draft", "published", "cancelled"):
+            raise HTTPException(400, "status must be 'draft', 'published' or 'cancelled'")
 
         res = await db.cms_events.update_one({"id": event_id}, {"$set": update})
         if res.matched_count == 0:
@@ -929,6 +986,110 @@ def build_router(db) -> APIRouter:
         # Cascade RSVPs — nobody wants orphans in the roster query.
         await db.event_rsvps.delete_many({"event_id": event_id})
         return {"ok": True}
+
+    @router.post("/events/{event_id}/cancel")
+    async def cancel_event(
+        event_id: str,
+        body: Optional[CancelEventIn] = None,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Admin-triggered cancellation.
+
+        Design:
+          - Sets `status='cancelled'` on the event (kept, not deleted,
+            so the public page can render a "This event has been
+            cancelled" banner and existing links don't 404).
+          - Fans out branded cancellation emails via Resend to every
+            attendee whose RSVP is still `going` or `waitlist`.
+          - Attaches a `METHOD:CANCEL` ICS so Apple/Google/Outlook
+            calendars auto-strike the entry and pull reminders.
+          - All emails are best-effort — the DB flip is the source
+            of truth. The response returns how many mails we
+            attempted so Mission Control can show "Emailed N
+            attendees" toast.
+        """
+        event = await db.cms_events.find_one({"id": event_id}, {"_id": 0})
+        if not event:
+            raise HTTPException(404, "Event not found")
+        if event.get("status") == "cancelled":
+            return {"ok": True, "already_cancelled": True, "emailed": 0}
+
+        reason = ((body.reason if body else None) or "").strip() or None
+        now = _now_iso()
+
+        # Flip the event's editorial state to cancelled and stash the
+        # reason so the public UI + future audit reads can surface it.
+        await db.cms_events.update_one(
+            {"id": event_id},
+            {"$set": {
+                "status": "cancelled",
+                "cancelled_at": now,
+                "cancellation_reason": reason or "",
+                "updated_at": now,
+            }},
+        )
+
+        # Fetch every active RSVP so we can email each attendee.
+        active = await db.event_rsvps.find(
+            {"event_id": event_id, "status": {"$in": ["going", "waitlist"]}},
+            {"_id": 0},
+        ).to_list(length=None)
+
+        # Fire the emails asynchronously (best-effort, log-and-continue).
+        emailed = 0
+        if active:
+            from email_service import send_email, event_cancelled_template
+            from ics_builder import event_to_ics
+            import base64 as _b64
+            import logging as _logging
+            log = _logging.getLogger("friendplace.events")
+
+            site_url = os.getenv("FRIENDPLACE_PUBLIC_URL", "https://www.friendplace.com.au").rstrip("/")
+            # A single cancelled ICS is enough — same event, same UID,
+            # every recipient's calendar will match & remove the entry.
+            cancelled_ics = event_to_ics(event, site_url=site_url, cancelled=True)
+            when_display = _format_event_when(event)
+
+            for rsvp in active:
+                email = (rsvp.get("email") or "").strip()
+                if not email:
+                    # Some seeded RSVPs (mobile-only) may lack an email.
+                    # Mark them cancelled and move on.
+                    continue
+                try:
+                    subject, html, text = event_cancelled_template(
+                        first_name=(rsvp.get("name") or "").split(" ")[0] or None,
+                        event_title=event.get("title") or "your event",
+                        event_when_display=when_display,
+                        reason=reason,
+                        ticket_ref=_short_rsvp_ref(rsvp["id"]),
+                    )
+                    attachments = [{
+                        "filename": f"{event.get('slug', 'event')}.ics",
+                        "content": _b64.b64encode(cancelled_ics.encode("utf-8")).decode("ascii"),
+                        "content_type": "text/calendar; method=CANCEL",
+                    }]
+                    ok = await send_email(
+                        to=email, subject=subject, html=html, text=text,
+                        attachments=attachments,
+                    )
+                    if ok:
+                        emailed += 1
+                except Exception:
+                    log.exception("event cancellation email failed for rsvp=%s", rsvp.get("id"))
+
+        # Flip every active RSVP to cancelled so the roster is clean.
+        # (Do this AFTER emails so the "was going/was waitlist" info is
+        # still visible during the fan-out.)
+        await db.event_rsvps.update_many(
+            {"event_id": event_id, "status": {"$in": ["going", "waitlist"]}},
+            {"$set": {"status": "cancelled", "updated_at": _now_iso()}},
+        )
+
+        doc = await db.cms_events.find_one({"id": event_id}, {"_id": 0})
+        if doc:
+            doc["rsvp_counts"] = await _rsvp_counts_for(event_id)
+        return {"ok": True, "emailed": emailed, "event": doc}
 
     # ---- RSVPs (admin-side management) --------------------------------
     # Public RSVP endpoint (from marketing site / mobile app) comes in
@@ -1321,55 +1482,36 @@ def build_public_router(db) -> APIRouter:
     # swallow "test-morning-coffee.ics" as a literal slug.
 
     async def _fetch_public_event(slug: str) -> Dict[str, Any]:
-        """Slug → published+visible event, or 404."""
+        """Slug → published-or-cancelled+visible event, or 404.
+
+        Cancelled events are still fetchable so the public detail page
+        can render a "This event has been cancelled" banner — a saved
+        link 404-ing would be a worse UX. RSVP endpoints separately
+        gate on `status == 'published'`.
+        """
         doc = await db.cms_events.find_one(
-            {"slug": slug, "status": "published", "hidden": {"$ne": True}},
+            {"slug": slug, "status": {"$in": ["published", "cancelled"]}, "hidden": {"$ne": True}},
             {"_id": 0},
         )
         if not doc:
             raise HTTPException(404, "Event not found")
         return doc
 
-    def _format_event_when(event: Dict[str, Any]) -> str:
-        """Human-friendly Australia-formatted date string for email/UX."""
-        starts_at = event.get("starts_at") or ""
-        tz_name = event.get("timezone") or "Australia/Sydney"
-        if not starts_at:
-            return "Date TBD"
-        try:
-            dt = datetime.fromisoformat(starts_at.replace("Z", "+00:00"))
-        except Exception:
-            return starts_at
-        try:
-            from zoneinfo import ZoneInfo
-            dt = dt.astimezone(ZoneInfo(tz_name))
-            tz_short = dt.tzname() or ""
-        except Exception:
-            tz_short = ""
-        s = dt.strftime("%a %d/%m/%Y, %I:%M %p")
-        s = s.replace(" 0", " ").replace(", 0", ", ")
-        if tz_short:
-            s = f"{s} {tz_short}"
-        return s
-
-    def _format_event_where(event: Dict[str, Any]) -> str:
-        if event.get("is_online"):
-            return event.get("meeting_url") or "Online"
-        parts = [event.get("venue_name") or "", event.get("venue_address") or ""]
-        return " · ".join(p for p in parts if p) or "Location TBD"
-
-    def _short_rsvp_ref(rsvp_id: str) -> str:
-        return "FP-EV-" + rsvp_id.replace("-", "")[:6].upper()
-
     @router.get("/events/{slug}.ics")
     async def public_event_ics(slug: str):
         """Return the raw iCalendar file for an event so users can
-        subscribe/add it to their own calendar without RSVPing."""
+        subscribe/add it to their own calendar without RSVPing.
+
+        For cancelled events we emit `METHOD:CANCEL` so opening the
+        file removes the entry from the user's calendar (matches the
+        email fan-out behaviour).
+        """
         from fastapi.responses import Response
         from ics_builder import event_to_ics
         event = await _fetch_public_event(slug)
         site_url = os.getenv("FRIENDPLACE_PUBLIC_URL", "https://www.friendplace.com.au")
-        ics_text = event_to_ics(event, site_url=site_url)
+        is_cancelled = event.get("status") == "cancelled"
+        ics_text = event_to_ics(event, site_url=site_url, cancelled=is_cancelled)
         return Response(
             content=ics_text,
             media_type="text/calendar; charset=utf-8",
@@ -1379,7 +1521,7 @@ def build_public_router(db) -> APIRouter:
     @router.get("/events/{slug}")
     async def public_event_by_slug(slug: str):
         doc = await db.cms_events.find_one(
-            {"slug": slug, "status": "published", "hidden": {"$ne": True}},
+            {"slug": slug, "status": {"$in": ["published", "cancelled"]}, "hidden": {"$ne": True}},
             {
                 "_id": 0,
                 "id": 1, "slug": 1, "title": 1, "description": 1, "body_html": 1,
@@ -1388,6 +1530,9 @@ def build_public_router(db) -> APIRouter:
                 "meeting_url": 1, "capacity": 1, "rsvp_deadline_at": 1,
                 "cost_type": 1, "cost_display": 1, "organiser_name": 1,
                 "organiser_contact": 1, "accessibility_info": 1, "sponsors": 1,
+                # Include cancellation metadata so the public page can
+                # render a "This event has been cancelled" banner.
+                "status": 1, "cancelled_at": 1, "cancellation_reason": 1,
             },
         )
         if not doc:
@@ -1408,6 +1553,11 @@ def build_public_router(db) -> APIRouter:
           and a magic-link URL to manage/cancel the RSVP.
         """
         event = await _fetch_public_event(slug)
+        # A cancelled event politely refuses new RSVPs — but existing
+        # ones already got a cancellation email, so this branch mainly
+        # protects the case where someone browses a stale bookmark.
+        if event.get("status") == "cancelled":
+            raise HTTPException(400, "This event has been cancelled and is no longer accepting RSVPs.")
         event_id = event["id"]
         email = (body.email or "").strip().lower()
         name = (body.name or "").strip()
@@ -1442,17 +1592,23 @@ def build_public_router(db) -> APIRouter:
             # Re-submitting flips a "cancelled" row back to
             # going/waitlist and refreshes name/guests/note. Keeps
             # the original id + cancel_token stable so previous
-            # confirmation-email links keep working.
+            # confirmation-email links keep working. Also backfills
+            # `user_id` if the RSVP was first created anonymously
+            # (website) and the same person is now logged in on
+            # mobile — so the linkage becomes accurate over time.
             new_status = target_status if existing.get("status") == "cancelled" else existing.get("status")
+            update_fields: Dict[str, Any] = {
+                "name": name,
+                "guests_count": int(body.guests_count or 0),
+                "note": (body.note or "").strip(),
+                "status": new_status,
+                "updated_at": now,
+                "created_by": existing.get("created_by") or ("mobile-app" if body.user_id else "public-web"),
+            }
+            if body.user_id and not existing.get("user_id"):
+                update_fields["user_id"] = body.user_id
             await db.event_rsvps.update_one(
-                {"id": existing["id"]},
-                {"$set": {
-                    "name": name,
-                    "guests_count": int(body.guests_count or 0),
-                    "note": (body.note or "").strip(),
-                    "status": new_status,
-                    "updated_at": now,
-                }},
+                {"id": existing["id"]}, {"$set": update_fields},
             )
             rsvp_doc = await db.event_rsvps.find_one({"id": existing["id"]}, {"_id": 0})
         else:
@@ -1464,13 +1620,13 @@ def build_public_router(db) -> APIRouter:
                 "cancel_token": cancel_token,
                 "name": name,
                 "email": email,
-                "user_id": None,
+                "user_id": body.user_id,
                 "guests_count": int(body.guests_count or 0),
                 "note": (body.note or "").strip(),
                 "status": target_status,
                 "created_at": now,
                 "updated_at": now,
-                "created_by": "public-web",
+                "created_by": "mobile-app" if body.user_id else "public-web",
             }
             await db.event_rsvps.insert_one(dict(rsvp_doc))
 
@@ -1649,5 +1805,54 @@ def build_public_router(db) -> APIRouter:
                         )
 
         return {"ok": True, "promoted_email": bool(promoted)}
+
+    # ── EVENTS "MINE" (public) ────────────────────────────────────
+    # Returns the user's active RSVPs joined with the event summary.
+    # Powers the mobile app's "My upcoming events" section. Uses a
+    # simple `user_id` query param — this is a read-only listing of
+    # the caller's own rows, so we don't need JWT here (the risk
+    # of a MongoDB UUID being guessed is negligible).
+
+    @router.get("/events/mine")
+    async def public_events_mine(user_id: str):
+        """RSVPs for `user_id`, most-imminent first, active only.
+
+        Response shape:
+            { "items": [ { "event": {...summary...}, "rsvp": {...} } ] }
+        """
+        if not user_id:
+            raise HTTPException(400, "user_id is required")
+        cur = db.event_rsvps.find(
+            {"user_id": user_id, "status": {"$in": ["going", "waitlist"]}},
+            {"_id": 0, "cancel_token": 0},
+        )
+        rsvps = await cur.to_list(length=None)
+        if not rsvps:
+            return {"items": []}
+        event_ids = list({r["event_id"] for r in rsvps})
+        ev_cur = db.cms_events.find(
+            {"id": {"$in": event_ids}},
+            {
+                "_id": 0,
+                "id": 1, "slug": 1, "title": 1, "description": 1,
+                "cover_image_url": 1, "starts_at": 1, "ends_at": 1,
+                "timezone": 1, "is_online": 1, "venue_name": 1,
+                "venue_address": 1, "meeting_url": 1, "cost_display": 1,
+                "status": 1,
+            },
+        )
+        events = {e["id"]: e for e in await ev_cur.to_list(length=None)}
+        items = []
+        for r in rsvps:
+            ev = events.get(r["event_id"])
+            if not ev:
+                continue
+            items.append({
+                "event": ev,
+                "rsvp": {**r, "display_ref": _short_rsvp_ref(r["id"])},
+            })
+        # Most-imminent first; missing starts_at goes last.
+        items.sort(key=lambda x: (x["event"].get("starts_at") or "9999"))
+        return {"items": items}
 
     return router

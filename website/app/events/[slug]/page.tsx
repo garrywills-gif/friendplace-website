@@ -70,6 +70,7 @@ export default async function EventDetailPage({ params }: { params: Promise<{ sl
     ? (ev.cover_image_url.startsWith('http') ? ev.cover_image_url : `${BASE}${ev.cover_image_url}`)
     : null;
 
+  const isCancelled = ev.status === 'cancelled';
   const going = ev.rsvp_counts?.going ?? 0;
   const waitlist = ev.rsvp_counts?.waitlist ?? 0;
   const remaining = ev.capacity ? Math.max(0, ev.capacity - going) : null;
@@ -91,6 +92,22 @@ export default async function EventDetailPage({ params }: { params: Promise<{ sl
           ← All events
         </Link>
       </div>
+
+      {/* Cancelled banner — sits ABOVE the cover so it's the first thing
+          a visitor sees. Uses a muted red so it feels serious but not
+          alarming, and always shows the reason if we have one. */}
+      {isCancelled && (
+        <div style={{ marginBottom: 24, padding: 20, borderRadius: 16, background: '#FEF2F2', border: '1px solid #FCA5A5' }}>
+          <div style={{ fontSize: 12, letterSpacing: '0.16em', color: '#991B1B', fontWeight: 800, textTransform: 'uppercase', marginBottom: 6 }}>
+            This event has been cancelled
+          </div>
+          <div style={{ fontSize: 14, color: '#7F1D1D', lineHeight: 1.6 }}>
+            {ev.cancellation_reason
+              ? ev.cancellation_reason
+              : "Sorry to be the bearer of not-great news — this event won't be going ahead. Everyone who RSVP'd has been emailed."}
+          </div>
+        </div>
+      )}
 
       {/* Cover */}
       <div style={{
@@ -210,13 +227,23 @@ export default async function EventDetailPage({ params }: { params: Promise<{ sl
               📅 Add to calendar
             </a>
 
-            {/* RSVP form (client component) */}
-            <RsvpForm slug={ev.slug} isFull={isFull} />
-
-            {/* Attendance meta */}
-            <div style={{ marginTop: 16, fontSize: 12, color: '#64748B', textAlign: 'center' }}>
-              {going} going{waitlist > 0 ? ` · ${waitlist} on waitlist` : ''}
-            </div>
+            {/* RSVP form (client component) — hidden when the event is
+                cancelled. We keep the Add-to-Calendar link above so
+                users can still pull the CANCEL update into their
+                calendar if they missed the email. */}
+            {isCancelled ? (
+              <div style={{ padding: 16, borderRadius: 12, background: '#F1F5F9', color: '#475569', fontSize: 13, textAlign: 'center', lineHeight: 1.5 }}>
+                RSVPs are closed for this event.<br />
+                Watch our <Link href="/events" style={{ color: '#0F766E', fontWeight: 700, textDecoration: 'none' }}>events page</Link> for what&rsquo;s next.
+              </div>
+            ) : (
+              <>
+                <RsvpForm slug={ev.slug} isFull={isFull} />
+                <div style={{ marginTop: 16, fontSize: 12, color: '#64748B', textAlign: 'center' }}>
+                  {going} going{waitlist > 0 ? ` · ${waitlist} on waitlist` : ''}
+                </div>
+              </>
+            )}
           </div>
         </aside>
       </div>

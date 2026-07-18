@@ -28,6 +28,12 @@ export default function EventEditorPage() {
   const [dirty, setDirty] = useState(false);
   const [rsvps, setRsvps] = useState<EventRsvp[]>([]);
   const [rsvpCounts, setRsvpCounts] = useState<{ going: number; waitlist: number }>({ going: 0, waitlist: 0 });
+  // Cancel-event modal state. Kept local to this page — a full-blown
+  // confirm-dialog primitive isn't worth building for one destructive
+  // action. Two-step (reason → confirm) gives a natural undo window.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -92,6 +98,30 @@ export default function EventEditorPage() {
   };
   const unpublish = async () => { await save({ status: 'draft' }); flash('Moved back to draft'); };
 
+  const doCancelEvent = async () => {
+    if (!event) return;
+    setCancelling(true);
+    try {
+      const res = await cmsApi.cancelEvent(event.id, cancelReason.trim() || undefined);
+      // Reflect the new status locally without another round-trip.
+      setEvent(prev => prev ? { ...prev, status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: cancelReason.trim() } : prev);
+      // Refresh the roster so cancelled RSVP pills appear straight away.
+      try {
+        const r = await cmsApi.listRsvps(event.id);
+        setRsvps(r.items || []);
+        setRsvpCounts(r.counts);
+      } catch { /* non-fatal */ }
+      const label = res.emailed === 1 ? '1 attendee' : `${res.emailed} attendees`;
+      flash(res.emailed > 0 ? `Event cancelled — emailed ${label}` : 'Event cancelled', 3200);
+      setCancelOpen(false);
+      setCancelReason('');
+    } catch (e: any) {
+      flash(`Cancel failed: ${e?.message || 'unknown error'}`, 3200);
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   if (loading) return <AdminShell title="Event"><p style={{ color: '#64748B' }}>Loading…</p></AdminShell>;
   if (notFound || !event) return (
     <AdminShell title="Not found">
@@ -101,6 +131,8 @@ export default function EventEditorPage() {
   );
 
   const isPublished = event.status === 'published';
+  const isCancelled = event.status === 'cancelled';
+  const totalActiveRsvps = rsvpCounts.going + rsvpCounts.waitlist;
 
   return (
     <AdminShell>
@@ -121,11 +153,41 @@ export default function EventEditorPage() {
           <button type="button" className="cms-btn-ghost" style={{ ...s.ghostBtn, opacity: saving ? 0.65 : 1 }} disabled={saving} onClick={() => save()}>
             {saving ? 'Saving…' : dirty ? 'Save draft' : 'Saved ✓'}
           </button>
-          {isPublished
-            ? <button type="button" className="cms-btn-ghost" style={s.ghostBtn} onClick={unpublish}>Move to draft</button>
-            : <button type="button" className="cms-btn-primary" style={s.primaryBtn} onClick={publish}>🚀 Publish</button>}
+          {isCancelled
+            ? <span style={{ padding: '10px 14px', borderRadius: 12, background: '#FEE2E2', color: '#991B1B', fontWeight: 800, fontSize: 13 }}>Event cancelled</span>
+            : isPublished
+              ? <>
+                  <button type="button" className="cms-btn-ghost" style={s.ghostBtn} onClick={unpublish}>Move to draft</button>
+                  <button
+                    type="button"
+                    onClick={() => setCancelOpen(true)}
+                    style={{ padding: '10px 14px', borderRadius: 12, border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#991B1B', fontWeight: 800, fontSize: 13, cursor: 'pointer' }}
+                  >
+                    Cancel event
+                  </button>
+                </>
+              : <button type="button" className="cms-btn-primary" style={s.primaryBtn} onClick={publish}>🚀 Publish</button>}
         </div>
       </div>
+
+      {/* Cancelled banner — surfaces the reason + cancelled-at so
+          admins revisiting a cancelled event see the full record. */}
+      {isCancelled && (
+        <div style={{ marginBottom: 20, padding: 20, borderRadius: 16, background: '#FEF2F2', border: '1px solid #FCA5A5' }}>
+          <div style={{ fontSize: 12, letterSpacing: '0.14em', color: '#991B1B', fontWeight: 800, textTransform: 'uppercase', marginBottom: 6 }}>
+            Cancelled {event.cancelled_at ? `· ${formatDate(event.cancelled_at)}` : ''}
+          </div>
+          {event.cancellation_reason ? (
+            <div style={{ fontSize: 14, color: '#7F1D1D', lineHeight: 1.6 }}>
+              &ldquo;{event.cancellation_reason}&rdquo;
+            </div>
+          ) : (
+            <div style={{ fontSize: 14, color: '#7F1D1D', lineHeight: 1.6 }}>
+              This event has been cancelled. All attendees have been emailed.
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 340px', gap: 24, alignItems: 'flex-start' }}>
         {/* LEFT column */}
@@ -372,6 +434,74 @@ export default function EventEditorPage() {
         }}
       />
       {previewOpen && <EventPreviewModal event={event} onClose={() => setPreviewOpen(false)} />}
+
+      {/* Cancel-event modal. Two-step so admins don't destructively-
+          email dozens of attendees by accident. The reason field is
+          optional but strongly encouraged — it lands inside the
+          outbound email verbatim. */}
+      {cancelOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !cancelling && setCancelOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 100 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#FFFFFF', borderRadius: 20, maxWidth: 520, width: '100%', padding: 24, boxShadow: '0 20px 60px rgba(15,23,42,0.35)' }}
+          >
+            <div style={{ fontSize: 12, letterSpacing: '0.16em', color: '#991B1B', fontWeight: 800, textTransform: 'uppercase' }}>
+              Cancel this event
+            </div>
+            <h2 style={{ margin: '6px 0 8px', fontSize: 22, color: '#0A2540', fontWeight: 900 }}>
+              {event.title}
+            </h2>
+            <p style={{ margin: '0 0 16px', fontSize: 14, color: '#475569', lineHeight: 1.6 }}>
+              {totalActiveRsvps === 0
+                ? "No RSVPs yet — this only marks the event cancelled. You can still edit or re-publish."
+                : totalActiveRsvps === 1
+                  ? "1 attendee will receive a cancellation email with a CANCEL calendar update."
+                  : `${totalActiveRsvps} attendees will receive a cancellation email with a CANCEL calendar update.`}
+              {' '}This can&rsquo;t be undone easily — the event stays visible with a &ldquo;cancelled&rdquo; banner.
+            </p>
+
+            <label style={{ ...s.label, marginTop: 4 }}>Reason (shown in the email — optional)</label>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder='e.g. "Unfortunately our host is unwell. We&rsquo;ll reschedule soon."'
+              rows={4}
+              maxLength={500}
+              disabled={cancelling}
+              style={{ ...s.input, width: '100%', resize: 'vertical', minHeight: 100 }}
+            />
+            <div style={{ fontSize: 11, color: '#94A3B8', textAlign: 'right', marginTop: 2 }}>
+              {cancelReason.length}/500
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+              <button
+                type="button"
+                onClick={() => setCancelOpen(false)}
+                disabled={cancelling}
+                className="cms-btn-ghost"
+                style={s.ghostBtn}
+              >
+                Keep event
+              </button>
+              <button
+                type="button"
+                onClick={doCancelEvent}
+                disabled={cancelling}
+                style={{ padding: '10px 18px', borderRadius: 12, border: 'none', background: cancelling ? '#94A3B8' : '#DC2626', color: '#FFFFFF', fontWeight: 900, fontSize: 14, cursor: cancelling ? 'default' : 'pointer' }}
+              >
+                {cancelling ? 'Cancelling…' : totalActiveRsvps > 0 ? `Yes, cancel & email ${totalActiveRsvps}` : 'Yes, cancel event'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {toast && <div style={s.toast}>{toast}</div>}
     </AdminShell>
   );
@@ -397,6 +527,7 @@ function CoverWell({ url, title }: { url: string; title: string }) {
 
 function StatusPill({ status, hidden }: { status: string; hidden: boolean }) {
   const base: React.CSSProperties = { display: 'inline-block', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase' };
+  if (status === 'cancelled') return <span style={{ ...base, background: '#FEE2E2', color: '#991B1B' }}>Cancelled</span>;
   if (status !== 'published') return <span style={{ ...base, background: '#FEF3C7', color: '#92400E' }}>Draft</span>;
   if (hidden) return <span style={{ ...base, background: '#F1F5F9', color: '#475569' }}>Hidden</span>;
   return <span style={{ ...base, background: '#DCFCE7', color: '#166534' }}>Published</span>;

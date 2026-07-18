@@ -460,6 +460,25 @@ export const api = {
     req(`/admin/events/${id}/archive`, { method: "POST", body: JSON.stringify({ admin_id, reason }) }),
   adminUnarchiveEvent: (id: string, admin_id: string) =>
     req(`/admin/events/${id}/unarchive`, { method: "POST", body: JSON.stringify({ admin_id }) }),
+
+  // FriendPlace curated events (Mission Control-driven — separate from
+  // the community events above). These call the `/api/public/events*`
+  // endpoints and are gated by ISR on the website; the mobile app
+  // treats each response as live and never caches beyond the current
+  // fetch.
+  fpEventsList: () => req(`/public/events`),
+  fpEventBySlug: (slug: string) => req(`/public/events/${encodeURIComponent(slug)}`),
+  fpEventRsvp: (slug: string, body: { name: string; email: string; user_id?: string; guests_count?: number; note?: string }) =>
+    req(`/public/events/${encodeURIComponent(slug)}/rsvp`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  fpEventMyRsvps: (user_id: string) =>
+    req(`/public/events/mine?user_id=${encodeURIComponent(user_id)}`),
+  fpEventCancelMyRsvp: (slug: string, token: string) =>
+    req(`/public/events/${encodeURIComponent(slug)}/rsvp/${encodeURIComponent(token)}/cancel`, {
+      method: "POST",
+    }),
   adminHardDeleteNotice: (id: string, admin_id: string, reason?: string) =>
     req(`/admin/notices/${id}?admin_id=${admin_id}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`, { method: "DELETE" }),
   adminHardDeleteUser: (user_id: string, admin_id: string, reason?: string) =>

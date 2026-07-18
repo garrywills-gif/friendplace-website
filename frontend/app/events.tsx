@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, ScrollView } from "react-native";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { View, Text, StyleSheet, FlatList, Pressable, ScrollView, Modal, Image, ActivityIndicator, Linking, TextInput } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -8,6 +8,8 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+
+const API_BASE = process.env.EXPO_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
 
 /** Format "YYYY-MM-DD" → "Sat 14 Jun 2026" — friendly for older eyes. */
 function formatPrettyDate(iso: string): string {
@@ -36,9 +38,33 @@ export default function Events() {
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   // Month filter — "all" | "YYYY-MM"
   const [monthFilter, setMonthFilter] = useState<string>("all");
+  // FriendPlace curated events (CMS-driven). Loaded once on focus,
+  // then re-fetched after every RSVP so counts update immediately.
+  const [fpEvents, setFpEvents] = useState<any[]>([]);
+  const [fpLoading, setFpLoading] = useState(true);
+  const [fpDetailSlug, setFpDetailSlug] = useState<string | null>(null);
+  const [myFpRsvps, setMyFpRsvps] = useState<any[]>([]);
+
+  const loadFp = useCallback(async () => {
+    try {
+      setFpLoading(true);
+      const r: any = await api.fpEventsList();
+      setFpEvents((r?.events || []).filter((e: any) => e.status !== 'cancelled'));
+      if (user?.id) {
+        try {
+          const mine: any = await api.fpEventMyRsvps(user.id);
+          setMyFpRsvps(mine?.items || []);
+        } catch { /* non-fatal */ }
+      }
+    } catch {
+      setFpEvents([]);
+    } finally {
+      setFpLoading(false);
+    }
+  }, [user?.id]);
 
   const load = async () => setEvents(await api.listEvents());
-  useFocusEffect(useCallback(() => { load(); }, []));
+  useFocusEffect(useCallback(() => { load(); loadFp(); }, [loadFp]));
 
   // Build the list of months that actually have events, anchored on the
   // current calendar month + next month for predictability — members
@@ -97,6 +123,17 @@ export default function Events() {
         <Ionicons name="add-circle" size={20} color="#FFF" />
         <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Host a new event</Text>
       </Pressable>
+
+      {/* FriendPlace curated events section — official events created via
+          Mission Control on the website. Shows only when there's at
+          least one active event so quiet weeks don't leave a hollow
+          section on the screen. */}
+      <FriendPlaceEventsSection
+        events={fpEvents}
+        loading={fpLoading}
+        myRsvps={myFpRsvps}
+        onOpen={(slug) => setFpDetailSlug(slug)}
+      />
       {/* Month filter pills — older eyes can quickly jump to "This month" / "Next month".
           The ScrollView gets an explicit height so its pill row can never get
           clipped or overlapped by the Host button above. */}
@@ -269,8 +306,339 @@ export default function Events() {
           );
         }}
       />
+
+      {/* FriendPlace event detail + RSVP modal — mounts only when a slug
+          is set, so the fetch happens on-demand and never blocks the
+          main list from rendering. */}
+      {fpDetailSlug && (
+        <FpEventDetailModal
+          slug={fpDetailSlug}
+          onClose={() => setFpDetailSlug(null)}
+          onRsvpDone={() => { setFpDetailSlug(null); loadFp(); }}
+        />
+      )}
     </View>
   );
+}
+
+/* ------------------------------------------------------------------
+   FriendPlace Events — curated CMS-driven events (separate from the
+   community events above). Rendered as a horizontal carousel so the
+   community-events list underneath stays the primary interaction.
+   ------------------------------------------------------------------ */
+
+function FriendPlaceEventsSection({
+  events, loading, myRsvps, onOpen,
+}: {
+  events: any[];
+  loading: boolean;
+  myRsvps: any[];
+  onOpen: (slug: string) => void;
+}) {
+  const { c, scale } = useTheme();
+  const rsvpBySlug = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const it of myRsvps || []) {
+      const slug = it?.event?.slug;
+      if (slug) m[slug] = it?.rsvp?.status || "going";
+    }
+    return m;
+  }, [myRsvps]);
+
+  if (!loading && events.length === 0) return null;
+
+  return (
+    <View style={{ marginTop: 16 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 8 }}>
+        <View>
+          <Text style={{ fontSize: 11 * scale, fontWeight: "800", letterSpacing: 1.2, color: c.brand, textTransform: "uppercase" }}>
+            FriendPlace hosted
+          </Text>
+          <Text style={{ fontSize: 16 * scale, fontWeight: "900", color: c.onSurface, marginTop: 2 }}>
+            Come along ✨
+          </Text>
+        </View>
+      </View>
+      {loading ? (
+        <View style={{ height: 180, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator color={c.brand} />
+        </View>
+      ) : (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 12, paddingBottom: 6 }}
+        >
+          {events.map((ev) => {
+            const myStatus = rsvpBySlug[ev.slug];
+            const cover = ev.cover_image_url
+              ? (String(ev.cover_image_url).startsWith("http") ? ev.cover_image_url : `${API_BASE}${ev.cover_image_url}`)
+              : null;
+            const going = ev.rsvp_counts?.going ?? 0;
+            const remaining = ev.capacity ? Math.max(0, ev.capacity - going) : null;
+            const isFull = ev.capacity != null && remaining === 0;
+            return (
+              <Pressable
+                key={ev.id}
+                testID={`fp-event-${ev.slug}`}
+                onPress={() => onOpen(ev.slug)}
+                style={{ width: 260, borderRadius: 18, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, overflow: "hidden" }}
+              >
+                <View style={{ height: 130, backgroundColor: cover ? "transparent" : c.brand, alignItems: "center", justifyContent: "center" }}>
+                  {cover ? (
+                    <Image source={{ uri: cover }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+                  ) : (
+                    <Ionicons name="calendar" size={44} color="#FFF" />
+                  )}
+                  {myStatus && (
+                    <View style={{ position: "absolute", top: 8, left: 8, backgroundColor: myStatus === "going" ? "#DCFCE7" : "#FEF3C7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
+                      <Text style={{ color: myStatus === "going" ? "#166534" : "#92400E", fontSize: 10 * scale, fontWeight: "900", textTransform: "uppercase" }}>
+                        {myStatus === "going" ? "You're going" : "On waitlist"}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <View style={{ padding: 12, gap: 4 }}>
+                  <Text numberOfLines={1} style={{ fontSize: 11 * scale, color: c.brand, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase" }}>
+                    {formatFpDate(ev.starts_at, ev.timezone)}
+                  </Text>
+                  <Text numberOfLines={2} style={{ fontSize: 15 * scale, fontWeight: "900", color: c.onSurface, lineHeight: 20 }}>
+                    {ev.title}
+                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                    <Text numberOfLines={1} style={{ fontSize: 12 * scale, color: c.muted, flex: 1 }}>
+                      {ev.is_online ? "💻 Online" : (ev.venue_name || "📍 Venue TBD")}
+                    </Text>
+                    {ev.capacity != null && (
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: isFull ? "#FEF3C7" : "#DCFCE7" }}>
+                        <Text style={{ fontSize: 10 * scale, fontWeight: "800", color: isFull ? "#92400E" : "#166534" }}>
+                          {isFull ? "Waitlist" : `${remaining} left`}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+/* ------------------------------------------------------------------
+   FriendPlace event detail + one-tap RSVP modal.
+   ------------------------------------------------------------------ */
+
+function FpEventDetailModal({
+  slug, onClose, onRsvpDone,
+}: {
+  slug: string;
+  onClose: () => void;
+  onRsvpDone: () => void;
+}) {
+  const { c, scale } = useTheme();
+  const { user } = useAuth();
+  const { show } = useToast();
+  const [event, setEvent] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [note, setNote] = useState("");
+  const [guests, setGuests] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [showNoteField, setShowNoteField] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const e: any = await api.fpEventBySlug(slug);
+        setEvent(e);
+      } finally { setLoading(false); }
+    })();
+  }, [slug]);
+
+  const submit = async () => {
+    if (!user) { show("Please log in first"); return; }
+    setSubmitting(true);
+    try {
+      const res: any = await api.fpEventRsvp(slug, {
+        name: (user.first_name || user.username || "").trim(),
+        // Some accounts may not have an email — fall back to a
+        // placeholder so the backend still accepts the RSVP and
+        // links it via user_id (email won't get a confirmation
+        // email, but the RSVP itself is recorded).
+        email: (user.email || `${user.username || user.id}@app.friendplace.com.au`).trim().toLowerCase(),
+        user_id: user.id,
+        guests_count: guests,
+        note: note.trim() || undefined,
+      });
+      const going = res?.rsvp?.status === "going";
+      show(going ? "🎉 You're in! Check your email for the calendar invite." : "You're on the waitlist. We'll email you if a spot opens up.");
+      onRsvpDone();
+    } catch (e: any) {
+      show(e?.message || "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openIcs = () => {
+    if (!event?.slug) return;
+    const url = `${API_BASE}/api/public/events/${encodeURIComponent(event.slug)}.ics`;
+    Linking.openURL(url).catch(() => show("Could not open calendar"));
+  };
+
+  const cover = event?.cover_image_url
+    ? (String(event.cover_image_url).startsWith("http") ? event.cover_image_url : `${API_BASE}${event.cover_image_url}`)
+    : null;
+
+  const going = event?.rsvp_counts?.going ?? 0;
+  const remaining = event?.capacity ? Math.max(0, event.capacity - going) : null;
+  const isFull = event?.capacity != null && remaining === 0;
+  const isCancelled = event?.status === "cancelled";
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <Pressable onPress={onClose} style={{ flex: 1, backgroundColor: "rgba(15,23,42,0.55)", justifyContent: "flex-end" }}>
+        <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: c.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: "88%" }}>
+          <View style={{ alignItems: "center", paddingVertical: 8 }}>
+            <View style={{ width: 44, height: 4, borderRadius: 2, backgroundColor: c.border }} />
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+            {loading ? (
+              <View style={{ padding: 40, alignItems: "center" }}><ActivityIndicator color={c.brand} /></View>
+            ) : !event ? (
+              <Text style={{ color: c.muted, textAlign: "center", padding: 40 }}>Could not load event.</Text>
+            ) : (
+              <>
+                {cover && (
+                  <View style={{ aspectRatio: 16 / 9, borderRadius: 16, overflow: "hidden", marginBottom: 16 }}>
+                    <Image source={{ uri: cover }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
+                  </View>
+                )}
+                {isCancelled && (
+                  <View style={{ backgroundColor: "#FEE2E2", borderRadius: 12, padding: 12, marginBottom: 12 }}>
+                    <Text style={{ color: "#991B1B", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 1, textTransform: "uppercase" }}>Cancelled</Text>
+                    {event.cancellation_reason ? (
+                      <Text style={{ color: "#7F1D1D", marginTop: 4, fontSize: 13 * scale, lineHeight: 20 }}>{event.cancellation_reason}</Text>
+                    ) : null}
+                  </View>
+                )}
+                <Text style={{ fontSize: 12 * scale, fontWeight: "800", color: c.brand, textTransform: "uppercase", letterSpacing: 1 }}>
+                  {event.is_online ? "Online event" : "In person"}
+                </Text>
+                <Text style={{ fontSize: 22 * scale, fontWeight: "900", color: c.onSurface, marginTop: 6 }}>
+                  {event.title}
+                </Text>
+                {event.description ? (
+                  <Text style={{ marginTop: 10, fontSize: 15 * scale, color: c.onSurface, lineHeight: 22, opacity: 0.85 }}>
+                    {event.description}
+                  </Text>
+                ) : null}
+
+                <View style={{ marginTop: 16, padding: 14, borderRadius: 14, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, gap: 10 }}>
+                  <Row icon="calendar-outline" label="When" value={formatFpDateLong(event.starts_at, event.timezone)} c={c} scale={scale} />
+                  <Row icon="location-outline" label="Where" value={event.is_online ? (event.meeting_url || "Online") : [event.venue_name, event.venue_address].filter(Boolean).join(" · ") || "TBD"} c={c} scale={scale} />
+                  {event.cost_display ? <Row icon="cash-outline" label="Cost" value={event.cost_display} c={c} scale={scale} /> : null}
+                  {event.capacity != null ? (
+                    <Row icon="people-outline" label="Spots" value={isFull ? `Fully booked (${going}/${event.capacity}) — waitlist open` : `${remaining} of ${event.capacity} left`} c={c} scale={scale} />
+                  ) : null}
+                </View>
+
+                <Pressable onPress={openIcs} style={{ marginTop: 16, paddingVertical: 12, borderRadius: 12, alignItems: "center", backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border }}>
+                  <Text style={{ color: c.brand, fontWeight: "900", fontSize: 14 * scale }}>📅 Add to calendar</Text>
+                </Pressable>
+
+                {!isCancelled && (
+                  <>
+                    {/* Optional guests + note fields — hidden by default so
+                        one-tap RSVP is the primary interaction. */}
+                    <Pressable onPress={() => setShowNoteField(v => !v)} style={{ marginTop: 16, alignSelf: "flex-start" }}>
+                      <Text style={{ color: c.brand, fontWeight: "800", fontSize: 13 * scale }}>
+                        {showNoteField ? "Hide extras" : "+ Bring a guest or add a message"}
+                      </Text>
+                    </Pressable>
+                    {showNoteField && (
+                      <View style={{ marginTop: 10, gap: 10 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Text style={{ color: c.onSurface, fontSize: 14 * scale, fontWeight: "700", flex: 1 }}>Bringing</Text>
+                          {[0, 1, 2, 3].map((n) => (
+                            <Pressable key={n} onPress={() => setGuests(n)} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: guests === n ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: guests === n ? c.brand : c.border }}>
+                              <Text style={{ color: guests === n ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 12 * scale }}>
+                                {n === 0 ? "Just me" : `+${n}`}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                        <TextInput
+                          value={note}
+                          onChangeText={setNote}
+                          placeholder="Anything the host should know?"
+                          placeholderTextColor={c.muted}
+                          multiline
+                          style={{ minHeight: 72, borderRadius: 12, borderWidth: 1, borderColor: c.border, padding: 12, color: c.onSurface, fontSize: 14 * scale, backgroundColor: c.surfaceSecondary, textAlignVertical: "top" }}
+                        />
+                      </View>
+                    )}
+
+                    <Pressable
+                      testID="fp-rsvp-submit"
+                      onPress={submit}
+                      disabled={submitting}
+                      style={{ marginTop: 20, paddingVertical: 16, borderRadius: 14, alignItems: "center", backgroundColor: submitting ? c.muted : (isFull ? "#F59E0B" : c.brand) }}
+                    >
+                      {submitting ? <ActivityIndicator color="#FFF" /> : (
+                        <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>
+                          {isFull ? "Join the waitlist" : "I'm in — RSVP"}
+                        </Text>
+                      )}
+                    </Pressable>
+                    <Text style={{ marginTop: 10, fontSize: 11 * scale, color: c.muted, textAlign: "center" }}>
+                      We&rsquo;ll email your confirmation + calendar invite.
+                    </Text>
+                  </>
+                )}
+              </>
+            )}
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function Row({ icon, label, value, c, scale }: any) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+      <Ionicons name={icon} size={18} color={c.brand} style={{ marginTop: 2 }} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontSize: 10 * scale, fontWeight: "800", color: c.muted, letterSpacing: 1, textTransform: "uppercase" }}>{label}</Text>
+        <Text style={{ fontSize: 14 * scale, fontWeight: "700", color: c.onSurface, marginTop: 2, lineHeight: 20 }}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
+/** Compact "Sat 25/07" style date pill — Australian formatting. */
+function formatFpDate(iso?: string, tz: string = "Australia/Sydney"): string {
+  if (!iso) return "Date TBD";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Date TBD";
+  try {
+    return d.toLocaleDateString("en-AU", { weekday: "short", day: "2-digit", month: "short", timeZone: tz });
+  } catch { return d.toLocaleDateString("en-AU"); }
+}
+
+/** Long "Saturday 25/07/2026 · 10:00 am AEST" form used inside detail. */
+function formatFpDateLong(iso?: string, tz: string = "Australia/Sydney"): string {
+  if (!iso) return "Date TBD";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "Date TBD";
+  try {
+    const date = d.toLocaleDateString("en-AU", { weekday: "long", day: "2-digit", month: "2-digit", year: "numeric", timeZone: tz });
+    const time = d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", timeZone: tz, timeZoneName: "short" });
+    return `${date} · ${time}`;
+  } catch { return d.toLocaleString("en-AU"); }
 }
 
 const styles = StyleSheet.create({
