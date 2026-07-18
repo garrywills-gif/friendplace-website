@@ -1020,3 +1020,100 @@ def business_welcome_template(
     )
     return email_subject, html, text
 
+
+
+def event_submission_ack_template(
+    *,
+    first_name: str | None,
+    organisation_name: str,
+    event_title: str,
+    submission_ref: str,
+) -> tuple[str, str, str]:
+    """Confirmation email sent to the person who fills in the "List your
+    event" form on the marketing website. Warm, sets clear expectations
+    (draft-first review), and quotes the submission reference the
+    admin will see in Mission Control."""
+    from html import escape as _esc
+    name = (first_name or "there").strip()
+    safe_org = _esc(organisation_name)
+    safe_title = _esc(event_title)
+    safe_ref = _esc(submission_ref)
+
+    email_subject = f"We've received your event — {submission_ref}"
+
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#F1F5F9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+          <tr>
+            <td align="center" style="padding:8px 22px 6px 22px;">
+              <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+              </div>
+              <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
+                EVENT · SUBMITTED FOR REVIEW
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 22px 6px 22px;">
+              <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+                Hi {_esc(name)},<br><br>
+                Thanks — your event has been submitted for review.<br><br>
+                The FriendPlace team will check the details and contact you if anything further is needed. We&rsquo;ll let you know once it has been approved and published.
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:22px 22px 4px 22px;">
+              <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
+                <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR REFERENCE</div>
+                <div style="color:#5EEAD4;font-size:24px;font-weight:900;letter-spacing:2px;line-height:1;margin-top:6px;">{safe_ref}</div>
+                <div style="color:#CBD5E1;font-size:13px;margin-top:10px;">{safe_title}</div>
+                <div style="color:#94A3B8;font-size:12px;margin-top:2px;">Submitted by {safe_org}</div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 22px 4px 22px;">
+              <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
+                Reviews usually take under a day. If you spotted a typo or need to update anything, just reply to this email and we&rsquo;ll update it for you.
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:22px 22px 4px 22px;">
+              <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+                Thanks for helping to build FriendPlace.<br><br>
+                💜 The FriendPlace Team
+              </div>
+            </td>
+          </tr>
+          <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+          <tr><td style="padding:0 12px;">{_branded_footer_html()}</td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>
+"""
+
+    text = (
+        f"Hi {name},\n\n"
+        f"Thanks — your event has been submitted for review.\n\n"
+        f"The FriendPlace team will check the details and contact you if anything further is needed. "
+        f"We'll let you know once it has been approved and published.\n\n"
+        f"    Reference: {submission_ref}\n"
+        f"    Event:     {event_title}\n"
+        f"    Submitted by: {organisation_name}\n\n"
+        f"Reviews usually take under a day. If you spotted a typo or need to update anything, "
+        f"just reply to this email and we'll update it for you.\n\n"
+        f"Thanks for helping to build FriendPlace.\n\n"
+        f"💜 The FriendPlace Team"
+        f"{_branded_footer_text()}"
+    )
+    return email_subject, html, text
+

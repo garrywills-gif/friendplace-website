@@ -113,6 +113,19 @@ export const cmsApi = {
   deleteEvent: (id: string) => req<{ ok: true }>('DELETE', `/cms/events/${id}`),
   cancelEvent: (id: string, reason?: string) =>
     req<{ ok: true; emailed: number; event: EventRow; already_cancelled?: boolean }>('POST', `/cms/events/${id}/cancel`, reason ? { reason } : {}),
+
+  // Public event submissions (draft-first) — used by the /list-your-event
+  // page. Nothing auth-gated here; Mission Control handles review.
+  submitPublicEvent: (payload: PublicEventSubmission) =>
+    req<{ ok: true; submission_ref: string; message: string }>('POST', '/public/events/submit', payload),
+  listEventSubmissions: (status?: string) =>
+    req<{ items: EventSubmissionRow[]; counts: { pending: number; approved: number; rejected: number } }>(
+      'GET', `/cms/event-submissions${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+    ),
+  approveEventSubmission: (id: string) =>
+    req<{ ok: true; event_id: string; event_slug: string }>('POST', `/cms/event-submissions/${id}/approve`, {}),
+  rejectEventSubmission: (id: string, reason?: string) =>
+    req<{ ok: true }>('POST', `/cms/event-submissions/${id}/reject`, reason ? { reason } : {}),
   // RSVPs
   listRsvps: (eventId: string) => req<{ items: EventRsvp[]; counts: { going: number; waitlist: number }; capacity: number | null }>('GET', `/cms/events/${eventId}/rsvps`),
   addRsvp: (eventId: string, data: Partial<EventRsvp>) => req<EventRsvp>('POST', `/cms/events/${eventId}/rsvps`, data),
@@ -200,6 +213,50 @@ export type EventRsvp = {
   guests_count: number;
   note?: string;
   status: 'going' | 'waitlist' | 'cancelled';
+  created_at: string;
+  updated_at: string;
+};
+
+export type PublicEventSubmission = {
+  organisation_name: string;
+  contact_name: string;
+  contact_email: string;
+  contact_phone?: string;
+  event_title: string;
+  event_starts_at: string;
+  event_ends_at?: string;
+  venue_name?: string;
+  venue_address?: string;
+  description?: string;
+  capacity?: number | null;
+  cost_type?: 'free' | 'paid';
+  cost_display?: string;
+  accessibility_info?: string;
+  cover_image_base64?: string;
+  agreed_to_review: boolean;
+};
+
+export type EventSubmissionRow = {
+  id: string;
+  submission_ref: string;
+  organisation_name: string;
+  contact_name: string;
+  contact_email: string;
+  contact_phone?: string | null;
+  event_title: string;
+  event_starts_at: string;
+  event_ends_at?: string | null;
+  venue_name?: string | null;
+  venue_address?: string | null;
+  description?: string | null;
+  capacity?: number | null;
+  cost_type?: string;
+  cost_display?: string | null;
+  accessibility_info?: string | null;
+  cover_image_base64?: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewer_notes?: string | null;
+  resulting_event_id?: string | null;
   created_at: string;
   updated_at: string;
 };

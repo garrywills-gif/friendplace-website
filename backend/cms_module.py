@@ -313,6 +313,32 @@ class CancelEventIn(BaseModel):
     reason: Optional[str] = None
 
 
+class EventSubmissionIn(BaseModel):
+    """Public "List your event" submission from the website.
+
+    Draft-first: every submission lands in `cms_event_submissions`
+    with status='pending' for admin review before it becomes a live
+    `cms_events` row. Keeps FriendPlace safe from spam / fake / off-
+    brand listings without slowing down legitimate clubs.
+    """
+    organisation_name: str = Field(min_length=2, max_length=120)
+    contact_name: str = Field(min_length=2, max_length=120)
+    contact_email: EmailStr
+    contact_phone: Optional[str] = Field(default=None, max_length=40)
+    event_title: str = Field(min_length=2, max_length=140)
+    event_starts_at: str = Field(min_length=1)   # ISO datetime string
+    event_ends_at: Optional[str] = None
+    venue_name: Optional[str] = Field(default=None, max_length=140)
+    venue_address: Optional[str] = Field(default=None, max_length=240)
+    description: Optional[str] = Field(default=None, max_length=4000)
+    capacity: Optional[int] = None
+    cost_type: Optional[str] = Field(default="free")   # free | paid
+    cost_display: Optional[str] = Field(default=None, max_length=80)
+    accessibility_info: Optional[str] = Field(default=None, max_length=1000)
+    cover_image_base64: Optional[str] = None           # optional data-URL
+    agreed_to_review: bool = False
+
+
 # ---- Router factory ------------------------------------------------------
 
 def build_router(db) -> APIRouter:
@@ -1314,7 +1340,143 @@ def build_router(db) -> APIRouter:
         await db.cms_media.delete_one({"id": media_id})
         return {"ok": True}
 
+    # ── EVENT SUBMISSIONS (admin review) ─────────────────────────
+    # Companion to the public `/events/submit` endpoint. Admins can
+    # list pending submissions in Mission Control, approve one (which
+    # promotes it into `cms_events` as a draft — never auto-publishes),
+    # or reject it with a reason (which emails the submitter).
+
+    @router.get("/event-submissions")
+    async def list_event_submissions(
+        status: Optional[str] = None,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        q: dict = {}
+        if status:
+            q["status"] = status
+        cur = db.cms_event_submissions.find(q, {"_id": 0}).sort("created_at", -1)
+        items = await cur.to_list(length=200)
+        counts = {
+            "pending": await db.cms_event_submissions.count_documents({"status": "pending"}),
+            "approved": await db.cms_event_submissions.count_documents({"status": "approved"}),
+            "rejected": await db.cms_event_submissions.count_documents({"status": "rejected"}),
+        }
+        return {"items": items, "counts": counts}
+
+    @router.get("/event-submissions/{sub_id}")
+    async def get_event_submission(sub_id: str, admin: dict = Depends(current_cms_admin)):
+        doc = await db.cms_event_submissions.find_one({"id": sub_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(404, "Submission not found")
+        return doc
+
+    @router.post("/event-submissions/{sub_id}/approve")
+    async def approve_event_submission(sub_id: str, admin: dict = Depends(current_cms_admin)):
+        """Promote a pending submission into a DRAFT `cms_events` row —
+        never auto-publishes. The admin fine-tunes and publishes from
+        the normal event editor."""
+        sub = await db.cms_event_submissions.find_one({"id": sub_id}, {"_id": 0})
+        if not sub:
+            raise HTTPException(404, "Submission not found")
+        if sub.get("status") != "pending":
+            raise HTTPException(400, f"Submission is already {sub.get('status')}")
+
+        event_id = str(uuid.uuid4())
+        slug_base = re.sub(r"[^a-z0-9]+", "-", (sub.get("event_title") or "event").lower()).strip("-") or "event"
+        slug = slug_base
+        n = 1
+        while await db.cms_events.find_one({"slug": slug}):
+            n += 1
+            slug = f"{slug_base}-{n}"
+
+        cover_url = ""
+        cover_b64 = sub.get("cover_image_base64")
+        if cover_b64 and isinstance(cover_b64, str) and cover_b64.startswith("data:"):
+            cover_url = cover_b64
+
+        event_doc = {
+            "id": event_id, "slug": slug,
+            "title": sub.get("event_title") or "",
+            "description": sub.get("description") or "",
+            "body_html": "",
+            "cover_image_url": cover_url,
+            "starts_at": sub.get("event_starts_at"),
+            "ends_at": sub.get("event_ends_at"),
+            "timezone": "Australia/Sydney",
+            "is_online": False,
+            "venue_name": sub.get("venue_name") or "",
+            "venue_address": sub.get("venue_address") or "",
+            "venue_url": "",
+            "meeting_url": "",
+            "capacity": sub.get("capacity"),
+            "rsvp_deadline_at": "",
+            "cost_type": sub.get("cost_type") or "free",
+            "cost_display": sub.get("cost_display") or ("Free" if (sub.get("cost_type") or "free") == "free" else ""),
+            "organiser_name": sub.get("organisation_name") or "",
+            "organiser_contact": sub.get("contact_email") or "",
+            "accessibility_info": sub.get("accessibility_info") or "",
+            "sponsors": [],
+            "status": "draft",
+            "hidden": False,
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+            "created_by": f"submission:{sub.get('submission_ref')}",
+        }
+        await db.cms_events.insert_one(dict(event_doc))
+        await db.cms_event_submissions.update_one(
+            {"id": sub_id},
+            {"$set": {"status": "approved", "resulting_event_id": event_id, "updated_at": _now_iso()}},
+        )
+        return {"ok": True, "event_id": event_id, "event_slug": slug}
+
+    @router.post("/event-submissions/{sub_id}/reject")
+    async def reject_event_submission(
+        sub_id: str,
+        body: Optional[Dict[str, Any]] = None,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        sub = await db.cms_event_submissions.find_one({"id": sub_id}, {"_id": 0})
+        if not sub:
+            raise HTTPException(404, "Submission not found")
+        if sub.get("status") != "pending":
+            raise HTTPException(400, f"Submission is already {sub.get('status')}")
+        reason = ((body or {}).get("reason") or "").strip()
+        await db.cms_event_submissions.update_one(
+            {"id": sub_id},
+            {"$set": {"status": "rejected", "reviewer_notes": reason or None, "updated_at": _now_iso()}},
+        )
+        try:
+            from email_service import send_email
+            support_from = (os.getenv("SUPPORT_EMAIL") or "support@friendplace.com.au").strip()
+            reason_line = f"<br><em>{reason}</em>" if reason else ""
+            await send_email(
+                to=sub.get("contact_email") or "",
+                subject=f"Your event submission — {sub.get('submission_ref')}",
+                html=(
+                    f"<p>Hi { (sub.get('contact_name') or 'there') },</p>"
+                    f"<p>Thanks for submitting <strong>{ sub.get('event_title') or 'your event' }</strong> for FriendPlace.</p>"
+                    f"<p>After review, we weren&rsquo;t able to publish this listing on this occasion.{reason_line}</p>"
+                    "<p>You&rsquo;re very welcome to submit another event any time — just reply to this email if you&rsquo;d like a hand.</p>"
+                    "<p>💜 The FriendPlace Team</p>"
+                ),
+                text=(
+                    f"Hi {sub.get('contact_name') or 'there'},\n\n"
+                    f"Thanks for submitting {sub.get('event_title') or 'your event'} for FriendPlace.\n\n"
+                    f"After review, we weren't able to publish this listing on this occasion."
+                    + (f"\n\nReason from our team:\n  {reason}\n" if reason else "") +
+                    "\nYou're very welcome to submit another event any time — just reply to this email if you'd like a hand.\n\n💜 The FriendPlace Team"
+                ),
+                reply_to=support_from,
+            )
+        except Exception:
+            import logging as _logging
+            _logging.getLogger("friendplace.events").exception("rejection email failed")
+        return {"ok": True}
+
     return router
+
+
+# ---- helper used by cancel_event above (moved before router closes) ----
 
 
 # ---- Granular public read endpoints -------------------------------------
@@ -1853,6 +2015,98 @@ def build_public_router(db) -> APIRouter:
             })
         # Most-imminent first; missing starts_at goes last.
         items.sort(key=lambda x: (x["event"].get("starts_at") or "9999"))
-        return {"items": items}
+    # ── PUBLIC EVENT SUBMISSIONS ─────────────────────────────────
+    # "List your event" flow on the marketing website (draft-first).
+    # Anyone with a browser can submit; nothing appears publicly
+    # until an admin reviews it in Mission Control.
+
+    @router.post("/events/submit")
+    async def public_event_submit(body: EventSubmissionIn):
+        """Accept a public event submission and stash it as pending.
+
+        - Generates a short human-quotable ref (e.g. FP-SUB-A1B2C3)
+          which is echoed to the submitter's email.
+        - Fires a Mission Control admin notification.
+        - Sends an acknowledgement email to the submitter.
+        - Never publishes. Admin action required.
+        """
+        if not body.agreed_to_review:
+            raise HTTPException(400, "Please confirm the submission is subject to FriendPlace approval.")
+        try:
+            datetime.fromisoformat(body.event_starts_at.replace("Z", "+00:00"))
+        except Exception:
+            raise HTTPException(400, "Please provide a valid start date/time.")
+
+        submission_id = str(uuid.uuid4())
+        submission_ref = "FP-SUB-" + submission_id.replace("-", "")[:6].upper()
+        now = _now_iso()
+        doc = {
+            "id": submission_id,
+            "submission_ref": submission_ref,
+            "organisation_name": body.organisation_name.strip(),
+            "contact_name": body.contact_name.strip(),
+            "contact_email": body.contact_email.lower().strip(),
+            "contact_phone": (body.contact_phone or "").strip() or None,
+            "event_title": body.event_title.strip(),
+            "event_starts_at": body.event_starts_at,
+            "event_ends_at": body.event_ends_at,
+            "venue_name": (body.venue_name or "").strip() or None,
+            "venue_address": (body.venue_address or "").strip() or None,
+            "description": (body.description or "").strip() or None,
+            "capacity": body.capacity,
+            "cost_type": body.cost_type or "free",
+            "cost_display": (body.cost_display or "").strip() or None,
+            "accessibility_info": (body.accessibility_info or "").strip() or None,
+            "cover_image_base64": body.cover_image_base64,
+            "status": "pending",       # pending | approved | rejected
+            "created_at": now,
+            "updated_at": now,
+            "reviewer_notes": None,
+            "resulting_event_id": None,
+        }
+        await db.cms_event_submissions.insert_one(dict(doc))
+
+        # Notify Mission Control (best-effort; never blocks the submit).
+        try:
+            # `_notify_admins` isn't imported inside cms_module — dispatch
+            # via a lightweight collection insert instead. Mission Control
+            # can query `cms_alerts` next to the existing badge counter.
+            await db.cms_alerts.insert_one({
+                "id": str(uuid.uuid4()),
+                "type": "event_submission",
+                "title": "New event awaiting review",
+                "body": f"{body.organisation_name.strip()} — {body.event_title.strip()}",
+                "ref_id": submission_id,
+                "created_at": now,
+                "read": False,
+            })
+        except Exception:
+            import logging as _logging
+            _logging.getLogger("friendplace.events").exception("submission alert insert failed")
+
+        # Acknowledgement email to submitter.
+        try:
+            from email_service import send_email, event_submission_ack_template
+            subject, html, text = event_submission_ack_template(
+                first_name=body.contact_name.split(" ")[0] if body.contact_name else None,
+                organisation_name=body.organisation_name.strip(),
+                event_title=body.event_title.strip(),
+                submission_ref=submission_ref,
+            )
+            support_from = (os.getenv("SUPPORT_EMAIL") or "support@friendplace.com.au").strip()
+            await send_email(
+                to=body.contact_email,
+                subject=subject, html=html, text=text,
+                reply_to=support_from,
+            )
+        except Exception:
+            import logging as _logging
+            _logging.getLogger("friendplace.events").exception("submission ack email failed")
+
+        return {
+            "ok": True,
+            "submission_ref": submission_ref,
+            "message": "Thanks — your event has been submitted for review.",
+        }
 
     return router
