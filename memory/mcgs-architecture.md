@@ -1,8 +1,7 @@
 # Mission Control George System (MCGS) — Architecture Proposal
 
-**Status:** Draft v2 — designed from first principles, awaiting Garry's approval.
-**Date:** 18 July 2026.
-**Guiding principles (locked by Garry):**
+**Status:** Draft v3 — approved in shape by Garry (18 July 2026). Ready to drive Phase 1 implementation plan.
+**Guiding principles (locked):**
 1. George is central, not an add-on.
 2. MCGS is an operations centre, not an admin panel.
 3. It surfaces what needs attention proactively.
@@ -12,24 +11,22 @@
 
 ## 1. Vision
 
-Think of MCGS as **the bridge of a ship**. Garry is the captain; George is the navigator. The bridge shows the sea state, the crew reports, and where trouble might be — all filtered through a navigator who's been paying attention while the captain slept.
+MCGS is **The Bridge of a ship**. Garry is the captain; George is the navigator. The Bridge shows the sea state, the crew reports, and where trouble might be — all filtered through a navigator who's been paying attention while the captain slept.
 
-Everything Garry needs to *decide* rises to the top; everything else is one drill-down away. There is no landing page of empty CRUD tables. When MCGS is calm, the bridge should read like *"quiet morning — nothing needs you right now."* When it's not calm, it should read like a triage nurse — never a burst of red alerts.
+Everything Garry needs to *decide* rises to the top; everything else is one drill-down away. When MCGS is calm, the Bridge should read like *"quiet morning — nothing needs you right now."* When it's not calm, it should read like a triage nurse — never a burst of red alerts.
 
 ---
 
 ## 2. The four architectural primitives
 
-The whole system is built from four building blocks. Every module reads from and writes to these — nothing else.
+Every module reads from and writes to these — nothing else.
 
 | # | Primitive | Role |
 |---|-----------|------|
 | **1** | **Signals** | Attention-worthy events. The atom of MCGS. |
-| **2** | **George** | The intelligence layer. Reads state, drafts language, triages Signals. |
+| **2** | **George** | The intelligence layer. Reads state, drafts language, triages Signals. Voice + text. |
 | **3** | **Studios** | Deep-work spaces for content, records, safety, ops. |
 | **4** | **Rhythms** | Scheduled patterns that keep Garry ahead of the platform. |
-
-Everything below is either a producer of Signals, a consumer of Signals, a Studio, or a Rhythm.
 
 ---
 
@@ -37,166 +34,279 @@ Everything below is either a producer of Signals, a consumer of Signals, a Studi
 
 A **Signal** is any moment where a human needs to look, decide, or feel proud.
 
-### Signal categories (six)
+### Six categories
 | Category | Producer | Examples |
 |---|---|---|
 | **Attention** | George insights, safety, ops queues | New event submission, unread ticket, unresolved report |
-| **Anomaly** | Metric watchers | Lounge activity ↓ 40% today, retention drop, unusual sign-up burst |
-| **Risk** | Safety + moderation systems | 3rd report on a user, self-harm keyword triggered, fraud pattern |
-| **Milestone** | Growth watchers | 1,000th member, first event to fill in < 24h, first business partnership |
+| **Anomaly** | Metric watchers | Lounge activity ↓ 40% today, retention drop |
+| **Risk** | Safety + moderation systems | 3rd report on a user, self-harm keyword, fraud pattern |
+| **Milestone** | Growth watchers | 1,000th member, first event to fill in <24h |
 | **Question** | Users + admins | Garry asked George a question; ticket sender asked something specific |
 | **Housekeeping** | Content decay + tech health | Draft sitting 3 days, image never linked, API error rate up |
 
-### Priority ladder (five levels)
+### Five priority levels
 | Level | Name | Delivery | Wake-worthy |
 |---|---|---|---|
-| **P0** | Critical | Phone push + email + SMS (future) + toast | ✅ Any time |
-| **P1** | High | Phone push + email + toast | ⏰ 06:00–23:00 AEST |
-| **P2** | Medium | Toast + Signal Feed only | Business hours |
+| **P0** | Critical | Push + email + toast · SMS (future) | ✅ Any time |
+| **P1** | High | Push + email + toast | ⏰ 06:00–23:00 AEST |
+| **P2** | Medium | Toast + Signal Feed | Business hours |
 | **P3** | Info | Signal Feed only | In-app |
-| **P4** | Ambient | Faded row in Feed, groups with peers | In-app |
+| **P4** | Ambient | Grouped/faded row in Feed | In-app |
 
-Escalation is a rule, not code: any P0 not acknowledged in 10 min repeats; any P1 in 60 min repeats once; P2 in 8 h asks George to draft a suggested action.
+Escalation is a rule: P0 unacknowledged in **10 min** repeats; P1 in **60 min** repeats once; P2 in **8 h** asks George to draft a suggested action.
 
-### Signal schema (Mongo)
+### Signal states (explicit, auditable)
+
+Every Signal moves through a well-defined lifecycle. Every transition records **who acted, when, and via which channel**.
 
 ```
-signals: {
-  id, category, priority, subject, body,
-  source: "george" | "system" | "user_report" | "scheduled",
-  entity_ref: { kind, id },          # deep-link target
-  george_read: {                     # produced by George on ingestion
-    tldr, suggested_action, confidence
-  },
-  status: "new" | "seen" | "snoozed" | "resolved" | "delegated",
-  assignee_id, snoozed_until, acked_at, resolved_at, resolved_by,
-  channels_fired: [...],
-  created_at
+NEW  →  SEEN  →  IN_REVIEW  →  RESOLVED
+                          ↘  DISMISSED
+                          ↘  SNOOZED  → (auto-returns to NEW at snooze end)
+                          ↘  ESCALATED → creates a linked higher-priority Signal
+```
+
+| State | Meaning |
+|---|---|
+| `NEW` | Just produced. No human has laid eyes on it. |
+| `SEEN` | Rendered on someone's Bridge or opened in the Feed. |
+| `IN_REVIEW` | An admin has opened it, taken ownership. |
+| `RESOLVED` | Action taken and closed. Records what action. |
+| `DISMISSED` | Explicitly closed without action. Requires a reason. |
+| `SNOOZED` | Hidden until a chosen time, then auto-returns to NEW. |
+| `ESCALATED` | Priority manually raised; a linked higher-priority Signal is spawned. |
+
+### Signal deduplication + Cases
+
+Signals never fire alone for the same incident. When multiple producers observe the same underlying situation, MCGS groups them into a **Case**.
+
+- **Case** = a container for related Signals. One incident, one case, one notification.
+- Deduplication keys examples:
+  - `case_key = f"user_report:{user_id}"` — all reports against a user roll into one Case.
+  - `case_key = f"event_submission:{submission_id}"` — a submission that also triggers a support ticket links both.
+  - `case_key = f"outage:{service}:{yyyymmdd_hh}"` — hourly bucket for infra alerts.
+- The **first** Signal creates the Case; subsequent matching Signals attach to it and only fire a notification if they raise priority.
+- Cases have their own state (mirror of Signal states) and are the primary object Garry acts on.
+- When Case resolves, all attached Signals resolve.
+
+```
+cases: {
+  id, case_key, subject, priority, category,
+  status, signal_ids: [...], first_signal_at, resolved_at,
+  assignee_id, george_read, ...audit
 }
 ```
 
-Everything downstream — Alerts inbox, Daily Briefing, Health Pulse annotations — is a *view* over this collection.
+### Signal schema (updated)
+
+```
+signals: {
+  id, case_id,                       # every Signal belongs to a Case
+  category, priority, subject, body,
+  source: "george" | "system" | "user_report" | "scheduled",
+  entity_ref: { kind, id },
+  george_read: {
+    tldr,
+    suggested_action,
+    confidence: "high" | "moderate" | "low",  # labels, never %
+    reasoning: "short human-readable"
+  },
+  status,                            # NEW/SEEN/IN_REVIEW/...
+  channels_fired: ["push","email","toast"],
+  channels_available: [...],         # SMS included even before wired
+  state_transitions: [               # append-only audit trail
+    { from, to, at, actor_id, actor_kind, via_channel, notes }
+  ],
+  created_at
+}
+```
 
 ---
 
 ## 4. George's operating model
 
-George is not a chat feature. **George is the substrate.** Every screen reads through him; every write can be driven by him.
+George is not a chat feature. **George is the substrate.**
 
 ### Two personas, one soul
 | Persona | Where | System prompt |
 |---|---|---|
-| **Public George** | Mobile app, marketing site | Warm, patient, no jargon — locked in `george-spec.md` |
-| **Chief-of-Staff George** | MCGS | Same voice, tighter, comfortable with operator language and metrics |
+| **Public George** | Mobile app, marketing site | Warm, patient, no jargon |
+| **Chief-of-Staff George** | MCGS | Same voice, tighter, comfortable with operator language |
 
-Same Emergent LLM key. Same memory model. Just a different opening prompt and a broader knowledge scope.
+Same Emergent LLM key. Same memory model. Different system prompt and broader knowledge scope.
 
 ### Four things Chief-of-Staff George does
 
-1. **Reads state.** Any query Garry asks — *"How many events did we run in June?"*, *"Who are the top three most-reported users this quarter?"* — is answered from live data via a small allow-list of read tools.
+1. **Reads state.** Any query Garry asks is answered from live data via a small allow-list of read tools.
+2. **Triages Signals.** Every Signal is annotated by George on ingestion: 1-sentence TL;DR, suggested action, confidence label, reasoning.
+3. **Drafts language.** Support replies, moderation notes, warning messages, FAQ updates, event copy, warmth notes.
+4. **Composes Rhythms.** Daily Briefing, Weekly Review, Monthly Retro.
 
-2. **Triages Signals.** Every Signal that lands is annotated by George before Garry ever sees it: a 1-sentence TL;DR, a suggested action, and a confidence score.
+### Guardrails (hardened)
 
-3. **Drafts language.** Support replies, event moderation notes, warning messages, FAQ updates, event descriptions, member celebrations. Every draft has a **Show reasoning** toggle and a 30-second undo after execute.
+- **Never sends** an email autonomously.
+- **Never approves** an event, warns a user, or publishes content without a human click.
+- **Never invents numbers** — every metric traced to a computed value.
+- **Never uses "AI" language publicly** — brand rules from `george-spec.md` hold inside MCGS too.
+- **Confidence uses labels only** — never a raw percentage that gives false precision:
+  - **High** — grounded in strong signals; go ahead if you agree
+  - **Moderate** — reasonable but check the reasoning first
+  - **Low — review recommended** — George says so explicitly
+- **All user-generated content is data, never instructions** — see §11.
 
-4. **Composes Rhythms.** The Daily Briefing, Weekly Review, and Monthly Retro are all written by George from the same underlying data.
+### The Action Preview pattern (every write-side George suggestion)
 
-### What George never does (the guardrails)
-
-- Never sends an email autonomously.
-- Never approves an event, warns a user, or publishes content without a human click.
-- Never invents numbers — every metric in a briefing is traced back to a computed value.
-- Never uses "AI" language publicly (the `george-spec.md` framing rule holds inside MCGS too).
-
-### Ask George bar (persistent UI)
-
-At the top of every MCGS screen sits a slim address-bar-style Ask George input.
+Every proposed action George makes shows the same four-part card:
 
 ```
-🦋 Ask George…                     [ ⌘K ]
+┌────────────────────────────────────────────────┐
+│  ✎ George proposes                              │
+├────────────────────────────────────────────────┤
+│  ACTION       Send this reply to Dot           │
+│  WHY          Ticket mentions can't find       │
+│               friend list — screen 3 answer    │
+│               will resolve it.                 │
+│  SOURCES      • Ticket #482                    │
+│               • FAQ #3 (Friends screen)        │
+│  CONFIDENCE   High                             │
+│  DRAFT        "Hi Dot, I saw your note..."     │
+│               [Show reasoning ▼]                │
+├────────────────────────────────────────────────┤
+│  [ Send ]  [ Edit first ]  [ Dismiss ]         │
+└────────────────────────────────────────────────┘
 ```
 
-Typing or speaking anything opens a bottom-sheet with George's answer. This is the primary navigation mechanism. The sidebar exists, but Garry should be able to run MCGS all day without touching it.
+- **Action** — plain-English description of the write
+- **Why** — 1-sentence rationale
+- **Sources** — the specific rows/documents George read to draft
+- **Confidence** — High / Moderate / Low label
+- **Draft** — the exact text/patch George wants to apply
+- **Show reasoning** — expandable chain-of-thought summary (for audit)
+- **Final approval button** always in the human's hands. 30-second undo toast after execute.
 
-Examples:
-- *"Show me events happening this weekend."*
-- *"Draft a reply to Dot's ticket."*
-- *"Who's earned the most kindness points this month?"*
-- *"Are there any users I should keep an eye on?"*
+No exceptions in Phase 1 — every write behind an Action Preview. Later, once we've observed George's accuracy on trusted low-risk actions (e.g. auto-approving events from verified organisations), we may add narrow automation lanes with an audit tag `auto_approved_by_rule`. Not launching that.
+
+### Ask George — voice AND text (first-class)
+
+The **Ask George bar** is persistent at the top of every MCGS screen. It accepts:
+
+```
+┌────────────────────────────────────────────┐
+│  🦋  Ask George…              🎙  ⌘K       │
+└────────────────────────────────────────────┘
+```
+
+- **Typed input** — natural language, submit on Enter or ⌘K
+- **Voice input** — mic icon or hold-space-to-speak
+- **Voice output** — every George reply has a play button; can be auto-played in "Read to me" mode
+
+Sample voice commands that must work in Phase 1:
+- *"George, what's happened overnight?"*
+- *"Do I have anything urgent today?"*
+- *"Show me the organisations waiting for approval."*
+- *"How many new members joined yesterday?"*
+- *"Read my Daily Briefing."*
+- *"Draft a reply to that support ticket."*
+- *"How is FriendPlace performing this week?"*
+- *"Any safety concerns I should know about?"*
+- *"Publish that event after I review it."* (creates an Action Preview, doesn't publish)
+
+### Voice pipeline (MCGS, mirrors mobile app)
+
+| Direction | Service | Notes |
+|---|---|---|
+| **STT** (you → George) | OpenAI Whisper-1 via Emergent LLM key | Client records audio, streams to `/api/george/voice/transcribe` |
+| **TTS** (George → you) | OpenAI TTS via Emergent LLM key | Voice: warm alto ("nova" or "shimmer"), 0.95× speed default |
+
+Behaviour rules:
+- Voice degrades gracefully to text if the network is slow.
+- Voice output plays **only** on user tap unless "Read to me" mode is on (Settings).
+- Voice input is push-to-talk by default (hold mic or hold space). Optional wake-word "Hey George" deferred to a later phase.
+- Voice interactions **produce the same conversation object** as text — no separate log.
+- Voice usage is metered and logged for cost visibility (per user, per day).
+
+### Ask George is not the only navigation
+
+Persistent bar + compact five-Studio sidebar. George can navigate, search, and explain; the sidebar remains a dependable fallback for direct clicks. New admins learning MCGS can rely on visible structure.
 
 ---
 
 ## 5. The Bridge — MCGS's landing surface
 
-Everything the operations metaphor promises lands here. This is Garry's home when he opens MCGS.
+Called **"The Bridge"** with subtitle **"What needs your attention today."**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  🦋 Ask George…                                    ⌘K       │  ← persistent
+│  🦋 Ask George…                                🎙  ⌘K        │
 ├──────────────────────────────────────────────┬──────────────┤
 │  MORNING BRIEFING                             │              │
-│  George's 5-line summary of the day          │  HEALTH      │
+│  George's 5-line summary of the day           │  HEALTH      │
 │  ▸ Read the full briefing                     │  PULSE       │
 │                                               │              │
 ├──────────────────────────────────────────────┤  🟢 Belonging │
-│  SIGNAL FEED                          filter │  🟢 Kindness │
-│  ─────────────────────────────────────       │  🟡 Safety   │
-│  🔴 P1  New report on user "roy73"           │  🟢 Growth   │
-│         George: 3rd report in 12 days.       │              │
-│         [Review] [Warn]  [Snooze 1h]         │  ▸ Details    │
-│  ─────────────────────────────────────       │              │
-│  🟠 P2  6 events awaiting review              │              │
-│         George: 4 look approvable.            │  QUIET       │
-│         [Open queue]  [Auto-approve verified] │  RHYTHM      │
-│  ─────────────────────────────────────       │              │
-│  🟢 P3  Milestone — 1,000th member today 🎉  │  Weekly      │
-│         [Draft welcome post]                  │  review      │
-│                                               │  Sunday 6pm  │
+│  SIGNAL FEED                          filter  │  🟢 Kindness │
+│  ─────────────────────────────────────        │  🟡 Safety   │
+│  🔴 P1  Case #482 — 3rd report on "roy73"     │  🟢 Growth   │
+│         George: 3rd report in 12 days.        │              │
+│         Confidence: High                      │  ▸ Details    │
+│         [Review] [Warn] [Snooze 1h]           │              │
+│  ─────────────────────────────────────        │              │
+│  🟠 P2  6 events awaiting review              │  QUIET       │
+│         George: 4 look approvable.            │  RHYTHM      │
+│         Confidence: Moderate                  │              │
+│         [Open queue]                          │  Weekly      │
+│                                               │  review      │
+│  🟢 P3  Milestone — 1,000th member today 🎉   │  Sunday 6pm  │
 └──────────────────────────────────────────────┴──────────────┘
 ```
 
-Three regions, one principle: **the thing that needs you is already in front of you.**
-
-- **Morning Briefing:** the top 5 lines of the day, sourced from Rhythm §7.
-- **Signal Feed:** the whole triaged inbox, priority-sorted, filterable by category. Empty state reads *"Nothing needs you right now. Nicely done."*
-- **Health Pulse:** four vitals, always visible in the right rail. Detail in §8.
+Empty state: *"Nothing needs you right now. Nicely done."*
 
 ---
 
 ## 6. Studios — deep-work spaces
 
-Studios are only reached by drilling from Signals or by intentional navigation. They exist to hold the CRUD work, not to be the front door.
+Five Studios in the sidebar. Everything else is nested.
 
-The eleven modules from a traditional CMS collapse into **five studios**, each with a coherent purpose.
-
-| Studio | Contains | Owner mental model |
+| Studio | Contains | Mental model |
 |---|---|---|
-| **People** | Members · Organisations · Safety records (reports, warnings, moderation log) | "Who is on the platform, and how are they doing?" |
-| **Program** | Events (CMS + submissions) · Coffee Lounge admin · community programs · sponsorships (future) | "What's happening on the platform?" |
-| **Voice** | Support inbox · George scripts (safety-net + daily-limit) · broadcast messages · in-app notices | "How is FriendPlace speaking to members?" |
-| **Story** | Home, About, FAQs, Success Stories, Founding Members · media library | "What does FriendPlace look like to the world?" |
-| **Systems** | Settings · team & roles · integrations · billing · audit / activity feed · dev tools | "How is the machine running?" |
-
-Advantages:
-- The sidebar is short: **Bridge · People · Program · Voice · Story · Systems** (plus the Ask George bar above).
-- New features slot into an existing Studio without adding sidebar clutter.
-- Delegation maps cleanly: a future Safety Moderator gets **People (Safety)** only.
+| **People** | Members · Organisations · Safety records | "Who is on the platform?" |
+| **Program** | Events (CMS + submissions) · Coffee Lounge admin · community programs · sponsorships (future) | "What's happening?" |
+| **Voice** | Support inbox · George scripts · broadcast messages · in-app notices | "How is FriendPlace speaking?" |
+| **Story** | Home · About · FAQs · Success Stories · Founding Members · media library | "How do we look to the world?" |
+| **Systems** | Settings · team & roles · integrations · billing · audit / activity feed · analytics · dev tools | "How is the machine running?" |
 
 ---
 
 ## 7. Rhythms — the proactive layer
 
-Rhythms are how MCGS earns "proactive". They are scheduled jobs that convert state into narrative and push it to Garry.
-
 | Rhythm | Cadence | Channel | Purpose |
 |---|---|---|---|
-| **Morning Briefing** | Weekdays 07:00 AEST · Weekends 08:30 AEST | Email + phone push + Bridge card | Yesterday, today, one thing to notice |
-| **Afternoon Pulse** *(opt-in)* | 15:30 AEST | Phone push only | 1-line status: queues, tickets, hot Signals |
-| **Weekly Review** | Sunday 18:00 AEST | Email + Bridge card | Health rings trend, top 3 wins, top 3 concerns, 3 suggested actions |
-| **Monthly Retro** | 1st of month 09:00 AEST | Email + Bridge card | Cohort retention, revenue signals (once FP+ ships), narrative "state of the community" |
-| **Vacation mode** | Manual toggle | — | Downgrades all channels one level, keeps email only |
+| **Morning Briefing** | Weekdays 07:00 AEST · Weekends 08:30 AEST | Email + push + Bridge card | Yesterday, today, one thing to notice |
+| **Afternoon Pulse** *(opt-in, exception-based)* | Evaluated at 15:30 AEST; only fires if state materially changed | Push only when it fires | See §7a |
+| **Weekly Review** | Sunday 18:00 AEST | Email + Bridge card | Health trend, wins, concerns, suggestions |
+| **Monthly Retro** | 1st of month 09:00 AEST | Email + Bridge card | Cohort retention, revenue signals, "state of the community" |
+| **Vacation mode** | Manual toggle | See §7b | Urgent-only push, held summary |
 
-Every Rhythm output is a Signal (`category: "attention"` or `"milestone"`), which means it lives in the Feed and the Activity Log too.
+### 7a — Afternoon Pulse (exception-based)
+
+Trigger conditions (all must be **material change since 07:00**):
+- Any new P0 or P1 Signal, OR
+- Approvals queue depth ≥ N (default 5), OR
+- A Milestone Signal, OR
+- Anomaly detector confidence = High for a meaningful metric.
+
+If none of the above → **no notification**. The 3:30pm scan is silent by design.
+
+### 7b — Vacation mode
+
+Explicit and safe:
+- **P0** — immediate push + email as usual.
+- **P1** — held; delivered in a single scheduled daily summary at 07:00 unless it escalates to P0.
+- **P2–P4** — held for next Morning Briefing.
+- Routine approvals remain queued.
+- Optional acting-admin **delegation** (Phase 9) reroutes P0/P1 to a chosen human.
+- George voice-line at toggle-on: *"Vacation mode is on. I'll only interrupt you for something genuinely urgent."*
 
 ### Daily Briefing template (locked)
 
@@ -229,193 +339,201 @@ Have a lovely day.
 
 ## 8. Health Pulse — four vitals
 
-Not a dashboard of vanity metrics. Four **living gauges** that map directly to FriendPlace's mission words.
+Four **living gauges** mapping to FriendPlace's mission words. Every score is:
+- **Transparent** — hover shows the components and their contribution.
+- **Traceable** — a "why did this move?" George explanation, e.g. *"Safety fell from 92 to 84 because three unresolved reports exceeded the response target."*
+- **Audit-tracked** — formula changes are versioned in `mcgs_settings` with the old formula, new formula, and who changed it.
+- **Not absolute** — every ring UI says *"George's estimate — see components."*
 
-| Vital | 0–100 index composed of | Colour bands |
-|---|---|---|
-| **Belonging** | WAU/MAU · median friends per member · profile completion | 🟢 80+ · 🟡 60 · 🟠 40 · 🔴 <40 |
-| **Kindness** | Lounge positive-reaction ratio · Butterfly Points earned/day · low report ratio | same |
-| **Safety** | Open reports · time-to-first-action · % moderation closed <24h | same |
-| **Growth** | Weekly signups · D7 retention · event attendance rate · organisations onboarded | same |
+### Default formulas (v1, transparent)
 
-Each gauge shows:
-- Current index, colour band, delta vs 7-day mean
-- A one-sentence **George's read** (regenerated in the 06:55 cron)
-- Sparkline on hover
+| Vital | Composition |
+|---|---|
+| **Belonging** | 40% WAU/MAU · 30% median friends per member · 30% profile completion rate |
+| **Kindness** | 50% lounge positive-reaction ratio · 30% Butterfly Points/active member · 20% inverse of report ratio |
+| **Safety** | 60% (% moderation actions closed <24h) · 40% (100 – open reports beyond SLA) |
+| **Growth** | 40% weekly signups · 30% D7 retention · 20% event attendance rate · 10% organisations onboarded |
 
-Full drill-down (chart + 90/180/365-day toggle) is one click away in **Systems → Analytics**. Not on the Bridge — the Bridge is for *now*.
+- No component depends heavily on AI sentiment. Sentiment sampling is used only in George's narrative around a ring, never as an input weight.
+- Weights editable in Systems → Settings; every change adds a row to `mcgs_settings_history`.
 
-### Ring composition is editable in Settings
-Rings should adapt as the platform grows. At 1,000 members the mix that matters is different from 100,000. Weights live in `mcgs_settings`.
+### Colour bands
+🟢 80+ (healthy) · 🟡 60–79 (watch) · 🟠 40–59 (attention) · 🔴 <40 (urgent)
 
 ---
 
 ## 9. Scalability plan
 
-Designed to hold from day one through hundreds of thousands of members. Four levers.
-
 ### Lever 1 — Event bus (Signals as first-class)
-Every mutation in the platform emits an event to an internal bus. Signal producers subscribe. This decouples Signal generation from feature code and keeps the Bridge quick regardless of platform size.
-
-- **Now:** Mongo Change Streams (already available, zero deps).
-- **~50k members:** move to Redis Streams for higher throughput.
-- **~500k members:** consider NATS or Kafka if event volume warrants; interface unchanged.
+- Now: Mongo Change Streams
+- 50k members: Redis Streams
+- 500k members: NATS or Kafka. Interface unchanged.
 
 ### Lever 2 — Precompute over live-scan
-Nothing on the Bridge is live-scanned. All aggregates come from precomputed rollups:
-
-- **Nightly cron (03:00 AEST):** rebuilds 30/90/365-day rollups.
-- **06:55 cron:** rebuilds daily rollups, composes briefing, refreshes rings.
-- **Every 15 min:** anomaly detector rescans deltas against 7-day mean.
-- **Every 60 min:** pattern detector sweeps for repeated reports and content gaps.
-- **Every 5 min:** hot counts (submissions, tickets, reports) via a single cached document `mcgs_counts`.
+- 03:00 AEST — 30/90/365-day rollups
+- 06:55 AEST — daily rollups + briefing + rings
+- Every 15 min — anomaly deltas vs 7-day mean
+- Every 60 min — pattern sweep for repeated reports and content gaps
+- Every 5 min — hot counts cached in `mcgs_counts`
 
 ### Lever 3 — Regional sharding-ready
-Every member record already carries `suburb`, `suburb_postcode`, `suburb_state`. Every Signal is tagged with a region derived from its entity. When FriendPlace expands beyond Melbourne, regional Bridges filter the Signal Feed and Health Pulse by region for free. Existing data model needs no migration.
+Every member already tagged with suburb; Signals inherit region from their entity. Regional Bridges filter for free.
 
 ### Lever 4 — Delegation & routing
-The Signal schema already has `assignee_id`. When Garry hires a second human, a rules engine (simple JSON, edited in Systems → Team) routes Signals to the right person:
+Signal schema already has `assignee_id`. Rules engine (JSON in Systems → Team) routes:
 - Safety P0/P1 → on-call moderator
 - Support tickets → support lead
 - Content drafts → editor
-Garry always retains override authority via the Ask George bar (*"reassign to me"*).
+- Garry retains override via *"reassign to me."*
 
 ### AI-scale nuances
-- **Sampling for insights.** Sentiment reads run over a deterministic 5% sample of lounge posts; deterministic hashing means the sample overlaps day-over-day for continuity without full-corpus cost.
-- **Model tiering.** Haiku for triage annotation of Signals (cheap, sub-second). Sonnet only for long-form briefings and insight reasoning. Emergent LLM key handles both.
-- **Cache Ask George read-tools.** Queries like *"how many events this month"* cache for 5 minutes so operator questions don't blow up costs.
+- **Haiku** annotates every Signal on ingestion (cheap, sub-second). **Sonnet** only for briefings, insights, long questions.
+- **Voice** billed per-minute; per-user daily quota surfaced in Systems → Costs.
+- **Ask George read-tool cache** — repeat queries within 5 min return cached answer.
+- **Deterministic 5% sampling** of lounge posts for sentiment narratives.
 
 ---
 
-## 10. Cross-cutting concerns
+## 10. Cross-cutting: roles, audit, notifications
 
-### Roles (v1 keep simple)
+### Roles (v1)
 - **Owner** (Garry) — everything.
-- **Editor** — Story + Program (drafting/publishing content and events).
+- **Editor** — Story + Program.
 - **Moderator** — People (Safety) + Voice (Support).
-- **Read-only** — for accountant / advisor / investor viewing.
+- **Read-only** — accountant / advisor / investor.
 
-Row-level checks server-side via a `require_role()` FastAPI dependency. Bit-flag `roles[]` on the admin doc.
+Enforced server-side via a `require_role()` FastAPI dependency. Bit-flag `roles[]` on the admin doc.
 
 ### Activity Feed (audit log)
-Every mutation → one row in `mcgs_activity_log` (actor, entity, before/after, george_involved bool). Retention: forever. Displayed under **Systems → Activity**.
+Every mutation → one row in `mcgs_activity_log`:
+- `actor_id`, `actor_kind` (human | george | system | scheduled)
+- `entity_ref`, `before`, `after`, `george_involved`
+- `channel` (bridge | ask_george_voice | ask_george_text | api)
+- `case_id` if any
+- Immutable. Retention: forever.
 
-### Notifications delivery
-Push via existing `EMERGENT_PUSH_KEY` (scaffolded — needs deploy + `google-services.json`). Email via Resend (already wired). SMS via Twilio deferred to Phase 3+ and only for P0.
+Every Signal state transition writes to `signals[].state_transitions` **and** to `mcgs_activity_log`. Redundant on purpose — one for fast per-signal display, one for cross-entity audit.
+
+### Delivery
+- Push via existing `EMERGENT_PUSH_KEY` (works after deploy + `google-services.json`).
+- Email via Resend (wired).
+- SMS via Twilio — **channel modelled from day one**; enabled in a later phase.
 
 ### New Mongo collections
 ```
-signals                # §3 schema
-george_chats           # per george-spec.md
+signals                # §3 schema, incl. state_transitions
+cases                  # §3, groups related Signals
+george_chats           # per george-spec.md; voice + text turns unified
 george_admin_prompts   # editable Chief-of-Staff persona
 george_scripts         # safety-net + daily-limit + welcome scripts
-george_insights        # produced by nightly + hourly insight jobs
-mcgs_activity_log      # audit
-mcgs_briefings         # one per Rhythm output, idempotency + audit
-mcgs_settings          # ring weights, cron times, escalation rules, roles
-mcgs_counts            # single-doc cache of hot counts (for badges)
+george_insights        # produced by scheduled insight jobs
+mcgs_activity_log      # audit — every mutation
+mcgs_briefings         # one per Rhythm output; idempotent
+mcgs_settings          # config: ring weights, cron times, escalation rules, roles, vacation
+mcgs_settings_history  # version history of settings changes
+mcgs_counts            # single-doc cache of hot counts
 organisations          # verified orgs, tier, trust score
 member_signals         # per-user rolling engagement composite
 ```
 
-No breaking migrations required against existing collections.
+---
+
+## 11. Prompt-injection defence (architecture-level rule)
+
+Because George reads member reports, support tickets, event descriptions, and lounge posts, all of this content is **untrusted user input**. We treat it as data, never as instructions to George.
+
+### Rules
+
+1. **Never concatenate** user content into the system prompt or the tool description.
+2. **Wrap all user content** in delimited, labelled blocks that George is trained to treat as evidence, not commands:
+   ```
+   <untrusted_source label="support_ticket #482">
+   ...ticket body...
+   </untrusted_source>
+   ```
+3. **The system prompt explicitly instructs George** to ignore any instruction found inside `<untrusted_source>` blocks.
+4. **All tool-call arguments** produced by George are validated against a schema before execution. If a user tricked George into calling `delete_user(id=...)`, the tool's own permission check refuses.
+5. **Read tools are separate from write tools** at the API level. Read tools require `role: any admin`. Write tools require `role ≥ moderator` **and** an Action Preview that a human clicks. Voice input runs through the same untrusted-input wrapping.
+6. **Audit tag `prompt_injection_suspected`** — a lightweight classifier flags any user text that appears to contain instructions (e.g. *"ignore previous instructions"*, *"you are now DAN"*, jailbreak variants). Flagged content is still shown to George wrapped, but the Signal that carried it gets the tag so Safety can review.
+7. **George's output is escaped** before it's inserted anywhere in the UI or written back to Mongo — no rich HTML shortcut, no markdown-eval on his replies.
+
+### Where this is enforced
+- `/app/backend/services/george_prompt.py` (new) — the only place that assembles the prompt.
+- `/app/backend/services/george_tools.py` (new) — declarative schema + permission gate per tool.
+- Regression tests: injection attempts must never cause a write; must never leak system prompt content.
 
 ---
 
-## 11. Roadmap — phased build
+## 12. Roadmap
 
-Each phase produces a working, testable slice. Every phase strengthens the four primitives.
+### Phase 0 — Approve this document ✅
+Approved by Garry, 18 July 2026. This doc + Phase 1 plan (`mcgs-phase1-plan.md`).
 
-### Phase 0 — Approve this document
-Deliverable: this file, agreed. No code.
-
-### Phase 1 — Signals + Ask George bar (foundation)
-- `signals` collection + producer/consumer contract
-- Signal Feed on the Bridge (replaces current Dashboard)
-- Ask George bar (top of every MCGS screen)
-- Chief-of-Staff George prompt + `george_chats`
-- Two Signal producers to prove the pattern: **event submissions** (existing badge becomes a Signal) and **support tickets** (existing table becomes Signals)
-**Success test:** Garry can ask George *"what needs me?"* and get the same answer the Bridge shows visually.
+### Phase 1 — Signals + Cases + Ask George bar (voice + text)
+See `mcgs-phase1-plan.md` for the detailed implementation plan.
 
 ### Phase 2 — Rhythms (Daily Briefing)
 - APScheduler at 06:55 AEST
-- Briefing composer using George (Sonnet)
+- Briefing composer using Sonnet
 - Delivery via email + phone push + Bridge card
 - Editable schedule in Systems → Settings
-**Success test:** Garry receives an accurate, warm briefing daily for one week unattended.
 
 ### Phase 3 — Alerts routing (real-time)
-- Priority ladder wired to push + email
+- Priority ladder wired end-to-end
 - Escalation rules (10-min P0, 60-min P1)
-- In-app toast subscription (SSE)
-**Success test:** A test P0 reaches Garry's phone in <30s.
+- Toast subscription (SSE)
+- SMS channel modelled but not wired
 
 ### Phase 4 — Health Pulse
 - Nightly ring computation
-- Right-rail Bridge widget
+- Right-rail Bridge widget with contribution transparency
 - Drill-down chart page in Systems → Analytics
-**Success test:** Rings render <300ms on the Bridge.
+- `mcgs_settings_history` for weight audit
 
 ### Phase 5 — Studios consolidation
 - Sidebar restructured into the five Studios
-- Existing pages moved without breaking URLs (301-style aliases inside Next.js)
-- Support Inbox lands inside Voice Studio (new)
-**Success test:** No admin URL breaks; navigation feels calmer.
+- Existing admin URLs kept working via alias routes
+- Support Inbox lands inside Voice Studio
 
-### Phase 6 — George Insights + Suggested Actions
-- Pattern detector, anomaly detector, sentiment sampler, content-gap generator
-- Every insight becomes a Signal with a `george_read` annotation
-- Suggested-action UI pattern (draft + execute + undo)
-**Success test:** ≥70% "useful" thumbs-up rate on weekly insights.
+### Phase 6 — George Insights + Suggested Actions at scale
+- Pattern, anomaly, sentiment, content-gap generators
+- Every insight is a Signal with `george_read`
+- Action Preview pattern rolled to every writeable module
 
 ### Phase 7 — Organisations + trust scoring
 - Verified orgs bypass event review queue
-- Trust score visible on submission rows
-- Bulk actions ("approve all events from verified orgs")
+- Trust score on submission rows
+- Bulk actions with two-step confirm
 
 ### Phase 8 — Weekly Review + Monthly Retro Rhythms
-- Sunday review email + Bridge card
-- 1st-of-month retro with cohort analysis
 
 ### Phase 9 — Delegation & multi-user
 - Roles enforced end-to-end
 - Signal assignment rules
-- On-call rotation UI
+- Acting-admin delegation (vacation-mode consumer)
 
 ### Phase 10 — Regional Bridges
-- Region filter on Signal Feed and Health Pulse
-- Regional briefings for state expansion
 
 ### Later parking-lot
-- Voice Chief-of-Staff George (*"read me today's briefing"*)
+- SMS P0 delivery (Twilio)
+- Voice Chief-of-Staff George wake-word ("Hey George")
 - Sponsor read-only dashboards
-- Predictive alerts ("this event is under-booked, want to nudge?")
+- Predictive alerts
 - MCGS API for iOS Shortcuts
-- Cross-app George memory ("have I spoken to a user about this before?")
+- Cross-app George memory
 
 ---
 
-## 12. What this design says *no* to
+## 13. What this design says NO to
 
-Just as important as what's in.
-
-- **No landing dashboard of tiles.** The Bridge is the Signal Feed; if there's nothing to signal, it's quiet.
-- **No sidebar with 14 items.** Five Studios plus the Bridge.
-- **No autonomous AI actions.** Every write behind a human click, always.
-- **No live-scan on page load.** Anything expensive precomputes on a schedule.
-- **No public "AI" language.** Chief-of-Staff George keeps the same brand rules as public George — he's a navigator, not a bot.
-- **No permanent notifications-with-red-dots-everywhere.** Priority ladder decides delivery; nothing quiet ever gets a badge.
-
----
-
-## 13. Open questions for Garry
-
-1. **Naming.** *"Bridge"* vs *"Command Centre"* vs *"Today"* for the landing surface — which lands best?
-2. **Afternoon Pulse.** Nice-to-have or noise? Default on or default off?
-3. **SMS for P0.** Twilio Phase 3, or defer?
-4. **Ask George bar as primary nav.** Are you comfortable running MCGS mostly by asking George, or would you rather the sidebar stay the primary UI?
-5. **Vacation mode.** Downgrade all channels one level, or just email-only?
-6. **Ring weights.** Happy for me to pick sensible defaults for launch, or want to hand-tune before Phase 4?
+- No landing dashboard of tiles.
+- No 14-item sidebar.
+- No autonomous AI writes at launch.
+- No live-scan on page load.
+- No public "AI" language.
+- No red-dot notifications on quiet things.
+- No unexplained scores — every ring number has a "why" George can articulate.
+- No treating user text as instructions to George.
 
 ---
 
@@ -423,8 +541,16 @@ Just as important as what's in.
 
 | Date | Decision | Why |
 |---|---|---|
-| 2026-07-18 | Signals are the atom of MCGS | Ops-centre metaphor made real; scales into event bus |
-| 2026-07-18 | George is substrate not feature | Central-to-experience principle |
-| 2026-07-18 | Studios collapse 14 modules to 5 | Sidebar as calm as the Bridge |
-| 2026-07-18 | Bridge shows Signal Feed + Health Pulse + Briefing | Proactive-attention principle |
-| 2026-07-18 | Precompute + event bus from day one | Scale principle without over-engineering |
+| 2026-07-18 | Landing surface is **"The Bridge"** with subtitle "What needs your attention today" | Fits captain/navigator metaphor; distinctive to MCGS |
+| 2026-07-18 | Afternoon Pulse **opt-in + exception-based** — silent unless materially changed | Respect Garry's day; no scheduled noise |
+| 2026-07-18 | SMS **deferred** but Signal `channels_available` includes SMS from day one | Design once, wire later |
+| 2026-07-18 | **Voice** is first-class in Ask George (STT via Whisper-1, TTS via OpenAI TTS) | Interacting with George should feel like a colleague |
+| 2026-07-18 | Ask George bar persistent **AND** five-Studio sidebar retained | Conversational without becoming confusing |
+| 2026-07-18 | Vacation mode: **P0 immediate**, P1 in daily summary, P2–P4 held | Urgency preserved, noise removed |
+| 2026-07-18 | Health Pulse: **sensible defaults, transparent components, versioned formulas** | Avoid false precision; tune with real data |
+| 2026-07-18 | Signals are grouped into **Cases** via deduplication keys | One incident, one notification, one place to act |
+| 2026-07-18 | Explicit Signal states: NEW → SEEN → IN_REVIEW → RESOLVED / DISMISSED / SNOOZED / ESCALATED | Every transition audited with actor + timestamp |
+| 2026-07-18 | George confidence surfaced as **High / Moderate / Low** labels — never a raw % | Human-readable, avoids false precision |
+| 2026-07-18 | **Action Preview** required for every write George proposes | Automation boundary visible; source + reasoning + human approval always |
+| 2026-07-18 | **Prompt-injection defence** is architecture, not a feature | User content is data, never instructions |
+| 2026-07-18 | Chief-of-Staff George uses Sonnet by default, Haiku for triage | Cost + reasoning balance |
