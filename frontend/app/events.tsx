@@ -353,29 +353,51 @@ function FriendPlaceEventsSection({
     return m;
   }, [myRsvps]);
 
-  if (!loading && events.length === 0) return null;
+  // Never hide the featured section outright — a warm empty-state
+  // is more inviting than nothing, and doubles as a subtle "we do
+  // put on events" reassurance to first-time visitors.
+  const hasEvents = events.length > 0;
 
   return (
-    <View style={{ marginTop: 16 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 8 }}>
-        <View>
-          <Text style={{ fontSize: 11 * scale, fontWeight: "800", letterSpacing: 1.2, color: c.brand, textTransform: "uppercase" }}>
-            FriendPlace hosted
-          </Text>
-          <Text style={{ fontSize: 16 * scale, fontWeight: "900", color: c.onSurface, marginTop: 2 }}>
-            Come along ✨
+    <View style={{ marginTop: 20 }}>
+      {/* Section heading — deliberately warm & specific so first-time
+          users understand this isn't a random list; these are events
+          the FriendPlace team has personally arranged. */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 10 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <View style={{ width: 3, height: 14, borderRadius: 2, backgroundColor: c.brand }} />
+          <Text style={{ fontSize: 10 * scale, fontWeight: "900", letterSpacing: 1.6, color: c.brand, textTransform: "uppercase" }}>
+            Featured · Hosted by FriendPlace
           </Text>
         </View>
+        <Text style={{ fontSize: 20 * scale, fontWeight: "900", color: c.onSurface, letterSpacing: -0.3 }}>
+          Something to come along to ✨
+        </Text>
+        <Text style={{ fontSize: 13 * scale, color: c.muted, marginTop: 3, lineHeight: 18 }}>
+          Warm meetups our team has planned. Everyone&rsquo;s welcome — pull up a chair.
+        </Text>
       </View>
+
       {loading ? (
-        <View style={{ height: 180, alignItems: "center", justifyContent: "center" }}>
+        <View style={{ height: 200, alignItems: "center", justifyContent: "center" }}>
           <ActivityIndicator color={c.brand} />
+        </View>
+      ) : !hasEvents ? (
+        // Empty-state — encouraging tone, not apologetic.
+        <View style={{ marginHorizontal: 16, padding: 20, borderRadius: 16, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, alignItems: "center" }}>
+          <Text style={{ fontSize: 34, marginBottom: 8 }}>☕</Text>
+          <Text style={{ fontSize: 15 * scale, fontWeight: "800", color: c.onSurface, textAlign: "center" }}>
+            Nothing on our calendar just yet
+          </Text>
+          <Text style={{ fontSize: 13 * scale, color: c.muted, textAlign: "center", marginTop: 6, lineHeight: 18 }}>
+            We&rsquo;re busy planning the next one. In the meantime, why not host your own community event above?
+          </Text>
         </View>
       ) : (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 12, paddingBottom: 6 }}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 14, paddingBottom: 8 }}
         >
           {events.map((ev) => {
             const myStatus = rsvpBySlug[ev.slug];
@@ -385,45 +407,110 @@ function FriendPlaceEventsSection({
             const going = ev.rsvp_counts?.going ?? 0;
             const remaining = ev.capacity ? Math.max(0, ev.capacity - going) : null;
             const isFull = ev.capacity != null && remaining === 0;
+            const dateBits = splitDateForBadge(ev.starts_at, ev.timezone);
+            const timeStr = formatFpTime(ev.starts_at, ev.timezone);
+            const location = ev.is_online ? "Online" : (ev.venue_name || "Venue TBD");
+            const hook = pickHook(ev);
             return (
               <Pressable
                 key={ev.id}
                 testID={`fp-event-${ev.slug}`}
                 onPress={() => onOpen(ev.slug)}
-                style={{ width: 260, borderRadius: 18, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, overflow: "hidden" }}
+                style={({ pressed }) => ({
+                  width: 280,
+                  borderRadius: 20,
+                  backgroundColor: c.surface,
+                  borderWidth: 1,
+                  borderColor: c.border,
+                  overflow: "hidden",
+                  transform: [{ scale: pressed ? 0.98 : 1 }],
+                  // Slight lift so cards feel physical / tappable rather
+                  // than flat catalog rows.
+                  shadowColor: "#0A2540",
+                  shadowOpacity: 0.08,
+                  shadowRadius: 12,
+                  shadowOffset: { width: 0, height: 4 },
+                  elevation: 3,
+                })}
               >
-                <View style={{ height: 130, backgroundColor: cover ? "transparent" : c.brand, alignItems: "center", justifyContent: "center" }}>
+                {/* Cover with calendar-style date tile overlay + status pill */}
+                <View style={{ height: 140, backgroundColor: cover ? "#F1F5F9" : c.brand, position: "relative" }}>
                   {cover ? (
                     <Image source={{ uri: cover }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
                   ) : (
-                    <Ionicons name="calendar" size={44} color="#FFF" />
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                      <Ionicons name="calendar" size={44} color="rgba(255,255,255,0.85)" />
+                    </View>
                   )}
+                  {/* Subtle darker gradient at bottom so the venue chip
+                      remains legible over bright covers. Achieved with
+                      a semi-opaque overlay. */}
+                  <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 44, backgroundColor: "rgba(15,23,42,0.35)" }} />
+
+                  {/* Date tile — high-contrast, calendar-style so people
+                      scan the date first, like a real invitation. */}
+                  <View style={{ position: "absolute", top: 12, left: 12, backgroundColor: "#FFFFFF", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, minWidth: 54, alignItems: "center", shadowColor: "#0A2540", shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}>
+                    <Text style={{ color: c.brand, fontSize: 9 * scale, fontWeight: "900", letterSpacing: 1 }}>{dateBits.month}</Text>
+                    <Text style={{ color: c.onSurface, fontSize: 20 * scale, fontWeight: "900", lineHeight: 22 }}>{dateBits.day}</Text>
+                    <Text style={{ color: c.muted, fontSize: 9 * scale, fontWeight: "700" }}>{dateBits.weekday}</Text>
+                  </View>
+
+                  {/* "You're going" / "On waitlist" pill (only when the
+                      current user has RSVP'd) — social proof + memory aid. */}
                   {myStatus && (
-                    <View style={{ position: "absolute", top: 8, left: 8, backgroundColor: myStatus === "going" ? "#DCFCE7" : "#FEF3C7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
+                    <View style={{ position: "absolute", top: 12, right: 12, backgroundColor: myStatus === "going" ? "#DCFCE7" : "#FEF3C7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
                       <Text style={{ color: myStatus === "going" ? "#166534" : "#92400E", fontSize: 10 * scale, fontWeight: "900", textTransform: "uppercase" }}>
-                        {myStatus === "going" ? "You're going" : "On waitlist"}
+                        {myStatus === "going" ? "✓ You're going" : "On waitlist"}
                       </Text>
                     </View>
                   )}
+
+                  {/* Venue chip pinned to bottom-left of cover */}
+                  <View style={{ position: "absolute", left: 12, bottom: 10, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.35)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 }}>
+                    <Ionicons name={ev.is_online ? "videocam" : "location"} size={12} color="#FFF" />
+                    <Text numberOfLines={1} style={{ color: "#FFF", fontSize: 11 * scale, fontWeight: "700", maxWidth: 180 }}>{location}</Text>
+                  </View>
                 </View>
-                <View style={{ padding: 12, gap: 4 }}>
-                  <Text numberOfLines={1} style={{ fontSize: 11 * scale, color: c.brand, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase" }}>
-                    {formatFpDate(ev.starts_at, ev.timezone)}
-                  </Text>
-                  <Text numberOfLines={2} style={{ fontSize: 15 * scale, fontWeight: "900", color: c.onSurface, lineHeight: 20 }}>
+
+                {/* Body */}
+                <View style={{ padding: 14, gap: 6 }}>
+                  <Text numberOfLines={2} style={{ fontSize: 16 * scale, fontWeight: "900", color: c.onSurface, lineHeight: 20 }}>
                     {ev.title}
                   </Text>
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-                    <Text numberOfLines={1} style={{ fontSize: 12 * scale, color: c.muted, flex: 1 }}>
-                      {ev.is_online ? "💻 Online" : (ev.venue_name || "📍 Venue TBD")}
+                  {hook ? (
+                    <Text numberOfLines={2} style={{ fontSize: 13 * scale, color: c.muted, lineHeight: 18 }}>
+                      {hook}
                     </Text>
+                  ) : null}
+
+                  {/* Meta row: time + capacity + social proof */}
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Ionicons name="time-outline" size={13} color={c.muted} />
+                      <Text style={{ fontSize: 12 * scale, color: c.muted, fontWeight: "700" }}>{timeStr}</Text>
+                    </View>
+                    <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: c.muted, opacity: 0.4 }} />
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Ionicons name="people-outline" size={13} color={c.muted} />
+                      <Text style={{ fontSize: 12 * scale, color: c.muted, fontWeight: "700" }}>
+                        {going === 0 ? "Be the first" : going === 1 ? "1 going" : `${going} going`}
+                      </Text>
+                    </View>
                     {ev.capacity != null && (
-                      <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: isFull ? "#FEF3C7" : "#DCFCE7" }}>
-                        <Text style={{ fontSize: 10 * scale, fontWeight: "800", color: isFull ? "#92400E" : "#166534" }}>
+                      <View style={{ marginLeft: "auto", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: isFull ? "#FEF3C7" : "#DCFCE7" }}>
+                        <Text style={{ fontSize: 10 * scale, fontWeight: "900", color: isFull ? "#92400E" : "#166534" }}>
                           {isFull ? "Waitlist" : `${remaining} left`}
                         </Text>
                       </View>
                     )}
+                  </View>
+
+                  {/* Tap-to-see-more affordance */}
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", marginTop: 4, gap: 4 }}>
+                    <Text style={{ fontSize: 12 * scale, color: c.brand, fontWeight: "800" }}>
+                      {myStatus ? "View" : "Tap to RSVP"}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={14} color={c.brand} />
                   </View>
                 </View>
               </Pressable>
@@ -431,8 +518,58 @@ function FriendPlaceEventsSection({
           })}
         </ScrollView>
       )}
+
+      {/* Community-events section divider — makes it obvious where
+          curated ends and community-hosted begins. */}
+      <View style={{ marginTop: 24, paddingHorizontal: 16 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+          <View style={{ width: 3, height: 14, borderRadius: 2, backgroundColor: "#94A3B8" }} />
+          <Text style={{ fontSize: 10 * scale, fontWeight: "900", letterSpacing: 1.6, color: "#64748B", textTransform: "uppercase" }}>
+            From your community
+          </Text>
+        </View>
+        <Text style={{ fontSize: 18 * scale, fontWeight: "900", color: c.onSurface, letterSpacing: -0.3 }}>
+          What&rsquo;s on locally
+        </Text>
+        <Text style={{ fontSize: 13 * scale, color: c.muted, marginTop: 3, lineHeight: 18 }}>
+          Events members have posted. Tap one to RSVP, or host your own.
+        </Text>
+      </View>
     </View>
   );
+}
+
+/** Pull a warm one-line hook from the event's own description. Falls
+ *  back to null if there's nothing useful to show. */
+function pickHook(ev: any): string | null {
+  const src = (ev.description || "").toString().trim();
+  if (!src) return null;
+  // Only surface the first sentence so the card stays scannable.
+  const firstSentence = src.split(/(?<=[.!?])\s+/)[0] || src;
+  return firstSentence.length > 120 ? firstSentence.slice(0, 117) + "…" : firstSentence;
+}
+
+/** Break a start-time into calendar-badge parts (month / day / weekday). */
+function splitDateForBadge(iso?: string, tz: string = "Australia/Sydney") {
+  if (!iso) return { month: "TBD", day: "•", weekday: "" };
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return { month: "TBD", day: "•", weekday: "" };
+  try {
+    const month = d.toLocaleDateString("en-AU", { month: "short", timeZone: tz }).toUpperCase();
+    const day = d.toLocaleDateString("en-AU", { day: "numeric", timeZone: tz });
+    const weekday = d.toLocaleDateString("en-AU", { weekday: "short", timeZone: tz }).toUpperCase();
+    return { month, day, weekday };
+  } catch { return { month: "", day: "•", weekday: "" }; }
+}
+
+/** Compact "10:00 am" style time (Australian). */
+function formatFpTime(iso?: string, tz: string = "Australia/Sydney"): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  try {
+    return d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit", timeZone: tz }).toLowerCase();
+  } catch { return ""; }
 }
 
 /* ------------------------------------------------------------------
@@ -625,16 +762,6 @@ function Row({ icon, label, value, c, scale }: any) {
       </View>
     </View>
   );
-}
-
-/** Compact "Sat 25/07" style date pill — Australian formatting. */
-function formatFpDate(iso?: string, tz: string = "Australia/Sydney"): string {
-  if (!iso) return "Date TBD";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "Date TBD";
-  try {
-    return d.toLocaleDateString("en-AU", { weekday: "short", day: "2-digit", month: "short", timeZone: tz });
-  } catch { return d.toLocaleDateString("en-AU"); }
 }
 
 /** Long "Saturday 25/07/2026 · 10:00 am AEST" form used inside detail. */
