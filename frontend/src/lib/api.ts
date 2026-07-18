@@ -450,6 +450,24 @@ export const api = {
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ business_name, ...(contact || {}) }),
     }),
+
+  submitEventForReview: (token: string, payload: {
+    title: string;
+    description?: string;
+    location?: string;
+    starts_at: string;
+    ends_at?: string;
+    capacity?: number | null;
+    cost_display?: string;
+    accessibility_info?: string;
+    cover_image_base64?: string;
+    flagged_reasons?: string[];
+  }) =>
+    req(`/events/submit-for-review`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }),
   updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
     req(`/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   cancelEvent: (id: string, body: { actor_id: string; reason?: string }) =>

@@ -5303,17 +5303,19 @@ class EventPreflightBody(BaseModel):
 async def events_preflight(body: EventPreflightBody):
     """Run the business-event heuristic on a draft event BEFORE save.
 
-    Frontend calls this from the event-create form. If the response says
-    `looks_business: true` AND the host isn't already flagged as a
-    business, the client shows the friendly "this looks like a business
-    event" modal and lets the user choose between:
-      (a) confirming they're a business → claim the free listing perk
-      (b) confirming it's a community event → post normally, with a flag
-          logged for moderation if it looks suspicious later
+    Two triggers can raise the modal:
+      1. Text heuristic on title/description/location.
+      2. **Prolific-poster** check — if this user has already hosted N
+         or more events in the past, we flag the modal regardless of
+         wording. Someone posting many events is behaving like an
+         organisation whether or not they use business-y language.
     """
     hint = _looks_like_business_event(body.title, body.description, body.location)
     already_business = False
     business_status = None
+    prior_event_count = 0
+    prolific_flag = False
+
     if body.host_id:
         u = await db.users.find_one(
             {"id": body.host_id},
@@ -5323,13 +5325,34 @@ async def events_preflight(body: EventPreflightBody):
         )
         if u:
             already_business = bool(u.get("is_business"))
-            # Only attach the status block if the user actually has a plan
-            # — keeps the payload tidy and matches the spec (frontend
-            # branches on truthiness, not on the inner `plan` field).
             if already_business and u.get("business_plan"):
                 business_status = _business_status(u)
+
+        # Prolific-poster gate. Threshold picked deliberately low so
+        # frequent hosts always land in Mission Control for a light
+        # review — Garry's call, launch-time policy.
+        try:
+            prior_event_count = await db.events.count_documents({"host_id": body.host_id})
+        except Exception:
+            prior_event_count = 0
+        _PROLIFIC_THRESHOLD = int(os.getenv("PROLIFIC_HOST_THRESHOLD", "3"))
+        if prior_event_count >= _PROLIFIC_THRESHOLD:
+            prolific_flag = True
+
+    # Combine signals. The frontend only needs a single "should we
+    # show the modal?" boolean — but we also return the reasons so
+    # Mission Control can later see why something was flagged.
+    combined_looks_business = bool(hint.get("looks_business")) or prolific_flag
+    reasons = list(hint.get("reasons") or [])
+    if prolific_flag:
+        reasons.append(f"prolific_host:{prior_event_count}_prior_events")
+
     return {
         **hint,
+        "looks_business": combined_looks_business,
+        "reasons": reasons,
+        "prolific_flag": prolific_flag,
+        "prior_event_count": prior_event_count,
         "already_business": already_business,
         "business_status": business_status,
         "messages": {
@@ -5342,13 +5365,116 @@ async def events_preflight(body: EventPreflightBody):
 class ClaimBusinessBody(BaseModel):
     business_name: str = Field(min_length=2, max_length=80)
     plan: Optional[str] = Field(default="trial")  # trial | weekly | monthly
-    # Business register — required so Mission Control can follow up
-    # about pricing / invoicing / trial expiry. Kept optional in the
-    # model so older clients still POST without breaking; the endpoint
-    # enforces presence at runtime (see `claim_business`).
     contact_name: Optional[str] = Field(default=None, max_length=120)
     contact_email: Optional[EmailStr] = None
     contact_phone: Optional[str] = Field(default=None, max_length=40)
+
+
+class EventReviewSubmitBody(BaseModel):
+    title: str = Field(min_length=2, max_length=140)
+    description: Optional[str] = None
+    location: Optional[str] = None
+    starts_at: str  # ISO datetime
+    ends_at: Optional[str] = None
+    capacity: Optional[int] = None
+    cost_display: Optional[str] = None
+    accessibility_info: Optional[str] = None
+    cover_image_base64: Optional[str] = None
+    flagged_reasons: Optional[List[str]] = None  # from preflight response
+
+
+@api.post("/events/submit-for-review")
+async def submit_event_for_review(
+    body: EventReviewSubmitBody,
+    user=Depends(current_user),
+):
+    """Route a flagged community-event post into the CMS review queue.
+
+    Called by the mobile app when the business modal was shown AND
+    the user chose "This is a community event". Rather than skipping
+    review, the event is stored as `pending` in `cms_event_submissions`
+    so an admin can eyeball it in Mission Control before it appears
+    publicly.
+    """
+    submission_id = str(uuid.uuid4())
+    submission_ref = "FP-SUB-" + submission_id.replace("-", "")[:6].upper()
+    now = datetime.now(timezone.utc).isoformat()
+    contact_name = " ".join(
+        [(user.get("first_name") or "").strip(), (user.get("last_name") or "").strip()]
+    ).strip() or (user.get("username") or "FriendPlace member")
+    contact_email = user.get("email") or ""
+
+    doc = {
+        "id": submission_id,
+        "submission_ref": submission_ref,
+        "organisation_name": contact_name,   # community events use the host's own name
+        "contact_name": contact_name,
+        "contact_email": contact_email,
+        "contact_phone": None,
+        "event_title": body.title.strip(),
+        "event_starts_at": body.starts_at,
+        "event_ends_at": body.ends_at,
+        "venue_name": None,
+        "venue_address": (body.location or "").strip() or None,
+        "description": (body.description or "").strip() or None,
+        "capacity": body.capacity,
+        "cost_type": "free" if not body.cost_display else "paid",
+        "cost_display": (body.cost_display or "").strip() or None,
+        "accessibility_info": (body.accessibility_info or "").strip() or None,
+        "cover_image_base64": body.cover_image_base64,
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+        "reviewer_notes": None,
+        "resulting_event_id": None,
+        # Extra flag so Mission Control can see WHY this was routed
+        # through review (heuristic vs prolific poster vs both).
+        "flagged_reasons": body.flagged_reasons or ["community_event_from_flagged_user"],
+        "submitted_via": "mobile-community-flagged",
+        "host_user_id": user["id"],
+    }
+    await db.cms_event_submissions.insert_one(dict(doc))
+
+    # Best-effort alert + ack email — same treatment as the public form.
+    try:
+        await db.cms_alerts.insert_one({
+            "id": str(uuid.uuid4()),
+            "type": "event_submission",
+            "title": "Community event needs review",
+            "body": f"{contact_name} — {body.title.strip()}",
+            "ref_id": submission_id,
+            "created_at": now,
+            "read": False,
+        })
+    except Exception:
+        logger.exception("community submission alert insert failed")
+
+    if contact_email:
+        try:
+            from email_service import send_email, event_submission_ack_template
+            subject, html, text = event_submission_ack_template(
+                first_name=(user.get("first_name") or "").strip() or None,
+                organisation_name=contact_name,
+                event_title=body.title.strip(),
+                submission_ref=submission_ref,
+            )
+            support_from = (os.getenv("SUPPORT_EMAIL") or "support@friendplace.com.au").strip()
+            await _email_send(
+                to=contact_email, subject=subject, html=html, text=text,
+                reply_to=support_from,
+            )
+        except Exception:
+            logger.exception("community submission ack email failed")
+
+    return {
+        "ok": True,
+        "submission_ref": submission_ref,
+        "message": "Thanks — your event has been submitted for review. We'll email you once it's live.",
+    }
+
+
+class ClaimBusinessBodyLegacy(BaseModel):  # kept to satisfy old imports
+    pass
 
 
 # Subscription limits — single source of truth so the modal, the gate

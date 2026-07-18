@@ -459,13 +459,47 @@ export default function NewEvent() {
               <Pressable
                 testID="business-not-business-btn"
                 disabled={claiming}
-                onPress={async () => { setBusinessModal(null); await actuallyCreate(); }}
+                onPress={async () => {
+                  // Even when the user says "This is a community event",
+                  // the fact that our heuristic flagged it (or that
+                  // they're a prolific host) means this post goes to
+                  // Mission Control for review — NOT straight to the
+                  // public feed. Prevents mislabelled business posts
+                  // from slipping past the modal.
+                  setClaiming(true);
+                  try {
+                    if (!token) {
+                      show("Please sign in again — your session has expired");
+                      setClaiming(false);
+                      return;
+                    }
+                    const startsIso = combineDateTimeToIso(date, time);
+                    const res: any = await api.submitEventForReview(token, {
+                      title: title.trim(),
+                      description: description.trim() || undefined,
+                      location: location.trim() || undefined,
+                      starts_at: startsIso,
+                      capacity: capacity ?? undefined,
+                      flagged_reasons: businessModal?.reasons,
+                    });
+                    setBusinessModal(null);
+                    show(res?.message || "Thanks — your event has been submitted for review.");
+                    router.replace("/events");
+                  } catch (e: any) {
+                    show(e?.message || "Could not submit for review. Please try again.");
+                  } finally {
+                    setClaiming(false);
+                  }
+                }}
                 style={[modalStyles.secondaryBtn, { backgroundColor: c.surfaceSecondary }]}
               >
                 <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
                   This is a community event
                 </Text>
               </Pressable>
+              <Text style={{ color: c.muted, fontSize: 11 * scale, marginTop: 6, textAlign: "center", lineHeight: 15 }}>
+                Community events are quickly reviewed before appearing publicly.
+              </Text>
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -504,6 +538,23 @@ export default function NewEvent() {
       </Modal>
     </View>
   );
+}
+
+
+/**
+ * Combine the two separate `date` (YYYY-MM-DD) and `time` (HH:mm)
+ * fields used by the community events form into a single ISO string
+ * for the /events/submit-for-review endpoint. Backend accepts naive
+ * "YYYY-MM-DDTHH:MM:00" strings so no timezone suffix is needed.
+ */
+function combineDateTimeToIso(date: string, time: string): string {
+  const d = (date || "").trim();
+  const t = (time || "00:00").trim();
+  if (!d) return "";
+  const [h, m] = t.split(":");
+  const hh = String(Number(h) || 0).padStart(2, "0");
+  const mm = String(Number(m) || 0).padStart(2, "0");
+  return `${d}T${hh}:${mm}:00`;
 }
 
 const modalStyles = StyleSheet.create({
