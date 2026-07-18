@@ -124,45 +124,53 @@ export default function Events() {
         <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Host a new event</Text>
       </Pressable>
 
-      {/* FriendPlace curated events section — official events created via
-          Mission Control on the website. Shows only when there's at
-          least one active event so quiet weeks don't leave a hollow
-          section on the screen. */}
-      <FriendPlaceEventsSection
-        events={fpEvents}
-        loading={fpLoading}
-        myRsvps={myFpRsvps}
-        onOpen={(slug) => setFpDetailSlug(slug)}
-      />
-      {/* Month filter pills — older eyes can quickly jump to "This month" / "Next month".
-          The ScrollView gets an explicit height so its pill row can never get
-          clipped or overlapped by the Host button above. */}
-      <View style={{ height: 56, marginTop: 8 }}>
-        <ScrollView
-          testID="event-month-pills"
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, alignItems: "center", gap: 8 }}
-        >
-          {monthOptions.map((m) => {
-            const on = monthFilter === m.value;
-            return (
-              <Pressable
-                key={m.value}
-                testID={`month-pill-${m.value}`}
-                onPress={() => setMonthFilter(m.value)}
-                style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? c.brand : c.surfaceSecondary, borderWidth: 1.5, borderColor: on ? c.brand : c.border }}
-              >
-                <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{m.label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </View>
+      {/* Month filter + FriendPlace section both moved INTO the
+          FlatList's ListHeaderComponent so the whole page scrolls
+          as one unit. Keeping them outside pinned them to the top
+          and turned the community-events list into a tiny scrollable
+          window near the bottom of the screen — bad UX at any font
+          size, worse at accessibility-scaled sizes. */}
       <FlatList
         data={visibleEvents}
         keyExtractor={(e) => e.id}
         contentContainerStyle={{ padding: 16, gap: 12 }}
+        ListHeaderComponent={
+          <View style={{ marginBottom: 8 }}>
+            {/* FriendPlace curated events section (Mission Control-driven). */}
+            <View style={{ marginHorizontal: -16 }}>
+              <FriendPlaceEventsSection
+                events={fpEvents}
+                loading={fpLoading}
+                myRsvps={myFpRsvps}
+                onOpen={(slug) => setFpDetailSlug(slug)}
+              />
+            </View>
+            {/* Month filter pills — older eyes can quickly jump to
+                "This month" / "Next month". */}
+            <View style={{ height: 56, marginHorizontal: -16, marginTop: 8 }}>
+              <ScrollView
+                testID="event-month-pills"
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, alignItems: "center", gap: 8 }}
+              >
+                {monthOptions.map((m) => {
+                  const on = monthFilter === m.value;
+                  return (
+                    <Pressable
+                      key={m.value}
+                      testID={`month-pill-${m.value}`}
+                      onPress={() => setMonthFilter(m.value)}
+                      style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? c.brand : c.surfaceSecondary, borderWidth: 1.5, borderColor: on ? c.brand : c.border }}
+                    >
+                      <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{m.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </View>
+        }
         renderItem={({ item }) => {
           const going = user && (item.rsvps || []).includes(user.id);
           const sp = item.sponsor;
