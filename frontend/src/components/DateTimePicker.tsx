@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, Pressable, Modal, ScrollView, StyleSheet, Platform } from "react-native";
+import { View, Text, Pressable, Modal, ScrollView, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 
@@ -70,8 +70,14 @@ export function DateField({ value, onChange, testID }: { value: string; onChange
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable onPress={() => setOpen(false)} style={styles.backdrop} />
-        <View style={[styles.sheet, { backgroundColor: c.surface, borderColor: c.border }]}>
+        {/* Full-screen backdrop + centered sheet — this arrangement
+            keeps the picker legible on tablets. The old positioning
+            (absolute left:16/right:16) stretched the sheet across
+            the whole tablet, which in turn made the 7-column grid
+            look like a 20-column strip. */}
+        <View style={styles.centerWrap}>
+          <Pressable onPress={() => setOpen(false)} style={styles.backdrop} />
+          <View style={[styles.sheet, { backgroundColor: c.surface, borderColor: c.border }]}>
           <View style={styles.calHead}>
             <Pressable onPress={prevMonth} hitSlop={10} style={styles.calNav}><Ionicons name="chevron-back" size={22} color={c.brand} /></Pressable>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 18 * scale }}>{monthName(viewM)} {viewY}</Text>
@@ -79,7 +85,7 @@ export function DateField({ value, onChange, testID }: { value: string; onChange
           </View>
           <View style={styles.weekRow}>
             {["S","M","T","W","T","F","S"].map((w, i) => (
-              <Text key={i} style={{ color: c.muted, fontWeight: "800", fontSize: 12 * scale, width: 42, textAlign: "center" }}>{w}</Text>
+              <Text key={i} style={[styles.weekLabel, { color: c.muted, fontSize: 12 * scale }]}>{w}</Text>
             ))}
           </View>
           <View style={styles.grid}>
@@ -95,9 +101,11 @@ export function DateField({ value, onChange, testID }: { value: string; onChange
                   testID={`date-cell-${iso}`}
                   disabled={isPast}
                   onPress={() => { onChange(iso); setOpen(false); }}
-                  style={[styles.cell, { backgroundColor: isSel ? c.brand : isToday ? c.brandTertiary : "transparent", borderRadius: 999, opacity: isPast ? 0.32 : 1 }]}
+                  style={styles.cell}
                 >
-                  <Text style={{ color: isSel ? "#FFF" : isToday ? c.brand : c.onSurface, fontWeight: isSel || isToday ? "900" : "700", fontSize: 15 * scale }}>{d}</Text>
+                  <View style={{ width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 999, backgroundColor: isSel ? c.brand : isToday ? c.brandTertiary : "transparent", opacity: isPast ? 0.32 : 1 }}>
+                    <Text style={{ color: isSel ? "#FFF" : isToday ? c.brand : c.onSurface, fontWeight: isSel || isToday ? "900" : "700", fontSize: 15 * scale }}>{d}</Text>
+                  </View>
                 </Pressable>
               );
             })}
@@ -105,6 +113,7 @@ export function DateField({ value, onChange, testID }: { value: string; onChange
           <Pressable onPress={() => setOpen(false)} style={[styles.closeBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Cancel</Text>
           </Pressable>
+          </View>
         </View>
       </Modal>
     </>
@@ -154,8 +163,9 @@ export function TimeField({ value, onChange, testID }: { value: string; onChange
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable onPress={() => setOpen(false)} style={styles.backdrop} />
-        <View style={[styles.sheet, { backgroundColor: c.surface, borderColor: c.border, maxHeight: 480 }]}>
+        <View style={styles.centerWrap}>
+          <Pressable onPress={() => setOpen(false)} style={styles.backdrop} />
+          <View style={[styles.sheet, { backgroundColor: c.surface, borderColor: c.border, maxHeight: 480 }]}>
           <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 18 * scale, padding: 14, paddingBottom: 6 }}>Pick a time</Text>
           <ScrollView style={{ maxHeight: 360 }}>
             {slots.map((s) => {
@@ -176,6 +186,7 @@ export function TimeField({ value, onChange, testID }: { value: string; onChange
           <Pressable onPress={() => setOpen(false)} style={[styles.closeBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Cancel</Text>
           </Pressable>
+          </View>
         </View>
       </Modal>
     </>
@@ -183,17 +194,26 @@ export function TimeField({ value, onChange, testID }: { value: string; onChange
 }
 
 const styles = StyleSheet.create({
+  // Full-screen wrapper so the sheet centres on any device — vital
+  // on tablets where an absolute `left:16/right:16` sheet would
+  // stretch across the whole screen and warp the 7-column grid.
+  centerWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.45)" },
   sheet: {
-    position: "absolute",
-    left: 16, right: 16, top: Platform.OS === "web" ? 60 : 100,
+    // width caps out at 380 so the calendar stays phone-shaped even
+    // on iPad landscape; on narrow phones it happily fills 100%.
+    width: "100%",
+    maxWidth: 380,
     borderRadius: 18, borderWidth: 1, padding: 8,
     shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 18, shadowOffset: { width: 0, height: 8 }, elevation: 12,
   },
   calHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 8, paddingVertical: 10 },
   calNav: { padding: 8 },
-  weekRow: { flexDirection: "row", justifyContent: "space-around", paddingVertical: 4 },
-  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-around", paddingHorizontal: 4 },
-  cell: { width: 42, height: 42, alignItems: "center", justifyContent: "center", marginVertical: 2 },
+  // 7-column layout — each cell is exactly 1/7 of the sheet's width,
+  // so weekday headers and day numbers stay in lockstep at any width.
+  weekRow: { flexDirection: "row", paddingVertical: 4 },
+  weekLabel: { flex: 1, textAlign: "center", fontWeight: "800" },
+  grid: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 4 },
+  cell: { width: `${100 / 7}%`, height: 44, alignItems: "center", justifyContent: "center", marginVertical: 2 },
   closeBtn: { marginTop: 8, paddingVertical: 12, alignItems: "center", borderRadius: 12, borderWidth: 1 },
 });
