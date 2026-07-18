@@ -15,7 +15,7 @@ export default async function HowPage() {
             fontWeight: 800, color: '#5EEAD4', marginBottom: 12,
           }}>How it works</div>
           <h1 style={{ color: '#FFFFFF', maxWidth: 700, margin: '0 auto' }}>
-            From download to genuine friendship in less than a week.
+            From download to genuine friendship.
           </h1>
         </div>
       </section>
