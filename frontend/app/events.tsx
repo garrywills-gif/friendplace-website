@@ -360,20 +360,24 @@ function FriendPlaceEventsSection({
 
   return (
     <View style={{ marginTop: 14 }}>
-      {/* Section heading — deliberately warm & specific so first-time
-          users understand this isn't a random list; these are events
-          the FriendPlace team has personally arranged. Kept compact
-          (one line + tiny subtitle) so the community events below
-          still peek above the fold. */}
-      <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+      {/* Section heading — deliberately warm & specific. Says
+          "HOSTED BY FRIENDPLACE" (not "Featured") because "Featured"
+          could imply promoted/sponsored spots — reserved for later
+          when local orgs (RSL, libraries, Men's Shed, Rotary, etc.)
+          start hosting alongside us. This section is strictly
+          FriendPlace-run. */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 10 }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
           <View style={{ width: 3, height: 12, borderRadius: 2, backgroundColor: c.brand }} />
           <Text style={{ fontSize: 10 * scale, fontWeight: "900", letterSpacing: 1.5, color: c.brand, textTransform: "uppercase" }}>
-            Featured · Hosted by FriendPlace
+            Hosted by FriendPlace
           </Text>
         </View>
         <Text style={{ fontSize: 17 * scale, fontWeight: "900", color: c.onSurface, letterSpacing: -0.2 }}>
-          Come along ✨
+          Come and join us ✨
+        </Text>
+        <Text style={{ fontSize: 12 * scale, color: c.muted, marginTop: 2, lineHeight: 17 }}>
+          Warm meetups our team has planned. Everyone&rsquo;s welcome — pull up a chair.
         </Text>
       </View>
 
@@ -510,12 +514,18 @@ function FriendPlaceEventsSection({
       )}
 
       {/* Community-events section divider — makes it obvious where
-          curated ends and community-hosted begins. Kept to a single
-          line so it doesn't consume much vertical room. */}
-      <View style={{ marginTop: 16, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 6 }}>
-        <View style={{ width: 3, height: 12, borderRadius: 2, backgroundColor: "#94A3B8" }} />
-        <Text style={{ fontSize: 10 * scale, fontWeight: "900", letterSpacing: 1.5, color: "#64748B", textTransform: "uppercase" }}>
-          From your community
+          FriendPlace-hosted ends and member-hosted begins. This
+          separation will matter more as local orgs (RSL, Rotary,
+          libraries, etc.) start posting alongside members. */}
+      <View style={{ marginTop: 18, paddingHorizontal: 16 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
+          <View style={{ width: 3, height: 12, borderRadius: 2, backgroundColor: "#94A3B8" }} />
+          <Text style={{ fontSize: 10 * scale, fontWeight: "900", letterSpacing: 1.5, color: "#64748B", textTransform: "uppercase" }}>
+            From your community
+          </Text>
+        </View>
+        <Text style={{ fontSize: 16 * scale, fontWeight: "900", color: c.onSurface, letterSpacing: -0.2 }}>
+          What&rsquo;s on locally
         </Text>
       </View>
     </View>
