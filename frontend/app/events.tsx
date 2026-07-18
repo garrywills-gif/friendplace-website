@@ -359,45 +359,46 @@ function FriendPlaceEventsSection({
   const hasEvents = events.length > 0;
 
   return (
-    <View style={{ marginTop: 20 }}>
+    <View style={{ marginTop: 14 }}>
       {/* Section heading — deliberately warm & specific so first-time
           users understand this isn't a random list; these are events
-          the FriendPlace team has personally arranged. */}
-      <View style={{ paddingHorizontal: 16, marginBottom: 10 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
-          <View style={{ width: 3, height: 14, borderRadius: 2, backgroundColor: c.brand }} />
-          <Text style={{ fontSize: 10 * scale, fontWeight: "900", letterSpacing: 1.6, color: c.brand, textTransform: "uppercase" }}>
+          the FriendPlace team has personally arranged. Kept compact
+          (one line + tiny subtitle) so the community events below
+          still peek above the fold. */}
+      <View style={{ paddingHorizontal: 16, marginBottom: 8 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
+          <View style={{ width: 3, height: 12, borderRadius: 2, backgroundColor: c.brand }} />
+          <Text style={{ fontSize: 10 * scale, fontWeight: "900", letterSpacing: 1.5, color: c.brand, textTransform: "uppercase" }}>
             Featured · Hosted by FriendPlace
           </Text>
         </View>
-        <Text style={{ fontSize: 20 * scale, fontWeight: "900", color: c.onSurface, letterSpacing: -0.3 }}>
-          Something to come along to ✨
-        </Text>
-        <Text style={{ fontSize: 13 * scale, color: c.muted, marginTop: 3, lineHeight: 18 }}>
-          Warm meetups our team has planned. Everyone&rsquo;s welcome — pull up a chair.
+        <Text style={{ fontSize: 17 * scale, fontWeight: "900", color: c.onSurface, letterSpacing: -0.2 }}>
+          Come along ✨
         </Text>
       </View>
 
       {loading ? (
-        <View style={{ height: 200, alignItems: "center", justifyContent: "center" }}>
+        <View style={{ height: 140, alignItems: "center", justifyContent: "center" }}>
           <ActivityIndicator color={c.brand} />
         </View>
       ) : !hasEvents ? (
         // Empty-state — encouraging tone, not apologetic.
-        <View style={{ marginHorizontal: 16, padding: 20, borderRadius: 16, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, alignItems: "center" }}>
-          <Text style={{ fontSize: 34, marginBottom: 8 }}>☕</Text>
-          <Text style={{ fontSize: 15 * scale, fontWeight: "800", color: c.onSurface, textAlign: "center" }}>
-            Nothing on our calendar just yet
-          </Text>
-          <Text style={{ fontSize: 13 * scale, color: c.muted, textAlign: "center", marginTop: 6, lineHeight: 18 }}>
-            We&rsquo;re busy planning the next one. In the meantime, why not host your own community event above?
-          </Text>
+        <View style={{ marginHorizontal: 16, padding: 16, borderRadius: 14, backgroundColor: c.surfaceSecondary, borderWidth: 1, borderColor: c.border, flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <Text style={{ fontSize: 28 }}>☕</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13 * scale, fontWeight: "800", color: c.onSurface }}>
+              Nothing on our calendar just yet
+            </Text>
+            <Text style={{ fontSize: 12 * scale, color: c.muted, marginTop: 2, lineHeight: 16 }}>
+              We&rsquo;re planning the next one. Why not host your own above?
+            </Text>
+          </View>
         </View>
       ) : (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 14, paddingBottom: 8 }}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 12, paddingBottom: 6 }}
         >
           {events.map((ev) => {
             const myStatus = rsvpBySlug[ev.slug];
@@ -417,8 +418,8 @@ function FriendPlaceEventsSection({
                 testID={`fp-event-${ev.slug}`}
                 onPress={() => onOpen(ev.slug)}
                 style={({ pressed }) => ({
-                  width: 280,
-                  borderRadius: 20,
+                  width: 260,
+                  borderRadius: 18,
                   backgroundColor: c.surface,
                   borderWidth: 1,
                   borderColor: c.border,
@@ -428,89 +429,78 @@ function FriendPlaceEventsSection({
                   // than flat catalog rows.
                   shadowColor: "#0A2540",
                   shadowOpacity: 0.08,
-                  shadowRadius: 12,
-                  shadowOffset: { width: 0, height: 4 },
-                  elevation: 3,
+                  shadowRadius: 10,
+                  shadowOffset: { width: 0, height: 3 },
+                  elevation: 2,
                 })}
               >
-                {/* Cover with calendar-style date tile overlay + status pill */}
-                <View style={{ height: 140, backgroundColor: cover ? "#F1F5F9" : c.brand, position: "relative" }}>
+                {/* Cover with calendar-style date tile overlay + status pill.
+                    Height trimmed to 100px so the whole card fits within
+                    the top third of a phone screen — leaves room for the
+                    community events to peek beneath. */}
+                <View style={{ height: 100, backgroundColor: cover ? "#F1F5F9" : c.brand, position: "relative" }}>
                   {cover ? (
                     <Image source={{ uri: cover }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
                   ) : (
                     <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                      <Ionicons name="calendar" size={44} color="rgba(255,255,255,0.85)" />
+                      <Ionicons name="calendar" size={32} color="rgba(255,255,255,0.85)" />
                     </View>
                   )}
                   {/* Subtle darker gradient at bottom so the venue chip
-                      remains legible over bright covers. Achieved with
-                      a semi-opaque overlay. */}
-                  <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 44, backgroundColor: "rgba(15,23,42,0.35)" }} />
+                      remains legible over bright covers. */}
+                  <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 34, backgroundColor: "rgba(15,23,42,0.35)" }} />
 
-                  {/* Date tile — high-contrast, calendar-style so people
-                      scan the date first, like a real invitation. */}
-                  <View style={{ position: "absolute", top: 12, left: 12, backgroundColor: "#FFFFFF", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6, minWidth: 54, alignItems: "center", shadowColor: "#0A2540", shadowOpacity: 0.18, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } }}>
-                    <Text style={{ color: c.brand, fontSize: 9 * scale, fontWeight: "900", letterSpacing: 1 }}>{dateBits.month}</Text>
-                    <Text style={{ color: c.onSurface, fontSize: 20 * scale, fontWeight: "900", lineHeight: 22 }}>{dateBits.day}</Text>
-                    <Text style={{ color: c.muted, fontSize: 9 * scale, fontWeight: "700" }}>{dateBits.weekday}</Text>
+                  {/* Compact date tile — high-contrast, calendar-style. */}
+                  <View style={{ position: "absolute", top: 8, left: 8, backgroundColor: "#FFFFFF", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, minWidth: 44, alignItems: "center", shadowColor: "#0A2540", shadowOpacity: 0.18, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }}>
+                    <Text style={{ color: c.brand, fontSize: 8 * scale, fontWeight: "900", letterSpacing: 0.8 }}>{dateBits.month}</Text>
+                    <Text style={{ color: c.onSurface, fontSize: 16 * scale, fontWeight: "900", lineHeight: 18 }}>{dateBits.day}</Text>
                   </View>
 
-                  {/* "You're going" / "On waitlist" pill (only when the
-                      current user has RSVP'd) — social proof + memory aid. */}
+                  {/* "You're going" / "On waitlist" pill (only when
+                      the current user has RSVP'd). */}
                   {myStatus && (
-                    <View style={{ position: "absolute", top: 12, right: 12, backgroundColor: myStatus === "going" ? "#DCFCE7" : "#FEF3C7", borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 }}>
-                      <Text style={{ color: myStatus === "going" ? "#166534" : "#92400E", fontSize: 10 * scale, fontWeight: "900", textTransform: "uppercase" }}>
-                        {myStatus === "going" ? "✓ You're going" : "On waitlist"}
+                    <View style={{ position: "absolute", top: 8, right: 8, backgroundColor: myStatus === "going" ? "#DCFCE7" : "#FEF3C7", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Text style={{ color: myStatus === "going" ? "#166534" : "#92400E", fontSize: 9 * scale, fontWeight: "900", textTransform: "uppercase" }}>
+                        {myStatus === "going" ? "✓ Going" : "Waitlist"}
                       </Text>
                     </View>
                   )}
 
                   {/* Venue chip pinned to bottom-left of cover */}
-                  <View style={{ position: "absolute", left: 12, bottom: 10, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.35)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 }}>
-                    <Ionicons name={ev.is_online ? "videocam" : "location"} size={12} color="#FFF" />
-                    <Text numberOfLines={1} style={{ color: "#FFF", fontSize: 11 * scale, fontWeight: "700", maxWidth: 180 }}>{location}</Text>
+                  <View style={{ position: "absolute", left: 8, bottom: 6, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.35)", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 }}>
+                    <Ionicons name={ev.is_online ? "videocam" : "location"} size={11} color="#FFF" />
+                    <Text numberOfLines={1} style={{ color: "#FFF", fontSize: 10 * scale, fontWeight: "700", maxWidth: 160 }}>{location}</Text>
                   </View>
                 </View>
 
-                {/* Body */}
-                <View style={{ padding: 14, gap: 6 }}>
-                  <Text numberOfLines={2} style={{ fontSize: 16 * scale, fontWeight: "900", color: c.onSurface, lineHeight: 20 }}>
+                {/* Body — compact. Title + optional single-line hook +
+                    one meta row. Everything else lives in the modal. */}
+                <View style={{ padding: 12, gap: 4 }}>
+                  <Text numberOfLines={1} style={{ fontSize: 15 * scale, fontWeight: "900", color: c.onSurface, lineHeight: 19 }}>
                     {ev.title}
                   </Text>
                   {hook ? (
-                    <Text numberOfLines={2} style={{ fontSize: 13 * scale, color: c.muted, lineHeight: 18 }}>
+                    <Text numberOfLines={1} style={{ fontSize: 12 * scale, color: c.muted, lineHeight: 16 }}>
                       {hook}
                     </Text>
                   ) : null}
 
-                  {/* Meta row: time + capacity + social proof */}
-                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 4, gap: 8 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Ionicons name="time-outline" size={13} color={c.muted} />
-                      <Text style={{ fontSize: 12 * scale, color: c.muted, fontWeight: "700" }}>{timeStr}</Text>
-                    </View>
+                  {/* Meta row: time + social proof + capacity chip.
+                      Single-line so the card stays short. */}
+                  <View style={{ flexDirection: "row", alignItems: "center", marginTop: 2, gap: 6 }}>
+                    <Ionicons name="time-outline" size={12} color={c.muted} />
+                    <Text style={{ fontSize: 11 * scale, color: c.muted, fontWeight: "700" }}>{timeStr}</Text>
                     <View style={{ width: 3, height: 3, borderRadius: 1.5, backgroundColor: c.muted, opacity: 0.4 }} />
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Ionicons name="people-outline" size={13} color={c.muted} />
-                      <Text style={{ fontSize: 12 * scale, color: c.muted, fontWeight: "700" }}>
-                        {going === 0 ? "Be the first" : going === 1 ? "1 going" : `${going} going`}
-                      </Text>
-                    </View>
+                    <Text style={{ fontSize: 11 * scale, color: c.muted, fontWeight: "700" }}>
+                      {going === 0 ? "Be the first" : `${going} going`}
+                    </Text>
                     {ev.capacity != null && (
-                      <View style={{ marginLeft: "auto", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: isFull ? "#FEF3C7" : "#DCFCE7" }}>
-                        <Text style={{ fontSize: 10 * scale, fontWeight: "900", color: isFull ? "#92400E" : "#166534" }}>
+                      <View style={{ marginLeft: "auto", paddingHorizontal: 7, paddingVertical: 1, borderRadius: 999, backgroundColor: isFull ? "#FEF3C7" : "#DCFCE7" }}>
+                        <Text style={{ fontSize: 9 * scale, fontWeight: "900", color: isFull ? "#92400E" : "#166534" }}>
                           {isFull ? "Waitlist" : `${remaining} left`}
                         </Text>
                       </View>
                     )}
-                  </View>
-
-                  {/* Tap-to-see-more affordance */}
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", marginTop: 4, gap: 4 }}>
-                    <Text style={{ fontSize: 12 * scale, color: c.brand, fontWeight: "800" }}>
-                      {myStatus ? "View" : "Tap to RSVP"}
-                    </Text>
-                    <Ionicons name="chevron-forward" size={14} color={c.brand} />
                   </View>
                 </View>
               </Pressable>
@@ -520,19 +510,12 @@ function FriendPlaceEventsSection({
       )}
 
       {/* Community-events section divider — makes it obvious where
-          curated ends and community-hosted begins. */}
-      <View style={{ marginTop: 24, paddingHorizontal: 16 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
-          <View style={{ width: 3, height: 14, borderRadius: 2, backgroundColor: "#94A3B8" }} />
-          <Text style={{ fontSize: 10 * scale, fontWeight: "900", letterSpacing: 1.6, color: "#64748B", textTransform: "uppercase" }}>
-            From your community
-          </Text>
-        </View>
-        <Text style={{ fontSize: 18 * scale, fontWeight: "900", color: c.onSurface, letterSpacing: -0.3 }}>
-          What&rsquo;s on locally
-        </Text>
-        <Text style={{ fontSize: 13 * scale, color: c.muted, marginTop: 3, lineHeight: 18 }}>
-          Events members have posted. Tap one to RSVP, or host your own.
+          curated ends and community-hosted begins. Kept to a single
+          line so it doesn't consume much vertical room. */}
+      <View style={{ marginTop: 16, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <View style={{ width: 3, height: 12, borderRadius: 2, backgroundColor: "#94A3B8" }} />
+        <Text style={{ fontSize: 10 * scale, fontWeight: "900", letterSpacing: 1.5, color: "#64748B", textTransform: "uppercase" }}>
+          From your community
         </Text>
       </View>
     </View>
