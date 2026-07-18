@@ -64,6 +64,12 @@ export default function NewEvent() {
     nextPaidMsg: string;
   }>(null);
   const [businessName, setBusinessName] = useState("");
+  // Business register — captured on first claim so ops can follow up
+  // about pricing / renewal. Auto-fills contact_email from the logged-
+  // in profile since that's usually the right address anyway.
+  const [businessContactName, setBusinessContactName] = useState("");
+  const [businessContactEmail, setBusinessContactEmail] = useState("");
+  const [businessContactPhone, setBusinessContactPhone] = useState("");
   const [claiming, setClaiming] = useState(false);
   // Hard-stop overlay when an existing business hits the period limit.
   // Distinct from the "claim a plan" modal — these users have already
@@ -151,8 +157,19 @@ export default function NewEvent() {
   };
 
   const claimAndPost = async () => {
-    if (businessName.trim().length < 2) {
+    const trimmedName = businessName.trim();
+    const trimmedContactName = businessContactName.trim();
+    const trimmedContactEmail = businessContactEmail.trim();
+    if (trimmedName.length < 2) {
       show("Please enter your business or venue name");
+      return;
+    }
+    if (trimmedContactName.length < 2) {
+      show("Please tell us who we should contact");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedContactEmail)) {
+      show("Please add a valid contact email");
       return;
     }
     if (!token) {
@@ -161,11 +178,16 @@ export default function NewEvent() {
     }
     setClaiming(true);
     try {
-      await api.claimBusiness(token, businessName.trim());
+      await api.claimBusiness(token, trimmedName, {
+        contact_name: trimmedContactName,
+        contact_email: trimmedContactEmail,
+        contact_phone: businessContactPhone.trim() || undefined,
+      });
       setBusinessModal(null);
+      show("Thanks — we'll send your welcome email 💜");
       await actuallyCreate();
     } catch (e: any) {
-      show(e?.message || "Could not save business name");
+      show(e?.message || "Could not save business details");
     } finally { setClaiming(false); }
   };
 
@@ -302,14 +324,11 @@ export default function NewEvent() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ─── "This looks like a business event" friendly gate ──────────────
-          Shown only when the preflight heuristic trips AND the host
-          isn't already a flagged business. Two paths:
-            • Yes, I'm a business → enter venue name → claim free listing
-              and post with "Sponsored by …" footer
-            • No, it's a community event → post as normal (flag logged
-              server-side via the heuristic score for future moderation)
-       */}
+      {/* ─── "Looks like you're creating an event for an organisation"
+          friendly gate — welcoming to RSL, Rotary, churches, libraries,
+          Men's Shed, community centres and yes, businesses too. We
+          deliberately avoid the word "business" first because many
+          community organisations don't see themselves that way. */}
       <Modal
         visible={!!businessModal}
         animationType="fade"
@@ -319,65 +338,135 @@ export default function NewEvent() {
         <Pressable style={modalStyles.backdrop} onPress={() => !claiming && setBusinessModal(null)}>
           <Pressable
             onPress={(e: any) => e.stopPropagation && e.stopPropagation()}
-            style={[modalStyles.sheet, { backgroundColor: c.surface }]}
+            style={[modalStyles.sheet, { backgroundColor: c.surface, maxHeight: "90%" }]}
           >
-            <Text style={{ fontSize: 44 }}>🏪</Text>
-            <Text style={[modalStyles.title, { color: c.onSurface, fontSize: 22 * scale }]}>
-              This looks like a business event
-            </Text>
-            <Text style={[modalStyles.body, { color: c.onSurface, fontSize: 15 * scale }]}>
-              FriendPlace is built for our community — so when we spot business listings, we gently let you know.
-              {"\n\n"}
-              <Text style={{ fontWeight: "800" }}>🎁 {businessModal?.trialOffer}</Text>
-              {"\n\n"}
-              {businessModal?.nextPaidMsg}
-            </Text>
-            <Text style={[modalStyles.label, { color: c.onSurface, fontSize: 14 * scale }]}>
-              Business or venue name
-            </Text>
-            <TextInput
-              testID="business-name-input"
-              value={businessName}
-              onChangeText={setBusinessName}
-              placeholder="e.g. Bondi RSL Club"
-              placeholderTextColor={c.muted}
-              editable={!claiming}
-              maxLength={80}
-              style={[
-                modalStyles.input,
-                {
-                  color: c.onSurface,
-                  borderColor: c.border,
-                  backgroundColor: c.surfaceSecondary,
-                  fontSize: 16 * scale,
-                },
-              ]}
-            />
-            <Pressable
-              testID="business-confirm-btn"
-              disabled={claiming || businessName.trim().length < 2}
-              onPress={claimAndPost}
-              style={[
-                modalStyles.primaryBtn,
-                {
-                  backgroundColor: businessName.trim().length >= 2 && !claiming ? c.brand : c.surfaceTertiary,
-                },
-              ]}
-            >
-              <Text style={{ color: businessName.trim().length >= 2 && !claiming ? c.onBrandPrimary : c.muted, fontWeight: "900", fontSize: 16 * scale }}>
-                {claiming ? "Starting your trial…" : "Start free trial & post event 🎁"}
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 4 }}>
+              <Text style={{ fontSize: 38 }}>🏢</Text>
+              <Text style={[modalStyles.title, { color: c.onSurface, fontSize: 21 * scale }]}>
+                Looks like you&rsquo;re creating an event for an organisation
               </Text>
-            </Pressable>
-            <Pressable
-              testID="business-not-business-btn"
-              disabled={claiming}
-              onPress={async () => { setBusinessModal(null); await actuallyCreate(); }}
-              style={[modalStyles.secondaryBtn, { backgroundColor: c.surfaceSecondary }]}
-            >
-              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
-                No, it&apos;s a community event
+              <Text style={[modalStyles.body, { color: c.onSurface, fontSize: 15 * scale }]}>
+                FriendPlace welcomes community organisations, clubs, charities and local businesses. If you&rsquo;re posting on behalf of an organisation, we&rsquo;d love to help you reach more people in your community.
+                {"\n\n"}
+                <Text style={{ fontWeight: "800" }}>🎁 {businessModal?.trialOffer}</Text>
+                {"\n\n"}
+                <Text style={{ color: c.muted, fontSize: 13 * scale }}>{businessModal?.nextPaidMsg}</Text>
               </Text>
-            </Pressable>
+
+              <Text style={[modalStyles.label, { color: c.onSurface, fontSize: 14 * scale }]}>
+                Organisation or venue name
+              </Text>
+              <TextInput
+                testID="business-name-input"
+                value={businessName}
+                onChangeText={setBusinessName}
+                placeholder="e.g. North Ryde RSL"
+                placeholderTextColor={c.muted}
+                editable={!claiming}
+                maxLength={80}
+                style={[modalStyles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 16 * scale }]}
+              />
+
+              <Text style={[modalStyles.label, { color: c.onSurface, fontSize: 14 * scale }]}>
+                Contact person
+              </Text>
+              <TextInput
+                testID="business-contact-name-input"
+                value={businessContactName}
+                onChangeText={setBusinessContactName}
+                placeholder="e.g. Jane Wilson"
+                placeholderTextColor={c.muted}
+                editable={!claiming}
+                autoCapitalize="words"
+                maxLength={120}
+                style={[modalStyles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 16 * scale }]}
+              />
+
+              <Text style={[modalStyles.label, { color: c.onSurface, fontSize: 14 * scale }]}>
+                Contact email
+              </Text>
+              <TextInput
+                testID="business-contact-email-input"
+                value={businessContactEmail}
+                onChangeText={setBusinessContactEmail}
+                placeholder="e.g. events@northryderslclub.org.au"
+                placeholderTextColor={c.muted}
+                editable={!claiming}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                maxLength={200}
+                style={[modalStyles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 16 * scale }]}
+              />
+
+              <Text style={[modalStyles.label, { color: c.onSurface, fontSize: 14 * scale }]}>
+                Contact phone <Text style={{ color: c.muted, fontWeight: "600" }}>(optional)</Text>
+              </Text>
+              <TextInput
+                testID="business-contact-phone-input"
+                value={businessContactPhone}
+                onChangeText={setBusinessContactPhone}
+                placeholder="e.g. 02 9888 1234"
+                placeholderTextColor={c.muted}
+                editable={!claiming}
+                keyboardType="phone-pad"
+                maxLength={40}
+                style={[modalStyles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 16 * scale }]}
+              />
+
+              <Text style={{ color: c.muted, fontSize: 11 * scale, marginTop: 4, lineHeight: 15, textAlign: "center" }}>
+                We&rsquo;ll only use these details to help you get set up and to email you before your trial ends.
+              </Text>
+
+              <Pressable
+                testID="business-confirm-btn"
+                disabled={
+                  claiming ||
+                  businessName.trim().length < 2 ||
+                  businessContactName.trim().length < 2 ||
+                  !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(businessContactEmail.trim())
+                }
+                onPress={claimAndPost}
+                style={[
+                  modalStyles.primaryBtn,
+                  {
+                    backgroundColor:
+                      businessName.trim().length >= 2 &&
+                      businessContactName.trim().length >= 2 &&
+                      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(businessContactEmail.trim()) &&
+                      !claiming
+                        ? c.brand
+                        : c.surfaceTertiary,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color:
+                      businessName.trim().length >= 2 &&
+                      businessContactName.trim().length >= 2 &&
+                      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(businessContactEmail.trim()) &&
+                      !claiming
+                        ? c.onBrandPrimary
+                        : c.muted,
+                    fontWeight: "900",
+                    fontSize: 16 * scale,
+                  }}
+                >
+                  {claiming ? "Starting your trial…" : "Start my free trial & post event 🎁"}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                testID="business-not-business-btn"
+                disabled={claiming}
+                onPress={async () => { setBusinessModal(null); await actuallyCreate(); }}
+                style={[modalStyles.secondaryBtn, { backgroundColor: c.surfaceSecondary }]}
+              >
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
+                  This is a community event
+                </Text>
+              </Pressable>
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>

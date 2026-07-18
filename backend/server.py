@@ -5333,8 +5333,8 @@ async def events_preflight(body: EventPreflightBody):
         "already_business": already_business,
         "business_status": business_status,
         "messages": {
-            "trial_offer": "Start with a free 1-month trial — up to 5 event listings.",
-            "next_paid": "Weekly and monthly plans are coming soon — we'll be in touch about pricing.",
+            "trial_offer": "Enjoy a free 1-month trial with up to 5 event listings while we prepare our organisation plans.",
+            "next_paid": "We&rsquo;ll be in touch closer to launch about weekly and monthly pricing so there are no surprises.",
         },
     }
 
@@ -5342,6 +5342,13 @@ async def events_preflight(body: EventPreflightBody):
 class ClaimBusinessBody(BaseModel):
     business_name: str = Field(min_length=2, max_length=80)
     plan: Optional[str] = Field(default="trial")  # trial | weekly | monthly
+    # Business register — required so Mission Control can follow up
+    # about pricing / invoicing / trial expiry. Kept optional in the
+    # model so older clients still POST without breaking; the endpoint
+    # enforces presence at runtime (see `claim_business`).
+    contact_name: Optional[str] = Field(default=None, max_length=120)
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = Field(default=None, max_length=40)
 
 
 # Subscription limits — single source of truth so the modal, the gate
@@ -5394,6 +5401,9 @@ async def claim_business(body: ClaimBusinessBody, user=Depends(current_user)):
     Paid weekly + monthly tiers come later — we'll be in touch about
     pricing closer to launch, so requesting them just slots the user
     into the trial period for now and records their interest.
+
+    Also captures the business register info (contact name, email,
+    optional phone) so ops can follow up about invoicing / renewal.
     """
     plan = (body.plan or "trial").lower()
     if plan not in _BUSINESS_PLANS:
@@ -5409,20 +5419,103 @@ async def claim_business(body: ClaimBusinessBody, user=Depends(current_user)):
         {"id": user["id"]},
         {"_id": 0, "is_business": 1, "business_plan": 1, "business_plan_started_at": 1, "business_plan_renews_at": 1, "business_events_this_period": 1},
     ) or {}
+
+    # Contact-person + contact-email are required for first-time claims
+    # so ops can always reach a human. Repeat claims (same business
+    # updating their name) can leave these blank — we already have
+    # what we need from the first claim.
+    is_first_claim = not existing.get("business_plan")
+    contact_name = (body.contact_name or "").strip()
+    contact_email = (body.contact_email or "").strip().lower() if body.contact_email else ""
+    contact_phone = (body.contact_phone or "").strip()
+    if is_first_claim:
+        if len(contact_name) < 2:
+            raise HTTPException(400, "Please tell us the name of the person we can contact.")
+        if not contact_email:
+            raise HTTPException(400, "Please add a contact email so we can reach out.")
+
     update: dict = {
         "is_business": True,
         "business_name": body.business_name.strip(),
         "business_plan": effective_plan,
         "business_requested_plan": plan,  # remember what they asked for
     }
-    # Only initialise the period the first time, so repeat-claim doesn't
-    # silently reset the counter and let someone game the limit.
-    if not existing.get("business_plan"):
+    # Only initialise the period (and register info) the first time,
+    # so a repeat-claim doesn't silently reset the counter and let
+    # someone game the limit — or clobber the contact details.
+    if is_first_claim:
         update["business_plan_started_at"] = now.isoformat()
         update["business_plan_renews_at"] = renews_at
         update["business_events_this_period"] = 0
+        update["business_contact_name"] = contact_name
+        update["business_contact_email"] = contact_email
+        if contact_phone:
+            update["business_contact_phone"] = contact_phone
+        update["business_registered_at"] = now.isoformat()
     await db.users.update_one({"id": user["id"]}, {"$set": update})
     fresh = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+
+    # ── Fire the Mission Control alert + welcome email (first-claim
+    #    only so we don't spam ops on every business-name edit).
+    if is_first_claim:
+        try:
+            await _notify_admins({
+                "type": "business_signup",
+                "title": "New business signed up",
+                "body": f"{body.business_name.strip()} — {contact_name} <{contact_email}>",
+                "ref_user_id": user["id"],
+            })
+        except Exception:
+            logger.exception("business signup admin-notify failed")
+
+        # Auto-reply email — best-effort, don't block the claim if
+        # Resend is unavailable.
+        try:
+            from email_service import send_email, business_welcome_template
+            from html import escape as _html_escape
+            subject, html, text = business_welcome_template(
+                first_name=contact_name.split(" ")[0] if contact_name else None,
+                business_name=body.business_name.strip(),
+                trial_limit=cfg["limit"],
+                trial_days=cfg["period_days"],
+                requested_plan=plan,
+            )
+            support_from = (os.getenv("SUPPORT_EMAIL") or "support@friendplace.com.au").strip()
+            await _email_send(
+                to=contact_email,
+                subject=subject,
+                html=html,
+                text=text,
+                reply_to=support_from,
+            )
+            # Also cc the support inbox so ops has a paper trail.
+            try:
+                await _email_send(
+                    to=support_from,
+                    subject=f"[Business signup] {body.business_name.strip()} — {contact_name}",
+                    html=(
+                        f"<p><strong>{_html_escape(body.business_name.strip())}</strong> just signed up.</p>"
+                        f"<ul>"
+                        f"<li>Contact: {_html_escape(contact_name)} &lt;{_html_escape(contact_email)}&gt;</li>"
+                        + (f"<li>Phone: {_html_escape(contact_phone)}</li>" if contact_phone else "")
+                        + f"<li>Requested plan: {_html_escape(plan)}</li>"
+                        f"<li>User ID: {_html_escape(user['id'])}</li>"
+                        f"</ul>"
+                    ),
+                    text=(
+                        f"{body.business_name.strip()} just signed up.\n"
+                        f"Contact: {contact_name} <{contact_email}>\n"
+                        + (f"Phone: {contact_phone}\n" if contact_phone else "")
+                        + f"Requested plan: {plan}\n"
+                        f"User ID: {user['id']}\n"
+                    ),
+                    reply_to=contact_email,
+                )
+            except Exception:
+                logger.exception("business signup ops-cc email failed")
+        except Exception:
+            logger.exception("business signup welcome email failed")
+
     return {
         **_safe_user(fresh or {}),
         "business_status": _business_status(fresh or {}),

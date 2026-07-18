@@ -902,3 +902,121 @@ def event_cancelled_template(
         f"{_branded_footer_text()}"
     )
     return email_subject, html, text
+
+
+def business_welcome_template(
+    *,
+    first_name: str | None,
+    business_name: str,
+    trial_limit: int,
+    trial_days: int,
+    requested_plan: str | None,
+) -> tuple[str, str, str]:
+    """Auto-reply sent when a business self-registers via the mobile
+    "Host a new event" flow. Warm, concise, and sets expectations:
+
+      - Free trial locked in (N listings, N days)
+      - We'll be in touch about pricing before it ends
+      - Reply-to points at support@ so their reply becomes a ticket
+    """
+    from html import escape as _esc
+    name = (first_name or "there").strip()
+    safe_biz = _esc(business_name or "your organisation")
+    email_subject = f"Welcome to FriendPlace, {safe_biz} 💜"
+
+    plan_label = {
+        "weekly": "Weekly plan (2 listings / week)",
+        "monthly": "Monthly plan (5 listings / month)",
+        "trial": "Free 1-month trial",
+    }.get((requested_plan or "trial").lower(), "Free 1-month trial")
+
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+            <tr>
+              <td align="center" style="padding:8px 22px 6px 22px;">
+                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+                </div>
+                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
+                  ORGANISATIONS · WELCOME
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:24px 22px 6px 22px;">
+                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+                  Hi {_esc(name)},<br><br>
+                  Thanks for registering <strong style="color:#FFFFFF;">{safe_biz}</strong> on FriendPlace. We&rsquo;re delighted to have you as part of the community.
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding:22px 22px 4px 22px;">
+                <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
+                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR TRIAL IS ACTIVE</div>
+                  <div style="color:#5EEAD4;font-size:22px;font-weight:900;line-height:1;margin-top:8px;">
+                    {trial_limit} listings · {trial_days} days
+                  </div>
+                  <div style="color:#CBD5E1;font-size:12px;margin-top:6px;">
+                    Requested: {_esc(plan_label)}
+                  </div>
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:24px;color:#E2E8F0;">
+                  Post your events straight from the mobile app — they&rsquo;ll appear in the community feed with your organisation shown as the host.
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:18px 22px 4px 22px;">
+                <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
+                  We&rsquo;re finalising our organisation plans and will email you the pricing before your trial ends, so there are no surprises.
+                </div>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+                  If you have any questions in the meantime, just reply to this email — it&rsquo;ll come straight through to us.<br><br>
+                  💜 The FriendPlace Team
+                </div>
+              </td>
+            </tr>
+
+            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+            <tr><td style="padding:0 12px;">{_branded_footer_html()}</td></tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
+
+    text = (
+        f"Hi {name},\n\n"
+        f"Thanks for registering {business_name} on FriendPlace. We're delighted to have you as part of the community.\n\n"
+        f"    Your trial is active: {trial_limit} listings · {trial_days} days\n"
+        f"    Requested: {plan_label}\n\n"
+        f"Post your events straight from the mobile app — they'll appear in the community feed with your organisation shown as the host.\n\n"
+        f"We're finalising our organisation plans and will email you the pricing before your trial ends, so there are no surprises.\n\n"
+        f"If you have any questions in the meantime, just reply to this email — it'll come straight through to us.\n\n"
+        f"💜 The FriendPlace Team"
+        f"{_branded_footer_text()}"
+    )
+    return email_subject, html, text
+

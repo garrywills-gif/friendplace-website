@@ -440,11 +440,15 @@ export const api = {
     req(`/events/preflight`, { method: "POST", body: JSON.stringify(body) }),
   // User self-identifies as a business / venue. Stores business_name and
   // unlocks the "Sponsored by …" footer + free-listing perk path.
-  claimBusiness: (token: string, business_name: string) =>
+  claimBusiness: (
+    token: string,
+    business_name: string,
+    contact?: { contact_name?: string; contact_email?: string; contact_phone?: string },
+  ) =>
     req(`/users/me/business`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ business_name }),
+      body: JSON.stringify({ business_name, ...(contact || {}) }),
     }),
   updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
     req(`/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
