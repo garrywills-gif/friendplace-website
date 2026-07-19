@@ -5,9 +5,11 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi } from '@/lib/cms-api';
+import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 
-const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions' }[] = [
-  { href: '/admin/dashboard',        label: 'Dashboard',         icon: '📊' },
+const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions'; group?: string }[] = [
+  { href: '/admin/bridge',           label: 'The Bridge',        icon: '🌉' },
+  { href: '/admin/dashboard',        label: 'Dashboard (old)',   icon: '📊' },
   { href: '/admin/home',             label: 'Home page',         icon: '🏠' },
   { href: '/admin/about',            label: 'About page',        icon: 'ℹ️' },
   { href: '/admin/faqs',             label: 'FAQs',              icon: '❓' },
@@ -125,8 +127,11 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
       </aside>
 
       <main style={mainCol}>
-        {title && <h1 style={pageTitle}>{title}</h1>}
-        {children}
+        <AskGeorgeBar />
+        <div style={{ padding: '24px 40px 64px' }}>
+          {title && <h1 style={pageTitle}>{title}</h1>}
+          {children}
+        </div>
       </main>
     </div>
   );
@@ -162,7 +167,7 @@ const navBadge: React.CSSProperties = {
   boxShadow: '0 4px 12px rgba(249,115,22,0.4)',
 };
 const signOutBtn: React.CSSProperties = { width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: '#FFFFFF', fontSize: 13, fontWeight: 700, cursor: 'pointer' };
-const mainCol: React.CSSProperties = { flex: 1, padding: '32px 40px 64px', maxWidth: 1200, width: '100%' };
+const mainCol: React.CSSProperties = { flex: 1, maxWidth: 1400, width: '100%' };
 const pageTitle: React.CSSProperties = { fontSize: 28, color: '#0A2540', fontWeight: 900, marginTop: 0, marginBottom: 24 };
 
 // Reusable button/panel styles for admin editor pages.
