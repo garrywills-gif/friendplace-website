@@ -23,6 +23,8 @@
     - carries conversations naturally across days.
    Every future feature is judged not only by whether it works, but by whether it strengthens the relationship.
 9. **George should reduce the effort required to bring people together.** If a feature makes it easier for people to create friendships, groups, conversations, or events, it takes priority. Every design choice is measured against whether it lowers the barrier to community. George is the easiest way to build community.
+10. **George should never make people feel like they're filling out a form.** Even when he needs twenty pieces of information, it must feel like a natural conversation. He notices what's already been said, asks only what's genuinely missing, explains why he's asking when appropriate, avoids asking things he can confidently infer, and shows progress naturally rather than through a checklist. By the end, the person feels like they had a chat with someone helpful — not that they completed an online form.
+11. **George may infer, but never assume.** Whenever confidence isn't high enough, George asks. One extra question beats a confidently wrong guess. Every inferred value carries its source; if there's no source, George doesn't fill it.
 
 ---
 
@@ -572,9 +574,14 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 
 **What George does in the conversation:**
 1. Extracts everything already said in natural language (title, when, where, capacity, price, audience, description tone).
-2. Infers sensible defaults from grounded sources — never invented:
-    - Member's or org's home venues, previous events, typical audience, seasonal patterns.
-    - Time-of-day norms (a "coffee morning" defaults to 10:00, not 22:00).
+2. Infers sensible defaults from grounded sources — never invented. **George may infer, but never assume** (principle #11). Sources George is allowed to learn from:
+    - The organiser's previous events (title patterns, typical times, capacity, price, duration).
+    - The organisation's profile and preferred writing style.
+    - Previously used venues + full venue history at each space.
+    - Previous attendance numbers, event durations, event times, event pricing.
+    - Seasonal patterns and day-of-week patterns.
+    - Public holidays where relevant.
+    - The administrator's previous edits and approvals (George gets smarter over time).
 3. Asks only for genuinely missing critical fields — *one warm question at a time*, colleague voice.
 4. Suggests improvements where helpful ("The community hall lounge fits about twenty people — is that the space you meant?").
 5. Produces a complete draft as an **Action Preview**: WHAT / WHERE / WHEN / WHO / DEFAULTS INFERRED / SOURCES.
@@ -586,6 +593,16 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 - Voice-first — works entirely over the Ask George bar and its microphone; mobile-first for members.
 - Warm colleague voice throughout.
 - Prompt-injection defence — the extractor treats free-form input as data.
+
+**Member-facing entry points (Milestone C):**
+- A prominent **"Talk to George"** entry from the Events area of the mobile app.
+- A persistent **microphone/chat button** on the Home screen.
+- Over time George shouldn't feel optional. People shouldn't think *"I'll use George"* — they should think *"I'll organise it,"* and George is simply how they do it.
+
+**Extraction stack:**
+- **Claude Haiku** — structured field extraction (fast, deterministic schema).
+- **Claude Sonnet** — conversation, clarification, reasoning, warm draft polish.
+Mirrors the two-model pattern already proven in MCGS triage + proposals.
 
 **Post-conversation routing (by role, one write):**
 | Role | On approve → |
@@ -738,3 +755,7 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 | 2026-07-19 | **Principle #9: George should reduce the effort required to bring people together.** If a feature makes it easier for people to create friendships, groups, conversations, or events, it takes priority. Every design choice is measured against whether it lowers the barrier to community. | *"Let's make George the easiest way to build community."* |
 | 2026-07-19 | **Roadmap re-ordered.** Conversational Event Creation promoted to next major work (Phase 3), pushing Health Pulse to Phase 4, Alerts+SMS to Phase 5, and Studios/Insights/Orgs/Reviews/One-Ongoing-Conversation down accordingly. Reason: the feature people will remember is *"George, organise a trivia night for next Friday"* — that removes the biggest barrier to creating community and is the first time George becomes member-facing. | Impact-first prioritisation. Relationship + effort-reduction over more admin polish. |
 | 2026-07-19 | **Conversational Event Creation is universal.** Same George conversation for members, organisations, and administrators. One conversation, different permissions. Only the post-approval routing differs: member → review queue; organisation → org approval workflow; administrator → immediate publish. | One George. One conversation. Different permissions. |
+| 2026-07-19 | **Principle #10: George should never make people feel like they're filling out a form.** Even at twenty fields of information, it must read as a natural conversation — notice what's said, ask only what's genuinely missing, explain when appropriate, never a checklist. By the end, the person feels like they had a chat with someone helpful. | *"By the end of the conversation, the member should feel like they had a chat with someone helpful — not like they completed an online form."* |
+| 2026-07-19 | **Principle #11: George may infer, but never assume.** When confidence isn't high enough, George asks. Every inferred value carries its source. If there is no source, George doesn't fill it. | *"I'd rather George ask one extra question than confidently guess something important."* |
+| 2026-07-19 | **Conversational Event Creation — grounded default sources locked.** George is allowed to learn from: organiser's previous events; org profile + preferred writing style; previously used venues + venue history; previous attendance numbers, durations, times, pricing; seasonal patterns; day-of-week patterns; public holidays where relevant; administrator's previous edits and approvals (feedback loop for continuous improvement). | Every inferred value must trace to one of these. |
+| 2026-07-19 | **Member-facing entry points for Milestone C**: prominent "Talk to George" button in the Events area **and** a persistent microphone/chat button on the mobile Home screen. Over time people should think *"I'll organise it,"* not *"I'll use George"* — George becomes how they organise, not an optional feature. | Reinforces principle #9 (reduce effort to bring people together). |

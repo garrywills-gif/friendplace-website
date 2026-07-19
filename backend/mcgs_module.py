@@ -49,6 +49,13 @@ from services.mcgs.rhythms import (
 )
 from services.mcgs.rhythms.models import COLL_BRIEFINGS
 from services.mcgs.rhythms.settings import RhythmSettingsError
+from services.george.event_creation import (
+    start_event_conversation,
+    take_conversation_turn,
+    get_event_session,
+    approve_event_draft,
+    cancel_event_session,
+)
 from services.george import grounded_chat_stream
 
 log = logging.getLogger("friendplace.mcgs.api")
@@ -132,6 +139,18 @@ class RhythmSettingsIn(BaseModel):
     quiet_hours_start: Optional[str] = None
     quiet_hours_end: Optional[str] = None
     vacation_mode: Optional[bool] = None
+
+
+class EventConversationStartIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
+class EventConversationTurnIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
+class EventApproveIn(BaseModel):
+    edits: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +384,95 @@ def build_router(db) -> APIRouter:
             log.exception("milestone scan failed")
             raise HTTPException(500, f"Milestone scan failed: {exc}")
         return result
+
+    # =====================================================================
+    # /api/mcgs/george/event/*  — Conversational Event Creation (Phase 3)
+    # =====================================================================
+
+    @router.post("/mcgs/george/event/start")
+    async def api_event_start(
+        body: EventConversationStartIn,
+        admin: dict = Depends(current_admin),
+    ):
+        """Begin a new event-creation conversation with George.
+
+        The initial text can be a full description or a short seed —
+        George extracts what's there, checks grounded defaults, and
+        either asks the next warm question or produces a complete draft.
+        """
+        try:
+            session = await start_event_conversation(
+                db,
+                actor_id=admin.get("id"),
+                actor_role="admin",
+                initial_text=body.text,
+                host_id=admin.get("id"),
+            )
+        except Exception as exc:
+            log.exception("event conversation start failed")
+            raise HTTPException(500, f"Could not start conversation: {exc}")
+        return session
+
+    @router.post("/mcgs/george/event/session/{session_id}/turn")
+    async def api_event_turn(
+        session_id: str,
+        body: EventConversationTurnIn,
+        admin: dict = Depends(current_admin),
+    ):
+        try:
+            session = await take_conversation_turn(db, session_id, body.text)
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+        except Exception as exc:
+            log.exception("event conversation turn failed")
+            raise HTTPException(500, f"Could not continue conversation: {exc}")
+        if session.get("actor_id") != admin.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        return session
+
+    @router.get("/mcgs/george/event/session/{session_id}")
+    async def api_event_session(
+        session_id: str,
+        admin: dict = Depends(current_admin),
+    ):
+        session = await get_event_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != admin.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        return session
+
+    @router.post("/mcgs/george/event/session/{session_id}/approve")
+    async def api_event_approve(
+        session_id: str,
+        body: EventApproveIn,
+        admin: dict = Depends(current_admin),
+    ):
+        session = await get_event_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != admin.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        try:
+            result = await approve_event_draft(db, session_id, edits=body.edits)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        except Exception as exc:
+            log.exception("event conversation approve failed")
+            raise HTTPException(500, f"Approve failed: {exc}")
+        return result
+
+    @router.post("/mcgs/george/event/session/{session_id}/cancel")
+    async def api_event_cancel(
+        session_id: str,
+        admin: dict = Depends(current_admin),
+    ):
+        session = await get_event_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != admin.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        return await cancel_event_session(db, session_id)
 
     @router.get("/mcgs/rhythms/today")
     async def api_rhythms_today(admin: dict = Depends(current_admin)):

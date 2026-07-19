@@ -9232,6 +9232,15 @@ async def _ensure_mcgs_indexes():
     except Exception:
         logger.exception("MCGS Rhythms scheduler startup failed (non-fatal)")
 
+    # Phase 3 — Conversational Event Creation (index setup).
+    try:
+        from services.george.event_creation import ensure_indexes as _event_ensure_indexes
+        await _event_ensure_indexes(db)
+        logger.info("George event_creation indexes verified.")
+    except Exception:
+        logger.exception("George event_creation index setup failed (non-fatal)")
+
+
 
 @app.on_event("startup")
 async def _backfill_founders_spaces():
