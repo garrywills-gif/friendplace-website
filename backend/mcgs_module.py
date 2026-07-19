@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -520,11 +520,6 @@ def build_router(db) -> APIRouter:
 
         text = getattr(resp, "text", None) or (resp.get("text") if isinstance(resp, dict) else None) or ""
         return {"transcript": text}
-
-    class TTSIn_local(BaseModel):
-        text: str = Field(..., min_length=1, max_length=3800)
-        voice: str = Field("nova")
-        speed: float = Field(0.95, ge=0.5, le=1.5)
 
     @router.post("/george/voice/speak")
     async def api_george_speak(body: TTSIn, admin: dict = Depends(current_admin)):
