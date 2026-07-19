@@ -32,6 +32,7 @@ from apscheduler.triggers.cron import CronTrigger
 from .composer import compose_morning_briefing
 from .midday import compose_midday_pulse
 from .eod import compose_eod_wrapup
+from .milestones import scan_milestones
 from .delivery import deliver_briefing
 from .settings import get_rhythm_settings
 from .activity import minutes_since_last_seen
@@ -311,6 +312,28 @@ async def start_scheduler(db: Any) -> None:
                 await reschedule_admin(aid)
             except Exception:
                 log.exception("initial reschedule failed for %s", aid)
+
+    # Milestone F: ambient milestone scanner. Runs every 30 minutes for
+    # the whole system. Idempotent by (milestone_key, period_key).
+    _scheduler.add_job(
+        _run_milestone_scan,
+        trigger=CronTrigger(minute="*/30"),
+        id="mcgs.milestones.scan",
+        replace_existing=True,
+        misfire_grace_time=60 * 30,
+    )
+
+
+async def _run_milestone_scan() -> None:
+    """APScheduler entry-point for the milestone scanner."""
+    if _db_ref is None:
+        return
+    try:
+        result = await scan_milestones(_db_ref)
+        if result.get("awarded"):
+            log.info("Milestone scan awarded: %s", result["awarded"])
+    except Exception:
+        log.exception("milestone scan job failed")
 
 
 def scheduler_status() -> dict:

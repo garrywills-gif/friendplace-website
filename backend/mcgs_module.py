@@ -42,6 +42,7 @@ from services.mcgs.rhythms import (
     compose_morning_briefing,
     compose_midday_pulse,
     compose_eod_wrapup,
+    scan_milestones,
     reschedule_admin,
     scheduler_status,
     deliver_briefing,
@@ -349,6 +350,21 @@ def build_router(db) -> APIRouter:
             return row
         settings = await get_rhythm_settings(db, admin.get("id"))
         return await deliver_briefing(db, row, settings)
+
+    # ---- Milestone Recognition (Milestone F) ----
+
+    @router.post("/mcgs/rhythms/milestones/scan")
+    async def api_milestones_scan(admin: dict = Depends(current_admin)):
+        """Run the milestone scanner on demand. Idempotent — awards each
+        milestone at most once per period. Paused during safety-sensitive
+        windows.
+        """
+        try:
+            result = await scan_milestones(db)
+        except Exception as exc:
+            log.exception("milestone scan failed")
+            raise HTTPException(500, f"Milestone scan failed: {exc}")
+        return result
 
     @router.get("/mcgs/rhythms/today")
     async def api_rhythms_today(admin: dict = Depends(current_admin)):

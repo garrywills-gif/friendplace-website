@@ -200,6 +200,7 @@ async def gather_morning_facts(db: Any, admin_id: str) -> dict:
         "last_eod": {
             "delivered_at": (last_eod or {}).get("delivered_at"),
             "sign_off_line": (last_eod or {}).get("sign_off_line"),
+            "unresolved_carryover": (last_eod or {}).get("unresolved_carryover"),
         } if last_eod else None,
         # New since the cursor — the actual "overnight" story:
         "new_signals": {

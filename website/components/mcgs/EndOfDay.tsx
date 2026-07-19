@@ -25,6 +25,7 @@ interface EodContent {
   heading?: string;
   opener_line?: string | null;
   today_line?: string;
+  acknowledgment_line?: string | null;
   community_line?: string | null;
   open_line?: string | null;
   sign_off_line?: string;
@@ -90,6 +91,12 @@ export function EndOfDay({ onAsk }: Props) {
             </div>
           )}
 
+          {c.acknowledgment_line && (
+            <div style={ackLine}>
+              {c.acknowledgment_line}
+            </div>
+          )}
+
           {c.community_line && (
             <div style={{ ...bodyText, marginTop: 10, color: '#FEF3C7', fontStyle: 'italic' }}>
               ✨ {c.community_line}
@@ -148,6 +155,15 @@ const signOff: React.CSSProperties = {
   borderTop: '1px solid #4338CA',
   fontStyle: 'italic',
   color: '#C7D2FE',
+};
+const ackLine: React.CSSProperties = {
+  ...bodyText,
+  marginTop: 12,
+  padding: '10px 14px',
+  background: 'rgba(199, 210, 254, 0.12)',
+  border: '1px solid #4338CA',
+  borderRadius: 12,
+  color: '#E0E7FF',
 };
 const primaryBtn: React.CSSProperties = {
   padding: '8px 16px', borderRadius: 999, fontSize: 13, fontWeight: 700,

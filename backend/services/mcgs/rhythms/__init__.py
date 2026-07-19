@@ -39,6 +39,7 @@ from .facts import gather_morning_facts
 from .composer import compose_morning_briefing
 from .midday import compose_midday_pulse
 from .eod import compose_eod_wrapup
+from .milestones import scan_milestones
 from .delivery import deliver_briefing
 from .scheduler import (
     start_scheduler,
@@ -74,6 +75,7 @@ __all__ = [
     "compose_morning_briefing",
     "compose_midday_pulse",
     "compose_eod_wrapup",
+    "scan_milestones",
     # delivery + scheduler
     "deliver_briefing",
     "start_scheduler",
