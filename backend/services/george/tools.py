@@ -308,6 +308,45 @@ async def _get_health_pulse(db: Any, args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Write "propose" tools \u2014 draft actions, never execute.
+# The chat executor treats their output specially and streams it as
+# an ``action_preview`` event instead of folding into tool_results.
+# ---------------------------------------------------------------------------
+
+@register(
+    "propose_ticket_reply",
+    "Draft a reply to a specific support ticket. Produces an Action Preview "
+    "for the admin to review before sending. Requires the ticket_id.",
+    args={"ticket_id": {"type": "str", "required": True}},
+    min_role="moderator",
+)
+async def _propose_ticket_reply(db: Any, args: dict) -> dict:
+    from services.george.proposals import propose_ticket_reply
+    # admin context isn't in scope here; the drafter doesn't need it \u2014 the
+    # execute endpoint that later sends the email attributes to the caller.
+    return await propose_ticket_reply(db, args["ticket_id"], admin={})
+
+
+@register(
+    "propose_submission_decision",
+    "Draft a rationale + preview for approving, rejecting, or requesting "
+    "changes on a community event submission. Requires submission_id and decision "
+    "(one of: approve, reject, changes_requested).",
+    args={
+        "submission_id": {"type": "str", "required": True},
+        "decision": {"type": "str", "required": True,
+                     "enum": {"approve", "reject", "changes_requested"}},
+    },
+    min_role="moderator",
+)
+async def _propose_submission_decision(db: Any, args: dict) -> dict:
+    from services.george.proposals import propose_submission_decision
+    return await propose_submission_decision(
+        db, args["submission_id"], args["decision"], admin={},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
 

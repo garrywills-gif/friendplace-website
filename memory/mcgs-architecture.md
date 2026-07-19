@@ -557,6 +557,12 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 
 ## 14. Decision log
 
+**North star vision (Garry, 19 July 2026):**
+> Garry walks into the office, taps the microphone, and says: *"Morning, George."*
+> George replies: *"Morning, Garry. Hope you had a good evening. It was fairly quiet overnight..."* and reads the Daily Briefing aloud, warm and calm.
+>
+> Milestone E delivers the voice half; Phase 2 delivers the Briefing half; together they make this real. Every design choice in Ask George and Rhythms should protect this experience.
+
 | Date | Decision | Why |
 |---|---|---|
 | 2026-07-18 | Landing surface is **"The Bridge"** with subtitle "What needs your attention today" | Fits captain/navigator metaphor; distinctive to MCGS |
@@ -579,3 +585,5 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 | 2026-07-18 | Undo window = 30 s for reply-type actions; no undo for simple state changes (which remain reversible manually with full audit trail) | Balances safety and workflow speed |
 | 2026-07-18 | Signals always render as Cases in the Feed, even when only one Signal is attached | Consistent UI; additional Signals can attach without visual reflow |
 | 2026-07-18 | **Voice safeguard:** George never executes a consequential action from voice alone — always surfaces an Action Preview requiring an explicit written/tapped confirmation | Trust, safety, brand promise |
+| 2026-07-19 | George's tone protected: colleague not database; celebrate milestones; state "everything's smooth" when it is; remember context across follow-ups | Trust and warmth are FriendPlace's defining characteristics |
+| 2026-07-19 | "Morning, George" recorded as North Star for MCGS voice + Rhythms | Guides every design choice in voice UX and Daily Briefing |

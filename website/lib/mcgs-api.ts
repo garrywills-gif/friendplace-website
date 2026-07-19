@@ -174,12 +174,27 @@ export function subscribeToBridge(
 // ---------- George grounded chat ----------
 
 export interface GeorgeStreamEvent {
-  kind: 'session' | 'plan' | 'tools' | 'delta' | 'done';
+  kind: 'session' | 'plan' | 'tools' | 'delta' | 'done' | 'action_preview';
   text?: string;
   chat_id?: string;
   plan?: unknown;
   results?: unknown;
   reply_length?: number;
+  // action_preview payload arrives with the same top-level fields as
+  // the /api/mcgs/proposals/* endpoint response — action_type, target,
+  // what, why, sources, confidence, draft, case_id, etc.
+  action_type?: string;
+  target?: { kind: string; id: string };
+  what?: string;
+  why?: string;
+  sources?: Array<{ label: string; kind: string; id: string }>;
+  confidence?: 'high' | 'moderate' | 'low';
+  confidence_reason?: string;
+  draft?: string;
+  case_id?: string | null;
+  decision?: string;
+  generated_at?: string;
+  generated_by?: { kind: string; model: string };
 }
 
 /**

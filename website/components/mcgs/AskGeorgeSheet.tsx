@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { askGeorge, type GeorgeStreamEvent } from '@/lib/mcgs-api';
+import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
 
 /**
  * The Ask George bottom-sheet. Streaming grounded chat with George.
@@ -21,6 +22,7 @@ interface Turn {
   streaming?: boolean;
   plan?: unknown;
   results?: unknown;
+  previews?: ActionPreviewPayload[];
 }
 
 export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheetProps) {
@@ -92,6 +94,14 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
           setTurns(prev => prev.map((t, i) =>
             i === prev.length - 1 && t.role === 'george'
               ? { ...t, results: ev.results }
+              : t,
+          ));
+        } else if (ev.kind === 'action_preview') {
+          // Attach the preview to the current George turn.
+          const preview = ev as unknown as ActionPreviewPayload;
+          setTurns(prev => prev.map((t, i) =>
+            i === prev.length - 1 && t.role === 'george'
+              ? { ...t, previews: [...(t.previews || []), preview] }
               : t,
           ));
         } else if (ev.kind === 'delta') {
@@ -209,6 +219,13 @@ function ChatBubble({ turn }: { turn: Turn }) {
         {turn.content || (turn.streaming ? <em style={{ color: '#64748B' }}>George is thinking…</em> : null)}
         {!isUser && turn.streaming && turn.content && (
           <span style={{ display: 'inline-block', width: 6, height: 14, background: '#14B8A6', marginLeft: 4, verticalAlign: '-2px', animation: 'blink 1s steps(2, start) infinite' }} />
+        )}
+        {!isUser && turn.previews && turn.previews.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            {turn.previews.map((p, i) => (
+              <ActionPreview key={i} preview={p} />
+            ))}
+          </div>
         )}
         {!isUser && !turn.streaming && (
           <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', fontSize: 12, color: '#64748B' }}>

@@ -63,10 +63,38 @@ class CaseAssignIn(BaseModel):
     assignee_id: Optional[str] = None
 
 
+class TicketReplyIn(BaseModel):
+    ticket_id: str
+    draft: str = Field(..., min_length=1, max_length=8000)
+    confirmed: bool = Field(..., description="Must be true; the human explicit-confirm gate")
+    george_involved: bool = False
+    george_reasoning: Optional[str] = None
+    case_id: Optional[str] = None
+
+
+class SubmissionDecisionIn(BaseModel):
+    submission_id: str
+    decision: str = Field(..., description="approve | reject | changes_requested")
+    confirmed: bool = Field(..., description="Must be true; the human explicit-confirm gate")
+    note: Optional[str] = None
+    george_involved: bool = False
+    george_reasoning: Optional[str] = None
+    case_id: Optional[str] = None
+
+
 class GeorgeChatIn(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     chat_id: Optional[str] = None
     scope: str = Field("mcgs")
+
+
+class TicketReplyProposalIn(BaseModel):
+    ticket_id: str
+
+
+class SubmissionDecisionProposalIn(BaseModel):
+    submission_id: str
+    decision: str
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +226,75 @@ def build_router(db) -> APIRouter:
         return updated
 
     # =====================================================================
+    # /api/mcgs/actions/*  \u2014 Action Preview execution (voice-safeguard gate)
+    # =====================================================================
+
+    @router.post("/mcgs/actions/ticket-reply")
+    async def api_action_ticket_reply(
+        body: TicketReplyIn, admin: dict = Depends(current_admin),
+    ):
+        if not body.confirmed:
+            raise HTTPException(400, "Action requires explicit confirmation (confirmed=true).")
+        from services.mcgs.actions import execute_ticket_reply
+        try:
+            result = await execute_ticket_reply(
+                db,
+                ticket_id=body.ticket_id,
+                reply_text=body.draft,
+                admin=admin,
+                george_involved=body.george_involved,
+                george_reasoning=body.george_reasoning,
+                case_id=body.case_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        except RuntimeError as exc:
+            raise HTTPException(502, str(exc))
+        return result
+
+    @router.post("/mcgs/actions/submission-decision")
+    async def api_action_submission_decision(
+        body: SubmissionDecisionIn, admin: dict = Depends(current_admin),
+    ):
+        if not body.confirmed:
+            raise HTTPException(400, "Action requires explicit confirmation (confirmed=true).")
+        from services.mcgs.actions import execute_submission_decision
+        try:
+            result = await execute_submission_decision(
+                db,
+                submission_id=body.submission_id,
+                decision=body.decision,
+                note=body.note,
+                admin=admin,
+                george_involved=body.george_involved,
+                george_reasoning=body.george_reasoning,
+                case_id=body.case_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return result
+
+    # =====================================================================
+    # /api/mcgs/proposals/*  \u2014 Ask George for a draft directly (no chat)
+    # =====================================================================
+
+    @router.post("/mcgs/proposals/ticket-reply")
+    async def api_proposal_ticket_reply(
+        body: TicketReplyProposalIn, admin: dict = Depends(current_admin),
+    ):
+        from services.george.proposals import propose_ticket_reply
+        return await propose_ticket_reply(db, body.ticket_id, admin)
+
+    @router.post("/mcgs/proposals/submission-decision")
+    async def api_proposal_submission_decision(
+        body: SubmissionDecisionProposalIn, admin: dict = Depends(current_admin),
+    ):
+        from services.george.proposals import propose_submission_decision
+        return await propose_submission_decision(
+            db, body.submission_id, body.decision, admin,
+        )
+
+    # =====================================================================
     # /api/mcgs/counts \u2014 hot single-doc cache
     # =====================================================================
 
@@ -318,6 +415,11 @@ def build_router(db) -> APIRouter:
                         # Slim the tool result payload for the wire.
                         results = ev.get("results") or []
                         yield f"event: tools\ndata: {json.dumps({'results': results}, default=str)}\n\n"
+                    elif kind == "action_preview":
+                        # Full Action Preview payload streamed to the client
+                        # so the sheet can render an inline preview card.
+                        preview = ev.get("preview") or {}
+                        yield f"event: action_preview\ndata: {json.dumps(preview, default=str)}\n\n"
                     elif kind == "done":
                         usage = {"error": ev.get("error")} if ev.get("error") else {}
                         yield f"event: done\ndata: {json.dumps({'reply_length': len(ev.get('reply') or '')})}\n\n"
