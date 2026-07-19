@@ -131,11 +131,53 @@ To keep each mobile session testable, we ship in narrow slices. Each slice ends 
 - Success test: tap the butterfly → sheet opens → the intro's *"Yes, show me around"* leads directly into a conversation.
 
 ### Slice B4 — Conversational onboarding (George's first real task)
-- New backend capability under `/api/mcgs/george/onboarding/*` following the same start/turn/approve/cancel shape as event creation.
-- Extractor (Haiku) captures profile fields incrementally; composer (Sonnet) drives the warm conversation.
-- Action Preview: draft profile card with *Confirm & Save* / *Make Changes*.
-- On confirm, the member's profile is populated and `profile_complete: true` is set on their user document.
-- Success test: a new member finishes their profile without ever seeing a form, thinking *"someone welcomed me"* — not *"I set up an account."*
+
+> **Framing (locked with Garry, 19 July 2026):** B4 is *not* profile completion. It is *"George learning enough about someone to begin helping them belong."* Every design decision below must honour that framing.
+
+**Continuity contract**
+
+- When the member taps the butterfly for the first time after choosing *"Yes, let's begin"*, George picks up *exactly* where he paused. No re-introduction. No "start onboarding" screen. No visible shift into a form or workflow. His first line is:
+  > *"Let's start with something easy. What would you like me to call you?"*
+- Presence will tell us whether an onboarding session is in flight or complete. Tapping the butterfly resumes that session rather than starting a new one.
+
+**How George gathers information (this is what makes it different from a form)**
+
+1. **He listens naturally, never interrogates.** A single natural answer can populate several fields. E.g. from *"I'm recently retired and mostly looking for people nearby to have coffee with"* George may infer: age band ≈ 60+, life stage = retired, interest in local friendships, coffee-style casual social preference, desire for nearby connections.
+2. **He acknowledges what he heard**, then asks only for what is still genuinely missing — and only if it matters.
+3. **Sensitive questions are gentle and optional.** *"Would you mind telling me roughly what area you live in? A suburb is plenty — you don't need to share your address."*
+4. **"I'd rather skip that" is always welcome.** George responds warmly and continues without pressure. Skipped fields are marked `skipped=true` server-side so we never re-ask.
+5. **George stops as soon as he has enough to begin helping.** He is not trying to fill a form.
+
+**Member-language Action Preview**
+
+Not *"Confirm & Save"*. Not *"database field: value"*. Written the way one person hands notes to another:
+
+> **Here's what I've learned about you**
+> Name: Alex
+> Area: The Ponds
+> Interested in: Coffee, gardening and local outings
+> Usually available: Weekday mornings
+> Looking for: More friendship and regular social activities
+
+Buttons: **That looks right** (primary) · **Change something** (continues the conversation) · **Finish later** (soft dismiss; the session remains resumable).
+
+**Backend shape**
+
+- New capability under `/app/backend/services/george/onboarding/` mirroring `event_creation/`:
+  - Haiku extractor: many fields, high recall, careful with confidence.
+  - Sonnet composer: same 5 tone rules; explicit rule to *listen and acknowledge* before asking anything new.
+  - Endpoints: `POST /api/mcgs/george/onboarding/start`, `POST /.../session/{id}/turn`, `GET /.../session/{id}`, `POST /.../session/{id}/approve`, `POST /.../session/{id}/cancel`.
+  - Approve writes profile fields to the member's `users` document and sets `profile_complete: true`. Skipped fields are recorded, not retried.
+- Presence endpoint gains `onboarding: { session_id, status, last_george_line }` so any surface can seamlessly resume.
+
+**Mobile shape**
+
+- Port the shared `GeorgeConversation` engine to React Native. Same chrome contract as web.
+- Tapping the butterfly for a member without `profile_complete=true`:
+  - If an onboarding session exists → resume it.
+  - Otherwise → start onboarding with George's warm bridging line.
+- Action Preview rendered in member language exactly as above.
+- Skip affordance ("I'd rather skip that") available every turn via a small quiet chip below the composer, not as a big red button.
 
 ### Slice B5 — Event creation on mobile (deferred until B1–B4 feel right)
 - The same `GeorgeConversation` engine, now with the event-creation capability wired.
