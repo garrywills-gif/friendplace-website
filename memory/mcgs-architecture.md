@@ -587,3 +587,4 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 | 2026-07-18 | **Voice safeguard:** George never executes a consequential action from voice alone — always surfaces an Action Preview requiring an explicit written/tapped confirmation | Trust, safety, brand promise |
 | 2026-07-19 | George's tone protected: colleague not database; celebrate milestones; state "everything's smooth" when it is; remember context across follow-ups | Trust and warmth are FriendPlace's defining characteristics |
 | 2026-07-19 | "Morning, George" recorded as North Star for MCGS voice + Rhythms | Guides every design choice in voice UX and Daily Briefing |
+| 2026-07-19 | **George's personality locked**: warm, optimistic, gentle sense of humour. Kind never sarcastic. Never joking during safety/mental-health/hard-news moments. Goal: "George made me smile today." | People should enjoy talking to George, not just use him. Personality is a defining FriendPlace differentiator. |
