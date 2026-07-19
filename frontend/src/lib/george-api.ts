@@ -43,6 +43,12 @@ export interface PresenceUnfinished {
   updated_at?: string;
 }
 
+export interface PausedEventSession {
+  session_id: string;
+  title?: string | null;
+  paused_at?: string | null;
+}
+
 export interface Presence {
   actor_id: string;
   name?: string;
@@ -52,6 +58,7 @@ export interface Presence {
   actor_type?: 'admin' | 'member';
   onboarding_complete?: boolean;
   has_active_onboarding?: boolean;
+  paused_event_session?: PausedEventSession | null;
 }
 
 export interface EventDraftSource { field: string; source: string }
@@ -78,6 +85,7 @@ export interface EventTurn {
   warmth_line?: string | null;
   suggestion?: EventSuggestion | null;
   description_written?: boolean;
+  welcome_back?: boolean;
 }
 
 export interface EventSuggestion {
@@ -152,5 +160,11 @@ export const georgeApi = {
   ),
   eventCancel: (sessionId: string) => _req<any>(
     `/mcgs/george/event/session/${sessionId}/cancel`, { method: 'POST' },
+  ),
+  eventPause: (sessionId: string) => _req<{ session_id: string; status: string; paused_at: string }>(
+    `/mcgs/george/event/session/${sessionId}/pause`, { method: 'POST' },
+  ),
+  eventResume: (sessionId: string) => _req<EventSession>(
+    `/mcgs/george/event/session/${sessionId}/resume`, { method: 'POST' },
   ),
 };

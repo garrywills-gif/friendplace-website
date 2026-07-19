@@ -261,17 +261,18 @@ const styles = StyleSheet.create({
   bubbleRowRight: { justifyContent: 'flex-end' },
   avatarSlot: { width: 32, height: 32, marginRight: 8, marginBottom: 4, alignItems: 'center', justifyContent: 'center' },
   bubble: {
-    maxWidth: 300, backgroundColor: '#FFFFFF',
-    borderColor: '#CCFBF1', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
+    maxWidth: 300, backgroundColor: '#CCFBF1',
+    borderColor: '#5EEAD4', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14,
   },
   bubbleText: { fontSize: 15, color: '#0F172A', lineHeight: 22 },
   userBubble: {
-    maxWidth: 300, backgroundColor: '#14B8A6',
+    maxWidth: 300, backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0', borderWidth: 1,
     borderRadius: 18, borderBottomRightRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14, marginRight: 4,
   },
-  userBubbleText: { fontSize: 15, color: '#FFFFFF', lineHeight: 22, fontWeight: '600' },
+  userBubbleText: { fontSize: 15, color: '#0F172A', lineHeight: 22, fontWeight: '500' },
   previewCard: {
     marginTop: 12, marginHorizontal: 4,
     backgroundColor: '#F0FDFA', borderColor: '#14B8A6', borderWidth: 1,

@@ -301,8 +301,8 @@ function ChatTurn({ turn }: { turn: EventTurn }) {
       }}>{isUser ? '👤' : '🦋'}</div>
       <div style={{
         maxWidth: '80%',
-        background: isUser ? '#F1F5F9' : '#F0FDFA',
-        border: isUser ? '1px solid #E2E8F0' : '1px solid #CCFBF1',
+        background: isUser ? '#FFFFFF' : '#CCFBF1',
+        border: isUser ? '1px solid #E2E8F0' : '1px solid #5EEAD4',
         borderRadius: 16, padding: '12px 16px',
         fontSize: 15, lineHeight: 1.55, color: '#0F172A',
         whiteSpace: 'pre-wrap', wordBreak: 'break-word',
@@ -329,7 +329,7 @@ function WorkingRow({ label }: { label: string }) {
       }}>🦋</div>
       <div style={{
         display: 'flex', gap: 8, alignItems: 'center',
-        background: '#F0FDFA', border: '1px solid #CCFBF1',
+        background: '#CCFBF1', border: '1px solid #5EEAD4',
         borderRadius: 16, padding: '10px 14px',
         fontSize: 14, color: '#0F766E', fontStyle: 'italic',
       }}>

@@ -37,6 +37,12 @@ import {
 interface Props {
   onDone: (result: EventApprovalResult) => void;
   onLeave: () => void;
+  /**
+   * If provided, resume this paused session instead of starting fresh.
+   * George will open with a warm, age-aware "welcome back" turn and
+   * the member can choose to carry on or start something new.
+   */
+  resumeSessionId?: string | null;
 }
 
 // A local turn extends the API turn with reveal-timing state.
@@ -51,7 +57,7 @@ const BEAT = {
   afterMessage: 240,
 };
 
-export function GeorgeEventCreation({ onDone, onLeave }: Props) {
+export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }: Props) {
   const insets = useSafeAreaInsets();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<LocalTurn[]>([]);
@@ -76,7 +82,9 @@ export function GeorgeEventCreation({ onDone, onLeave }: Props) {
   useEffect(() => {
     (async () => {
       try {
-        const s = await georgeApi.eventStart('');
+        const s = resumeSessionId
+          ? await georgeApi.eventResume(resumeSessionId)
+          : await georgeApi.eventStart('');
         setSessionId(s.session_id);
         setStatus(s.status || 'in_progress');
         setDraft(s.draft || null);
@@ -221,7 +229,10 @@ export function GeorgeEventCreation({ onDone, onLeave }: Props) {
 
   const saveForLater = useCallback(async () => {
     if (!sessionId) { onLeave(); return; }
-    try { await georgeApi.eventCancel(sessionId); } catch { /* silent */ }
+    // Principle #17 + Garry's Option A: "Save for later" NEVER means
+    // "delete". Preserve everything so George can pick up where we
+    // left off next time.
+    try { await georgeApi.eventPause(sessionId); } catch { /* silent */ }
     onLeave();
   }, [sessionId, onLeave]);
 
@@ -243,6 +254,49 @@ export function GeorgeEventCreation({ onDone, onLeave }: Props) {
   const showDescriptionFeedback =
     !busy && !showPreview &&
     lastGeorgeTurn && !!lastGeorgeTurn.description_written;
+  // Welcome-back chips appear when George's most recent turn is the
+  // continuity-aware "we were putting together your coffee morning…"
+  // opener. Two paths: carry on, or start something new.
+  const showWelcomeBack =
+    !busy && !showPreview &&
+    lastGeorgeTurn && !!lastGeorgeTurn.welcome_back;
+
+  const carryOn = useCallback(() => {
+    // The member just wants to continue where they left off. We nudge
+    // George forward with a warm, natural continuation prompt so he
+    // picks up naturally without repeating himself.
+    sendText("Yes, let's carry on from where we left off.");
+  }, [sendText]);
+
+  const startSomethingNew = useCallback(async () => {
+    if (!sessionId) return;
+    // Mark the paused conversation as cancelled (the member has moved
+    // on) and boot a completely fresh session with George's opener.
+    setBusy(true);
+    setTyping(true);
+    try {
+      try { await georgeApi.eventCancel(sessionId); } catch { /* ignore */ }
+      const s = await georgeApi.eventStart('');
+      setSessionId(s.session_id);
+      setStatus(s.status || 'in_progress');
+      setDraft(null);
+      setPendingSuggestion(null);
+      setSuggestionOffered(false);
+      setTyping(false);
+      // Replace the whole conversation — the paused thread has ended.
+      setTurns([]);
+      await revealApiTurns(s.turns || []);
+    } catch {
+      setTyping(false);
+      setTurns([{
+        role: 'george',
+        content: "I'd love to help with that. Tell me about the kind of get-together you're hoping to create.",
+        revealAt: Date.now(),
+      }]);
+    } finally {
+      setBusy(false);
+    }
+  }, [sessionId, revealApiTurns]);
 
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + 8 }]}>
@@ -274,6 +328,23 @@ export function GeorgeEventCreation({ onDone, onLeave }: Props) {
             <View style={[styles.bubble, styles.typingBubble]}>
               <TypingDots />
             </View>
+          </View>
+        )}
+
+        {showWelcomeBack && (
+          <View style={styles.chipsRow}>
+            <Pressable
+              onPress={carryOn}
+              style={({ pressed }) => [styles.chipPrimary, pressed && styles.pressed]}
+            >
+              <Text style={styles.chipPrimaryText}>Yes, let&rsquo;s carry on</Text>
+            </Pressable>
+            <Pressable
+              onPress={startSomethingNew}
+              style={({ pressed }) => [styles.chipSecondary, pressed && styles.pressed]}
+            >
+              <Text style={styles.chipSecondaryText}>Start something new</Text>
+            </Pressable>
           </View>
         )}
 
@@ -573,29 +644,30 @@ const styles = StyleSheet.create({
   bubbleRowRight: { justifyContent: 'flex-end' },
   avatarSlot: { width: 32, height: 32, marginRight: 8, marginBottom: 4, alignItems: 'center', justifyContent: 'center' },
   bubble: {
-    maxWidth: 300, backgroundColor: '#FFFFFF',
-    borderColor: '#CCFBF1', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
+    maxWidth: 300, backgroundColor: '#CCFBF1',
+    borderColor: '#5EEAD4', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14,
   },
   typingBubble: { paddingVertical: 12, paddingHorizontal: 16 },
   typingWrap: { flexDirection: 'row', gap: 5, alignItems: 'center' },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#14B8A6' },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#0F766E' },
   bubbleText: { fontSize: 15, color: '#0F172A', lineHeight: 22 },
   excitementLine: {
     fontSize: 15, color: '#0F766E', fontWeight: '700', marginBottom: 4, lineHeight: 22,
   },
   workingLine: {
-    fontSize: 13, color: '#64748B', fontStyle: 'italic', marginBottom: 4, lineHeight: 18,
+    fontSize: 13, color: '#475569', fontStyle: 'italic', marginBottom: 4, lineHeight: 18,
   },
   warmthLine: {
     fontSize: 13, color: '#0F766E', fontStyle: 'italic', marginBottom: 6, lineHeight: 18,
   },
   userBubble: {
-    maxWidth: 300, backgroundColor: '#14B8A6',
+    maxWidth: 300, backgroundColor: '#FFFFFF',
+    borderColor: '#E2E8F0', borderWidth: 1,
     borderRadius: 18, borderBottomRightRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14, marginRight: 4,
   },
-  userBubbleText: { fontSize: 15, color: '#FFFFFF', lineHeight: 22, fontWeight: '600' },
+  userBubbleText: { fontSize: 15, color: '#0F172A', lineHeight: 22, fontWeight: '500' },
   chipsRow: {
     flexDirection: 'row', flexWrap: 'wrap', gap: 8,
     marginLeft: 40, marginTop: 4, marginBottom: 8,

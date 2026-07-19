@@ -898,6 +898,192 @@ async def cancel_event_session(db: Any, session_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Pause / Resume — the "Save for later" contract.
+#
+# Design rules (locked with Garry, 20 July 2026):
+#   - "Save for later" NEVER means "delete". Everything the member has
+#     shared is preserved: draft, extracted, defaults, whole conversation.
+#   - Next time the member taps the butterfly with a paused session
+#     waiting, George opens with a warm, continuity-aware welcome-back
+#     ("we were putting together your coffee morning — shall we carry
+#     on?"). This is Principle #17: a conversation with George never
+#     truly ends.
+#   - George also gently acknowledges the passage of time if the paused
+#     session is more than ~14 days old, so he never assumes the
+#     member's plans haven't moved on.
+# ---------------------------------------------------------------------------
+
+async def pause_event_session(db: Any, session_id: str) -> dict:
+    """Park a conversation for the member to pick up later. Preserves
+    everything about the session; only the status flips to 'paused'.
+    """
+    now = _now_iso()
+    await db[COLL_CONVERSATIONS].update_one(
+        {"session_id": session_id},
+        {"$set": {
+            "status": "paused",
+            "paused_at": now,
+            "updated_at": now,
+        }},
+    )
+    return {"session_id": session_id, "status": "paused", "paused_at": now}
+
+
+async def latest_paused_event_session(db: Any, *, actor_id: str) -> Optional[dict]:
+    """Return the actor's most recent OPEN event conversation (status
+    'paused' or 'in_progress'), or None. Used by the mobile butterfly
+    router to decide whether to open a Welcome Back prompt.
+
+    Rationale (Principle #17 — a conversation with George never truly
+    ends): if the member steps away without hitting "Save for later"
+    (closes the app, backgrounds it, network drops), we still want the
+    butterfly to pick up the same conversation on the next tap. Only
+    truly `cancelled`, `drafted` and `approved` sessions are treated as
+    over.
+
+    The returned document carries `status` and `paused_at` so the caller
+    can decide the tone of the welcome-back line (paused vs simply
+    still-open).
+    """
+    doc = await db[COLL_CONVERSATIONS].find_one(
+        {"actor_id": actor_id, "status": {"$in": ["paused", "in_progress"]}},
+        {"_id": 0, "session_id": 1, "status": 1, "draft": 1, "extracted": 1,
+         "paused_at": 1, "updated_at": 1, "created_at": 1},
+        sort=[("updated_at", -1)],
+    )
+    if not doc:
+        return None
+    title = ((doc.get("draft") or {}).get("title")
+             or (doc.get("extracted") or {}).get("title")
+             or None)
+    return {
+        "session_id": doc.get("session_id"),
+        "status": doc.get("status"),
+        "title": title,
+        "paused_at": doc.get("paused_at") or None,
+        "updated_at": doc.get("updated_at") or doc.get("created_at"),
+    }
+
+
+def _welcome_back_line(title: Optional[str], paused_at_iso: Optional[str], name: Optional[str] = None) -> str:
+    """Warm, age-aware welcome-back sentence. Never assumes the member's
+    plans haven't changed if the pause is old.
+    """
+    has_title = bool((title or "").strip())
+    subject = f"your {title.strip()}" if has_title else None
+    who = f", {name.strip()}" if name else ""
+    stale = False
+    try:
+        if paused_at_iso:
+            dt = datetime.fromisoformat(paused_at_iso.replace("Z", "+00:00"))
+            age_days = (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).days
+            stale = age_days >= 14
+    except Exception:
+        stale = False
+    if stale:
+        if subject:
+            return (
+                f"Welcome back{who}. It's been a little while since we were "
+                f"putting together {subject}. Would you like to carry on "
+                f"from where we left off, or would you prefer to start "
+                f"something new?"
+            )
+        return (
+            f"Welcome back{who}. It's been a little while since we were "
+            f"talking about a get-together. Would you like to carry on "
+            f"from where we left off, or would you prefer to start "
+            f"something new?"
+        )
+    if subject:
+        return (
+            f"Welcome back{who}. We were putting together {subject}. "
+            f"Would you like to carry on from where we left off?"
+        )
+    return (
+        f"Welcome back{who}. We were in the middle of planning a "
+        f"get-together. Would you like to carry on from where we left off?"
+    )
+
+
+async def resume_event_session(
+    db: Any,
+    session_id: str,
+    *,
+    actor_name: Optional[str] = None,
+) -> dict:
+    """Un-pause a session (or re-open a stale in_progress one) and, where
+    it fits, append a warm, continuity-aware George turn that offers two
+    paths: carry on, or start something new. The frontend renders those
+    as chips beneath the welcome-back message (using the same
+    suggestion-chip pattern).
+
+    Behaviour depends on the current session status + freshness:
+      - status == "paused"                                    → welcome-back
+      - status == "in_progress" AND >10 min since updated_at  → welcome-back
+      - status == "in_progress" AND <=10 min since updated_at → seamless
+        continuation (no extra turn is appended — the modal just
+        re-opens on the existing conversation, feeling identical to
+        never having left).
+
+    Idempotent-ish: safe to call more than once; a second call within
+    a short window will NOT re-append another welcome-back turn.
+    """
+    session = await get_event_session(db, session_id)
+    if not session:
+        raise ValueError("Session not found")
+    turns = list(session.get("turns") or [])
+    draft = session.get("draft") or {}
+    extracted = session.get("extracted") or {}
+    title = draft.get("title") or extracted.get("title") or None
+    prior_status = session.get("status")
+    paused_at = session.get("paused_at") or session.get("updated_at")
+
+    # Decide whether to append a welcome-back turn.
+    should_welcome = False
+    if prior_status == "paused":
+        should_welcome = True
+    elif prior_status == "in_progress":
+        try:
+            updated_iso = session.get("updated_at")
+            if updated_iso:
+                last = datetime.fromisoformat(updated_iso.replace("Z", "+00:00"))
+                mins = (datetime.now(timezone.utc) - last.astimezone(timezone.utc)).total_seconds() / 60.0
+                should_welcome = mins > 10
+        except Exception:
+            should_welcome = False
+
+    # Don't append if the last turn is already a welcome-back (idempotent).
+    if turns and turns[-1].get("welcome_back"):
+        should_welcome = False
+
+    updated: dict = {
+        "status": "in_progress",
+        "resumed_at": _now_iso(),
+        "updated_at": _now_iso(),
+    }
+    if should_welcome:
+        welcome = _welcome_back_line(title, paused_at, actor_name)
+        turns.append({
+            "role": "george",
+            "content": welcome,
+            "at": _now_iso(),
+            "state": "welcome_back",
+            "excitement_line": None,
+            "working_line": None,
+            "warmth_line": None,
+            "suggestion": None,
+            "description_written": False,
+            "welcome_back": True,
+        })
+        updated["turns"] = turns
+
+    await db[COLL_CONVERSATIONS].update_one(
+        {"session_id": session_id}, {"$set": updated},
+    )
+    return {**session, **updated}
+
+
+# ---------------------------------------------------------------------------
 # Presence — a light "what does George know about this person right now?"
 # call. Used by the arrival butterfly to greet with continuity.
 # ---------------------------------------------------------------------------

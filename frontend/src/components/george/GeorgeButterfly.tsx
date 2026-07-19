@@ -51,6 +51,7 @@ export function GeorgeButterfly() {
   const [showChat, setShowChat] = useState(false);
   // Milestone B5 — event creation & its celebration surface.
   const [showEvent, setShowEvent] = useState(false);
+  const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
   const [celebration, setCelebration] = useState<EventApprovalResult | null>(null);
 
   // ---- Reanimated values -------------------------------------------------
@@ -211,11 +212,22 @@ export function GeorgeButterfly() {
         const needsOnboarding =
           fresh.actor_type === 'member' &&
           (!fresh.onboarding_complete || fresh.has_active_onboarding);
-        if (needsOnboarding) setShowChat(true);
-        else setShowEvent(true);
+        if (needsOnboarding) {
+          setResumeSessionId(null);
+          setShowChat(true);
+        } else {
+          // If the member has a paused event conversation, we open the
+          // event surface in RESUME mode. George picks up with a warm,
+          // age-aware welcome-back and offers Carry on / Start new.
+          // Otherwise we start fresh.
+          const paused = fresh.paused_event_session || null;
+          setResumeSessionId(paused ? paused.session_id : null);
+          setShowEvent(true);
+        }
       } catch {
         // If we can't check, fall back to onboarding (safer default —
         // it's a resume, and it always exists).
+        setResumeSessionId(null);
         setShowChat(true);
       }
     }, 320);
@@ -347,9 +359,15 @@ export function GeorgeButterfly() {
         onRequestClose={() => setShowEvent(false)}
       >
         <GeorgeEventCreation
-          onLeave={() => setShowEvent(false)}
+          key={resumeSessionId || 'fresh'}
+          resumeSessionId={resumeSessionId}
+          onLeave={() => {
+            setShowEvent(false);
+            setResumeSessionId(null);
+          }}
           onDone={(result) => {
             setShowEvent(false);
+            setResumeSessionId(null);
             setCelebration(result);
           }}
         />
@@ -451,9 +469,9 @@ const styles = StyleSheet.create({
     width: Math.min(280, SCREEN_W - 100),
   },
   bubble: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#CCFBF1',
     borderWidth: 1,
-    borderColor: '#CCFBF1',
+    borderColor: '#5EEAD4',
     borderRadius: 16,
     padding: 12,
     ...Platform.select({
@@ -471,9 +489,9 @@ const styles = StyleSheet.create({
     right: -6,
     bottom: 14,
     width: 12, height: 12,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1, borderTopColor: '#CCFBF1',
-    borderRightWidth: 1, borderRightColor: '#CCFBF1',
+    backgroundColor: '#CCFBF1',
+    borderTopWidth: 1, borderTopColor: '#5EEAD4',
+    borderRightWidth: 1, borderRightColor: '#5EEAD4',
     transform: [{ rotate: '45deg' }],
   },
   bubbleText: {

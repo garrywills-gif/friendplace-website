@@ -55,6 +55,9 @@ from services.george.event_creation import (
     get_event_session,
     approve_event_draft,
     cancel_event_session,
+    pause_event_session,
+    resume_event_session,
+    latest_paused_event_session,
     actor_george_presence,
 )
 from services.george.onboarding import (
@@ -580,6 +583,48 @@ def build_router(db) -> APIRouter:
             raise HTTPException(403, "Not your conversation.")
         return await cancel_event_session(db, session_id)
 
+    @router.post("/mcgs/george/event/session/{session_id}/pause")
+    async def api_event_pause(
+        session_id: str,
+        actor: dict = Depends(current_george_actor),
+    ):
+        """Save for later — the conversation and everything in it is
+        preserved for the member to pick up when they're ready.
+        Principle #17: a conversation with George never truly ends.
+        """
+        session = await get_event_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != actor.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        return await pause_event_session(db, session_id)
+
+    @router.post("/mcgs/george/event/session/{session_id}/resume")
+    async def api_event_resume(
+        session_id: str,
+        actor: dict = Depends(current_george_actor),
+    ):
+        """Welcome the member back into a paused conversation. Appends
+        a warm, age-aware George turn so the mobile UI can offer:
+          - Yes, let's carry on
+          - Start something new
+        """
+        session = await get_event_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != actor.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        try:
+            result = await resume_event_session(
+                db, session_id, actor_name=actor.get("name") or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(404, str(exc))
+        except Exception as exc:
+            log.exception("event conversation resume failed")
+            raise HTTPException(500, f"Resume failed: {exc}")
+        return result
+
     @router.get("/mcgs/george/presence")
     async def api_george_presence(actor: dict = Depends(current_george_actor)):
         """Light 'what does George know about me right now?' call.
@@ -614,6 +659,16 @@ def build_router(db) -> APIRouter:
             except Exception:
                 active = None
             presence["has_active_onboarding"] = bool(active)
+        # Milestone B5+ — expose the member's most-recently paused event
+        # conversation so the butterfly can offer a warm resume prompt.
+        try:
+            paused = await latest_paused_event_session(
+                db, actor_id=actor.get("id"),
+            )
+        except Exception:
+            log.exception("paused event lookup failed (non-fatal)")
+            paused = None
+        presence["paused_event_session"] = paused
         return presence
 
     @router.post("/mcgs/george/introduced")
