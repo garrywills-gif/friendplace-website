@@ -1,5 +1,22 @@
 # George Platform — canonical contract
 
+## 🧭 North Star
+
+> **You are not building an admin AI. You are building the FriendPlace companion.**
+>
+> **FriendPlace is where George lives. Mission Control is where we perfect him.**
+>
+> The primary George experience belongs to members opening the FriendPlace mobile app. Mission Control is a development and administration surface that consumes the same platform — nothing more. Every design decision is checked against *"how does this feel on a member's phone?"* — not *"how does this look in the admin dashboard?"*
+
+**Priority order** (in force from 19 July 2026):
+1. Native FriendPlace mobile implementation.
+2. Butterfly arrival animation.
+3. George greeting members (including the once-in-a-lifetime introduction).
+4. Floating conversation.
+5. Event creation and everything that follows.
+
+---
+
 > **George is a platform, not a feature.** One conversation engine, one personality, one set of principles, many surfaces. This document is the platform contract every surface reads before mounting George.
 
 _Locked with Garry, 19 July 2026._
@@ -32,13 +49,13 @@ The interface may have multiple entry points, but there is always:
 
 ## Surfaces that consume George
 
-| Surface | Mount point | Status (June 2026) |
-|---|---|---|
-| Mission Control (admin) | `/app/website/app/admin/george/new-event/page.tsx` | ✅ live |
-| FriendPlace website (member/organisation) | Deferred until member web login lands | ⏳ planned |
-| Mobile app (Expo) | Deferred to next milestone | ⏳ planned (up next) |
+| Surface | Mount point | Status (June 2026) | Role |
+|---|---|---|---|
+| **FriendPlace mobile app** (member) | Native Expo screen — up next | ⏳ **PRIMARY DESTINATION** | Where George lives |
+| FriendPlace website (member/organisation) | Deferred until member web login lands | ⏳ planned | Secondary member surface |
+| Mission Control (admin) | `/app/website/app/admin/george/new-event/page.tsx` | ✅ live | Development & administration surface |
 
-Each surface renders **exactly the same** component (`GeorgeConversation`) and passes a `GeorgeConversationChrome` describing:
+Every surface renders **exactly the same** component (`GeorgeConversation`) and passes a `GeorgeConversationChrome` describing:
 
 - where the "Leave" link sends you;
 - what buttons appear on the success screen; and

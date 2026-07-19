@@ -44,6 +44,7 @@ type PresenceUnfinished = {
 type Presence = {
   actor_id: string;
   name?: string;
+  first_meeting?: boolean;
   unfinished: PresenceUnfinished[];
   last_completed?: { title?: string; approved_at?: string } | null;
 };
@@ -53,6 +54,21 @@ const DAYS_ABSENCE_FOR_WARM_WELCOME = 3;
 const BUBBLE_LIFETIME_MS = 6500;
 const LOOP_ARC_ODDS = 0.28;      // ~1 in 4 arrivals do a gentle loop.
 const IDLE_FLUTTER_EVERY_MS = 95_000; // ~90 seconds.
+
+/**
+ * The one-time introduction, as agreed with Garry (19 July 2026).
+ * Never re-shown once the actor has been introduced. Includes games
+ * in the list of things George helps with, and ends with a gentle
+ * invitation rather than a tutorial.
+ */
+const INTRODUCTION_TEXT =
+  "Hi, I\u2019m George. Welcome to FriendPlace. It\u2019s lovely to meet you.\n\n" +
+  "I\u2019m here to help you get the most out of FriendPlace. I can help you " +
+  "find people, discover groups and events, organise your own activities, " +
+  "play games together, answer questions, or if you\u2019d simply like " +
+  "someone to chat with\u2026 I\u2019m here for that too.\n\n" +
+  "Whenever you need me, just tap the butterfly.\n\n" +
+  "Why don\u2019t we start by getting to know each other?";
 
 interface Props {
   /** Where to fetch presence from. Defaults to the admin endpoint. */
@@ -65,8 +81,10 @@ interface Props {
   shouldAllowArrival?: () => boolean;
 }
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+
 export function GeorgeButterfly({
-  presenceUrl = '/api/mcgs/george/presence',
+  presenceUrl = `${API_BASE}/api/mcgs/george/presence`,
   token,
   actorId,
   shouldAllowArrival,
@@ -79,6 +97,7 @@ export function GeorgeButterfly({
   const [openChat, setOpenChat] = useState(false);
   const [isLoopArc, setIsLoopArc] = useState(false);
   const [flutterKey, setFlutterKey] = useState(0);
+  const [isIntro, setIsIntro] = useState(false);
   const dismissedRef = useRef(false);
   const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -87,11 +106,10 @@ export function GeorgeButterfly({
     let cancelled = false;
 
     async function boot() {
-      // Read the auth token if not passed explicitly (admin surface).
       const authToken = token ?? (typeof window !== 'undefined' ? window.localStorage.getItem('fp_cms_token') : null);
-      if (!authToken) return; // Anonymous surfaces don't get the butterfly yet.
+      // (On mobile / native surfaces this will read from SecureStore instead.)
+      if (!authToken) return;
 
-      // Fetch presence. Never block the surface on failure.
       let pres: Presence | null = null;
       try {
         const r = await fetch(presenceUrl, {
@@ -99,42 +117,43 @@ export function GeorgeButterfly({
           cache: 'no-store',
         });
         if (r.ok) pres = await r.json();
-      } catch { /* swallow — he'll just say a generic hello */ }
+      } catch { /* swallow */ }
 
       if (cancelled) return;
       setPresence(pres);
+      const firstMeeting = !!pres?.first_meeting;
+      setIsIntro(firstMeeting);
 
       const id = actorId || pres?.actor_id || 'anonymous';
       const gate = shouldArriveToday(id);
-      // If we're not allowed to arrive today, rest immediately.
       const surfaceOk = shouldAllowArrival ? shouldAllowArrival() : true;
-      if (!gate.allowed || !surfaceOk) {
+
+      // First-meeting introduction ALWAYS runs, regardless of the
+      // once-per-day gate. Otherwise honour the gate.
+      if (!firstMeeting && (!gate.allowed || !surfaceOk)) {
         setPhase('resting');
         return;
       }
 
-      // Decide the greeting BEFORE the animation, so the bubble bloom
-      // feels intentional.
-      const line = pickGreeting(pres, gate.warmWelcome);
+      const line = firstMeeting
+        ? INTRODUCTION_TEXT
+        : pickGreeting(pres, gate.warmWelcome);
       setGreeting(line);
-
-      // Should this arrival do a gentle loop?
       setIsLoopArc(Math.random() < LOOP_ARC_ODDS);
 
-      // Start the arrival.
       setPhase('arriving');
-      // After ~3.7s, land.
       window.setTimeout(() => {
         if (cancelled) return;
         setPhase('landed');
-        // Show the bubble a moment after landing.
         window.setTimeout(() => {
           if (cancelled) return;
           setShowBubble(true);
         }, 320);
       }, 3700);
 
-      markArrivedToday(id);
+      // Only mark arrival for the daily gate on a non-first-meeting run;
+      // the introduction is tracked server-side via /introduced.
+      if (!firstMeeting) markArrivedToday(id);
     }
     void boot();
     return () => { cancelled = true; };
@@ -143,12 +162,16 @@ export function GeorgeButterfly({
   // ---- Bubble auto-fade + skip-on-tap ------------------------------------
   useEffect(() => {
     if (!showBubble) return;
-    // Auto-fade timer.
+    // Introduction bubbles do NOT auto-fade — the member must ack it.
+    if (isIntro) {
+      // We still honour "dismiss on tap" (via the bubble's own click) but
+      // suppress scroll/keydown here so the intro can't get accidentally lost.
+      return;
+    }
     bubbleTimerRef.current = setTimeout(() => {
       setShowBubble(false);
       setPhase('resting');
     }, BUBBLE_LIFETIME_MS);
-    // Any interaction dismisses.
     const dismiss = () => {
       if (dismissedRef.current) return;
       dismissedRef.current = true;
@@ -163,7 +186,7 @@ export function GeorgeButterfly({
       window.removeEventListener('scroll', dismiss);
       window.removeEventListener('keydown', dismiss);
     };
-  }, [showBubble]);
+  }, [showBubble, isIntro]);
 
   // ---- Periodic idle flutter --------------------------------------------
   useEffect(() => {
@@ -172,13 +195,33 @@ export function GeorgeButterfly({
     return () => clearInterval(t);
   }, [phase]);
 
+  // ---- Mark the introduction as delivered (server-side) -----------------
+  async function markIntroductionDone() {
+    if (!isIntro) return;
+    setIsIntro(false);
+    const authToken = token ?? (typeof window !== 'undefined' ? window.localStorage.getItem('fp_cms_token') : null);
+    if (!authToken) return;
+    try {
+      await fetch(`${API_BASE}/api/mcgs/george/introduced`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+    } catch { /* silent — cosmetic */ }
+  }
+
   // ---- Tap the butterfly ------------------------------------------------
   function onTap() {
+    // Cancel any pending auto-fade so the bubble doesn't linger under
+    // the chat sheet.
+    if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current);
+    setShowBubble(false);
+    // If we're mid-introduction, tapping the butterfly counts as
+    // acknowledgement so we don't re-introduce next time.
+    if (isIntro) void markIntroductionDone();
     // A tiny flutter first, then open the chat.
     setFlutterKey(k => k + 1);
     setPhase('opening');
     window.setTimeout(() => {
-      setShowBubble(false);
       setOpenChat(true);
       setPhase('resting');
     }, 340);
@@ -199,14 +242,14 @@ export function GeorgeButterfly({
         >
           <button
             type="button"
-            onClick={phase === 'resting' ? onTap : undefined}
+            onClick={(phase === 'resting' || phase === 'landed') ? onTap : undefined}
             style={{
               ...butterflyBtn,
-              cursor: phase === 'resting' ? 'pointer' : 'default',
-              pointerEvents: phase === 'resting' ? 'auto' : 'none',
+              cursor: (phase === 'resting' || phase === 'landed') ? 'pointer' : 'default',
+              pointerEvents: (phase === 'resting' || phase === 'landed') ? 'auto' : 'none',
             }}
             aria-label="Talk to George — tap to open"
-            title={phase === 'resting' ? 'Talk to George' : ''}
+            title={(phase === 'resting' || phase === 'landed') ? 'Talk to George' : ''}
           >
             <div
               key={flutterKey}
@@ -228,6 +271,7 @@ export function GeorgeButterfly({
           {showBubble && greeting && (
             <SpeechBubble
               text={greeting}
+              isIntro={isIntro}
               unfinished={currentUnfinished}
               onContinueUnfinished={() => {
                 if (currentUnfinished) {
@@ -235,7 +279,19 @@ export function GeorgeButterfly({
                   router.push(`/admin/george/new-event?resume=${currentUnfinished.session_id}`);
                 }
               }}
+              onIntroChoice={(choice) => {
+                void markIntroductionDone();
+                setShowBubble(false);
+                setPhase('resting');
+                if (choice === 'show_around') {
+                  // Open the floating chat with a warm 'show around' seed.
+                  onTap();
+                } else if (choice === 'chat_first') {
+                  onTap();
+                }
+              }}
               onDismiss={() => {
+                if (isIntro) void markIntroductionDone();
                 setShowBubble(false);
                 setPhase('resting');
               }}
@@ -264,24 +320,51 @@ export function GeorgeButterfly({
 // ---------------------------------------------------------------------------
 
 function SpeechBubble({
-  text, unfinished, onContinueUnfinished, onDismiss,
+  text, isIntro, unfinished, onContinueUnfinished, onIntroChoice, onDismiss,
 }: {
   text: string;
+  isIntro: boolean;
   unfinished?: PresenceUnfinished;
   onContinueUnfinished: () => void;
+  onIntroChoice: (choice: 'show_around' | 'chat_first') => void;
   onDismiss: () => void;
 }) {
   return (
     <div
-      style={bubbleWrap}
+      style={isIntro ? bubbleWrapIntro : bubbleWrap}
       role="status"
       aria-live="polite"
-      onClick={onDismiss}
+      onClick={isIntro ? undefined : onDismiss}
     >
       <div style={bubbleTail} aria-hidden />
       <div style={bubbleInner}>
         <div style={bubbleText}>{text}</div>
-        {unfinished && unfinished.title && (
+        {isIntro && (
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onIntroChoice('show_around'); }}
+              style={introPrimary}
+            >
+              Yes, show me around
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onIntroChoice('chat_first'); }}
+              style={introSecondary}
+            >
+              Let&rsquo;s just have a chat first
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onDismiss(); }}
+              style={introTertiary}
+            >
+              Maybe later
+            </button>
+          </div>
+        )}
+        {!isIntro && unfinished && unfinished.title && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onContinueUnfinished(); }}
@@ -428,6 +511,36 @@ const bubbleWrap: React.CSSProperties = {
   pointerEvents: 'auto',
   animation: 'fp-bubble-bloom 420ms cubic-bezier(0.2, 0.9, 0.3, 1)',
 };
+const bubbleWrapIntro: React.CSSProperties = {
+  ...({
+    position: 'absolute',
+    right: 68,
+    bottom: 16,
+    width: 360,
+    maxWidth: '86vw',
+    pointerEvents: 'auto',
+    animation: 'fp-bubble-bloom 520ms cubic-bezier(0.2, 0.9, 0.3, 1)',
+  } as React.CSSProperties),
+};
+const introPrimary: React.CSSProperties = {
+  padding: '10px 14px', borderRadius: 10,
+  background: 'linear-gradient(135deg,#14B8A6,#0F766E)',
+  color: '#FFFFFF', border: 'none', fontWeight: 800,
+  fontSize: 13, cursor: 'pointer', textAlign: 'left',
+  boxShadow: '0 4px 10px rgba(20,184,166,0.24)',
+};
+const introSecondary: React.CSSProperties = {
+  padding: '10px 14px', borderRadius: 10,
+  background: '#FFFFFF', border: '1px solid #CBD5E1',
+  color: '#0F172A', fontWeight: 700, fontSize: 13,
+  cursor: 'pointer', textAlign: 'left',
+};
+const introTertiary: React.CSSProperties = {
+  padding: '6px 10px', borderRadius: 8,
+  background: 'transparent', border: 'none',
+  color: '#94A3B8', fontSize: 12, cursor: 'pointer',
+  textAlign: 'left', textDecoration: 'underline',
+};
 const bubbleTail: React.CSSProperties = {
   position: 'absolute',
   bottom: 14,
@@ -451,6 +564,7 @@ const bubbleText: React.CSSProperties = {
   fontSize: 14,
   color: '#0F172A',
   lineHeight: 1.55,
+  whiteSpace: 'pre-line',
 };
 const continueBtn: React.CSSProperties = {
   marginTop: 10,

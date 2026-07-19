@@ -485,16 +485,44 @@ def build_router(db) -> APIRouter:
         """Light 'what does George know about me right now?' call.
 
         Powers the arrival butterfly's continuity greetings — recent
-        unfinished drafts, and the last thing we finished together. No
-        LLM cost; pure Mongo lookups. Never blocks arrival on failure.
+        unfinished drafts, the last thing we finished together, and
+        whether this is our first meeting (so the introduction script
+        runs). No LLM cost; pure Mongo lookups. Never blocks arrival
+        on failure.
         """
         try:
             presence = await actor_george_presence(db, actor_id=admin.get("id"))
         except Exception:
             log.exception("george presence lookup failed (non-fatal)")
             presence = {"actor_id": admin.get("id"), "unfinished": [], "last_completed": None}
-        presence["name"] = admin.get("name") or admin.get("email", "").split("@")[0]
+        presence["name"] = (
+            admin.get("display_name")
+            or admin.get("name")
+            or (admin.get("email", "").split("@")[0] if admin.get("email") else None)
+            or ""
+        )
+        # Has this actor met George before? The introduction plays exactly once.
+        presence["first_meeting"] = not bool(admin.get("george_first_met_at"))
         return presence
+
+    @router.post("/mcgs/george/introduced")
+    async def api_george_introduced(admin: dict = Depends(current_admin)):
+        """Persist the fact that George has now introduced himself to
+        this actor. From here on he greets them as someone he knows.
+        Idempotent: only sets the field if it wasn't already there.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        # Persist against the underlying admin document. When we add
+        # member auth on the website / mobile, this lands on their
+        # user document instead — same shape, one field.
+        try:
+            await db.cms_admins.update_one(
+                {"id": admin.get("id"), "george_first_met_at": {"$exists": False}},
+                {"$set": {"george_first_met_at": now}},
+            )
+        except Exception:
+            log.exception("george introduced write failed (non-fatal)")
+        return {"ok": True, "george_first_met_at": now}
 
 
     # =====================================================================

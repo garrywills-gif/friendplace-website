@@ -1,0 +1,48 @@
+{
+  "summary": "Frontend-only re-test of MCGS Phase 3 Milestone A (final). ALL highest-priority checks PASS. First-time introduction fires within ~4.5s of landing on /admin/bridge, renders every paragraph of the locked script (including 'play games together'), and shows all three warm choices (Yes, show me around / Let's just have a chat first / Maybe later). The intro bubble does NOT auto-fade — still fully present after 11s. Clicking 'Yes, show me around' opens the floating chat sheet ('Talking with George' with 'Open my Workspace' and seed chips). POST /api/mcgs/george/introduced retires the intro server-side: subsequent presence returns first_meeting:false. After clearing localStorage + re-logging in, the returning-user greeting arrives with the correct name — 'Welcome back, Garry. There's a draft we started together waiting whenever you're ready.' — no intro reprised. The tap-during-landed regression is also fixed: while the returning bubble was still on screen, clicking the butterfly dismissed the bubble AND opened the floating chat in one action. Backend spot-checks (bearer curl) confirm /api/mcgs/george/presence returns name='Garry', /api/mcgs/george/introduced returns {ok:true, george_first_met_at:<iso>}, /api/mcgs/events/pending-approval returns 200 {items:[], count:0}. Only observations worth flagging: (1) a React console warning about 'mixing shorthand and non-shorthand properties during rerender' fires on /admin/bridge — traced to GeorgeButterfly's style merge (restingStyle spreads {top:'auto', bottom:24, right:24} over butterflyAnchor's {top:32, right:-80}); cosmetic, not user-visible; (2) the returning greeting always takes the 'unfinished draft' branch because the admin has a stale session with title:null — this is per-spec but means the rotating time-of-day greeting ('Morning, Garry…') isn't observable until that session is either titled or deleted. No P0/P1 regressions detected on the shared conversation engine surfaces I touched.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/mcgs/george/introduced",
+        "issue": "Idempotent from the client's perspective (still returns {ok:true}), but each call re-writes george_first_met_at to now(). Consider `$setOnInsert`-style semantics so the first-met timestamp is stable across accidental re-posts (useful for auditing). Not blocking."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/admin/bridge (butterfly + intro bubble)",
+        "issues": [
+          "Console warning: 'mixing shorthand and non-shorthand properties during rerender can lead to styling bugs' — originates from GeorgeButterfly.tsx merging restingStyle {top:'auto', bottom:24, right:24} on top of butterflyAnchor {top:32, right:-80}. Cosmetic; the animation still lands correctly at bottom:24, right:24. Suggest either using a single style object per phase or migrating to a keyframe-only positional path."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_72.json"
+  ],
+  "action_items": [
+    "OPTIONAL cleanup: silence the shorthand-vs-non-shorthand React warning in GeorgeButterfly.tsx by avoiding the {top:32,right:-80} → {top:'auto', bottom:24, right:24} spread on the same element (either two separate wrappers, or animate purely via the fp-arrive-* keyframes so the anchor never rewrites top/right).",
+    "OPTIONAL: make /api/mcgs/george/introduced write george_first_met_at with $setOnInsert semantics so a second call doesn't overwrite the true first-met timestamp.",
+    "OPTIONAL: the stale unfinished session (session_id=a23b90c8-882f-4939-99d0-afd11b55e414, title:null) is masking the rotating time-of-day greeting on returning logins. Either give it a title, mark it abandoned, or delete it in test data — this would let human testers observe the 'Morning/Evening, Garry…' rotations documented in the spec."
+  ],
+  "critical_code_review_comments": [
+    "GeorgeButterfly.tsx line 245: onTap is now correctly wired for both 'landed' and 'resting' phases — matches the fix note from iteration_71. Also correctly calls markIntroductionDone() when tap occurs mid-intro (line 220), and clears the bubble timer before opening the chat (line 216). Clean fix.",
+    "GeorgeButterfly.tsx line 166–170: the intro branch of the auto-fade effect correctly early-returns before wiring scroll/keydown dismissers, so the intro bubble cannot be accidentally lost to a stray keystroke or scroll — matches the 'must not auto-fade' spec.",
+    "mcgs_module.py presence handler now returns name='Garry' (verified). name-resolution fix from iteration_71 is landed."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (presence, introduced, pending-approval — all 200 with correct payloads)",
+    "frontend": "100% on the four highest-priority checks (intro renders + doesn't auto-fade + primary CTA opens chat + returning greeting shows 'Garry' + tap-during-landed opens chat). No regressions observed on the shared conversation engine surfaces exercised."
+  },
+  "seed_data_creation": "Unset cms_admins.george_first_met_at for hello@friendplace.com.au once (before the first-meeting arm of the test), then let the flow re-set it via the intro click. No other seed data touched. Stale unfinished George session (title:null) still present — intentionally left alone since deleting it would change the observed returning-greeting copy branch.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "1) To re-run the first-meeting flow: `mongosh test_database --eval 'db.cms_admins.updateMany({email:\"hello@friendplace.com.au\"},{$unset:{george_first_met_at:\"\"}})'` then hard-navigate to /admin/bridge with both fp_cms_token and fp_cms_admin seeded in localStorage. 2) The butterfly uses aria-label='Talk to George — tap to open' (with an em-dash) — that selector works reliably. 3) The 'Let's just have a chat first' button uses a curly apostrophe (U+2019) — match via Playwright's :has-text with the same character or plain substring 'have a chat first'. 4) After the intro is acknowledged, wipe localStorage and re-seed the token to force the once-per-day gate to fire again in the same test session, otherwise the returning bubble won't re-arrive (the arrival gate is keyed on `george.lastArrival.<actor_id>`).",
+  "rca_of_issue": "Not applicable — no P0/P1 bugs found in this iteration. Both fixes from iteration_71 (presence name resolution and tap-during-landed onClick gating) are confirmed landed and working end-to-end. The new introduction flow is spec-compliant on both the client and server sides."
+}

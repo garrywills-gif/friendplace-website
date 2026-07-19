@@ -1,107 +1,80 @@
-# MCGS Phase 3 · Milestone A (final) — Shared George Platform + Butterfly Arrival
+# MCGS Phase 3 · Milestone A (final) — Shared George Platform + Butterfly Arrival + First Introduction
 
-## What this iteration adds
+## 🧭 North Star reminder
+FriendPlace mobile is the destination. Mission Control is the development surface. Every George experience is designed for members opening their phones; Mission Control consumes the same shared engine.
 
-This iteration promoted George from an admin feature to a **shared FriendPlace platform**, and gave him his signature interaction — a butterfly that flutters in on first-visit-per-day and rests in the corner as his permanent home.
-
-### Backend (permission-aware routing)
-- New module `/app/backend/services/george/permissions.py` with `KNOWN_CAPABILITIES = (publish_events, create_groups, message_members, manage_volunteers)`.
-- `POST /api/mcgs/george/event/session/{id}/approve` now returns `outcome: "published" | "submitted_for_review"` — driven by the actor's **`publish_events` permission**, not their role.
-  - Admins default to `true` → writes to `events`.
-  - Members always default `false` → writes to a new `events_pending_approval` collection.
-  - Organisations default `false`, overridable via `organisations.permissions.publish_events`.
-- New moderation queue endpoints (admin-only):
-  - `GET  /api/mcgs/events/pending-approval` — list.
-  - `POST /api/mcgs/events/pending-approval/{id}/approve` — promote to `events`.
-  - `POST /api/mcgs/events/pending-approval/{id}/decline` — decline (with optional note).
-- New light presence endpoint powering the butterfly:
-  - `GET /api/mcgs/george/presence` → `{ name, unfinished: [...], last_completed: {...} }`. Pure Mongo lookups, no LLM cost.
-
-### Frontend (shared platform)
-- **Component extraction & rename**: `mcgs/GeorgeEventChat.tsx` → `components/george/GeorgeConversation.tsx`. Now role-agnostic; the *hosting surface* passes `GeorgeConversationChrome` describing where "Leave" goes, what buttons appear on success, and (optionally) a `successLine` override.
-- **Suggestion card** moved to `components/george/GeorgeSuggestionCard.tsx` with prop-driven copy.
-- **Role-aware success screen** reads `outcome`:
-  - `published` → *"Your event is live." / "I've added <title> to today's activity. Have a lovely time with it."*
-  - `submitted_for_review` → *"Off to the FriendPlace team." / "I've sent <title> to the FriendPlace team for a quick look. I'll let you know as soon as it's live."*
-- Old admin-owned files removed; nothing under `/components/mcgs/` still imports George.
-- Mission Control CONSUMES the shared engine via a thin wrapper at `/admin/george/new-event/page.tsx`.
-
-### The butterfly — signature interaction
-Mounted globally in `AdminShell` (visible on every authenticated admin page).
-
-Files:
-- `/app/website/components/george/GeorgeButterfly.tsx` — orchestration, animation phases, greeting logic.
-- `/app/website/components/george/GeorgeButterflyMark.tsx` — the SVG mark (teal→cyan gradient, deeper teal body, two antennae). Intentionally not the 🦋 emoji.
-- `/app/website/components/george/GeorgeFloatingChat.tsx` — the floating chat sheet that opens on tap.
-
-Behaviour (locked with Garry, 19 July 2026):
-1. **Arrival** — fires at most once per calendar day per actor. Storage: `localStorage["george.lastArrival.{actorId}"]`. If ≥ 3 days since last arrival, greeting shifts warmer.
-2. **Motion** — drifts in from off-screen top-right, ~3.7s cubic-bezier path to the bottom-right corner. ~28% of arrivals do a gentle looping arc instead of a direct path (variation so it feels alive, not scripted). Wings visibly flap during flight.
-3. **Landing + greeting** — 320ms after landing, a small speech bubble blooms next to the butterfly with a rotating warm greeting. Continuity: if the actor has an unfinished draft, the greeting name-drops it and shows a `Continue with "…" →` button that resumes that session. If it's been ≥ 3 days, George says *"It's been a little while — nice to see you."* and (if we have one) mentions the last thing we finished together.
-4. **Auto-fade** — bubble fades after 6.5s or on any scroll / keypress / tap.
-5. **Resting** — butterfly stays forever in the bottom-right corner, giving a tiny wing flutter every ~95 seconds so it feels alive but never distracting.
-6. **Tap** — a small flutter animation, then a floating chat sheet blooms (bottom-right, dialog role). The sheet mounts the *same* `GeorgeConversation` engine, has `Open my Workspace →` for continuation, and `×` / Escape to close.
+## What this iteration adds on top of iteration_71
+- **P0 bug fix**: `/api/mcgs/george/presence` now resolves the admin's first name via `display_name` (was returning empty → greeting showed no name).
+- **P0 bug fix**: The butterfly is now tappable in both `landed` and `resting` phases (previously the greeting bubble blocked taps).
+- **NEW — First-time introduction**: Server-side flag `cms_admins.george_first_met_at`. When absent, the presence endpoint returns `first_meeting: true` and the butterfly renders the full introduction script (locked with Garry, 19 July 2026):
+  > *"Hi, I'm George. Welcome to FriendPlace. It's lovely to meet you.*
+  >
+  > *I'm here to help you get the most out of FriendPlace. I can help you find people, discover groups and events, organise your own activities, play games together, answer questions, or if you'd simply like someone to chat with… I'm here for that too.*
+  >
+  > *Whenever you need me, just tap the butterfly.*
+  >
+  > *Why don't we start by getting to know each other?"*
+  Three warm choices: **Yes, show me around** (opens the floating chat), **Let's just have a chat first** (opens the floating chat), **Maybe later** (dismisses).
+  The introduction does NOT auto-fade. Any acknowledgement calls `POST /api/mcgs/george/introduced`, which sets `george_first_met_at` on the admin document; the introduction is retired forever after that.
+- Docs updated with an explicit North Star section at the top of both `mcgs-architecture.md` and `george-platform.md`.
 
 ## Test credentials
 - CMS admin: `hello@friendplace.com.au` / `TestPass2026!`
-- Website base URL: `http://localhost:3001` (mapped to `/` via nginx).
-- Backend base URL: `http://localhost:8001` (mapped to `/api` via nginx).
+- Website: `http://localhost:3001` (mapped to `/` via nginx)
+- Backend: `http://localhost:8001` (mapped to `/api` via nginx)
+- The admin's `george_first_met_at` has been unset for testing — first login will trigger the introduction. To reset again mid-test: `db.cms_admins.updateMany({}, { $unset: { george_first_met_at: "" } })`.
 
-## What to test — priority order
+## What to test
 
-### P0 — The butterfly experience
-1. Sign in. On landing (`/admin/bridge`), within ~4 seconds a butterfly SVG should appear at the bottom-right with a greeting bubble. The greeting should contain the admin's first name (or a rotating warm variant).
-2. The bubble should fade within ~6.5s. Butterfly remains resting in the bottom-right corner on every subsequent page.
-3. Clicking the butterfly (aria-label `"Talk to George — tap to open"`) opens a floating chat sheet with the empty state, three chip suggestions, and a composer. Header shows `"Talking with George"` on the left and `Open my Workspace →` on the right, plus a close button.
-4. Pressing Escape or clicking the backdrop or `×` closes the sheet; the butterfly remains at rest.
-5. Navigating to `/admin/george` or `/admin/george/new-event` should also show the butterfly at rest (no re-arrival for the same actor same day). The arrival gate is stored in `localStorage["george.lastArrival.{actorId}"]`.
-6. `Continue with "<title>" →` button appears only if the actor has an unfinished George conversation (skip unless you seed one).
+### P0 — First introduction (highest priority)
+1. Sign in fresh. Within ~4-5s of landing on `/admin/bridge`, the butterfly should arrive and bloom the **introduction bubble** (not the rotating greeting). Verify all four paragraphs render (whitespace preserved) including *"play games together"*.
+2. Verify three buttons: `Yes, show me around` (primary teal), `Let's just have a chat first` (secondary), `Maybe later` (tertiary underline link).
+3. Verify the introduction **does not auto-fade** (wait 10+ seconds — bubble should still be there).
+4. Clicking `Yes, show me around` opens the floating chat sheet (bottom-right).
+5. Sign out, sign in again (or refresh) — the introduction should **NOT** re-appear. Instead, the returning-user greeting should show (rotating warm phrase including the name "Garry", e.g. *"Morning, Garry. Nice to see you..."*).
 
-### P1 — Shared conversation engine
-7. From `/admin/george/new-event`, sending *"I'd like to run a Christmas Bowls evening on Saturday 5 December at 10am at the Community Hall. About 24 people. Open to everyone."* should within 60s produce George's warm reply beginning with a celebration line + a full Action Preview (title, friendly date, location, capacity, audience, description, and a *Why George chose these details* collapsible).
-8. Tone rule 5 — sending *"Actually, let's call it 'Twilight Bowls' instead, and move it to 6pm."* should update the draft warmly (title → Twilight Bowls, time → 18:00) with no errors.
-9. Clicking `✓ Confirm & Create` (aria-label `"Confirm and create the event"`) shows a success screen headed **"Your event is live."** (since the admin has `publish_events`), with warm copy including the event title. `Back to the Bridge` / `View in Events` / `Create another` buttons appear.
-10. `Advanced edit` link toggles a field-level panel and any overrides land in the approved event.
+### P0 — Name resolution
+6. On the returning-user greeting (after step 5), the admin's first name **"Garry"** should appear in the bubble text.
+7. `GET /api/mcgs/george/presence` (bearer admin token) returns `name: "Garry"` and `first_meeting: false` after introduction.
 
-### P2 — Permission-based routing (backend)
-11. `GET /api/mcgs/george/presence` with the admin bearer token returns `{ name, unfinished, last_completed }` (fields present, arrays are arrays). No LLM cost, fast.
-12. `GET /api/mcgs/events/pending-approval` returns `{ items: [], count: 0 }` at rest.
-13. The system SHOULD gracefully route member/organisation approvals to the pending queue — but seeding a member account is out of scope here. It's enough to confirm the endpoints exist and the shared engine handles both outcomes at the UI level (test #7–#9 exercises the published path; the wording branch for `submitted_for_review` is a compile-time constant in `GeorgeConversation.tsx > SuccessScreen`).
+### P0 — Tap during landed phase
+8. On a returning session (where the greeting bubble auto-fades in 6.5s), tap the butterfly while the bubble is still visible (during the ~6.5s window). The bubble should dismiss and the floating chat sheet should open. Previously this was blocked.
 
-### P3 — Regressions
-14. `/admin/bridge` still renders normally (Morning Briefing, Signal Feed, Health Pulse placeholders). The right rail's *"Would you like to create something today?"* suggestion card links to `/admin/george/new-event`.
-15. `/admin/george` (workspace landing) still shows all 7 capability tiles with only Create Event navigable.
-16. Sidebar still shows `George's Workspace` and marks it active on both `/admin/george` and `/admin/george/new-event`.
-17. Leaving the chat via `Leave and go back to the Bridge` calls cancel + navigates to `/admin/bridge`.
+### P1 — Full conversation engine
+9. Navigate to `/admin/george/new-event`. Send *"I'd like to run a Christmas Bowls evening on Saturday 5 December at 10am at the Community Hall. About 24 people. Open to everyone."*. Within 60s the Action Preview renders with a warm celebration line (rule 3). `✓ Confirm & Create` produces a success screen headed **"Your event is live."** (admin has `publish_events`), including the event title and 3 buttons.
+10. Rule 5 test: on a fresh session, after the draft appears, send *"Actually, let's call it 'Twilight Bowls' instead, and move it to 6pm."* — draft updates warmly, no errors.
+
+### P1 — Backend endpoints
+11. `GET /api/mcgs/george/presence` returns 200 with `{ actor_id, name, unfinished, last_completed, first_meeting }` — types correct.
+12. `POST /api/mcgs/george/introduced` returns `{ ok: true, george_first_met_at }` and is idempotent.
+13. `GET /api/mcgs/events/pending-approval` returns 200 with `{ items: [], count: 0 }` at rest.
+
+### P2 — Ambient behaviour
+14. Butterfly rests at bottom-right on all authenticated admin routes (Bridge, Workspace, New Event, Events, Media, etc.) and does NOT re-arrive on same-day route changes.
+15. Sidebar navigation works: George's Workspace, Bridge, Dashboard, etc.
+
+## Notes for the tester
+- Sonnet + Haiku round-trips: 5–20s. Allow up to 60s per George reply.
+- Butterfly aria-label: `"Talk to George — tap to open"`.
+- Confirm & Create button aria-label: `"Confirm and create the event"`.
+- If the introduction doesn't fire, verify with `db.cms_admins.find({email: "hello@friendplace.com.au"}, {george_first_met_at: 1})` — the field should not exist. If it does, unset it and retest.
+- The pre-existing `🎙️` mic in the top `AskGeorgeBar` also has aria-label `"Talk to George"` (without the "— tap to open" suffix) — do not confuse the two.
+- We are NOT testing member/organisation flows this iteration; those come with mobile and member web login.
 
 ## Files of reference (recent changes)
 Backend:
-- `/app/backend/services/george/permissions.py` (new)
-- `/app/backend/services/george/event_creation/service.py` (approve rewired, presence added, 5 tone-rule prompt)
-- `/app/backend/services/george/event_creation/__init__.py`
-- `/app/backend/mcgs_module.py` (presence + pending-approval endpoints)
+- `/app/backend/mcgs_module.py` — presence endpoint name fix, `first_meeting` field, `/mcgs/george/introduced` endpoint
+- `/app/backend/services/george/event_creation/service.py` — approve rewired, presence helper, 5 tone rules
+- `/app/backend/services/george/permissions.py` — new
 
 Frontend:
-- `/app/website/components/george/GeorgeConversation.tsx` (shared engine)
-- `/app/website/components/george/GeorgeButterfly.tsx` (arrival + resting + tap)
-- `/app/website/components/george/GeorgeButterflyMark.tsx` (SVG mark)
-- `/app/website/components/george/GeorgeFloatingChat.tsx` (bottom-right chat sheet)
+- `/app/website/components/george/GeorgeButterfly.tsx` — introduction flow + tap-during-landed
+- `/app/website/components/george/GeorgeConversation.tsx` — shared engine
+- `/app/website/components/george/GeorgeFloatingChat.tsx`
+- `/app/website/components/george/GeorgeButterflyMark.tsx`
 - `/app/website/components/george/GeorgeSuggestionCard.tsx`
-- `/app/website/components/admin/AdminShell.tsx` (mounts `<GeorgeButterfly />`)
-- `/app/website/app/admin/george/new-event/page.tsx` (thin admin wrapper)
-- `/app/website/app/admin/bridge/page.tsx` (imports suggestion card from new location)
-- `/app/website/lib/george-api.ts` (new)
-- `/app/website/lib/mcgs-api.ts` (added `outcome` to EventApprovalResult)
+- `/app/website/components/admin/AdminShell.tsx` — mounts the butterfly
 
 Docs:
-- `/app/memory/mcgs-architecture.md` (principle #13, three new decision-log rows)
-- `/app/memory/george-platform.md` (new — canonical platform contract)
-
-## Notes for the tester
-- Sonnet + Haiku round-trips 5–20s. Allow up to 60s per George reply.
-- Two composer buttons: `Start with George` (first send) and `Send` (subsequent).
-- Confirm & Create button aria-label: `"Confirm and create the event"`.
-- Butterfly aria-label: `"Talk to George — tap to open"`.
-- The pre-existing `🎙️` mic button in the top `AskGeorgeBar` also has `aria-label="Talk to George"` — use the specific label above to target the butterfly.
-- If the arrival didn't fire on your run, either the admin's actor id is missing from the shell or the localStorage gate has already been used today. To force it: `localStorage.removeItem("george.lastArrival.<actorId>")` then reload.
-- Rhythms Phase 2 regression sweep is NOT in scope for this iteration.
+- `/app/memory/mcgs-architecture.md` — North Star at top, principles #13–#15
+- `/app/memory/george-platform.md` — North Star at top, surfaces table now flags mobile as PRIMARY DESTINATION
