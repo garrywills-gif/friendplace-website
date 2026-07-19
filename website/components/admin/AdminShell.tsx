@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi } from '@/lib/cms-api';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
+import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
 
 const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions'; group?: string }[] = [
   { href: '/admin/bridge',           label: 'The Bridge',        icon: '🌉' },
@@ -134,6 +135,13 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
           {children}
         </div>
       </main>
+      {/*
+       * George's butterfly. Present on every authenticated admin page.
+       * The arrival animation fires at most once per calendar day (with a
+       * warmer welcome after ≥ 3 days away). After it lands he simply
+       * rests in the corner, quietly keeping company.
+       */}
+      <GeorgeButterfly actorId={admin?.id} />
     </div>
   );
 }

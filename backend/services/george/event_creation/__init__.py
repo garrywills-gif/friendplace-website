@@ -14,6 +14,7 @@ from .service import (
     get_event_session,
     approve_event_draft,
     cancel_event_session,
+    actor_george_presence,
     ensure_indexes,
     COLL_CONVERSATIONS,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "get_event_session",
     "approve_event_draft",
     "cancel_event_session",
+    "actor_george_presence",
     "ensure_indexes",
     "COLL_CONVERSATIONS",
 ]

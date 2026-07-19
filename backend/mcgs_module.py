@@ -55,6 +55,7 @@ from services.george.event_creation import (
     get_event_session,
     approve_event_draft,
     cancel_event_session,
+    actor_george_presence,
 )
 from services.george import grounded_chat_stream
 
@@ -478,6 +479,23 @@ def build_router(db) -> APIRouter:
         if session.get("actor_id") != admin.get("id"):
             raise HTTPException(403, "Not your conversation.")
         return await cancel_event_session(db, session_id)
+
+    @router.get("/mcgs/george/presence")
+    async def api_george_presence(admin: dict = Depends(current_admin)):
+        """Light 'what does George know about me right now?' call.
+
+        Powers the arrival butterfly's continuity greetings — recent
+        unfinished drafts, and the last thing we finished together. No
+        LLM cost; pure Mongo lookups. Never blocks arrival on failure.
+        """
+        try:
+            presence = await actor_george_presence(db, actor_id=admin.get("id"))
+        except Exception:
+            log.exception("george presence lookup failed (non-fatal)")
+            presence = {"actor_id": admin.get("id"), "unfinished": [], "last_completed": None}
+        presence["name"] = admin.get("name") or admin.get("email", "").split("@")[0]
+        return presence
+
 
     # =====================================================================
     # /api/mcgs/events/pending-approval  — moderation queue for actors

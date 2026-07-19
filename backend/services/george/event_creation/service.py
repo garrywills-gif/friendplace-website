@@ -564,3 +564,54 @@ async def cancel_event_session(db: Any, session_id: str) -> dict:
         {"$set": {"status": "cancelled", "updated_at": _now_iso()}},
     )
     return {"session_id": session_id, "status": "cancelled"}
+
+
+# ---------------------------------------------------------------------------
+# Presence — a light "what does George know about this person right now?"
+# call. Used by the arrival butterfly to greet with continuity.
+# ---------------------------------------------------------------------------
+
+async def actor_george_presence(db: Any, *, actor_id: str) -> dict:
+    """Return the state George should know before greeting this actor.
+
+    Fields:
+      - unfinished: up to 3 conversations the actor didn't finish
+        (status in {"in_progress", "drafted"}), most-recent first.
+      - last_completed: the last approved conversation's title (if any),
+        so George can acknowledge "the community BBQ we planned".
+    """
+    unfinished_cursor = db[COLL_CONVERSATIONS].find(
+        {"actor_id": actor_id, "status": {"$in": ["in_progress", "drafted"]}},
+        {"_id": 0, "session_id": 1, "status": 1, "draft": 1, "extracted": 1,
+         "updated_at": 1, "created_at": 1},
+    ).sort("updated_at", -1).limit(3)
+    unfinished = []
+    async for doc in unfinished_cursor:
+        title = ((doc.get("draft") or {}).get("title")
+                 or (doc.get("extracted") or {}).get("title")
+                 or None)
+        unfinished.append({
+            "session_id": doc.get("session_id"),
+            "status": doc.get("status"),
+            "title": title,
+            "updated_at": doc.get("updated_at") or doc.get("created_at"),
+        })
+
+    last_completed_doc = await db[COLL_CONVERSATIONS].find_one(
+        {"actor_id": actor_id, "status": "approved"},
+        {"_id": 0, "final_draft": 1, "approved_at": 1},
+        sort=[("approved_at", -1)],
+    )
+    last_completed = None
+    if last_completed_doc:
+        last_completed = {
+            "title": (last_completed_doc.get("final_draft") or {}).get("title"),
+            "approved_at": last_completed_doc.get("approved_at"),
+        }
+
+    return {
+        "actor_id": actor_id,
+        "unfinished": unfinished,
+        "last_completed": last_completed,
+    }
+
