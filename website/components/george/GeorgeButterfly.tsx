@@ -465,16 +465,18 @@ const overlay: React.CSSProperties = {
 
 const butterflyAnchor: React.CSSProperties = {
   position: 'absolute',
-  top: 32,
-  right: -80,
+  // top/right are set explicitly by the phase-specific styles below so we
+  // avoid mixing shorthand + longhand properties during React re-renders.
   transition: 'opacity 320ms ease',
 };
 
 const arriveDirectStyle: React.CSSProperties = {
+  top: 32, right: -80,
   animation: 'fp-arrive-direct 3700ms cubic-bezier(0.22, 0.9, 0.28, 1) forwards',
 };
 
 const arriveLoopStyle: React.CSSProperties = {
+  top: 32, right: -80,
   animation: 'fp-arrive-loop 3800ms cubic-bezier(0.4, 0.1, 0.3, 1) forwards',
 };
 

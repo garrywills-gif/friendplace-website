@@ -509,20 +509,23 @@ def build_router(db) -> APIRouter:
     async def api_george_introduced(admin: dict = Depends(current_admin)):
         """Persist the fact that George has now introduced himself to
         this actor. From here on he greets them as someone he knows.
-        Idempotent: only sets the field if it wasn't already there.
+        Idempotent: only sets the field if it wasn't already there, so
+        the audit timestamp reflects the *actual* first meeting.
         """
         now = datetime.now(timezone.utc).isoformat()
-        # Persist against the underlying admin document. When we add
-        # member auth on the website / mobile, this lands on their
-        # user document instead — same shape, one field.
         try:
             await db.cms_admins.update_one(
                 {"id": admin.get("id"), "george_first_met_at": {"$exists": False}},
                 {"$set": {"george_first_met_at": now}},
             )
+            fresh = await db.cms_admins.find_one(
+                {"id": admin.get("id")},
+                {"_id": 0, "george_first_met_at": 1},
+            ) or {}
         except Exception:
             log.exception("george introduced write failed (non-fatal)")
-        return {"ok": True, "george_first_met_at": now}
+            fresh = {"george_first_met_at": now}
+        return {"ok": True, "george_first_met_at": fresh.get("george_first_met_at", now)}
 
 
     # =====================================================================
