@@ -1,80 +1,62 @@
-# MCGS Phase 3 · Milestone A (final) — Shared George Platform + Butterfly Arrival + First Introduction
+# Milestone B5 — Mobile Event Creation (June 2026)
 
 ## 🧭 North Star reminder
-FriendPlace mobile is the destination. Mission Control is the development surface. Every George experience is designed for members opening their phones; Mission Control consumes the same shared engine.
+FriendPlace mobile is the destination. Mission Control consumes the same shared George engine. Every George experience is designed for members opening their phones.
 
-## What this iteration adds on top of iteration_71
-- **P0 bug fix**: `/api/mcgs/george/presence` now resolves the admin's first name via `display_name` (was returning empty → greeting showed no name).
-- **P0 bug fix**: The butterfly is now tappable in both `landed` and `resting` phases (previously the greeting bubble blocked taps).
-- **NEW — First-time introduction**: Server-side flag `cms_admins.george_first_met_at`. When absent, the presence endpoint returns `first_meeting: true` and the butterfly renders the full introduction script (locked with Garry, 19 July 2026):
-  > *"Hi, I'm George. Welcome to FriendPlace. It's lovely to meet you.*
-  >
-  > *I'm here to help you get the most out of FriendPlace. I can help you find people, discover groups and events, organise your own activities, play games together, answer questions, or if you'd simply like someone to chat with… I'm here for that too.*
-  >
-  > *Whenever you need me, just tap the butterfly.*
-  >
-  > *Why don't we start by getting to know each other?"*
-  Three warm choices: **Yes, show me around** (opens the floating chat), **Let's just have a chat first** (opens the floating chat), **Maybe later** (dismisses).
-  The introduction does NOT auto-fade. Any acknowledgement calls `POST /api/mcgs/george/introduced`, which sets `george_first_met_at` on the admin document; the introduction is retired forever after that.
-- Docs updated with an explicit North Star section at the top of both `mcgs-architecture.md` and `george-platform.md`.
+## What this iteration adds
+- **Principle #18 (locked)**: *George earns trust before collecting information.* Added to both `/app/memory/mcgs-architecture.md` and `/app/memory/george-platform.md` and pinned in the composer system prompt.
+- **Milestone B5 — Mobile Event Creation**: Members can now tap the resting butterfly and have George help them plan a new get-together via a continuous, warm conversation. George opens with the exact benchmark line:
+  > *"I'd love to help with that. Tell me about the kind of get-together you're hoping to create."*
+  He never asks about a field first. The event emerges from the chat. When ready, George says:
+  > *"Here's what I've put together from what you've told me. Have I captured it properly?"*
+  Buttons: **That looks right** / **Let's change something** / **Save for later**.
+- Event routing is permission-aware: `publish_events` → immediate publish; otherwise → `events_pending_approval` moderation queue.
+- Presence now returns `onboarding_complete` and `has_active_onboarding` so the butterfly tap routes correctly (onboarding chat vs event creation).
+- Event endpoints (`/api/mcgs/george/event/*`) now accept BOTH admin and member bearer tokens (previously admin-only). The actor's role is derived from the token, not the body.
+- Empty `text` accepted on `/mcgs/george/event/start` — enables the mobile "bare opener" flow where the member taps the butterfly and George speaks first.
 
 ## Test credentials
+- Mobile member (for Milestone B5): `member@friendplace.com.au` / `TestPass2026!` (Alex). Has `profile_complete: true` and no active onboarding session — tapping the butterfly opens the B5 event creation flow.
+- To rewind to onboarding testing: `db.users.updateOne({username:"member_first"}, {$set:{profile_complete:false}})` and reopen the onboarding session.
 - CMS admin: `hello@friendplace.com.au` / `TestPass2026!`
-- Website: `http://localhost:3001` (mapped to `/` via nginx)
+- Website / mobile web: `http://localhost:3000`
 - Backend: `http://localhost:8001` (mapped to `/api` via nginx)
-- The admin's `george_first_met_at` has been unset for testing — first login will trigger the introduction. To reset again mid-test: `db.cms_admins.updateMany({}, { $unset: { george_first_met_at: "" } })`.
 
 ## What to test
 
-### P0 — First introduction (highest priority)
-1. Sign in fresh. Within ~4-5s of landing on `/admin/bridge`, the butterfly should arrive and bloom the **introduction bubble** (not the rotating greeting). Verify all four paragraphs render (whitespace preserved) including *"play games together"*.
-2. Verify three buttons: `Yes, show me around` (primary teal), `Let's just have a chat first` (secondary), `Maybe later` (tertiary underline link).
-3. Verify the introduction **does not auto-fade** (wait 10+ seconds — bubble should still be there).
-4. Clicking `Yes, show me around` opens the floating chat sheet (bottom-right).
-5. Sign out, sign in again (or refresh) — the introduction should **NOT** re-appear. Instead, the returning-user greeting should show (rotating warm phrase including the name "Garry", e.g. *"Morning, Garry. Nice to see you..."*).
+### P0 — B5 backend
+1. `POST /api/mcgs/george/event/start` with `{ "text": "" }` and a member bearer must return `status: "in_progress"`, `field_being_asked: "idea"` (or similar non-field like `title`), and a warm opener like *"Tell me about the kind of get-together you're hoping to create."* George MUST NOT begin with *"What's the title of your event?"*.
+2. Multi-turn: send *"I'd like to organise a coffee morning at the community hall on Saturday 12 December at 10am. Room for 15, free."* George should reply warmly, note details, and ask *one* open question at most.
+3. Reply *"Let's call it the December Coffee Morning."* — status should flip to `drafted`, `draft` populated, `sources` array carries every inferred source, message opens with *"Here's what I've put together from what you've told me. Have I captured it properly?"* (or a close warm variant).
+4. `POST /approve` (as member, who lacks `publish_events`) returns `outcome: "submitted_for_review"` and creates a row in `events_pending_approval` with `sources` preserved.
+5. `POST /approve` (as admin, who has `publish_events`) returns `outcome: "published"` and creates a row in `events`.
+6. Editing outside scope: if the user says *"I want to edit my last event"*, George should politely defer (*"Editing existing events is something I'll be able to help with soon…"*). B5 is create-only.
 
-### P0 — Name resolution
-6. On the returning-user greeting (after step 5), the admin's first name **"Garry"** should appear in the bubble text.
-7. `GET /api/mcgs/george/presence` (bearer admin token) returns `name: "Garry"` and `first_meeting: false` after introduction.
+### P0 — B5 mobile UI
+7. Sign in as Alex on the mobile home. Wait for the greeting bubble to fade. Tap the resting butterfly.
+8. A slide-up modal opens. Header shows "George" + butterfly mark + "Save for later" link.
+9. George's opener appears within ~6 seconds: **"I'd love to help with that."** (excitement, teal, bold) followed by **"Tell me about the kind of get-together you're hoping to create."**
+10. Placeholder in composer reads *"Tell George about your idea…"*.
+11. Send an idea like *"I'd like a lawn bowls afternoon at the club on Saturday at 2pm."*. George replies warmly with excitement + working line + a single open question.
+12. Complete the conversation (add a title). The Action Preview card appears with:
+    - Header *"Here's what I've put together"* + subheader *"Have I captured it properly?"*
+    - Rows: Get-together, Date (formatted), Time (formatted 12h), Where, Room for, Cost, For, About it. Inferred rows tagged *(George pencilled this in)*.
+    - Three buttons: **That looks right** (primary teal), **Let's change something** (secondary), **Save for later** (tertiary underline).
+13. Tap **That looks right**. Since Alex lacks `publish_events`, the celebration screen renders *"Off to the FriendPlace team."* with the emoji, and a **Wonderful — thank you, George** primary button.
+14. Tapping **Wonderful — thank you, George** dismisses the celebration and returns to the home with the butterfly resting again.
+15. Tap **Let's change something** in another run — George should say *"Of course — what would you like to change?"* and the composer reopens.
+16. Tap **Save for later** — the modal closes, the session is `cancelled` server-side, and the resting butterfly is back on home.
 
-### P0 — Tap during landed phase
-8. On a returning session (where the greeting bubble auto-fades in 6.5s), tap the butterfly while the bubble is still visible (during the ~6.5s window). The bubble should dismiss and the floating chat sheet should open. Previously this was blocked.
+### P0 — Router (butterfly tap)
+17. Onboarding-complete member (Alex) tapping the butterfly → opens **event creation**, NOT the onboarding chat.
+18. If the member has an active onboarding session or `profile_complete=false`, tapping the butterfly → opens **onboarding** (Milestone B4). Rewind Alex with the SQL note above to verify.
 
-### P1 — Full conversation engine
-9. Navigate to `/admin/george/new-event`. Send *"I'd like to run a Christmas Bowls evening on Saturday 5 December at 10am at the Community Hall. About 24 people. Open to everyone."*. Within 60s the Action Preview renders with a warm celebration line (rule 3). `✓ Confirm & Create` produces a success screen headed **"Your event is live."** (admin has `publish_events`), including the event title and 3 buttons.
-10. Rule 5 test: on a fresh session, after the draft appears, send *"Actually, let's call it 'Twilight Bowls' instead, and move it to 6pm."* — draft updates warmly, no errors.
+## Recent regressions to guard against
+- Milestone B4 (Conversational Onboarding) must still work if `profile_complete=false`.
+- First-time introduction (once forever) still fires on a brand-new member's first login.
+- Butterfly arrival animation still plays once per day.
 
-### P1 — Backend endpoints
-11. `GET /api/mcgs/george/presence` returns 200 with `{ actor_id, name, unfinished, last_completed, first_meeting }` — types correct.
-12. `POST /api/mcgs/george/introduced` returns `{ ok: true, george_first_met_at }` and is idempotent.
-13. `GET /api/mcgs/events/pending-approval` returns 200 with `{ items: [], count: 0 }` at rest.
-
-### P2 — Ambient behaviour
-14. Butterfly rests at bottom-right on all authenticated admin routes (Bridge, Workspace, New Event, Events, Media, etc.) and does NOT re-arrive on same-day route changes.
-15. Sidebar navigation works: George's Workspace, Bridge, Dashboard, etc.
-
-## Notes for the tester
-- Sonnet + Haiku round-trips: 5–20s. Allow up to 60s per George reply.
-- Butterfly aria-label: `"Talk to George — tap to open"`.
-- Confirm & Create button aria-label: `"Confirm and create the event"`.
-- If the introduction doesn't fire, verify with `db.cms_admins.find({email: "hello@friendplace.com.au"}, {george_first_met_at: 1})` — the field should not exist. If it does, unset it and retest.
-- The pre-existing `🎙️` mic in the top `AskGeorgeBar` also has aria-label `"Talk to George"` (without the "— tap to open" suffix) — do not confuse the two.
-- We are NOT testing member/organisation flows this iteration; those come with mobile and member web login.
-
-## Files of reference (recent changes)
-Backend:
-- `/app/backend/mcgs_module.py` — presence endpoint name fix, `first_meeting` field, `/mcgs/george/introduced` endpoint
-- `/app/backend/services/george/event_creation/service.py` — approve rewired, presence helper, 5 tone rules
-- `/app/backend/services/george/permissions.py` — new
-
-Frontend:
-- `/app/website/components/george/GeorgeButterfly.tsx` — introduction flow + tap-during-landed
-- `/app/website/components/george/GeorgeConversation.tsx` — shared engine
-- `/app/website/components/george/GeorgeFloatingChat.tsx`
-- `/app/website/components/george/GeorgeButterflyMark.tsx`
-- `/app/website/components/george/GeorgeSuggestionCard.tsx`
-- `/app/website/components/admin/AdminShell.tsx` — mounts the butterfly
-
-Docs:
-- `/app/memory/mcgs-architecture.md` — North Star at top, principles #13–#15
-- `/app/memory/george-platform.md` — North Star at top, surfaces table now flags mobile as PRIMARY DESTINATION
+## Testing notes
+- Sonnet turns take 4–10 seconds; wait accordingly.
+- The composer uses `EMERGENT_LLM_KEY` — do not modify.
+- The mobile home already surfaces George's resting butterfly with a personalised greeting bubble ("Morning, Alex..."); do not replace this.

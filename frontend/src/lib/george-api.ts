@@ -50,6 +50,57 @@ export interface Presence {
   unfinished: PresenceUnfinished[];
   last_completed?: { title?: string; approved_at?: string } | null;
   actor_type?: 'admin' | 'member';
+  onboarding_complete?: boolean;
+  has_active_onboarding?: boolean;
+}
+
+export interface EventDraftSource { field: string; source: string }
+export interface EventDraft {
+  title?: string | null;
+  emoji?: string | null;
+  description?: string | null;
+  location?: string | null;
+  date?: string | null;
+  time?: string | null;
+  capacity?: number | null;
+  price?: string | null;
+  audience?: string | null;
+  sources?: EventDraftSource[];
+}
+
+export interface EventTurn {
+  role: 'user' | 'george';
+  content: string;
+  at?: string;
+  state?: string;
+  excitement_line?: string | null;
+  working_line?: string | null;
+}
+
+export interface EventSession {
+  session_id: string;
+  status: 'in_progress' | 'drafted' | 'approved' | 'cancelled';
+  turns: EventTurn[];
+  extracted?: Record<string, any>;
+  defaults?: Record<string, any>;
+  draft?: EventDraft | null;
+  field_being_asked?: string | null;
+  excitement_line?: string | null;
+  working_line?: string | null;
+}
+
+export interface EventApprovalResult {
+  session_id: string;
+  routed_to: string;
+  outcome: 'published' | 'submitted_for_review';
+  target: {
+    id: string;
+    title?: string;
+    emoji?: string;
+    date?: string;
+    time?: string;
+    location?: string;
+  };
 }
 
 export const georgeApi = {
@@ -71,5 +122,23 @@ export const georgeApi = {
   ),
   onboardingFinishLater: (sessionId: string) => _req<any>(
     `/mcgs/george/onboarding/session/${sessionId}/finish-later`, { method: 'POST' },
+  ),
+  // Event creation (Milestone B5)
+  eventStart: (text: string = '') => _req<EventSession>(
+    '/mcgs/george/event/start', { method: 'POST', body: JSON.stringify({ text }) },
+  ),
+  eventTurn: (sessionId: string, text: string) => _req<EventSession>(
+    `/mcgs/george/event/session/${sessionId}/turn`,
+    { method: 'POST', body: JSON.stringify({ text }) },
+  ),
+  eventGet: (sessionId: string) => _req<EventSession>(
+    `/mcgs/george/event/session/${sessionId}`,
+  ),
+  eventApprove: (sessionId: string, edits?: Partial<EventDraft>) => _req<EventApprovalResult>(
+    `/mcgs/george/event/session/${sessionId}/approve`,
+    { method: 'POST', body: JSON.stringify({ edits: edits || null }) },
+  ),
+  eventCancel: (sessionId: string) => _req<any>(
+    `/mcgs/george/event/session/${sessionId}/cancel`, { method: 'POST' },
   ),
 };

@@ -11,7 +11,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { GeorgeIntroduction, type IntroChoice } from './GeorgeIntroduction';
 import { GeorgeOnboarding } from './GeorgeOnboarding';
-import { georgeApi, type Presence } from '@/src/lib/george-api';
+import { GeorgeEventCreation } from './GeorgeEventCreation';
+import { GeorgeEventCelebration } from './GeorgeEventCelebration';
+import { georgeApi, type Presence, type EventApprovalResult } from '@/src/lib/george-api';
 
 /**
  * George's butterfly on FriendPlace mobile.
@@ -47,6 +49,9 @@ export function GeorgeButterfly() {
   const [greeting, setGreeting] = useState<string | null>(null);
   const [showBubble, setShowBubble] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  // Milestone B5 — event creation & its celebration surface.
+  const [showEvent, setShowEvent] = useState(false);
+  const [celebration, setCelebration] = useState<EventApprovalResult | null>(null);
 
   // ---- Reanimated values -------------------------------------------------
   // Position of the butterfly relative to the bottom-right corner.
@@ -191,8 +196,29 @@ export function GeorgeButterfly() {
       withTiming(1.08, { duration: 140 }),
       withTiming(1,    { duration: 160 }),
     );
-    // Open the chat after the flutter completes.
-    setTimeout(() => setShowChat(true), 320);
+
+    // Route by presence:
+    //   - Onboarding hasn't finished yet (either never started or paused
+    //     mid-conversation) → resume the profile chat.
+    //   - Onboarding complete → open Milestone B5 event creation. George
+    //     always leads with an open-ended warmth line — Principle #18.
+    // Presence is refreshed opportunistically on every tap so the router
+    // stays honest.
+    setTimeout(async () => {
+      try {
+        const fresh = await georgeApi.presence();
+        setPresence(fresh);
+        const needsOnboarding =
+          fresh.actor_type === 'member' &&
+          (!fresh.onboarding_complete || fresh.has_active_onboarding);
+        if (needsOnboarding) setShowChat(true);
+        else setShowEvent(true);
+      } catch {
+        // If we can't check, fall back to onboarding (safer default —
+        // it's a resume, and it always exists).
+        setShowChat(true);
+      }
+    }, 320);
   }, [wingFlap, bubbleOpacity]);
 
   // ---- Handle introduction choice ---------------------------------------
@@ -298,9 +324,50 @@ export function GeorgeButterfly() {
         onRequestClose={() => setShowChat(false)}
       >
         <GeorgeOnboarding
-          onDone={() => setShowChat(false)}
+          onDone={() => {
+            setShowChat(false);
+            // After profile is complete, refresh presence so a
+            // subsequent tap opens event creation rather than
+            // re-opening onboarding.
+            georgeApi.presence().then(setPresence).catch(() => {});
+          }}
           onFinishLater={() => setShowChat(false)}
         />
+      </Modal>
+
+      {/* Event creation — Milestone B5. The continuous conversation
+       *  continues: George opens with an open-ended warmth line, the
+       *  event emerges naturally, and only once George understands the
+       *  idea does he confirm it back. Principle #18 in every turn.
+       */}
+      <Modal
+        visible={showEvent}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowEvent(false)}
+      >
+        <GeorgeEventCreation
+          onLeave={() => setShowEvent(false)}
+          onDone={(result) => {
+            setShowEvent(false);
+            setCelebration(result);
+          }}
+        />
+      </Modal>
+
+      {/* Warm celebration once an event is created. */}
+      <Modal
+        visible={!!celebration}
+        animationType="fade"
+        transparent={false}
+        onRequestClose={() => setCelebration(null)}
+      >
+        {celebration ? (
+          <GeorgeEventCelebration
+            result={celebration}
+            onDone={() => setCelebration(null)}
+          />
+        ) : <View />}
       </Modal>
     </>
   );
