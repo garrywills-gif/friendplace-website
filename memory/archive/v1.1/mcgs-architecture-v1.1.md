@@ -1,19 +1,12 @@
-# Mission Control George System (MCGS) — Architecture
+# Mission Control George System (MCGS) — Architecture Proposal
 
-**Status:** **v1.1 — Phase 2 (Rhythms) FROZEN**, Garry signed off 19 July 2026. Phases 1 and 2 are feature-complete.
-- **v1.0 (Phase 1)** — Bridge, Signals, George (grounded chat), Action Preview pattern, Voice pipeline, prompt-injection defence. Frozen 19 July 2026.
-- **v1.1 (Phase 2)** — Rhythms: Morning Briefing, Midday Pulse, End-of-Day Wrap-up, Milestone Recognition. Scheduler + multi-channel delivery + continuity across days. Frozen 19 July 2026.
-- Baselines: `/app/memory/phase1-baseline-v1.0.md`, `/app/memory/phase2-baseline-v1.1.md`.
-- Archives: `/app/memory/archive/v1.0/`, `/app/memory/archive/v1.1/`.
-
-**Guiding principles (locked, in force across all future work):**
+**Status:** Draft v3 — approved in shape by Garry (18 July 2026). Ready to drive Phase 1 implementation plan.
+**Guiding principles (locked):**
 1. George is central, not an add-on.
 2. MCGS is an operations centre, not an admin panel.
 3. It surfaces what needs attention proactively.
 4. It scales from launch to hundreds of thousands of members.
 5. **George should reduce cognitive load, not increase it.** Every new feature must answer *"Does this help the administrator think less while staying better informed?"* If yes, it belongs. If it just adds another dashboard or notification, it doesn't.
-6. **Silence is a feature.** Surfaces stay silent when there's nothing to say.
-7. **George feels present** — someone quietly looking after FriendPlace while Garry is away. Continuity across days, warmth without flattery, grounded always.
 
 ---
 
