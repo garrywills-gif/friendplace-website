@@ -303,9 +303,10 @@ Rhythms make MCGS feel like a conversation with George across the whole day, not
 
 | Rhythm | Cadence | Channel | Feel |
 |---|---|---|---|
-| **Morning Briefing** | Weekdays 07:00 AEST · Weekends 08:30 AEST | Email + push + Bridge card | *"Good morning, Garry. Hope you had a good evening."* Then: what changed overnight, what needs attention, what can wait, where George recommends starting. Conversational, not a report. |
-| **Midday Pulse** *(opt-in, exception-based)* | Evaluated at 15:30 AEST; fires only if state materially changed | Push only when it fires | See §7a |
-| **End-of-Day Wrap-up** | Weekdays 18:00 AEST (skips if Garry is still active) | Email + push + Bridge card | *"Before you go — today we approved five new events, twenty-one more people found FriendPlace, you cleared every support ticket. Nothing urgent left for tomorrow. Sleep well; I'll keep watch overnight."* |
+| **Morning Briefing** | Weekdays 07:00 AEST · Weekends 08:30 AEST | Email + push + Bridge card | Warm rotating opener → what changed overnight → what needs attention → what can wait → where George recommends starting. Conversational, not a report. |
+| **Midday Pulse** *(opt-in, exception-based)* | Evaluated at 15:30 AEST; fires only if state materially changed | Push only when it fires (Bridge always) | See §7a. Silence is a feature. |
+| **End-of-Day Wrap-up** | Weekdays 18:00 AEST · deferred while Garry is active (waits ~30 min inactivity, skips if he stays active into the evening) | Bridge + optional email (no push unless urgent) | *"Before you go — today we approved five new events, twenty-one more people found FriendPlace, you cleared every support ticket. Nothing urgent left for tomorrow. Sleep well; I'll keep watch overnight."* |
+| **Milestone Recognition** | Ambient; surfaces when a milestone lands | Bridge inline + folded into next Rhythm | *"Before we finish today… I thought you'd like to know we've just welcomed our 1,000th member. That's a lovely milestone."* No confetti — just quiet acknowledgement. See §7c. |
 | **Weekly Review** | Sunday 18:00 AEST | Email + Bridge card | Health trend, wins, concerns, suggestions |
 | **Monthly Retro** | 1st of month 09:00 AEST | Email + Bridge card | Cohort retention, revenue signals, "state of the community" |
 | **Vacation mode** | Manual toggle | See §7b | Urgent-only push, held summary |
@@ -320,8 +321,40 @@ Trigger conditions (all must be **material change since 07:00**):
 
 If none of the above → **no notification**. The 3:30pm scan is silent by design.
 
-### 7b — Vacation mode
+### 7c — Milestone Recognition
 
+Milestones aren't reports — they're moments worth naming. George watches for meaningful community achievements and folds them into whichever Rhythm is next (or as an ambient Bridge inline). Never a push, never confetti — just quiet acknowledgement in a colleague's voice.
+
+Tracked milestones (v1):
+- First organisation reaches 100 events.
+- Total members cross a round threshold (100, 500, 1k, 5k, 10k…).
+- Total friendships created cross a round threshold (100, 1k, 10k…).
+- Every open support ticket cleared for the first time in a week.
+- No safeguarding incidents for 30 consecutive days.
+
+Delivery pattern:
+- Landed as a `Milestone` Signal, category `Milestone`, priority P3.
+- Surfaced inline on the Bridge and woven into the next Morning/EOD Rhythm ("Before we finish today…").
+- Never repeated for the same threshold — idempotent by `(milestone_key, period)`.
+- Never celebrated during safety-sensitive windows.
+
+### 7d — Rhythm timing & delivery matrix
+
+| Rhythm | Bridge | Email | Push |
+|---|---|---|---|
+| Morning Briefing | ✅ pinned card | ✅ if not yet read on Bridge | ✅ if notifications enabled |
+| Midday Pulse | ✅ (silent unless material change) | ❌ (no routine emails) | ✅ *only* if genuinely important |
+| End-of-Day Wrap-up | ✅ | Optional | ❌ unless urgent or explicitly enabled |
+| Milestone Recognition | ✅ inline + folded into next Rhythm | Folded, never separate | ❌ |
+| Weekly Review / Monthly Retro | ✅ | ✅ | ❌ |
+
+**Principles**:
+- **Same briefing across channels.** Never generate different versions per channel. The Bridge is the source of truth; email and push simply bring Garry back into FriendPlace.
+- **No duplication.** If Garry has already read today's briefing on the Bridge, George doesn't email him the same information later.
+- **Inactivity-aware.** EOD wrap-up defers if Garry is still active in MCGS — waits until ~30 min inactivity, then delivers. If he stays active into the evening, skip it. George should feel considerate, not scheduled.
+- **Timezone & schedule are admin-configurable** from day one (default Australia/Melbourne, weekday/weekend split, quiet hours).
+
+### 7b — Vacation mode
 Explicit and safe:
 - **P0** — immediate push + email as usual.
 - **P1** — held; delivered in a single scheduled daily summary at 07:00 unless it escalates to P0.
@@ -330,31 +363,34 @@ Explicit and safe:
 - Optional acting-admin **delegation** (Phase 9) reroutes P0/P1 to a chosen human.
 - George voice-line at toggle-on: *"Vacation mode is on. I'll only interrupt you for something genuinely urgent."*
 
-### Daily Briefing template (locked)
+### Morning Briefing template (structure locked · opener rotates)
+
+The **structure** is locked so Garry can scan it in seconds. The **opener** rotates from a small library of warm phrases so it never feels scripted:
+
+- *"Good morning, Garry. Hope you had a good evening."*
+- *"Good morning, Garry. Hope you're doing well."*
+- *"Morning, Garry. Ready for another day?"*
+- *"Morning, Garry. It's a fresh one."*
+- *"Good morning, Garry. Nice and quiet overnight."* *(only if that's true)*
+
+Never scripted, never over-familiar. George rotates deterministically per day so no opener repeats twice in a week.
 
 ```
-🦋 Morning, Garry. Here's your Friday briefing.
+🦋 [Rotating opener], Garry. Here's your Friday briefing.
 
-Yesterday
-   • 12 new signups (↑ 3), 4 events published, 26 lounge conversations.
-   • Margaret hit her 100th kindness point — feels like a moment.
+What changed overnight
+   • …grounded facts…
 
-Today's plan
-   • 3 events today; Rosanna coffee catch-up at 10am is nearly full.
-   • 2 organisations awaiting review; one warm and clear, one thin.
-   • 1 support ticket, 4h old.
+What needs your attention
+   • …grounded, prioritised…
 
-One thing to notice
-   • Lounge activity dipped 18% Wednesday night. My guess: local footy final.
-     Not a red flag, but worth a glance if it continues.
+What can wait
+   • …grounded, reassuring…
 
-Suggested for you
-   • Approve "Preston Pilates" event.
-   • Reply to Dot's ticket — draft ready.
-   • Send a warm note to Margaret? I've drafted one.
+Where I'd start
+   • one specific, human suggestion
 
-Have a lovely day.
-   — George
+— George
 ```
 
 ---
@@ -506,11 +542,28 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 - Toast subscription (SSE)
 - SMS channel modelled but not wired
 
-### Phase 4 — Health Pulse
+### Phase 4 — Health Pulse + Conversational Event Creation
+**Health Pulse**
 - Nightly ring computation
 - Right-rail Bridge widget with contribution transparency
 - Drill-down chart page in Systems → Analytics
 - `mcgs_settings_history` for weight audit
+
+**Conversational Event Creation (Garry, 19 July 2026)**
+> *"Most platforms make people fill in forms. FriendPlace could simply let people talk to George."*
+
+Instead of a create-event form, an organiser (or Garry on their behalf) can describe an event in natural language — voice or text — and George extracts every field, infers sensible defaults, and produces a **fully completed event draft as an Action Preview**. Nothing is created until a human taps *Approve*.
+
+- Input: free-form conversation ("we're running a coffee morning next Tuesday at the community hall from 10 to noon, £3 per head, open to over-60s").
+- Extractor tool: `george.tools.event_extractor` — deterministic schema extraction with confidence per field.
+- Inferred defaults: George fills gaps from org profile, venue history, past events, and current season (never invented).
+- Missing critical fields: George asks *one warm question at a time* to complete the draft (no wall of form fields).
+- Output: standard event draft in the existing pipeline — same review queue, same publish flow, same audit trail. No new admin path.
+- Voice-first: the whole flow works over the Ask George bar; the microphone is the primary create-event affordance.
+- Safety: same Action Preview lock as every other George write — the draft is visible, editable, and requires human approval.
+- Grounded: every inferred value shows its source ("start time from previous events at this venue"), never invented.
+
+This turns event creation from data entry into conversation — the defining test that FriendPlace treats organisers as humans, not form-fillers.
 
 ### Phase 5 — Studios consolidation
 - Sidebar restructured into the five Studios
@@ -595,3 +648,10 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 | 2026-07-19 | **Graceful failure for voice**: any uncertainty (low-confidence transcription, mic permission, network hiccup) is explained in calm human language. Never expose technical errors. | Trust and warmth extend to error moments |
 | 2026-07-19 | **Interruptible speech** captured as a Phase 2 roadmap item — if George is speaking and Garry starts talking, George stops and listens. | Makes conversations feel truly natural |
 | 2026-07-19 | **George's personality locked**: warm, optimistic, gentle sense of humour. Kind never sarcastic. Never joking during safety/mental-health/hard-news moments. Goal: "George made me smile today." | People should enjoy talking to George, not just use him. Personality is a defining FriendPlace differentiator. |
+| 2026-07-19 | **Long-term familiarity principle**: George should become more familiar over time without becoming casual. Always professional, but as months and years pass he can naturally sound more like someone Garry has worked alongside for a long time — never over-familiar, never robotic, just naturally comfortable. Familiarity accrues from shared history (past decisions, recurring people, seasonal patterns), not from cheekiness. | George is a colleague, and colleagues get more comfortable with each other over years. This locks the growth arc so we never trade professionalism for warmth or vice versa. |
+| 2026-07-19 | **Morning Briefing opener rotates** from a small warm library so it never feels scripted; structure remains locked. | Predictable structure, unscripted human voice. |
+| 2026-07-19 | **Milestone Recognition** added as a first-class Rhythm — quiet, ambient, no push, no confetti. Folded into the next Rhythm as *"Before we finish today…"*. | Milestones aren't reports; they're moments worth naming. |
+| 2026-07-19 | **EOD is considerate, not scheduled** — defers while Garry is active, waits ~30 min inactivity, skips entirely if he stays active into the evening. | George should feel considerate. He isn't a scheduler. |
+| 2026-07-19 | **Rhythm delivery matrix**: Bridge is source of truth. Morning = Bridge + email + push. Midday = Bridge + push only if truly important, no routine email. EOD = Bridge + optional email, push only if urgent. Same content across channels. No duplication if already read on the Bridge. | Channels work together, they don't duplicate each other. |
+| 2026-07-19 | **Rhythm schedule & timezone are admin-configurable from day one** (default Australia/Melbourne, weekday/weekend split, quiet hours). | Rhythms must fit Garry's life, not the other way around. |
+| 2026-07-19 | **Conversational Event Creation** added to Phase 4: George drafts a complete event from natural conversation (voice or text), infers defaults from grounded sources, asks one warm question at a time for missing critical fields, produces an Action Preview — never creates without human approval. Voice-first via Ask George bar. | Most platforms make people fill in forms. FriendPlace lets people talk to George. |

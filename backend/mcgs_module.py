@@ -35,6 +35,12 @@ from services.mcgs import (
     assign_case,
 )
 from services.mcgs.events import signal_events
+from services.mcgs.rhythms import (
+    get_rhythm_settings,
+    update_rhythm_settings,
+    record_admin_heartbeat,
+)
+from services.mcgs.rhythms.settings import RhythmSettingsError
 from services.george import grounded_chat_stream
 
 log = logging.getLogger("friendplace.mcgs.api")
@@ -103,6 +109,23 @@ class TTSIn(BaseModel):
     speed: float = Field(0.95, ge=0.5, le=1.5)
 
 
+class RhythmSettingsIn(BaseModel):
+    """Partial-patch of an admin's Rhythm settings. Only known fields are stored."""
+    timezone: Optional[str] = None
+    morning_weekday_at: Optional[str] = None
+    morning_weekend_at: Optional[str] = None
+    midday_at: Optional[str] = None
+    eod_at: Optional[str] = None
+    eod_inactivity_wait_minutes: Optional[int] = None
+    email_channel_enabled: Optional[bool] = None
+    push_channel_enabled: Optional[bool] = None
+    eod_email_enabled: Optional[bool] = None
+    midday_push_enabled: Optional[bool] = None
+    quiet_hours_start: Optional[str] = None
+    quiet_hours_end: Optional[str] = None
+    vacation_mode: Optional[bool] = None
+
+
 # ---------------------------------------------------------------------------
 # Router factory
 # ---------------------------------------------------------------------------
@@ -114,6 +137,7 @@ def build_router(db) -> APIRouter:
 
     # ---- Shared auth dependency ----
     async def current_admin(
+        request: Request,
         creds: HTTPAuthorizationCredentials = Depends(bearer),
     ) -> dict:
         if not creds or not creds.credentials:
@@ -124,7 +148,47 @@ def build_router(db) -> APIRouter:
         )
         if not admin:
             raise HTTPException(401, "Admin no longer exists")
+        # Phase 2 \u2014 Rhythms: heartbeat every authenticated MCGS call.
+        # Powers the End-of-Day considerate-deferral rule. Best-effort;
+        # never blocks the request.
+        try:
+            route_key = request.url.path if request else None
+        except Exception:
+            route_key = None
+        await record_admin_heartbeat(db, admin.get("id"), route=route_key)
         return admin
+
+    # =====================================================================
+    # /api/mcgs/rhythms/*  \u2014 Phase 2 settings + heartbeat surface
+    # =====================================================================
+
+    @router.get("/mcgs/rhythms/settings")
+    async def api_get_rhythm_settings(admin: dict = Depends(current_admin)):
+        settings = await get_rhythm_settings(db, admin.get("id"))
+        return settings
+
+    @router.put("/mcgs/rhythms/settings")
+    async def api_update_rhythm_settings(
+        body: RhythmSettingsIn,
+        admin: dict = Depends(current_admin),
+    ):
+        patch = {k: v for k, v in body.model_dump().items() if v is not None}
+        try:
+            updated = await update_rhythm_settings(db, admin.get("id"), patch)
+        except RhythmSettingsError as exc:
+            raise HTTPException(400, str(exc))
+        return updated
+
+    @router.post("/mcgs/rhythms/heartbeat")
+    async def api_rhythm_heartbeat(
+        request: Request,
+        admin: dict = Depends(current_admin),
+    ):
+        """Explicit heartbeat endpoint the Bridge UI can ping while a tab is
+        open. `current_admin` already records a heartbeat on every call \u2014
+        this endpoint is the intentional \"I'm still here\" ping.
+        """
+        return {"ok": True, "admin_id": admin.get("id")}
 
     # =====================================================================
     # /api/mcgs/signals

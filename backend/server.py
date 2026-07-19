@@ -9212,6 +9212,15 @@ async def _ensure_mcgs_indexes():
     except Exception:
         logger.exception("MCGS index setup failed (non-fatal)")
 
+    # Phase 2 \u2014 Rhythms collections (briefings, milestones, activity, settings).
+    # See /app/memory/mcgs-phase2-plan.md \u00a7Architecture additions.
+    try:
+        from services.mcgs.rhythms import ensure_indexes as _mcgs_rhythms_ensure_indexes
+        await _mcgs_rhythms_ensure_indexes(db)
+        logger.info("MCGS Rhythms indexes verified.")
+    except Exception:
+        logger.exception("MCGS Rhythms index setup failed (non-fatal)")
+
 
 @app.on_event("startup")
 async def _backfill_founders_spaces():
