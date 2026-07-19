@@ -13,6 +13,7 @@ import AvatarBubble from "@/src/components/AvatarBubble";
 import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import FirstRunCard from "@/src/components/FirstRunCard";
 import BrandLockup from "@/src/components/BrandLockup";
+import { GeorgeButterfly } from "@/src/components/george/GeorgeButterfly";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -275,6 +276,13 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
+      {/*
+       * George's butterfly \u2014 the signature interaction. Mounted on the
+       * Home screen only for Milestone B1/B2. First-time members see the
+       * introduction; returning members see a warm greeting bubble; a
+       * quietly-resting butterfly lives forever in the bottom-right.
+       */}
+      <GeorgeButterfly />
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: 24 }]}
         refreshControl={

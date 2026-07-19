@@ -165,6 +165,13 @@ class PendingApprovalDecisionIn(BaseModel):
 
 def build_router(db) -> APIRouter:
     from cms_module import _decode  # circular-safe: cms_module doesn't need us at import.
+    # Lazy imports to avoid a hard circular with server.py: the George
+    # platform needs to resolve both CMS-admin tokens (Mission Control)
+    # AND member tokens (mobile / future website member auth).
+    try:
+        from server import decode_token as _decode_member_token  # type: ignore
+    except Exception:  # pragma: no cover
+        _decode_member_token = None
 
     router = APIRouter(tags=["mcgs"])
 
@@ -190,6 +197,75 @@ def build_router(db) -> APIRouter:
             route_key = None
         await record_admin_heartbeat(db, admin.get("id"), route=route_key)
         return admin
+
+    async def current_george_actor(
+        request: Request,
+        creds: HTTPAuthorizationCredentials = Depends(bearer),
+    ) -> dict:
+        """Resolve the caller to a normalised 'actor' shape George
+        understands regardless of surface. This is the door every future
+        George endpoint should walk through — Mission Control admins
+        and FriendPlace mobile members both come through here.
+
+        Returned actor:
+            {
+              "id": str,
+              "name": str,          # first-name preferred
+              "email": str | None,
+              "actor_type": "admin" | "member",
+              "raw": <original doc without secrets>,
+            }
+        """
+        if not creds or not creds.credentials:
+            raise HTTPException(401, "Not authenticated")
+        tok = creds.credentials
+
+        # 1) Try Mission Control admin token first (has a `purpose` claim).
+        try:
+            payload = _decode(tok, "cms_admin")
+            admin = await db.cms_admins.find_one(
+                {"id": payload["sub"]}, {"_id": 0, "password_hash": 0},
+            )
+            if admin:
+                # Rhythms heartbeat for admins only — members don't get
+                # rhythm briefings yet.
+                try:
+                    route_key = request.url.path if request else None
+                except Exception:
+                    route_key = None
+                await record_admin_heartbeat(db, admin.get("id"), route=route_key)
+                return {
+                    "id": admin.get("id"),
+                    "name": admin.get("display_name") or admin.get("name") or "",
+                    "email": admin.get("email"),
+                    "actor_type": "admin",
+                    "raw": admin,
+                }
+        except HTTPException:
+            # Not a CMS admin token — fall through to member decode.
+            pass
+
+        # 2) Try member token (FriendPlace app JWT, no `purpose`).
+        uid = _decode_member_token(tok) if _decode_member_token else None
+        if uid:
+            user = await db.users.find_one(
+                {"id": uid}, {"_id": 0, "password_hash": 0},
+            )
+            if user:
+                first = (
+                    user.get("first_name")
+                    or (user.get("display_name") or user.get("name") or "").split(" ")[0]
+                    or ""
+                )
+                return {
+                    "id": user.get("id"),
+                    "name": first,
+                    "email": user.get("email"),
+                    "actor_type": "member",
+                    "raw": user,
+                }
+
+        raise HTTPException(401, "Not authenticated")
 
     # =====================================================================
     # /api/mcgs/rhythms/*  \u2014 Phase 2 settings + heartbeat surface
@@ -481,45 +557,45 @@ def build_router(db) -> APIRouter:
         return await cancel_event_session(db, session_id)
 
     @router.get("/mcgs/george/presence")
-    async def api_george_presence(admin: dict = Depends(current_admin)):
+    async def api_george_presence(actor: dict = Depends(current_george_actor)):
         """Light 'what does George know about me right now?' call.
 
-        Powers the arrival butterfly's continuity greetings — recent
-        unfinished drafts, the last thing we finished together, and
-        whether this is our first meeting (so the introduction script
-        runs). No LLM cost; pure Mongo lookups. Never blocks arrival
-        on failure.
+        Works for both Mission Control admins AND FriendPlace members —
+        George is one platform, one presence contract, many surfaces.
+        No LLM cost; pure Mongo lookups. Never blocks arrival on failure.
         """
         try:
-            presence = await actor_george_presence(db, actor_id=admin.get("id"))
+            presence = await actor_george_presence(db, actor_id=actor.get("id"))
         except Exception:
             log.exception("george presence lookup failed (non-fatal)")
-            presence = {"actor_id": admin.get("id"), "unfinished": [], "last_completed": None}
-        presence["name"] = (
-            admin.get("display_name")
-            or admin.get("name")
-            or (admin.get("email", "").split("@")[0] if admin.get("email") else None)
-            or ""
-        )
+            presence = {"actor_id": actor.get("id"), "unfinished": [], "last_completed": None}
+        presence["name"] = actor.get("name") or ""
         # Has this actor met George before? The introduction plays exactly once.
-        presence["first_meeting"] = not bool(admin.get("george_first_met_at"))
+        raw = actor.get("raw") or {}
+        presence["first_meeting"] = not bool(raw.get("george_first_met_at"))
+        presence["actor_type"] = actor.get("actor_type")
         return presence
 
     @router.post("/mcgs/george/introduced")
-    async def api_george_introduced(admin: dict = Depends(current_admin)):
-        """Persist the fact that George has now introduced himself to
-        this actor. From here on he greets them as someone he knows.
+    async def api_george_introduced(actor: dict = Depends(current_george_actor)):
+        """Persist that George has now introduced himself to this actor.
+
+        Writes to the correct collection based on actor_type — `cms_admins`
+        for Mission Control admins, `users` for FriendPlace members. From
+        here on George greets them as someone he knows.
+
         Idempotent: only sets the field if it wasn't already there, so
         the audit timestamp reflects the *actual* first meeting.
         """
         now = datetime.now(timezone.utc).isoformat()
+        coll = db.cms_admins if actor.get("actor_type") == "admin" else db.users
         try:
-            await db.cms_admins.update_one(
-                {"id": admin.get("id"), "george_first_met_at": {"$exists": False}},
+            await coll.update_one(
+                {"id": actor.get("id"), "george_first_met_at": {"$exists": False}},
                 {"$set": {"george_first_met_at": now}},
             )
-            fresh = await db.cms_admins.find_one(
-                {"id": admin.get("id")},
+            fresh = await coll.find_one(
+                {"id": actor.get("id")},
                 {"_id": 0, "george_first_met_at": 1},
             ) or {}
         except Exception:
