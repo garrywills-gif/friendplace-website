@@ -223,6 +223,9 @@ function ChatBubble({ turn }: { turn: Turn }) {
     } catch (err) {
       console.error(err);
       setPlaying(false);
+      // Graceful voice-playback fallback \u2014 the reply text is still fully
+      // readable, so we just note quietly and let the user try again.
+      alert("I couldn\u2019t play that just now \u2014 the reply is still on screen if you\u2019d like to read it.");
     }
   }
   return (

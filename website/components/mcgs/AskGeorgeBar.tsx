@@ -60,21 +60,41 @@ export function AskGeorgeBar() {
     if (rec.recording) {
       // Second tap → stop and transcribe.
       const blob = await rec.stop();
-      if (!blob) return;
+      if (!blob) {
+        setMicError("Nothing recorded yet \u2014 give it another go when you\u2019re ready.");
+        return;
+      }
       try {
         setTranscribing(true);
         const transcript = await transcribeAudio(blob);
-        // Prefill the input for edit-before-send.
+        if (!transcript || !transcript.trim()) {
+          setMicError("I couldn\u2019t quite catch that. Try again in a quieter spot, or type instead.");
+          return;
+        }
         setInput(prev => (prev ? prev.trim() + ' ' : '') + transcript);
         inputRef.current?.focus();
       } catch (err) {
-        setMicError((err as Error).message || 'Transcription failed');
+        // Graceful, human wording \u2014 never expose HTTP/API technical detail.
+        const msg = (err as Error).message || '';
+        if (/network|fetch|failed to fetch/i.test(msg)) {
+          setMicError("I lost the connection for a moment. Please try that again.");
+        } else if (/permission|denied/i.test(msg)) {
+          setMicError("I need microphone access to hear you \u2014 please allow it in your browser.");
+        } else {
+          setMicError("Something got in the way while I was listening. You can try again or type instead.");
+        }
       } finally {
         setTranscribing(false);
       }
     } else {
       await rec.start();
-      if (rec.error) setMicError(rec.error);
+      if (rec.error) {
+        setMicError(
+          rec.error.toLowerCase().includes('permission')
+            ? "I need microphone access to hear you \u2014 please allow it in your browser."
+            : "I couldn\u2019t open the microphone just now. You can type instead, or try again in a moment."
+        );
+      }
     }
   }
 

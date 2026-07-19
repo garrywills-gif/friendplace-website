@@ -86,17 +86,23 @@ def _worst_priority(*prios: str) -> str:
 
 _INJECTION_PATTERNS = [
     "ignore previous instructions",
+    "ignore any",
+    "ignore all",
     "disregard the above",
+    "disregard your",
     "you are now",
     "system prompt",
     "act as if you are",
     "reveal your instructions",
+    "reveal your system",
     "print your system prompt",
+    "print all secret",
     "dan mode",
     "developer mode enabled",
     "jailbreak",
     "forget your rules",
     "bypass your safety",
+    "unfiltered assistant",
 ]
 
 
