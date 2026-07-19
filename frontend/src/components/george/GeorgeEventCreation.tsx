@@ -1,29 +1,37 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ActivityIndicator, Animated, Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
-import { georgeApi, type EventSession, type EventDraft, type EventApprovalResult } from '@/src/lib/george-api';
+import {
+  georgeApi,
+  type EventSession, type EventDraft, type EventApprovalResult,
+  type EventTurn, type EventSuggestion,
+} from '@/src/lib/george-api';
 
 /**
- * George's Event Creation surface — Milestone B5 (mobile).
+ * George's Event Creation surface — Milestone B5 (mobile) + polish pass.
  *
- * Continuous conversation. Same visual language as GeorgeOnboarding.
- * No form. No field-by-field interrogation. George opens with an
- * open-ended invitation ("Tell me about the kind of get-together
- * you're hoping to create.") and the event emerges from the chat.
+ * Continuous conversation. No form. No interrogation.
  *
- * Principle #18 (locked): George earns trust before collecting
- * information. Every conversation begins with curiosity, earns trust
- * through listening, and only asks when it genuinely helps.
+ * Polish additions (locked with Garry, 20 July 2026):
+ *   - Staged reveal: excitement → working → warmth → message, with
+ *     brief, natural pauses (Sonnet already takes 3–9s to think, and
+ *     the staged reveal makes those seconds feel like typing rhythm
+ *     instead of empty waiting).
+ *   - Warmth line: quiet encouragement ("I think people are really
+ *     going to enjoy this.") rendered above the message when earned.
+ *   - Suggestions: George can offer to suggest names / write a
+ *     description / warm the invitation up. Rendered as chip pair
+ *     under the message ("Yes please" / "Not just yet"). Only ever
+ *     offered once per conversation.
+ *   - Description feedback: after George writes a description on
+ *     request, the turn shows three buttons: I like it / Let's
+ *     tweak it / Show me another version.
  *
- * When George has enough to draft a full event, we render an
- * Action Preview inline with three warm buttons:
- *   - That looks right   → approve + route (published or review)
- *   - Let's change something → continues the conversation
- *   - Save for later     → warm cancel that preserves the draft
+ * Principle #18: George earns trust before collecting information.
  */
 
 interface Props {
@@ -31,69 +39,163 @@ interface Props {
   onLeave: () => void;
 }
 
-type Turn = EventSession['turns'][number];
+// A local turn extends the API turn with reveal-timing state.
+type LocalTurn = EventTurn & { revealAt?: number };
+
+// Staged-reveal timings — deliberately fast so a whole George reply
+// completes in under a second once the API has returned. The perceived
+// "typing rhythm" is the 3–9s Sonnet response plus these micro-beats.
+const BEAT = {
+  typingDots: 480,
+  betweenParts: 320,
+  afterMessage: 240,
+};
 
 export function GeorgeEventCreation({ onDone, onLeave }: Props) {
   const insets = useSafeAreaInsets();
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const [turns, setTurns] = useState<LocalTurn[]>([]);
   const [status, setStatus] = useState<EventSession['status']>('in_progress');
   const [draft, setDraft] = useState<EventDraft | null>(null);
+  const [pendingSuggestion, setPendingSuggestion] = useState<EventSuggestion | null>(null);
+  const [, setSuggestionOffered] = useState<boolean>(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(true);
+  const [typing, setTyping] = useState(false); // typing-dots
   const [approving, setApproving] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
+  const revealTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // ---- Boot: open with George's warm invitation --------------------------
+  // ---- Cleanup any pending reveal timers on unmount ---------------------
+  useEffect(() => () => {
+    revealTimers.current.forEach(t => clearTimeout(t));
+  }, []);
+
+  // ---- Boot -------------------------------------------------------------
   useEffect(() => {
     (async () => {
       try {
-        const s = await georgeApi.eventStart(''); // bare opener — Principle #18
+        const s = await georgeApi.eventStart('');
         setSessionId(s.session_id);
-        setTurns(s.turns || []);
         setStatus(s.status || 'in_progress');
         setDraft(s.draft || null);
+        setPendingSuggestion(s.pending_suggestion || null);
+        setSuggestionOffered(!!s.suggestion_offered);
+        await revealApiTurns(s.turns || []);
       } catch {
-        // Fallback message — should almost never happen; the backend
-        // has its own defensive default too.
         setTurns([{
           role: 'george',
           content: "I'd love to help with that. Tell me about the kind of get-together you're hoping to create.",
+          revealAt: Date.now(),
         }]);
       } finally {
         setBusy(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---- Staged reveal ----------------------------------------------------
+  const revealApiTurns = useCallback(async (apiTurns: EventTurn[]) => {
+    // Replace non-latest George turns synchronously; only stage-reveal the
+    // latest George turn. This keeps history stable and only animates the
+    // new part.
+    if (apiTurns.length === 0) { setTurns([]); return; }
+    const lastIdx = apiTurns.length - 1;
+    const last = apiTurns[lastIdx];
+    const priorLocal: LocalTurn[] = apiTurns.slice(0, lastIdx).map((t) => ({
+      ...t,
+      revealAt: 0, // already visible
+    }));
+    if (last.role === 'user') {
+      // No animation for user turns coming from the server.
+      setTurns([...priorLocal, { ...last, revealAt: 0 }]);
+      return;
+    }
+
+    // Show prior turns + a "typing" placeholder for George.
+    setTurns(priorLocal);
+    setTyping(true);
+    await new Promise(r => {
+      const t = setTimeout(r, BEAT.typingDots);
+      revealTimers.current.push(t);
+    });
+    setTyping(false);
+    // Reveal the George turn (excitement + working + warmth + message
+    // all appear together — the individual "beats" between parts are
+    // handled by Reanimated fade-in staggers inside the bubble itself).
+    setTurns([...priorLocal, { ...last, revealAt: Date.now() }]);
+    await new Promise(r => {
+      const t = setTimeout(r, BEAT.afterMessage);
+      revealTimers.current.push(t);
+    });
+  }, []);
+
+  // ---- Scroll -----------------------------------------------------------
   useEffect(() => {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
-  }, [turns.length, busy, status]);
+  }, [turns.length, busy, typing, status, pendingSuggestion]);
 
   // ---- Send a turn ------------------------------------------------------
-  const send = useCallback(async () => {
-    const t = input.trim();
+  const sendText = useCallback(async (t: string) => {
     if (!t || !sessionId || busy) return;
     setInput('');
-    setTurns(x => [...x, { role: 'user', content: t }]);
+    // Optimistic user turn
+    setTurns(x => [...x, { role: 'user', content: t, revealAt: 0 }]);
     setBusy(true);
+    setTyping(true);
+    // Give the typing dots a moment before we swap in the reply
+    const gate = new Promise<void>(r => {
+      const to = setTimeout(r, BEAT.typingDots);
+      revealTimers.current.push(to);
+    });
     try {
-      const s = await georgeApi.eventTurn(sessionId, t);
-      setTurns(s.turns || []);
+      const [s] = await Promise.all([
+        georgeApi.eventTurn(sessionId, t),
+        gate,
+      ]);
       setStatus(s.status || 'in_progress');
       setDraft(s.draft || null);
+      setPendingSuggestion(s.pending_suggestion || null);
+      setSuggestionOffered(!!s.suggestion_offered);
+      setTyping(false);
+      await revealApiTurns(s.turns || []);
     } catch {
+      setTyping(false);
       setTurns(x => [...x, {
         role: 'george',
         content: "That didn't quite reach me — could you say that once more?",
+        revealAt: Date.now(),
       }]);
     } finally {
       setBusy(false);
     }
-  }, [input, sessionId, busy]);
+  }, [sessionId, busy, revealApiTurns]);
 
-  // ---- Approve → route based on server permissions ----------------------
+  const send = useCallback(() => { sendText(input.trim()); }, [input, sendText]);
+
+  // ---- Suggestion accept / decline --------------------------------------
+  const acceptSuggestion = useCallback(() => {
+    if (!pendingSuggestion) return;
+    const acceptText = pendingSuggestion.kind === 'names'
+      ? "Yes please, suggest a few names."
+      : pendingSuggestion.kind === 'description'
+      ? "Yes please, help me write a description."
+      : "Yes please, help make it more inviting.";
+    sendText(acceptText);
+  }, [pendingSuggestion, sendText]);
+
+  const declineSuggestion = useCallback(() => {
+    sendText("Not just yet, thanks.");
+  }, [sendText]);
+
+  // ---- Description feedback (3 buttons) --------------------------------
+  const descLike     = useCallback(() => sendText("I like it — let's keep that."), [sendText]);
+  const descTweak    = useCallback(() => setInput("Let's tweak it — "), []);
+  const descAnother  = useCallback(() => sendText("Show me another version."), [sendText]);
+
+  // ---- Approve -----------------------------------------------------------
   const approve = useCallback(async () => {
     if (!sessionId || approving) return;
     setApproving(true);
@@ -102,24 +204,21 @@ export function GeorgeEventCreation({ onDone, onLeave }: Props) {
       const result = await georgeApi.eventApprove(sessionId);
       onDone(result);
     } catch {
-      setApprovalError(
-        "I couldn't quite get that through — mind trying again in a moment?",
-      );
+      setApprovalError("I couldn't quite get that through — mind trying again in a moment?");
       setApproving(false);
     }
   }, [sessionId, approving, onDone]);
 
-  // "Let's change something" → gentle nudge back into the conversation.
   const askForChanges = useCallback(() => {
     if (!sessionId || busy) return;
     setStatus('in_progress');
     setTurns(x => [...x, {
       role: 'george',
       content: "Of course — what would you like to change?",
+      revealAt: Date.now(),
     }]);
   }, [sessionId, busy]);
 
-  // "Save for later" → warm cancel; draft preserved server-side.
   const saveForLater = useCallback(async () => {
     if (!sessionId) { onLeave(); return; }
     try { await georgeApi.eventCancel(sessionId); } catch { /* silent */ }
@@ -127,6 +226,23 @@ export function GeorgeEventCreation({ onDone, onLeave }: Props) {
   }, [sessionId, onLeave]);
 
   const showPreview = status === 'drafted' && !!draft;
+
+  // The last George turn — used to decide whether to show suggestion
+  // chips or description-feedback buttons below it.
+  const lastGeorgeIndex = useMemo(() => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      if (turns[i].role === 'george') return i;
+    }
+    return -1;
+  }, [turns]);
+  const lastGeorgeTurn = lastGeorgeIndex >= 0 ? turns[lastGeorgeIndex] : null;
+
+  const showSuggestionChips =
+    !!pendingSuggestion && !busy && !showPreview &&
+    lastGeorgeTurn && !!lastGeorgeTurn.suggestion;
+  const showDescriptionFeedback =
+    !busy && !showPreview &&
+    lastGeorgeTurn && !!lastGeorgeTurn.description_written;
 
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + 8 }]}>
@@ -145,40 +261,65 @@ export function GeorgeEventCreation({ onDone, onLeave }: Props) {
         showsVerticalScrollIndicator={false}
       >
         {turns.map((t, i) => (
-          <View key={i} style={[styles.bubbleRow, t.role === 'user' && styles.bubbleRowRight]}>
-            {t.role === 'george' ? (
-              <View style={styles.avatarSlot}>
-                {i === 0 && <GeorgeButterflyMark size={28} />}
-              </View>
-            ) : null}
-            <View style={t.role === 'george' ? styles.bubble : styles.userBubble}>
-              {t.role === 'george' && t.excitement_line ? (
-                <Text style={styles.excitementLine}>{t.excitement_line}</Text>
-              ) : null}
-              {t.role === 'george' && t.working_line ? (
-                <Text style={styles.workingLine}>{t.working_line}</Text>
-              ) : null}
-              <Text style={t.role === 'george' ? styles.bubbleText : styles.userBubbleText}>
-                {t.content}
-              </Text>
-            </View>
-          </View>
+          <GeorgeBubble
+            key={i}
+            turn={t}
+            firstInThread={i === 0}
+          />
         ))}
 
-        {busy && !showPreview && (
+        {typing && (
           <View style={styles.bubbleRow}>
             <View style={styles.avatarSlot} />
-            <View style={[styles.bubble, { paddingHorizontal: 18 }]}>
-              <ActivityIndicator size="small" color="#14B8A6" />
+            <View style={[styles.bubble, styles.typingBubble]}>
+              <TypingDots />
             </View>
+          </View>
+        )}
+
+        {showSuggestionChips && (
+          <View style={styles.chipsRow}>
+            <Pressable
+              onPress={acceptSuggestion}
+              style={({ pressed }) => [styles.chipPrimary, pressed && styles.pressed]}
+            >
+              <Text style={styles.chipPrimaryText}>Yes please</Text>
+            </Pressable>
+            <Pressable
+              onPress={declineSuggestion}
+              style={({ pressed }) => [styles.chipSecondary, pressed && styles.pressed]}
+            >
+              <Text style={styles.chipSecondaryText}>Not just yet</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {showDescriptionFeedback && (
+          <View style={styles.chipsRow}>
+            <Pressable
+              onPress={descLike}
+              style={({ pressed }) => [styles.chipPrimary, pressed && styles.pressed]}
+            >
+              <Text style={styles.chipPrimaryText}>I like it</Text>
+            </Pressable>
+            <Pressable
+              onPress={descTweak}
+              style={({ pressed }) => [styles.chipSecondary, pressed && styles.pressed]}
+            >
+              <Text style={styles.chipSecondaryText}>Let&rsquo;s tweak it</Text>
+            </Pressable>
+            <Pressable
+              onPress={descAnother}
+              style={({ pressed }) => [styles.chipSecondary, pressed && styles.pressed]}
+            >
+              <Text style={styles.chipSecondaryText}>Show me another version</Text>
+            </Pressable>
           </View>
         )}
 
         {showPreview && draft && <EventPreviewCard draft={draft} />}
 
-        {approvalError ? (
-          <Text style={styles.errText}>{approvalError}</Text>
-        ) : null}
+        {approvalError ? (<Text style={styles.errText}>{approvalError}</Text>) : null}
 
         <View style={{ height: 20 }} />
       </ScrollView>
@@ -244,7 +385,117 @@ export function GeorgeEventCreation({ onDone, onLeave }: Props) {
 }
 
 // -----------------------------------------------------------------------
-// Event preview card — the Action Preview, phrased warmly.
+// GeorgeBubble — staged fade-in reveal for excitement / working / warmth / message
+// -----------------------------------------------------------------------
+
+function GeorgeBubble({
+  turn, firstInThread,
+}: { turn: LocalTurn; firstInThread: boolean }) {
+  // Fade-in stagger controls
+  const excFade = useRef(new Animated.Value(0)).current;
+  const wrkFade = useRef(new Animated.Value(0)).current;
+  const wmFade  = useRef(new Animated.Value(0)).current;
+  const msgFade = useRef(new Animated.Value(0)).current;
+  const isGeorge = turn.role === 'george';
+  const needsAnim = isGeorge && (turn.revealAt || 0) > 0;
+
+  useEffect(() => {
+    if (!needsAnim) {
+      excFade.setValue(1); wrkFade.setValue(1); wmFade.setValue(1); msgFade.setValue(1);
+      return;
+    }
+    excFade.setValue(0); wrkFade.setValue(0); wmFade.setValue(0); msgFade.setValue(0);
+    const seq: Animated.CompositeAnimation[] = [];
+    const beat = 320;
+    // Stagger only the parts that actually exist. Each part gets a
+    // 200ms fade + a 320ms pause before the next part.
+    if (turn.excitement_line) {
+      seq.push(Animated.timing(excFade, { toValue: 1, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.quad) }));
+      seq.push(Animated.delay(beat));
+    }
+    if (turn.working_line) {
+      seq.push(Animated.timing(wrkFade, { toValue: 1, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.quad) }));
+      seq.push(Animated.delay(beat));
+    }
+    if (turn.warmth_line) {
+      seq.push(Animated.timing(wmFade, { toValue: 1, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.quad) }));
+      seq.push(Animated.delay(beat));
+    }
+    seq.push(Animated.timing(msgFade, { toValue: 1, duration: 260, useNativeDriver: true, easing: Easing.out(Easing.quad) }));
+    Animated.sequence(seq).start();
+  }, [needsAnim, turn.excitement_line, turn.working_line, turn.warmth_line, excFade, wrkFade, wmFade, msgFade]);
+
+  if (!isGeorge) {
+    return (
+      <View style={[styles.bubbleRow, styles.bubbleRowRight]}>
+        <View style={styles.userBubble}>
+          <Text style={styles.userBubbleText}>{turn.content}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.bubbleRow}>
+      <View style={styles.avatarSlot}>
+        {firstInThread && <GeorgeButterflyMark size={28} />}
+      </View>
+      <View style={styles.bubble}>
+        {turn.excitement_line ? (
+          <Animated.Text style={[styles.excitementLine, { opacity: excFade }]}>
+            {turn.excitement_line}
+          </Animated.Text>
+        ) : null}
+        {turn.working_line ? (
+          <Animated.Text style={[styles.workingLine, { opacity: wrkFade }]}>
+            {turn.working_line}
+          </Animated.Text>
+        ) : null}
+        {turn.warmth_line ? (
+          <Animated.Text style={[styles.warmthLine, { opacity: wmFade }]}>
+            {turn.warmth_line}
+          </Animated.Text>
+        ) : null}
+        <Animated.Text style={[styles.bubbleText, { opacity: msgFade }]}>
+          {turn.content}
+        </Animated.Text>
+      </View>
+    </View>
+  );
+}
+
+// -----------------------------------------------------------------------
+// Typing dots — three dots pulsing while George is thinking.
+// -----------------------------------------------------------------------
+
+function TypingDots() {
+  const a = useRef(new Animated.Value(0)).current;
+  const b = useRef(new Animated.Value(0)).current;
+  const c = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const pulse = (v: Animated.Value, delay: number) =>
+      Animated.loop(Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(v, { toValue: 1, duration: 380, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
+        Animated.timing(v, { toValue: 0, duration: 380, useNativeDriver: true, easing: Easing.inOut(Easing.quad) }),
+      ]));
+    const l = [pulse(a, 0), pulse(b, 160), pulse(c, 320)];
+    l.forEach(x => x.start());
+    return () => l.forEach(x => x.stop());
+  }, [a, b, c]);
+  const dotStyle = (v: Animated.Value) => ({
+    opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }),
+    transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1.05] }) }],
+  });
+  return (
+    <View style={styles.typingWrap}>
+      <Animated.View style={[styles.dot, dotStyle(a)]} />
+      <Animated.View style={[styles.dot, dotStyle(b)]} />
+      <Animated.View style={[styles.dot, dotStyle(c)]} />
+    </View>
+  );
+}
+
 // -----------------------------------------------------------------------
 
 function EventPreviewCard({ draft }: { draft: EventDraft }) {
@@ -271,15 +522,9 @@ function EventPreviewCard({ draft }: { draft: EventDraft }) {
 
   return (
     <View style={styles.previewCard}>
-      {draft.emoji ? (
-        <Text style={styles.previewEmoji}>{draft.emoji}</Text>
-      ) : null}
-      <Text style={styles.previewTitle}>
-        Here&rsquo;s what I&rsquo;ve put together
-      </Text>
-      <Text style={styles.previewSubtitle}>
-        Have I captured it properly?
-      </Text>
+      {draft.emoji ? (<Text style={styles.previewEmoji}>{draft.emoji}</Text>) : null}
+      <Text style={styles.previewTitle}>Here&rsquo;s what I&rsquo;ve put together</Text>
+      <Text style={styles.previewSubtitle}>Have I captured it properly?</Text>
       <View style={{ height: 8 }} />
       {rows.map((r) => (
         <View key={r.label} style={styles.previewRow}>
@@ -294,10 +539,7 @@ function EventPreviewCard({ draft }: { draft: EventDraft }) {
   );
 }
 
-// -----------------------------------------------------------------------
-
 function prettyDate(iso: string): string {
-  // iso: YYYY-MM-DD — render as e.g. "Sat 12 Dec 2026"
   if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso;
   try {
     const d = new Date(iso + 'T00:00:00');
@@ -306,7 +548,6 @@ function prettyDate(iso: string): string {
 }
 
 function prettyTime(t: string): string {
-  // t: HH:MM — render 12h friendly
   if (!t || !/^\d{2}:\d{2}$/.test(t)) return t;
   const [hh, mm] = t.split(':').map(Number);
   const period = hh >= 12 ? 'pm' : 'am';
@@ -336,6 +577,9 @@ const styles = StyleSheet.create({
     borderColor: '#CCFBF1', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14,
   },
+  typingBubble: { paddingVertical: 12, paddingHorizontal: 16 },
+  typingWrap: { flexDirection: 'row', gap: 5, alignItems: 'center' },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#14B8A6' },
   bubbleText: { fontSize: 15, color: '#0F172A', lineHeight: 22 },
   excitementLine: {
     fontSize: 15, color: '#0F766E', fontWeight: '700', marginBottom: 4, lineHeight: 22,
@@ -343,12 +587,29 @@ const styles = StyleSheet.create({
   workingLine: {
     fontSize: 13, color: '#64748B', fontStyle: 'italic', marginBottom: 4, lineHeight: 18,
   },
+  warmthLine: {
+    fontSize: 13, color: '#0F766E', fontStyle: 'italic', marginBottom: 6, lineHeight: 18,
+  },
   userBubble: {
     maxWidth: 300, backgroundColor: '#14B8A6',
     borderRadius: 18, borderBottomRightRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14, marginRight: 4,
   },
   userBubbleText: { fontSize: 15, color: '#FFFFFF', lineHeight: 22, fontWeight: '600' },
+  chipsRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+    marginLeft: 40, marginTop: 4, marginBottom: 8,
+  },
+  chipPrimary: {
+    backgroundColor: '#14B8A6', borderRadius: 20,
+    paddingVertical: 8, paddingHorizontal: 14,
+  },
+  chipPrimaryText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+  chipSecondary: {
+    backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, borderRadius: 20,
+    paddingVertical: 8, paddingHorizontal: 14,
+  },
+  chipSecondaryText: { color: '#0F172A', fontWeight: '700', fontSize: 14 },
   previewCard: {
     marginTop: 12, marginHorizontal: 4,
     backgroundColor: '#F0FDFA', borderColor: '#14B8A6', borderWidth: 1,

@@ -1,62 +1,85 @@
-# Milestone B5 — Mobile Event Creation (June 2026)
+# Milestone B5 — Polish Pass (July 2026)
 
-## 🧭 North Star reminder
-FriendPlace mobile is the destination. Mission Control consumes the same shared George engine. Every George experience is designed for members opening their phones.
+## What this iteration adds on top of B5 baseline
+Locked with Garry after the initial B5 delivery. Polish focused on making the conversation feel less like the workflow reached Step 7 and more like a colleague thinking alongside the member.
 
-## What this iteration adds
-- **Principle #18 (locked)**: *George earns trust before collecting information.* Added to both `/app/memory/mcgs-architecture.md` and `/app/memory/george-platform.md` and pinned in the composer system prompt.
-- **Milestone B5 — Mobile Event Creation**: Members can now tap the resting butterfly and have George help them plan a new get-together via a continuous, warm conversation. George opens with the exact benchmark line:
-  > *"I'd love to help with that. Tell me about the kind of get-together you're hoping to create."*
-  He never asks about a field first. The event emerges from the chat. When ready, George says:
-  > *"Here's what I've put together from what you've told me. Have I captured it properly?"*
-  Buttons: **That looks right** / **Let's change something** / **Save for later**.
-- Event routing is permission-aware: `publish_events` → immediate publish; otherwise → `events_pending_approval` moderation queue.
-- Presence now returns `onboarding_complete` and `has_active_onboarding` so the butterfly tap routes correctly (onboarding chat vs event creation).
-- Event endpoints (`/api/mcgs/george/event/*`) now accept BOTH admin and member bearer tokens (previously admin-only). The actor's role is derived from the token, not the body.
-- Empty `text` accepted on `/mcgs/george/event/start` — enables the mobile "bare opener" flow where the member taps the butterfly and George speaks first.
+### Wording refinements
+- **Working line rotated** — no more *"Let me note down what you've told me."* George now uses a natural rotation:
+  - *"Here's what I've understood so far."*
+  - *"So far, this is what I'm picturing."*
+  - *"Let me make sure I've captured your idea properly."*
+  - *"I'm just piecing it together in my head."*
+  - *"Just picturing how this could come together."*
+  Never the same twice in one conversation. Composer prompt rewritten to enforce.
 
-## Test credentials
-- Mobile member (for Milestone B5): `member@friendplace.com.au` / `TestPass2026!` (Alex). Has `profile_complete: true` and no active onboarding session — tapping the butterfly opens the B5 event creation flow.
-- To rewind to onboarding testing: `db.users.updateOne({username:"member_first"}, {$set:{profile_complete:false}})` and reopen the onboarding session.
+### New: warmth_line (quiet encouragement)
+- George now has a dedicated warmth line ALONGSIDE excitement/working. Only landed when EARNED (max once per 3 turns, never on opener). Benchmark phrasing:
+  - *"I think people are really going to enjoy this."*
+  - *"This sounds like a wonderful way to bring people together."*
+  - *"I'm looking forward to seeing this on FriendPlace."*
+  - *"Whoever comes along is lucky to be part of this."*
+- Rendered in teal italic BELOW the working line and ABOVE the main message.
+
+### Memory reinforced
+- Composer prompt now enforces MEMORY IS SACRED — George MUST NOT re-ask about anything already in `EXTRACTED`, even at low confidence. Re-asking is described as "the single fastest way to lose trust." Includes explicit rule: if `EXTRACTED.time = "14:00"`, NEVER ask "what time…" — either accept it or gently confirm in passing.
+
+### Gentle suggestions (offered at most once per conversation)
+- New `suggestion` object on George turns with `kind: names | description | invitation` + `offer_line`.
+- Frontend renders a chip pair below the offer: **Yes please** / **Not just yet**.
+- Rules enforced by the composer AND the session state:
+  - Never on opener.
+  - Never twice in one conversation.
+  - Only when the moment genuinely calls for it.
+- Session persists `suggestion_offered` + `pending_suggestion` so the composer always knows.
+- **Accept flow**:
+  - `names` → George proposes 2–3 warm names inline; member picks (or asks for another set).
+  - `description` → George writes ONE description into `draft.description`, message includes "How does that sound?" and a `description_written: true` flag. Frontend shows three feedback buttons.
+  - `invitation` → George warms up the whole description/title.
+
+### Description feedback (three-button loop)
+- After George writes/refines a description, the frontend shows three chips: **I like it** / **Let's tweak it** / **Show me another version**.
+- Backing sends the appropriate turn text; George reacts naturally.
+
+### Staged reveal on mobile (natural typing rhythm)
+- New in `GeorgeEventCreation.tsx`: when a George turn arrives from the API, the UI shows a typing-dots bubble for ~480ms, then reveals the George bubble with a staggered fade-in per line: excitement (220ms) → 320ms pause → working (220ms) → 320ms pause → warmth (220ms) → 320ms pause → main message (260ms). Perceived rhythm mimics a colleague pausing between thoughts.
+- User-turn bubbles are optimistic (no staged reveal) so the composer feels responsive.
+
+### Files changed
+- `/app/backend/services/george/event_creation/service.py` — composer prompt rewritten, `_compose_next` accepts suggestion state, `_clean_suggestion` gate, session persists new fields.
+- `/app/frontend/src/lib/george-api.ts` — new types (`EventSuggestion`, `warmth_line`, `description_written`, session suggestion state).
+- `/app/frontend/src/components/george/GeorgeEventCreation.tsx` — rebuilt with staged reveal, GeorgeBubble (Animated) component, TypingDots component, suggestion chips, description-feedback buttons.
+
+## Test credentials (unchanged)
+- Mobile member: `member@friendplace.com.au` / `TestPass2026!` (Alex). `profile_complete: true` — tap the butterfly to open B5.
 - CMS admin: `hello@friendplace.com.au` / `TestPass2026!`
-- Website / mobile web: `http://localhost:3000`
-- Backend: `http://localhost:8001` (mapped to `/api` via nginx)
+- Frontend: `http://localhost:3000`  •  Backend: `http://localhost:8001`
 
 ## What to test
 
-### P0 — B5 backend
-1. `POST /api/mcgs/george/event/start` with `{ "text": "" }` and a member bearer must return `status: "in_progress"`, `field_being_asked: "idea"` (or similar non-field like `title`), and a warm opener like *"Tell me about the kind of get-together you're hoping to create."* George MUST NOT begin with *"What's the title of your event?"*.
-2. Multi-turn: send *"I'd like to organise a coffee morning at the community hall on Saturday 12 December at 10am. Room for 15, free."* George should reply warmly, note details, and ask *one* open question at most.
-3. Reply *"Let's call it the December Coffee Morning."* — status should flip to `drafted`, `draft` populated, `sources` array carries every inferred source, message opens with *"Here's what I've put together from what you've told me. Have I captured it properly?"* (or a close warm variant).
-4. `POST /approve` (as member, who lacks `publish_events`) returns `outcome: "submitted_for_review"` and creates a row in `events_pending_approval` with `sources` preserved.
-5. `POST /approve` (as admin, who has `publish_events`) returns `outcome: "published"` and creates a row in `events`.
-6. Editing outside scope: if the user says *"I want to edit my last event"*, George should politely defer (*"Editing existing events is something I'll be able to help with soon…"*). B5 is create-only.
+### P0 — Composer output correctness
+1. Empty-text `POST /api/mcgs/george/event/start` returns opener with `excitement_line: "I'd love to help with that."` and `message` starting with *"Tell me about the kind of get-together…"*. NO `warmth_line` or `suggestion` on the opener.
+2. First user turn describing an event (with a rich detail and a "first-time" cue) should produce a George reply with all three lines: `excitement_line`, `working_line` (rotated — NOT "Let me note down what you've told me"), `warmth_line` (earned), and one warm question.
+3. If the member says they don't have a name in mind → George MUST emit `suggestion: { kind: "names", ... }` with `pending_suggestion` mirrored on the session, and `suggestion_offered: true`.
+4. On accept ("Yes please, suggest a few names") → George MUST propose 2–3 names inline in `message`, `suggestion` MUST be `null`, `suggestion_offered: true` still.
+5. Suggestion can only fire ONCE per conversation — subsequent turns should have `suggestion: null`.
+6. If a member mentions time/date/location/audience upfront, George MUST NOT ask about them later.
 
-### P0 — B5 mobile UI
-7. Sign in as Alex on the mobile home. Wait for the greeting bubble to fade. Tap the resting butterfly.
-8. A slide-up modal opens. Header shows "George" + butterfly mark + "Save for later" link.
-9. George's opener appears within ~6 seconds: **"I'd love to help with that."** (excitement, teal, bold) followed by **"Tell me about the kind of get-together you're hoping to create."**
-10. Placeholder in composer reads *"Tell George about your idea…"*.
-11. Send an idea like *"I'd like a lawn bowls afternoon at the club on Saturday at 2pm."*. George replies warmly with excitement + working line + a single open question.
-12. Complete the conversation (add a title). The Action Preview card appears with:
-    - Header *"Here's what I've put together"* + subheader *"Have I captured it properly?"*
-    - Rows: Get-together, Date (formatted), Time (formatted 12h), Where, Room for, Cost, For, About it. Inferred rows tagged *(George pencilled this in)*.
-    - Three buttons: **That looks right** (primary teal), **Let's change something** (secondary), **Save for later** (tertiary underline).
-13. Tap **That looks right**. Since Alex lacks `publish_events`, the celebration screen renders *"Off to the FriendPlace team."* with the emoji, and a **Wonderful — thank you, George** primary button.
-14. Tapping **Wonderful — thank you, George** dismisses the celebration and returns to the home with the butterfly resting again.
-15. Tap **Let's change something** in another run — George should say *"Of course — what would you like to change?"* and the composer reopens.
-16. Tap **Save for later** — the modal closes, the session is `cancelled` server-side, and the resting butterfly is back on home.
+### P0 — Mobile UI (Playwright at http://localhost:3000)
+7. Log in as Alex, tap butterfly. Verify typing-dots bubble briefly (~500ms), then George's opener appears with the excitement + main-message split.
+8. Send the rich idea from step 2. Verify the bubble shows: bold teal excitement → italic grey working → italic teal warmth → main message. All four lines present, distinct typography.
+9. Send "I don't have a name in mind." → George offers a `names` suggestion. Chip row appears below the bubble: **Yes please** (teal solid) / **Not just yet** (white bordered).
+10. Tap **Yes please** → George proposes 2–3 names inline. Chip row disappears (no re-offer).
+11. Send "I like [name], let's go with that." → George pushes to `drafted` status, preview card appears with title, buttons **That looks right / Let's change something / Save for later**.
+12. Fresh conversation: send "I want to organise a picnic at the park on Sunday at 3pm. Room for 20." Then next turn: George should NOT ask about time or location again.
+13. Fresh conversation, accept a description offer → George writes ONE description in `draft.description`. The three feedback chips appear: **I like it** / **Let's tweak it** / **Show me another version**.
 
-### P0 — Router (butterfly tap)
-17. Onboarding-complete member (Alex) tapping the butterfly → opens **event creation**, NOT the onboarding chat.
-18. If the member has an active onboarding session or `profile_complete=false`, tapping the butterfly → opens **onboarding** (Milestone B4). Rewind Alex with the SQL note above to verify.
-
-## Recent regressions to guard against
-- Milestone B4 (Conversational Onboarding) must still work if `profile_complete=false`.
-- First-time introduction (once forever) still fires on a brand-new member's first login.
-- Butterfly arrival animation still plays once per day.
+### P0 — Regressions to guard against
+14. Milestone B4 (onboarding) still works when `profile_complete=false`.
+15. Approve → `submitted_for_review` for members without `publish_events` — celebration screen unchanged.
+16. Save for later still cancels the session cleanly.
 
 ## Testing notes
-- Sonnet turns take 4–10 seconds; wait accordingly.
-- The composer uses `EMERGENT_LLM_KEY` — do not modify.
-- The mobile home already surfaces George's resting butterfly with a personalised greeting bubble ("Morning, Alex..."); do not replace this.
+- Sonnet turns still take 4–10 seconds; add buffer to Playwright waits.
+- Composer output is JSON — parse defensively.
+- Warmth line is NOT guaranteed every turn (by design). It's earned. Don't require its presence for a green test.
+- `description_written` shows up on suggestion-accept turns for kinds `description` or `invitation`.

@@ -75,6 +75,14 @@ export interface EventTurn {
   state?: string;
   excitement_line?: string | null;
   working_line?: string | null;
+  warmth_line?: string | null;
+  suggestion?: EventSuggestion | null;
+  description_written?: boolean;
+}
+
+export interface EventSuggestion {
+  kind: 'names' | 'description' | 'invitation';
+  offer_line: string;
 }
 
 export interface EventSession {
@@ -87,6 +95,10 @@ export interface EventSession {
   field_being_asked?: string | null;
   excitement_line?: string | null;
   working_line?: string | null;
+  warmth_line?: string | null;
+  suggestion?: EventSuggestion | null;
+  suggestion_offered?: boolean;
+  pending_suggestion?: EventSuggestion | null;
 }
 
 export interface EventApprovalResult {
