@@ -40,6 +40,7 @@ from services.mcgs.rhythms import (
     update_rhythm_settings,
     record_admin_heartbeat,
     compose_morning_briefing,
+    compose_midday_pulse,
     reschedule_admin,
     scheduler_status,
     deliver_briefing,
@@ -257,6 +258,52 @@ def build_router(db) -> APIRouter:
         """Snapshot of registered cron jobs. Handy for verifying your
         schedule is what you expect."""
         return scheduler_status()
+
+    # ---- Midday Pulse (Milestone D) ----
+
+    @router.post("/mcgs/rhythms/midday/evaluate")
+    async def api_midday_evaluate(
+        force: bool = Query(default=False),
+        admin: dict = Depends(current_admin),
+    ):
+        """Evaluate the Midday Pulse gate. Returns either a persisted
+        briefing row (when material changes fire the pulse) or a
+        `{status: skipped, skip_reason: ...}` payload (silence).
+
+        `force=true` bypasses the "already composed today" idempotency
+        so you can re-evaluate for testing.
+        """
+        settings = await get_rhythm_settings(db, admin.get("id"))
+        try:
+            row = await compose_midday_pulse(
+                db,
+                admin.get("id"),
+                force=force,
+                timezone_name=settings.get("timezone"),
+            )
+        except Exception as exc:
+            log.exception("midday pulse compose failed")
+            raise HTTPException(500, f"Midday pulse failed: {exc}")
+        row.pop("_id", None)
+        return row
+
+    @router.post("/mcgs/rhythms/midday/deliver")
+    async def api_midday_deliver(admin: dict = Depends(current_admin)):
+        """Deliver today's Midday Pulse to push (if genuinely important).
+        Bridge is already source of truth. No email by policy.
+        """
+        row = await db[COLL_BRIEFINGS].find_one(
+            {
+                "admin_id": admin.get("id"),
+                "rhythm_type": "midday",
+                "date_key": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            },
+            {"_id": 0},
+        )
+        if not row:
+            raise HTTPException(404, "No midday pulse fired for today.")
+        settings = await get_rhythm_settings(db, admin.get("id"))
+        return await deliver_briefing(db, row, settings)
 
     @router.get("/mcgs/rhythms/today")
     async def api_rhythms_today(admin: dict = Depends(current_admin)):

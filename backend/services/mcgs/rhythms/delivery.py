@@ -84,9 +84,10 @@ def _render_email_html(content: dict, admin_display_name: Optional[str] = None) 
             f"{_escape(m)}</div>"
         )
     if rec:
+        heading = _escape(content.get("recommendation_heading") or "Where I'd start")
         parts.append(
             "<div style=\"margin-top:20px;font-size:13px;font-weight:800;"
-            "color:#0F172A\">Where I'd start</div>"
+            f"color:#0F172A\">{heading}</div>"
             "<div style=\"margin-top:6px;padding:10px 14px;background:#F0FDFA;"
             "border:1px solid #CCFBF1;border-radius:12px\">"
             f"{_escape(rec)}</div>"
@@ -124,7 +125,7 @@ def _render_email_text(content: dict) -> str:
         lines.append(m)
     if content.get("recommendation"):
         lines.append("")
-        lines.append("Where I'd start")
+        lines.append(content.get("recommendation_heading") or "Where I'd start")
         lines.append(f"  • {content['recommendation']}")
     lines.append("")
     lines.append("— George")
@@ -164,6 +165,25 @@ async def _refresh_briefing(db: Any, briefing_id: str) -> Optional[dict]:
     return await db[COLL_BRIEFINGS].find_one({"id": briefing_id}, {"_id": 0})
 
 
+def _midday_is_genuinely_important(briefing_row: dict, settings: dict) -> bool:
+    """Garry's rule: Midday push only if genuinely important.
+
+    Approvals-queue depth alone doesn't warrant a push. New P0/P1
+    signals or a Milestone signal do. The admin can also flip the
+    `midday_push_enabled` setting off entirely.
+    """
+    if not settings.get("midday_push_enabled", True):
+        return False
+    sources = briefing_row.get("grounded_sources") or {}
+    if sources.get("new_p0"):
+        return True
+    if sources.get("new_p1"):
+        return True
+    if sources.get("new_milestones"):
+        return True
+    return False
+
+
 async def deliver_briefing(
     db: Any,
     briefing_row: dict,
@@ -178,12 +198,29 @@ async def deliver_briefing(
     Dedup rule: skip email/push if `bridge_seen_at` is set. That's
     Garry's "don't re-send what I already read" rule.
 
+    Channel policy varies by rhythm type (Garry's matrix, 2026-07-19):
+      - morning   : Bridge + email + push
+      - midday    : Bridge + push (no routine emails, silent by default)
+      - eod       : Bridge + optional email (no push unless urgent)
+      - milestone : Bridge only (folded into next Rhythm)
+
     Returns a dict describing what happened per channel.
     """
     briefing_id = briefing_row.get("id")
     admin_id = briefing_row.get("admin_id")
+    rhythm_type = briefing_row.get("rhythm_type", "morning")
     if not briefing_id or not admin_id:
         return {"skipped": "missing_ids"}
+
+    # Per-rhythm channel policy — Garry's delivery matrix, 2026-07-19.
+    if rhythm_type == "midday":
+        allow_email, allow_push = False, True
+    elif rhythm_type == "eod":
+        allow_email, allow_push = True, False
+    elif rhythm_type == "milestone":
+        allow_email, allow_push = False, False
+    else:  # morning + anything else
+        allow_email, allow_push = True, True
 
     # Always work from the latest row so a race between Bridge-view and
     # the scheduler is resolved by the freshest bridge_seen_at.
@@ -206,6 +243,8 @@ async def deliver_briefing(
     channel = "email"
     if channel in channels_done:
         outcome["channels"][channel] = "already_delivered"
+    elif not allow_email:
+        outcome["channels"][channel] = "not_in_policy"
     elif not settings.get("email_channel_enabled"):
         outcome["channels"][channel] = "disabled"
     elif bridge_seen:
@@ -252,8 +291,12 @@ async def deliver_briefing(
     channel = "push"
     if channel in channels_done:
         outcome["channels"][channel] = "already_delivered"
+    elif not allow_push:
+        outcome["channels"][channel] = "not_in_policy"
     elif not settings.get("push_channel_enabled"):
         outcome["channels"][channel] = "disabled"
+    elif rhythm_type == "midday" and not _midday_is_genuinely_important(briefing_row, settings):
+        outcome["channels"][channel] = "skipped_not_genuinely_important"
     elif bridge_seen:
         outcome["channels"][channel] = "skipped_seen_on_bridge"
     else:

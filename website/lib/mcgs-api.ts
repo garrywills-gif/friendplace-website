@@ -143,6 +143,7 @@ export interface BriefingContent {
   continuity_line: string | null;
   noticed_line: string | null;
   sections: BriefingSection[];
+  recommendation_heading?: string;
   recommendation: string;
   tone_note?: string;
   celebrated_moments?: string[];

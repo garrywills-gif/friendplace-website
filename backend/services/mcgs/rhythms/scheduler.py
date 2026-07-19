@@ -30,6 +30,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from .composer import compose_morning_briefing
+from .midday import compose_midday_pulse
 from .delivery import deliver_briefing
 from .settings import get_rhythm_settings
 
@@ -83,6 +84,37 @@ async def run_morning_briefing(admin_id: str) -> None:
         log.exception("morning briefing scheduler job failed for %s", admin_id)
 
 
+async def run_midday_pulse(admin_id: str) -> None:
+    """APScheduler entry-point for the Midday Pulse.
+
+    Silent-by-default: composer returns `status: skipped` unless the
+    material-change gate is met. When it fires, we deliver to Bridge
+    (always) and push (only if genuinely important — see delivery.py).
+    """
+    if _db_ref is None:
+        log.error("scheduler ran with no db reference")
+        return
+    try:
+        settings = await get_rhythm_settings(_db_ref, admin_id)
+        if settings.get("vacation_mode"):
+            return
+        row = await compose_midday_pulse(
+            _db_ref,
+            admin_id,
+            timezone_name=settings.get("timezone"),
+        )
+        if row.get("status") == "skipped":
+            log.info(
+                "midday pulse skipped for %s (%s)",
+                admin_id, row.get("skip_reason"),
+            )
+            return
+        outcome = await deliver_briefing(_db_ref, row, settings)
+        log.info("midday pulse delivered for %s: %s", admin_id, outcome)
+    except Exception:
+        log.exception("midday pulse scheduler job failed for %s", admin_id)
+
+
 # ---------------------------------------------------------------------------
 # Scheduling API
 # ---------------------------------------------------------------------------
@@ -119,12 +151,24 @@ async def reschedule_admin(admin_id: str) -> None:
         replace_existing=True,
         misfire_grace_time=60 * 30,
     )
+    # Midday pulse (exception-based). Runs every day — the composer's
+    # material-change gate decides whether anything actually happens.
+    h, m = _parse_hhmm(settings.get("midday_at") or "12:30", 12, 30)
+    _scheduler.add_job(
+        run_midday_pulse,
+        trigger=CronTrigger(hour=h, minute=m, timezone=tz_name),
+        args=[admin_id],
+        id=_job_id(admin_id, "midday"),
+        replace_existing=True,
+        misfire_grace_time=60 * 30,
+    )
     log.info(
-        "Rescheduled rhythms for admin %s (tz=%s, weekday=%s, weekend=%s)",
+        "Rescheduled rhythms for admin %s (tz=%s, weekday=%s, weekend=%s, midday=%s)",
         admin_id,
         tz_name,
         settings.get("morning_weekday_at"),
         settings.get("morning_weekend_at"),
+        settings.get("midday_at"),
     )
 
 

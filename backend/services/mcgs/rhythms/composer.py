@@ -90,6 +90,13 @@ STRICT RULES (these are architectural, not stylistic — breaking them breaks tr
    - "What needs your attention" — SKIP ENTIRELY if nothing needs attention.
    - "What can wait" — SKIP ENTIRELY if nothing can be usefully said here. Reassurance only, no filler.
    - `recommendation` — REQUIRED. Always end with one specific, human recommendation.
+   - `recommendation_heading` — REQUIRED. This is the little label above the recommendation. Choose the one that best fits the day from this list, so it reads like advice rather than a report:
+       * "If I were in your shoes…"
+       * "My suggestion"
+       * "What I'd tackle first"
+       * "Where I'd start"
+       * "One thing I'd do"
+     Pick one that suits the tone. Vary it briefing to briefing so it doesn't feel scripted.
 
 8. RECOMMENDATION MUST ADAPT TO THE DAY. It's not a fixed phrase and it's not always about clearing a queue. Match reality:
    - Busy queue day: "If I were you, I'd start with the pending submissions."
@@ -124,6 +131,7 @@ OUTPUT FORMAT (strict JSON only — no code fences, no preamble):
     {"heading": "What changed overnight", "bullets": ["...", "..."]},
     {"heading": "What needs your attention", "bullets": ["..."]}
   ],
+  "recommendation_heading": "<choose the label per rule 7 — e.g. 'If I were in your shoes…' or 'My suggestion' or 'What I'd tackle first' or 'Where I'd start' or 'One thing I'd do'>",
   "recommendation": "<one clear, day-appropriate recommendation — see rule 8>",
   "tone_note": "one short sentence describing the mood you set (busy/quiet/mixed/late)",
   "celebrated_moments": ["...phrasing for any milestone worth naming, or empty list"]
@@ -204,6 +212,7 @@ def _fallback_briefing(opener: dict, facts: dict) -> dict:
         "continuity_line": None,
         "noticed_line": None,
         "sections": sections,
+        "recommendation_heading": "What I'd tackle first",
         "recommendation": rec,
         "tone_note": "drafted from raw facts — composer was unavailable",
         "celebrated_moments": [],
@@ -304,6 +313,7 @@ async def compose_morning_briefing(
         composed.setdefault("continuity_line", None)
         composed.setdefault("noticed_line", None)
         composed.setdefault("celebrated_moments", [])
+        composed.setdefault("recommendation_heading", "Where I'd start")
     except Exception:
         log.exception("morning briefing composer failed — using fallback")
         composed = _fallback_briefing(opener, facts)
@@ -385,8 +395,9 @@ def _render_markdown(composed: dict) -> str:
         lines.append(moment)
     rec = composed.get("recommendation")
     if rec:
+        heading = composed.get("recommendation_heading") or "Where I'd start"
         lines.append("")
-        lines.append(f"**Where I'd start**")
+        lines.append(f"**{heading}**")
         lines.append(f"   • {rec}")
     lines.append("")
     lines.append("— George")

@@ -37,12 +37,14 @@ from .openers import (
 )
 from .facts import gather_morning_facts
 from .composer import compose_morning_briefing
+from .midday import compose_midday_pulse
 from .delivery import deliver_briefing
 from .scheduler import (
     start_scheduler,
     reschedule_admin,
     scheduler_status,
     run_morning_briefing,
+    run_midday_pulse,
 )
 
 __all__ = [
@@ -65,13 +67,15 @@ __all__ = [
     "MORNING_OPENERS",
     "pick_morning_opener",
     "recent_openers",
-    # facts + composer
+    # facts + composers
     "gather_morning_facts",
     "compose_morning_briefing",
+    "compose_midday_pulse",
     # delivery + scheduler
     "deliver_briefing",
     "start_scheduler",
     "reschedule_admin",
     "scheduler_status",
     "run_morning_briefing",
+    "run_midday_pulse",
 ]

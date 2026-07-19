@@ -4,6 +4,7 @@ import { AdminShell } from '@/components/admin/AdminShell';
 import { SignalFeed } from '@/components/mcgs/SignalFeed';
 import { GeorgePresenceCard } from '@/components/mcgs/GeorgePresenceCard';
 import { MorningBriefing } from '@/components/mcgs/MorningBriefing';
+import { MiddayPulse } from '@/components/mcgs/MiddayPulse';
 
 export default function BridgePage() {
   // Reach up to the AdminShell-mounted Ask George bar. It listens on
@@ -29,6 +30,8 @@ export default function BridgePage() {
           {/* Left / main column */}
           <div>
             <MorningBriefing onAsk={dispatchAsk} />
+
+            <MiddayPulse onAsk={dispatchAsk} />
 
             <SignalFeed />
           </div>

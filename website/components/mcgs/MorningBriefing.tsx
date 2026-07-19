@@ -23,12 +23,36 @@ interface Props {
   onAsk?: (message: string) => void;
 }
 
+// ---------- Rotating closing acknowledgements (Garry, 19 Jul 2026) ----------
+// Appears sometimes (not every time) after "Got it, thanks" so George feels
+// present without becoming performative.
+const CLOSING_MESSAGES = [
+  "I\u2019ll keep an eye on things.",
+  "Have a great day.",
+  "Just call if you need me.",
+  "I\u2019ll let you know if anything important changes.",
+  "I\u2019ll be here.",
+  "Enjoy your morning.",
+];
+
+// Show ~65% of the time. Deterministic per briefing id so a single briefing
+// always gives the same closing when re-opened (or no closing at all).
+function pickClosing(briefingId: string): string | null {
+  let h = 0;
+  for (let i = 0; i < briefingId.length; i++) h = (h * 31 + briefingId.charCodeAt(i)) | 0;
+  const bucket = ((h >>> 0) % 100);
+  if (bucket >= 65) return null; // ~35% of the time: no closing at all
+  const idx = ((h >>> 0) / 100 | 0) % CLOSING_MESSAGES.length;
+  return CLOSING_MESSAGES[idx];
+}
+
 export function MorningBriefing({ onAsk }: Props) {
   const [briefing, setBriefing] = useState<BriefingRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [composing, setComposing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [closing, setClosing] = useState<string | null>(null);
   const seenRef = useRef(false);
 
   const load = useCallback(async () => {
@@ -70,11 +94,20 @@ export function MorningBriefing({ onAsk }: Props) {
 
   const acknowledge = useCallback(async () => {
     if (!briefing) return;
+    // Pick a rotating closing acknowledgement for this briefing. Appears
+    // sometimes (not every time) so George feels present without being
+    // performative (Garry, 19 Jul 2026).
+    const line = pickClosing(briefing.id);
+    if (line) setClosing(line);
     setDismissed(true);
     try {
       await rhythmsApi.acknowledge(briefing.id);
     } catch {
       // If it fails, no big deal — the pin is a soft UI hint.
+    }
+    // Fade the closing after a moment so it doesn't linger.
+    if (line) {
+      setTimeout(() => setClosing(null), 6000);
     }
   }, [briefing]);
 
@@ -132,18 +165,33 @@ export function MorningBriefing({ onAsk }: Props) {
     );
   }
 
-  // 3. Acknowledged — collapsed pill so the Bridge feels clean.
+  // 3. Acknowledged — collapsed pill so the Bridge feels clean. If
+  //    George picked a warm closing for this briefing, render it as a
+  //    quiet italic line above the pill until it fades.
   if (dismissed) {
     return (
-      <section style={collapsedCard} onClick={() => setDismissed(false)} role="button" tabIndex={0}>
-        <span style={{ fontSize: 18 }} aria-hidden>🦋</span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#0F766E', letterSpacing: '0.03em' }}>
-          MORNING BRIEFING · read
-        </span>
-        <span style={{ fontSize: 12, color: '#64748B', marginLeft: 'auto' }}>
-          Tap to re-open
-        </span>
-      </section>
+      <div style={{ marginBottom: 20 }}>
+        {closing && (
+          <div style={closingLine} aria-live="polite">
+            <span aria-hidden style={{ fontSize: 14, marginRight: 6 }}>🦋</span>
+            <span>{closing}</span>
+            <span style={{ marginLeft: 8, color: '#94A3B8' }}>— George</span>
+          </div>
+        )}
+        <section
+          style={collapsedCard}
+          onClick={() => { setDismissed(false); setClosing(null); }}
+          role="button" tabIndex={0}
+        >
+          <span style={{ fontSize: 18 }} aria-hidden>🦋</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#0F766E', letterSpacing: '0.03em' }}>
+            MORNING BRIEFING · read
+          </span>
+          <span style={{ fontSize: 12, color: '#64748B', marginLeft: 'auto' }}>
+            Tap to re-open
+          </span>
+        </section>
+      </div>
     );
   }
 
@@ -206,7 +254,7 @@ export function MorningBriefing({ onAsk }: Props) {
 
           {c.recommendation && (
             <div style={{ marginTop: 16 }}>
-              <div style={sectionHeading}>Where I&apos;d start</div>
+              <div style={sectionHeading}>{c.recommendation_heading || "Where I'd start"}</div>
               <div style={recBox}>{c.recommendation}</div>
             </div>
           )}
@@ -246,8 +294,14 @@ const emptyCard: React.CSSProperties = { ...cardBase, background: '#FFFFFF' };
 const collapsedCard: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,
   background: '#F0FDFA', border: '1px solid #CCFBF1',
-  borderRadius: 999, padding: '8px 16px', marginBottom: 20,
+  borderRadius: 999, padding: '8px 16px', marginBottom: 0,
   cursor: 'pointer',
+};
+const closingLine: React.CSSProperties = {
+  display: 'flex', alignItems: 'center',
+  fontSize: 14, fontStyle: 'italic', color: '#0F766E',
+  padding: '8px 4px 12px 4px',
+  animation: 'fpFadeIn 300ms ease-out',
 };
 
 const eyebrow: React.CSSProperties = {
