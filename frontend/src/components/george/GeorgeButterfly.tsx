@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { GeorgeIntroduction, type IntroChoice } from './GeorgeIntroduction';
+import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { georgeApi, type Presence } from '@/src/lib/george-api';
 
 /**
@@ -285,34 +286,21 @@ export function GeorgeButterfly() {
         <GeorgeIntroduction onSettled={onIntroChoice} />
       </Modal>
 
-      {/* Placeholder floating chat — Slice B3 replaces with the shared engine */}
+      {/* Onboarding conversation — opens when the resting butterfly
+       *  is tapped and the member hasn't completed their profile yet.
+       *  This is George picking up exactly where he paused after the
+       *  introduction: "Let's start with something easy…"
+       */}
       <Modal
         visible={showChat}
         animationType="slide"
-        transparent
+        transparent={false}
         onRequestClose={() => setShowChat(false)}
       >
-        <View style={styles.chatBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowChat(false)} />
-          <View style={[styles.chatSheet, { paddingBottom: insets.bottom + 20 }]}>
-            <View style={styles.chatHeader}>
-              <GeorgeButterflyMark size={28} />
-              <Text style={styles.chatHeaderText}>Talking with George</Text>
-              <Pressable onPress={() => setShowChat(false)} hitSlop={10}>
-                <Text style={styles.chatCloseX}>✕</Text>
-              </Pressable>
-            </View>
-            <View style={styles.chatBody}>
-              <Text style={styles.chatPlaceholder}>
-                We&rsquo;ll bring the full conversation here next —
-                same George, same warmth, right on your phone.
-              </Text>
-              <Text style={styles.chatPlaceholderSmall}>
-                Slice B3 will mount the shared conversation engine.
-              </Text>
-            </View>
-          </View>
-        </View>
+        <GeorgeOnboarding
+          onDone={() => setShowChat(false)}
+          onFinishLater={() => setShowChat(false)}
+        />
       </Modal>
     </>
   );

@@ -142,24 +142,41 @@ To keep each mobile session testable, we ship in narrow slices. Each slice ends 
 
 **How George gathers information (this is what makes it different from a form)**
 
-1. **He listens naturally, never interrogates.** A single natural answer can populate several fields. E.g. from *"I'm recently retired and mostly looking for people nearby to have coffee with"* George may infer: age band ≈ 60+, life stage = retired, interest in local friendships, coffee-style casual social preference, desire for nearby connections.
+1. **He listens naturally, never interrogates.** A single natural answer can populate several fields.
 2. **He acknowledges what he heard**, then asks only for what is still genuinely missing — and only if it matters.
 3. **Sensitive questions are gentle and optional.** *"Would you mind telling me roughly what area you live in? A suburb is plenty — you don't need to share your address."*
-4. **"I'd rather skip that" is always welcome.** George responds warmly and continues without pressure. Skipped fields are marked `skipped=true` server-side so we never re-ask.
+4. **"I'd rather skip that" is always welcome.** Skipped fields are marked `skipped=true` server-side so we never re-ask.
 5. **George stops as soon as he has enough to begin helping.** He is not trying to fill a form.
+6. **He separates *stated*, *inferred*, and *unknown*.** A weak assumption never becomes profile data silently. Stated things are just recorded. Inferred things are surfaced in the preview for gentle confirmation: *"It sounds like weekday activities may suit you. Is that right?"*
+7. **He does not ask for or infer:** exact age, date of birth, identity or demographic info, full address, relationship status, health info, or anything he cannot currently use to improve the member's experience.
+8. **Life stage** is only stored when the member says something explicit (*"recently retired"*, *"caring for my mum"*). Never an age band, never an estimate.
+
+**Fields for the first version**
+
+- Preferred name (`preferred_name`)
+- Rough area or suburb (`area`)
+- Interests / things they enjoy (`interests`)
+- Life stage or current circumstances (`life_stage`) — only if explicit
+- Typical availability (`availability`)
+- What they would like more of in their life (`wants_more_of`)
+- Preference for local vs broader connections (`connection_scope`)
+- Comfortable **connection styles** (`connection_styles`) — from {one-to-one, small groups, larger social activities, online conversation, in-person activities, unsure yet}. Inferred where possible; gently clarified only when useful. This stops George recommending large events to someone who'd prefer coffee for two.
 
 **Member-language Action Preview**
 
-Not *"Confirm & Save"*. Not *"database field: value"*. Written the way one person hands notes to another:
+Not *"Confirm & Save"*. Not database-field labels. Written the way one person hands notes to another:
 
 > **Here's what I've learned about you**
-> Name: Alex
-> Area: The Ponds
-> Interested in: Coffee, gardening and local outings
-> Usually available: Weekday mornings
-> Looking for: More friendship and regular social activities
+> What I should call you: Alex
+> Your area: The Ponds
+> Things you enjoy: Gardening, coffee and local outings
+> Times that may suit you: Weekday mornings
+> You'd like more: Friendship and regular social activities
+> You may prefer: Small groups and local, in-person connections
 
-Buttons: **That looks right** (primary) · **Change something** (continues the conversation) · **Finish later** (soft dismiss; the session remains resumable).
+Buttons: **That looks right** (primary — writes profile + `profile_complete=true`) · **Change something** (continues the conversation) · **Finish later** (preserves session + draft; does *not* discard).
+
+Inferred rows are gently prefixed *"It sounds like…"* in the conversation before the preview, so the member has already had a chance to correct George.
 
 **Backend shape**
 

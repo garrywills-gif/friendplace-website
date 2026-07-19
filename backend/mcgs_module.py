@@ -57,6 +57,15 @@ from services.george.event_creation import (
     cancel_event_session,
     actor_george_presence,
 )
+from services.george.onboarding import (
+    start_or_resume_onboarding,
+    take_onboarding_turn,
+    get_onboarding_session,
+    approve_onboarding,
+    cancel_onboarding_session,
+    active_onboarding_session,
+    ensure_indexes as ensure_onboarding_indexes,
+)
 from services.george import grounded_chat_stream
 
 log = logging.getLogger("friendplace.mcgs.api")
@@ -157,6 +166,14 @@ class EventApproveIn(BaseModel):
 class PendingApprovalDecisionIn(BaseModel):
     decision: str = Field(..., description="approve | decline")
     note: Optional[str] = None
+
+
+class OnboardTurnIn(BaseModel):
+    text: str
+
+
+class OnboardApproveIn(BaseModel):
+    edits: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -602,6 +619,77 @@ def build_router(db) -> APIRouter:
             log.exception("george introduced write failed (non-fatal)")
             fresh = {"george_first_met_at": now}
         return {"ok": True, "george_first_met_at": fresh.get("george_first_met_at", now)}
+
+    # =====================================================================
+    # /api/mcgs/george/onboarding/*  — George's first real capability.
+    # Not "profile completion" — George learning enough to help someone belong.
+    # =====================================================================
+
+    class _OnboardTurnIn(BaseModel):  # kept for backwards compat, unused
+        text: str
+
+    class _OnboardApproveIn(BaseModel):
+        edits: Optional[dict] = None
+
+    try:
+        import asyncio
+        asyncio.get_event_loop().create_task(ensure_onboarding_indexes(db))
+    except Exception:
+        pass
+
+    @router.post("/mcgs/george/onboarding/start")
+    async def api_onboarding_start(actor: dict = Depends(current_george_actor)):
+        # Idempotent — resumes an existing in-progress session, or creates one.
+        session = await start_or_resume_onboarding(db, actor_id=actor.get("id"))
+        return session
+
+    @router.get("/mcgs/george/onboarding/session/{session_id}")
+    async def api_onboarding_get(session_id: str, actor: dict = Depends(current_george_actor)):
+        session = await get_onboarding_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != actor.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        return session
+
+    @router.post("/mcgs/george/onboarding/session/{session_id}/turn")
+    async def api_onboarding_turn(
+        session_id: str,
+        body: OnboardTurnIn,
+        actor: dict = Depends(current_george_actor),
+    ):
+        session = await get_onboarding_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != actor.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        return await take_onboarding_turn(db, session_id, body.text)
+
+    @router.post("/mcgs/george/onboarding/session/{session_id}/approve")
+    async def api_onboarding_approve(
+        session_id: str,
+        body: OnboardApproveIn,
+        actor: dict = Depends(current_george_actor),
+    ):
+        session = await get_onboarding_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != actor.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        return await approve_onboarding(db, session_id, edits=body.edits)
+
+    @router.post("/mcgs/george/onboarding/session/{session_id}/finish-later")
+    async def api_onboarding_finish_later(
+        session_id: str,
+        actor: dict = Depends(current_george_actor),
+    ):
+        session = await get_onboarding_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != actor.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        return await cancel_onboarding_session(db, session_id)
+
 
 
     # =====================================================================

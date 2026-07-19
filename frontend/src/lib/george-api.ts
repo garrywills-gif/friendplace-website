@@ -57,4 +57,19 @@ export const georgeApi = {
   introduced: () => _req<{ ok: boolean; george_first_met_at: string }>(
     '/mcgs/george/introduced', { method: 'POST' },
   ),
+  // Onboarding
+  onboardingStart: () => _req<any>(
+    '/mcgs/george/onboarding/start', { method: 'POST', body: JSON.stringify({}) },
+  ),
+  onboardingTurn: (sessionId: string, text: string) => _req<any>(
+    `/mcgs/george/onboarding/session/${sessionId}/turn`,
+    { method: 'POST', body: JSON.stringify({ text }) },
+  ),
+  onboardingApprove: (sessionId: string, edits?: Record<string, any>) => _req<any>(
+    `/mcgs/george/onboarding/session/${sessionId}/approve`,
+    { method: 'POST', body: JSON.stringify({ edits: edits || null }) },
+  ),
+  onboardingFinishLater: (sessionId: string) => _req<any>(
+    `/mcgs/george/onboarding/session/${sessionId}/finish-later`, { method: 'POST' },
+  ),
 };
