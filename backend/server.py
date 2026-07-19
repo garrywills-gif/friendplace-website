@@ -9221,6 +9221,17 @@ async def _ensure_mcgs_indexes():
     except Exception:
         logger.exception("MCGS Rhythms index setup failed (non-fatal)")
 
+    # Phase 2 Milestone C \u2014 APScheduler wiring. One process-singleton
+    # scheduler registers per-admin timezone-aware cron jobs for every
+    # Rhythm. Composer + delivery are idempotent, so a mid-morning
+    # restart won't re-send today's briefing.
+    try:
+        from services.mcgs.rhythms import start_scheduler as _mcgs_rhythms_start
+        await _mcgs_rhythms_start(db)
+        logger.info("MCGS Rhythms scheduler started.")
+    except Exception:
+        logger.exception("MCGS Rhythms scheduler startup failed (non-fatal)")
+
 
 @app.on_event("startup")
 async def _backfill_founders_spaces():

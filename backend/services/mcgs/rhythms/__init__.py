@@ -37,6 +37,13 @@ from .openers import (
 )
 from .facts import gather_morning_facts
 from .composer import compose_morning_briefing
+from .delivery import deliver_briefing
+from .scheduler import (
+    start_scheduler,
+    reschedule_admin,
+    scheduler_status,
+    run_morning_briefing,
+)
 
 __all__ = [
     # models
@@ -61,4 +68,10 @@ __all__ = [
     # facts + composer
     "gather_morning_facts",
     "compose_morning_briefing",
+    # delivery + scheduler
+    "deliver_briefing",
+    "start_scheduler",
+    "reschedule_admin",
+    "scheduler_status",
+    "run_morning_briefing",
 ]

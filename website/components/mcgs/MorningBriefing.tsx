@@ -177,6 +177,12 @@ export function MorningBriefing({ onAsk }: Props) {
             </div>
           )}
 
+          {c.noticed_line && (
+            <div style={noticedBox}>
+              {c.noticed_line}
+            </div>
+          )}
+
           {c.sections?.map((s) => {
             if (!s.heading || !s.bullets?.length) return null;
             return (
@@ -266,6 +272,15 @@ const celebratedRow: React.CSSProperties = {
   display: 'flex', gap: 8, alignItems: 'flex-start',
   marginTop: 12,
   padding: '10px 12px',
+  background: '#FEFCE8',
+  border: '1px solid #FEF08A',
+  borderRadius: 12,
+  color: '#713F12',
+};
+const noticedBox: React.CSSProperties = {
+  ...bodyText,
+  marginTop: 14,
+  padding: '10px 14px',
   background: '#FEFCE8',
   border: '1px solid #FEF08A',
   borderRadius: 12,

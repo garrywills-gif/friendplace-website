@@ -40,6 +40,9 @@ from services.mcgs.rhythms import (
     update_rhythm_settings,
     record_admin_heartbeat,
     compose_morning_briefing,
+    reschedule_admin,
+    scheduler_status,
+    deliver_briefing,
 )
 from services.mcgs.rhythms.models import COLL_BRIEFINGS
 from services.mcgs.rhythms.settings import RhythmSettingsError
@@ -179,6 +182,12 @@ def build_router(db) -> APIRouter:
             updated = await update_rhythm_settings(db, admin.get("id"), patch)
         except RhythmSettingsError as exc:
             raise HTTPException(400, str(exc))
+        # Milestone C \u2014 rebuild this admin's scheduled jobs so tz / times
+        # / vacation-mode take effect immediately.
+        try:
+            await reschedule_admin(admin.get("id"))
+        except Exception:
+            log.exception("reschedule after settings update failed (non-fatal)")
         return updated
 
     @router.post("/mcgs/rhythms/heartbeat")
@@ -204,10 +213,18 @@ def build_router(db) -> APIRouter:
         Idempotent by default (returns the already-composed row if one
         exists for today). Pass `?force=true` to recompose \u2014 respected
         only for testing / opener rotation experiments.
+
+        **One-briefing-per-day rule**: if Garry asks for his briefing
+        before the scheduled cron fires, that call becomes today's
+        official briefing \u2014 the cron simply delivers to secondary
+        channels and never re-generates content.
         """
+        settings = await get_rhythm_settings(db, admin.get("id"))
         try:
             row = await compose_morning_briefing(
-                db, admin.get("id"), force=force,
+                db, admin.get("id"),
+                force=force,
+                timezone_name=settings.get("timezone"),
             )
         except Exception as exc:
             log.exception("morning briefing compose failed")
@@ -215,6 +232,31 @@ def build_router(db) -> APIRouter:
         # Strip Mongo ObjectId if present.
         row.pop("_id", None)
         return row
+
+    @router.post("/mcgs/rhythms/morning/deliver")
+    async def api_deliver_morning(admin: dict = Depends(current_admin)):
+        """Deliver today's Morning Briefing to secondary channels
+        (email, push). Idempotent \u2014 respects `channels_delivered` and
+        the \"already read on Bridge\" dedup rule.
+        """
+        row = await db[COLL_BRIEFINGS].find_one(
+            {
+                "admin_id": admin.get("id"),
+                "rhythm_type": "morning",
+                "date_key": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            },
+            {"_id": 0},
+        )
+        if not row:
+            raise HTTPException(404, "No morning briefing yet for today.")
+        settings = await get_rhythm_settings(db, admin.get("id"))
+        return await deliver_briefing(db, row, settings)
+
+    @router.get("/mcgs/rhythms/scheduler")
+    async def api_scheduler_status(admin: dict = Depends(current_admin)):
+        """Snapshot of registered cron jobs. Handy for verifying your
+        schedule is what you expect."""
+        return scheduler_status()
 
     @router.get("/mcgs/rhythms/today")
     async def api_rhythms_today(admin: dict = Depends(current_admin)):

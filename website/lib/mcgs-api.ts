@@ -141,6 +141,7 @@ export interface BriefingContent {
   opener_id: string;
   opener_line: string;
   continuity_line: string | null;
+  noticed_line: string | null;
   sections: BriefingSection[];
   recommendation: string;
   tone_note?: string;
@@ -174,6 +175,14 @@ export const rhythmsApi = {
     ),
   composeMorning: (force = false) =>
     req<BriefingRow>('POST', `/mcgs/rhythms/morning/compose${force ? '?force=true' : ''}`),
+  deliverMorning: () =>
+    req<{ briefing_id: string; channels: Record<string, string>; already_seen_on_bridge: boolean; delivered_at: string }>(
+      'POST', '/mcgs/rhythms/morning/deliver',
+    ),
+  schedulerStatus: () =>
+    req<{ running: boolean; jobs: { id: string; next_run_at: string | null; trigger: string }[] }>(
+      'GET', '/mcgs/rhythms/scheduler',
+    ),
   markSeen: (id: string) =>
     req<{ updated: number; seen_at: string }>('POST', `/mcgs/rhythms/briefings/${id}/seen`),
   acknowledge: (id: string) =>
