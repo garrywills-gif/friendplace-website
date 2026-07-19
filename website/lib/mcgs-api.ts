@@ -191,6 +191,75 @@ export const rhythmsApi = {
   heartbeat: () => req<{ ok: boolean; admin_id: string }>('POST', '/mcgs/rhythms/heartbeat'),
 };
 
+// ---------- Conversational Event Creation (Phase 3) ----------
+
+export interface EventDraftSource {
+  field: string;
+  source: string;
+}
+
+export interface EventDraft {
+  title?: string;
+  emoji?: string;
+  description?: string;
+  location?: string;
+  date?: string; // YYYY-MM-DD
+  time?: string; // HH:MM
+  duration_minutes?: number;
+  capacity?: number | null;
+  price?: string | null;
+  audience?: string | null;
+  sources?: EventDraftSource[];
+}
+
+export interface EventTurn {
+  role: 'user' | 'george';
+  content: string;
+  at: string;
+  state?: 'needs_question' | 'ready_to_draft';
+  excitement_line?: string | null;
+  working_line?: string | null;
+}
+
+export interface EventSession {
+  id: string;
+  session_id: string;
+  actor_id: string;
+  actor_role: 'admin' | 'member' | 'organisation';
+  host_id: string;
+  status: 'in_progress' | 'drafted' | 'approved' | 'cancelled';
+  turns: EventTurn[];
+  extracted?: Record<string, unknown>;
+  defaults?: Record<string, unknown>;
+  draft?: EventDraft | null;
+  field_being_asked?: string | null;
+  excitement_line?: string | null;
+  working_line?: string | null;
+  created_at: string;
+  updated_at: string;
+  routed_to?: string;
+  target_id?: string;
+}
+
+export interface EventApprovalResult {
+  session_id: string;
+  routed_to: string;
+  target: EventDraft & { id: string };
+}
+
+export const eventCreationApi = {
+  start: (text: string) =>
+    req<EventSession>('POST', '/mcgs/george/event/start', { text }),
+  turn: (sessionId: string, text: string) =>
+    req<EventSession>('POST', `/mcgs/george/event/session/${sessionId}/turn`, { text }),
+  get: (sessionId: string) =>
+    req<EventSession>('GET', `/mcgs/george/event/session/${sessionId}`),
+  approve: (sessionId: string, edits?: Partial<EventDraft>) =>
+    req<EventApprovalResult>('POST', `/mcgs/george/event/session/${sessionId}/approve`, { edits: edits || null }),
+  cancel: (sessionId: string) =>
+    req<{ session_id: string; status: string }>('POST', `/mcgs/george/event/session/${sessionId}/cancel`),
+};
+
 // ---------- SSE stream ----------
 
 export interface StreamEvent {

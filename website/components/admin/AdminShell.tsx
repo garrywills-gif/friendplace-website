@@ -9,6 +9,7 @@ import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 
 const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions'; group?: string }[] = [
   { href: '/admin/bridge',           label: 'The Bridge',        icon: '🌉' },
+  { href: '/admin/george',           label: "George's Workspace", icon: '🦋' },
   { href: '/admin/dashboard',        label: 'Dashboard (old)',   icon: '📊' },
   { href: '/admin/home',             label: 'Home page',         icon: '🏠' },
   { href: '/admin/about',            label: 'About page',        icon: 'ℹ️' },

@@ -3,6 +3,7 @@
 import { AdminShell } from '@/components/admin/AdminShell';
 import { SignalFeed } from '@/components/mcgs/SignalFeed';
 import { GeorgePresenceCard } from '@/components/mcgs/GeorgePresenceCard';
+import { GeorgeSuggestionCard } from '@/components/mcgs/GeorgeSuggestionCard';
 import { MorningBriefing } from '@/components/mcgs/MorningBriefing';
 import { MiddayPulse } from '@/components/mcgs/MiddayPulse';
 import { EndOfDay } from '@/components/mcgs/EndOfDay';
@@ -42,6 +43,8 @@ export default function BridgePage() {
           {/* Right rail */}
           <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <GeorgePresenceCard onAsk={dispatchAsk} />
+
+            <GeorgeSuggestionCard />
 
             {/* Health Pulse placeholder — Phase 4 will make this live. */}
             <div style={pulseCard}>

@@ -1,0 +1,50 @@
+{
+  "summary": "Frontend-only test of MCGS Phase 3 Milestone A (Admin Chat Surface for Conversational Event Creation). Verified: login → Bridge suggestion card → /admin/george workspace (all 7 tiles, 6 'Coming soon' pills, only Create Event navigable) → sidebar 'George's Workspace' item (active on both /admin/george and /admin/george/new-event, visually confirmed) → chat surface renders empty state + 3 starter chips + Leave link → seed sentence produces Action Preview with title/date/location/capacity/audience/description/'Why George chose these details' collapsible in ~10s → Confirm & Create → success screen with 'Your event is ready.' + 3 buttons → 'Leave and go back to the Bridge' cancels + navigates back. Rule 5 (conversational edit to Twilight Bowls @ 6pm) is UNVERIFIED — my initial detection was a false positive (matched the user's own message bubble text), and the success screen still showed 'Christmas Bowls evening', which is either (a) the Sonnet reply hadn't landed before I clicked Confirm, or (b) draft-merge for chat-based edits isn't applying. Main agent should re-test this manually with a longer wait. All other flows pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Rule 5 — conversation-based edit updates the draft",
+        "issue": "Not conclusively verified in this run. After sending 'Actually, let's call it Twilight Bowls instead, and move it to 6pm.' the Action Preview card still showed the original title ('Christmas Bowls evening') and time ('10:00') at the moment George's thinking indicator was visible, and the subsequent success screen also displayed 'Christmas Bowls evening' rather than 'Twilight Bowls'. This could mean (a) the Sonnet reply simply hadn't returned yet when Confirm & Create was clicked (my poll fired too early because the user's own message contained the substring 'Twilight Bowls'), OR (b) the composer is producing an assistant turn without a merged draft update. Please re-run manually with a ≥30s wait and confirm the preview card itself flips to 'Twilight Bowls' + '18:00' before Confirm is clicked. If it does not, this is a Milestone-A blocker.",
+        "affected_testIDs": ["confirm-and-create-button (aria-label)", "textarea aria-label='Message to George'"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "/admin/george/new-event",
+        "issues": [
+          "Non-blocking React warning in console: 'Warning: %s a style property during rerender when a conflicting property is set can lead to styling bugs. To avoid this, don't mix shorthand and non-shorthand properties for the same value; instead, replace the shorthand with separate value'. Almost certainly emitted from GeorgeEventChat.tsx inline styles (e.g. animation shorthand vs animationDelay). Cosmetic — worth cleaning up before shipping."
+        ]
+      }
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_70.json"
+  ],
+  "action_items": [
+    "Re-verify Rule 5 manually or in a follow-up automated test. Wait ≥30s for the Sonnet reply after 'Actually, let's call it Twilight Bowls instead, and move it to 6pm.' and assert the ActionPreviewCard title flips to 'Twilight Bowls' and the friendly date reads '18:00' BEFORE Confirm & Create is clicked. If the draft does not update, inspect service.py's composer/turn merge — the assistant may be replying warmly without actually mutating draft.title / draft.time.",
+    "Investigate the React 'mixing shorthand and non-shorthand properties' warning coming from GeorgeEventChat.tsx (likely the TypingDots animation style — 'animation' shorthand alongside individual keys, or previewActions/preview styles).",
+    "Optional polish: Two events (both titled 'Christmas Bowls evening') were created during testing on the live preview DB — one from the happy-path Confirm & Create, one that was left orphaned. Consider deleting the test rows from db.events (filter by created_by_george: true and today's date) to keep the preview DB clean."
+  ],
+  "critical_code_review_comments": [
+    "GeorgeEventChat.tsx (664 lines) — single-file component includes ChatTurn, WorkingRow, TypingDots, ActionPreviewCard, AdvField, helpers, and all inline styles. Consider splitting ActionPreviewCard and AdvField into their own files as the workspace grows.",
+    "GeorgeEventChat.tsx renders success buttons without testID/data-testid; targeting relied on button role + text. Adding data-testid='confirm-create', 'success-back-to-bridge', 'success-view-events', 'success-create-another', 'leave-back-to-bridge' would make future tests deterministic (currently confirm was targetable via aria-label — good — but the other buttons are text-only).",
+    "AdminShell active-highlight logic (`pathname === item.href || pathname.startsWith(item.href + '/')`) is correct. The sidebar item is active on both /admin/george and /admin/george/new-event; visually confirmed on screenshot even though a Playwright data-active check briefly returned false during hydration.",
+    "eventCreationApi.approve sends edits: null when there are no advanced overrides — backend accepts that. Advanced edit panel filters empty strings and undefined before sending. Good."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "n/a (frontend-only per request)",
+    "frontend": "~85% — all sequences except Rule 5 conversation-based edit conclusively verified. Rule 5 is inconclusive, not a failure."
+  },
+  "seed_data_creation": "One event was persisted to db.events via Confirm & Create during happy-path testing (title 'Christmas Bowls evening', Sat 5 Dec, 10:00, Community Hall, 24 people, everyone, created_by_george: true). One in_progress session was also created and cancelled via the Leave link. Main agent may want to prune both from the preview DB.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Test credentials: hello@friendplace.com.au / TestPass2026! (CMS admin, endpoint POST /api/cms/auth/login returns {ok, token, admin}). Public preview base = https://belong-together.preview.emergentagent.com. Confirm & Create button targetable via aria-label='Confirm and create the event'. Composer textarea targetable via aria-label='Message to George'. Preview card contains 'George's draft — have a look' — DO NOT rely on body text substring for Rule 5 detection, as the user's own message bubble contains any string they type. Instead scope your check to the previewTitle/previewDate DOM node inside the .previewWrap card, or check the string range between 'George's draft' and 'Confirm & Create' in the page text.",
+  "rca_of_issue": "The Rule 5 rendering suspicion has two candidate root causes: (1) MOST LIKELY — my Playwright poll false-positived at ~2s because the substring 'Twilight Bowls' / '6pm' appeared in the user's freshly-optimistic chat bubble (see GeorgeEventChat.tsx L91–L97: an optimistic user turn is added immediately, before the network round-trip). Confirm & Create was then clicked before Sonnet's reply merged the new draft, so the approval payload used the still-old draft and the success screen showed 'Christmas Bowls evening'. (2) LESS LIKELY BUT POSSIBLE — the composer prompt / event_creation service.py returns the warm reply but doesn't merge title/time changes into draft on subsequent turns. To distinguish: main agent should send the same edit manually, wait until George's message bubble AND the preview card both re-render, then screenshot. If the preview card flips → issue is only a test-timing bug on my side. If it does NOT flip → real bug in service.py's turn handler."
+}
