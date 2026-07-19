@@ -2066,6 +2066,33 @@ def build_public_router(db) -> APIRouter:
         }
         await db.cms_event_submissions.insert_one(dict(doc))
 
+        # ---- MCGS Signal producer (Phase 1) ----
+        # Every event submission also lands as a Signal on the Bridge.
+        # Best-effort; never blocks the submission response.
+        try:
+            from services.mcgs import create_signal as _mcgs_create_signal
+            await _mcgs_create_signal(
+                db,
+                producer="event_submission",
+                entity_ref={"kind": "event_submission", "id": submission_id},
+                subject=f"Event awaiting review: {body.event_title.strip()}"[:120],
+                body=(
+                    f"Submitted by {body.organisation_name.strip()} — "
+                    f"{body.contact_name.strip()} <{body.contact_email.lower().strip()}>\n\n"
+                    f"{(body.description or '').strip()}"
+                )[:4000],
+                category="attention",
+                priority="P2",
+                case_key=f"event_submission:{submission_id}",
+                source="user_report",
+                injection_check_fields=[body.event_title, body.description, body.venue_name],
+            )
+        except Exception:
+            import logging as _logging
+            _logging.getLogger("friendplace.mcgs").exception(
+                "event_submission signal producer failed for %s", submission_id,
+            )
+
         # Notify Mission Control (best-effort; never blocks the submit).
         try:
             # `_notify_admins` isn't imported inside cms_module — dispatch

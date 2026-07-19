@@ -211,19 +211,37 @@ Sample voice commands that must work in Phase 1:
 - *"Any safety concerns I should know about?"*
 - *"Publish that event after I review it."* (creates an Action Preview, doesn't publish)
 
-### Voice pipeline (MCGS, mirrors mobile app)
+### Voice interaction rules
 
-| Direction | Service | Notes |
-|---|---|---|
-| **STT** (you → George) | OpenAI Whisper-1 via Emergent LLM key | Client records audio, streams to `/api/george/voice/transcribe` |
-| **TTS** (George → you) | OpenAI TTS via Emergent LLM key | Voice: warm alto ("nova" or "shimmer"), 0.95× speed default |
+- **Tap-to-toggle by default** — tap mic once to start, tap again to stop. Hold-to-talk available as a settings switch.
+- **Recording UI must always show:**
+  - A very clear recording indicator (pulsing red glyph)
+  - A visible timer counting up
+  - Live/partial transcription streaming into the input as you speak (where the pipeline supports it; otherwise a subtle "listening…" hint)
+  - A prominent Stop and a separate Cancel/discard control
+  - Automatic stop after **3 seconds of silence** (configurable in Settings, min 2s, max 10s)
+  - A hard **maximum recording length of 60 seconds** per clip (goes to text if longer needed)
+- **Transcript review before send.** After stop, the transcript sits in the input for edit — nothing sent until you tap Send (or press ⌘↵).
+- Audio recorded via `expo-audio` on mobile (Phase 2 for member app), and via `MediaRecorder` API on web (Phase 1, in-CMS).
+- Streamed to `/api/george/voice/transcribe`; transcript pre-filled in input; user can edit before send.
+- TTS: on-demand only unless "Read to me" toggled. Voice: `nova` default (A/B `shimmer` later). Speed 0.95×.
+- Voice usage logged to `george_chats.turns[]` with `input_kind` / `output_kind`.
+- Cost telemetry: `voice_seconds_today` incremented per admin.
 
-Behaviour rules:
-- Voice degrades gracefully to text if the network is slow.
-- Voice output plays **only** on user tap unless "Read to me" mode is on (Settings).
-- Voice input is push-to-talk by default (hold mic or hold space). Optional wake-word "Hey George" deferred to a later phase.
-- Voice interactions **produce the same conversation object** as text — no separate log.
-- Voice usage is metered and logged for cost visibility (per user, per day).
+### Voice safeguard (locked — Garry 18 July 2026)
+
+**George never executes a consequential action solely from a spoken command.**
+
+Voice can *create* the proposed action, but anything that:
+- sends a message, email, or ticket reply
+- publishes or unpublishes content
+- warns, suspends, restricts, or bans a member
+- approves or rejects an event or organisation
+- edits member-visible content
+
+…must **still surface an Action Preview** and require an **explicit written or tapped confirmation** by the admin. The spoken command *"George, draft a reply and approve the event"* opens two Action Preview cards for review — it does not send or publish.
+
+Enforcement: the write-tool "propose" pattern (see §4.3 of the Phase 1 plan) is invoked identically regardless of input channel. Voice never has a shortcut path.
 
 ### Ask George is not the only navigation
 
@@ -554,3 +572,10 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 | 2026-07-18 | **Action Preview** required for every write George proposes | Automation boundary visible; source + reasoning + human approval always |
 | 2026-07-18 | **Prompt-injection defence** is architecture, not a feature | User content is data, never instructions |
 | 2026-07-18 | Chief-of-Staff George uses Sonnet by default, Haiku for triage | Cost + reasoning balance |
+| 2026-07-18 | Butterfly is the leading glyph on the Ask George bar | Consistency between MCGS and mobile George |
+| 2026-07-18 | Voice input default = **tap-to-toggle**; hold-to-talk optional | Natural for longer conversations and briefings |
+| 2026-07-18 | Voice recording UX: clear recording state, live timer, partial transcription, prominent stop/cancel, silence auto-stop (3s default), 60s max, transcript review before send | Predictability and admin control |
+| 2026-07-18 | Signal Feed sort = priority-first, then recency; P0 always top | Ops-centre principle — most urgent visible first |
+| 2026-07-18 | Undo window = 30 s for reply-type actions; no undo for simple state changes (which remain reversible manually with full audit trail) | Balances safety and workflow speed |
+| 2026-07-18 | Signals always render as Cases in the Feed, even when only one Signal is attached | Consistent UI; additional Signals can attach without visual reflow |
+| 2026-07-18 | **Voice safeguard:** George never executes a consequential action from voice alone — always surfaces an Action Preview requiring an explicit written/tapped confirmation | Trust, safety, brand promise |

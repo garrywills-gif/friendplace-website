@@ -316,14 +316,32 @@ A new component `AskGeorgeBar` mounted from `AdminShell.tsx` above `<main>`. Sti
 - Footer: text input + mic + Play button on latest reply + "Read to me" toggle.
 - Long-press mic: sticky record mode.
 
-### 5.4 Voice interaction rules
+### 5.4 Voice interaction rules (locked defaults)
 
-- Audio recorded via `expo-audio` on mobile (Phase 2 for member app), and via `MediaRecorder` API on web (Phase 1, in-CMS).
-- Max 60s per recording clip in Phase 1. If longer needed → text.
-- Streamed to `/api/george/voice/transcribe`; transcript pre-filled in input; user can edit before send.
-- TTS: on-demand only unless "Read to me" toggled. Voice: `nova` default (A/B `shimmer` later). Speed 0.95×.
-- Voice usage logged to `george_chats.turns[]` with `input_kind` / `output_kind`.
-- Cost telemetry: `voice_seconds_today` incremented per admin.
+- **Tap-to-toggle by default.** Tap mic once to start, tap again to stop. A settings switch enables hold-to-talk for admins who prefer it.
+- **Recording UI shows all of the following, always:**
+  - Pulsing red **RECORDING** indicator on the mic
+  - Visible **timer** counting up in seconds
+  - **Live / partial transcription** streaming into the input as the admin speaks
+  - Prominent **Stop** button and a separate **Cancel/discard** control
+  - **Auto-stop after 3 s of silence** (configurable 2–10 s in Settings)
+  - Hard cap: **60 s max per clip**; longer conversations fall back to text
+- **Transcript review before send.** After stop, transcript sits in the input for edit. Nothing sent until admin taps Send or hits ⌘↵.
+- Audio captured via web `MediaRecorder` (Phase 1 in-CMS). Mobile app uses `expo-audio` when Phase 2 lands.
+- Streamed to `/api/george/voice/transcribe`. Transcript returned; UI pre-fills input.
+- TTS via `/api/george/voice/speak` — on-demand only unless "Read to me" mode is on. Voice: `nova` default, 0.95× speed.
+- Voice turns stored in `george_chats.turns[]` with `input_kind`/`output_kind` fields — same conversation object as text.
+- Cost telemetry: `voice_seconds_today` on the admin's George chat doc.
+
+### 5.5 Voice safeguard (locked — Garry 18 July 2026)
+
+**George never executes a consequential action from a voice command alone.**
+
+Consequential = sends, publishes, unpublishes, warns, suspends, restricts, bans, approves, rejects, or edits member-visible content.
+
+Voice can *create* one or more proposed actions, but each must land as an **Action Preview** card requiring an explicit written / tapped confirmation. Saying *"George, draft a reply and approve the event"* opens two Action Preview cards for review — nothing is sent or published.
+
+Enforcement path: the write-tool "propose" pattern (§4.3) is invoked identically regardless of channel. There is no voice shortcut. Read tools (queries) may execute immediately from voice, since they don't mutate state.
 
 ### 5.5 Keyboard shortcuts
 
@@ -496,26 +514,14 @@ Each step is independently mergeable and produces a demo-able artefact.
 
 ---
 
-## 12. Open decisions before code
+## 12. Resolved defaults (locked by Garry 18 July 2026)
 
-Small things I'd like your call on before I start:
-
-1. **Butterfly-in-bar vs butterfly-separate** — should the Ask George bar carry the butterfly icon, or should the butterfly live as a distinct "call George" button?
-   → *My recommendation: butterfly is the bar's leading icon; consistent with mobile pattern.*
-
-2. **Voice input default: hold-to-talk vs tap-to-toggle** — different admins have different preferences.
-   → *My recommendation: hold-to-talk primary, with a settings toggle to switch to tap-to-toggle.*
-
-3. **Signal Feed default sort** — priority-first or recency-first?
-   → *My recommendation: priority-first, then recency within priority. P0 always top.*
-
-4. **Undo window duration** — 30s toast is typical; some workflows want longer.
-   → *My recommendation: 30s for reply-type actions, none for state changes (which are always reversible via IN_REVIEW→NEW).*
-
-5. **Case display when only one Signal is attached** — show as Signal or still as Case?
-   → *My recommendation: always render as Case in the Feed; the difference between 1 and N attached Signals is a small counter, keeps the UI predictable.*
-
-If those defaults work for you, I'll code to them. Otherwise let me know and I'll adjust before starting.
+1. **Butterfly** is the leading glyph on the Ask George bar (consistent with mobile George).
+2. **Voice input** default = **tap-to-toggle**; hold-to-talk is a settings switch.
+3. **Signal Feed** sorted priority-first, then recency; P0 always top.
+4. **Undo** = 30 s for reply-type actions; no undo for simple state changes (which remain reversible manually with full audit trail).
+5. **Cases** always render as Cases in the Feed, even when only one Signal is attached.
+6. **Voice safeguard** — no voice command may execute a consequential action; Action Preview + explicit confirmation always required (§5.5).
 
 ---
 

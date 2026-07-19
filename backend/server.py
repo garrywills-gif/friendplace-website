@@ -5449,6 +5449,30 @@ async def submit_event_for_review(
     except Exception:
         logger.exception("community submission alert insert failed")
 
+    # ---- MCGS Signal producer (Phase 1) ----
+    # Community-flagged mobile submissions also land as Signals so the
+    # Bridge shows every incoming submission from every source.
+    try:
+        from services.mcgs import create_signal as _mcgs_create_signal
+        await _mcgs_create_signal(
+            db,
+            producer="event_submission",
+            entity_ref={"kind": "event_submission", "id": submission_id},
+            subject=f"Community event awaiting review: {body.title.strip()}"[:120],
+            body=(
+                f"Submitted by {contact_name} via mobile app "
+                f"(flagged: {', '.join(doc.get('flagged_reasons') or [])}).\n\n"
+                f"{(body.description or '').strip()}"
+            )[:4000],
+            category="attention",
+            priority="P2",
+            case_key=f"event_submission:{submission_id}",
+            source="user_report",
+            injection_check_fields=[body.title, body.description, body.location],
+        )
+    except Exception:
+        logger.exception("community submission signal producer failed for %s", submission_id)
+
     if contact_email:
         try:
             from email_service import send_email, event_submission_ack_template
@@ -7515,6 +7539,32 @@ async def submit_support_ticket(body: SupportTicketBody):
     })
 
     # ------------------------------------------------------------------
+    # MCGS Signal producer (Phase 1). Every ticket also lands as a Signal
+    # on the Bridge so admins can act from one place. Best-effort — never
+    # blocks the ticket itself. See /app/memory/mcgs-phase1-plan.md §3.2.
+    # ------------------------------------------------------------------
+    try:
+        from services.mcgs import create_signal as _mcgs_create_signal
+        await _mcgs_create_signal(
+            db,
+            producer="support_ticket",
+            entity_ref={"kind": "support_ticket", "id": doc["id"]},
+            subject=f"Support ticket: {body.subject}"[:120],
+            body=(body.message or "")[:4000],
+            category="attention",
+            priority="P2",
+            case_key=f"support_ticket:{doc['id']}",
+            source="user_report",
+            # Body is user-generated → run it through the injection sniffer.
+            injection_check_fields=[body.subject, body.message],
+        )
+    except Exception:
+        import logging as _logging
+        _logging.getLogger("friendplace.mcgs").exception(
+            "support_ticket signal producer failed for %s", doc["id"],
+        )
+
+    # ------------------------------------------------------------------
     # Fire an email to support@ so a human can act on the ticket, AND
     # a branded acknowledgement back to the user so they know the message
     # landed safely. Both are best-effort — the DB record above is the
@@ -9142,6 +9192,22 @@ async def _ensure_indexes():
             # exists and Mongo will use it regardless of name.
             logger.info("index %s on %s skipped: %s", opts.get("name"), coll, str(e)[:120])
     logger.info("Indexes verified: %s / %s targets", created, len(targets))
+
+
+@app.on_event("startup")
+async def _ensure_mcgs_indexes():
+    """Create/verify indexes for the Mission Control George System (MCGS).
+
+    Idempotent. See `/app/backend/services/mcgs/signals.py::ensure_indexes`
+    for the target list, and `/app/memory/mcgs-phase1-plan.md` §2 for the
+    schema rationale.
+    """
+    try:
+        from services.mcgs.signals import ensure_indexes as _mcgs_ensure_indexes
+        await _mcgs_ensure_indexes(db)
+        logger.info("MCGS indexes verified.")
+    except Exception:
+        logger.exception("MCGS index setup failed (non-fatal)")
 
 
 @app.on_event("startup")
