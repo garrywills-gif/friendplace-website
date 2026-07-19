@@ -92,11 +92,52 @@ The mobile app uses the same endpoints:
 
 ---
 
-## First question for the next session
+## First question — RESOLVED (19 July 2026)
 
-Do we introduce George in the app *before* the member has completed their profile, or *after*? Both have merit:
+> **George introduces himself BEFORE profile completion.**
 
-- **Before**: George is the first person they meet, and the profile-building itself becomes a conversation with George.
-- **After**: The introduction is the very first “welcome home” moment once they've settled in.
+Garry's decision, locked:
 
-Garry to decide at the start of the mobile session.
+> *"George should become the guide who helps people complete their profile, rather than appearing afterwards. Instead of presenting a registration process, we can turn onboarding into a conversation."*
+
+The consequences of this decision are architectural:
+
+1. **There is no separate onboarding form.** The first thing a new member sees after sign-up is the butterfly arriving. Profile fields (name, age band, interests, suburb, availability, "what would you like more of in your life?") are collected *by George in conversation*, not by a stepper.
+2. **Onboarding becomes George's first capability.** Following the same pattern as event creation (Haiku extractor + Sonnet composer, grounded defaults where they exist, one warm question at a time, Action Preview at the end).
+3. **The introduction script leads directly into the profile conversation.** After *"Why don't we start by getting to know each other?"*, tapping **Yes, show me around** opens the floating chat which already has George's first onboarding question ready.
+4. **Profile completion is a permission** (`profile_complete`), not a screen. Some George capabilities (creating an event, joining a group) may check this permission; George will offer to finish the last piece of profile before proceeding, warmly.
+5. **The Action Preview at the end of onboarding** shows the member their draft profile with the same *Confirm & Save* / *Make Changes* pattern. Editing is conversational: *"Actually, I'd rather not share my street name."*
+
+---
+
+## Proposed slice order for Milestone B (locked with Garry, 19 July 2026)
+
+To keep each mobile session testable, we ship in narrow slices. Each slice ends with something a member can *feel*.
+
+### Slice B1 — The mobile butterfly (foundation)
+- Native `GeorgeButterfly`, `GeorgeButterflyMark`, arrival animation via Reanimated 3, resting state, tap gesture.
+- Presence endpoint read (name, `first_meeting`).
+- Persistent on the Home screen only for now.
+- Success test: install the app, log in — the butterfly flutters in, lands, gives a warm greeting bubble, and rests.
+
+### Slice B2 — The first introduction (once, forever)
+- Native introduction bubble with all three choices, wired to `POST /api/mcgs/george/introduced`.
+- Backend refactor: `george_first_met_at` moves from `cms_admins` to the `users` collection when the caller is a member. Presence + introduced routes now support both actor types via the existing auth machinery.
+- Success test: fresh member sees the full introduction on first launch; never again after.
+
+### Slice B3 — George's floating conversation
+- Native `GeorgeFloatingChat` bottom sheet mounting the shared engine.
+- Shared engine ported: React Native version of `GeorgeConversation` with the same `chrome` contract. Same backend endpoints, same tone rules, same Action Preview.
+- Success test: tap the butterfly → sheet opens → the intro's *"Yes, show me around"* leads directly into a conversation.
+
+### Slice B4 — Conversational onboarding (George's first real task)
+- New backend capability under `/api/mcgs/george/onboarding/*` following the same start/turn/approve/cancel shape as event creation.
+- Extractor (Haiku) captures profile fields incrementally; composer (Sonnet) drives the warm conversation.
+- Action Preview: draft profile card with *Confirm & Save* / *Make Changes*.
+- On confirm, the member's profile is populated and `profile_complete: true` is set on their user document.
+- Success test: a new member finishes their profile without ever seeing a form, thinking *"someone welcomed me"* — not *"I set up an account."*
+
+### Slice B5 — Event creation on mobile (deferred until B1–B4 feel right)
+- The same `GeorgeConversation` engine, now with the event-creation capability wired.
+- Member submissions route to `events_pending_approval`; Mission Control reviews them.
+- Success test: a member creates an event by tapping the butterfly. It lands in Mission Control's moderation queue. An admin approves it. It appears in the member's Events tab.
