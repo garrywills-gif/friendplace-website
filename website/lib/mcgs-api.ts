@@ -112,6 +112,75 @@ export const mcgsApi = {
   streamUrl: () => `${BASE}/api/mcgs/stream`,
 };
 
+// ---------- Rhythms (Phase 2) ----------
+
+export interface RhythmSettings {
+  admin_id: string;
+  timezone: string;
+  morning_weekday_at: string;
+  morning_weekend_at: string;
+  midday_at: string;
+  eod_at: string;
+  eod_inactivity_wait_minutes: number;
+  email_channel_enabled: boolean;
+  push_channel_enabled: boolean;
+  eod_email_enabled: boolean;
+  midday_push_enabled: boolean;
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+  vacation_mode: boolean;
+  updated_at?: string | null;
+}
+
+export interface BriefingSection {
+  heading: string;
+  bullets: string[];
+}
+
+export interface BriefingContent {
+  opener_id: string;
+  opener_line: string;
+  continuity_line: string | null;
+  sections: BriefingSection[];
+  recommendation: string;
+  tone_note?: string;
+  celebrated_moments?: string[];
+}
+
+export interface BriefingRow {
+  id: string;
+  admin_id: string;
+  rhythm_type: 'morning' | 'midday' | 'eod' | 'milestone';
+  date_key: string;
+  delivered_at: string;
+  status: 'queued' | 'delivered' | 'seen' | 'acknowledged' | 'skipped';
+  bridge_seen_at?: string | null;
+  bridge_acknowledged_at?: string | null;
+  opener_used?: string | null;
+  content_json: BriefingContent;
+  content_markdown: string;
+  grounded_sources?: Record<string, unknown>;
+  composer_model?: string;
+  created_at: string;
+}
+
+export const rhythmsApi = {
+  getSettings: () => req<RhythmSettings>('GET', '/mcgs/rhythms/settings'),
+  updateSettings: (patch: Partial<RhythmSettings>) =>
+    req<RhythmSettings>('PUT', '/mcgs/rhythms/settings', patch),
+  today: () =>
+    req<{ date_key: string; items: BriefingRow[]; count: number }>(
+      'GET', '/mcgs/rhythms/today',
+    ),
+  composeMorning: (force = false) =>
+    req<BriefingRow>('POST', `/mcgs/rhythms/morning/compose${force ? '?force=true' : ''}`),
+  markSeen: (id: string) =>
+    req<{ updated: number; seen_at: string }>('POST', `/mcgs/rhythms/briefings/${id}/seen`),
+  acknowledge: (id: string) =>
+    req<{ acknowledged_at: string }>('POST', `/mcgs/rhythms/briefings/${id}/acknowledge`),
+  heartbeat: () => req<{ ok: boolean; admin_id: string }>('POST', '/mcgs/rhythms/heartbeat'),
+};
+
 // ---------- SSE stream ----------
 
 export interface StreamEvent {

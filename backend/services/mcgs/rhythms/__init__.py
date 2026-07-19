@@ -35,6 +35,8 @@ from .openers import (
     pick_morning_opener,
     recent_openers,
 )
+from .facts import gather_morning_facts
+from .composer import compose_morning_briefing
 
 __all__ = [
     # models
@@ -56,4 +58,7 @@ __all__ = [
     "MORNING_OPENERS",
     "pick_morning_opener",
     "recent_openers",
+    # facts + composer
+    "gather_morning_facts",
+    "compose_morning_briefing",
 ]

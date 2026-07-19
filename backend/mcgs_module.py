@@ -39,7 +39,9 @@ from services.mcgs.rhythms import (
     get_rhythm_settings,
     update_rhythm_settings,
     record_admin_heartbeat,
+    compose_morning_briefing,
 )
+from services.mcgs.rhythms.models import COLL_BRIEFINGS
 from services.mcgs.rhythms.settings import RhythmSettingsError
 from services.george import grounded_chat_stream
 
@@ -189,6 +191,78 @@ def build_router(db) -> APIRouter:
         this endpoint is the intentional \"I'm still here\" ping.
         """
         return {"ok": True, "admin_id": admin.get("id")}
+
+    # ---- Morning Briefing: compose + fetch + acknowledge ----
+
+    @router.post("/mcgs/rhythms/morning/compose")
+    async def api_compose_morning(
+        force: bool = Query(default=False),
+        admin: dict = Depends(current_admin),
+    ):
+        """Compose today's Morning Briefing for the current admin.
+
+        Idempotent by default (returns the already-composed row if one
+        exists for today). Pass `?force=true` to recompose \u2014 respected
+        only for testing / opener rotation experiments.
+        """
+        try:
+            row = await compose_morning_briefing(
+                db, admin.get("id"), force=force,
+            )
+        except Exception as exc:
+            log.exception("morning briefing compose failed")
+            raise HTTPException(500, f"Morning briefing failed: {exc}")
+        # Strip Mongo ObjectId if present.
+        row.pop("_id", None)
+        return row
+
+    @router.get("/mcgs/rhythms/today")
+    async def api_rhythms_today(admin: dict = Depends(current_admin)):
+        """Return today's Rhythm outputs for the Bridge card.
+
+        Today = the admin's local `date_key` in Australia/Melbourne by
+        default (Phase 2 uses UTC date_key \u2014 timezone-aware date_key
+        arrives with Milestone C's scheduler).
+        """
+        from datetime import datetime as _dt, timezone as _tz
+        date_key = _dt.now(_tz.utc).strftime("%Y-%m-%d")
+        rows = await db[COLL_BRIEFINGS].find(
+            {
+                "admin_id": admin.get("id"),
+                "date_key": date_key,
+            },
+            {"_id": 0},
+        ).sort([("delivered_at", -1)]).to_list(10)
+        return {"date_key": date_key, "items": rows, "count": len(rows)}
+
+    @router.post("/mcgs/rhythms/briefings/{briefing_id}/seen")
+    async def api_briefing_seen(
+        briefing_id: str, admin: dict = Depends(current_admin),
+    ):
+        """Mark a briefing as seen on the Bridge. Prevents email dedup
+        from re-sending the same content."""
+        from datetime import datetime as _dt, timezone as _tz
+        now = _dt.now(_tz.utc).isoformat()
+        res = await db[COLL_BRIEFINGS].update_one(
+            {"id": briefing_id, "admin_id": admin.get("id"), "bridge_seen_at": None},
+            {"$set": {"bridge_seen_at": now, "status": "seen"}},
+        )
+        return {"updated": res.modified_count, "seen_at": now}
+
+    @router.post("/mcgs/rhythms/briefings/{briefing_id}/acknowledge")
+    async def api_briefing_acknowledge(
+        briefing_id: str, admin: dict = Depends(current_admin),
+    ):
+        """Mark a briefing as acknowledged \u2014 removes the pinned card."""
+        from datetime import datetime as _dt, timezone as _tz
+        now = _dt.now(_tz.utc).isoformat()
+        res = await db[COLL_BRIEFINGS].update_one(
+            {"id": briefing_id, "admin_id": admin.get("id")},
+            {"$set": {"bridge_acknowledged_at": now, "status": "acknowledged"}},
+        )
+        if not res.matched_count:
+            raise HTTPException(404, "Briefing not found")
+        return {"acknowledged_at": now}
 
     # =====================================================================
     # /api/mcgs/signals
