@@ -14,6 +14,14 @@
 5. **George should reduce cognitive load, not increase it.** Every new feature must answer *"Does this help the administrator think less while staying better informed?"* If yes, it belongs. If it just adds another dashboard or notification, it doesn't.
 6. **Silence is a feature.** Surfaces stay silent when there's nothing to say.
 7. **George feels present** — someone quietly looking after FriendPlace while Garry is away. Continuity across days, warmth without flattery, grounded always.
+8. **George should build a relationship, not just answer questions.** Over time this means he:
+    - remembers previous conversations,
+    - remembers how Garry likes to work,
+    - recognises work Garry has completed,
+    - gently reminds Garry about unfinished work,
+    - celebrates meaningful milestones,
+    - carries conversations naturally across days.
+   Every future feature is judged not only by whether it works, but by whether it strengthens the relationship.
 
 ---
 
@@ -589,6 +597,15 @@ This turns event creation from data entry into conversation — the defining tes
 
 ### Phase 8 — Weekly Review + Monthly Retro Rhythms
 
+### Phase 8b — "One Ongoing Conversation" Bridge continuity (Garry, 19 July 2026)
+> *"Eventually I'd also like the three Rhythm cards to behave more like one ongoing conversation. As the day progresses, older Rhythm cards can quietly collapse into a compact summary, leaving the newest conversation active. It should feel less like three reports and more like one continuous relationship with George throughout the day."*
+
+- As Midday arrives, the Morning Briefing quietly collapses to a compact summary pill: *"🦋 This morning's briefing · read"* — one-tap to re-open.
+- As the End-of-Day Wrap-up lands, both Morning and Midday collapse into a single "earlier today" summary pill; only Evening stays active.
+- The next morning: yesterday's Evening collapses into a "yesterday's wrap-up" pill on the previous day's date-header; today's Morning is the only active card.
+- Summary pills preserve the same *"— George"* voice — never a database read-out ("You read this morning's briefing at 7:12 AM.").
+- Optional right-rail "Conversation with George" thread that stitches all today's Rhythm cards + Ask George turns into a single vertical timeline — one relationship, not three reports.
+
 ### Phase 9 — Delegation & multi-user
 - Roles enforced end-to-end
 - Signal assignment rules
@@ -684,3 +701,6 @@ This turns event creation from data entry into conversation — the defining tes
 | 2026-07-19 | **Unresolved carry-over** — EOD's `open_line` is stored top-level as `unresolved_carryover` and read by the Morning composer next day, which weaves it into `continuity_line` ("Those two event submissions you left yesterday are still waiting for review."). Continuity across days as a first-class behaviour. | Gently carry unfinished work into tomorrow. |
 | 2026-07-19 | **Milestone Recognition (Milestone F)** — ambient scanner runs every 30 minutes. Detects: member thresholds (100/500/1k/5k/10k/50k/100k), friendship thresholds (100/1k/10k/100k), first org to 100 events, all support tickets cleared (weekly), 30-day safeguarding streak. Awards land as P3 Milestone Signals, idempotent by `(milestone_key, period_key)`. Composers fold them into the next Rhythm's community/celebrated lines using warm human language ("our thousandth member") — never confetti, never percentages, never during a safety-sensitive window. | *"George should celebrate achievements because they matter to the community, not because they make nice statistics."* |
 | 2026-07-19 | **George feels like someone quietly looking after FriendPlace while you're away** — locked as a defining characteristic of MCGS. Every future Rhythm must preserve this feeling. | Style choices flow from this: warmth, calm, groundedness, restraint. |
+| 2026-07-19 | **Phase 2 (Rhythms) FROZEN as v1.1** — 26/26 regression sweep passing. Baseline at `/app/memory/phase2-baseline-v1.1.md`. Archive at `/app/memory/archive/v1.1/`. Rhythms are feature-complete: Morning prepares, Midday interrupts only on genuine change, Evening closes, Milestones surface quietly. | Phase 2 has reached its natural stopping point. |
+| 2026-07-19 | **Principle #8: George should build a relationship, not just answer questions** — added to guiding principles. Over time George remembers previous conversations, remembers how Garry likes to work, recognises completed work, gently reminds about unfinished work, celebrates meaningful milestones, and carries conversations across days. Every future feature is judged not only by whether it works but by whether it strengthens the relationship. | *"George now feels like someone quietly looking after FriendPlace while I'm away. That's the feeling I'd like us to protect above everything else."* |
+| 2026-07-19 | **Phase 8b — One Ongoing Conversation** added to the roadmap. As the day progresses, older Rhythm cards quietly collapse into a compact summary pill so the Bridge reads as one continuous relationship rather than three separate reports. | Reinforces principle #8: relationship, not Q&A. |
