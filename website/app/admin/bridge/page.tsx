@@ -3,7 +3,7 @@
 import { AdminShell } from '@/components/admin/AdminShell';
 import { SignalFeed } from '@/components/mcgs/SignalFeed';
 import { GeorgePresenceCard } from '@/components/mcgs/GeorgePresenceCard';
-import { GeorgeSuggestionCard } from '@/components/mcgs/GeorgeSuggestionCard';
+import { GeorgeSuggestionCard } from '@/components/george/GeorgeSuggestionCard';
 import { MorningBriefing } from '@/components/mcgs/MorningBriefing';
 import { MiddayPulse } from '@/components/mcgs/MiddayPulse';
 import { EndOfDay } from '@/components/mcgs/EndOfDay';

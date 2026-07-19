@@ -153,6 +153,11 @@ class EventApproveIn(BaseModel):
     edits: Optional[dict] = None
 
 
+class PendingApprovalDecisionIn(BaseModel):
+    decision: str = Field(..., description="approve | decline")
+    note: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Router factory
 # ---------------------------------------------------------------------------
@@ -473,6 +478,88 @@ def build_router(db) -> APIRouter:
         if session.get("actor_id") != admin.get("id"):
             raise HTTPException(403, "Not your conversation.")
         return await cancel_event_session(db, session_id)
+
+    # =====================================================================
+    # /api/mcgs/events/pending-approval  — moderation queue for actors
+    # WITHOUT the `publish_events` permission (members, low-trust orgs).
+    # Publishing is a permission, not a role, so this queue is shared.
+    # =====================================================================
+
+    @router.get("/mcgs/events/pending-approval")
+    async def api_pending_approval_list(admin: dict = Depends(current_admin)):
+        cursor = db.events_pending_approval.find(
+            {"status": {"$in": ["pending", None]}}, {"_id": 0},
+        ).sort("created_at", -1).limit(200)
+        items = [doc async for doc in cursor]
+        return {"items": items, "count": len(items)}
+
+    @router.post("/mcgs/events/pending-approval/{item_id}/approve")
+    async def api_pending_approval_approve(
+        item_id: str,
+        admin: dict = Depends(current_admin),
+    ):
+        item = await db.events_pending_approval.find_one({"id": item_id}, {"_id": 0})
+        if not item:
+            raise HTTPException(404, "Pending item not found")
+        if item.get("status") == "approved":
+            return {"ok": True, "already": True}
+        now = datetime.now(timezone.utc).isoformat()
+        target = {
+            "id": str(uuid.uuid4()),
+            "title": item.get("title") or "Untitled event",
+            "emoji": item.get("emoji") or "🎉",
+            "description": item.get("description") or "",
+            "location": item.get("location") or "",
+            "date": item.get("date") or "",
+            "time": item.get("time") or "",
+            "capacity": item.get("capacity"),
+            "audience": item.get("audience"),
+            "price": item.get("price"),
+            "host_id": item.get("host_id"),
+            "rsvps": [], "rsvps_maybe": [], "rsvps_cant": [], "waitlist": [],
+            "created_at": now,
+            "created_by_george": True,
+            "george_session_id": item.get("george_session_id"),
+            "approved_by_admin_id": admin.get("id"),
+            "created_by_actor_id": item.get("submitted_by"),
+            "created_by_actor_role": item.get("submitted_by_role"),
+            "from_pending_id": item.get("id"),
+        }
+        await db.events.insert_one({**target})
+        await db.events_pending_approval.update_one(
+            {"id": item_id},
+            {"$set": {
+                "status": "approved",
+                "approved_at": now,
+                "approved_by_admin_id": admin.get("id"),
+                "published_event_id": target["id"],
+                "updated_at": now,
+            }},
+        )
+        target.pop("_id", None)
+        return {"ok": True, "target": target}
+
+    @router.post("/mcgs/events/pending-approval/{item_id}/decline")
+    async def api_pending_approval_decline(
+        item_id: str,
+        body: PendingApprovalDecisionIn,
+        admin: dict = Depends(current_admin),
+    ):
+        item = await db.events_pending_approval.find_one({"id": item_id})
+        if not item:
+            raise HTTPException(404, "Pending item not found")
+        now = datetime.now(timezone.utc).isoformat()
+        await db.events_pending_approval.update_one(
+            {"id": item_id},
+            {"$set": {
+                "status": "declined",
+                "declined_at": now,
+                "declined_by_admin_id": admin.get("id"),
+                "decline_note": body.note or "",
+                "updated_at": now,
+            }},
+        )
+        return {"ok": True}
 
     @router.get("/mcgs/rhythms/today")
     async def api_rhythms_today(admin: dict = Depends(current_admin)):

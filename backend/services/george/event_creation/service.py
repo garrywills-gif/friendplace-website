@@ -452,14 +452,18 @@ async def approve_event_draft(
     *,
     edits: Optional[dict] = None,
 ) -> dict:
-    """Approve the current draft. Applies any final edits, then routes:
+    """Approve the current draft. Applies any final edits, then routes
+    based on the actor's *permissions*, not their role:
 
-    - actor_role="admin"         → creates a published event in `events`
-    - actor_role="organisation"  → creates event via org approval workflow (Phase 3D)
-    - actor_role="member"        → creates a `cms_event_submissions` row (pending)
+    - `publish_events=True`  → creates a published event in `events`
+    - `publish_events=False` → creates a `events_pending_approval` row
+      (for a FriendPlace-team review)
 
-    Returns the persisted target record.
+    Returns the persisted target record, plus routing metadata so the
+    UI can pick the right warm success message.
     """
+    from services.george.permissions import actor_permissions, can, audit_summary
+
     session = await db[COLL_CONVERSATIONS].find_one(
         {"session_id": session_id}, {"_id": 0},
     )
@@ -473,10 +477,14 @@ async def approve_event_draft(
     if edits:
         draft.update({k: v for k, v in edits.items() if v is not None})
 
-    role = session.get("actor_role", "admin")
+    actor_id = session.get("actor_id")
+    actor_role = session.get("actor_role", "admin")
     now = _now_iso()
 
-    if role == "admin":
+    perms = await actor_permissions(db, actor_id=actor_id, actor_role=actor_role)
+    permission_audit = audit_summary(perms)
+
+    if can(perms, "publish_events"):
         target = {
             "id": str(uuid.uuid4()),
             "title": draft.get("title") or "Untitled event",
@@ -486,6 +494,8 @@ async def approve_event_draft(
             "date": draft.get("date") or "",
             "time": draft.get("time") or "",
             "capacity": draft.get("capacity"),
+            "audience": draft.get("audience"),
+            "price": draft.get("price"),
             "host_id": session.get("host_id"),
             "rsvps": [],
             "rsvps_maybe": [],
@@ -494,10 +504,13 @@ async def approve_event_draft(
             "created_at": now,
             "created_by_george": True,
             "george_session_id": session_id,
+            "created_by_actor_id": actor_id,
+            "created_by_actor_role": actor_role,
         }
         await db.events.insert_one({**target})
         route_key = "events"
-    elif role == "member":
+        outcome = "published"
+    else:
         target = {
             "id": str(uuid.uuid4()),
             "status": "pending",
@@ -508,26 +521,20 @@ async def approve_event_draft(
             "date": draft.get("date") or "",
             "time": draft.get("time") or "",
             "capacity": draft.get("capacity"),
-            "submitted_by": session.get("actor_id"),
+            "audience": draft.get("audience"),
+            "price": draft.get("price"),
+            "submitted_by": actor_id,
+            "submitted_by_role": actor_role,
+            "host_id": session.get("host_id"),
             "created_at": now,
             "updated_at": now,
             "created_by_george": True,
             "george_session_id": session_id,
+            "sources": draft.get("sources") or [],
         }
-        await db.cms_event_submissions.insert_one({**target})
-        route_key = "cms_event_submissions"
-    else:  # organisation — Phase 3D wires the real org approval workflow.
-        target = {
-            "id": str(uuid.uuid4()),
-            "status": "pending",
-            **draft,
-            "org_id": session.get("actor_id"),
-            "created_at": now,
-            "created_by_george": True,
-            "george_session_id": session_id,
-        }
-        await db.cms_event_submissions.insert_one({**target})
-        route_key = "cms_event_submissions"
+        await db.events_pending_approval.insert_one({**target})
+        route_key = "events_pending_approval"
+        outcome = "submitted_for_review"
 
     await db[COLL_CONVERSATIONS].update_one(
         {"session_id": session_id},
@@ -536,6 +543,8 @@ async def approve_event_draft(
             "final_draft": draft,
             "approved_at": now,
             "routed_to": route_key,
+            "outcome": outcome,
+            "permission_audit": permission_audit,
             "target_id": target["id"],
             "updated_at": now,
         }},
@@ -544,6 +553,7 @@ async def approve_event_draft(
     return {
         "session_id": session_id,
         "routed_to": route_key,
+        "outcome": outcome,  # "published" | "submitted_for_review"
         "target": target,
     }
 

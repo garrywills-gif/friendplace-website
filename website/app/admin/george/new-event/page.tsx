@@ -1,16 +1,22 @@
 'use client';
 
-import { Suspense, useState, useEffect } from 'react';
-import { AdminShell } from '@/components/admin/AdminShell';
-import { GeorgeEventChat } from '@/components/mcgs/GeorgeEventChat';
-import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-
 /**
- * The Admin Chat Surface — a focused place to create an event with
- * George through conversation. Reached from George's Workspace, the
- * Bridge's suggestion card, or directly.
+ * Mission Control's admin surface for George.
+ *
+ * Mission Control CONSUMES George; it does not own George. The
+ * conversation engine itself lives at `/components/george/GeorgeConversation`
+ * and is shared with the (future) member website surface and the
+ * mobile app. This file only wires the admin chrome around it: page
+ * title, breadcrumb back to the workspace, and the success-screen
+ * navigation.
  */
+
+import { Suspense, useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { AdminShell } from '@/components/admin/AdminShell';
+import { GeorgeConversation, type GeorgeConversationChrome } from '@/components/george/GeorgeConversation';
+
 export default function NewEventPage() {
   return (
     <AdminShell>
@@ -23,20 +29,31 @@ export default function NewEventPage() {
         </p>
       </div>
       <Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: '#64748B' }}>Setting up&hellip;</div>}>
-        <ChatShell />
+        <AdminChatShell />
       </Suspense>
     </AdminShell>
   );
 }
 
-function ChatShell() {
+function AdminChatShell() {
+  const router = useRouter();
   const params = useSearchParams();
   const [seed, setSeed] = useState<string | undefined>();
   useEffect(() => {
     const s = params.get('seed');
     if (s) setSeed(s);
   }, [params]);
-  return <GeorgeEventChat seedMessage={seed} />;
+
+  const chrome: GeorgeConversationChrome = {
+    onLeave: () => router.push('/admin/bridge'),
+    leaveLabel: 'Leave and go back to the Bridge',
+    successActions: [
+      { label: 'Back to the Bridge', onSelect: () => router.push('/admin/bridge') },
+      { label: 'View in Events', onSelect: () => router.push('/admin/events') },
+    ],
+  };
+
+  return <GeorgeConversation seedMessage={seed} chrome={chrome} />;
 }
 
 const header: React.CSSProperties = {

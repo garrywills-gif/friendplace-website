@@ -244,6 +244,7 @@ export interface EventSession {
 export interface EventApprovalResult {
   session_id: string;
   routed_to: string;
+  outcome: 'published' | 'submitted_for_review';
   target: EventDraft & { id: string };
 }
 

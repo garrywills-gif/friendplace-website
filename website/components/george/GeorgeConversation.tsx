@@ -1,36 +1,79 @@
 'use client';
 
 /**
- * GeorgeEventChat — the conversational surface for Conversational
- * Event Creation (MCGS Phase 3, Milestone A).
+ * GeorgeConversation — the shared conversational surface.
  *
- * Design intent (locked with Garry, 19 July 2026):
- *  - Feels like a chat with a colleague, not a form.
- *  - George opens with excitement, shows he's working, celebrates
- *    completion, explains his thinking naturally, and forgives mind
- *    changes gracefully.
- *  - The Action Preview is conversation-first: primary `Confirm & Create`,
- *    secondary `Make Changes` (which simply continues the conversation).
- *  - No prominent Start Over button. If someone says it, George handles
- *    it warmly. An `Advanced Edit` link is available for the rare case
- *    someone wants field-level control.
+ * George is a platform, not a feature. This is the one component that
+ * renders George's conversation. Mission Control, the FriendPlace
+ * website, and (soon) the mobile app all mount THIS component. The
+ * *surrounding* application decides:
+ *   - who the user is
+ *   - what permissions they have
+ *   - what defaults are available (via the backend)
+ *   - where the completed action is routed
+ *   - what happens after confirmation (via `chrome`).
+ *
+ * George does NOT decide who can publish. He asks FriendPlace — the
+ * backend's `outcome` field on the approve response tells the UI
+ * whether the event went live (`published`) or off for a review by
+ * the FriendPlace team (`submitted_for_review`), and the success
+ * screen reads the correct warm line accordingly.
+ *
+ * Locked with Garry, 19 July 2026:
+ *   - Warm colleague voice. Never a form. Never a checklist.
+ *   - Rule 1: start with excitement.
+ *   - Rule 2: show George working.
+ *   - Rule 3: celebrate completion BEFORE the Action Preview.
+ *   - Rule 4: explain his thinking naturally.
+ *   - Rule 5: forgive mind changes gracefully.
+ *   - Editing is conversational; the field-level `Advanced edit` panel is a quiet escape hatch.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   eventCreationApi,
   type EventSession,
   type EventTurn,
   type EventDraft,
-} from '@/lib/mcgs-api';
+  type EventApprovalResult,
+} from '@/lib/george-api';
 
-interface GeorgeEventChatProps {
-  seedMessage?: string;
+// ---- Surface chrome ------------------------------------------------------
+
+/**
+ * Everything a hosting surface can customise WITHOUT touching the
+ * conversation engine itself. Nothing here changes George's voice or
+ * behaviour — only the room he's sitting in.
+ */
+export interface GeorgeConversationChrome {
+  /** Where the small "leave" link at the bottom of the chat sends you. */
+  onLeave: () => void;
+  /**
+   * What to do after a successful create. Each entry becomes a button
+   * on the success screen. Pass `null` to hide the success screen and
+   * navigate immediately (used by embedded surfaces).
+   */
+  successActions?: Array<{ label: string; onSelect: () => void }>;
+  /** Text shown next to the "leave" link. Defaults to a generic phrase. */
+  leaveLabel?: string;
+  /**
+   * Optional override of the success line. Rarely needed — the outcome
+   * already selects the right role-aware phrasing. Provide this only if
+   * the surface wants to say something specific (e.g. mobile toast).
+   */
+  successLine?: (result: EventApprovalResult) => string;
 }
 
-export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
-  const router = useRouter();
+export interface GeorgeConversationProps {
+  /** Optional seed text (e.g. from a query param). */
+  seedMessage?: string;
+  /** Surface-specific bits. */
+  chrome: GeorgeConversationChrome;
+}
+
+// ---- Component -----------------------------------------------------------
+
+export function GeorgeConversation({ seedMessage, chrome }: GeorgeConversationProps) {
   const [session, setSession] = useState<EventSession | null>(null);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -39,13 +82,12 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
   const [advanced, setAdvanced] = useState(false);
   const [advancedEdits, setAdvancedEdits] = useState<Partial<EventDraft>>({});
   const [approving, setApproving] = useState(false);
-  const [approved, setApproved] = useState<null | { title: string; targetId: string }>(null);
+  const [approvedResult, setApprovedResult] = useState<EventApprovalResult | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const seededRef = useRef<string | null>(null);
 
-  // Autosize the input as the user types.
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
@@ -53,12 +95,10 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
     el.style.height = Math.min(el.scrollHeight, 140) + 'px';
   }, [input]);
 
-  // Auto-scroll to bottom on new turns.
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [session?.turns.length, workingLabel]);
 
-  // Handle the seed message on first mount.
   useEffect(() => {
     if (seedMessage && seededRef.current !== seedMessage) {
       seededRef.current = seedMessage;
@@ -69,35 +109,25 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
   async function start(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    setBusy(true);
-    setError(null);
+    setBusy(true); setError(null);
     setWorkingLabel(pickThinkingLine(true));
     try {
       const s = await eventCreationApi.start(trimmed);
-      setSession(s);
-      setInput('');
+      setSession(s); setInput('');
     } catch (e) {
       setError((e as Error).message || 'Could not start the conversation.');
     } finally {
-      setBusy(false);
-      setWorkingLabel(null);
+      setBusy(false); setWorkingLabel(null);
     }
   }
 
   async function reply(text: string) {
     const trimmed = text.trim();
     if (!trimmed || busy || !session) return;
-    // Optimistic user turn so it lands immediately.
-    const optimistic: EventTurn = {
-      role: 'user',
-      content: trimmed,
-      at: new Date().toISOString(),
-    };
+    const optimistic: EventTurn = { role: 'user', content: trimmed, at: new Date().toISOString() };
     const previous = session;
     setSession({ ...previous, turns: [...previous.turns, optimistic] });
-    setInput('');
-    setBusy(true);
-    setError(null);
+    setInput(''); setBusy(true); setError(null);
     setWorkingLabel(pickThinkingLine());
     try {
       const s = await eventCreationApi.turn(previous.session_id, trimmed);
@@ -106,15 +136,13 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
       setSession(previous);
       setError((e as Error).message || "George couldn't reply just then. Try again in a moment.");
     } finally {
-      setBusy(false);
-      setWorkingLabel(null);
+      setBusy(false); setWorkingLabel(null);
     }
   }
 
   async function confirmCreate() {
     if (!session) return;
-    setApproving(true);
-    setError(null);
+    setApproving(true); setError(null);
     try {
       const cleanEdits = advanced
         ? Object.fromEntries(
@@ -125,8 +153,7 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
         session.session_id,
         cleanEdits && Object.keys(cleanEdits).length ? cleanEdits : undefined,
       );
-      const title = result.target?.title || session.draft?.title || 'Your event';
-      setApproved({ title, targetId: result.target?.id || '' });
+      setApprovedResult(result);
     } catch (e) {
       setError((e as Error).message || "I couldn't create the event just then. Try again.");
     } finally {
@@ -134,10 +161,11 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
     }
   }
 
-  async function cancelSession() {
-    if (!session) return;
-    try { await eventCreationApi.cancel(session.session_id); } catch { /* ignore */ }
-    router.push('/admin/bridge');
+  async function leave() {
+    if (session && session.status !== 'approved') {
+      try { await eventCreationApi.cancel(session.session_id); } catch { /* ignore */ }
+    }
+    chrome.onLeave();
   }
 
   function onInputKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -151,35 +179,19 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
   const draft = session?.draft || null;
   const ready = session?.status === 'drafted' && !!draft;
 
-  // Success screen — George returns you to the Bridge with a warm line.
-  if (approved) {
+  // ---- success ----
+  if (approvedResult) {
     return (
-      <div style={successWrap}>
-        <div style={successCard}>
-          <div style={{ fontSize: 42, lineHeight: 1 }}>🦋</div>
-          <h2 style={{ fontSize: 22, margin: '10px 0 6px', color: '#0F172A', letterSpacing: '-0.01em' }}>
-            Your event is ready.
-          </h2>
-          <p style={{ fontSize: 15, color: '#334155', margin: 0, lineHeight: 1.55 }}>
-            I&rsquo;ve added <strong>{approved.title}</strong> to today&rsquo;s activity. Have a lovely time with it.
-          </p>
-          <p style={{ fontSize: 13, color: '#64748B', margin: '4px 0 22px' }}>&mdash; George</p>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button className="cms-btn-primary" style={primaryBtn} onClick={() => router.push('/admin/bridge')}>
-              Back to the Bridge
-            </button>
-            <button className="cms-btn-ghost" style={ghostBtn} onClick={() => router.push('/admin/events')}>
-              View in Events
-            </button>
-            <button className="cms-btn-ghost" style={ghostBtn} onClick={() => {
-              setSession(null); setInput(''); setApproved(null);
-              seededRef.current = null;
-            }}>
-              Create another
-            </button>
-          </div>
-        </div>
-      </div>
+      <SuccessScreen
+        result={approvedResult}
+        overrideLine={chrome.successLine?.(approvedResult)}
+        actions={chrome.successActions}
+        onCreateAnother={() => {
+          setSession(null); setInput(''); setApprovedResult(null);
+          setAdvanced(false); setAdvancedEdits({});
+          seededRef.current = null;
+        }}
+      />
     );
   }
 
@@ -188,35 +200,12 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
       <div style={chatCol}>
         <div ref={scrollRef} style={scrollArea}>
           {!session && (
-            <div style={emptyState}>
-              <div style={butterflyBig}>🦋</div>
-              <h2 style={{ fontSize: 22, letterSpacing: '-0.01em', color: '#0F172A', margin: '10px 0 6px' }}>
-                Let&rsquo;s create something.
-              </h2>
-              <p style={{ fontSize: 15, color: '#475569', margin: 0, lineHeight: 1.6, maxWidth: 520 }}>
-                Tell me about the event you&rsquo;d like to put together &mdash;
-                a name, a date, roughly when, where it is. I&rsquo;ll gather
-                the rest as we go.
-              </p>
-              <div style={promptChips}>
-                {SUGGESTED_STARTS.map(s => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => start(s)}
-                    style={chipBtn}
-                    className="cms-btn-ghost"
-                  >{s}</button>
-                ))}
-              </div>
-            </div>
+            <EmptyState onPick={(t) => start(t)} />
           )}
           {session && session.turns.map((t, i) => (
             <ChatTurn key={i} turn={t} />
           ))}
-          {busy && workingLabel && (
-            <WorkingRow label={workingLabel} />
-          )}
+          {busy && workingLabel && <WorkingRow label={workingLabel} />}
           {ready && draft && (
             <ActionPreviewCard
               draft={draft}
@@ -229,11 +218,7 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
               onMakeChanges={() => inputRef.current?.focus()}
             />
           )}
-          {error && (
-            <div style={errorBanner}>
-              {error}
-            </div>
-          )}
+          {error && <div style={errorBanner}>{error}</div>}
         </div>
 
         <div style={composerBar}>
@@ -244,7 +229,7 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
             onKeyDown={onInputKeyDown}
             placeholder={session
               ? (ready ? 'Say something like: "Actually, move it to Saturday."' : 'Reply to George…')
-              : 'Try: I\u2019d like to run a bowls evening on 5 December at 10am at the community hall.'}
+              : 'Try: I’d like to run a bowls evening on 5 December at 10am at the community hall.'}
             style={textInput}
             rows={1}
             disabled={busy || approving}
@@ -262,8 +247,8 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
         </div>
 
         <div style={quitRow}>
-          <button type="button" onClick={cancelSession} style={quitBtn} aria-label="Leave this conversation">
-            Leave and go back to the Bridge
+          <button type="button" onClick={leave} style={quitBtn} aria-label="Leave this conversation">
+            {chrome.leaveLabel || 'Leave this conversation'}
           </button>
         </div>
       </div>
@@ -271,7 +256,34 @@ export function GeorgeEventChat({ seedMessage }: GeorgeEventChatProps) {
   );
 }
 
-// ---------- sub-components ----------
+// ---- sub-components ------------------------------------------------------
+
+function EmptyState({ onPick }: { onPick: (t: string) => void }) {
+  return (
+    <div style={emptyState}>
+      <div style={butterflyBig}>🦋</div>
+      <h2 style={{ fontSize: 22, letterSpacing: '-0.01em', color: '#0F172A', margin: '10px 0 6px' }}>
+        Let&rsquo;s create something.
+      </h2>
+      <p style={{ fontSize: 15, color: '#475569', margin: 0, lineHeight: 1.6, maxWidth: 520 }}>
+        Tell me about the event you&rsquo;d like to put together &mdash;
+        a name, a date, roughly when, where it is. I&rsquo;ll gather
+        the rest as we go.
+      </p>
+      <div style={promptChips}>
+        {SUGGESTED_STARTS.map(s => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onPick(s)}
+            style={chipBtn}
+            className="cms-btn-ghost"
+          >{s}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ChatTurn({ turn }: { turn: EventTurn }) {
   const isUser = turn.role === 'user';
@@ -300,9 +312,7 @@ function ChatTurn({ turn }: { turn: EventTurn }) {
             {turn.excitement_line}
           </div>
         )}
-        {turn.content || (
-          <em style={{ color: '#64748B' }}>&hellip;</em>
-        )}
+        {turn.content || <em style={{ color: '#64748B' }}>&hellip;</em>}
       </div>
     </div>
   );
@@ -418,11 +428,7 @@ function ActionPreviewCard({
         </button>
       </div>
       <div style={{ textAlign: 'center', marginTop: 6 }}>
-        <button
-          type="button"
-          onClick={onToggleAdvanced}
-          style={advancedLink}
-        >
+        <button type="button" onClick={onToggleAdvanced} style={advancedLink}>
           {advanced ? 'Hide advanced edit' : 'Advanced edit'}
         </button>
       </div>
@@ -466,27 +472,63 @@ function AdvField({ label, value, onChange, textarea }: {
     <label style={{ display: 'block', marginBottom: 8 }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 4 }}>{label}</div>
       {textarea ? (
-        <textarea
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          rows={3}
-          className="cms-textarea"
-          style={advInput}
-        />
+        <textarea value={value} onChange={e => onChange(e.target.value)} rows={3} className="cms-textarea" style={advInput} />
       ) : (
-        <input
-          type="text"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          className="cms-input"
-          style={advInput}
-        />
+        <input type="text" value={value} onChange={e => onChange(e.target.value)} className="cms-input" style={advInput} />
       )}
     </label>
   );
 }
 
-// ---------- helpers ----------
+function SuccessScreen({
+  result, overrideLine, actions, onCreateAnother,
+}: {
+  result: EventApprovalResult;
+  overrideLine?: string;
+  actions?: Array<{ label: string; onSelect: () => void }>;
+  onCreateAnother: () => void;
+}) {
+  const title = result.target?.title || 'Your event';
+  const published = result.outcome === 'published';
+
+  // Role-aware, permission-driven wording. George doesn't decide who can
+  // publish — he reflects the outcome the backend returned.
+  const headline = published
+    ? 'Your event is live.'
+    : 'Off to the FriendPlace team.';
+
+  const line = overrideLine
+    ?? (published
+      ? `I've added ${title} to today's activity. Have a lovely time with it.`
+      : `I've sent ${title} to the FriendPlace team for a quick look. I'll let you know as soon as it's live.`);
+
+  return (
+    <div style={successWrap}>
+      <div style={successCard}>
+        <div style={{ fontSize: 42, lineHeight: 1 }}>🦋</div>
+        <h2 style={{ fontSize: 22, margin: '10px 0 6px', color: '#0F172A', letterSpacing: '-0.01em' }}>
+          {headline}
+        </h2>
+        <p style={{ fontSize: 15, color: '#334155', margin: 0, lineHeight: 1.55 }}>
+          {line}
+        </p>
+        <p style={{ fontSize: 13, color: '#64748B', margin: '4px 0 22px' }}>&mdash; George</p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {(actions || []).map(a => (
+            <button key={a.label} className="cms-btn-primary" style={a.label.toLowerCase().startsWith('back') ? primaryBtn : ghostBtn} onClick={a.onSelect}>
+              {a.label}
+            </button>
+          ))}
+          <button className="cms-btn-ghost" style={ghostBtn} onClick={onCreateAnother}>
+            Create another
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- helpers -------------------------------------------------------------
 
 const SUGGESTED_STARTS = [
   "I\u2019d like to run a Christmas bowls evening on 5 December.",
@@ -523,14 +565,10 @@ function formatFriendlyDate(date?: string, time?: string): string | null {
   }
 }
 
-// ---------- styles ----------
+// ---- styles --------------------------------------------------------------
 
-const pageWrap: React.CSSProperties = {
-  maxWidth: 780, margin: '0 auto', padding: '10px 0 60px',
-};
-const chatCol: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: 10,
-};
+const pageWrap: React.CSSProperties = { maxWidth: 780, margin: '0 auto', padding: '10px 0 60px' };
+const chatCol: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 10 };
 const scrollArea: React.CSSProperties = {
   minHeight: '55vh', maxHeight: 'calc(100vh - 300px)',
   overflowY: 'auto', padding: '10px 4px',
@@ -544,8 +582,7 @@ const butterflyBig: React.CSSProperties = {
   filter: 'drop-shadow(0 4px 10px rgba(20,184,166,0.35))',
 };
 const promptChips: React.CSSProperties = {
-  display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8,
-  marginTop: 18,
+  display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginTop: 18,
 };
 const chipBtn: React.CSSProperties = {
   padding: '9px 14px', borderRadius: 999,
@@ -554,8 +591,7 @@ const chipBtn: React.CSSProperties = {
   color: '#0F172A', cursor: 'pointer',
 };
 const composerBar: React.CSSProperties = {
-  display: 'flex', gap: 10, alignItems: 'flex-end',
-  padding: '12px 14px',
+  display: 'flex', gap: 10, alignItems: 'flex-end', padding: '12px 14px',
   background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16,
   boxShadow: '0 4px 14px rgba(15,23,42,0.05)',
 };
@@ -571,59 +607,44 @@ const sendBtn: React.CSSProperties = {
   color: '#FFFFFF', border: 'none', fontWeight: 800,
   fontSize: 14, cursor: 'pointer',
 };
-const quitRow: React.CSSProperties = {
-  textAlign: 'center', marginTop: 8,
-};
+const quitRow: React.CSSProperties = { textAlign: 'center', marginTop: 8 };
 const quitBtn: React.CSSProperties = {
   background: 'transparent', border: 'none',
-  fontSize: 12, color: '#94A3B8', cursor: 'pointer',
-  textDecoration: 'underline',
+  fontSize: 12, color: '#94A3B8', cursor: 'pointer', textDecoration: 'underline',
 };
 const previewWrap: React.CSSProperties = {
   marginTop: 12, marginBottom: 16,
   background: 'linear-gradient(180deg,#F0FDFA 0%,#FFFFFF 100%)',
-  border: '1px solid #14B8A6',
-  borderRadius: 18, padding: 20,
+  border: '1px solid #14B8A6', borderRadius: 18, padding: 20,
   boxShadow: '0 8px 24px rgba(20,184,166,0.12)',
 };
 const previewHeader: React.CSSProperties = {
   fontSize: 12, fontWeight: 800, textTransform: 'uppercase',
   letterSpacing: '0.08em', color: '#0F766E',
-  display: 'flex', gap: 8, alignItems: 'center',
-  marginBottom: 12,
+  display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12,
 };
 const previewBody: React.CSSProperties = { paddingBottom: 10 };
 const previewTitle: React.CSSProperties = {
   fontSize: 24, fontWeight: 800, color: '#0F172A',
   letterSpacing: '-0.01em', lineHeight: 1.15,
 };
-const previewDate: React.CSSProperties = {
-  fontSize: 15, color: '#0F766E', fontWeight: 700, marginTop: 6,
-};
-const previewLoc: React.CSSProperties = {
-  fontSize: 14, color: '#334155', marginTop: 4,
-};
+const previewDate: React.CSSProperties = { fontSize: 15, color: '#0F766E', fontWeight: 700, marginTop: 6 };
+const previewLoc: React.CSSProperties = { fontSize: 14, color: '#334155', marginTop: 4 };
 const previewMeta: React.CSSProperties = {
   fontSize: 13, color: '#475569', marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap',
 };
 const sep: React.CSSProperties = { color: '#CBD5E1' };
-const previewPrice: React.CSSProperties = {
-  fontSize: 13, color: '#475569', marginTop: 4, fontStyle: 'italic',
-};
+const previewPrice: React.CSSProperties = { fontSize: 13, color: '#475569', marginTop: 4, fontStyle: 'italic' };
 const previewDesc: React.CSSProperties = {
   fontSize: 14, color: '#334155', marginTop: 10, lineHeight: 1.55,
   padding: '10px 12px', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10,
 };
 const sourcesWrap: React.CSSProperties = { marginTop: 12 };
-const sourcesSummary: React.CSSProperties = {
-  fontSize: 12, color: '#64748B', cursor: 'pointer',
-};
+const sourcesSummary: React.CSSProperties = { fontSize: 12, color: '#64748B', cursor: 'pointer' };
 const sourcesList: React.CSSProperties = {
   fontSize: 12, color: '#475569', marginTop: 8, paddingLeft: 18, lineHeight: 1.5,
 };
-const previewActions: React.CSSProperties = {
-  display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap',
-};
+const previewActions: React.CSSProperties = { display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' };
 const primaryBtn: React.CSSProperties = {
   padding: '12px 22px', borderRadius: 12,
   background: 'linear-gradient(135deg,#14B8A6,#0F766E)',
@@ -639,8 +660,7 @@ const ghostBtn: React.CSSProperties = {
 };
 const advancedLink: React.CSSProperties = {
   background: 'transparent', border: 'none',
-  fontSize: 12, color: '#94A3B8',
-  textDecoration: 'underline', cursor: 'pointer',
+  fontSize: 12, color: '#94A3B8', textDecoration: 'underline', cursor: 'pointer',
 };
 const advancedPanel: React.CSSProperties = {
   marginTop: 14, padding: 14,
@@ -657,9 +677,7 @@ const errorBanner: React.CSSProperties = {
   background: '#FEF2F2', border: '1px solid #FECACA',
   borderRadius: 10, color: '#991B1B', fontSize: 13,
 };
-const successWrap: React.CSSProperties = {
-  maxWidth: 640, margin: '80px auto 0', padding: '0 20px',
-};
+const successWrap: React.CSSProperties = { maxWidth: 640, margin: '80px auto 0', padding: '0 20px' };
 const successCard: React.CSSProperties = {
   padding: '32px 28px', textAlign: 'center',
   background: 'linear-gradient(180deg,#F0FDFA 0%,#FFFFFF 100%)',
