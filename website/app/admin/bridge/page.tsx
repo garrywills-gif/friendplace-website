@@ -5,6 +5,7 @@ import { SignalFeed } from '@/components/mcgs/SignalFeed';
 import { GeorgePresenceCard } from '@/components/mcgs/GeorgePresenceCard';
 import { MorningBriefing } from '@/components/mcgs/MorningBriefing';
 import { MiddayPulse } from '@/components/mcgs/MiddayPulse';
+import { EndOfDay } from '@/components/mcgs/EndOfDay';
 
 export default function BridgePage() {
   // Reach up to the AdminShell-mounted Ask George bar. It listens on
@@ -32,6 +33,8 @@ export default function BridgePage() {
             <MorningBriefing onAsk={dispatchAsk} />
 
             <MiddayPulse onAsk={dispatchAsk} />
+
+            <EndOfDay onAsk={dispatchAsk} />
 
             <SignalFeed />
           </div>

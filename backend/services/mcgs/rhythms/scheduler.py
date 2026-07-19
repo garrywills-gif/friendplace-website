@@ -31,8 +31,10 @@ from apscheduler.triggers.cron import CronTrigger
 
 from .composer import compose_morning_briefing
 from .midday import compose_midday_pulse
+from .eod import compose_eod_wrapup
 from .delivery import deliver_briefing
 from .settings import get_rhythm_settings
+from .activity import minutes_since_last_seen
 
 log = logging.getLogger("friendplace.mcgs.rhythms.scheduler")
 
@@ -115,6 +117,103 @@ async def run_midday_pulse(admin_id: str) -> None:
         log.exception("midday pulse scheduler job failed for %s", admin_id)
 
 
+# EOD "considerate-deferral" cutoff — if Garry is still active by this
+# hour (local), we skip EOD entirely for the day. Preserves the "George
+# shouldn't feel like a scheduler; he should feel considerate" rule.
+EOD_CUTOFF_HOUR = 22  # 10pm local
+
+
+async def run_eod_wrapup(admin_id: str) -> None:
+    """APScheduler entry-point for the End-of-Day Wrap-up.
+
+    Considerate-deferral rule (Garry, 19 July 2026):
+    - If Garry is still actively using MCGS at EOD time, DO NOT interrupt.
+    - Wait until he's been inactive for `eod_inactivity_wait_minutes`
+      (default 30), then deliver.
+    - If he stays active into the evening (past EOD_CUTOFF_HOUR local),
+      skip entirely — silence beats interruption.
+
+    Implementation: the cron fires every 15 minutes from `eod_at` onward.
+    Each fire evaluates the rule and either composes+delivers, or defers,
+    or skips (marking today as "skipped_still_active").
+    """
+    if _db_ref is None:
+        log.error("scheduler ran with no db reference")
+        return
+    try:
+        settings = await get_rhythm_settings(_db_ref, admin_id)
+        if settings.get("vacation_mode"):
+            return
+
+        # Import lazily to keep this module cheap to import.
+        from .models import COLL_BRIEFINGS
+        from datetime import datetime as _dt, timezone as _tz
+        from zoneinfo import ZoneInfo
+
+        tz_name = settings.get("timezone") or "Australia/Melbourne"
+        try:
+            tz = ZoneInfo(tz_name)
+        except Exception:
+            tz = ZoneInfo("Australia/Melbourne")
+        local_now = _dt.now(_tz.utc).astimezone(tz)
+        date_key = local_now.strftime("%Y-%m-%d")
+
+        # Already handled today? (delivered OR explicitly skipped)
+        existing = await _db_ref[COLL_BRIEFINGS].find_one(
+            {"admin_id": admin_id, "rhythm_type": "eod", "date_key": date_key},
+            {"_id": 0, "status": 1},
+        )
+        if existing:
+            return  # nothing to do — one wrap-up per day
+
+        # If we're past the cutoff hour and Garry has been active recently,
+        # skip the day entirely. Record a "skipped" row so we don't retry.
+        wait_minutes = int(settings.get("eod_inactivity_wait_minutes") or 30)
+        idle_minutes = await minutes_since_last_seen(_db_ref, admin_id)
+
+        past_cutoff = local_now.hour >= EOD_CUTOFF_HOUR
+        # `idle_minutes` is None if the admin has never pinged — treat
+        # as "inactive enough" so testing without heartbeats still works.
+        garry_is_active = (
+            idle_minutes is not None and idle_minutes < wait_minutes
+        )
+
+        if garry_is_active and not past_cutoff:
+            log.info(
+                "EOD deferred for %s — active %.1f min ago (wait %d min)",
+                admin_id, idle_minutes or 0.0, wait_minutes,
+            )
+            return  # next 15-min tick will re-evaluate
+
+        if past_cutoff and garry_is_active:
+            # He stayed active into the evening — skip entirely.
+            await _db_ref[COLL_BRIEFINGS].insert_one({
+                "id": f"eod-skip-{admin_id}-{date_key}",
+                "admin_id": admin_id,
+                "rhythm_type": "eod",
+                "date_key": date_key,
+                "status": "skipped",
+                "skip_reason": "still_active_past_cutoff",
+                "created_at": _dt.now(_tz.utc).isoformat(),
+            })
+            log.info(
+                "EOD skipped for %s — still active past %d:00 cutoff",
+                admin_id, EOD_CUTOFF_HOUR,
+            )
+            return
+
+        # He's been inactive long enough — deliver the wrap-up.
+        row = await compose_eod_wrapup(
+            _db_ref,
+            admin_id,
+            timezone_name=tz_name,
+        )
+        outcome = await deliver_briefing(_db_ref, row, settings)
+        log.info("EOD wrap-up delivered for %s: %s", admin_id, outcome)
+    except Exception:
+        log.exception("EOD wrap-up scheduler job failed for %s", admin_id)
+
+
 # ---------------------------------------------------------------------------
 # Scheduling API
 # ---------------------------------------------------------------------------
@@ -162,13 +261,30 @@ async def reschedule_admin(admin_id: str) -> None:
         replace_existing=True,
         misfire_grace_time=60 * 30,
     )
+    # End-of-Day wrap-up (considerate deferral). Fires every 15 minutes
+    # from `eod_at` through the cutoff hour so we can wait out Garry's
+    # session inactivity without hard-coding a single tick.
+    eh, em = _parse_hhmm(settings.get("eod_at") or "18:00", 18, 0)
+    _scheduler.add_job(
+        run_eod_wrapup,
+        trigger=CronTrigger(
+            hour=f"{eh}-{EOD_CUTOFF_HOUR - 1}",
+            minute=f"{em}/15" if em else "*/15",
+            timezone=tz_name,
+        ),
+        args=[admin_id],
+        id=_job_id(admin_id, "eod"),
+        replace_existing=True,
+        misfire_grace_time=60 * 30,
+    )
     log.info(
-        "Rescheduled rhythms for admin %s (tz=%s, weekday=%s, weekend=%s, midday=%s)",
+        "Rescheduled rhythms for admin %s (tz=%s, weekday=%s, weekend=%s, midday=%s, eod=%s)",
         admin_id,
         tz_name,
         settings.get("morning_weekday_at"),
         settings.get("morning_weekend_at"),
         settings.get("midday_at"),
+        settings.get("eod_at"),
     )
 
 

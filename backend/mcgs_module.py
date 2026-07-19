@@ -41,6 +41,7 @@ from services.mcgs.rhythms import (
     record_admin_heartbeat,
     compose_morning_briefing,
     compose_midday_pulse,
+    compose_eod_wrapup,
     reschedule_admin,
     scheduler_status,
     deliver_briefing,
@@ -302,6 +303,50 @@ def build_router(db) -> APIRouter:
         )
         if not row:
             raise HTTPException(404, "No midday pulse fired for today.")
+        settings = await get_rhythm_settings(db, admin.get("id"))
+        return await deliver_briefing(db, row, settings)
+
+    # ---- End-of-Day Wrap-up (Milestone E) ----
+
+    @router.post("/mcgs/rhythms/eod/compose")
+    async def api_eod_compose(
+        force: bool = Query(default=False),
+        admin: dict = Depends(current_admin),
+    ):
+        """Compose today's End-of-Day Wrap-up. Idempotent by default.
+
+        Note: this bypasses the considerate-deferral rule (which lives in
+        the scheduler). Use `?force=true` for testing content only.
+        """
+        settings = await get_rhythm_settings(db, admin.get("id"))
+        try:
+            row = await compose_eod_wrapup(
+                db,
+                admin.get("id"),
+                force=force,
+                timezone_name=settings.get("timezone"),
+            )
+        except Exception as exc:
+            log.exception("EOD wrap-up compose failed")
+            raise HTTPException(500, f"EOD wrap-up failed: {exc}")
+        row.pop("_id", None)
+        return row
+
+    @router.post("/mcgs/rhythms/eod/deliver")
+    async def api_eod_deliver(admin: dict = Depends(current_admin)):
+        """Deliver today's EOD wrap-up to secondary channels (email if enabled)."""
+        row = await db[COLL_BRIEFINGS].find_one(
+            {
+                "admin_id": admin.get("id"),
+                "rhythm_type": "eod",
+                "date_key": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            },
+            {"_id": 0},
+        )
+        if not row:
+            raise HTTPException(404, "No EOD wrap-up for today.")
+        if row.get("status") == "skipped":
+            return row
         settings = await get_rhythm_settings(db, admin.get("id"))
         return await deliver_briefing(db, row, settings)
 

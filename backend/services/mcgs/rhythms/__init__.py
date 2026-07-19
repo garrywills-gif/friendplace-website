@@ -38,6 +38,7 @@ from .openers import (
 from .facts import gather_morning_facts
 from .composer import compose_morning_briefing
 from .midday import compose_midday_pulse
+from .eod import compose_eod_wrapup
 from .delivery import deliver_briefing
 from .scheduler import (
     start_scheduler,
@@ -45,6 +46,7 @@ from .scheduler import (
     scheduler_status,
     run_morning_briefing,
     run_midday_pulse,
+    run_eod_wrapup,
 )
 
 __all__ = [
@@ -71,6 +73,7 @@ __all__ = [
     "gather_morning_facts",
     "compose_morning_briefing",
     "compose_midday_pulse",
+    "compose_eod_wrapup",
     # delivery + scheduler
     "deliver_briefing",
     "start_scheduler",
@@ -78,4 +81,5 @@ __all__ = [
     "scheduler_status",
     "run_morning_briefing",
     "run_midday_pulse",
+    "run_eod_wrapup",
 ]
