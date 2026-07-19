@@ -22,6 +22,7 @@
     - celebrates meaningful milestones,
     - carries conversations naturally across days.
    Every future feature is judged not only by whether it works, but by whether it strengthens the relationship.
+9. **George should reduce the effort required to bring people together.** If a feature makes it easier for people to create friendships, groups, conversations, or events, it takes priority. Every design choice is measured against whether it lowers the barrier to community. George is the easiest way to build community.
 
 ---
 
@@ -558,46 +559,76 @@ See `mcgs-phase1-plan.md` for the detailed implementation plan.
 - SMS channel modelled but not wired
 
 ### Phase 4 — Health Pulse + Conversational Event Creation
-**Health Pulse**
+### Phase 3 — Conversational Event Creation (was 4b — promoted to next major work, Garry 19 July 2026)
+
+> *"George, I'd like to organise a bowls tournament on 5 December at 10am."* — the feature people will remember.
+
+**Guiding principle:** *George should reduce the effort required to bring people together* (principle #9). Removing the create-event form is the biggest single lever we have to lower the barrier to community. This phase makes George member-facing for the first time.
+
+**Universal experience — one George, one conversation, different permissions:**
+- **Members** — describe an event to George; George drafts it; on approval the draft goes to the event submission review queue (same pipeline as the CMS form today).
+- **Organisations** — same conversation; the draft goes into the org's approval workflow (verified orgs still bypass review — Phase 7).
+- **Administrators** — same conversation; on approval Garry (or a permissioned admin) publishes immediately.
+
+**What George does in the conversation:**
+1. Extracts everything already said in natural language (title, when, where, capacity, price, audience, description tone).
+2. Infers sensible defaults from grounded sources — never invented:
+    - Member's or org's home venues, previous events, typical audience, seasonal patterns.
+    - Time-of-day norms (a "coffee morning" defaults to 10:00, not 22:00).
+3. Asks only for genuinely missing critical fields — *one warm question at a time*, colleague voice.
+4. Suggests improvements where helpful ("The community hall lounge fits about twenty people — is that the space you meant?").
+5. Produces a complete draft as an **Action Preview**: WHAT / WHERE / WHEN / WHO / DEFAULTS INFERRED / SOURCES.
+6. Presents for review. Nothing is created until the human taps *Approve*.
+
+**Same architectural guarantees as Phase 1/2:**
+- Grounded only — every inferred value shows its source.
+- Action Preview lock — no writes without human approval.
+- Voice-first — works entirely over the Ask George bar and its microphone; mobile-first for members.
+- Warm colleague voice throughout.
+- Prompt-injection defence — the extractor treats free-form input as data.
+
+**Post-conversation routing (by role, one write):**
+| Role | On approve → |
+|---|---|
+| Member | `cms_event_submissions` (status=pending) — existing review queue |
+| Organisation | Org approval workflow (defers to Phase 7 verified-org bypass when applicable) |
+| Administrator | `cms_events` (status=published) — immediate publish |
+
+**Milestones (indicative — Milestone A confirmed with Garry before build):**
+- **A** — Extractor + Action Preview draft on the admin CMS (fastest path to a working demo)
+- **B** — Progressive missing-field conversation loop (one warm question at a time)
+- **C** — Member-facing entry point in the mobile app (voice-first)
+- **D** — Organisation flow + role-aware routing
+- **E** — Suggestions + venue/audience defaults + prompt-injection regression pass
+
+### Phase 4 — Health Pulse
 - Nightly ring computation
 - Right-rail Bridge widget with contribution transparency
 - Drill-down chart page in Systems → Analytics
 - `mcgs_settings_history` for weight audit
 
-**Conversational Event Creation (Garry, 19 July 2026)**
-> *"Most platforms make people fill in forms. FriendPlace could simply let people talk to George."*
+### Phase 5 — Alerts routing + SMS groundwork (was Phase 3)
+- P0/P1 alert routing to Twilio SMS + push, escalation ladder, quiet-hours-aware
+- Groundwork lets urgent Signals reach Garry when he's away from the Bridge
 
-Instead of a create-event form, an organiser (or Garry on their behalf) can describe an event in natural language — voice or text — and George extracts every field, infers sensible defaults, and produces a **fully completed event draft as an Action Preview**. Nothing is created until a human taps *Approve*.
-
-- Input: free-form conversation ("we're running a coffee morning next Tuesday at the community hall from 10 to noon, £3 per head, open to over-60s").
-- Extractor tool: `george.tools.event_extractor` — deterministic schema extraction with confidence per field.
-- Inferred defaults: George fills gaps from org profile, venue history, past events, and current season (never invented).
-- Missing critical fields: George asks *one warm question at a time* to complete the draft (no wall of form fields).
-- Output: standard event draft in the existing pipeline — same review queue, same publish flow, same audit trail. No new admin path.
-- Voice-first: the whole flow works over the Ask George bar; the microphone is the primary create-event affordance.
-- Safety: same Action Preview lock as every other George write — the draft is visible, editable, and requires human approval.
-- Grounded: every inferred value shows its source ("start time from previous events at this venue"), never invented.
-
-This turns event creation from data entry into conversation — the defining test that FriendPlace treats organisers as humans, not form-fillers.
-
-### Phase 5 — Studios consolidation
+### Phase 6 — Studios consolidation
 - Sidebar restructured into the five Studios
 - Existing admin URLs kept working via alias routes
 - Support Inbox lands inside Voice Studio
 
-### Phase 6 — George Insights + Suggested Actions at scale
+### Phase 7 — George Insights + Suggested Actions at scale
 - Pattern, anomaly, sentiment, content-gap generators
 - Every insight is a Signal with `george_read`
 - Action Preview pattern rolled to every writeable module
 
-### Phase 7 — Organisations + trust scoring
+### Phase 8 — Organisations + trust scoring
 - Verified orgs bypass event review queue
 - Trust score on submission rows
 - Bulk actions with two-step confirm
 
-### Phase 8 — Weekly Review + Monthly Retro Rhythms
+### Phase 9 — Weekly Review + Monthly Retro Rhythms
 
-### Phase 8b — "One Ongoing Conversation" Bridge continuity (Garry, 19 July 2026)
+### Phase 9b — "One Ongoing Conversation" Bridge continuity (Garry, 19 July 2026)
 > *"Eventually I'd also like the three Rhythm cards to behave more like one ongoing conversation. As the day progresses, older Rhythm cards can quietly collapse into a compact summary, leaving the newest conversation active. It should feel less like three reports and more like one continuous relationship with George throughout the day."*
 
 - As Midday arrives, the Morning Briefing quietly collapses to a compact summary pill: *"🦋 This morning's briefing · read"* — one-tap to re-open.
@@ -704,3 +735,6 @@ This turns event creation from data entry into conversation — the defining tes
 | 2026-07-19 | **Phase 2 (Rhythms) FROZEN as v1.1** — 26/26 regression sweep passing. Baseline at `/app/memory/phase2-baseline-v1.1.md`. Archive at `/app/memory/archive/v1.1/`. Rhythms are feature-complete: Morning prepares, Midday interrupts only on genuine change, Evening closes, Milestones surface quietly. | Phase 2 has reached its natural stopping point. |
 | 2026-07-19 | **Principle #8: George should build a relationship, not just answer questions** — added to guiding principles. Over time George remembers previous conversations, remembers how Garry likes to work, recognises completed work, gently reminds about unfinished work, celebrates meaningful milestones, and carries conversations across days. Every future feature is judged not only by whether it works but by whether it strengthens the relationship. | *"George now feels like someone quietly looking after FriendPlace while I'm away. That's the feeling I'd like us to protect above everything else."* |
 | 2026-07-19 | **Phase 8b — One Ongoing Conversation** added to the roadmap. As the day progresses, older Rhythm cards quietly collapse into a compact summary pill so the Bridge reads as one continuous relationship rather than three separate reports. | Reinforces principle #8: relationship, not Q&A. |
+| 2026-07-19 | **Principle #9: George should reduce the effort required to bring people together.** If a feature makes it easier for people to create friendships, groups, conversations, or events, it takes priority. Every design choice is measured against whether it lowers the barrier to community. | *"Let's make George the easiest way to build community."* |
+| 2026-07-19 | **Roadmap re-ordered.** Conversational Event Creation promoted to next major work (Phase 3), pushing Health Pulse to Phase 4, Alerts+SMS to Phase 5, and Studios/Insights/Orgs/Reviews/One-Ongoing-Conversation down accordingly. Reason: the feature people will remember is *"George, organise a trivia night for next Friday"* — that removes the biggest barrier to creating community and is the first time George becomes member-facing. | Impact-first prioritisation. Relationship + effort-reduction over more admin polish. |
+| 2026-07-19 | **Conversational Event Creation is universal.** Same George conversation for members, organisations, and administrators. One conversation, different permissions. Only the post-approval routing differs: member → review queue; organisation → org approval workflow; administrator → immediate publish. | One George. One conversation. Different permissions. |
