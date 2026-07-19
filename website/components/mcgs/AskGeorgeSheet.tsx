@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { askGeorge, type GeorgeStreamEvent } from '@/lib/mcgs-api';
+import { askGeorge, speakText, type GeorgeStreamEvent } from '@/lib/mcgs-api';
 import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
 
 /**
@@ -196,6 +196,35 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
 
 function ChatBubble({ turn }: { turn: Turn }) {
   const isUser = turn.role === 'user';
+  const [playing, setPlaying] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  async function play() {
+    if (playing) {
+      audioRef.current?.pause();
+      setPlaying(false);
+      return;
+    }
+    try {
+      let url = audioUrl;
+      if (!url) {
+        const blob = await speakText(turn.content, 'nova', 0.95);
+        url = URL.createObjectURL(blob);
+        setAudioUrl(url);
+      }
+      const el = audioRef.current || new Audio();
+      audioRef.current = el;
+      el.src = url;
+      el.onended = () => setPlaying(false);
+      el.onpause = () => setPlaying(false);
+      await el.play();
+      setPlaying(true);
+    } catch (err) {
+      console.error(err);
+      setPlaying(false);
+    }
+  }
   return (
     <div style={{
       display: 'flex', gap: 12, padding: '14px 24px',
@@ -231,11 +260,12 @@ function ChatBubble({ turn }: { turn: Turn }) {
           <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', fontSize: 12, color: '#64748B' }}>
             <button
               type="button"
-              disabled
-              title="Voice playback coming in the next milestone"
-              style={{ ...playBtn, opacity: 0.35, cursor: 'not-allowed' }}
-              aria-label="Play answer (coming soon)"
-            >▶︎ Play</button>
+              onClick={play}
+              disabled={!turn.content}
+              title={playing ? 'Stop' : 'Play with George\u2019s voice'}
+              style={{ ...playBtn, opacity: turn.content ? 1 : 0.35, cursor: turn.content ? 'pointer' : 'not-allowed' }}
+              aria-label={playing ? 'Stop audio' : 'Play with George\u2019s voice'}
+            >{playing ? '⏸ Stop' : '▶︎ Play'}</button>
             {Array.isArray(turn.results) && turn.results.length > 0 && (
               <span title={JSON.stringify(turn.results, null, 2)}>
                 Grounded in {turn.results.length} tool result{turn.results.length === 1 ? '' : 's'}

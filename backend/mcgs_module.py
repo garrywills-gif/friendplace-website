@@ -18,8 +18,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
+from fastapi.responses import StreamingResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -95,6 +95,12 @@ class TicketReplyProposalIn(BaseModel):
 class SubmissionDecisionProposalIn(BaseModel):
     submission_id: str
     decision: str
+
+
+class TTSIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=3800)
+    voice: str = Field("nova")
+    speed: float = Field(0.95, ge=0.5, le=1.5)
 
 
 # ---------------------------------------------------------------------------
@@ -472,5 +478,76 @@ def build_router(db) -> APIRouter:
             {"id": chat_id, "admin_id": admin.get("id"), "scope": "mcgs"},
         )
         return {"deleted": res.deleted_count}
+
+    # =====================================================================
+    # /api/george/voice/*  \u2014 STT + TTS via Emergent LLM key
+    # =====================================================================
+
+    @router.post("/george/voice/transcribe")
+    async def api_george_transcribe(
+        audio: UploadFile = File(...),
+        admin: dict = Depends(current_admin),
+    ):
+        """Transcribe an audio clip via Whisper-1. The transcript
+        returns for review \u2014 nothing sent to George automatically."""
+        from emergentintegrations.llm.openai.speech_to_text import OpenAISpeechToText
+        import os as _os, io, tempfile
+        key = _os.environ.get("EMERGENT_LLM_KEY")
+        if not key:
+            raise HTTPException(500, "EMERGENT_LLM_KEY missing")
+
+        data = await audio.read()
+        # Whisper expects a file-like with .name.
+        ext = (audio.filename or "clip.webm").rsplit(".", 1)[-1].lower()
+        if ext not in {"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"}:
+            ext = "webm"
+
+        # Wrap bytes in a temp file so litellm has a real path.
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+            tmp.write(data)
+            path = tmp.name
+
+        stt = OpenAISpeechToText(api_key=key)
+        try:
+            with open(path, "rb") as fh:
+                resp = await stt.transcribe(file=fh, model="whisper-1", response_format="json")
+        except Exception as exc:
+            log.exception("STT failed")
+            raise HTTPException(502, f"Transcription failed: {exc}")
+        finally:
+            try: _os.unlink(path)
+            except Exception: pass
+
+        text = getattr(resp, "text", None) or (resp.get("text") if isinstance(resp, dict) else None) or ""
+        return {"transcript": text}
+
+    class TTSIn_local(BaseModel):
+        text: str = Field(..., min_length=1, max_length=3800)
+        voice: str = Field("nova")
+        speed: float = Field(0.95, ge=0.5, le=1.5)
+
+    @router.post("/george/voice/speak")
+    async def api_george_speak(body: TTSIn, admin: dict = Depends(current_admin)):
+        """Return mp3 audio of the provided text. Called on-demand when
+        Garry taps Play on a reply, or auto when 'Read to me' is on."""
+        from emergentintegrations.llm.openai.text_to_speech import OpenAITextToSpeech
+        import os as _os
+        key = _os.environ.get("EMERGENT_LLM_KEY")
+        if not key:
+            raise HTTPException(500, "EMERGENT_LLM_KEY missing")
+
+        tts = OpenAITextToSpeech(api_key=key)
+        voice = body.voice if body.voice in OpenAITextToSpeech.VOICES else "nova"
+        try:
+            audio = await tts.generate_speech(
+                text=body.text, model="tts-1", voice=voice,
+                speed=body.speed, response_format="mp3",
+            )
+        except Exception as exc:
+            log.exception("TTS failed")
+            raise HTTPException(502, f"Speech generation failed: {exc}")
+
+        from fastapi.responses import Response as _Response
+        return _Response(content=audio, media_type="audio/mpeg")
 
     return router

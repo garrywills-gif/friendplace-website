@@ -255,3 +255,38 @@ export function askGeorge(
   })();
   return { abort: () => controller.abort() };
 }
+
+// ---------- Voice ----------
+
+/**
+ * POST a webm audio blob to the transcription endpoint. Returns the
+ * transcript text so the caller can prefill an editable input.
+ */
+export async function transcribeAudio(blob: Blob): Promise<string> {
+  const token = getToken();
+  const form = new FormData();
+  form.append('audio', blob, 'clip.webm');
+  const res = await fetch(`${BASE}/api/george/voice/transcribe`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token || ''}` },
+    body: form,
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.detail || 'Transcription failed');
+  return json.transcript || '';
+}
+
+/**
+ * Fetch George's reply as an mp3 blob for playback via <audio>.
+ */
+export async function speakText(text: string, voice = 'nova', speed = 0.95): Promise<Blob> {
+  const token = getToken();
+  const res = await fetch(`${BASE}/api/george/voice/speak`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+    body: JSON.stringify({ text, voice, speed }),
+  });
+  if (!res.ok) throw new Error(`Speech failed: ${res.status}`);
+  return await res.blob();
+}
+

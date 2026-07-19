@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AskGeorgeSheet } from './AskGeorgeSheet';
+import { useVoiceRecorder } from '@/lib/use-voice-recorder';
+import { transcribeAudio } from '@/lib/mcgs-api';
 
 /**
  * The Ask George bar — persistent at the top of every MCGS screen.
- * Built voice-ready from day one: the microphone button and
- * transcription indicator are already laid out; they'll wire up in
- * Milestone E without any layout changes.
+ * Voice is first-class: tap-to-toggle mic, live timer + level meter,
+ * silence auto-stop, 60s cap, and transcript review before send.
  *
  * Keyboard: ⌘K / Ctrl+K focuses the bar from anywhere.
  */
@@ -15,8 +16,11 @@ export function AskGeorgeBar() {
   const [input, setInput] = useState('');
   const [open, setOpen] = useState(false);
   const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined);
-  const [voiceHint, setVoiceHint] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const rec = useVoiceRecorder({ maxSeconds: 60, silenceSeconds: 3 });
 
   // Global keyboard shortcut.
   useEffect(() => {
@@ -51,6 +55,29 @@ export function AskGeorgeBar() {
     setOpen(true);
   }
 
+  async function toggleMic() {
+    setMicError(null);
+    if (rec.recording) {
+      // Second tap → stop and transcribe.
+      const blob = await rec.stop();
+      if (!blob) return;
+      try {
+        setTranscribing(true);
+        const transcript = await transcribeAudio(blob);
+        // Prefill the input for edit-before-send.
+        setInput(prev => (prev ? prev.trim() + ' ' : '') + transcript);
+        inputRef.current?.focus();
+      } catch (err) {
+        setMicError((err as Error).message || 'Transcription failed');
+      } finally {
+        setTranscribing(false);
+      }
+    } else {
+      await rec.start();
+      if (rec.error) setMicError(rec.error);
+    }
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -58,60 +85,95 @@ export function AskGeorgeBar() {
     }
   }
 
+  const showRecordingUI = rec.recording || transcribing;
+  const timerLabel = rec.recording
+    ? `${String(Math.floor(rec.seconds / 60)).padStart(1, '0')}:${String(rec.seconds % 60).padStart(2, '0')}`
+    : transcribing ? 'transcribing…' : '';
+
   return (
     <>
       <div style={barWrap}>
         <div style={bar}>
-          {/* Butterfly — George's leading glyph, consistent with mobile app. */}
           <span style={butterfly} aria-hidden>🦋</span>
 
-          {/* Recording-state slot (empty until voice ships).
-              Kept in the layout so voice adds no visual shift. */}
-          <div style={recordingSlot} aria-hidden />
+          {/* Recording indicator */}
+          <div style={{
+            ...recordingSlot,
+            width: showRecordingUI ? 14 : 0,
+            background: rec.recording ? '#EF4444' : (transcribing ? '#14B8A6' : 'transparent'),
+            animation: rec.recording ? 'pulseDot 1.2s ease-in-out infinite' : 'none',
+          }} aria-hidden />
 
           <input
             ref={inputRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            onFocus={() => { if (!input) setInput(''); }}
-            placeholder="Ask George anything…"
+            placeholder={rec.recording ? 'Listening… tap the mic again when you\u2019re done.' : 'Ask George anything…'}
             style={input_}
             aria-label="Ask George"
+            disabled={rec.recording}
           />
 
-          {/* Live-transcription slot: appears while voice input is streaming. */}
-          <div style={transcriptionSlot} aria-hidden />
+          {/* Live timer / transcription state */}
+          <span style={{
+            ...timerSlot,
+            width: showRecordingUI ? 90 : 0,
+            color: rec.recording ? '#EF4444' : '#0F766E',
+            fontWeight: 700,
+          }} aria-live="polite">{timerLabel}</span>
 
-          {/* Timer slot: shows recording seconds during voice input. */}
-          <div style={timerSlot} aria-hidden />
+          {/* Cancel button while recording */}
+          {rec.recording && (
+            <button
+              type="button"
+              onClick={rec.cancel}
+              title="Cancel recording"
+              style={cancelBtn}
+              aria-label="Cancel recording"
+            >✕</button>
+          )}
 
-          {/* Microphone — tap-to-toggle in Milestone E. Layout-ready today. */}
+          {/* Microphone — tap-to-toggle */}
           <button
             type="button"
-            onClick={() => setVoiceHint(true)}
-            onBlur={() => setVoiceHint(false)}
-            title="Voice input coming in the next milestone"
-            style={micBtn}
-            aria-label="Voice input (coming soon)"
-          >🎙️</button>
+            onClick={toggleMic}
+            disabled={transcribing}
+            title={rec.recording ? 'Stop recording' : 'Talk to George'}
+            style={{
+              ...micBtn,
+              background: rec.recording ? '#FEE2E2' : '#F8FAFC',
+              borderColor: rec.recording ? '#FCA5A5' : '#E2E8F0',
+              color: rec.recording ? '#DC2626' : '#64748B',
+            }}
+            aria-label={rec.recording ? 'Stop recording' : 'Talk to George'}
+          >{rec.recording ? '⏹' : '🎙️'}</button>
 
-          {/* Keyboard hint. Hidden on narrow screens by CSS below. */}
           <span style={cmdHint} aria-hidden>⌘K</span>
 
           <button
             type="button"
             onClick={() => submit()}
-            disabled={!input.trim()}
-            style={{ ...askBtn, opacity: input.trim() ? 1 : 0.5 }}
+            disabled={!input.trim() || rec.recording}
+            style={{ ...askBtn, opacity: input.trim() && !rec.recording ? 1 : 0.5 }}
           >Ask</button>
         </div>
 
-        {voiceHint && (
-          <div style={hintPop} role="tooltip">
-            Voice arrives in the next milestone — microphone, live transcription, playback and all.
+        {micError && (
+          <div style={{ ...hintPop, background: '#7F1D1D' }} role="alert">{micError}</div>
+        )}
+        {rec.recording && (
+          <div style={hintPop} role="status">
+            George is listening… tap the mic to finish or wait 3s of silence.
           </div>
         )}
+
+        <style>{`
+          @keyframes pulseDot {
+            0%,100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.8); }
+          }
+        `}</style>
       </div>
 
       <AskGeorgeSheet
@@ -161,6 +223,11 @@ const timerSlot: React.CSSProperties = {
 const micBtn: React.CSSProperties = {
   width: 36, height: 36, borderRadius: 10, border: '1px solid #E2E8F0',
   background: '#F8FAFC', color: '#64748B', fontSize: 15, cursor: 'pointer',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+};
+const cancelBtn: React.CSSProperties = {
+  width: 30, height: 30, borderRadius: 8, border: '1px solid #E2E8F0',
+  background: 'transparent', color: '#94A3B8', fontSize: 14, cursor: 'pointer',
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };
 const cmdHint: React.CSSProperties = {
