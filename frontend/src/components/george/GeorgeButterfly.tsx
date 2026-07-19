@@ -196,15 +196,15 @@ export function GeorgeButterfly() {
 
   // ---- Handle introduction choice ---------------------------------------
   const onIntroChoice = useCallback(async (choice: IntroChoice) => {
+    // Principle #17 — the conversation never ends, so we do NOT open
+    // a placeholder sheet here. George has already spoken his warm
+    // follow-up inside the intro surface and settled his butterfly
+    // down to its resting corner. We simply retire the first-meeting
+    // flag on the server and hand control back to the Home screen,
+    // where the resting butterfly is now the member's constant
+    // companion — waiting to be tapped whenever they're ready.
     try { await georgeApi.introduced(); } catch { /* silent — cosmetic */ }
-    if (choice === 'maybe_later') {
-      setPhase('resting');
-      return;
-    }
-    // 'yes_begin' and 'chat_first' both lead into the shared conversation.
-    // Slice B3 will wire the full engine here; for now show the placeholder.
     setPhase('resting');
-    setShowChat(true);
   }, []);
 
   // ---- Animated styles ---------------------------------------------------
@@ -270,14 +270,19 @@ export function GeorgeButterfly() {
         )}
       </Animated.View>
 
-      {/* First-meeting introduction as a full-screen conversation */}
+      {/* First-meeting introduction as a continuous conversation.
+       *  The intro handles its own settling animation before calling
+       *  back — see GeorgeIntroduction. We use a transparent modal so
+       *  the butterfly can appear to glide *through* the boundary and
+       *  land on the Home screen without a visible seam.
+       */}
       <Modal
         visible={phase === 'intro'}
         animationType="fade"
-        transparent={false}
+        transparent
         onRequestClose={() => onIntroChoice('maybe_later')}
       >
-        <GeorgeIntroduction onChoice={onIntroChoice} />
+        <GeorgeIntroduction onSettled={onIntroChoice} />
       </Modal>
 
       {/* Placeholder floating chat — Slice B3 replaces with the shared engine */}
