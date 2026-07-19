@@ -1,0 +1,374 @@
+"""MCGS router \u2014 API surface for The Bridge.
+
+Endpoints under /api/mcgs/* and /api/george/*.
+
+Auth: all routes require a valid CMS admin bearer token. Decoded via
+the same helper `cms_module` uses so we share one identity source.
+
+Design refs:
+- `/app/memory/mcgs-phase1-plan.md` \u00a73 (API surface)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
+
+from services.mcgs import (
+    SignalError,
+    compute_counts,
+    get_case,
+    get_signal,
+    list_cases,
+    list_signals,
+    transition_case,
+    transition_signal,
+    assign_case,
+)
+from services.mcgs.events import signal_events
+from services.george import grounded_chat_stream
+
+log = logging.getLogger("friendplace.mcgs.api")
+
+bearer = HTTPBearer(auto_error=False)
+
+
+# ---------------------------------------------------------------------------
+# Pydantic input schemas
+# ---------------------------------------------------------------------------
+
+class SignalStateIn(BaseModel):
+    to: str = Field(..., description="Target state")
+    notes: Optional[str] = None
+    snoozed_until: Optional[str] = None
+    resolved_action: Optional[str] = None
+
+
+class CaseStateIn(BaseModel):
+    to: str
+    notes: Optional[str] = None
+    resolved_action: Optional[str] = None
+
+
+class CaseAssignIn(BaseModel):
+    assignee_id: Optional[str] = None
+
+
+class GeorgeChatIn(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    chat_id: Optional[str] = None
+    scope: str = Field("mcgs")
+
+
+# ---------------------------------------------------------------------------
+# Router factory
+# ---------------------------------------------------------------------------
+
+def build_router(db) -> APIRouter:
+    from cms_module import _decode  # circular-safe: cms_module doesn't need us at import.
+
+    router = APIRouter(tags=["mcgs"])
+
+    # ---- Shared auth dependency ----
+    async def current_admin(
+        creds: HTTPAuthorizationCredentials = Depends(bearer),
+    ) -> dict:
+        if not creds or not creds.credentials:
+            raise HTTPException(401, "Not authenticated")
+        payload = _decode(creds.credentials, "cms_admin")
+        admin = await db.cms_admins.find_one(
+            {"id": payload["sub"]}, {"_id": 0, "password_hash": 0},
+        )
+        if not admin:
+            raise HTTPException(401, "Admin no longer exists")
+        return admin
+
+    # =====================================================================
+    # /api/mcgs/signals
+    # =====================================================================
+
+    @router.get("/mcgs/signals")
+    async def api_list_signals(
+        admin: dict = Depends(current_admin),
+        status: Optional[list[str]] = Query(default=None),
+        priority: Optional[list[str]] = Query(default=None),
+        category: Optional[list[str]] = Query(default=None),
+        assignee_id: Optional[str] = Query(default=None),
+        limit: int = Query(default=50, ge=1, le=200),
+    ):
+        rows = await list_signals(
+            db, status=status, priority=priority, category=category,
+            assignee_id=assignee_id, limit=limit,
+        )
+        return {"items": rows, "count": len(rows)}
+
+    @router.get("/mcgs/signals/{signal_id}")
+    async def api_get_signal(signal_id: str, admin: dict = Depends(current_admin)):
+        sig = await get_signal(db, signal_id)
+        if not sig:
+            raise HTTPException(404, "Signal not found")
+        return sig
+
+    @router.patch("/mcgs/signals/{signal_id}/state")
+    async def api_transition_signal(
+        signal_id: str,
+        body: SignalStateIn,
+        admin: dict = Depends(current_admin),
+    ):
+        try:
+            updated = await transition_signal(
+                db,
+                signal_id=signal_id,
+                to_state=body.to,
+                actor_id=admin.get("id"),
+                actor_kind="human",
+                notes=body.notes,
+                via_channel="bridge",
+                snoozed_until=body.snoozed_until,
+                resolved_action=body.resolved_action,
+            )
+        except SignalError as exc:
+            raise HTTPException(400, str(exc))
+        return updated
+
+    # =====================================================================
+    # /api/mcgs/cases
+    # =====================================================================
+
+    @router.get("/mcgs/cases")
+    async def api_list_cases(
+        admin: dict = Depends(current_admin),
+        status: Optional[list[str]] = Query(default=None),
+        priority: Optional[list[str]] = Query(default=None),
+        category: Optional[list[str]] = Query(default=None),
+        assignee_id: Optional[str] = Query(default=None),
+        limit: int = Query(default=50, ge=1, le=200),
+    ):
+        rows = await list_cases(
+            db, status=status, priority=priority, category=category,
+            assignee_id=assignee_id, limit=limit,
+        )
+        return {"items": rows, "count": len(rows)}
+
+    @router.get("/mcgs/cases/{case_id}")
+    async def api_get_case(case_id: str, admin: dict = Depends(current_admin)):
+        case = await get_case(db, case_id)
+        if not case:
+            raise HTTPException(404, "Case not found")
+        return case
+
+    @router.patch("/mcgs/cases/{case_id}/state")
+    async def api_transition_case(
+        case_id: str, body: CaseStateIn,
+        admin: dict = Depends(current_admin),
+    ):
+        try:
+            updated = await transition_case(
+                db, case_id=case_id, to_state=body.to,
+                actor_id=admin.get("id"), actor_kind="human",
+                notes=body.notes, via_channel="bridge",
+                resolved_action=body.resolved_action,
+            )
+        except SignalError as exc:
+            raise HTTPException(400, str(exc))
+        return updated
+
+    @router.post("/mcgs/cases/{case_id}/assign")
+    async def api_assign_case(
+        case_id: str, body: CaseAssignIn,
+        admin: dict = Depends(current_admin),
+    ):
+        try:
+            updated = await assign_case(
+                db, case_id=case_id, assignee_id=body.assignee_id,
+                actor_id=admin.get("id"), actor_kind="human",
+                via_channel="bridge",
+            )
+        except SignalError as exc:
+            raise HTTPException(404, str(exc))
+        return updated
+
+    # =====================================================================
+    # /api/mcgs/counts \u2014 hot single-doc cache
+    # =====================================================================
+
+    @router.get("/mcgs/counts")
+    async def api_counts(admin: dict = Depends(current_admin)):
+        return await compute_counts(db)
+
+    # =====================================================================
+    # /api/mcgs/stream \u2014 SSE from the channel-agnostic event bus
+    # =====================================================================
+
+    @router.get("/mcgs/stream")
+    async def api_stream(
+        request: Request,
+        admin: dict = Depends(current_admin),
+    ):
+        """Server-Sent Events stream of Signal + Case updates.
+
+        Any subscriber (this route today; push worker + email worker
+        tomorrow) subscribes to the same in-process ``signal_events``
+        bus. See services/mcgs/events.py.
+        """
+        queue, unsubscribe = await signal_events.subscribe()
+
+        async def event_gen():
+            try:
+                # First frame so the client knows the stream is alive.
+                hello = {"type": "hello", "at": datetime.now(timezone.utc).isoformat()}
+                yield f"event: hello\ndata: {json.dumps(hello)}\n\n"
+
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=15)
+                    except asyncio.TimeoutError:
+                        # Keep-alive comment.
+                        yield ": keep-alive\n\n"
+                        continue
+                    kind = event.get("type", "message")
+                    yield f"event: {kind}\ndata: {json.dumps(event, default=str)}\n\n"
+            except asyncio.CancelledError:
+                pass
+            finally:
+                unsubscribe()
+
+        return StreamingResponse(
+            event_gen(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # =====================================================================
+    # /api/george/chat \u2014 grounded chat, streams tokens over SSE
+    # =====================================================================
+
+    @router.post("/george/chat")
+    async def api_george_chat(
+        body: GeorgeChatIn,
+        admin: dict = Depends(current_admin),
+    ):
+        chat_id = body.chat_id or str(uuid.uuid4())
+        session_id = f"{admin.get('id')}::{chat_id}"
+
+        # Fetch prior turns for continuity (last N).
+        chat_doc = await db.george_chats.find_one(
+            {"id": chat_id, "admin_id": admin.get("id"), "scope": "mcgs"},
+            {"_id": 0, "turns": {"$slice": -12}},
+        )
+        prior_turns = (chat_doc or {}).get("turns") or []
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Record the user's turn first \u2014 do it up-front so if the stream
+        # dies mid-flight, the message is still logged for audit.
+        user_turn = {
+            "role": "user", "content": body.message,
+            "input_kind": "text", "output_kind": None,
+            "created_at": now_iso,
+        }
+        await db.george_chats.update_one(
+            {"id": chat_id, "admin_id": admin.get("id"), "scope": "mcgs"},
+            {
+                "$set": {"last_active_at": now_iso, "scope": "mcgs"},
+                "$setOnInsert": {
+                    "id": chat_id, "admin_id": admin.get("id"),
+                    "started_at": now_iso,
+                    "voice_seconds_today": 0,
+                },
+                "$push": {"turns": user_turn},
+                "$inc": {"message_count_today": 1},
+            },
+            upsert=True,
+        )
+
+        async def event_gen():
+            reply_text_parts: list[str] = []
+            usage: dict = {}
+            try:
+                # Emit the chat_id so the UI can pick up subsequent turns.
+                yield f"event: session\ndata: {json.dumps({'chat_id': chat_id})}\n\n"
+
+                async for ev in grounded_chat_stream(
+                    db=db, admin=admin, user_message=body.message,
+                    session_id=session_id, prior_turns=prior_turns,
+                ):
+                    kind = ev.get("kind")
+                    if kind == "delta":
+                        reply_text_parts.append(ev.get("text") or "")
+                        yield f"event: delta\ndata: {json.dumps({'text': ev.get('text')})}\n\n"
+                    elif kind == "plan":
+                        yield f"event: plan\ndata: {json.dumps(ev.get('plan') or {})}\n\n"
+                    elif kind == "tools":
+                        # Slim the tool result payload for the wire.
+                        results = ev.get("results") or []
+                        yield f"event: tools\ndata: {json.dumps({'results': results}, default=str)}\n\n"
+                    elif kind == "done":
+                        usage = {"error": ev.get("error")} if ev.get("error") else {}
+                        yield f"event: done\ndata: {json.dumps({'reply_length': len(ev.get('reply') or '')})}\n\n"
+            except asyncio.CancelledError:
+                pass
+            finally:
+                # Persist George's reply (best-effort; never abort the stream).
+                try:
+                    reply = "".join(reply_text_parts)
+                    if reply:
+                        george_turn = {
+                            "role": "george", "content": reply,
+                            "input_kind": None, "output_kind": "text",
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        await db.george_chats.update_one(
+                            {"id": chat_id, "admin_id": admin.get("id"), "scope": "mcgs"},
+                            {"$push": {"turns": george_turn}, "$set": {"last_active_at": george_turn["created_at"]}},
+                        )
+                except Exception:
+                    log.exception("george reply persistence failed")
+
+        return StreamingResponse(
+            event_gen(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @router.get("/george/history")
+    async def api_george_history(
+        admin: dict = Depends(current_admin),
+        limit: int = Query(default=5, ge=1, le=25),
+    ):
+        rows = await db.george_chats.find(
+            {"admin_id": admin.get("id"), "scope": "mcgs"},
+            {"_id": 0, "id": 1, "started_at": 1, "last_active_at": 1,
+             "turns": {"$slice": -1}},
+        ).sort("last_active_at", -1).to_list(limit)
+        return {"items": rows}
+
+    @router.delete("/george/history/{chat_id}")
+    async def api_george_history_delete(
+        chat_id: str, admin: dict = Depends(current_admin),
+    ):
+        res = await db.george_chats.delete_one(
+            {"id": chat_id, "admin_id": admin.get("id"), "scope": "mcgs"},
+        )
+        return {"deleted": res.deleted_count}
+
+    return router

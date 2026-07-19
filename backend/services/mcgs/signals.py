@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from .audit import log_activity
+from .events import signal_events
 
 log = logging.getLogger("friendplace.mcgs.signals")
 
@@ -310,6 +311,15 @@ async def create_signal(
         channel="api",
     )
 
+    # Publish to the channel-agnostic Signal event bus. Any subscriber
+    # (SSE, push worker, email worker, mobile bridge...) sees this.
+    try:
+        await signal_events.publish(
+            "signal.created", signal=signal, case_id=case_id,
+        )
+    except Exception:
+        log.exception("event bus publish failed for signal %s", signal_id)
+
     return signal
 
 
@@ -368,7 +378,14 @@ async def transition_signal(
         notes=notes,
     )
 
-    return {**signal, **updates["$set"], "state_transitions": signal["state_transitions"] + [transition]}
+    updated = {**signal, **updates["$set"], "state_transitions": signal["state_transitions"] + [transition]}
+    try:
+        await signal_events.publish(
+            "signal.updated", signal=updated, case_id=signal.get("case_id"),
+        )
+    except Exception:
+        log.exception("event bus publish failed for signal %s", signal_id)
+    return updated
 
 
 async def transition_case(
@@ -441,7 +458,12 @@ async def transition_case(
                 # Illegal cascade (rare) shouldn't block Case closure.
                 log.warning("cascade skipped for signal %s", s["id"])
 
-    return {**case, **case_updates["$set"]}
+    updated = {**case, **case_updates["$set"]}
+    try:
+        await signal_events.publish("case.updated", case=updated)
+    except Exception:
+        log.exception("event bus publish failed for case %s", case_id)
+    return updated
 
 
 async def assign_case(
@@ -474,7 +496,12 @@ async def assign_case(
         case_id=case_id,
         channel=via_channel,
     )
-    return {**case, "assignee_id": assignee_id, "updated_at": now}
+    updated = {**case, "assignee_id": assignee_id, "updated_at": now}
+    try:
+        await signal_events.publish("case.assigned", case=updated)
+    except Exception:
+        log.exception("event bus publish failed for case %s", case_id)
+    return updated
 
 
 # ---------------------------------------------------------------------------

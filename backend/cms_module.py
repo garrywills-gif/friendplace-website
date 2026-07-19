@@ -2071,6 +2071,7 @@ def build_public_router(db) -> APIRouter:
         # Best-effort; never blocks the submission response.
         try:
             from services.mcgs import create_signal as _mcgs_create_signal
+            from services.george import triage_signal_with_haiku as _mcgs_triage
             await _mcgs_create_signal(
                 db,
                 producer="event_submission",
@@ -2086,6 +2087,7 @@ def build_public_router(db) -> APIRouter:
                 case_key=f"event_submission:{submission_id}",
                 source="user_report",
                 injection_check_fields=[body.event_title, body.description, body.venue_name],
+                triage_fn=_mcgs_triage,
             )
         except Exception:
             import logging as _logging

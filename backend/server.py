@@ -5454,6 +5454,7 @@ async def submit_event_for_review(
     # Bridge shows every incoming submission from every source.
     try:
         from services.mcgs import create_signal as _mcgs_create_signal
+        from services.george import triage_signal_with_haiku as _mcgs_triage
         await _mcgs_create_signal(
             db,
             producer="event_submission",
@@ -5469,6 +5470,7 @@ async def submit_event_for_review(
             case_key=f"event_submission:{submission_id}",
             source="user_report",
             injection_check_fields=[body.title, body.description, body.location],
+            triage_fn=_mcgs_triage,
         )
     except Exception:
         logger.exception("community submission signal producer failed for %s", submission_id)
@@ -7545,6 +7547,7 @@ async def submit_support_ticket(body: SupportTicketBody):
     # ------------------------------------------------------------------
     try:
         from services.mcgs import create_signal as _mcgs_create_signal
+        from services.george import triage_signal_with_haiku as _mcgs_triage
         await _mcgs_create_signal(
             db,
             producer="support_ticket",
@@ -7555,8 +7558,8 @@ async def submit_support_ticket(body: SupportTicketBody):
             priority="P2",
             case_key=f"support_ticket:{doc['id']}",
             source="user_report",
-            # Body is user-generated → run it through the injection sniffer.
             injection_check_fields=[body.subject, body.message],
+            triage_fn=_mcgs_triage,
         )
     except Exception:
         import logging as _logging
@@ -9884,6 +9887,10 @@ app.include_router(push_router, prefix="/api")
 from cms_module import build_router as _build_cms_router, build_public_router as _build_public_router  # noqa: E402
 app.include_router(_build_cms_router(db), prefix="/api")
 app.include_router(_build_public_router(db), prefix="/api")
+
+# Mission Control George System (MCGS) — see /app/memory/mcgs-architecture.md
+from mcgs_module import build_router as _build_mcgs_router  # noqa: E402
+app.include_router(_build_mcgs_router(db), prefix="/api")
 
 # Static assets — currently used for Spot the Difference lifelike backdrops.
 # Files live at /app/backend/static/spot_bg/<theme>.jpg and are served under
