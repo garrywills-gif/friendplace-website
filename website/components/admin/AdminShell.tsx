@@ -20,6 +20,7 @@ const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions'
   { href: '/admin/events',           label: 'Events',            icon: '📅' },
   { href: '/admin/event-submissions',label: 'Event Submissions', icon: '📝', badgeKey: 'submissions' },
   { href: '/admin/media',            label: 'Media library',     icon: '🖼️' },
+  { href: '/admin/account',          label: 'Account',           icon: '⚙️' },
 ];
 
 /**

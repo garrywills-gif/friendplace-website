@@ -55,6 +55,34 @@ export const cmsApi = {
   forgot: (email: string) => req<{ ok: true }>('POST', '/cms/auth/forgot', { email }),
   reset: (token: string, new_password: string) =>
     req<{ ok: true; token: string }>('POST', '/cms/auth/reset', { token, new_password }),
+  changePassword: (current_password: string, new_password: string) =>
+    req<{ ok: true; token: string }>('POST', '/cms/auth/change-password', { current_password, new_password }),
+
+  // Admins — same-tier management (all admins are equal in permissions).
+  listAdmins: () => req<{
+    items: Array<{
+      id: string;
+      email: string;
+      display_name?: string;
+      created_at?: string;
+      last_login_at?: string | null;
+    }>;
+    count: number;
+  }>('GET', '/cms/admins'),
+  createAdmin: (data: { email: string; display_name?: string }) =>
+    req<{
+      ok: true;
+      admin: {
+        id: string;
+        email: string;
+        display_name?: string;
+        created_at?: string;
+        last_login_at?: string | null;
+      };
+      invite_url: string;
+      expires_in_minutes: number;
+    }>('POST', '/cms/admins', data),
+  deleteAdmin: (id: string) => req<{ ok: true }>('DELETE', `/cms/admins/${id}`),
 
   // Content
   getContent: () => req<any>('GET', '/cms/content'),

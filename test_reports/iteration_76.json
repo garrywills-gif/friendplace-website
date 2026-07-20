@@ -1,0 +1,32 @@
+{
+  "summary": "Verified Mission Control Account & Admins feature end-to-end. Backend: 15/15 pytest cases pass on /api/cms/auth/change-password (401 wrong current, 400 same-as-current, 422 <8 chars, 200 happy path + fresh token + old pw rejected + new pw accepted), /api/cms/admins list (401 no token, 200 with token, password_hash stripped), POST /api/cms/admins (creates row + returns reset invite_url containing JWT, invite reset flow activates new admin who can then login, duplicate email 400), DELETE /api/cms/admins/{id} (self→400, unknown→404, peer→200). Last-admin guardrail is unreachable via public API because self-guard fires first (matches spec — verified by curl in problem statement). Frontend: Sidebar shows ⚙️ Account, /admin/account renders 'Your account' (email + display name read-only) and 'Admins' sections. Change-password client validation surfaces inline red error on mismatch and on new==current. Successful change clears fields, shows green toast 'Password updated', silently rotates token via setToken(res.token) — navigation to /admin/bridge does NOT bounce back to /admin/login. Add-admin modal creates a new admin and opens Invite result modal with URL rewritten to window.location.origin (verified: starts with https://belong-together.preview.emergentagent.com/admin/reset?token=...). New admin appears in list; Remove for peer works (confirm() auto-accepted, DELETE fires, list refreshes, 'has been removed' toast shown). Self-row Remove is disabled with tooltip \"You can\u2019t remove yourself\". DB is left clean with only hello@friendplace.com.au / TestPass2026! (rotated back to original at end of tests).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/bridge (MorningBriefing)", "issues": ["Non-blocking React console warning about mixing shorthand + non-shorthand style props (borderColor + border) — unrelated to iter 76 scope but observed in AdminShell → MorningBriefing rerender path"]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter76_cms_account.py",
+    "/app/test_reports/pytest/iter76_cms_account.xml"
+  ],
+  "action_items": [
+    "(Optional) The last-admin guardrail branch (400 'At least one admin must remain.') is unreachable via public API because the self-delete 400 always fires first. If E1 wants an integration-level test that hits it, they'd need a second admin whose token deletes the first (bootstrap) admin — but then that peer isn't the last admin anymore, so the code path stays defensive-only. Consider leaving as-is or documenting in the CMS wiki.",
+    "(Cosmetic) Copy-link 'Copied \u2713' state doesn't fire in headless because navigator.clipboard.writeText silently rejects without user gesture in headless Chromium — real-browser behavior is unaffected. No code change needed.",
+    "(Nice-to-have) MorningBriefing on /admin/bridge logs a React style-shorthand warning during rerender. Not blocking Account page, but a quick cleanup would silence it."
+  ],
+  "critical_code_review_comments": [
+    "cms_module.py is 1500+ lines — E1 has been reminded before; the new admins CRUD block is small and clean but the file is well beyond the 700-line guideline. Consider extracting sub-routers (auth, admins, content, events) once E1 has bandwidth.",
+    "Account page uses `useMemo` correctly for the origin-rewrite; solid implementation."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% — all 10 requested feature checks pass"},
+  "seed_data_creation": "Created and deleted `test_iter76_ui@example.com` (via UI) and `test_iter76_new_admin@example.com` (via pytest). Cleanup verified — only hello@friendplace.com.au remains. Bootstrap password rotated to a temp value and restored to TestPass2026! at end of pytest suite (test_credentials.md unchanged).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_iter76_cms_account.py (JUnit at /app/test_reports/pytest/iter76_cms_account.xml). Two flows to note for UI regression: (1) mint a bootstrap token via POST /api/cms/auth/login then set localStorage keys fp_cms_token + fp_cms_admin — bypasses the login form which E1 flagged as flaky under Playwright. (2) The Invite result modal's displayUrl is built from window.location.origin + parsed(pathname+search+hash), so previews and prod both hand out working links even if CMS_FRONTEND_URL env is stale. If any account/admin regression appears, first re-run the pytest suite; if backend is 100% but UI fails, check that lib/cms-auth.ts setToken() still updates localStorage under the same key names.",
+  "rca_of_issue": "N/A — no bugs found. Feature works exactly as specified."
+}

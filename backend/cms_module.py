@@ -180,6 +180,22 @@ class CmsResetIn(BaseModel):
     new_password: str = Field(min_length=8, max_length=200)
 
 
+class CmsChangePasswordIn(BaseModel):
+    """C1 Account settings — signed-in admin changes their own password."""
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=200)
+
+
+class CmsAdminCreateIn(BaseModel):
+    """C1 Account settings — an existing admin invites another admin.
+    We create the row + generate a reset token so the invitee sets
+    their own password via `/admin/reset?token=…` (identical flow to
+    the "forgot password" wizard). No initial password is stored by
+    the inviter, which is safer than sharing one out-of-band."""
+    email: EmailStr
+    display_name: Optional[str] = None
+
+
 class CmsContentPatch(BaseModel):
     """Loose payload — a partial patch of the site_content document."""
     about: Optional[Dict[str, Any]] = None
@@ -485,6 +501,141 @@ def build_router(db) -> APIRouter:
         # the CMS after reset — better UX than "now please log in".
         token = _make_admin_token(admin["id"], admin["email"])
         return {"ok": True, "token": token}
+
+    # ============================================================
+    # ACCOUNT — signed-in admin changes own password + manages peers
+    # ============================================================
+
+    @router.post("/auth/change-password")
+    async def change_password(
+        body: CmsChangePasswordIn,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Signed-in admin rotates their own password. Verifies the
+        current password (defence against a stolen session), hashes
+        the new one, and returns a fresh access token so the frontend
+        can silently continue without a full re-login."""
+        current_hash = admin.get("password_hash") or ""
+        # We fetch a fresh doc — `current_cms_admin` strips `password_hash`
+        # for safety, so `admin["password_hash"]` won't be present here.
+        fresh = await db.cms_admins.find_one({"id": admin["id"]})
+        if not fresh or not pwd_ctx.verify(body.current_password, fresh.get("password_hash", "")):
+            raise HTTPException(401, "Current password is incorrect")
+        if pwd_ctx.verify(body.new_password, fresh.get("password_hash", "")):
+            raise HTTPException(400, "New password must be different from your current one")
+        await db.cms_admins.update_one(
+            {"id": admin["id"]},
+            {"$set": {"password_hash": pwd_ctx.hash(body.new_password)}},
+        )
+        # Rotate the token so the client stays signed in seamlessly.
+        token = _make_admin_token(admin["id"], admin["email"])
+        return {"ok": True, "token": token}
+
+    @router.get("/admins")
+    async def list_admins(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """List every CMS admin (id, email, display_name, timestamps).
+        All admins are equal — anyone signed in can see the full list.
+        Password hashes are never returned."""
+        cursor = db.cms_admins.find(
+            {},
+            {"_id": 0, "password_hash": 0},
+        ).sort("created_at", 1)
+        items = [row async for row in cursor]
+        return {"items": items, "count": len(items)}
+
+    @router.post("/admins")
+    async def create_admin(
+        body: CmsAdminCreateIn,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Invite another admin. Creates the row with an *unusable*
+        password placeholder and returns a reset link the invitee uses
+        to set their own password (identical flow to /auth/reset).
+
+        The frontend surfaces the link so the inviter can share it via
+        their own channel (Slack, SMS, email) — a proper email-provider
+        wiring will send it automatically later.
+        """
+        email = str(body.email).lower().strip()
+        existing = await db.cms_admins.find_one({"email": email})
+        if existing:
+            raise HTTPException(400, "An admin with this email already exists.")
+        admin_id = str(uuid.uuid4())
+        # Placeholder hash of a random unusable secret. The invitee must
+        # go through the reset flow to set a real password — this row
+        # cannot log in until they do.
+        placeholder = uuid.uuid4().hex + uuid.uuid4().hex
+        doc = {
+            "id": admin_id,
+            "email": email,
+            "display_name": (body.display_name or "").strip() or "Admin",
+            "password_hash": pwd_ctx.hash(placeholder),
+            "created_at": _now_iso(),
+            "last_login_at": None,
+        }
+        await db.cms_admins.insert_one(dict(doc))
+        # Build a reset link the inviter can hand to the new admin.
+        reset_token = _make_reset_token(admin_id, email)
+        reset_url = f"{CMS_FRONTEND_URL}/admin/reset?token={reset_token}"
+        # Best-effort email delivery — mirrors the /auth/forgot flow so
+        # both paths behave identically. If it fails we still return
+        # the link so the inviter can share it manually.
+        try:
+            from email_service import send_email  # noqa: WPS433 (lazy)
+            html = (
+                f"<p>Hi,</p>"
+                f"<p>You\u2019ve been invited as a FriendPlace Mini-CMS admin.</p>"
+                f"<p><a href='{reset_url}' style='background:#0A2540;color:#fff;"
+                f"padding:12px 20px;border-radius:12px;text-decoration:none;"
+                f"font-weight:700;'>Set your password</a></p>"
+                f"<p style='color:#64748B;font-size:13px'>Or paste this link into "
+                f"your browser:<br><code>{reset_url}</code></p>"
+                f"<p style='color:#64748B;font-size:13px'>This link expires in "
+                f"{CMS_RESET_TTL_MIN} minutes.</p>"
+            )
+            await send_email(
+                to=email,
+                subject="You\u2019ve been invited to FriendPlace Mission Control",
+                html=html,
+                text=f"Set your FriendPlace admin password: {reset_url}",
+            )
+        except Exception:
+            # Best-effort: fail silently, the inviter still gets the link.
+            pass
+        return {
+            "ok": True,
+            "admin": {
+                "id": admin_id,
+                "email": email,
+                "display_name": doc["display_name"],
+                "created_at": doc["created_at"],
+                "last_login_at": None,
+            },
+            "invite_url": reset_url,
+            "expires_in_minutes": CMS_RESET_TTL_MIN,
+        }
+
+    @router.delete("/admins/{target_id}")
+    async def delete_admin(
+        target_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Delete another admin. Guardrails:
+        - You cannot delete yourself.
+        - You cannot delete the last remaining admin (would lock everyone
+          out of the CMS).
+        """
+        if target_id == admin["id"]:
+            raise HTTPException(400, "You can\u2019t delete your own account here.")
+        target = await db.cms_admins.find_one({"id": target_id})
+        if not target:
+            raise HTTPException(404, "Admin not found.")
+        total = await db.cms_admins.count_documents({})
+        if total <= 1:
+            raise HTTPException(400, "At least one admin must remain.")
+        await db.cms_admins.delete_one({"id": target_id})
+        return {"ok": True}
+
 
     # ============================================================
     # CONTENT
