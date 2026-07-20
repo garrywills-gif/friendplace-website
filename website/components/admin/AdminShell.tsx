@@ -11,7 +11,6 @@ import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
 const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions'; group?: string }[] = [
   { href: '/admin/bridge',           label: 'The Bridge',        icon: '🌉' },
   { href: '/admin/george',           label: "George's Workspace", icon: '🦋' },
-  { href: '/admin/dashboard',        label: 'Dashboard (old)',   icon: '📊' },
   { href: '/admin/home',             label: 'Home page',         icon: '🏠' },
   { href: '/admin/about',            label: 'About page',        icon: 'ℹ️' },
   { href: '/admin/faqs',             label: 'FAQs',              icon: '❓' },
@@ -83,7 +82,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   return (
     <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: 'Public Sans, system-ui, sans-serif', display: 'flex' }}>
       <aside style={sidebar}>
-        <Link href="/admin/dashboard" style={sidebarBrand}>
+        <Link href="/admin/bridge" style={sidebarBrand}>
           <span style={{ fontSize: 34, lineHeight: 1 }}>🦋</span>
           <div>
             <div style={{ fontSize: 19, fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.01em' }}>FriendPlace</div>
