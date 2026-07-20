@@ -131,52 +131,54 @@ export function GeorgeButterfly() {
   useEffect(() => {
     if (!landedFrom) return;
     if (currentScreen !== landedFrom) return; // wait until we're actually on the destination
-    // Start well above the header, slightly to the right of resting.
-    const startX = 60;
-    const startY = -(insets.top + 260);
+    // Slice 3 v6 (Garry, 22 July 2026): more visible arc. George
+    // flutters in from the direction of the FriendPlace logo /
+    // just off-screen top-left, arcs across, and settles into the
+    // header spot. ~1s total so the animation reads as an arrival
+    // rather than a pop-in.
+    const startX = -(insets.top + 200); // well off-screen to the LEFT
+    const startY = -(insets.top + 180); // and above
     x.value = startX;
     y.value = startY;
     opacity.value = 0;
-    rotate.value = -6;
+    rotate.value = -8;
 
-    // Wings flapping fast during the flight — same rhythm as daily arrival.
+    // Wings flapping steadily during the entire flight.
     wingFlap.value = withRepeat(
       withSequence(
-        withTiming(0.72, { duration: 150, easing: Easing.inOut(Easing.quad) }),
-        withTiming(1,    { duration: 150, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0.72, { duration: 140, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1,    { duration: 140, easing: Easing.inOut(Easing.quad) }),
       ),
-      6, // ~1.8s of flapping (covers the whole flight)
+      7, // ~2s of flapping, tapers off with the withTiming to rest below
       false,
     );
 
-    // Fade in as he flies in.
-    opacity.value = withTiming(1, { duration: 320, easing: Easing.out(Easing.quad) });
+    // Fade in during the first third of the flight.
+    opacity.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.quad) });
 
-    // Curved path: sweep down-and-left, with a tiny overshoot then
-    // settle at the resting spot. Two-phase timing gives that
-    // "arriving, then landing" feel Garry described.
+    // Arc: sweep across (X moves from left-offscreen to right-of-rest,
+    // then settles) and dip (Y moves from above to below-rest, then
+    // settles up). Two-phase timing gives the visible curve.
     x.value = withSequence(
-      withTiming(-14, { duration: 640, easing: Easing.inOut(Easing.cubic) }),
-      withTiming(0,   { duration: 260, easing: Easing.out(Easing.cubic) }),
+      withTiming(28,  { duration: 720, easing: Easing.inOut(Easing.cubic) }),
+      withTiming(0,   { duration: 320, easing: Easing.out(Easing.cubic) }),
     );
     y.value = withSequence(
-      withTiming(-24, { duration: 640, easing: Easing.inOut(Easing.cubic) }),
-      withTiming(0,   { duration: 260, easing: Easing.out(Easing.cubic) }),
+      withTiming(18,  { duration: 720, easing: Easing.inOut(Easing.cubic) }),
+      withTiming(0,   { duration: 320, easing: Easing.out(Easing.cubic) }),
     );
     rotate.value = withSequence(
-      withTiming(4,  { duration: 500, easing: Easing.inOut(Easing.cubic) }),
-      withTiming(0,  { duration: 400, easing: Easing.out(Easing.cubic) }, (finished) => {
+      withTiming(6,  { duration: 560, easing: Easing.inOut(Easing.cubic) }),
+      withTiming(0,  { duration: 480, easing: Easing.out(Easing.cubic) }, (finished) => {
         if (finished) {
-          // Wing flap tapers to rest.
-          wingFlap.value = withTiming(1, { duration: 220 });
+          wingFlap.value = withTiming(1, { duration: 240 });
         }
       }),
     );
 
-    // Clear the flag after the animation completes so it doesn't
-    // replay on any subsequent re-render. Guard with a slightly
-    // longer timeout than the animation itself to be safe.
-    const t = setTimeout(() => consumeLanded(), 1000);
+    // Clear the flag once the animation has fully completed so it
+    // never replays on re-renders or subsequent manual navigation.
+    const t = setTimeout(() => consumeLanded(), 1150);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landedFrom, currentScreen]);
@@ -338,13 +340,14 @@ export function GeorgeButterfly() {
 
   // ---- Render ------------------------------------------------------------
 
-  // Resting position: BELOW the header divider on every screen
-  // (Garry, C1 Slice 3 v5 — v4's `+88` was landing on top of the
-  // FriendPlace app icon that appears in the top-right of every
-  // secondary screen's header). +140 clears that icon AND the
-  // header divider line, so George sits in the small strip just
-  // above the first body element (search bar, card, or action row).
-  const restTop = insets.top + 140;
+  // Resting position: INSIDE the white header strip on tab screens
+  // (Garry, C1 Slice 3 v6 — v5's `+140` was still floating over the
+  // teal action button on Coffee Lounge). +108 lifts him up so his
+  // body sits inside the header area, wings just kissing the blue
+  // divider line below, aligned with the same y as the shared
+  // `<GeorgeHeaderMark />` on secondary screens. He is now truly
+  // part of the header, not placed on top of the page.
+  const restTop = insets.top + 108;
   const restRight = 16;
 
   const canTap = phase === 'resting' || phase === 'landed';
@@ -570,23 +573,21 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   butterflyPress: {
-    // Slice 3 v2 (Garry, 22 July 2026): give the butterfly a subtle
-    // white halo so he stays visible against every backdrop across
-    // FriendPlace — including the teal buttons on Coffee Lounge and
-    // the coloured group cards. The halo is a soft rounded background
-    // that fades into the page whilst keeping George legible. Cheap
-    // to render; no perf impact.
-    padding: 8,
+    // Slice 3 v6 (Garry, 22 July 2026): softer halo. Was 88% opacity in
+    // v2; reduced to ~55% so George feels integrated with the header
+    // rather than floating on top of the page. Padding trimmed slightly
+    // so the halo hugs him more tightly.
+    padding: 6,
     borderRadius: 999,
-    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    backgroundColor: 'rgba(255, 255, 255, 0.55)',
     ...Platform.select({
       ios: {
         shadowColor: '#0F172A',
-        shadowOpacity: 0.14,
-        shadowRadius: 10,
-        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
+        shadowOffset: { width: 0, height: 2 },
       },
-      android: { elevation: 4 },
+      android: { elevation: 2 },
     }),
   },
   bubbleWrap: {
