@@ -400,12 +400,18 @@ const styles = StyleSheet.create({
   emojiRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   fab: { position: "absolute", right: 16, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 999, shadowColor: "#0F172A", shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   createTopBtn: {
+    // Slice 3 v7 (Garry, 22 July 2026): left-aligned and only as wide
+    // as its content so George's inline header butterfly (mounted
+    // top-right) never overlaps it. Original padding + font size kept
+    // — only the layout was changed.
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    alignSelf: "flex-start",
     gap: 8,
     marginTop: 14,
-    marginHorizontal: 16,
+    marginLeft: 16,
+    marginRight: 16,
     paddingVertical: 14,
     paddingHorizontal: 18,
     borderRadius: 999,
