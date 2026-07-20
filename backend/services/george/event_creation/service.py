@@ -25,7 +25,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -930,27 +930,42 @@ async def pause_event_session(db: Any, session_id: str) -> dict:
 
 
 async def latest_paused_event_session(db: Any, *, actor_id: str) -> Optional[dict]:
-    """Return the actor's most recent OPEN event conversation (status
-    'paused' or 'in_progress'), or None. Used by the mobile butterfly
-    router to decide whether to open a Welcome Back prompt.
+    """Return the actor's most recent OPEN event conversation — but with
+    an important priority: **`paused` always beats `in_progress`.**
 
-    Rationale (Principle #17 — a conversation with George never truly
-    ends): if the member steps away without hitting "Save for later"
-    (closes the app, backgrounds it, network drops), we still want the
-    butterfly to pick up the same conversation on the next tap. Only
-    truly `cancelled`, `drafted` and `approved` sessions are treated as
-    over.
+    Why: a "paused" session is one the member explicitly asked George to
+    hold onto for later. If we surface an in-progress session over it,
+    the butterfly opens the wrong conversation and the paused one gets
+    orphaned. This exact bug was hit during Garry's first beta walkthrough
+    (session A paused, session B started somehow, presence returned B).
 
-    The returned document carries `status` and `paused_at` so the caller
-    can decide the tone of the welcome-back line (paused vs simply
-    still-open).
+    Only if there's NO paused session do we fall back to a stale
+    in-progress session (>10 min since last activity). Sessions touched
+    within the last 10 minutes are considered "the member never really
+    left" and are not surfaced through this hook — the frontend already
+    has them in state.
     """
+    # 1. Paused wins — always. Sort by paused_at desc so the most-recent
+    #    save-for-later is the one we welcome back.
     doc = await db[COLL_CONVERSATIONS].find_one(
-        {"actor_id": actor_id, "status": {"$in": ["paused", "in_progress"]}},
+        {"actor_id": actor_id, "status": "paused"},
         {"_id": 0, "session_id": 1, "status": 1, "draft": 1, "extracted": 1,
          "paused_at": 1, "updated_at": 1, "created_at": 1},
-        sort=[("updated_at", -1)],
+        sort=[("paused_at", -1)],
     )
+
+    # 2. Fall back to a stale in-progress session (member closed the app
+    #    without pausing — Principle #17 still says continue).
+    if not doc:
+        stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        doc = await db[COLL_CONVERSATIONS].find_one(
+            {"actor_id": actor_id, "status": "in_progress",
+             "updated_at": {"$lt": stale_cutoff}},
+            {"_id": 0, "session_id": 1, "status": 1, "draft": 1, "extracted": 1,
+             "paused_at": 1, "updated_at": 1, "created_at": 1},
+            sort=[("updated_at", -1)],
+        )
+
     if not doc:
         return None
     title = ((doc.get("draft") or {}).get("title")

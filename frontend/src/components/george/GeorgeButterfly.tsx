@@ -24,7 +24,9 @@ import { georgeApi, type Presence, type EventApprovalResult } from '@/src/lib/ge
  *     first meeting).
  *   - The first-time introduction (never re-shown).
  *   - Returning greetings with name personalisation and continuity.
- *   - The persistent resting butterfly in the bottom-right corner.
+ *   - The persistent resting butterfly in the top-right corner near the
+ *     FriendPlace logo (per Garry's B5 beta feedback #1 — "George should
+ *     live near the logo, as though he lives there").
  *   - Tap → tiny flutter → chat sheet (Slice B3 will replace the
  *     placeholder sheet with the full shared conversation).
  *
@@ -266,7 +268,12 @@ export function GeorgeButterfly() {
 
   // ---- Render ------------------------------------------------------------
 
-  const restBottom = Math.max(insets.bottom + 88, 108); // above tab bar
+  // Resting position: TOP corner near the FriendPlace logo (Garry's B5
+  // beta feedback #1 — "George should live near the logo, as though he
+  // lives there"). Positioned just below the header row on the right
+  // so he's clearly present at the top of every screen without
+  // overlapping the notifications/settings icons.
+  const restTop = insets.top + 70;
   const restRight = 20;
 
   const canTap = phase === 'resting' || phase === 'landed';
@@ -276,7 +283,7 @@ export function GeorgeButterfly() {
       {/* Butterfly — always in the corner regardless of phase */}
       <Animated.View
         pointerEvents="box-none"
-        style={[styles.butterflyLayer, { bottom: restBottom, right: restRight }]}
+        style={[styles.butterflyLayer, { top: restTop, right: restRight }]}
       >
         <Animated.View style={butterflyStyle}>
           <Pressable
