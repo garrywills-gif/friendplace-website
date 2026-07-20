@@ -70,6 +70,7 @@ from services.george.onboarding import (
     ensure_indexes as ensure_onboarding_indexes,
 )
 from services.george import grounded_chat_stream
+from services.george.voice.transcribe import transcribe_audio_bytes
 
 log = logging.getLogger("friendplace.mcgs.api")
 
@@ -636,6 +637,47 @@ def build_router(db) -> APIRouter:
             log.exception("event conversation resume failed")
             raise HTTPException(500, f"Resume failed: {exc}")
         return result
+
+    # ------------------------------------------------------------------
+    # Voice — Whisper transcription (C1 Voice Phase 1, Garry 22 July 2026)
+    # Members can talk to George instead of typing. The frontend uploads
+    # a short (<=60s / <=25MB) audio clip; we return the transcript. The
+    # transcript lands in the composer for review (never auto-sent).
+    # ------------------------------------------------------------------
+
+    @router.post("/mcgs/george/transcribe")
+    async def api_george_member_transcribe(
+        file: UploadFile = File(...),
+        actor: dict = Depends(current_george_actor),
+    ):
+        """Transcribe a short audio clip via OpenAI Whisper-1.
+
+        Auth is required (uses the same actor resolver as every other
+        George endpoint) so we never transcribe on behalf of an
+        unauthenticated caller.
+        """
+        try:
+            audio = await file.read()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Could not read audio upload.")
+        if not audio:
+            raise HTTPException(status_code=400, detail="Empty audio upload.")
+        try:
+            text = await transcribe_audio_bytes(
+                audio,
+                filename_hint=file.filename,
+                language="en",
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception:
+            log.exception("george transcribe failed")
+            # A specific enough message the frontend can surface warmly.
+            raise HTTPException(
+                status_code=502,
+                detail="I couldn't quite hear that. Mind trying again?",
+            )
+        return {"text": text}
 
     @router.get("/mcgs/george/presence")
     async def api_george_presence(actor: dict = Depends(current_george_actor)):

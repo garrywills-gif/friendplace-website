@@ -1,11 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
-  ActivityIndicator, Animated, Easing,
+  ActivityIndicator, Animated, Easing, Platform,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import * as Linking from 'expo-linking';
+import {
+  useAudioRecorder, useAudioRecorderState, RecordingPresets,
+  requestRecordingPermissionsAsync, getRecordingPermissionsAsync,
+  setAudioModeAsync,
+} from 'expo-audio';
+import { Ionicons } from '@expo/vector-icons';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
 import { useGeorge } from '@/src/lib/george-context';
@@ -76,6 +83,142 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(true);
   const [typing, setTyping] = useState(false); // typing-dots
+
+  // ------------------------------------------------------------------
+  // Voice input (C1 Voice Phase 1, Garry 22 July 2026)
+  // Tap-to-toggle recording. Whilst recording:
+  //   - mic turns red with a pulsing glow
+  //   - a timer counts up (00:07 ...)
+  //   - George shows "I'm listening…" above the composer
+  // When the member taps stop, we upload to /mcgs/george/transcribe
+  // and land the transcript in the text box (review-first).
+  // ------------------------------------------------------------------
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  // We don't need the fine-grained recorder state right now — the
+  // 500 ms poll is enough context, and our own 1 s timer drives the
+  // display. Keep the hook wired for future waveform / metering work.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _recorderState = useAudioRecorderState(audioRecorder, 500);
+  const [voicePhase, setVoicePhase] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+  const [permissionBlocked, setPermissionBlocked] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  // Elapsed recording seconds, driven by a lightweight local timer so
+  // the display stays responsive even when the recorder state pushes
+  // updates only every 500ms.
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
+  const voiceTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Pulsing red glow around the mic while recording.
+  const micPulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (voicePhase === 'recording') {
+      micPulse.setValue(0);
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(micPulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+          Animated.timing(micPulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+        ]),
+      );
+      loop.start();
+      return () => { loop.stop(); };
+    }
+  }, [voicePhase, micPulse]);
+
+  useEffect(() => {
+    if (voicePhase === 'recording') {
+      if (voiceTickRef.current) clearInterval(voiceTickRef.current);
+      setVoiceSeconds(0);
+      voiceTickRef.current = setInterval(() => {
+        setVoiceSeconds(n => n + 1);
+      }, 1000);
+    } else {
+      if (voiceTickRef.current) { clearInterval(voiceTickRef.current); voiceTickRef.current = null; }
+    }
+    return () => {
+      if (voiceTickRef.current) { clearInterval(voiceTickRef.current); voiceTickRef.current = null; }
+    };
+  }, [voicePhase]);
+
+  // Hard cap at 60 seconds so a forgotten recording doesn't run forever.
+  useEffect(() => {
+    if (voicePhase === 'recording' && voiceSeconds >= 60) {
+      stopVoiceRecording();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceSeconds, voicePhase]);
+
+  const startVoiceRecording = useCallback(async () => {
+    setVoiceError(null);
+    if (voicePhase !== 'idle') return;
+    try {
+      // Contextual permission ask, per the permissions contract.
+      let perm = await getRecordingPermissionsAsync();
+      if (perm.status !== 'granted') {
+        if (perm.canAskAgain !== false) {
+          perm = await requestRecordingPermissionsAsync();
+        }
+      }
+      if (perm.status !== 'granted') {
+        // Blocked. Surface a warm inline message with "Open Settings".
+        setPermissionBlocked(true);
+        return;
+      }
+      setPermissionBlocked(false);
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      setVoicePhase('recording');
+    } catch {
+      setVoiceError("I couldn't start the microphone. Please try again in a moment.");
+      setVoicePhase('idle');
+    }
+  }, [voicePhase, audioRecorder]);
+
+  const stopVoiceRecording = useCallback(async () => {
+    if (voicePhase !== 'recording') return;
+    setVoicePhase('transcribing');
+    try {
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
+      // Reset audio mode so playback of other media isn't affected.
+      try { await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); } catch { /* noop */ }
+      if (!uri) {
+        setVoiceError("I couldn't quite catch that. Please try again.");
+        setVoicePhase('idle');
+        return;
+      }
+      // If they only tapped for a fraction of a second, skip the upload.
+      if (voiceSeconds < 1) {
+        setVoicePhase('idle');
+        return;
+      }
+      // iOS records .m4a, Android .m4a too via HIGH_QUALITY preset; web
+      // records .webm. Filename hint helps the backend route to Whisper.
+      const isWeb = Platform.OS === 'web';
+      const name = isWeb ? 'george-voice.webm' : 'george-voice.m4a';
+      const type = isWeb ? 'audio/webm' : 'audio/m4a';
+      const text = await georgeApi.transcribe(uri, name, type);
+      if (text) {
+        // Append to any existing text so voice + typing can mix.
+        setInput(prev => (prev.trim() ? `${prev.trim()} ${text}` : text));
+      } else {
+        setVoiceError("I couldn't quite catch that. Mind trying again?");
+      }
+    } catch {
+      setVoiceError("I couldn't quite catch that. Please try again.");
+    } finally {
+      setVoicePhase('idle');
+    }
+  }, [voicePhase, audioRecorder, voiceSeconds]);
+
+  const toggleVoice = useCallback(() => {
+    if (voicePhase === 'idle') startVoiceRecording();
+    else if (voicePhase === 'recording') stopVoiceRecording();
+  }, [voicePhase, startVoiceRecording, stopVoiceRecording]);
+
+  const openMicSettings = useCallback(() => {
+    try { Linking.openSettings(); } catch { /* ignore */ }
+  }, []);
   const [approving, setApproving] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
@@ -562,6 +705,40 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
         </View>
       ) : (
         <View style={styles.composerWrap}>
+          {/* Recording state banner — locked with Garry 22 July 2026.
+              Warm, short, clearly visible above the composer. */}
+          {voicePhase === 'recording' && (
+            <View style={styles.voiceBannerRecording}>
+              <View style={styles.voiceDot} />
+              <Text style={styles.voiceBannerText}>
+                I&rsquo;m listening… {formatVoiceTimer(voiceSeconds)}
+              </Text>
+            </View>
+          )}
+          {voicePhase === 'transcribing' && (
+            <View style={styles.voiceBannerBusy}>
+              <ActivityIndicator size="small" color="#0F766E" />
+              <Text style={styles.voiceBannerText}>Just a moment…</Text>
+            </View>
+          )}
+          {permissionBlocked && voicePhase === 'idle' && (
+            <View style={styles.voicePermRow}>
+              <Text style={styles.voicePermText}>
+                Microphone access is turned off. You can enable it in your device settings.
+              </Text>
+              <Pressable
+                onPress={openMicSettings}
+                style={({ pressed }) => [styles.voicePermBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.voicePermBtnText}>Open Settings</Text>
+              </Pressable>
+            </View>
+          )}
+          {voiceError && voicePhase === 'idle' && (
+            <View style={styles.voiceErrRow}>
+              <Text style={styles.voiceErrText}>{voiceError}</Text>
+            </View>
+          )}
           <View style={[styles.composerInner, { paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.composer}>
               <TextInput
@@ -571,33 +748,75 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
                 placeholder="Tell George anything…"
                 placeholderTextColor="#94A3B8"
                 multiline
-                editable={!busy}
+                editable={!busy && voicePhase !== 'transcribing'}
                 onFocus={() => {
-                  // When the input focuses, gently scroll the chat to
-                  // the bottom so the last few turns and the composer
-                  // are both visible above the keyboard.
                   requestAnimationFrame(() => {
                     scrollRef.current?.scrollToEnd({ animated: true });
                   });
                 }}
               />
-              <Pressable
-                onPress={send}
-                disabled={busy || !input.trim()}
-                style={({ pressed }) => [
-                  styles.sendBtn,
-                  (busy || !input.trim()) && { opacity: 0.5 },
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.sendBtnText}>Send</Text>
-              </Pressable>
+              {input.trim().length === 0 ? (
+                // Mic mode — text box is empty. Tap to start recording;
+                // tap again to stop. Red pulsing glow while recording.
+                <Pressable
+                  onPress={toggleVoice}
+                  disabled={busy || voicePhase === 'transcribing'}
+                  accessibilityRole="button"
+                  accessibilityLabel={voicePhase === 'recording' ? 'Stop recording' : 'Start recording'}
+                  style={({ pressed }) => [
+                    styles.micBtn,
+                    voicePhase === 'recording' && styles.micBtnRecording,
+                    (busy || voicePhase === 'transcribing') && { opacity: 0.5 },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {voicePhase === 'recording' && (
+                    <Animated.View
+                      pointerEvents="none"
+                      style={[
+                        styles.micPulse,
+                        {
+                          opacity: micPulse.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.6] }),
+                          transform: [{ scale: micPulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] }) }],
+                        },
+                      ]}
+                    />
+                  )}
+                  <Ionicons
+                    name={voicePhase === 'recording' ? 'stop' : 'mic'}
+                    size={22}
+                    color="#FFFFFF"
+                  />
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={send}
+                  disabled={busy || !input.trim()}
+                  style={({ pressed }) => [
+                    styles.sendBtn,
+                    (busy || !input.trim()) && { opacity: 0.5 },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.sendBtnText}>Send</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         </View>
       )}
     </KeyboardAvoidingView>
   );
+}
+
+// -----------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------
+
+function formatVoiceTimer(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
 // -----------------------------------------------------------------------
@@ -880,4 +1099,57 @@ const styles = StyleSheet.create({
   tertiaryBtn: { paddingVertical: 8, alignItems: 'center' },
   tertiaryBtnText: { color: '#94A3B8', fontSize: 13, textDecorationLine: 'underline' },
   pressed: { opacity: 0.75 },
+
+  // C1 Voice Phase 1 (Garry 22 July 2026)
+  micBtn: {
+    backgroundColor: '#0F766E', // deeper teal so it reads as distinct from Send
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderRadius: 999, alignSelf: 'flex-end',
+    minWidth: 46, minHeight: 42,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'visible', // pulse ring extends beyond the button
+  },
+  micBtnRecording: {
+    backgroundColor: '#DC2626', // clear red while listening
+  },
+  micPulse: {
+    position: 'absolute',
+    top: -6, left: -6, right: -6, bottom: -6,
+    borderRadius: 999,
+    backgroundColor: '#DC2626',
+  },
+  voiceBannerRecording: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 16, paddingVertical: 8,
+    backgroundColor: '#FEF2F2',
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#FCA5A5',
+  },
+  voiceBannerBusy: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 16, paddingVertical: 8,
+    backgroundColor: '#F0FDFA',
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#99F6E4',
+  },
+  voiceBannerText: { color: '#0F172A', fontSize: 14, fontWeight: '600' },
+  voiceDot: {
+    width: 10, height: 10, borderRadius: 5, backgroundColor: '#DC2626',
+  },
+  voicePermRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 10,
+    backgroundColor: '#F1F5F9',
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#CBD5E1',
+  },
+  voicePermText: { flex: 1, color: '#0F172A', fontSize: 13 },
+  voicePermBtn: {
+    backgroundColor: '#0F172A', paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 999,
+  },
+  voicePermBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
+  voiceErrRow: {
+    paddingHorizontal: 16, paddingVertical: 8,
+    backgroundColor: '#FEF3F2',
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#FEE4E2',
+  },
+  voiceErrText: { color: '#B42318', fontSize: 13 },
 });

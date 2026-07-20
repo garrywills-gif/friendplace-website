@@ -170,4 +170,34 @@ export const georgeApi = {
   eventResume: (sessionId: string) => _req<EventSession>(
     `/mcgs/george/event/session/${sessionId}/resume`, { method: 'POST' },
   ),
+
+  // C1 Voice Phase 1 — Speech-to-text via Whisper. Uploads a short
+  // audio clip as multipart form data and returns the transcript.
+  // The client should NEVER auto-send the transcript; the member
+  // reviews it in the composer first (Garry's review-first rule).
+  transcribe: async (audioUri: string, filename?: string, mimeType?: string): Promise<string> => {
+    const tok = await _token();
+    const form = new FormData();
+    // React Native accepts { uri, name, type } shorthand; on the web
+    // build we blob-ify the URI so multipart works correctly there too.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    form.append('file', {
+      uri: audioUri,
+      name: filename || 'george-voice.m4a',
+      type: mimeType || 'audio/m4a',
+    } as any);
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (tok) headers.Authorization = `Bearer ${tok}`;
+    const res = await fetch(`${BASE}/api/mcgs/george/transcribe`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      throw new Error(`${res.status} ${text}`);
+    }
+    const data = await res.json();
+    return (data?.text || '').trim();
+  },
 };

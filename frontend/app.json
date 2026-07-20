@@ -19,7 +19,7 @@
         "NSLocationWhenInUseUsageDescription": "Used to show neighbours and events near your suburb.",
         "NSPhotoLibraryUsageDescription": "Attach photos to your messages and group posts.",
         "NSCameraUsageDescription": "Take photos to share in chats and group posts.",
-        "NSMicrophoneUsageDescription": "Speak instead of type — dictate messages and posts.",
+        "NSMicrophoneUsageDescription": "Use your voice to chat with George.",
         "ITSAppUsesNonExemptEncryption": false,
         "LSApplicationCategoryType": "public.app-category.social-networking"
       },
