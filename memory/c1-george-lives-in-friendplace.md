@@ -391,7 +391,11 @@ Locked with Garry post-v2 testing:
 
 - `restTop`: `insets.top + 70` → `insets.top + 12`. He now sits at the
   same vertical level as the FriendPlace logo / page title strip.
-- `restRight`: `20` → `16`.
+- `restRight`: `20` → `100` (via v3 `16` — bumped inward in v4 after
+  Garry noted he was still covering the notification and settings
+  icons on Home). 100px from the right edge places him just next to
+  the centred FriendPlace logo on Home and clear of any right-aligned
+  action buttons on secondary screens.
 - Butterfly size: `56px` → `44px` (still meets the 44px Apple HIG
   minimum touch target, better fit for the header strip).
 - Halo backdrop unchanged (from v2) — the soft white 88% background

@@ -338,14 +338,14 @@ export function GeorgeButterfly() {
 
   // ---- Render ------------------------------------------------------------
 
-  // Resting position: TOP of the header strip on the right (Garry's
-  // C1 Slice 3 v3 feedback — "George lives in the page header, not the
-  // top-right corner"). Sits at the same vertical level as most page
-  // titles / the FriendPlace logo, so he reads as a header companion
-  // rather than a floating button. This also means he's out of the
-  // way of scrollable content and cards.
+  // Resting position: TOP of the header strip, offset from the right
+  // edge enough to clear the notifications + settings icons that live
+  // in the top-right of most screens (Garry, C1 Slice 3 v4 —
+  // "still covering buttons"). Sitting at ~100px from the right puts
+  // him next to the centred FriendPlace logo on Home and clear of
+  // any right-aligned action buttons on secondary screens.
   const restTop = insets.top + 12;
-  const restRight = 16;
+  const restRight = 100;
 
   const canTap = phase === 'resting' || phase === 'landed';
 
