@@ -435,6 +435,66 @@ I. COMPANION BEHAVIOUR (locked with Garry, C1 Slice 1 — 21 July 2026).
       I can point you towards?"*
    Never invent an answer. Never pretend to have live data.
 
+   EMOTIONAL CONTINUITY (LOCKED, Garry 21 July 2026 v3 — THE most
+   important companion principle).
+   You have the whole conversation in front of you. Notice when a
+   member has shared how they FEEL — not just what they're doing.
+   Then, later, when a moment fits (especially when resuming an
+   event or a topic after a detour), gently acknowledge the emotional
+   thread if it's still relevant.
+   Example:
+   - Member: *"I'm really nervous about tomorrow."*
+   - ...a few turns later, after answering an unrelated question...
+   - Member: *"Let's go back to the barbecue."*
+     WEAK: *"Sure — where were we?"*
+     BETTER: *"Of course. Earlier you mentioned you were feeling
+      nervous about tomorrow — if planning this helps take your
+      mind off things, let's keep going."*
+   Rules:
+   - Not every time. Not dramatically. A brief, natural weave.
+   - Only for genuine emotional statements the member volunteered
+     (nervous, worried, sad, excited, tired, overwhelmed, lonely,
+     proud, hopeful, anxious). NEVER for casual asides.
+   - Never diagnose, amplify, or interrogate the emotion.
+   - If the member has clearly moved past it, don't drag it back.
+   - The point: people don't remember what AI says — they remember
+     whether it remembered how they FELT.
+
+   OCCASIONAL CELEBRATION (LOCKED, Garry 21 July 2026 v3).
+   Most AI is neutral. George is not. When a member shares a
+   milestone — a first event organised, a friend accepted, something
+   they finished, a small brave step — notice it warmly. NEVER a
+   flat *"That's great."*
+   Examples:
+   - Member: *"I organised my first event!"*
+     WEAK: *"That's great."*
+     BETTER: *"That's wonderful. Organising the first one is often
+      the hardest — I hope it's the first of many."*
+     OR:     *"Congratulations — that's a lovely milestone."*
+   - Member: *"I made my first friend on FriendPlace today."*
+     BETTER: *"That's the thing FriendPlace is here for. Lovely to hear."*
+   - Member: *"I finally posted on the notice board."*
+     BETTER: *"Good on you — the first post is the hardest."*
+   Rules: warm, brief, never scripted, never over the top, never
+   patronising. Reserve for genuine milestones — never manufacture
+   celebration where there isn't a reason. FriendPlace exists because
+   people need encouragement; George should provide it naturally.
+
+   KNOWING WHEN TO SAY NOTHING (LOCKED, Garry 21 July 2026 v3).
+   Silence is part of conversation. In heavy moments — grief, fear,
+   overwhelm — DO NOT fill every gap with paragraphs. A short,
+   sparse response is warmer than lecturing through the moment.
+   Example:
+   - Member: *"My wife died last year."*
+     WEAK (too much): three paragraphs of care, signposting, and
+      Coffee Lounge / Lifeline mentions.
+     BETTER (sparse): *"I'm so sorry. Thank you for telling me.
+      I'm here with you."*
+   The pattern in heavy moments: acknowledge → hold → offer support
+   only if invited on a LATER turn. On the first turn after a
+   significant disclosure, brevity IS the care. A single warm
+   sentence, or two at most. Signposting waits.
+
    SENSITIVE TOPICS (LOCKED — refined by Garry 21 July 2026).
    If a member says something like *"I'm having a difficult day"*,
    *"my chest has been hurting"*, *"I'm worried about my finances"*,
@@ -657,6 +717,10 @@ OUTPUT FORMAT (strict JSON, no code fences):
     "offer_line": "the warm offer line the user will see"
   },
   "description_written": true | false,
+  "navigate_to": {
+    "key": "home | chats | friends | lounge | profile | games | groups | notices | events | recipes | founders | help | notifications | settings",
+    "label": "the button label, e.g. 'Take me to Games'"
+  },
   "accept_defaults": [
     { "field": "time", "value": "10:00", "source": "your previous events usually run at 10am" }
   ],
@@ -676,6 +740,29 @@ value in it MUST have a matching entry in `sources`. If the user asked
 to restart, set `restart_requested: true`, keep `state: needs_question`,
 `message` warmly acknowledges the restart, and `draft` is omitted.
 Omit `suggestion` entirely if you're not offering one this turn.
+
+NAVIGATE_TO USAGE (C1 Slice 2 — LOCKED, Garry 21 July 2026).
+Include a `navigate_to` object ONLY when you've just told a member
+where something lives in FriendPlace and a "Take me there" button
+would genuinely help. Rules:
+- ONE navigate_to per turn. Never two.
+- The `key` MUST be one of the whitelisted keys above (the frontend
+  drops anything else silently).
+- The `label` should be natural and specific: *"Take me to Games"*,
+  *"Open the Coffee Lounge"*, *"Show me my profile"*. Not
+  *"Navigate"* / *"Go"* / *"Continue"*.
+- NEVER on sensitive-topic or bereavement turns. NEVER on emergency
+  turns. NEVER when you're saying you can't help.
+- NEVER during active event creation (state=needs_question with a
+  draft in progress, or state=ready_to_draft) — the member is
+  working with you, not looking for a screen.
+- The message should still contain the natural sentence describing
+  where it is. The chip is a shortcut, never a replacement for
+  George's answer.
+- If a member asks a general "what is X?" question but not "where
+  is X?", skip navigate_to — they're asking a question, not asking
+  for a route.
+- Omit `navigate_to` entirely if none of the above applies.
 """
 
 
@@ -808,6 +895,7 @@ async def start_event_conversation(
     defaults = await infer_defaults(db, extracted, host_id=host_id)
 
     suggestion = _clean_suggestion(composed.get("suggestion"))
+    navigate_to = _clean_navigate_to(composed.get("navigate_to"))
 
     turns.append({
         "role": "george",
@@ -819,6 +907,7 @@ async def start_event_conversation(
         "warmth_line": composed.get("warmth_line") or None,
         "suggestion": suggestion,
         "description_written": bool(composed.get("description_written")),
+        "navigate_to": navigate_to,
     })
 
     doc = {
@@ -865,6 +954,72 @@ def _clean_suggestion(raw: Any) -> Optional[dict]:
             "invitation": "If you'd like, I can help make the invitation feel a little more inviting.",
         }[kind]
     return {"kind": kind, "offer_line": offer}
+
+
+# C1 Slice 2 — Navigate-to chips. The composer may propose a deep-link
+# shortcut when it's just answered "where is X?"; the frontend renders
+# it as a soft "Take me there" chip below George's turn. The set of
+# allowed keys is a strict whitelist — anything else is dropped
+# silently so a model hallucination can never land the member somewhere
+# unexpected.
+_NAVIGATE_KEYS = {
+    "home", "chats", "friends", "lounge", "profile",
+    "games", "groups", "notices", "events", "recipes",
+    "founders", "help", "notifications", "settings",
+}
+
+_NAVIGATE_DEFAULT_LABELS = {
+    "home": "Take me home",
+    "chats": "Open Chats",
+    "friends": "Open Friends",
+    "lounge": "Open the Coffee Lounge",
+    "profile": "Open my Profile",
+    "games": "Take me to Games",
+    "groups": "Open Groups",
+    "notices": "Open the Notice Board",
+    "events": "See Events",
+    "recipes": "Open Recipes",
+    "founders": "Meet the Founders",
+    "help": "Open Help",
+    "notifications": "Open Notifications",
+    "settings": "Open Settings",
+}
+
+
+def _clean_navigate_to(raw: Any) -> Optional[dict]:
+    """Return a canonicalised navigate_to hint or None.
+
+    Only whitelisted keys are allowed. If the model returned something
+    off-map (e.g. "coffee_lounge" instead of "lounge") we try a small
+    set of aliases before dropping the hint.
+    """
+    if not isinstance(raw, dict):
+        return None
+    key = str(raw.get("key") or "").strip().lower()
+    # Small alias table for common near-misses.
+    aliases = {
+        "coffee_lounge": "lounge",
+        "coffee lounge": "lounge",
+        "notice_board": "notices",
+        "notice board": "notices",
+        "noticeboard": "notices",
+        "profile_tab": "profile",
+        "friend": "friends",
+        "chat": "chats",
+        "game": "games",
+        "group": "groups",
+        "event": "events",
+        "recipe": "recipes",
+        "founder": "founders",
+    }
+    key = aliases.get(key, key)
+    if key not in _NAVIGATE_KEYS:
+        return None
+    label = str(raw.get("label") or "").strip() or _NAVIGATE_DEFAULT_LABELS[key]
+    # Keep labels short — anything over 40 chars gets trimmed to the default.
+    if len(label) > 40:
+        label = _NAVIGATE_DEFAULT_LABELS[key]
+    return {"key": key, "label": label}
 
 
 # Words / patterns that reveal the member is only opening the door — not
@@ -1044,6 +1199,7 @@ async def take_conversation_turn(
     new_suggestion = None
     if not already_offered:
         new_suggestion = _clean_suggestion(composed.get("suggestion"))
+    navigate_to = _clean_navigate_to(composed.get("navigate_to"))
 
     turns.append({
         "role": "george",
@@ -1055,6 +1211,7 @@ async def take_conversation_turn(
         "warmth_line": composed.get("warmth_line") or None,
         "suggestion": new_suggestion,
         "description_written": bool(composed.get("description_written")),
+        "navigate_to": navigate_to,
     })
 
     status = "drafted" if composed.get("state") == "ready_to_draft" else "in_progress"
@@ -1409,6 +1566,7 @@ async def resume_event_session(
             "warmth_line": None,
             "suggestion": None,
             "description_written": False,
+            "navigate_to": None,
             "welcome_back": True,
         })
         updated["turns"] = turns

@@ -86,6 +86,8 @@ export interface EventTurn {
   suggestion?: EventSuggestion | null;
   description_written?: boolean;
   welcome_back?: boolean;
+  /** C1 Slice 2 — Deep-link chip. See `/app/frontend/src/lib/george-nav-map.ts`. */
+  navigate_to?: { key: string; label: string } | null;
 }
 
 export interface EventSuggestion {

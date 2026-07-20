@@ -116,21 +116,69 @@ event fields when they're present, returning nulls when they're not.
 `_merge_extracted` only writes non-null patches, so general chat never
 pollutes the event state.
 
-## Slice 2 — App Navigation (planned)
+## Slice 2 — App Navigation Chips (SHIPPED)
 
-**Goal**: George can deep-link the member to the right screen.
+**Goal**: George can deep-link the member to the right screen with a
+soft, tappable chip below his answer. Members don't have to remember
+instructions — they follow George's lead.
 
-- When George is helping a member find something (Games, Coffee Lounge,
-  Notices, Friends, etc.), his reply includes a structured `navigate_to`
-  hint the frontend renders as a soft, tappable chip: *"Take me there"*.
-- Chips only appear when the destination genuinely helps.
-- No auto-navigation — the member always chooses.
-- Deep-link targets read from an authoritative map maintained in
-  `/app/frontend/src/lib/george-nav-map.ts` (to be created).
+### Contract
 
-Architecture note: this requires adding a `navigate_to` field to the
-composer JSON schema and a small frontend chip renderer. Both live
-alongside the existing suggestion chips.
+The composer JSON schema (Sonnet 4.5) now accepts:
+
+```json
+"navigate_to": {
+  "key": "home | chats | friends | lounge | profile | games | groups | notices | events | recipes | founders | help | notifications | settings",
+  "label": "e.g. 'Take me to Games'"
+}
+```
+
+Rules baked into the prompt (NAVIGATE_TO USAGE section):
+
+- ONE `navigate_to` per turn max.
+- `key` MUST be one of the whitelisted keys (frontend drops any others).
+- Never on sensitive-topic, bereavement, emergency, or "I can't help"
+  turns.
+- Never during active event creation (`state=needs_question` with a
+  draft in progress, or `state=ready_to_draft`).
+- Only when George has just said "X is on the Y screen" and a
+  shortcut would genuinely help.
+- The `message` still contains the natural sentence; the chip is a
+  shortcut, never a replacement.
+
+### Backend
+
+- `_clean_navigate_to()` validator in
+  `/app/backend/services/george/event_creation/service.py` — enforces
+  the whitelist, applies a small alias table (`coffee_lounge` → `lounge`,
+  `notice_board` → `notices`, singular → plural fallbacks), caps
+  labels at 40 chars.
+- Every George turn record now carries `navigate_to: {key, label} | null`.
+
+### Frontend
+
+- Authoritative map lives at `/app/frontend/src/lib/george-nav-map.ts`
+  with typed `GEORGE_NAV_MAP` and `resolveGeorgeNavigate()`. The two
+  whitelists (backend + frontend) MUST stay in sync — if a key is
+  added on one side, add it on the other in the same PR.
+- Chip renders as a single "Take me to X" primary button below the
+  George turn, using the existing `chipPrimary` style so it feels
+  identical to the welcome-back / suggestion chips.
+- Tap → `onLeave()` closes the modal, then `router.push(target.href)`
+  on the next tick so dismissal completes cleanly.
+- Chip is only shown when `!busy && !showPreview` and the turn has
+  a resolvable navigate_to — belt-and-braces alongside the prompt rule.
+
+### Adding a new destination
+
+1. Add the new key to `_NAVIGATE_KEYS` and `_NAVIGATE_DEFAULT_LABELS`
+   in `services/george/event_creation/service.py`.
+2. Add the new entry to `GEORGE_NAV_MAP` in
+   `/app/frontend/src/lib/george-nav-map.ts`.
+3. Update the FriendPlace map in the composer prompt so George knows
+   the destination exists.
+4. Both whitelists are the security perimeter — a hallucinated key is
+   silently dropped on both sides.
 
 ## Slice 3 — Text-first Voice identity (planned)
 

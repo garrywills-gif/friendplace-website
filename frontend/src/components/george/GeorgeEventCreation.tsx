@@ -5,7 +5,9 @@ import {
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
+import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
 import {
   georgeApi,
   type EventSession, type EventDraft, type EventApprovalResult,
@@ -272,6 +274,28 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     !busy && !showPreview &&
     lastGeorgeTurn && !!lastGeorgeTurn.welcome_back;
 
+  // C1 Slice 2 — deep-link chip. Show a "Take me there" button when
+  // George's most recent turn included a whitelisted navigate_to. Never
+  // shown during event creation preview / draft flow.
+  const navigateChip = useMemo(() => {
+    if (busy || showPreview) return null;
+    if (!lastGeorgeTurn || !lastGeorgeTurn.navigate_to) return null;
+    return resolveGeorgeNavigate(lastGeorgeTurn.navigate_to);
+  }, [busy, showPreview, lastGeorgeTurn]);
+
+  const goNavigate = useCallback(() => {
+    if (!navigateChip) return;
+    // Close the modal via onLeave (the parent decides whether to
+    // "Save for later" or "Don't save" — we just leave), then push
+    // to the target route on the next tick so the modal has time to
+    // dismiss cleanly.
+    const href = navigateChip.target.href;
+    try { onLeave?.(); } catch { /* ignore */ }
+    setTimeout(() => {
+      try { router.push(href as any); } catch { /* ignore */ }
+    }, 60);
+  }, [navigateChip, onLeave]);
+
   const carryOn = useCallback(() => {
     // The member just wants to continue where they left off. We nudge
     // George forward with a warm, natural continuation prompt so he
@@ -361,6 +385,19 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
               style={({ pressed }) => [styles.chipSecondary, pressed && styles.pressed]}
             >
               <Text style={styles.chipSecondaryText}>Start something new</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {navigateChip && (
+          <View style={styles.chipsRow}>
+            <Pressable
+              onPress={goNavigate}
+              style={({ pressed }) => [styles.chipPrimary, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={navigateChip.label}
+            >
+              <Text style={styles.chipPrimaryText}>{navigateChip.label}</Text>
             </Pressable>
           </View>
         )}
