@@ -91,7 +91,9 @@ async def transcribe_audio_bytes(
     stt = OpenAISpeechToText(api_key=_emergent_key())
 
     # Write to a temp file so Whisper can validate + stream it as a
-    # proper file object (its validator hard-requires a real path).
+    # proper file object. We pass an OPEN binary file handle rather
+    # than the path string — litellm rejects `str` even though the
+    # emergentintegrations validator accepts it.
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}")
     tmp_path = tmp.name
     try:
@@ -99,13 +101,14 @@ async def transcribe_audio_bytes(
         tmp.flush()
         tmp.close()
 
-        response = await stt.transcribe(
-            file=tmp_path,
-            model="whisper-1",
-            response_format="text",
-            language=language,
-            prompt=prompt,
-        )
+        with open(tmp_path, "rb") as fh:
+            response = await stt.transcribe(
+                file=fh,
+                model="whisper-1",
+                response_format="text",
+                language=language,
+                prompt=prompt,
+            )
 
         # `response_format='text'` returns a plain string; other formats
         # return objects. Belt-and-braces normalisation for both.
