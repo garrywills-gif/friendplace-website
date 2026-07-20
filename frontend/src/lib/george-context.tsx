@@ -88,6 +88,13 @@ interface GeorgeCtx {
   openRequested: number;         // bumped by openGeorge() so the host reacts
   openGeorge: () => void;
   closeGeorge: () => void;       // just close the modal, keep session
+  /** Slice 3 v2 — set to a screen key by whoever triggered a
+   * George-led navigation (e.g. the "Take me to Coffee Lounge" chip).
+   * The butterfly reads this and plays a brief flutter-in on the new
+   * page, then clears it. */
+  landedFrom: GeorgeScreenKey | null;
+  markGeorgeLedNavigation: (destination: GeorgeScreenKey) => void;
+  consumeLanded: () => void;
 }
 
 const Ctx = createContext<GeorgeCtx | null>(null);
@@ -101,6 +108,7 @@ export function GeorgeProvider({ children }: { children: React.ReactNode }) {
 
   const [activeSessionId, _setActiveSessionId] = useState<string | null>(null);
   const [openRequested, setOpenRequested] = useState<number>(0);
+  const [landedFrom, setLandedFrom] = useState<GeorgeScreenKey | null>(null);
   const hydrated = useRef(false);
 
   // Hydrate from AsyncStorage once on mount.
@@ -138,6 +146,17 @@ export function GeorgeProvider({ children }: { children: React.ReactNode }) {
     // clears the session.
   }, []);
 
+  const markGeorgeLedNavigation = useCallback((destination: GeorgeScreenKey) => {
+    // Called by the "Take me to X" chip just before navigation fires.
+    // The butterfly on the destination page will detect the flag and
+    // play a brief flutter-in animation, then clear it.
+    setLandedFrom(destination);
+  }, []);
+
+  const consumeLanded = useCallback(() => {
+    setLandedFrom(null);
+  }, []);
+
   const value = useMemo<GeorgeCtx>(() => ({
     currentScreen,
     currentPathname: pathname,
@@ -148,10 +167,14 @@ export function GeorgeProvider({ children }: { children: React.ReactNode }) {
     openRequested,
     openGeorge,
     closeGeorge,
+    landedFrom,
+    markGeorgeLedNavigation,
+    consumeLanded,
   }), [
     currentScreen, pathname, butterflyVisible,
     activeSessionId, setActiveSessionId, clearActiveSession,
     openRequested, openGeorge, closeGeorge,
+    landedFrom, markGeorgeLedNavigation, consumeLanded,
   ]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

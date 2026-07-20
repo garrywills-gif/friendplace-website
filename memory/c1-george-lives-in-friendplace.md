@@ -295,6 +295,91 @@ be read before the bubble tucks away. Tap-to-dismiss still works.
 - `/app/frontend/app/(tabs)/home.tsx` — local `<GeorgeButterfly />`
   removed.
 
+## Slice 3 v2 — Post-testing fixes (SHIPPED 22 July 2026)
+
+Fixed after Garry's Slice 3 walkthrough revealed 7 issues.
+
+### 1. Request acknowledgements now fire (Issue 1)
+
+Composer prompt's REQUEST ACKNOWLEDGEMENT section rewritten to expand the
+recognised action-verb library: "take me to", "let's go to", "let's
+head to", "head to", "jump to", "bring me to", "open", "show me", "go
+to", "help me post/share/find", "walk me through", "would you...". The
+distinction is now sharp:
+
+- *"Where is X?"* → answer-first, chip optional.
+- *"Take me to X" / "Let's go to X"* → acknowledgement + answer + chip.
+- *"Can you help me do X?"* → acknowledgement, guide them in, +chip.
+
+Rotating library expanded to 10 openers so George never repeats himself.
+
+### 2. Butterfly visibility halo (Issue 2)
+
+`butterflyPress` now paints a soft white 88%-opacity halo behind
+George with a subtle iOS shadow (Android elevation). Cheap to render,
+keeps him legible against the teal Lounge buttons and any coloured
+backdrop.
+
+### 3. Flutter-in on George-led navigation (Issue 3)
+
+New `landedFrom` + `markGeorgeLedNavigation()` + `consumeLanded()` in
+`GeorgeProvider`. The "Take me to X" chip sets `landedFrom` to the
+destination just before `router.push`. `<GeorgeButterfly />` watches
+`landedFrom`; when the pathname matches the destination it plays a
+short (~900ms) settle-in animation from a small offset. Then clears
+the flag. Never fires on manual member navigation.
+
+### 4. Feature-help now guides instead of refusing (Issue 4)
+
+New composer prompt section HELPFUL FOR FEATURES YOU CAN'T FULLY DO
+YET. Rule: George NEVER stops at *"I can't do that yet."* He must
+acknowledge, guide, add a `navigate_to` chip when one exists. Examples
+baked in for recipes ("open Recipes and tap 'Post your recipe' — I'll
+take you there"), invitations, profile edits, etc.
+
+### 5. False "Games hub" event resume (Issue 5)
+
+Root cause: the Haiku extractor was scooping FriendPlace screen names
+into `extracted.title`, then `_session_has_event_content` was
+returning True on title alone. Fixed at three layers:
+
+- **Extractor prompt** now has a CRITICAL section listing every
+  FriendPlace screen name as never-events. Only extract event
+  content when there's a real gathering signal AND a supporting
+  fact (date / time / location / capacity).
+- **`_merge_extracted`** rejects any title that matches the
+  `_SCREEN_TITLE_BLOCKLIST` at merge time (defense in depth).
+- **`_session_has_event_content`** rewritten. Now requires ONE of:
+  a real draft with a concrete field, OR `status='paused'`
+  (explicit Save-for-later), OR extracted has at least one CONCRETE
+  event fact (date/time/location/capacity/price), OR a title (not a
+  screen name) AND the composer has reached `ready_to_draft` at
+  some point. A title alone is no longer enough.
+
+### 6. Composer keyboard staying locked (Issue 6)
+
+`startSomethingNew` now always releases `busy` in `finally` (was
+possible to leak on network hiccup) and calls `clearActiveSession()`
+before the fresh `eventStart` so no intermediate re-render can
+resurrect the cancelled session. `carryOn` unchanged — it goes through
+`sendText` which has its own release path. The welcome-back chips are
+also now guarded by `isEventMode` so a false-positive resume can't
+lock the UI in the first place.
+
+### 7. Event-specific labels for general chats (Issue 7)
+
+Header is now mode-aware:
+
+- **Event mode** (`draft` populated OR `status='drafted'|'paused'` OR
+  any past turn was `ready_to_draft`): shows *Don't save* + *Save for
+  later*.
+- **General chat mode** (everything else): shows *Reset* + *Close*.
+  *Close* dismisses the modal while keeping the sticky session (the
+  whole conversation follows George). *Reset* wipes the session
+  server-side + `clearActiveSession()`.
+
+The mode is derived by `isEventMode` in `GeorgeEventCreation.tsx`.
+
 ## Non-goals for C1 (unchanged)
 
 - A separate "Chats with George" tab — George stays in one place.

@@ -65,6 +65,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const insets = useSafeAreaInsets();
   const {
     currentScreen, activeSessionId, setActiveSessionId, clearActiveSession,
+    markGeorgeLedNavigation,
   } = useGeorge();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<LocalTurn[]>([]);
@@ -282,6 +283,23 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
 
   const showPreview = status === 'drafted' && !!draft;
 
+  // C1 Slice 3 v2 (Garry, 22 July 2026 post-testing): decide whether
+  // this session is EVENT MODE (needs Save-for-later / Don't save) or
+  // GENERAL CHAT (just Close). Event mode kicks in as soon as we have
+  // a real draft OR the session is explicitly in a drafted/paused
+  // state OR the composer has been signalling ready_to_draft. Otherwise
+  // it's a companion chat and the event-specific labels are misleading.
+  const isEventMode = useMemo(() => {
+    if (draft) return true;
+    if (status === 'drafted' || status === 'paused') return true;
+    // If any past George turn advanced to ready_to_draft, treat it as
+    // event mode even if we've since backed out to needs_question.
+    for (const t of turns) {
+      if (t.role === 'george' && t.state === 'ready_to_draft') return true;
+    }
+    return false;
+  }, [draft, status, turns]);
+
   // The last George turn — used to decide whether to show suggestion
   // chips or description-feedback buttons below it.
   const lastGeorgeIndex = useMemo(() => {
@@ -300,9 +318,11 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     lastGeorgeTurn && !!lastGeorgeTurn.description_written;
   // Welcome-back chips appear when George's most recent turn is the
   // continuity-aware "we were putting together your coffee morning…"
-  // opener. Two paths: carry on, or start something new.
+  // opener. Two paths: carry on, or start something new. Guarded to
+  // only fire on genuine event mode (Garry, 22 July 2026 v2 — the
+  // false "Games hub" resume must not show these chips ever again).
   const showWelcomeBack =
-    !busy && !showPreview &&
+    !busy && !showPreview && isEventMode &&
     lastGeorgeTurn && !!lastGeorgeTurn.welcome_back;
 
   // C1 Slice 2 — deep-link chip. Show a "Take me there" button when
@@ -319,13 +339,16 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     // Close the modal via onLeave (the parent decides whether to
     // "Save for later" or "Don't save" — we just leave), then push
     // to the target route on the next tick so the modal has time to
-    // dismiss cleanly.
+    // dismiss cleanly. Also mark this as a George-led navigation so
+    // the butterfly can flutter into the destination page.
     const href = navigateChip.target.href;
+    const destKey = navigateChip.target.key;
+    try { markGeorgeLedNavigation(destKey as any); } catch { /* ignore */ }
     try { onLeave?.(); } catch { /* ignore */ }
     setTimeout(() => {
       try { router.push(href as any); } catch { /* ignore */ }
     }, 60);
-  }, [navigateChip, onLeave]);
+  }, [navigateChip, onLeave, markGeorgeLedNavigation]);
 
   const carryOn = useCallback(() => {
     // The member just wants to continue where they left off. We nudge
@@ -342,8 +365,12 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     setTyping(true);
     try {
       try { await georgeApi.eventCancel(sessionId); } catch { /* ignore */ }
-      const s = await georgeApi.eventStart('');
+      // Clear the sticky session id BEFORE starting the new session so
+      // an intermediate re-render never resurrects the cancelled one.
+      clearActiveSession();
+      const s = await georgeApi.eventStart('', currentScreen);
       setSessionId(s.session_id);
+      setActiveSessionId(s.session_id);
       setStatus(s.status || 'in_progress');
       setDraft(null);
       setPendingSuggestion(null);
@@ -360,9 +387,13 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
         revealAt: Date.now(),
       }]);
     } finally {
+      // Always release busy so the composer keyboard remains available
+      // even if the network hiccups (Garry regression, 22 July 2026 —
+      // the composer was staying locked after "Start something new").
       setBusy(false);
+      setTyping(false);
     }
-  }, [sessionId, revealApiTurns]);
+  }, [sessionId, revealApiTurns, currentScreen, clearActiveSession, setActiveSessionId]);
 
   return (
     <KeyboardAvoidingView
@@ -372,12 +403,29 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
         <Text style={styles.headerName}>George</Text>
-        <Pressable onPress={dontSave} hitSlop={8}>
-          <Text style={styles.headerAction}>Don&rsquo;t save</Text>
-        </Pressable>
-        <Pressable onPress={saveForLater} hitSlop={8}>
-          <Text style={styles.headerActionPrimary}>Save for later</Text>
-        </Pressable>
+        {isEventMode ? (
+          <>
+            <Pressable onPress={dontSave} hitSlop={8}>
+              <Text style={styles.headerAction}>Don&rsquo;t save</Text>
+            </Pressable>
+            <Pressable onPress={saveForLater} hitSlop={8}>
+              <Text style={styles.headerActionPrimary}>Save for later</Text>
+            </Pressable>
+          </>
+        ) : (
+          // General companion chat: no event-specific labels. The
+          // conversation is kept sticky via GeorgeProvider (Slice 3),
+          // so "Close" just dismisses the modal without discarding.
+          // "Reset" gives the member a clean-slate option if they want.
+          <>
+            <Pressable onPress={dontSave} hitSlop={8}>
+              <Text style={styles.headerAction}>Reset</Text>
+            </Pressable>
+            <Pressable onPress={onLeave} hitSlop={8}>
+              <Text style={styles.headerActionPrimary}>Close</Text>
+            </Pressable>
+          </>
+        )}
       </View>
 
       <ScrollView

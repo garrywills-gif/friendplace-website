@@ -13,6 +13,7 @@ import { GeorgeIntroduction, type IntroChoice } from './GeorgeIntroduction';
 import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { GeorgeEventCreation } from './GeorgeEventCreation';
 import { GeorgeEventCelebration } from './GeorgeEventCelebration';
+import { useGeorge } from '@/src/lib/george-context';
 import { georgeApi, type Presence, type EventApprovalResult } from '@/src/lib/george-api';
 
 /**
@@ -50,6 +51,7 @@ type Phase = 'idle' | 'arriving' | 'landed' | 'resting' | 'intro';
 
 export function GeorgeButterfly() {
   const insets = useSafeAreaInsets();
+  const { landedFrom, consumeLanded, currentScreen } = useGeorge();
   const [phase, setPhase] = useState<Phase>('idle');
   const [, setPresence] = useState<Presence | null>(null);
   const [greeting, setGreeting] = useState<string | null>(null);
@@ -114,6 +116,40 @@ export function GeorgeButterfly() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ---- Flutter-in on George-led navigation (C1 Slice 3 v2) --------------
+  // When the "Take me to X" chip fires, `landedFrom` is set to the
+  // destination screen key. The moment the member lands on that screen,
+  // George plays a brief flutter-in animation so it feels as if he
+  // travelled there with them. Only triggers once per landing.
+  useEffect(() => {
+    if (!landedFrom) return;
+    if (currentScreen !== landedFrom) return; // wait until we're actually on the destination
+    // Small, gentle flutter — MUCH shorter than the daily arrival.
+    // Start ~40px to the right of the resting spot and slightly above.
+    x.value = 40;
+    y.value = -40;
+    opacity.value = 0.35;
+    wingFlap.value = withRepeat(
+      withSequence(
+        withTiming(0.72, { duration: 190, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1,    { duration: 190, easing: Easing.inOut(Easing.quad) }),
+      ),
+      4, // ~1.5s of flapping
+      false,
+    );
+    opacity.value = withTiming(1, { duration: 350 });
+    x.value = withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) });
+    y.value = withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) }, (finished) => {
+      if (finished) {
+        wingFlap.value = withTiming(1, { duration: 200 });
+      }
+    });
+    // Clear the flag so we don't replay on every re-render.
+    const t = setTimeout(() => consumeLanded(), 900);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landedFrom, currentScreen]);
 
   // ---- Arrival animation ------------------------------------------------
   // We move from the top-right edge (offscreen) down to the bottom-right
@@ -471,7 +507,24 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   butterflyPress: {
-    padding: 6,
+    // Slice 3 v2 (Garry, 22 July 2026): give the butterfly a subtle
+    // white halo so he stays visible against every backdrop across
+    // FriendPlace — including the teal buttons on Coffee Lounge and
+    // the coloured group cards. The halo is a soft rounded background
+    // that fades into the page whilst keeping George legible. Cheap
+    // to render; no perf impact.
+    padding: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 255, 255, 0.88)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#0F172A',
+        shadowOpacity: 0.14,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 3 },
+      },
+      android: { elevation: 4 },
+    }),
   },
   bubbleWrap: {
     position: 'absolute',
