@@ -380,6 +380,60 @@ Header is now mode-aware:
 
 The mode is derived by `isEventMode` in `GeorgeEventCreation.tsx`.
 
+## Slice 3 v3 — George lives in the page header (SHIPPED 22 July 2026)
+
+Locked with Garry post-v2 testing:
+
+> "The rule is not 'George lives in the top-right corner.' The rule is:
+> **George lives in the page header.**"
+
+### Position change
+
+- `restTop`: `insets.top + 70` → `insets.top + 12`. He now sits at the
+  same vertical level as the FriendPlace logo / page title strip.
+- `restRight`: `20` → `16`.
+- Butterfly size: `56px` → `44px` (still meets the 44px Apple HIG
+  minimum touch target, better fit for the header strip).
+- Halo backdrop unchanged (from v2) — the soft white 88% background
+  keeps him legible against any header colour or gradient.
+
+Result: George reads as a *header companion* — on Home he sits to the
+right of the FriendPlace logo, on left-titled pages (Notice Board,
+Events, Groups, etc.) he sits opposite the title. Same absolute
+position rules across the app; the visual pattern is consistent.
+
+### Flutter-in animation (rewritten)
+
+The v2 flutter used a small `(40, -40)` offset which wasn't visible
+enough. v3 rewrites the animation to feel like George actually flew
+in with the member:
+
+- **Start**: offscreen above the header strip
+  (`x=60`, `y=-(insets.top + 260)`, `opacity=0`, `rotate=-6°`).
+- **Wings**: fast flap loop (150ms up / 150ms down, 6 cycles ~ 1.8s)
+  covering the whole flight.
+- **Curved path**: two-phase timing — sweep down-and-left (640ms
+  ease-in-out cubic) with a small overshoot, then settle at the
+  resting spot (260ms ease-out cubic).
+- **Fade-in**: 320ms opacity ramp during flight so he doesn't just
+  pop in.
+- **Rotate**: brief tilt (4°) during flight → returns to 0 on
+  landing.
+- **Total duration**: ~900ms.
+
+Fires only when `landedFrom === currentScreen` (both context flags
+match), then `consumeLanded()` clears the flag after 1s so it never
+replays on re-render or manual navigation.
+
+### The distinction now behaves correctly
+
+- **George-led navigation** (tap a *Take me to X* chip): flutter-in
+  plays on the destination screen.
+- **Member manually changes screens**: George stays at rest, no
+  entrance animation. The global mount means his Reanimated state
+  persists across route changes.
+- **Re-renders and scroll**: never replays.
+
 ## Non-goals for C1 (unchanged)
 
 - A separate "Chats with George" tab — George stays in one place.

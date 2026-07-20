@@ -117,36 +117,66 @@ export function GeorgeButterfly() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---- Flutter-in on George-led navigation (C1 Slice 3 v2) --------------
+  // ---- Flutter-in on George-led navigation (C1 Slice 3 v3) --------------
   // When the "Take me to X" chip fires, `landedFrom` is set to the
   // destination screen key. The moment the member lands on that screen,
-  // George plays a brief flutter-in animation so it feels as if he
-  // travelled there with them. Only triggers once per landing.
+  // George plays a distinct arrival animation so it feels like he
+  // travelled there with them. Only triggers once per landing; never
+  // on manual navigation or re-renders.
+  //
+  // Design (Garry, 22 July 2026 v3): starts well above the header
+  // (offscreen top), curves in from top-right, wings flap the whole
+  // way, settles in the header. Total ~900ms so it's noticeable but
+  // doesn't block the page.
   useEffect(() => {
     if (!landedFrom) return;
     if (currentScreen !== landedFrom) return; // wait until we're actually on the destination
-    // Small, gentle flutter — MUCH shorter than the daily arrival.
-    // Start ~40px to the right of the resting spot and slightly above.
-    x.value = 40;
-    y.value = -40;
-    opacity.value = 0.35;
+    // Start well above the header, slightly to the right of resting.
+    const startX = 60;
+    const startY = -(insets.top + 260);
+    x.value = startX;
+    y.value = startY;
+    opacity.value = 0;
+    rotate.value = -6;
+
+    // Wings flapping fast during the flight — same rhythm as daily arrival.
     wingFlap.value = withRepeat(
       withSequence(
-        withTiming(0.72, { duration: 190, easing: Easing.inOut(Easing.quad) }),
-        withTiming(1,    { duration: 190, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0.72, { duration: 150, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1,    { duration: 150, easing: Easing.inOut(Easing.quad) }),
       ),
-      4, // ~1.5s of flapping
+      6, // ~1.8s of flapping (covers the whole flight)
       false,
     );
-    opacity.value = withTiming(1, { duration: 350 });
-    x.value = withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) });
-    y.value = withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) }, (finished) => {
-      if (finished) {
-        wingFlap.value = withTiming(1, { duration: 200 });
-      }
-    });
-    // Clear the flag so we don't replay on every re-render.
-    const t = setTimeout(() => consumeLanded(), 900);
+
+    // Fade in as he flies in.
+    opacity.value = withTiming(1, { duration: 320, easing: Easing.out(Easing.quad) });
+
+    // Curved path: sweep down-and-left, with a tiny overshoot then
+    // settle at the resting spot. Two-phase timing gives that
+    // "arriving, then landing" feel Garry described.
+    x.value = withSequence(
+      withTiming(-14, { duration: 640, easing: Easing.inOut(Easing.cubic) }),
+      withTiming(0,   { duration: 260, easing: Easing.out(Easing.cubic) }),
+    );
+    y.value = withSequence(
+      withTiming(-24, { duration: 640, easing: Easing.inOut(Easing.cubic) }),
+      withTiming(0,   { duration: 260, easing: Easing.out(Easing.cubic) }),
+    );
+    rotate.value = withSequence(
+      withTiming(4,  { duration: 500, easing: Easing.inOut(Easing.cubic) }),
+      withTiming(0,  { duration: 400, easing: Easing.out(Easing.cubic) }, (finished) => {
+        if (finished) {
+          // Wing flap tapers to rest.
+          wingFlap.value = withTiming(1, { duration: 220 });
+        }
+      }),
+    );
+
+    // Clear the flag after the animation completes so it doesn't
+    // replay on any subsequent re-render. Guard with a slightly
+    // longer timeout than the animation itself to be safe.
+    const t = setTimeout(() => consumeLanded(), 1000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landedFrom, currentScreen]);
@@ -308,13 +338,14 @@ export function GeorgeButterfly() {
 
   // ---- Render ------------------------------------------------------------
 
-  // Resting position: TOP corner near the FriendPlace logo (Garry's B5
-  // beta feedback #1 — "George should live near the logo, as though he
-  // lives there"). Positioned just below the header row on the right
-  // so he's clearly present at the top of every screen without
-  // overlapping the notifications/settings icons.
-  const restTop = insets.top + 70;
-  const restRight = 20;
+  // Resting position: TOP of the header strip on the right (Garry's
+  // C1 Slice 3 v3 feedback — "George lives in the page header, not the
+  // top-right corner"). Sits at the same vertical level as most page
+  // titles / the FriendPlace logo, so he reads as a header companion
+  // rather than a floating button. This also means he's out of the
+  // way of scrollable content and cards.
+  const restTop = insets.top + 12;
+  const restRight = 16;
 
   const canTap = phase === 'resting' || phase === 'landed';
 
@@ -334,7 +365,10 @@ export function GeorgeButterfly() {
             style={styles.butterflyPress}
           >
             <Animated.View style={wingStyle}>
-              <GeorgeButterflyMark size={56} />
+              {/* 44px — the minimum iOS touch target (Apple HIG) and
+                  a comfortable size for the header strip. Was 56px
+                  when he lived below the header (Slice 2). */}
+              <GeorgeButterflyMark size={44} />
             </Animated.View>
           </Pressable>
         </Animated.View>
