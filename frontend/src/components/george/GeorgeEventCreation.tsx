@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
-  ActivityIndicator, Animated, Easing, Platform,
+  ActivityIndicator, Animated, Easing, Platform, Linking,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import * as Linking from 'expo-linking';
 import {
   useAudioRecorder, useAudioRecorderState, RecordingPresets,
   requestRecordingPermissionsAsync, getRecordingPermissionsAsync,
@@ -216,8 +215,22 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     else if (voicePhase === 'recording') stopVoiceRecording();
   }, [voicePhase, startVoiceRecording, stopVoiceRecording]);
 
-  const openMicSettings = useCallback(() => {
-    try { Linking.openSettings(); } catch { /* ignore */ }
+  const openMicSettings = useCallback(async () => {
+    // C1 Voice Phase 1 v2 (Garry, 22 July 2026): making sure Open
+    // Settings actually opens Settings. `Linking.openSettings()` is
+    // the canonical path on iOS and Android — but in Expo Go it may
+    // route to Expo Go's own settings page rather than FriendPlace's
+    // (there is no distinct FriendPlace settings page inside Expo Go).
+    // On a real build / dev build it goes straight to FriendPlace's
+    // permissions. As a belt-and-braces fallback for iOS we try the
+    // `app-settings:` URL scheme.
+    try {
+      await Linking.openSettings();
+      return;
+    } catch { /* fall through */ }
+    if (Platform.OS === 'ios') {
+      try { await Linking.openURL('app-settings:'); } catch { /* ignore */ }
+    }
   }, []);
   const [approving, setApproving] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
