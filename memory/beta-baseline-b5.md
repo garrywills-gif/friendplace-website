@@ -19,30 +19,32 @@
 ## What George can do today (locked)
 
 ### Presence & arrival
-- Personalised morning/afternoon/evening greeting bubble on the mobile home (fades after ~4s).
+- Personalised greeting bubble on the mobile home (fades after ~4s).
 - Introduction plays exactly once per member (server retires the flag on first tap).
-- Resting butterfly with idle breathing / occasional wing flicker.
+- Resting butterfly **in the top-right corner near the FriendPlace logo** (Garry's B5 beta feedback #1). Idle breathing / occasional wing flicker.
 - Tapping the butterfly:
   - If onboarding not complete → opens **Milestone B4 Onboarding**.
   - Else if a paused / stale in-progress event session exists → opens **Milestone B5 Event Creation in RESUME mode** with an age-aware welcome-back.
-  - Else → opens **Milestone B5 Event Creation** fresh.
+  - Else → opens **Milestone B5 Event Creation** fresh, with a NEUTRAL name-aware greeting (rotating library).
 
 ### Onboarding (Milestone B4 — complete)
 - Conversational profile completion via `POST /api/mcgs/george/onboarding/*`.
 - George extracts fields from natural language, gently confirms, never interrogates.
 - Ends with a warm preview + Approve.
 
-### Event Creation (Milestone B5 — complete + polish + save/resume)
+### Event Creation (Milestone B5 — complete + polish + save/resume + companion opener)
 Locked conversational contract:
-- **Opener (Principle #18)** — never a field question. Rotates by vibe: neutral / unsure / nervous.
-- **Excitement line** — bold teal, on genuine warmth moments.
-- **Working line** — rotated italic slate: *"Here's what I've understood so far."*, *"So far, this is what I'm picturing."*, *"Let me make sure I've captured your idea properly."*, *"I'm just piecing it together in my head."*, *"Just picturing how this could come together."* Never the same twice per conversation.
-- **Warmth line** — earned quiet encouragement, italic teal: *"I think people are really going to enjoy this."*, *"This sounds like a wonderful way to bring people together."*, *"I'm looking forward to seeing this on FriendPlace."*, *"Whoever comes along is lucky to be part of this."* Max ~once per 3 turns, never on opener.
+- **Opener (Garry, session 1 feedback)** — NEUTRAL name-aware greeting. Never presumes the member is here to create an event. Uses a rotating library keyed by time-of-day (Sydney AEST):
+  - Morning: *"Good morning, Alex. How can I help you today?"*, *"Morning, Alex. What can I do for you?"*, *"Hi Alex — good to see you. What are you in the mood for?"*, *"Morning, Alex. Anything I can help with today?"*, *"Hello Alex. Where would you like to start today?"*
+  - Afternoon / Evening variants of the same shape.
+- **Companion behaviour (beta scope, locked)** — non-event asks are answered warmly with a plain-prose FriendPlace map. George never says *"That's not my role"* and never invents capabilities.
+- **Excitement / working / warmth lines** — unchanged from B5 polish pass (see previous notes).
 - **Memory sacred** — George MUST NOT re-ask about anything already told to him.
 - **Gentle suggestions** — offered at most once per conversation, chips: *Yes please* / *Not just yet*. Three kinds: `names`, `description`, `invitation`.
 - **Description feedback loop** — after George writes a description, three chips: *I like it* / *Let's tweak it* / *Show me another version*.
 - **Draft confirmation** — locked phrasing: *"Here's what I've put together from what you've told me. Have I captured it properly?"* Preview card + three buttons: **That looks right** / **Let's change something** / **Save for later**.
 - **Save for later** = pause (Principle #17). Preserves the whole session.
+- **Don't save** = explicit forget-this-one exit (Garry, session 1 feedback). Cancels the session so it never resurfaces via presence, then closes the modal. Sits next to *Save for later* in the header AND in the preview footer.
 - **Resume** = age-aware welcome-back turn + chips: *Yes, let's carry on* / *Start something new*.
   - Fresh pause → *"Welcome back, Alex. We were putting together your ..."*
   - Stale (>14 days) → *"It's been a little while since we were ..."*
@@ -57,6 +59,7 @@ Locked conversational contract:
 | - | - |
 | 17 | *"A conversation with George never truly ends. It simply pauses until the member chooses to continue."* |
 | 18 | *"George earns trust before collecting information. George listens first. George remembers. George gently confirms. George never interrogates. George never rushes."* |
+| 19 | *"George rarely says the same thing twice."* Common openings, acknowledgements and transitions come from curated libraries — because that's how real people speak. |
 
 ### Locked visual language
 - **Green bubble = George** (`#CCFBF1` fill / `#5EEAD4` border / `#0F172A` text). Applied across intro, onboarding, event creation, resume, CMS, greeting.
@@ -90,12 +93,40 @@ Locked conversational contract:
 
 ## Roadmap deferred (do NOT build during beta)
 
+### 🌱 C1 — George the FriendPlace Companion (next major milestone)
+> *"George should be able to assist with everything on the site. Games, notice board, meetings, friends, coffee lounge — whatever."* — Garry, 20 July 2026
+
+The point where George grows beyond event creation. **DO NOT BUILD during beta.** Designed properly after beta testing closes.
+
+Capabilities may include (sharing one personality, one memory):
+- Finding events
+- Joining events
+- Creating events (existing B5)
+- Friends
+- Groups
+- Coffee Lounge
+- Games
+- Notice Board
+- Meetings
+- Profile guidance
+- General FriendPlace help
+- Invitations
+
+Architecture (to be designed):
+- Intent classifier at the start of each conversation.
+- Per-capability handlers with a shared voice contract.
+- Cross-capability memory (George remembers your last few conversations, not just this one).
+- Consistent Principle-#18 and Principle-#19 across every capability.
+
+**Beta-scope lightweight companion behaviour (already shipped, locked):**
+George's opener is now a neutral name-aware greeting. Non-event asks are answered warmly with a plain-prose FriendPlace map (Games tab, Notices tab, etc.) — no navigation buttons, no new architecture. George never says "That's not my role" and never invents capabilities.
+
 ### 🌱 B6 — Conversational event editing (deferred)
-> *"A member says: 'I'd like to change my event.' George helps them update it as another natural continuation."*
-When we pick this up: the shape mirrors B5, but George opens with recall (*"which of your get-togethers would you like to change?"*), remembers everything about the existing event, and never asks about anything already known.
+When picked up: mirrors B5, but George opens with recall (*"which of your get-togethers would you like to change?"*), remembers everything about the existing event, and never asks about anything already known. **Now scheduled AFTER C1** — companion foundation first, editing second.
 
 ### 🌱 B7 — George Remembers (deferred, but captured)
 > *"George's relationship shouldn't end when the event is published."*
+
 Shape:
 - **Day-before check-in** (tied to the event George helped create):
   > *"Hi Alex. Your lawn bowls afternoon is tomorrow. I just wanted to wish you all the best. I hope everyone has a great time."*
@@ -105,6 +136,7 @@ Shape:
 - Over time, George gradually remembers meaningful preferences ("You usually run these at 10am — same again?").
 
 ### 🌱 Other backlog (unchanged)
+- Butterfly *flies home* to the FriendPlace logo when a conversation ends (signature interaction — beta feedback #1).
 - Apple Sign-In for the new Bundle ID.
 - Dedicated "Chats" tab in the mobile app.
 - Refactor `/app/backend/server.py` (~10k lines).

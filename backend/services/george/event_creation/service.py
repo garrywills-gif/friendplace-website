@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
@@ -286,6 +287,48 @@ H. SCOPE. B5 is for CREATING new events only. If the member mentions
    that in a moment. Editing existing events is something I'll be able
    to help with soon — for now, would you like to plan something new?"*
 
+I. COMPANION BEHAVIOUR (locked with Garry, beta feedback #5).
+   You are FriendPlace's companion. You are NOT just an event creator.
+   The member may ask about ANYTHING — how to find something in the
+   app, a question about a feature, or just say hello. NEVER say "That's
+   not my role" or "I only do events." Instead:
+
+   1. If it's a simple general question about FriendPlace, answer it
+      warmly and briefly.
+   2. If it's about a part of FriendPlace that lives elsewhere in the
+      app, guide them there in plain, friendly prose. Use the FriendPlace
+      map below.
+   3. If they haven't asked anything specific yet ("hi", "hello",
+      "you there?"), respond warmly and gently invite them to say
+      what's on their mind.
+   4. If they describe an event idea (a get-together, a meeting they
+      want to host, a coffee morning, a games afternoon), proceed with
+      normal B5 event creation flow.
+
+   THE FRIENDPLACE MAP (what lives where):
+   - **Games** — Games tab (bottom of the app). Solitaire and friends
+     are there.
+   - **Notice Board** — Notices tab. Community announcements live here.
+   - **Meetings** — under the Groups tab or the Events list.
+   - **Friends** — Friends section. Members can find and invite others.
+   - **Coffee Lounge** — the community's shared chat lounge.
+   - **Groups** — Groups tab. Interest-based communities.
+   - **Profile** — top-right settings icon, then Profile.
+   - **Notifications** — bell icon at the top of Home.
+   - **Help** — settings menu → Help.
+
+   HONESTY LOCK: Do NOT pretend you can perform these tasks yourself.
+   Today you're best at helping bring get-togethers to life. For other
+   things, WARMLY point the way. Never invent capabilities. If a member
+   asks you to do something you genuinely can't yet (e.g. "message my
+   friend for me", "post to the notice board on my behalf"), say so
+   warmly: *"That's something I'll be able to help with soon — for now,
+   the [X] tab is where you'll find that."*
+
+   Companion turns are usually SHORT — a warm sentence or two, no
+   working_line, no warmth_line (those are for event creation moments).
+   Just be present and helpful.
+
 GENTLE SUGGESTIONS (earned, never scripted)
 
 You may occasionally OFFER (never impose) to help with things that
@@ -480,6 +523,7 @@ async def start_event_conversation(
     actor_role: str,  # "admin" | "member" | "organisation"
     initial_text: str,
     host_id: Optional[str] = None,
+    actor_name: Optional[str] = None,
 ) -> dict:
     """Kick off a new conversation.
 
@@ -490,18 +534,16 @@ async def start_event_conversation(
       Mission Control).
     - If `initial_text` is empty / whitespace / a short opener like
       ``"I'd like to create an event"``, we skip extraction and let George
-      open with an OPEN-ENDED warmth line ("Tell me about the kind of
-      get-together you're hoping to create.") — Principle #18. This is
-      the behaviour used on the FriendPlace mobile app (Milestone B5) so
-      George never begins by asking about a field.
+      open with a NEUTRAL, name-aware greeting ("Good morning, Alex. How
+      can I help you today?") — per Garry's B5 beta feedback #3 the
+      opener MUST NOT presume the member is here for an event. The
+      composer downstream handles both event asks and non-event asks
+      gracefully.
     """
     session_id = str(uuid.uuid4())
     today_iso = datetime.now(timezone.utc).date().isoformat()
 
     seed = (initial_text or "").strip()
-    # A "bare" opener is short, generic, and contains no concrete event
-    # information. In that case we bypass the extractor entirely and let
-    # the composer produce a warm open-ended invitation.
     is_bare_opener = (
         not seed
         or len(seed) < 40
@@ -511,7 +553,7 @@ async def start_event_conversation(
     if is_bare_opener:
         extracted: dict = _merge_extracted({}, {})
         turns: list = []
-        composed = await _compose_bare_opener(seed, today_iso)
+        composed = await _compose_bare_opener(seed, today_iso, actor_name=actor_name)
     else:
         extracted_patch = await _extract(seed, today_iso)
         extracted = _merge_extracted({}, extracted_patch)
@@ -607,73 +649,103 @@ def _looks_like_bare_opener(lc: str) -> bool:
     return False
 
 
-async def _compose_bare_opener(seed: str, today_iso: str) -> dict:
-    """George opens with an open-ended invitation.
-
-    We ask the composer to greet with warmth and curiosity — no field
-    question, no assumption about what the get-together is. This
-    enshrines Principle #18 at the start of every mobile B5 flow.
+def _sydney_time_of_day() -> str:
+    """Return 'morning' | 'afternoon' | 'evening' based on Sydney time.
+    FriendPlace's community is Australian; a proper per-member timezone
+    will come with C1 (companion architecture). For now this is a
+    pragmatic default.
     """
-    lc = (seed or "").lower()
-    if any(w in lc for w in ("never", "haven't", "first time", "new to this", "nervous")):
-        vibe = "nervous"
-    elif any(w in lc for w in ("thinking about", "not sure", "unsure", "maybe", "considering")):
-        vibe = "unsure"
-    else:
-        vibe = "neutral"
+    # UTC+10 (AEST). AEDT is +11 in summer but we accept the small drift.
+    hour = (datetime.now(timezone.utc).hour + 10) % 24
+    if hour < 12:
+        return "morning"
+    if hour < 17:
+        return "afternoon"
+    return "evening"
 
-    chat = LlmChat(
-        api_key=_emergent_key(),
-        session_id=f"event-opener-{uuid.uuid4().hex[:8]}",
-        system_message=COMPOSER_SYSTEM.strip(),
-    ).with_model("anthropic", COMPOSER_MODEL)
-    payload = {
-        "today": today_iso,
-        "seed": seed,
-        "vibe": vibe,
-        "instruction": (
-            "The member has just opened a new conversation with you but has "
-            "not yet described the get-together. Do NOT ask about a field. "
-            "Open with a warm, open-ended invitation that lets the idea "
-            "emerge. Use one of the locked benchmark openings from your "
-            "system prompt (matched to the `vibe`). Return the JSON shape "
-            "with state='needs_question', a short `excitement_line` and "
-            "the invitation as `message`. `field_being_asked` should be "
-            "'idea' (not a real field). Do NOT produce a draft."
-        ),
+
+# Rotating library of natural openers. George picks one that fits the
+# time of day, threads the member's name in, and adds a "how can I help"
+# beat. Per Garry's B5 beta feedback #4 — George shouldn't sound like
+# he's reading from a template. This library grows over time.
+_GREETING_LIBRARY: dict[str, list[str]] = {
+    "morning": [
+        "Good morning, {name}. How can I help you today?",
+        "Morning, {name}. What can I do for you?",
+        "Hi {name} — good to see you. What are you in the mood for?",
+        "Morning, {name}. Anything I can help with today?",
+        "Hello {name}. Where would you like to start today?",
+    ],
+    "afternoon": [
+        "Good afternoon, {name}. How can I help?",
+        "Afternoon, {name} — what can I do for you?",
+        "Hi {name}. Anything I can help you with?",
+        "Hello, {name}. Where would you like to start?",
+        "{name} — good to see you. What are you in the mood for?",
+    ],
+    "evening": [
+        "Good evening, {name}. How can I help?",
+        "Evening, {name} — what can I do for you?",
+        "Hi {name}. Anything I can help you with tonight?",
+        "Hello {name}. Where would you like to start this evening?",
+        "{name} — good to see you. What's on your mind?",
+    ],
+}
+_NO_NAME_GREETINGS: dict[str, list[str]] = {
+    "morning":   ["Good morning. How can I help you today?",
+                  "Morning. What can I do for you?",
+                  "Hi there — anything I can help with?"],
+    "afternoon": ["Good afternoon. How can I help?",
+                  "Afternoon — what can I do for you?",
+                  "Hi there. Anything I can help you with?"],
+    "evening":   ["Good evening. How can I help?",
+                  "Evening — what can I do for you?",
+                  "Hi there. Anything on your mind?"],
+}
+
+
+def _pick_greeting(name: Optional[str], tod: str) -> str:
+    name_clean = (name or "").strip().split()[0] if name else ""
+    pool = _GREETING_LIBRARY.get(tod, _GREETING_LIBRARY["afternoon"]) if name_clean \
+        else _NO_NAME_GREETINGS.get(tod, _NO_NAME_GREETINGS["afternoon"])
+    line = random.choice(pool)
+    return line.format(name=name_clean) if name_clean else line
+
+
+async def _compose_bare_opener(
+    seed: str,
+    today_iso: str,
+    *,
+    actor_name: Optional[str] = None,
+) -> dict:
+    """George opens with a NEUTRAL, name-aware greeting.
+
+    Locked with Garry (B5 beta feedback #3):
+      - Never presume the member is here to create an event.
+      - Never open with "I'd love to help with that" every time.
+      - Rotate naturally through a small library of warm greetings.
+      - If the member wants to chat about events, describe an idea, or
+        ask about anything else in FriendPlace, the follow-up composer
+        turn handles the routing. This function just says hello.
+
+    We deliberately DO NOT call the LLM here — for two reasons:
+      1. It removes a whole class of failure modes (parse errors, off-
+         message wording, latency).
+      2. The greeting is short and warm; Sonnet's variability isn't
+         necessary. We control tone deterministically by curating the
+         library. Sonnet still handles every subsequent turn.
+    """
+    tod = _sydney_time_of_day()
+    greeting = _pick_greeting(actor_name, tod)
+    return {
+        "state": "needs_question",
+        "excitement_line": None,
+        "working_line": None,
+        "warmth_line": None,
+        "message": greeting,
+        "field_being_asked": "intent",
+        "restart_requested": False,
     }
-    raw = await chat.send_message(UserMessage(text=json.dumps(payload, indent=2)))
-    text = (raw or "").strip()
-    if text.startswith("```"):
-        text = text.split("```", 2)[1]
-        if text.lstrip().lower().startswith("json"):
-            text = text.split("\n", 1)[1] if "\n" in text else text
-        text = text.rsplit("```", 1)[0].strip()
-    try:
-        composed = json.loads(text)
-    except Exception:
-        log.exception("event opener returned unparseable JSON: %r", text[:200])
-        composed = {}
-
-    # Defensive defaults — if Sonnet ever stumbles we still open warmly.
-    if not composed.get("message"):
-        composed = {
-            "state": "needs_question",
-            "excitement_line": None,
-            "working_line": None,
-            "message": (
-                "I'd love to help with that. Tell me about the kind of "
-                "get-together you're hoping to create."
-            ),
-            "field_being_asked": "idea",
-            "restart_requested": False,
-        }
-    else:
-        composed["state"] = "needs_question"
-        composed["restart_requested"] = False
-        composed["field_being_asked"] = composed.get("field_being_asked") or "idea"
-        composed.pop("draft", None)
-    return composed
 
 
 async def take_conversation_turn(

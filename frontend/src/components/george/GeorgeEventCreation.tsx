@@ -236,6 +236,16 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     onLeave();
   }, [sessionId, onLeave]);
 
+  // "Don't save" — the explicit "please forget this one" exit (Garry,
+  // 20 July 2026). Cancels the session so it never re-appears via
+  // presence, then closes the modal. No pause, no welcome-back on the
+  // next tap.
+  const dontSave = useCallback(async () => {
+    if (!sessionId) { onLeave(); return; }
+    try { await georgeApi.eventCancel(sessionId); } catch { /* silent */ }
+    onLeave();
+  }, [sessionId, onLeave]);
+
   const showPreview = status === 'drafted' && !!draft;
 
   // The last George turn — used to decide whether to show suggestion
@@ -303,8 +313,11 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
         <Text style={styles.headerName}>George</Text>
+        <Pressable onPress={dontSave} hitSlop={8}>
+          <Text style={styles.headerAction}>Don&rsquo;t save</Text>
+        </Pressable>
         <Pressable onPress={saveForLater} hitSlop={8}>
-          <Text style={styles.finishLater}>Save for later</Text>
+          <Text style={styles.headerActionPrimary}>Save for later</Text>
         </Pressable>
       </View>
 
@@ -420,6 +433,12 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
           >
             <Text style={styles.tertiaryBtnText}>Save for later</Text>
           </Pressable>
+          <Pressable
+            onPress={dontSave}
+            style={({ pressed }) => [styles.tertiaryBtn, pressed && styles.pressed]}
+          >
+            <Text style={styles.tertiaryBtnText}>Don&rsquo;t save</Text>
+          </Pressable>
         </View>
       ) : (
         <KeyboardAvoidingView
@@ -432,7 +451,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
               style={styles.input}
               value={input}
               onChangeText={setInput}
-              placeholder="Tell George about your idea…"
+              placeholder="Tell George anything…"
               placeholderTextColor="#94A3B8"
               multiline
               editable={!busy}
@@ -637,6 +656,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   headerName: { fontSize: 17, fontWeight: '800', color: '#0F172A', flex: 1, marginLeft: 6 },
+  headerAction: { fontSize: 13, color: '#94A3B8', fontWeight: '600', textDecorationLine: 'underline', marginRight: 6 },
+  headerActionPrimary: { fontSize: 13, color: '#0F766E', fontWeight: '700', textDecorationLine: 'underline' },
   finishLater: { fontSize: 13, color: '#94A3B8', fontWeight: '600', textDecorationLine: 'underline' },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 12, paddingTop: 16, paddingBottom: 6 },

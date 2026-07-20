@@ -513,6 +513,7 @@ def build_router(db) -> APIRouter:
                 actor_role=actor.get("actor_type") or "member",
                 initial_text=body.text,
                 host_id=actor.get("id"),
+                actor_name=actor.get("name") or None,
             )
         except Exception as exc:
             log.exception("event conversation start failed")
