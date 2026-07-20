@@ -68,17 +68,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const kbHeight = useSharedValue(0);
   useKeyboardHandler({
     onMove: (e) => { 'worklet'; kbHeight.value = e.height; },
-    onEnd:  (e) => {
-      'worklet';
-      kbHeight.value = e.height;
-      // After the keyboard settles, snap the chat to the bottom so the
-      // last George turn stays visible above the composer.
-      if (scrollRef.current) {
-        // scrollToEnd is safe to call from the worklet via runOnJS-free
-        // Reanimated 3 shim; we schedule on the next frame via JS to
-        // keep it robust.
-      }
-    },
+    onEnd:  (e) => { 'worklet'; kbHeight.value = e.height; },
   }, []);
   const wrapKbStyle = useAnimatedStyle(() => ({
     paddingBottom: kbHeight.value,
