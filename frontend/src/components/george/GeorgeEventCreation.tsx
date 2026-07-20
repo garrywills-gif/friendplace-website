@@ -310,7 +310,11 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   }, [sessionId, revealApiTurns]);
 
   return (
-    <View style={[styles.wrap, { paddingTop: insets.top + 8 }]}>
+    <KeyboardAvoidingView
+      behavior="translate-with-padding"
+      keyboardVerticalOffset={0}
+      style={[styles.wrap, { paddingTop: insets.top + 8 }]}
+    >
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
         <Text style={styles.headerName}>George</Text>
@@ -442,11 +446,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
           </Pressable>
         </View>
       ) : (
-        <KeyboardAvoidingView
-          behavior="translate-with-padding"
-          keyboardVerticalOffset={0}
-          style={styles.composerWrap}
-        >
+        <View style={styles.composerWrap}>
           <View style={[styles.composerInner, { paddingBottom: insets.bottom + 8 }]}>
             <View style={styles.composer}>
               <TextInput
@@ -479,9 +479,9 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
               </Pressable>
             </View>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
