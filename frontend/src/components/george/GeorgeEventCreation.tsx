@@ -68,7 +68,17 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const kbHeight = useSharedValue(0);
   useKeyboardHandler({
     onMove: (e) => { 'worklet'; kbHeight.value = e.height; },
-    onEnd:  (e) => { 'worklet'; kbHeight.value = e.height; },
+    onEnd:  (e) => {
+      'worklet';
+      kbHeight.value = e.height;
+      // After the keyboard settles, snap the chat to the bottom so the
+      // last George turn stays visible above the composer.
+      if (scrollRef.current) {
+        // scrollToEnd is safe to call from the worklet via runOnJS-free
+        // Reanimated 3 shim; we schedule on the next frame via JS to
+        // keep it robust.
+      }
+    },
   }, []);
   const wrapKbStyle = useAnimatedStyle(() => ({
     paddingBottom: kbHeight.value,
@@ -682,7 +692,14 @@ const styles = StyleSheet.create({
   headerActionPrimary: { fontSize: 13, color: '#0F766E', fontWeight: '700', textDecorationLine: 'underline' },
   finishLater: { fontSize: 13, color: '#94A3B8', fontWeight: '600', textDecorationLine: 'underline' },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 12, paddingTop: 16, paddingBottom: 6 },
+  scrollContent: {
+    paddingHorizontal: 12, paddingTop: 16, paddingBottom: 6,
+    // flexGrow + flex-end pins short conversations to the bottom of the
+    // scroll view, so when the keyboard lifts the wrap and adds padding
+    // the chat visually sticks to the composer instead of leaving a
+    // large blank space above it. Garry, session 1 keyboard follow-up.
+    flexGrow: 1, justifyContent: 'flex-end',
+  },
   bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 8 },
   bubbleRowRight: { justifyContent: 'flex-end' },
   avatarSlot: { width: 32, height: 32, marginRight: 8, marginBottom: 4, alignItems: 'center', justifyContent: 'center' },

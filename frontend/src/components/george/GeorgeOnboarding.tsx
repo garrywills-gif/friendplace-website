@@ -267,7 +267,10 @@ const styles = StyleSheet.create({
   headerName: { fontSize: 17, fontWeight: '800', color: '#0F172A', flex: 1, marginLeft: 6 },
   finishLater: { fontSize: 13, color: '#94A3B8', fontWeight: '600', textDecorationLine: 'underline' },
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: 12, paddingTop: 16, paddingBottom: 6 },
+  scrollContent: {
+    paddingHorizontal: 12, paddingTop: 16, paddingBottom: 6,
+    flexGrow: 1, justifyContent: 'flex-end',
+  },
   bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 8 },
   bubbleRowRight: { justifyContent: 'flex-end' },
   avatarSlot: { width: 32, height: 32, marginRight: 8, marginBottom: 4, alignItems: 'center', justifyContent: 'center' },
