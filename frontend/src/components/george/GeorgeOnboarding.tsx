@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  ActivityIndicator,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { georgeApi } from '@/src/lib/george-api';
@@ -183,27 +184,32 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
         </View>
       ) : (
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior="translate-with-padding"
           keyboardVerticalOffset={0}
-          style={[styles.composerWrap, { paddingBottom: insets.bottom + 8 }]}
+          style={styles.composerWrap}
         >
-          <View style={styles.composer}>
-            <TextInput
-              style={styles.input}
-              value={input}
-              onChangeText={setInput}
-              placeholder="Reply to George\u2026"
-              placeholderTextColor="#94A3B8"
-              multiline
-              editable={!busy}
-            />
-            <Pressable onPress={send} disabled={busy || !input.trim()} style={({ pressed }) => [styles.sendBtn, (busy || !input.trim()) && { opacity: 0.5 }, pressed && styles.pressed]}>
-              <Text style={styles.sendBtnText}>Send</Text>
+          <View style={[styles.composerInner, { paddingBottom: insets.bottom + 8 }]}>
+            <View style={styles.composer}>
+              <TextInput
+                style={styles.input}
+                value={input}
+                onChangeText={setInput}
+                placeholder="Reply to George…"
+                placeholderTextColor="#94A3B8"
+                multiline
+                editable={!busy}
+                onFocus={() => {
+                  requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+                }}
+              />
+              <Pressable onPress={send} disabled={busy || !input.trim()} style={({ pressed }) => [styles.sendBtn, (busy || !input.trim()) && { opacity: 0.5 }, pressed && styles.pressed]}>
+                <Text style={styles.sendBtnText}>Send</Text>
+              </Pressable>
+            </View>
+            <Pressable onPress={sendSkip} disabled={busy} hitSlop={6}>
+              <Text style={styles.skipChip}>I&rsquo;d rather skip that</Text>
             </Pressable>
           </View>
-          <Pressable onPress={sendSkip} disabled={busy} hitSlop={6}>
-            <Text style={styles.skipChip}>I&rsquo;d rather skip that</Text>
-          </Pressable>
         </KeyboardAvoidingView>
       )}
     </View>
@@ -283,7 +289,8 @@ const styles = StyleSheet.create({
   previewLabel: { fontSize: 12, color: '#64748B', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
   previewValue: { fontSize: 15, color: '#0F172A', lineHeight: 22, marginTop: 2 },
   inferredTag: { fontSize: 11, color: '#0F766E', fontStyle: 'italic' },
-  composerWrap: { paddingHorizontal: 12, paddingTop: 8, backgroundColor: '#FFFFFF' },
+  composerWrap: { backgroundColor: '#FFFFFF' },
+  composerInner: { paddingHorizontal: 12, paddingTop: 8 },
   composer: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
     backgroundColor: '#F1F5F9', borderRadius: 20, paddingLeft: 14, paddingRight: 4, paddingVertical: 4,

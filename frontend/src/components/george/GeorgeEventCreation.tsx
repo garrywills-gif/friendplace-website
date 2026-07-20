@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Animated, Easing,
+  ActivityIndicator, Animated, Easing,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import {
@@ -442,31 +443,41 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
         </View>
       ) : (
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior="translate-with-padding"
           keyboardVerticalOffset={0}
-          style={[styles.composerWrap, { paddingBottom: insets.bottom + 8 }]}
+          style={styles.composerWrap}
         >
-          <View style={styles.composer}>
-            <TextInput
-              style={styles.input}
-              value={input}
-              onChangeText={setInput}
-              placeholder="Tell George anything…"
-              placeholderTextColor="#94A3B8"
-              multiline
-              editable={!busy}
-            />
-            <Pressable
-              onPress={send}
-              disabled={busy || !input.trim()}
-              style={({ pressed }) => [
-                styles.sendBtn,
-                (busy || !input.trim()) && { opacity: 0.5 },
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.sendBtnText}>Send</Text>
-            </Pressable>
+          <View style={[styles.composerInner, { paddingBottom: insets.bottom + 8 }]}>
+            <View style={styles.composer}>
+              <TextInput
+                style={styles.input}
+                value={input}
+                onChangeText={setInput}
+                placeholder="Tell George anything…"
+                placeholderTextColor="#94A3B8"
+                multiline
+                editable={!busy}
+                onFocus={() => {
+                  // When the input focuses, gently scroll the chat to
+                  // the bottom so the last few turns and the composer
+                  // are both visible above the keyboard.
+                  requestAnimationFrame(() => {
+                    scrollRef.current?.scrollToEnd({ animated: true });
+                  });
+                }}
+              />
+              <Pressable
+                onPress={send}
+                disabled={busy || !input.trim()}
+                style={({ pressed }) => [
+                  styles.sendBtn,
+                  (busy || !input.trim()) && { opacity: 0.5 },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.sendBtnText}>Send</Text>
+              </Pressable>
+            </View>
           </View>
         </KeyboardAvoidingView>
       )}
@@ -719,7 +730,8 @@ const styles = StyleSheet.create({
     fontSize: 13, color: '#DC2626', textAlign: 'center', marginTop: 12,
     paddingHorizontal: 16,
   },
-  composerWrap: { paddingHorizontal: 12, paddingTop: 8, backgroundColor: '#FFFFFF' },
+  composerWrap: { backgroundColor: '#FFFFFF' },
+  composerInner: { paddingHorizontal: 12, paddingTop: 8 },
   composer: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
     backgroundColor: '#F1F5F9', borderRadius: 20, paddingLeft: 14, paddingRight: 4, paddingVertical: 4,

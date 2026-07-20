@@ -1025,41 +1025,52 @@ async def pause_event_session(db: Any, session_id: str) -> dict:
 
 
 async def latest_paused_event_session(db: Any, *, actor_id: str) -> Optional[dict]:
-    """Return the actor's most recent OPEN event conversation — but with
-    an important priority: **`paused` always beats `in_progress`.**
+    """Return the actor's most recent RESUMABLE event conversation.
 
-    Why: a "paused" session is one the member explicitly asked George to
-    hold onto for later. If we surface an in-progress session over it,
-    the butterfly opens the wrong conversation and the paused one gets
-    orphaned. This exact bug was hit during Garry's first beta walkthrough
-    (session A paused, session B started somehow, presence returned B).
-
-    Only if there's NO paused session do we fall back to a stale
-    in-progress session (>10 min since last activity). Sessions touched
-    within the last 10 minutes are considered "the member never really
-    left" and are not surfaced through this hook — the frontend already
-    has them in state.
+    Priority (paused always beats in_progress):
+      1. **Paused** sessions — the member explicitly asked George to
+         hold onto this one. Always resumable, even without a title.
+      2. **Stale in_progress** sessions (>10 min since last activity) —
+         but ONLY if the session has actual event content to resume
+         (a draft, or a title, or a date/time/location extracted from
+         the conversation). A companion-only conversation like *"How
+         do I get to the games?"* is NOT an event and MUST NOT be
+         surfaced as a resumable event session — otherwise the
+         welcome-back turn awkwardly says *"we were in the middle of
+         planning a get-together"* when the member wasn't planning
+         anything at all. (Garry, session 1 feedback.)
     """
     # 1. Paused wins — always. Sort by paused_at desc so the most-recent
-    #    save-for-later is the one we welcome back.
-    doc = await db[COLL_CONVERSATIONS].find_one(
+    #    save-for-later is the one we welcome back. If a paused session
+    #    has NO event content (edge case: member said hi, we paused for
+    #    some reason), skip — a companion chat isn't a resumable event.
+    doc = None
+    paused_candidates = db[COLL_CONVERSATIONS].find(
         {"actor_id": actor_id, "status": "paused"},
         {"_id": 0, "session_id": 1, "status": 1, "draft": 1, "extracted": 1,
          "paused_at": 1, "updated_at": 1, "created_at": 1},
         sort=[("paused_at", -1)],
     )
+    async for candidate in paused_candidates:
+        if _session_has_event_content(candidate):
+            doc = candidate
+            break
 
-    # 2. Fall back to a stale in-progress session (member closed the app
-    #    without pausing — Principle #17 still says continue).
+    # 2. Stale in-progress — only when there's real event content to
+    #    return to. Guards against companion chats being mis-resumed.
     if not doc:
         stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-        doc = await db[COLL_CONVERSATIONS].find_one(
+        candidates = db[COLL_CONVERSATIONS].find(
             {"actor_id": actor_id, "status": "in_progress",
              "updated_at": {"$lt": stale_cutoff}},
             {"_id": 0, "session_id": 1, "status": 1, "draft": 1, "extracted": 1,
              "paused_at": 1, "updated_at": 1, "created_at": 1},
             sort=[("updated_at", -1)],
         )
+        async for candidate in candidates:
+            if _session_has_event_content(candidate):
+                doc = candidate
+                break
 
     if not doc:
         return None
@@ -1073,6 +1084,23 @@ async def latest_paused_event_session(db: Any, *, actor_id: str) -> Optional[dic
         "paused_at": doc.get("paused_at") or None,
         "updated_at": doc.get("updated_at") or doc.get("created_at"),
     }
+
+
+def _session_has_event_content(session: dict) -> bool:
+    """True if the session shows the member was actually planning an
+    event (title, date, time, location, or a landed draft), not just
+    chatting with George. Used to decide whether an in_progress session
+    is worth resuming.
+    """
+    draft = session.get("draft") or {}
+    extracted = session.get("extracted") or {}
+    # A draft with real content is unambiguous.
+    if any((draft.get(k) or "") for k in ("title", "date", "time", "location")):
+        return True
+    # Otherwise look at what George has extracted from the conversation.
+    if any((extracted.get(k) or "") for k in ("title", "date", "time", "location")):
+        return True
+    return False
 
 
 def _welcome_back_line(title: Optional[str], paused_at_iso: Optional[str], name: Optional[str] = None) -> str:

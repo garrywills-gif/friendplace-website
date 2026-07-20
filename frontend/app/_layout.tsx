@@ -7,6 +7,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 
@@ -33,29 +34,31 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
-          <ThemeProvider>
-            <AuthProvider>
-              <ToastProvider>
-                <StatusBar style="dark" />
-                <SplashGate>
-                  {/* contentStyle sets the Stack's scene background so
-                      screen-to-screen transitions never flash through
-                      to the OS home screen (visible bug reproduced in
-                      Expo Go on iOS, ~0.5 s flicker when switching
-                      tabs). Same neutral surface used across the app.
-                      `animation: "none"` avoids a subtle 200ms cross-
-                      fade that ALSO exposed the transparent frame. */}
-                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" }, animation: "none" }} />
-                </SplashGate>
-                {/* Global celebration overlay — mounted above every
-                    screen so `emitFlutter()` can fire the butterfly
-                    animation from anywhere in the app. */}
-                <FlutterOverlay />
-              </ToastProvider>
-            </AuthProvider>
-          </ThemeProvider>
-        </SafeAreaProvider>
+        <KeyboardProvider>
+          <SafeAreaProvider>
+            <ThemeProvider>
+              <AuthProvider>
+                <ToastProvider>
+                  <StatusBar style="dark" />
+                  <SplashGate>
+                    {/* contentStyle sets the Stack's scene background so
+                        screen-to-screen transitions never flash through
+                        to the OS home screen (visible bug reproduced in
+                        Expo Go on iOS, ~0.5 s flicker when switching
+                        tabs). Same neutral surface used across the app.
+                        `animation: "none"` avoids a subtle 200ms cross-
+                        fade that ALSO exposed the transparent frame. */}
+                    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" }, animation: "none" }} />
+                  </SplashGate>
+                  {/* Global celebration overlay — mounted above every
+                      screen so `emitFlutter()` can fire the butterfly
+                      animation from anywhere in the app. */}
+                  <FlutterOverlay />
+                </ToastProvider>
+              </AuthProvider>
+            </ThemeProvider>
+          </SafeAreaProvider>
+        </KeyboardProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>
   );
