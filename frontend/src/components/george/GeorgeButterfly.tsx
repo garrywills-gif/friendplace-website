@@ -51,7 +51,7 @@ type Phase = 'idle' | 'arriving' | 'landed' | 'resting' | 'intro';
 
 export function GeorgeButterfly() {
   const insets = useSafeAreaInsets();
-  const { landedFrom, consumeLanded, currentScreen } = useGeorge();
+  const { landedFrom, consumeLanded, currentScreen, openRequested } = useGeorge();
   const [phase, setPhase] = useState<Phase>('idle');
   const [, setPresence] = useState<Presence | null>(null);
   const [greeting, setGreeting] = useState<string | null>(null);
@@ -349,13 +349,41 @@ export function GeorgeButterfly() {
 
   const canTap = phase === 'resting' || phase === 'landed';
 
+  // C1 Slice 3 v5 — When George is tapped INLINE via the Header
+  // component on a secondary screen, the inline mark calls
+  // `openGeorge()` from the context, which bumps `openRequested`.
+  // We watch that counter here and open the chat modal exactly as
+  // if the resting butterfly had been tapped.
+  useEffect(() => {
+    if (openRequested === 0) return;
+    if (!canTap) return;
+    flutterAndOpenChat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequested]);
+
+  // C1 Slice 3 v5 — On screens that use the shared `<Header />` component
+  // (Groups, Notice Board, Recipes, Events, Games, Founders, Help,
+  // Settings, Notifications, Profile-edit, admin, and 45 other pages),
+  // George now lives INLINE in the header (see `Header.tsx`
+  // `<GeorgeHeaderMark />`). We hide the floating overlay on those
+  // screens so there's only ONE George on screen at a time.
+  //
+  // We keep the overlay on the 5 root tab screens whose custom
+  // headers don't yet embed George: home, chats, friends, lounge,
+  // profile. When those get inline treatment later, we can drop
+  // this to a single-screen list.
+  const FLOATING_OK: readonly string[] = ['home', 'chats', 'friends', 'lounge', 'profile'];
+  const showFloatingButterfly = FLOATING_OK.includes(currentScreen);
+
   return (
     <>
-      {/* Butterfly — always in the corner regardless of phase */}
-      <Animated.View
-        pointerEvents="box-none"
-        style={[styles.butterflyLayer, { top: restTop, right: restRight }]}
-      >
+      {/* Butterfly overlay — hidden on secondary screens where George
+          lives inline in the shared `<Header />` instead. */}
+      {showFloatingButterfly && (
+        <Animated.View
+          pointerEvents="box-none"
+          style={[styles.butterflyLayer, { top: restTop, right: restRight }]}
+        >
         <Animated.View style={butterflyStyle}>
           <Pressable
             onPress={canTap ? flutterAndOpenChat : undefined}
@@ -388,7 +416,8 @@ export function GeorgeButterfly() {
             </Pressable>
           </Animated.View>
         )}
-      </Animated.View>
+        </Animated.View>
+      )}
 
       {/* First-meeting introduction as a continuous conversation.
        *  The intro handles its own settling animation before calling

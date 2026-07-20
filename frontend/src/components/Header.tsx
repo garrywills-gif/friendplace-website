@@ -1,14 +1,23 @@
-import React from "react";
-import { View, Text, Pressable, StyleSheet, Platform, Image } from "react-native";
+import React, { useEffect } from "react";
+import { View, Text, Pressable, StyleSheet, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Reanimated, {
+  Easing, useAnimatedStyle, useSharedValue,
+  withRepeat, withSequence, withTiming,
+} from "react-native-reanimated";
 import { useTheme } from "../lib/theme";
+import { useGeorge } from "../lib/george-context";
+import { GeorgeButterflyMark } from "./george/GeorgeButterflyMark";
 
-// Teal FriendPlace butterfly — sits on the right of every page banner so
-// the brand mark is always present even on pages that don't render the
-// full BrandLockup. Small (36px) so it never competes with the page title.
-const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v5.png");
+// Teal FriendPlace butterfly — REPLACED with George in C1 Slice 3 v5
+// (Garry, 22 July 2026). George is the FriendPlace brand mark AND the
+// member's companion; having both was redundant. He now lives inline
+// in every secondary header via `<GeorgeHeaderMark />` below. The
+// static image is retained for the (unused) BUTTERFLY_LOGO reference
+// so nothing that imports it breaks.
+// const BUTTERFLY_LOGO = require("../../assets/brand/friendplace-app-icon-v5.png");
 
 /**
  * Header — the "where am I?" banner that appears at the top of every
@@ -132,14 +141,85 @@ export default function Header({
             </Text>
           ) : null}
         </View>
-        <Image
-          source={BUTTERFLY_LOGO}
-          style={styles.brandMark}
-          resizeMode="contain"
-          accessibilityLabel="FriendPlace"
-        />
+        <GeorgeHeaderMark />
       </View>
     </View>
+  );
+}
+
+/**
+ * GeorgeHeaderMark — George living inline in the header of every
+ * secondary screen (C1 Slice 3 v5, Garry 22 July 2026). Replaces the
+ * previous static FriendPlace butterfly icon so the brand mark and
+ * the companion are one and the same.
+ *
+ * Tapping fires `openGeorge()` from the George context, which the
+ * globally-mounted `<GeorgeButterfly />` picks up and opens the
+ * chat modal for. Landing after a George-led navigation plays a
+ * short flutter-in (~800ms) triggered by the `landedFrom` context
+ * flag matching the current screen.
+ */
+function GeorgeHeaderMark() {
+  const { openGeorge, landedFrom, currentScreen, consumeLanded } = useGeorge();
+  const scale = useSharedValue(1);
+  const opacity = useSharedValue(1);
+  const wingFlap = useSharedValue(1);
+  const rot = useSharedValue(0);
+
+  useEffect(() => {
+    if (!landedFrom) return;
+    if (currentScreen !== landedFrom) return;
+    // Flutter into place — small scale + fade + wing flap, ~800ms.
+    scale.value = 0.35;
+    opacity.value = 0;
+    rot.value = -8;
+    wingFlap.value = withRepeat(
+      withSequence(
+        withTiming(0.72, { duration: 150, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1,    { duration: 150, easing: Easing.inOut(Easing.quad) }),
+      ),
+      5, // ~1.5s of flapping, tapering out
+      false,
+    );
+    opacity.value = withTiming(1, { duration: 380, easing: Easing.out(Easing.quad) });
+    scale.value = withSequence(
+      withTiming(1.15, { duration: 500, easing: Easing.out(Easing.cubic) }),
+      withTiming(1,    { duration: 260, easing: Easing.inOut(Easing.cubic) }),
+    );
+    rot.value = withSequence(
+      withTiming(6,  { duration: 400 }),
+      withTiming(0,  { duration: 380, easing: Easing.out(Easing.cubic) }),
+    );
+    const t = setTimeout(() => consumeLanded(), 900);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [landedFrom, currentScreen]);
+
+  const markStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [
+      { scale: scale.value },
+      { rotate: `${rot.value}deg` },
+    ],
+  }));
+  const wingStyle = useAnimatedStyle(() => ({
+    transform: [{ scaleX: wingFlap.value }],
+  }));
+
+  return (
+    <Pressable
+      onPress={openGeorge}
+      hitSlop={10}
+      accessibilityRole="button"
+      accessibilityLabel="Talk to George"
+      style={styles.brandMark}
+    >
+      <Reanimated.View style={markStyle}>
+        <Reanimated.View style={wingStyle}>
+          <GeorgeButterflyMark size={40} />
+        </Reanimated.View>
+      </Reanimated.View>
+    </Pressable>
   );
 }
 
@@ -180,5 +260,7 @@ const styles = StyleSheet.create({
     height: 40,
     marginLeft: 10,
     borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
