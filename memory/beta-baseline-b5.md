@@ -149,6 +149,20 @@ Architecture (to be designed):
 - Introduced gradually after beta closes, as capabilities land and George has more real signal to observe.
 - Requires the cross-conversation memory that C1 will build; not possible in the current single-conversation scope.
 
+**3. George's voice — text-first, member-controlled, part of his identity.**
+> *"Let's treat George's voice as part of his identity, not just another feature."* — Garry, session 1 feedback
+- **George remains text-first.** Text is the default surface for every message.
+- **Voice is always optional and member-controlled** — never auto-played, never assumed. Every George message carries a small speaker icon so the member can play it aloud whenever they want. That gives us accessibility and personality without intrusion.
+- **Member choice extends to defaults** — a setting to auto-play voice for every message, or only certain kinds, or never.
+- **Voice is identity, not a feature.** We must audition several voices with real members before committing. Once members form a connection with George's voice, changing it later would be difficult.
+- Locked ahead of any TTS build: no voice decisions are made in a vacuum. When the audition happens, we shortlist real candidates (ElevenLabs-quality only — stock TTS is worse than no voice), test with real members, and lock the voice as carefully as we locked George's personality.
+- Rough shortlist parameters to explore in the audition:
+  - warmth level (colleague-warm, grandfatherly-warm, quiet-warm)
+  - age register (younger man, older man, ageless)
+  - accent (Australian, English, gentle mid-Atlantic — matching FriendPlace's community feel)
+  - pace (unhurried, present, never rushed — mirrors his text tone)
+- All of the above is captured for **C1** and any voice implementation slots AFTER the personality principles are fully lived-in.
+
 ### 🌱 B6 — Conversational event editing (deferred)
 When picked up: mirrors B5, but George opens with recall (*"which of your get-togethers would you like to change?"*), remembers everything about the existing event, and never asks about anything already known. **Now scheduled AFTER C1** — companion foundation first, editing second.
 
