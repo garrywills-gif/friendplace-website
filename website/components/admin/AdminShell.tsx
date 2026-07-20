@@ -122,7 +122,11 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '16px 20px' }}>
           <div style={{ color: '#94A3B8', fontSize: 12, marginBottom: 4 }}>Signed in as</div>
-          <div style={{ color: '#FFFFFF', fontWeight: 700, fontSize: 14, marginBottom: 12, wordBreak: 'break-all' }}>{admin?.email}</div>
+          <div style={{ color: '#FFFFFF', fontWeight: 700, fontSize: 15 }}>{admin?.display_name || admin?.email || 'Admin'}</div>
+          {admin?.display_name && admin?.email && (
+            <div style={{ color: '#94A3B8', fontSize: 12, marginTop: 2, marginBottom: 10, wordBreak: 'break-all' }}>{admin.email}</div>
+          )}
+          {(!admin?.display_name) && <div style={{ marginBottom: 10 }} />}
           <div style={{ display: 'flex', gap: 8 }}>
             <Link
               href="/admin/account"
