@@ -3,7 +3,8 @@ import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
   ActivityIndicator, Animated, Easing,
 } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import Reanimated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import { useKeyboardHandler } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import {
@@ -60,6 +61,18 @@ const BEAT = {
 
 export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }: Props) {
   const insets = useSafeAreaInsets();
+  // Track keyboard height so we can add bottom padding to the wrap
+  // whenever the keyboard is up. This is the recommended approach for
+  // chat UIs inside a <Modal> on iOS, where KeyboardAvoidingView doesn't
+  // reliably measure the modal's own offset.
+  const kbHeight = useSharedValue(0);
+  useKeyboardHandler({
+    onMove: (e) => { 'worklet'; kbHeight.value = e.height; },
+    onEnd:  (e) => { 'worklet'; kbHeight.value = e.height; },
+  }, []);
+  const wrapKbStyle = useAnimatedStyle(() => ({
+    paddingBottom: kbHeight.value,
+  }));
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<LocalTurn[]>([]);
   const [status, setStatus] = useState<EventSession['status']>('in_progress');
@@ -310,10 +323,8 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   }, [sessionId, revealApiTurns]);
 
   return (
-    <KeyboardAvoidingView
-      behavior="translate-with-padding"
-      keyboardVerticalOffset={0}
-      style={[styles.wrap, { paddingTop: insets.top + 8 }]}
+    <Reanimated.View
+      style={[styles.wrap, { paddingTop: insets.top + 8 }, wrapKbStyle]}
     >
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
@@ -481,7 +492,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
           </View>
         </View>
       )}
-    </KeyboardAvoidingView>
+    </Reanimated.View>
   );
 }
 
