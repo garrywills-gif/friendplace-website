@@ -15,6 +15,8 @@ import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { ThemeProvider } from "@/src/lib/theme";
 import { AuthProvider } from "@/src/lib/auth";
 import { ToastProvider } from "@/src/lib/toast";
+import { GeorgeProvider } from "@/src/lib/george-context";
+import GeorgeGlobalHost from "@/src/components/george/GeorgeGlobalHost";
 import SplashGate from "@/src/components/SplashGate";
 import ErrorBoundary from "@/src/components/ErrorBoundary";
 import FlutterOverlay from "@/src/components/FlutterOverlay";
@@ -39,21 +41,27 @@ export default function RootLayout() {
             <ThemeProvider>
               <AuthProvider>
                 <ToastProvider>
-                  <StatusBar style="dark" />
-                  <SplashGate>
-                    {/* contentStyle sets the Stack's scene background so
-                        screen-to-screen transitions never flash through
-                        to the OS home screen (visible bug reproduced in
-                        Expo Go on iOS, ~0.5 s flicker when switching
-                        tabs). Same neutral surface used across the app.
-                        `animation: "none"` avoids a subtle 200ms cross-
-                        fade that ALSO exposed the transparent frame. */}
-                    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" }, animation: "none" }} />
-                  </SplashGate>
-                  {/* Global celebration overlay — mounted above every
-                      screen so `emitFlutter()` can fire the butterfly
-                      animation from anywhere in the app. */}
-                  <FlutterOverlay />
+                  <GeorgeProvider>
+                    <StatusBar style="dark" />
+                    <SplashGate>
+                      {/* contentStyle sets the Stack's scene background so
+                          screen-to-screen transitions never flash through
+                          to the OS home screen (visible bug reproduced in
+                          Expo Go on iOS, ~0.5 s flicker when switching
+                          tabs). Same neutral surface used across the app.
+                          `animation: "none"` avoids a subtle 200ms cross-
+                          fade that ALSO exposed the transparent frame. */}
+                      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" }, animation: "none" }} />
+                    </SplashGate>
+                    {/* Global celebration overlay — mounted above every
+                        screen so `emitFlutter()` can fire the butterfly
+                        animation from anywhere in the app. */}
+                    <FlutterOverlay />
+                    {/* C1 Slice 3 — George follows the member across
+                        every screen. `GeorgeGlobalHost` hides itself
+                        on auth / onboarding / landing / waitlist. */}
+                    <GeorgeGlobalHost />
+                  </GeorgeProvider>
                 </ToastProvider>
               </AuthProvider>
             </ThemeProvider>

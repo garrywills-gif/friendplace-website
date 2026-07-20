@@ -180,20 +180,119 @@ Rules baked into the prompt (NAVIGATE_TO USAGE section):
 4. Both whitelists are the security perimeter — a hallucinated key is
    silently dropped on both sides.
 
-## Slice 3 — Text-first Voice identity (planned)
+## Slice 3 — George Follows the Member (SHIPPED)
 
-**Goal**: bake George's cadence, word choice, and voice-of-a-person
-guide into the system prompt so his voice feels consistent across
-Mission Control (Chief-of-Staff) and FriendPlace (Companion).
+**Locked with Garry 22 July 2026, from post-Slice-2 real-conversation
+testing feedback.** The core principle:
 
-- No TTS yet. Optional playback is a later capability.
-- Add a shared `GEORGE_VOICE` block to `/app/backend/services/george/prompt.py`
-  that both the Chief-of-Staff and Companion prompts import.
-- Style guide: warm colleague voice, first-person plural where natural,
-  never "AI/model/algorithm", small observations instead of jokes,
-  celebrate people not numbers, honest about limitations.
+> "George follows the member, and the conversation follows George."
 
-## Non-goals for C1
+Before Slice 3 George was only present on Home, and closing his modal
+meant losing the conversation. The whole point of Slice 3 is that this
+never happens again.
+
+### Persistent butterfly everywhere
+
+`GeorgeGlobalHost` lives at the root of the app (mounted from
+`app/_layout.tsx`) and renders `<GeorgeButterfly />` on every member
+screen — Home, Chats, Friends, Coffee Lounge, Profile, Games, Groups,
+Notice Board, Events, Recipes, Founders, Help, Settings, Notifications,
+and any secondary pages under those. Hidden on `/`, `/auth/*`,
+`/onboarding`, `/waitlist`, and whenever there is no authenticated user.
+
+The `<GeorgeButterfly />` component was NOT moved — only its mount
+point. The daily-arrival animation and greeting bubble still fire once
+per calendar day, just as before, but now from the root layout so the
+animation isn't repeated on every tab switch.
+
+### Conversation follows George (session persistence)
+
+`GeorgeProvider` maintains `activeSessionId` in memory and mirrors it
+to AsyncStorage under `george.activeSession`. The rules:
+
+- Every session created via `eventStart` or `eventResume` writes its
+  id to the context.
+- Reopening the George modal on **any** screen picks up the same
+  session, restoring turns/draft/status server-side.
+- Terminal outcomes clear the sticky id:
+  - `dontSave()` — server-side cancel + `clearActiveSession()`
+  - `eventApprove()` — successful post + `clearActiveSession()`
+- `saveForLater()` explicitly does NOT clear the sticky id — the
+  paused session is still the one the member will resume next.
+
+Server remains the source of truth for content. The AsyncStorage cache
+only tracks WHICH session to resume, never any turns or draft data.
+
+### Current-screen context awareness
+
+`usePathname()` is normalised to a canonical key by `pathnameToScreenKey`
+(home / lounge / friends / events / groups / notices / games / profile /
+chats / recipes / help / settings / notifications / founders / etc.).
+This key rides on every API call:
+
+- `POST /api/mcgs/george/event/start` — body includes `current_screen`
+- `POST /api/mcgs/george/event/session/{id}/turn` — same
+
+The backend `_compose_next` and `_compose_bare_opener` receive it and
+add it to the JSON payload the Sonnet composer sees. The prompt tells
+George: **"context is usually invisible. Use it to make answers better,
+never to narrate where the member is."**
+
+### Screen-aware openers
+
+Bare openers (i.e. tapping the butterfly with no seed text) now
+optionally use a screen-aware line ~35% of the time on non-Home
+screens. Locked library:
+
+- **Lounge**: *"Hi Alex. Is there anything I can help you with while you're here?"*
+- **Events**: *"Looking for something in Events?"*
+- **Profile**: *"Would you like a hand with your profile?"*
+- **Friends**: *"Looking for someone in particular?"*
+- **Groups**: *"Anything I can help with in Groups?"*
+- **Notices**: *"Anything I can help with on the Notice Board?"*
+- **Games**: *"Fancy a game?"*
+
+The other 65% of the time the neutral time-of-day greeting still wins,
+so George never sounds like he's narrating the app.
+
+### Request acknowledgement (prompt rule)
+
+When a member explicitly asks George to do something ("Can you take me
+to X?", "Show me my profile"), the composer opens with a short rotating
+acknowledgement (*Absolutely / Sure thing / Of course / Here you go /
+Certainly / Happy to / On it*) before the info + chip. Never used for
+plain "where is X?" questions — those still get answer-first.
+
+### Greeting bubble dwell time
+
+Bumped from 6.5s → 12s so longer returning-user greetings have room to
+be read before the bubble tucks away. Tap-to-dismiss still works.
+
+### Files touched
+
+- `/app/backend/services/george/event_creation/service.py` — `current_screen`
+  threaded through `start_event_conversation`, `take_conversation_turn`,
+  `_compose_next`, `_compose_bare_opener`; new `_pick_greeting_with_screen`
+  library; three new locked prompt sections (CURRENT SCREEN, REQUEST
+  ACKNOWLEDGEMENT).
+- `/app/backend/mcgs_module.py` — `EventConversationStartIn` +
+  `EventConversationTurnIn` accept `current_screen`.
+- `/app/frontend/src/lib/george-context.tsx` — new (`GeorgeProvider` +
+  `useGeorge`).
+- `/app/frontend/src/components/george/GeorgeGlobalHost.tsx` — new.
+- `/app/frontend/src/lib/george-api.ts` — `eventStart` + `eventTurn`
+  now take `currentScreen`.
+- `/app/frontend/src/components/george/GeorgeEventCreation.tsx` — uses
+  context; resumes stored active session; passes `currentScreen`;
+  clears session on approve/cancel.
+- `/app/frontend/src/components/george/GeorgeButterfly.tsx` — greeting
+  dwell bumped to 12s.
+- `/app/frontend/app/_layout.tsx` — mounts `<GeorgeProvider>` +
+  `<GeorgeGlobalHost />`.
+- `/app/frontend/app/(tabs)/home.tsx` — local `<GeorgeButterfly />`
+  removed.
+
+## Non-goals for C1 (unchanged)
 
 - A separate "Chats with George" tab — George stays in one place.
 - Notifications from George — deferred, not part of any C1 slice.

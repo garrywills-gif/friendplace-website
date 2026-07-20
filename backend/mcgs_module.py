@@ -156,10 +156,20 @@ class RhythmSettingsIn(BaseModel):
 
 class EventConversationStartIn(BaseModel):
     text: str = Field(default="", max_length=4000)
+    current_screen: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="Current screen key (home, lounge, friends, events, ...). C1 Slice 3."
+    )
 
 
 class EventConversationTurnIn(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
+    current_screen: Optional[str] = Field(
+        default=None,
+        max_length=64,
+        description="Current screen key (home, lounge, friends, events, ...). C1 Slice 3."
+    )
 
 
 class EventApproveIn(BaseModel):
@@ -514,6 +524,7 @@ def build_router(db) -> APIRouter:
                 initial_text=body.text,
                 host_id=actor.get("id"),
                 actor_name=actor.get("name") or None,
+                current_screen=body.current_screen,
             )
         except Exception as exc:
             log.exception("event conversation start failed")
@@ -532,7 +543,7 @@ def build_router(db) -> APIRouter:
         if session.get("actor_id") != actor.get("id"):
             raise HTTPException(403, "Not your conversation.")
         try:
-            session = await take_conversation_turn(db, session_id, body.text)
+            session = await take_conversation_turn(db, session_id, body.text, current_screen=body.current_screen)
         except ValueError as exc:
             raise HTTPException(404, str(exc))
         except Exception as exc:

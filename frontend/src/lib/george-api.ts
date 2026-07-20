@@ -145,13 +145,14 @@ export const georgeApi = {
   onboardingFinishLater: (sessionId: string) => _req<any>(
     `/mcgs/george/onboarding/session/${sessionId}/finish-later`, { method: 'POST' },
   ),
-  // Event creation (Milestone B5)
-  eventStart: (text: string = '') => _req<EventSession>(
-    '/mcgs/george/event/start', { method: 'POST', body: JSON.stringify({ text }) },
+  // Event creation (Milestone B5, current_screen added in C1 Slice 3)
+  eventStart: (text: string = '', currentScreen?: string | null) => _req<EventSession>(
+    '/mcgs/george/event/start',
+    { method: 'POST', body: JSON.stringify({ text, current_screen: currentScreen ?? null }) },
   ),
-  eventTurn: (sessionId: string, text: string) => _req<EventSession>(
+  eventTurn: (sessionId: string, text: string, currentScreen?: string | null) => _req<EventSession>(
     `/mcgs/george/event/session/${sessionId}/turn`,
-    { method: 'POST', body: JSON.stringify({ text }) },
+    { method: 'POST', body: JSON.stringify({ text, current_screen: currentScreen ?? null }) },
   ),
   eventGet: (sessionId: string) => _req<EventSession>(
     `/mcgs/george/event/session/${sessionId}`,

@@ -435,6 +435,67 @@ I. COMPANION BEHAVIOUR (locked with Garry, C1 Slice 1 — 21 July 2026).
       I can point you towards?"*
    Never invent an answer. Never pretend to have live data.
 
+   CURRENT SCREEN — CONTEXT AWARENESS (C1 Slice 3 — LOCKED,
+   Garry 22 July 2026). The payload includes `current_screen` — the
+   member's current location in FriendPlace (home, lounge, friends,
+   events, groups, notices, games, profile, chats, recipes, help,
+   settings, notifications, founders, etc.). Use it QUIETLY.
+
+   RULES:
+   - "George is context aware, but context is usually invisible."
+     Use `current_screen` to make your answer BETTER, not to narrate it.
+   - NEVER announce where they are ("You're in the Coffee Lounge",
+     "I see you're viewing the Events page") — they already know.
+     That's software talking, not a companion.
+   - If the member asks about "this page", "here", "this screen", or
+     obviously means where they are — answer as if you're standing
+     with them. Skip the geography lesson.
+     • Member on Coffee Lounge: "How do I join a table?"
+       WEAK: *"You're in the Coffee Lounge. To join a table, tap it."*
+       BETTER: *"Just tap the table you'd like to join."*
+     • Member on Events: "How do I RSVP?"
+       BETTER: *"Tap the event you're interested in, then tap RSVP."*
+   - If the member asks about a feature that lives on a DIFFERENT
+     screen from `current_screen`, guide them naturally as usual —
+     but skip a redundant navigate_to when they're already on the
+     right screen. If they're already on the Coffee Lounge and ask
+     "where is it?" — just confirm gently, don't add a chip.
+   - When the current screen makes an answer more precise, use it.
+     • Member on a Group page: "Can I invite my friend to this?"
+       George knows they mean this specific group — reply accordingly
+       without asking "which group?".
+   - If `current_screen` is null / missing / "home", behave as before.
+
+   Members should feel that George quietly understands where they are,
+   never that he's watching them. If in doubt, don't mention the screen.
+
+   REQUEST ACKNOWLEDGEMENT (C1 Slice 3 — LOCKED, Garry 22 July 2026).
+   When a member explicitly ASKS George to do something ("Can you take
+   me to X?", "Take me to the Coffee Lounge", "Show me my profile") —
+   open the reply with a short natural acknowledgement, THEN the info,
+   THEN (if warranted) the navigate_to chip.
+   Rotating acknowledgement library — pick one that fits the tone:
+     • *"Absolutely — "*
+     • *"Sure thing — "*
+     • *"Of course — "*
+     • *"Here you go — "*
+     • *"Certainly — "*
+     • *"Happy to — "*
+     • *"On it — "*
+   Example:
+   - Member: "Can you take me to the Coffee Lounge?"
+     WEAK: *"The Coffee Lounge is on the Home screen — just tap Lounge."*
+     BETTER: *"Absolutely — the Coffee Lounge is on the Home screen. Just
+      tap Lounge and you're there."*
+   Rules for acknowledgements:
+   - Only when the member has EXPLICITLY asked for an action ("can
+     you", "take me to", "show me", "help me find"). Not when they've
+     asked a general "where is X?" — those still get answer-first.
+   - Never use the same acknowledgement twice in a row in one
+     conversation. Rotate.
+   - Never manufacture an acknowledgement to pad a plain factual
+     answer. That would violate ANSWER FIRST.
+
    EMOTIONAL CONTINUITY (LOCKED, Garry 21 July 2026 v3 — THE most
    important companion principle).
    You have the whole conversation in front of you. Notice when a
@@ -774,6 +835,7 @@ async def _compose_next(
     *,
     suggestion_offered: bool = False,
     pending_suggestion: Optional[dict] = None,
+    current_screen: Optional[str] = None,
 ) -> dict:
     chat = LlmChat(
         api_key=_emergent_key(),
@@ -789,6 +851,7 @@ async def _compose_next(
             "suggestion_offered": bool(suggestion_offered),
             "pending_suggestion": pending_suggestion or None,
         },
+        "current_screen": current_screen or None,
     }
     raw = await chat.send_message(UserMessage(text=json.dumps(payload, indent=2)))
     text = (raw or "").strip()
@@ -852,6 +915,7 @@ async def start_event_conversation(
     initial_text: str,
     host_id: Optional[str] = None,
     actor_name: Optional[str] = None,
+    current_screen: Optional[str] = None,
 ) -> dict:
     """Kick off a new conversation.
 
@@ -881,7 +945,7 @@ async def start_event_conversation(
     if is_bare_opener:
         extracted: dict = _merge_extracted({}, {})
         turns: list = []
-        composed = await _compose_bare_opener(seed, today_iso, actor_name=actor_name)
+        composed = await _compose_bare_opener(seed, today_iso, actor_name=actor_name, current_screen=current_screen)
     else:
         extracted_patch = await _extract(seed, today_iso)
         extracted = _merge_extracted({}, extracted_patch)
@@ -890,6 +954,7 @@ async def start_event_conversation(
         composed = await _compose_next(
             extracted, defaults_pre, turns, today_iso,
             suggestion_offered=False,
+            current_screen=current_screen,
         )
 
     defaults = await infer_defaults(db, extracted, host_id=host_id)
@@ -928,6 +993,7 @@ async def start_event_conversation(
         "suggestion": suggestion,
         "suggestion_offered": bool(suggestion),
         "pending_suggestion": suggestion,
+        "current_screen": (current_screen or None),
         "created_at": _now_iso(),
         "updated_at": _now_iso(),
     }
@@ -1108,21 +1174,111 @@ def _pick_greeting(name: Optional[str], tod: str) -> str:
     return line.format(name=name_clean) if name_clean else line
 
 
+# C1 Slice 3 — Screen-aware openers. When we know the member is looking
+# at a specific screen, ~35% of the time offer a subtly contextual line
+# instead of the neutral greeting. The rest of the time the neutral
+# opener wins so George never sounds like he's narrating the app. Per
+# Garry: "context is usually invisible."
+_SCREEN_OPENERS: dict[str, list[str]] = {
+    "lounge": [
+        "Hi {name}. Is there anything I can help you with while you're here?",
+        "Hi {name}. Need a hand with anything in the Coffee Lounge?",
+        "Hey {name}. Anything I can help with?",
+    ],
+    "events": [
+        "Hi {name}. Looking for something in Events?",
+        "Hi {name}. Anything I can help you find in Events?",
+        "Hi {name}. Something on your mind about Events?",
+    ],
+    "profile": [
+        "Hi {name}. Would you like a hand with your profile?",
+        "Hi {name}. Anything I can help with here?",
+    ],
+    "friends": [
+        "Hi {name}. Looking for someone in particular?",
+        "Hi {name}. Anything I can help you with in Friends?",
+    ],
+    "groups": [
+        "Hi {name}. Anything I can help with in Groups?",
+        "Hi {name}. Looking for a group to join?",
+    ],
+    "notices": [
+        "Hi {name}. Anything I can help with on the Notice Board?",
+        "Hi {name}. Looking for something in particular?",
+    ],
+    "games": [
+        "Hi {name}. Fancy a game?",
+        "Hi {name}. Anything I can help with here?",
+    ],
+    "chats": [
+        "Hi {name}. Anything I can help with?",
+    ],
+    "recipes": [
+        "Hi {name}. Anything I can help with in Recipes?",
+    ],
+    "help": [
+        "Hi {name}. What can I help you find?",
+    ],
+    "settings": [
+        "Hi {name}. Anything I can help with in Settings?",
+    ],
+    "notifications": [
+        "Hi {name}. Anything I can help with?",
+    ],
+    "founders": [
+        "Hi {name}. Anything I can help with?",
+    ],
+}
+
+# Same lines minus the "{name}" — used when we don't know their name yet.
+_SCREEN_OPENERS_NO_NAME: dict[str, list[str]] = {
+    key: [line.replace(" {name}", "").replace("{name} ", "") for line in lines]
+    for key, lines in _SCREEN_OPENERS.items()
+}
+
+
+def _pick_greeting_with_screen(
+    name: Optional[str],
+    tod: str,
+    current_screen: Optional[str],
+) -> str:
+    """Return an opener that quietly reflects the current screen ~35% of
+    the time; otherwise a neutral greeting. On unknown screens the
+    neutral greeting always wins.
+    """
+    screen = (current_screen or "").strip().lower()
+    if screen == "home" or not screen:
+        return _pick_greeting(name, tod)
+
+    name_clean = (name or "").strip().split()[0] if name else ""
+    library = _SCREEN_OPENERS if name_clean else _SCREEN_OPENERS_NO_NAME
+    pool = library.get(screen)
+    # 35% chance of a screen-aware line — rest of the time, neutral.
+    if pool and random.random() < 0.35:
+        line = random.choice(pool)
+        return line.format(name=name_clean) if name_clean else line
+    return _pick_greeting(name, tod)
+
+
 async def _compose_bare_opener(
     seed: str,
     today_iso: str,
     *,
     actor_name: Optional[str] = None,
+    current_screen: Optional[str] = None,
 ) -> dict:
     """George opens with a NEUTRAL, name-aware greeting.
 
-    Locked with Garry (B5 beta feedback #3):
+    Locked with Garry (B5 beta feedback #3, refined C1 Slice 3):
       - Never presume the member is here to create an event.
       - Never open with "I'd love to help with that" every time.
       - Rotate naturally through a small library of warm greetings.
       - If the member wants to chat about events, describe an idea, or
         ask about anything else in FriendPlace, the follow-up composer
         turn handles the routing. This function just says hello.
+      - When we know which screen the member is on, use it QUIETLY —
+        offer a screen-appropriate opener a fraction of the time so
+        George feels aware without narrating context.
 
     We deliberately DO NOT call the LLM here — for two reasons:
       1. It removes a whole class of failure modes (parse errors, off-
@@ -1132,7 +1288,7 @@ async def _compose_bare_opener(
          library. Sonnet still handles every subsequent turn.
     """
     tod = _sydney_time_of_day()
-    greeting = _pick_greeting(actor_name, tod)
+    greeting = _pick_greeting_with_screen(actor_name, tod, current_screen)
     return {
         "state": "needs_question",
         "excitement_line": None,
@@ -1148,6 +1304,8 @@ async def take_conversation_turn(
     db: Any,
     session_id: str,
     user_text: str,
+    *,
+    current_screen: Optional[str] = None,
 ) -> dict:
     """User replies. Re-extract on their text, merge state, ask composer."""
     session = await db[COLL_CONVERSATIONS].find_one(
@@ -1189,6 +1347,7 @@ async def take_conversation_turn(
         extracted, defaults, turns, today_iso,
         suggestion_offered=already_offered,
         pending_suggestion=pending_suggestion,
+        current_screen=current_screen or session.get("current_screen"),
     )
     # If either side flagged a restart, we clear the draft too.
     restart = bool(composed.get("restart_requested")) or restart_locally
@@ -1229,6 +1388,7 @@ async def take_conversation_turn(
         "pending_suggestion": new_suggestion or pending_suggestion,
         "restart_at": _now_iso() if restart else session.get("restart_at"),
         "status": status,
+        "current_screen": current_screen or session.get("current_screen"),
         "updated_at": _now_iso(),
     }
     await db[COLL_CONVERSATIONS].update_one(

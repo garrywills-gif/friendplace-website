@@ -38,7 +38,11 @@ import { georgeApi, type Presence, type EventApprovalResult } from '@/src/lib/ge
 
 const STORAGE_KEY = 'george.lastArrival';
 const DAYS_ABSENCE_FOR_WARM_WELCOME = 3;
-const BUBBLE_LIFETIME_MS = 6500;
+// Bumped 22 July 2026 (Garry's C1 feedback): longer greetings need more
+// dwell time so older members have room to finish reading before the
+// bubble tucks itself away. 12s covers the longest returning-user line
+// without feeling long-winded. Tap-to-dismiss still works.
+const BUBBLE_LIFETIME_MS = 12000;
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 

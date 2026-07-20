@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
+import { useGeorge } from '@/src/lib/george-context';
 import {
   georgeApi,
   type EventSession, type EventDraft, type EventApprovalResult,
@@ -62,6 +63,9 @@ const BEAT = {
 
 export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }: Props) {
   const insets = useSafeAreaInsets();
+  const {
+    currentScreen, activeSessionId, setActiveSessionId, clearActiveSession,
+  } = useGeorge();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<LocalTurn[]>([]);
   const [status, setStatus] = useState<EventSession['status']>('in_progress');
@@ -85,10 +89,33 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   useEffect(() => {
     (async () => {
       try {
-        const s = resumeSessionId
-          ? await georgeApi.eventResume(resumeSessionId)
-          : await georgeApi.eventStart('');
+        // Prefer explicit resumeSessionId (e.g. paused-event welcome-back
+        // from GeorgeButterfly). Otherwise, if the global context has an
+        // active session, restore it — this is what makes the
+        // conversation follow George across screen navigation (C1 S3).
+        // Fall back to a fresh session, sending our current screen so
+        // Sonnet can quietly tailor the opener.
+        let s: EventSession;
+        if (resumeSessionId) {
+          s = await georgeApi.eventResume(resumeSessionId);
+        } else if (activeSessionId) {
+          try {
+            s = await georgeApi.eventGet(activeSessionId);
+            // If the stored session is terminal, drop it and start fresh.
+            if (s.status === 'approved' || s.status === 'cancelled') {
+              clearActiveSession();
+              s = await georgeApi.eventStart('', currentScreen);
+            }
+          } catch {
+            // Stored id is stale / not ours / expired — start clean.
+            clearActiveSession();
+            s = await georgeApi.eventStart('', currentScreen);
+          }
+        } else {
+          s = await georgeApi.eventStart('', currentScreen);
+        }
         setSessionId(s.session_id);
+        setActiveSessionId(s.session_id);
         setStatus(s.status || 'in_progress');
         setDraft(s.draft || null);
         setPendingSuggestion(s.pending_suggestion || null);
@@ -163,7 +190,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     });
     try {
       const [s] = await Promise.all([
-        georgeApi.eventTurn(sessionId, t),
+        georgeApi.eventTurn(sessionId, t, currentScreen),
         gate,
       ]);
       setStatus(s.status || 'in_progress');
@@ -182,7 +209,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     } finally {
       setBusy(false);
     }
-  }, [sessionId, busy, revealApiTurns]);
+  }, [sessionId, busy, revealApiTurns, currentScreen]);
 
   const send = useCallback(() => { sendText(input.trim()); }, [input, sendText]);
 
@@ -213,12 +240,15 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     setApprovalError(null);
     try {
       const result = await georgeApi.eventApprove(sessionId);
+      // Event posted — the current conversation is done. Clear the
+      // sticky session so the next George open starts a fresh chat.
+      clearActiveSession();
       onDone(result);
     } catch {
       setApprovalError("I couldn't quite get that through — mind trying again in a moment?");
       setApproving(false);
     }
-  }, [sessionId, approving, onDone]);
+  }, [sessionId, approving, onDone, clearActiveSession]);
 
   const askForChanges = useCallback(() => {
     if (!sessionId || busy) return;
@@ -234,20 +264,21 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     if (!sessionId) { onLeave(); return; }
     // Principle #17 + Garry's Option A: "Save for later" NEVER means
     // "delete". Preserve everything so George can pick up where we
-    // left off next time.
+    // left off next time. Keep activeSessionId so re-opening resumes.
     try { await georgeApi.eventPause(sessionId); } catch { /* silent */ }
     onLeave();
   }, [sessionId, onLeave]);
 
   // "Don't save" — the explicit "please forget this one" exit (Garry,
-  // 20 July 2026). Cancels the session so it never re-appears via
-  // presence, then closes the modal. No pause, no welcome-back on the
-  // next tap.
+  // 20 July 2026). Cancels the session server-side AND clears our local
+  // sticky sessionId, then closes the modal. No pause, no welcome-back
+  // on the next tap.
   const dontSave = useCallback(async () => {
     if (!sessionId) { onLeave(); return; }
     try { await georgeApi.eventCancel(sessionId); } catch { /* silent */ }
+    clearActiveSession();
     onLeave();
-  }, [sessionId, onLeave]);
+  }, [sessionId, onLeave, clearActiveSession]);
 
   const showPreview = status === 'drafted' && !!draft;
 
