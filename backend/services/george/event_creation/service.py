@@ -1025,25 +1025,23 @@ async def pause_event_session(db: Any, session_id: str) -> dict:
 
 
 async def latest_paused_event_session(db: Any, *, actor_id: str) -> Optional[dict]:
-    """Return the actor's most recent RESUMABLE event conversation.
+    """Return the actor's most recent EXPLICITLY paused, resumable event
+    conversation, or None.
 
-    Priority (paused always beats in_progress):
-      1. **Paused** sessions — the member explicitly asked George to
-         hold onto this one. Always resumable, even without a title.
-      2. **Stale in_progress** sessions (>10 min since last activity) —
-         but ONLY if the session has actual event content to resume
-         (a draft, or a title, or a date/time/location extracted from
-         the conversation). A companion-only conversation like *"How
-         do I get to the games?"* is NOT an event and MUST NOT be
-         surfaced as a resumable event session — otherwise the
-         welcome-back turn awkwardly says *"we were in the middle of
-         planning a get-together"* when the member wasn't planning
-         anything at all. (Garry, session 1 feedback.)
+    Locked behaviour (Garry, session 1 feedback screenshot):
+    **Only sessions the member explicitly asked George to save should
+    trigger a "Welcome back" turn.** Companion chats, stale in_progress
+    conversations, and anything else the member did NOT explicitly pause
+    are treated as done. The next butterfly tap will greet the member
+    naturally and wait for them to begin. The "Welcome back" moment is
+    reserved for genuine resume — it's the only way it stays meaningful.
+
+    Additionally: the paused session must have real event content (a
+    landed draft, or extracted title / date / time / location). A
+    paused conversation with no event content is not something you
+    "carry on" — it's a companion chat that shouldn't have been paused
+    in the first place.
     """
-    # 1. Paused wins — always. Sort by paused_at desc so the most-recent
-    #    save-for-later is the one we welcome back. If a paused session
-    #    has NO event content (edge case: member said hi, we paused for
-    #    some reason), skip — a companion chat isn't a resumable event.
     doc = None
     paused_candidates = db[COLL_CONVERSATIONS].find(
         {"actor_id": actor_id, "status": "paused"},
@@ -1055,22 +1053,6 @@ async def latest_paused_event_session(db: Any, *, actor_id: str) -> Optional[dic
         if _session_has_event_content(candidate):
             doc = candidate
             break
-
-    # 2. Stale in-progress — only when there's real event content to
-    #    return to. Guards against companion chats being mis-resumed.
-    if not doc:
-        stale_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-        candidates = db[COLL_CONVERSATIONS].find(
-            {"actor_id": actor_id, "status": "in_progress",
-             "updated_at": {"$lt": stale_cutoff}},
-            {"_id": 0, "session_id": 1, "status": 1, "draft": 1, "extracted": 1,
-             "paused_at": 1, "updated_at": 1, "created_at": 1},
-            sort=[("updated_at", -1)],
-        )
-        async for candidate in candidates:
-            if _session_has_event_content(candidate):
-                doc = candidate
-                break
 
     if not doc:
         return None
@@ -1177,18 +1159,16 @@ async def resume_event_session(
     paused_at = session.get("paused_at") or session.get("updated_at")
 
     # Decide whether to append a welcome-back turn.
-    should_welcome = False
-    if prior_status == "paused":
-        should_welcome = True
-    elif prior_status == "in_progress":
-        try:
-            updated_iso = session.get("updated_at")
-            if updated_iso:
-                last = datetime.fromisoformat(updated_iso.replace("Z", "+00:00"))
-                mins = (datetime.now(timezone.utc) - last.astimezone(timezone.utc)).total_seconds() / 60.0
-                should_welcome = mins > 10
-        except Exception:
-            should_welcome = False
+    # Locked (Garry, session 1 feedback): welcome-back is reserved for
+    # explicitly PAUSED sessions with real event content. Stale
+    # in-progress sessions do NOT get a welcome-back — they either
+    # resume seamlessly or, if they've drifted, are quietly ended by
+    # the presence-side filter. This is what keeps "Welcome back" a
+    # meaningful moment instead of a repeated intrusion.
+    should_welcome = (
+        prior_status == "paused"
+        and _session_has_event_content(session)
+    )
 
     # Don't append if the last turn is already a welcome-back (idempotent).
     if turns and turns[-1].get("welcome_back"):
