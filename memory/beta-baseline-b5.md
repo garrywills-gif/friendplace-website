@@ -95,31 +95,37 @@ Locked conversational contract:
 
 ### 🌱 C1 — George the FriendPlace Companion (next major milestone)
 > *"George should be able to assist with everything on the site. Games, notice board, meetings, friends, coffee lounge — whatever."* — Garry, 20 July 2026
+>
+> *"He should be the friendly face of FriendPlace, not AI that knows everything. He's helping people enjoy FriendPlace rather than acting like a search engine."* — Garry, session 1 feedback
 
 The point where George grows beyond event creation. **DO NOT BUILD during beta.** Designed properly after beta testing closes.
 
-Capabilities may include (sharing one personality, one memory):
-- Finding events
-- Joining events
-- Creating events (existing B5)
-- Friends
-- Groups
+Capabilities he should naturally know how to help with (sharing one personality, one memory):
+- Finding friends
+- Events (finding, joining, creating)
 - Coffee Lounge
 - Games
 - Notice Board
+- Groups
 - Meetings
-- Profile guidance
-- General FriendPlace help
+- Profile settings
+- Safety questions
+- Reporting problems
+- Explaining how FriendPlace works
 - Invitations
 
 Architecture (to be designed):
 - Intent classifier at the start of each conversation.
 - Per-capability handlers with a shared voice contract.
 - Cross-capability memory (George remembers your last few conversations, not just this one).
-- Consistent Principle-#18 and Principle-#19 across every capability.
+- Consistent Principles #17, #18 and #19 across every capability.
+- **Not** an AI that knows everything — the friendly face of FriendPlace. He helps members enjoy the app, he doesn't perform tasks he can't yet do, and he never invents capabilities.
 
 **Beta-scope lightweight companion behaviour (already shipped, locked):**
-George's opener is now a neutral name-aware greeting. Non-event asks are answered warmly with a plain-prose FriendPlace map (Games tab, Notices tab, etc.) — no navigation buttons, no new architecture. George never says "That's not my role" and never invents capabilities.
+- George's opener is a neutral name-aware greeting (rotating library).
+- Non-event asks are answered warmly with a plain-prose FriendPlace map (Games tab, Notices tab, etc.) — no navigation buttons, no new architecture.
+- **Sign-offs rotate** (Garry, session 1 feedback): *"Have fun!"* / *"Let me know if you get stuck."* / *"Enjoy."* / *"I'm here if you need me."* / *"Take your time."* / context-fitting variants for games, friends, notice board, etc. Never defaults to *"Anything else I can help with?"*.
+- George never says *"That's not my role"* and never invents capabilities.
 
 ### 🌱 B6 — Conversational event editing (deferred)
 When picked up: mirrors B5, but George opens with recall (*"which of your get-togethers would you like to change?"*), remembers everything about the existing event, and never asks about anything already known. **Now scheduled AFTER C1** — companion foundation first, editing second.
