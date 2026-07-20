@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+import { File, Paths } from 'expo-file-system';
 
 /**
  * George Platform — mobile API client.
@@ -206,6 +208,14 @@ export const georgeApi = {
   //
   // `persona` accepts `"george"` (male, default) or `"georgia"` (female)
   // — Phase 3 voice-selection wires a persisted preference through here.
+  //
+  // Platform note: `expo-audio`'s `useAudioPlayer` reliably plays
+  // `blob:` URLs on web, but on iOS/Android the native `AVAudioPlayer`
+  // / `ExoPlayer` implementations cannot resolve blob URIs — they need
+  // a real `file://` path or a remote https URL. So on native we write
+  // the mp3 bytes to the app's cache directory and return that path;
+  // on web we return the blob URL directly. Cached files are named
+  // by a hash of the text so repeated taps re-use the same file.
   speak: async (text: string, persona: 'george' | 'georgia' = 'george'): Promise<string> => {
     const tok = await _token();
     const res = await fetch(`${BASE}/api/mcgs/george/speak`, {
@@ -219,12 +229,36 @@ export const georgeApi = {
     });
     if (!res.ok) {
       const err = await res.text().catch(() => res.statusText);
-      throw new Error(`${res.status} ${err}`);
+      throw new Error(`speak ${res.status}: ${err.slice(0, 200)}`);
     }
-    const blob = await res.blob();
-    // Web: object URL is directly playable by <audio> or expo-audio.
-    // Native: expo-audio also accepts blob: URLs on iOS/Android in
-    // SDK 54+, avoiding a temp-file write for one-shot playback.
-    return URL.createObjectURL(blob);
+
+    if (Platform.OS === 'web') {
+      const blob = await res.blob();
+      return URL.createObjectURL(blob);
+    }
+
+    // Native: write the mp3 bytes into the app cache directory and
+    // return the resulting `file://…mp3` URI. `expo-audio` plays this
+    // path natively without any blob-URI hacks.
+    const buf = await res.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    const filename = `george-${persona}-${_shortHash(text)}.mp3`;
+    const file = new File(Paths.cache, filename);
+    try { file.delete(); } catch { /* first-run: no prior file */ }
+    file.create();
+    file.write(bytes);
+    return file.uri;
   },
 };
+
+/** Small, non-crypto text hash used to name cached TTS files so
+ * repeated taps of the same reply hit the same file. Not for
+ * security — just for locality. */
+function _shortHash(input: string): string {
+  let h = 5381;
+  for (let i = 0; i < input.length; i++) {
+    h = ((h << 5) + h) + input.charCodeAt(i);
+    h = h & 0xffffffff;
+  }
+  return (h >>> 0).toString(36);
+}

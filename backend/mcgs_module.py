@@ -191,6 +191,22 @@ class OnboardApproveIn(BaseModel):
     edits: Optional[dict] = None
 
 
+class GeorgeSpeakIn(BaseModel):
+    """C1 Voice Phase 2 request body — member taps the speaker on a
+    George bubble; we synthesize `text` at the requested `voice`.
+
+    Must be defined at module level (not inside `build_router`) so
+    FastAPI's body-model detection resolves it correctly — otherwise
+    it treats it as a query parameter and 422s every request.
+    """
+    text: str = Field(..., min_length=1, max_length=4000)
+    voice: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description="Persona key: 'george' (male, default) or 'georgia' (female).",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Router factory
 # ---------------------------------------------------------------------------
@@ -679,14 +695,6 @@ def build_router(db) -> APIRouter:
                 detail="I couldn't quite hear that. Mind trying again?",
             )
         return {"text": text}
-
-    class GeorgeSpeakIn(BaseModel):
-        text: str = Field(..., min_length=1, max_length=4000)
-        voice: Optional[str] = Field(
-            default=None,
-            max_length=32,
-            description="Persona key: 'george' (male, default) or 'georgia' (female).",
-        )
 
     @router.post("/mcgs/george/speak")
     async def api_george_member_speak(

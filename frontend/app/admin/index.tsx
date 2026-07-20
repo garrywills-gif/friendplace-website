@@ -2,8 +2,10 @@ import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, RefreshControl } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as WebBrowser from "expo-web-browser";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
+import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import AvatarBubble from "@/src/components/AvatarBubble";
@@ -14,6 +16,7 @@ export default function AdminHome() {
   const router = useRouter();
   const { c, scale } = useTheme();
   const { user } = useAuth();
+  const { show } = useToast();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [reports, setReports] = useState<any[]>([]);
   const [tickets, setTickets] = useState<any[]>([]);
@@ -58,6 +61,57 @@ export default function AdminHome() {
       <Header title="Admin" emoji="🛡️" subtitle="Moderation · Reports · Tickets" />
       <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 60 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}>
         {loading && !summary ? <ActivityIndicator color={c.brand} /> : null}
+
+        {/* Mission Control (MCGS) — temporary in-app entry point so
+            admins can hop straight into The Bridge dashboard on the
+            Next.js portal without hunting for the URL. Opens in an
+            in-app browser via `expo-web-browser` so it still feels
+            like part of FriendPlace. Visible only to `is_admin` users
+            (this whole screen is admin-gated above). */}
+        <Pressable
+          testID="admin-mission-control-link"
+          onPress={async () => {
+            const base = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+            const url = `${base}/admin/bridge`;
+            try {
+              await WebBrowser.openBrowserAsync(url, {
+                // Match FriendPlace brand teal on iOS toolbar.
+                toolbarColor: c.brand,
+                controlsColor: "#FFFFFF",
+                showTitle: true,
+                enableBarCollapsing: true,
+              });
+            } catch {
+              show("Couldn\u2019t open Mission Control. Please try again.");
+            }
+          }}
+          style={({ pressed }) => [{
+            backgroundColor: "#0F172A",
+            borderColor: "#0F766E",
+            borderWidth: 1.5,
+            borderRadius: 16,
+            padding: 14,
+            marginBottom: 12,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            opacity: pressed ? 0.85 : 1,
+          }]}
+        >
+          <Text style={{ fontSize: 26 }}>{"\uD83E\uDDED"}</Text>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={{ color: "#F8FAFC", fontWeight: "900", fontSize: 16 * scale }}>Mission Control</Text>
+              <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999, backgroundColor: "#0F766E" }}>
+                <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 10 * scale, letterSpacing: 0.6 }}>BETA</Text>
+              </View>
+            </View>
+            <Text style={{ color: "#CBD5E1", fontSize: 13 * scale, marginTop: 2 }}>
+              {"Open The Bridge \u2014 George\u2019s ops dashboard"}
+            </Text>
+          </View>
+          <Ionicons name="open-outline" size={20} color="#F8FAFC" />
+        </Pressable>
 
         {/* Quick-link row — shortcut to the user-suggested group queue
             so reviewing pending submissions doesn't get buried inside

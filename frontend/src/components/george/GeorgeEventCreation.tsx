@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
 import { useGeorge } from '@/src/lib/george-context';
+import { useToast } from '@/src/lib/toast';
 import {
   georgeApi,
   type EventSession, type EventDraft, type EventApprovalResult,
@@ -946,6 +947,7 @@ function _releaseActive(stop: () => void) {
 }
 
 function SpeakerButton({ text }: { text: string }) {
+  const { show } = useToast();
   const [phase, setPhase] = React.useState<'idle' | 'loading' | 'playing'>('idle');
   // Create a lazy player — empty source until we actually load one.
   const player = useAudioPlayer(null);
@@ -977,22 +979,32 @@ function SpeakerButton({ text }: { text: string }) {
         uri = await georgeApi.speak(text, 'george');
         cachedUriRef.current = uri;
       }
-      // Load the mp3 URL / blob URL into the shared player and play.
       // Ensure the OS lets us play through the earpiece / speaker.
-      try { await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }); } catch { /* noop */ }
+      try {
+        await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
+      } catch (e) {
+        // Non-fatal on web where audio-mode is a no-op.
+        if (__DEV__) console.warn('[SpeakerButton] setAudioModeAsync failed', e);
+      }
       player.replace({ uri });
-      player.seekTo(0);
+      try { player.seekTo(0); } catch { /* first-load: no position yet */ }
       player.play();
       setPhase('playing');
-    } catch {
+    } catch (e: any) {
+      if (__DEV__) console.warn('[SpeakerButton] playback failed', e);
+      const msg = (e?.message || 'Could not play George\u2019s voice');
+      // Surface a warm, human error rather than silently no-op'ing.
+      show(msg.length > 120 ? 'Could not play George\u2019s voice. Please try again.' : msg);
+      // Drop any bad cached URI so the next tap re-fetches.
+      cachedUriRef.current = null;
       setPhase('idle');
       _releaseActive(stopRef.current);
     }
-  }, [text, phase, stop, player]);
+  }, [text, phase, stop, player, show]);
 
   React.useEffect(() => () => {
     try { player.pause(); } catch { /* noop */ }
-    if (cachedUriRef.current) {
+    if (cachedUriRef.current && Platform.OS === 'web') {
       try { URL.revokeObjectURL(cachedUriRef.current); } catch { /* noop */ }
     }
     _releaseActive(stopRef.current);
