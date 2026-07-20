@@ -93,7 +93,7 @@ Locked conversational contract:
 
 ## Roadmap deferred (do NOT build during beta)
 
-### 🌱 C1 — George the FriendPlace Companion (next major milestone)
+### 🌱 C1 — George Lives in FriendPlace (next major milestone)
 > *"George should be able to assist with everything on the site. Games, notice board, meetings, friends, coffee lounge — whatever."* — Garry, 20 July 2026
 >
 > *"He should be the friendly face of FriendPlace, not AI that knows everything. He's helping people enjoy FriendPlace rather than acting like a search engine."* — Garry, session 1 feedback

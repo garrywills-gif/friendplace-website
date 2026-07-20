@@ -1,6 +1,9 @@
-# C1 — George as FriendPlace Companion
+# C1 — George Lives in FriendPlace
 
-Locked with Garry, 21 July 2026. Ships in three slices.
+Renamed with Garry 22 July 2026 from *"George as FriendPlace Companion"*.
+The rename matters: after Slice 3, George is no longer attached to
+Home. He lives alongside the member across every screen, and the
+conversation lives with him. Ships in three slices (all now SHIPPED).
 
 ## Overall shape
 
