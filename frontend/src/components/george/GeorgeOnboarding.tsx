@@ -3,8 +3,7 @@ import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
   ActivityIndicator,
 } from 'react-native';
-import Reanimated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
-import { useKeyboardHandler } from 'react-native-keyboard-controller';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { georgeApi } from '@/src/lib/george-api';
@@ -52,12 +51,6 @@ const FIELD_LABELS: Record<string, string> = {
 
 export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   const insets = useSafeAreaInsets();
-  const kbHeight = useSharedValue(0);
-  useKeyboardHandler({
-    onMove: (e) => { 'worklet'; kbHeight.value = e.height; },
-    onEnd:  (e) => { 'worklet'; kbHeight.value = e.height; },
-  }, []);
-  const wrapKbStyle = useAnimatedStyle(() => ({ paddingBottom: kbHeight.value }));
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState<string>('in_progress');
@@ -129,8 +122,9 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   const showPreview = status === 'drafted';
 
   return (
-    <Reanimated.View
-      style={[styles.wrap, { paddingTop: insets.top + 8 }, wrapKbStyle]}
+    <KeyboardAvoidingView
+      behavior="padding"
+      style={[styles.wrap, { paddingTop: insets.top + 8 }]}
     >
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
@@ -217,7 +211,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
           </View>
         </View>
       )}
-    </Reanimated.View>
+    </KeyboardAvoidingView>
   );
 }
 
