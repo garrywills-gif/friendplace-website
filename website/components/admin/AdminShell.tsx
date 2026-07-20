@@ -19,7 +19,6 @@ const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions'
   { href: '/admin/events',           label: 'Events',            icon: '📅' },
   { href: '/admin/event-submissions',label: 'Event Submissions', icon: '📝', badgeKey: 'submissions' },
   { href: '/admin/media',            label: 'Media library',     icon: '🖼️' },
-  { href: '/admin/account',          label: 'Account',           icon: '⚙️' },
 ];
 
 /**
@@ -124,7 +123,25 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '16px 20px' }}>
           <div style={{ color: '#94A3B8', fontSize: 12, marginBottom: 4 }}>Signed in as</div>
           <div style={{ color: '#FFFFFF', fontWeight: 700, fontSize: 14, marginBottom: 12, wordBreak: 'break-all' }}>{admin?.email}</div>
-          <button onClick={signOut} className="cms-sign-out" style={signOutBtn}>Sign out</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Link
+              href="/admin/account"
+              className={`cms-footer-btn${(pathname === '/admin/account' || pathname?.startsWith('/admin/account/')) ? ' cms-footer-btn-active' : ''}`}
+              style={{
+                ...footerBtn,
+                background: (pathname === '/admin/account' || pathname?.startsWith('/admin/account/')) ? 'rgba(94,234,212,0.15)' : 'transparent',
+                borderColor: (pathname === '/admin/account' || pathname?.startsWith('/admin/account/')) ? '#5EEAD4' : 'rgba(255,255,255,0.2)',
+                textDecoration: 'none',
+              }}
+              aria-label="Account settings"
+            >
+              <span aria-hidden style={{ fontSize: 14 }}>⚙️</span>
+              <span>Account</span>
+            </Link>
+            <button onClick={signOut} className="cms-sign-out" style={{ ...footerBtn, cursor: 'pointer', flex: 1 }}>
+              Sign out
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -175,7 +192,20 @@ const navBadge: React.CSSProperties = {
   justifyContent: 'center',
   boxShadow: '0 4px 12px rgba(249,115,22,0.4)',
 };
-const signOutBtn: React.CSSProperties = { width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: '#FFFFFF', fontSize: 13, fontWeight: 700, cursor: 'pointer' };
+const footerBtn: React.CSSProperties = {
+  flex: 1,
+  padding: '10px 12px',
+  borderRadius: 10,
+  border: '1px solid rgba(255,255,255,0.2)',
+  background: 'transparent',
+  color: '#FFFFFF',
+  fontSize: 13,
+  fontWeight: 700,
+  display: 'inline-flex',
+  gap: 6,
+  alignItems: 'center',
+  justifyContent: 'center',
+};
 const mainCol: React.CSSProperties = { flex: 1, maxWidth: 1400, width: '100%' };
 const pageTitle: React.CSSProperties = { fontSize: 28, color: '#0A2540', fontWeight: 900, marginTop: 0, marginBottom: 24 };
 
