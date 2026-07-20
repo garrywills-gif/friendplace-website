@@ -7,6 +7,17 @@ import { SignalCard } from './SignalCard';
 const PRIORITY_ORDER: Record<Priority, number> = { P0: 0, P1: 1, P2: 2, P3: 3, P4: 4 };
 const OPEN_STATUSES = ['NEW', 'SEEN', 'IN_REVIEW', 'SNOOZED', 'ESCALATED'];
 
+// Filter chip labels — human-friendly, with a coloured dot glyph so admins
+// can scan by severity at a glance. Order matches P0…P4.
+const FILTERS: { key: 'all' | Priority; label: string; glyph?: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'P0',  label: 'Critical',    glyph: '🔴' },
+  { key: 'P1',  label: 'High',        glyph: '🟠' },
+  { key: 'P2',  label: 'Normal',      glyph: '🟡' },
+  { key: 'P3',  label: 'Low',         glyph: '🔵' },
+  { key: 'P4',  label: 'Information', glyph: '🟢' },
+];
+
 export function SignalFeed() {
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,18 +65,23 @@ export function SignalFeed() {
         <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', marginRight: 8 }}>
           Signal Feed
         </div>
-        {(['all', 'P0', 'P1', 'P2', 'P3', 'P4'] as const).map(f => (
+        {FILTERS.map(f => (
           <button
-            key={f}
-            onClick={() => setFilter(f)}
+            key={f.key}
+            onClick={() => setFilter(f.key)}
             style={{
               padding: '5px 12px', borderRadius: 999, fontSize: 12, fontWeight: 700,
-              background: filter === f ? '#0F172A' : '#FFFFFF',
-              color: filter === f ? '#FFFFFF' : '#334155',
-              border: '1px solid ' + (filter === f ? '#0F172A' : '#E2E8F0'),
+              background: filter === f.key ? '#0F172A' : '#FFFFFF',
+              color: filter === f.key ? '#FFFFFF' : '#334155',
+              border: '1px solid ' + (filter === f.key ? '#0F172A' : '#E2E8F0'),
               cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
             }}
-          >{f === 'all' ? 'All' : f}</button>
+            aria-pressed={filter === f.key}
+          >
+            {f.glyph && <span aria-hidden>{f.glyph}</span>}
+            {f.label}
+          </button>
         ))}
         <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94A3B8' }}>
           {loading ? 'Loading…' : `${filtered.length} ${filtered.length === 1 ? 'case' : 'cases'}`}

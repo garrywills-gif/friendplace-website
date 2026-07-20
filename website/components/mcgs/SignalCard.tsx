@@ -11,9 +11,9 @@ interface SignalCardProps {
 const PRIORITY_STYLES: Record<string, { glyph: string; bg: string; border: string; label: string }> = {
   P0: { glyph: '🔴', bg: '#FEF2F2', border: '#FCA5A5', label: 'Critical' },
   P1: { glyph: '🟠', bg: '#FFF7ED', border: '#FED7AA', label: 'High' },
-  P2: { glyph: '🟡', bg: '#FEFCE8', border: '#FDE68A', label: 'Medium' },
-  P3: { glyph: '🟢', bg: '#F0FDF4', border: '#BBF7D0', label: 'Info' },
-  P4: { glyph: '⚪', bg: '#F8FAFC', border: '#E2E8F0', label: 'Ambient' },
+  P2: { glyph: '🟡', bg: '#FEFCE8', border: '#FDE68A', label: 'Normal' },
+  P3: { glyph: '🔵', bg: '#EFF6FF', border: '#BFDBFE', label: 'Low' },
+  P4: { glyph: '🟢', bg: '#F0FDF4', border: '#BBF7D0', label: 'Information' },
 };
 
 const CONFIDENCE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
@@ -62,7 +62,7 @@ export function SignalCard({ case_, onChanged }: SignalCardProps) {
           letterSpacing: '0.04em', display: 'inline-flex', gap: 6, alignItems: 'center',
           flexShrink: 0,
         }}>
-          <span aria-hidden>{p.glyph}</span> {case_.priority} · {p.label}
+          <span aria-hidden>{p.glyph}</span> {p.label}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: '#0F172A' }}>{case_.subject}</div>
