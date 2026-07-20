@@ -338,20 +338,13 @@ export function GeorgeButterfly() {
 
   // ---- Render ------------------------------------------------------------
 
-  // Resting position: JUST BELOW the header on the right edge (Garry,
-  // C1 Slice 3 v4 revision — v3's "in the header row" position was
-  // colliding with notification/settings icons on Home, info icons on
-  // Lounge, "Post Recipe" on Recipes, etc. Different FriendPlace
-  // screens have wildly different header layouts, so no single "in
-  // the header" position works universally without a per-screen
-  // header component refactor. Sitting just under the header row at
-  // the right edge is the sweet spot that clears every screen's
-  // header controls whilst still reading as a header companion.
-  //
-  // A future Slice 4 could embed George inline into each screen's
-  // header component for a truly bespoke "beside the title" layout;
-  // for now this position is the safe universal spot.
-  const restTop = insets.top + 88;
+  // Resting position: BELOW the header divider on every screen
+  // (Garry, C1 Slice 3 v5 — v4's `+88` was landing on top of the
+  // FriendPlace app icon that appears in the top-right of every
+  // secondary screen's header). +140 clears that icon AND the
+  // header divider line, so George sits in the small strip just
+  // above the first body element (search bar, card, or action row).
+  const restTop = insets.top + 140;
   const restRight = 16;
 
   const canTap = phase === 'resting' || phase === 'landed';
