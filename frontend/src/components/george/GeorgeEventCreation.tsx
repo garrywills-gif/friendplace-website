@@ -7,7 +7,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
-  useAudioRecorder, useAudioRecorderState, RecordingPresets,
+  useAudioRecorder, useAudioRecorderState, useAudioPlayer, RecordingPresets,
   requestRecordingPermissionsAsync, getRecordingPermissionsAsync,
   setAudioModeAsync,
 } from 'expo-audio';
@@ -907,8 +907,118 @@ function GeorgeBubble({
         <Animated.Text style={[styles.bubbleText, { opacity: msgFade }]}>
           {turn.content}
         </Animated.Text>
+        {/* C1 Voice Phase 2 — opt-in playback. Speaker icon appears
+            beneath any George turn that has actual content. Tap to
+            play, tap again to stop. Only one bubble plays at a time. */}
+        {needsAnim === false || turn.content ? (
+          <SpeakerButton text={buildTurnSpeakText(turn)} />
+        ) : null}
       </View>
     </View>
+  );
+}
+
+// -----------------------------------------------------------------------
+// SpeakerButton — opt-in TTS playback per George bubble.
+// -----------------------------------------------------------------------
+
+/** Composes the text George should actually speak: excitement + working
+ * + warmth + message, in reading order, joined by short pauses. Skips
+ * anything empty. */
+function buildTurnSpeakText(turn: LocalTurn): string {
+  const parts = [
+    turn.excitement_line, turn.working_line, turn.warmth_line, turn.content,
+  ].filter(x => !!(x && x.trim()));
+  return parts.join('  ');
+}
+
+/** Module-level coordinator: keeps track of the currently-playing
+ * button so a new tap can stop the previous one. Only one George
+ * bubble ever plays at a time, matching the "no surprise audio"
+ * principle. */
+let _activeStop: null | (() => void) = null;
+function _claimActive(stop: () => void) {
+  if (_activeStop && _activeStop !== stop) _activeStop();
+  _activeStop = stop;
+}
+function _releaseActive(stop: () => void) {
+  if (_activeStop === stop) _activeStop = null;
+}
+
+function SpeakerButton({ text }: { text: string }) {
+  const [phase, setPhase] = React.useState<'idle' | 'loading' | 'playing'>('idle');
+  // Create a lazy player — empty source until we actually load one.
+  const player = useAudioPlayer(null);
+  const cachedUriRef = React.useRef<string | null>(null);
+  // Watch player.playing so we drop back to idle when the clip ends.
+  React.useEffect(() => {
+    if (phase === 'playing' && !player.playing) {
+      setPhase('idle');
+      _releaseActive(stopRef.current);
+    }
+  }, [player.playing, phase]);
+
+  const stopRef = React.useRef<() => void>(() => {});
+  const stop = React.useCallback(() => {
+    try { player.pause(); } catch { /* noop */ }
+    setPhase('idle');
+    _releaseActive(stopRef.current);
+  }, [player]);
+  stopRef.current = stop;
+
+  const play = React.useCallback(async () => {
+    if (phase === 'playing') { stop(); return; }
+    if (phase === 'loading') return;
+    setPhase('loading');
+    _claimActive(stopRef.current);
+    try {
+      let uri = cachedUriRef.current;
+      if (!uri) {
+        uri = await georgeApi.speak(text, 'george');
+        cachedUriRef.current = uri;
+      }
+      // Load the mp3 URL / blob URL into the shared player and play.
+      // Ensure the OS lets us play through the earpiece / speaker.
+      try { await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }); } catch { /* noop */ }
+      player.replace({ uri });
+      player.seekTo(0);
+      player.play();
+      setPhase('playing');
+    } catch {
+      setPhase('idle');
+      _releaseActive(stopRef.current);
+    }
+  }, [text, phase, stop, player]);
+
+  React.useEffect(() => () => {
+    try { player.pause(); } catch { /* noop */ }
+    if (cachedUriRef.current) {
+      try { URL.revokeObjectURL(cachedUriRef.current); } catch { /* noop */ }
+    }
+    _releaseActive(stopRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!text || !text.trim()) return null;
+
+  return (
+    <Pressable
+      onPress={play}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={phase === 'playing' ? 'Stop listening' : 'Listen to George'}
+      style={({ pressed }) => [styles.speakerBtn, pressed && styles.pressed]}
+    >
+      {phase === 'loading' ? (
+        <ActivityIndicator size="small" color="#0F766E" />
+      ) : (
+        <Ionicons
+          name={phase === 'playing' ? 'stop-circle' : 'volume-medium'}
+          size={18}
+          color="#0F766E"
+        />
+      )}
+    </Pressable>
   );
 }
 
@@ -1165,4 +1275,12 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#FEE4E2',
   },
   voiceErrText: { color: '#B42318', fontSize: 13 },
+  speakerBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    paddingVertical: 4, paddingHorizontal: 6,
+    borderRadius: 999,
+    minWidth: 28, minHeight: 28,
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

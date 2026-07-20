@@ -178,8 +178,6 @@ export const georgeApi = {
   transcribe: async (audioUri: string, filename?: string, mimeType?: string): Promise<string> => {
     const tok = await _token();
     const form = new FormData();
-    // React Native accepts { uri, name, type } shorthand; on the web
-    // build we blob-ify the URI so multipart works correctly there too.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     form.append('file', {
       uri: audioUri,
@@ -199,5 +197,34 @@ export const georgeApi = {
     }
     const data = await res.json();
     return (data?.text || '').trim();
+  },
+
+  // C1 Voice Phase 2 — Text-to-speech. Fetches MP3 audio for George's
+  // reply text and returns a local file URI (native) or blob URL (web)
+  // ready for `expo-audio` playback. The frontend renders a speaker
+  // icon on each George bubble; a tap calls this. Never auto-play.
+  //
+  // `persona` accepts `"george"` (male, default) or `"georgia"` (female)
+  // — Phase 3 voice-selection wires a persisted preference through here.
+  speak: async (text: string, persona: 'george' | 'georgia' = 'george'): Promise<string> => {
+    const tok = await _token();
+    const res = await fetch(`${BASE}/api/mcgs/george/speak`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'audio/mpeg',
+        ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
+      },
+      body: JSON.stringify({ text, voice: persona }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => res.statusText);
+      throw new Error(`${res.status} ${err}`);
+    }
+    const blob = await res.blob();
+    // Web: object URL is directly playable by <audio> or expo-audio.
+    // Native: expo-audio also accepts blob: URLs on iOS/Android in
+    // SDK 54+, avoiding a temp-file write for one-shot playback.
+    return URL.createObjectURL(blob);
   },
 };

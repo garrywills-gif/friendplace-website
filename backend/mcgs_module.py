@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -71,6 +71,7 @@ from services.george.onboarding import (
 )
 from services.george import grounded_chat_stream
 from services.george.voice.transcribe import transcribe_audio_bytes
+from services.george.voice.synthesize import synthesize_george_speech
 
 log = logging.getLogger("friendplace.mcgs.api")
 
@@ -678,6 +679,45 @@ def build_router(db) -> APIRouter:
                 detail="I couldn't quite hear that. Mind trying again?",
             )
         return {"text": text}
+
+    class GeorgeSpeakIn(BaseModel):
+        text: str = Field(..., min_length=1, max_length=4000)
+        voice: Optional[str] = Field(
+            default=None,
+            max_length=32,
+            description="Persona key: 'george' (male, default) or 'georgia' (female).",
+        )
+
+    @router.post("/mcgs/george/speak")
+    async def api_george_member_speak(
+        body: GeorgeSpeakIn,
+        actor: dict = Depends(current_george_actor),
+    ):
+        """Return George's reply as MP3 audio for opt-in playback.
+
+        C1 Voice Phase 2 (Garry, 22 July 2026). The frontend renders a
+        small speaker icon on each George bubble; a tap fetches audio
+        from here and plays it via `expo-audio`. Never auto-plays; the
+        member always chooses.
+        """
+        try:
+            audio_bytes = await synthesize_george_speech(body.text, persona=body.voice)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception:
+            log.exception("george speak failed")
+            raise HTTPException(
+                status_code=502,
+                detail="I couldn't voice that just now. Please try again in a moment.",
+            )
+        return Response(
+            content=audio_bytes,
+            media_type="audio/mpeg",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": 'inline; filename="george.mp3"',
+            },
+        )
 
     @router.get("/mcgs/george/presence")
     async def api_george_presence(actor: dict = Depends(current_george_actor)):
