@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AdminShell, adminStyles as a } from '@/components/admin/AdminShell';
 import { cmsApi } from '@/lib/cms-api';
-import { getAdmin, setToken, type CmsAdmin } from '@/lib/cms-auth';
+import { getAdmin, setAdmin as setAdminLocal, setToken } from '@/lib/cms-auth';
 
 type AdminRow = {
   id: string;
@@ -40,12 +40,17 @@ export default function AccountPage() {
 // ---------------------------------------------------------------------------
 
 function YourAccountSection() {
-  const me = getAdmin();
+  const [me, setMe] = useState(getAdmin());
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
   const [confirm, setConfirm] = useState('');
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
+
+  // Display-name inline edit state.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [nameBusy, setNameBusy] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -60,6 +65,27 @@ function YourAccountSection() {
     if (next === current) return 'New password must be different from your current one.';
     return null;
   }, [current, next, confirm]);
+
+  const saveDisplayName = async () => {
+    const clean = nameDraft.trim();
+    if (!clean) { setToast({ kind: 'err', msg: 'Display name can\u2019t be empty.' }); return; }
+    if (clean === (me?.display_name || '')) { setEditingName(false); return; }
+    setNameBusy(true);
+    try {
+      const res = await cmsApi.updateMe(clean);
+      // Persist locally so every other page (sidebar footer especially)
+      // reflects the new name without a full reload.
+      const updated = { ...(me || { id: '', email: '' }), ...res.admin };
+      setAdminLocal(updated);
+      setMe(updated);
+      setEditingName(false);
+      setToast({ kind: 'ok', msg: 'Display name updated.' });
+    } catch (err: any) {
+      setToast({ kind: 'err', msg: err?.message || 'Could not update display name.' });
+    } finally {
+      setNameBusy(false);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,7 +111,58 @@ function YourAccountSection() {
 
       <div style={identityRow}>
         <IdentityField label="Email" value={me?.email || '\u2014'} />
-        <IdentityField label="Display name" value={me?.display_name || 'Admin'} />
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', color: '#64748B', textTransform: 'uppercase' }}>Display name</div>
+          {editingName ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6 }}>
+              <input
+                className="cms-input"
+                style={{ ...a.input, marginTop: 0, flex: 1 }}
+                value={nameDraft}
+                onChange={e => setNameDraft(e.target.value)}
+                maxLength={80}
+                autoFocus
+                disabled={nameBusy}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); saveDisplayName(); }
+                  else if (e.key === 'Escape') { setEditingName(false); }
+                }}
+              />
+              <button
+                type="button"
+                className="cms-btn-primary"
+                style={{ ...a.primaryBtn, padding: '8px 14px', fontSize: 13, opacity: nameBusy ? 0.65 : 1 }}
+                onClick={saveDisplayName}
+                disabled={nameBusy}
+              >
+                {nameBusy ? 'Saving\u2026' : 'Save'}
+              </button>
+              <button
+                type="button"
+                style={{ ...a.ghostBtn, padding: '8px 12px', fontSize: 13 }}
+                onClick={() => setEditingName(false)}
+                disabled={nameBusy}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#0A2540', wordBreak: 'break-word' }}>
+                {me?.display_name || 'Admin'}
+              </div>
+              <button
+                type="button"
+                onClick={() => { setNameDraft(me?.display_name || ''); setEditingName(true); }}
+                aria-label="Edit display name"
+                style={editIconBtn}
+              >
+                <span aria-hidden>{'\u270F\uFE0F'}</span>
+                <span>Edit</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ height: 24, borderTop: '1px solid #E2E8F0', margin: '20px 0' }} />
@@ -308,15 +385,19 @@ function InviteModal({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(null);
+    if (!displayName.trim()) {
+      setErr('Please give this admin a display name so they don\u2019t show up as just \u201cAdmin\u201d.');
+      return;
+    }
     setBusy(true);
     try {
       const res = await cmsApi.createAdmin({
         email: email.trim(),
-        display_name: displayName.trim() || undefined,
+        display_name: displayName.trim(),
       });
       onCreated({
         email: res.admin.email,
-        display_name: res.admin.display_name || 'Admin',
+        display_name: res.admin.display_name || displayName.trim(),
         invite_url: res.invite_url,
         expires_in_minutes: res.expires_in_minutes,
       });
@@ -336,6 +417,19 @@ function InviteModal({
         </p>
 
         <form onSubmit={submit} style={{ marginTop: 18 }}>
+          <label style={a.label}>Display name</label>
+          <input
+            className="cms-input"
+            style={a.input}
+            value={displayName}
+            onChange={e => setDisplayName(e.target.value)}
+            placeholder="e.g. Sam Nguyen"
+            required
+            autoFocus
+            maxLength={80}
+          />
+
+          <div style={{ height: 14 }} />
           <label style={a.label}>Email</label>
           <input
             className="cms-input"
@@ -344,16 +438,6 @@ function InviteModal({
             value={email}
             onChange={e => setEmail(e.target.value)}
             required
-            autoFocus
-          />
-
-          <div style={{ height: 14 }} />
-          <label style={a.label}>Display name <span style={{ color: '#94A3B8', fontWeight: 500 }}>(optional)</span></label>
-          <input
-            className="cms-input"
-            style={a.input}
-            value={displayName}
-            onChange={e => setDisplayName(e.target.value)}
           />
 
           {err && <div style={inlineError}>{err}</div>}
@@ -487,6 +571,14 @@ function formatRelative(iso: string): string {
 
 const identityRow: React.CSSProperties = {
   display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 4,
+};
+
+const editIconBtn: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '4px 10px', borderRadius: 999,
+  background: '#F1F5F9', color: '#0F172A',
+  border: '1px solid #E2E8F0',
+  fontSize: 12, fontWeight: 700, cursor: 'pointer',
 };
 
 const sectionSubtitle: React.CSSProperties = {

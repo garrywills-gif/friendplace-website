@@ -52,6 +52,11 @@ export const cmsApi = {
   login: (data: { email: string; password: string }) =>
     req<{ ok: true; token: string; admin: any }>('POST', '/cms/auth/login', data),
   me: () => req<{ id: string; email: string; display_name?: string; last_login_at?: string }>('GET', '/cms/auth/me'),
+  updateMe: (display_name: string) =>
+    req<{
+      ok: true;
+      admin: { id: string; email: string; display_name: string; last_login_at?: string | null };
+    }>('PATCH', '/cms/auth/me', { display_name }),
   forgot: (email: string) => req<{ ok: true }>('POST', '/cms/auth/forgot', { email }),
   reset: (token: string, new_password: string) =>
     req<{ ok: true; token: string }>('POST', '/cms/auth/reset', { token, new_password }),

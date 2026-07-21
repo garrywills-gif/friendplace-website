@@ -191,9 +191,20 @@ class CmsAdminCreateIn(BaseModel):
     We create the row + generate a reset token so the invitee sets
     their own password via `/admin/reset?token=…` (identical flow to
     the "forgot password" wizard). No initial password is stored by
-    the inviter, which is safer than sharing one out-of-band."""
+    the inviter, which is safer than sharing one out-of-band.
+
+    `display_name` is required so no admin lands as a bare 'Admin'
+    label in the sidebar — we surface warm human names everywhere
+    identity is shown."""
     email: EmailStr
-    display_name: Optional[str] = None
+    display_name: str = Field(min_length=1, max_length=80)
+
+
+class CmsMeUpdateIn(BaseModel):
+    """Signed-in admin edits their own profile. Right now only
+    `display_name` is editable — email requires a separate confirm
+    flow we haven't wired yet."""
+    display_name: str = Field(min_length=1, max_length=80)
 
 
 class CmsContentPatch(BaseModel):
@@ -450,6 +461,31 @@ def build_router(db) -> APIRouter:
             "last_login_at": admin.get("last_login_at"),
         }
 
+    @router.patch("/auth/me")
+    async def update_me(
+        body: CmsMeUpdateIn,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Signed-in admin updates their own display name. We keep the
+        payload deliberately narrow (only `display_name` today) so this
+        endpoint doesn't grow into a Swiss-army knife."""
+        new_name = body.display_name.strip()
+        if not new_name:
+            raise HTTPException(400, "Display name can\u2019t be empty.")
+        await db.cms_admins.update_one(
+            {"id": admin["id"]},
+            {"$set": {"display_name": new_name}},
+        )
+        return {
+            "ok": True,
+            "admin": {
+                "id": admin["id"],
+                "email": admin["email"],
+                "display_name": new_name,
+                "last_login_at": admin.get("last_login_at"),
+            },
+        }
+
     @router.post("/auth/forgot")
     async def forgot(body: CmsForgotIn):
         """Request a password-reset email. Always returns 200 (no
@@ -568,7 +604,7 @@ def build_router(db) -> APIRouter:
         doc = {
             "id": admin_id,
             "email": email,
-            "display_name": (body.display_name or "").strip() or "Admin",
+            "display_name": body.display_name.strip(),
             "password_hash": pwd_ctx.hash(placeholder),
             "created_at": _now_iso(),
             "last_login_at": None,
