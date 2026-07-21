@@ -9240,6 +9240,16 @@ async def _ensure_mcgs_indexes():
     except Exception:
         logger.exception("George event_creation index setup failed (non-fatal)")
 
+    # B7 — George Remembers indexes + background sweep. Idempotent.
+    try:
+        from services.george import remembers as _remembers
+        await _remembers.ensure_indexes(db)
+        logger.info("George Remembers indexes verified.")
+        asyncio.create_task(_remembers.sweep_loop(db))
+        logger.info("George Remembers sweep loop scheduled.")
+    except Exception:
+        logger.exception("George Remembers setup failed (non-fatal)")
+
 
 
 @app.on_event("startup")

@@ -130,6 +130,28 @@ export interface EventEditMeta {
   audit?: { id?: string; summary?: string; severity?: 'minor' | 'significant'; action?: string };
 }
 
+// B7 — George Remembers
+export interface RemembersMessage {
+  id: string;
+  kind: 'pre_event' | 'post_event';
+  event_id: string;
+  recipient_id: string;
+  content: string;
+  status: 'scheduled' | 'delivered' | 'dismissed' | 'cancelled' | 'superseded';
+  scheduled_for?: string;
+  event_snapshot?: {
+    title?: string;
+    date?: string;
+    time?: string;
+    location?: string;
+  };
+  created_at?: string;
+  updated_at?: string;
+  delivered_at?: string;
+  seen_at?: string;
+  dismissed_at?: string;
+}
+
 export interface EventSuggestion {
   kind: 'names' | 'description' | 'invitation';
   offer_line: string;
@@ -209,6 +231,15 @@ export const georgeApi = {
   ),
   eventResume: (sessionId: string) => _req<EventSession>(
     `/mcgs/george/event/session/${sessionId}/resume`, { method: 'POST' },
+  ),
+
+  // B7 — George Remembers (persistent inbox)
+  remembersInbox: () => _req<{ items: RemembersMessage[] }>('/mcgs/george/remembers/inbox'),
+  remembersDismiss: (msgId: string) => _req<RemembersMessage>(
+    `/mcgs/george/remembers/${msgId}/dismiss`, { method: 'POST' },
+  ),
+  remembersSeen: (msgId: string) => _req<{ ok: boolean; row?: RemembersMessage }>(
+    `/mcgs/george/remembers/${msgId}/seen`, { method: 'POST' },
   ),
 
   // C1 Voice Phase 1 — Speech-to-text via Whisper. Uploads a short

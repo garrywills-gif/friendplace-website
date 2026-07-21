@@ -843,6 +843,51 @@ def build_router(db) -> APIRouter:
         return {"items": await _ee_event_history(db, event_id=event_id, limit=limit)}
 
 
+    # ---------------- B7 — George Remembers (persistent inbox) ----------------
+    # Pre-event well wishes + post-event follow-ups for organisers. Rows are
+    # created by the sweep in `services.george.remembers`; these endpoints
+    # only READ / MUTATE the inbox from the member's side.
+    from services.george import remembers as _remembers  # local import — new module
+
+    @router.get("/mcgs/george/remembers/inbox")
+    async def api_remembers_inbox(
+        actor: dict = Depends(current_george_actor),
+    ):
+        """The member's currently-visible George Remembers messages.
+
+        Includes rows that are due (scheduled_for <= now) even if the
+        sweep hasn't marked them delivered yet — the API upgrades them
+        to `delivered` on read so dismiss/undo semantics behave.
+        """
+        try:
+            items = await _remembers.fetch_inbox(db, user_id=actor.get("id"))
+        except Exception:
+            log.exception("remembers inbox fetch failed (non-fatal)")
+            items = []
+        return {"items": items}
+
+    @router.post("/mcgs/george/remembers/{msg_id}/dismiss")
+    async def api_remembers_dismiss(
+        msg_id: str,
+        actor: dict = Depends(current_george_actor),
+    ):
+        row = await _remembers.dismiss(db, msg_id, actor.get("id"))
+        if not row:
+            raise HTTPException(404, "Message not found")
+        return row
+
+    @router.post("/mcgs/george/remembers/{msg_id}/seen")
+    async def api_remembers_seen(
+        msg_id: str,
+        actor: dict = Depends(current_george_actor),
+    ):
+        """Idempotent 'the UI just showed this to the member' beacon."""
+        row = await _remembers.mark_seen(db, msg_id, actor.get("id"))
+        # Return whatever we have (or a 204-ish shape). Never 404 — a
+        # replayed beacon shouldn't error.
+        return {"ok": True, "row": row}
+
+
     @router.get("/mcgs/george/presence")
     async def api_george_presence(actor: dict = Depends(current_george_actor)):
         """Light 'what does George know about me right now?' call.

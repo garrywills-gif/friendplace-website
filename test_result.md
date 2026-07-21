@@ -1,68 +1,97 @@
-# B6 Session 3 — Conversational Event Edit UI
+# B7 — George Remembers (MVP)
 
-## Change since Session 2
-B6 Session 3 ships the **frontend polish** that renders and interacts
-with the edit metadata George's turns now carry:
+## What shipped
+- **Persistent inbox** (`george_remembers` Mongo collection) that queues:
+  - **`pre_event`** — organiser-only, fires ~18 h before the event start.
+  - **`post_event`** — organiser-only, fires ~2 h after the event's estimated end (start + 4 h).
+- **Sweep loop** (`services/george/remembers.py::sweep_loop`) runs every 5 minutes with a 15 s startup delay. Idempotent: it never inserts a duplicate active row for the same `(event_id, kind)`.
+- **Reschedule handling** — when an event's date/time changes, still-scheduled rows are superseded and fresh rows inserted for the new time. Delivered rows (already-seen) are left alone unless the shift is > 6 h.
+- **Cancellation handling** — events with `cancelled: True` produce no rows; a second sweep pass cancels any orphaned scheduled rows whose event was removed. The inbox endpoint also does a belt-and-braces per-fetch re-verification so a cancelled event never surfaces even if the sweep hasn't run yet.
+- **Inactive account handling** — sweep skips inactive/deleted organisers.
+- **Timezone-aware** — all wall-clock event date+time interpreted as `Australia/Sydney`; storage is UTC ISO8601.
+- **Home banner** (`GeorgeRemembersBanner`) — quiet, warm card that fetches on home focus, plays TTS via `SpeakButton`, cycles through multiple messages, and supports dismiss. Renders `null` when empty (no home layout disruption).
 
-- **`<EventChangeSummaryCard>`** — new component rendered beneath any
-  George bubble whose turn has `edit`. It supports:
-  - **Compact chip pair** for single-field edits (e.g. `TIME 2pm → 3pm`
-    with `Confirm` / `Keep as is`).
-  - **Full card** for 2+ field edits (per-field OLD → NEW rows).
-  - **Applied "done" state** — muted card with a green checkmark,
-    field diffs still visible, plus...
-  - **Undo chip with 30-second countdown** — taps send "undo that"
-    through the George turn endpoint (the classifier + service
-    handles the revert).
-  - **Cancel confirmation** shown as a danger-styled "Yes, cancel it"
-    button.
-  - **Declined state** — a quiet muted "Left as it was" line.
-- **"Ask George to edit this event"** row on `/events/edit/[id]`
-  (organiser-only) opens George with a prefilled prompt.
-- **`openGeorgeWithPrompt(text)`** added to `GeorgeContext` so any
-  screen can hand a starter message to George — the composer receives
-  the text and the member reviews before sending (review-first rule).
-- **Backend enhancement**: `edit_applied` turns now carry a `before`
-  snapshot alongside `applied`, so the UI can render accurate
-  OLD → NEW diffs after the event has been mutated. Old smoke test
-  still all-green: `pytest tests/test_b6_session2_edit_flow.py -v` = 9/9.
+## API surface
+- `GET  /api/mcgs/george/remembers/inbox` → `{ items: RemembersMessage[] }`. Upgrades due `scheduled` rows to `delivered` on read.
+- `POST /api/mcgs/george/remembers/{msg_id}/dismiss` → 404 if not this user's row.
+- `POST /api/mcgs/george/remembers/{msg_id}/seen` — idempotent viewport beacon (never 404s).
 
 ## Files touched / created
-- `/app/frontend/src/components/george/EventChangeSummaryCard.tsx` (new, ~400 lines).
-- `/app/frontend/src/components/george/GeorgeEventCreation.tsx` — imports the card, adds `onEditAction` handler (`confirm` → "yes please", `decline` → "no, keep as is", `undo` → "undo that"), consumes `pendingOpener` into the composer, and only makes chip actions interactive on the latest George turn.
-- `/app/frontend/src/lib/george-context.tsx` — adds `openGeorgeWithPrompt`, `pendingOpener`, `consumePendingOpener`.
-- `/app/frontend/src/lib/george-api.ts` — adds `edit?: EventEditMeta` to `EventTurn` plus `EventEditKind`, `EventEditAction`, `EventEditMeta` types (including the new `before` field).
-- `/app/frontend/app/events/edit/[id].tsx` — new "Ask George to edit this event" row.
-- `/app/backend/services/george/event_edit_flow.py` — `_before_from_audit()` helper; three `edit_applied` sites now pass `before`.
+- `/app/backend/services/george/remembers.py` (new, ~450 lines) — sweep, delivery, inbox helpers, templates.
+- `/app/backend/mcgs_module.py` — 3 new endpoints under `/mcgs/george/remembers/*`.
+- `/app/backend/server.py` — startup hook wires `ensure_indexes` + `sweep_loop` as a background task.
+- `/app/frontend/src/components/george/GeorgeRemembersBanner.tsx` (new) — home banner.
+- `/app/frontend/src/lib/george-api.ts` — `remembersInbox` / `remembersDismiss` / `remembersSeen` methods + `RemembersMessage` type.
+- `/app/frontend/app/(tabs)/home.tsx` — banner slotted below `FirstRunCard`.
+- `/tmp/b7_remembers_smoke.py` — sweep-level smoke test (5 scenarios, ALL PASS).
 
-## What to test (frontend)
+## Message templates (deterministic, no LLM cost)
+- Pre-event: *"Your {title} is tomorrow, {first_name}. I hope everyone has a lovely time."*
+- Post-event: *"How did {title} go, {first_name}? I hope you had a lovely {morning|afternoon|evening}."* — time-of-day derived from the event's local start hour.
 
-Log in on the mobile web preview as `member@friendplace.com.au` / `TestPass2026!`. Alex hosts a seeded "Coffee Catch-Up" event (id `62217b94-b6ee-45de-834c-912040e58dd3`).
+## What to test (backend + frontend)
 
-### P0 — Session 3 UI
-1. **Entry point exists**: navigate to `/events/edit/62217b94-b6ee-45de-834c-912040e58dd3`. Scroll — the "Ask George to edit this event" row (blue butterfly-bg tile) should appear above the Save/Cancel buttons.
-2. **Entry point opens George with opener**: tap it. George should open (butterfly host modal) and the composer should be prefilled with `Help me edit my "Coffee Catch-Up" event` — the member can review before tapping Send.
-3. **Compact card for a single-field high-risk edit**: type *"please change the time to 3pm"* → Send. Wait for George's reply (~5-10s). A card should appear underneath the bubble showing `TIME 2pm → 3pm` with `Confirm` and `Keep as is` buttons.
-4. **Confirm applies + applied card + Undo chip**: tap `Confirm`. Composer shows "yes please" as the sent turn. George replies with `Done — I've updated the time on Coffee Catch-Up.` and a **muted APPLIED card** appears showing `TIME 2pm → 3pm` and an **Undo · 30s** chip that visibly counts down.
-5. **Undo works**: within 30s, tap the Undo chip. George replies `Done — I've reverted the last change on Coffee Catch-Up.` and time reverts to 2pm on the event in Mongo. The applied card disappears from the latest turn.
-6. **Historical cards become inert**: after scrolling back through the conversation, the older `TIME 2pm → 3pm` awaiting-confirm card's Confirm button should be visually disabled (opacity ~0.6) — historical only.
-7. **Full card for a multi-field edit**: send *"please move Coffee Catch-Up to next Friday at 5pm at the Town Hall instead"*. The card should show all three fields (DATE / TIME / LOCATION) with each row struck-through OLD → downarrow → bold NEW.
-8. **Decline preserves original**: send *"actually change the date to next Monday"*, then tap `Keep as is`. George says `No worries — I've left Coffee Catch-Up as it was.` and a quiet muted "Left as it was" line replaces the card.
-9. **Cancel confirmation is danger-styled**: send *"cancel the Coffee Catch-Up event"*. The card should say "Cancel Coffee Catch-Up" with a red `Yes, cancel it` button. Tap `Keep as is` — event stays uncancelled in Mongo.
-10. **Low-risk edit shows applied card only (no confirm)**: send *"please update the description to mention parking is limited"*. George should reply immediately with `Done — I've updated the description...` and an APPLIED card should appear (no confirm chip step). Undo chip still shows 30s.
+### P0 — Backend (queue + delivery)
+Use `member@friendplace.com.au` / `TestPass2026!` (Alex, id `d8ef0bc1-1dfe-44d8-aa8b-46a0ad68e0ba`).
 
-### P1 — Regression
-11. Normal event creation still works — start a new session (no opener), send *"I'd like to organise a book club on Friday at 6pm"*. No edit cards should render — the normal composer replies.
-12. Companion chat unaffected — send *"hello George"*. No edit metadata / cards.
+1. **Sweep creates rows for a future event** — insert an event `18h + 1h = 19h` from now (so pre_event = 1h from now). Call `POST /api/mcgs/george/remembers/inbox` before the sweep — should be empty. Run the sweep (either wait 5 min or `python -c "from services.george.remembers import sweep_once; ..."`). Now the row exists in Mongo with `status='scheduled'`.
+2. **Idempotency** — running the sweep twice results in `created=0` on the second pass.
+3. **Rescheduling** — after step 1, update the event to a different time. Next sweep marks the old row `status='superseded'` and inserts a fresh row aligned to the new time.
+4. **Cancellation** — set `cancelled: True` on an event with a scheduled row. Next sweep marks the row `status='cancelled'` with `cancelled_reason='event_removed'`.
+5. **Inactive user** — set `is_active: False` on an organiser. Sweep skips them (`skipped_inactive_user` count increments; no rows inserted).
+6. **TZ handling** — events with time in Sydney local should compute `scheduled_for` in UTC correctly (18h before local start).
 
-### Not for this session
-- Disambiguation candidate chips (backend supports it via `edit.candidates` but the UI just falls through to typed replies for MVP).
-- Native (iOS/Android) — Session 3 tests on the mobile web preview only. Native builds should be validated on a device.
+### P0 — Inbox + Dismiss (HTTP)
+7. **Due rows are delivered on read** — a `scheduled` row whose `scheduled_for` is in the past is returned by the inbox and upgraded to `delivered` in the same call.
+8. **Delivered rows persist across restarts** — after step 7, restart the backend (`sudo supervisorctl restart backend`) and re-fetch the inbox. The row should still be in the list with `status='delivered'`.
+9. **Dismiss removes the row from inbox** — `POST /remembers/{id}/dismiss` → row transitions to `status='dismissed'` and no longer appears in `/inbox`.
+10. **Cancelled event is filtered from inbox** — even if a `delivered` row exists, if its event is now `cancelled: True`, the inbox endpoint filters it out (belt-and-braces).
+11. **Wrong user can't dismiss** — dismissing another user's row returns 404.
+12. **Regression: `/mcgs/george/presence` and event edit endpoints untouched** — Session 2 tests should still pass (`pytest tests/test_b6_session2_edit_flow.py` = 9/9).
 
-## Credentials
-- Mobile member: `member@friendplace.com.au` / `TestPass2026!` (Alex; hosts "Coffee Catch-Up" event `62217b94-b6ee-45de-834c-912040e58dd3`).
+### P0 — Frontend banner
+13. **Empty state renders nothing** — no rows → home shows nothing extra (no visible banner).
+14. **Card renders** — with a delivered row, the banner appears below `FirstRunCard` with:
+    - Green butterfly icon + "GEORGE REMEMBERS" label
+    - Message text ("Your ... is tomorrow, Alex. I hope everyone has a lovely time.")
+    - Speaker button + dismiss (×) button
+15. **Dismiss works** — tap ×, card disappears optimistically. Refresh page → still gone.
+16. **Multiple messages cycle** — with 2+ rows, a "1 of N" pill appears with prev/next chevron buttons. Nav cycles between them.
+17. **Speaker button plays TTS** — tap speaker icon, audio plays (uses existing `SpeakButton` — no B7 change).
 
-## Notes
-- The chip actions (`Confirm` / `Keep as is` / `Undo`) fire "yes please" / "no, keep as is" / "undo that" through the normal event turn endpoint — the backend classifier short-circuits these on `_looks_like_confirm` word-boundary regex without hitting an LLM. Latency: ~200-500ms typical.
-- The `before` snapshot on applied turns comes from the audit row's per-field `{old, new}` changes list — no extra Mongo read.
-- The Undo chip is a client-only countdown; the actual undo works whenever, but the chip disappears at 0s. Members can always type "undo that" to trigger it.
+## Test credentials
+- Mobile member: `member@friendplace.com.au` / `TestPass2026!`
+- Mission Control admin: `hello@friendplace.com.au` / `TestPass2026!`
+
+## Helpers for testers
+- Reset test state:
+```python
+import asyncio, os
+from motor.motor_asyncio import AsyncIOMotorClient
+async def main():
+    c = AsyncIOMotorClient(os.environ.get('MONGO_URL','mongodb://localhost:27017'))
+    db = c['test_database']
+    alex = await db.users.find_one({'username': 'member_first'})
+    await db.events.delete_many({'host_id': alex['id'], 'title': {'$regex': '^DEMO_'}})
+    await db.george_remembers.delete_many({'recipient_id': alex['id']})
+asyncio.run(main())
+```
+- Seed a due `pre_event` row: run `/tmp/b7_remembers_smoke.py` first (creates SMOKE_ events), then adapt for DEMO_ events kept for manual UI testing.
+- Force a sweep pass without waiting for the 5-minute loop:
+```python
+import asyncio, sys
+sys.path.insert(0, "/app/backend")
+from motor.motor_asyncio import AsyncIOMotorClient
+from services.george import remembers
+async def main():
+    c = AsyncIOMotorClient(os.environ.get("MONGO_URL","mongodb://localhost:27017"))
+    await remembers.sweep_once(c["test_database"])
+asyncio.run(main())
+```
+
+## Not in this MVP
+- Push notifications (needs the emergent-managed push integration + deploy)
+- Attendee-facing messages (organiser-only for MVP)
+- "How did it go?" follow-ups with notes/photo workflows
+- Remembered-change nudge (would repeat what George already confirms at edit-time)
+- Per-community timezone (Aus fixed for now)

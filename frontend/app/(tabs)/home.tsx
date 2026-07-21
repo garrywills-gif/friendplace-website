@@ -13,6 +13,7 @@ import AvatarBubble from "@/src/components/AvatarBubble";
 import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import FirstRunCard from "@/src/components/FirstRunCard";
 import BrandLockup from "@/src/components/BrandLockup";
+import { GeorgeRemembersBanner } from "@/src/components/george/GeorgeRemembersBanner";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -356,6 +357,11 @@ export default function Home() {
         {user?.id ? (
           <FirstRunCard userId={user.id} firstName={user.first_name} />
         ) : null}
+
+        {/* B7 — George Remembers: pre-event well-wishes + post-event
+            follow-ups the organiser hasn't yet dismissed. Silent
+            (returns null) when the inbox is empty. */}
+        {user?.id ? <GeorgeRemembersBanner /> : null}
 
         {flutters.length > 0 && (
           <Animated.View
