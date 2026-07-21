@@ -266,3 +266,152 @@ Depends on George Phase 2 (mobile) shipping first. Some game
 foundations already exist in `/app/backend/` (trivia, word search,
 sudoku, suburbs, spot-the-difference backdrops) — the new work is
 the social multiplayer layer + George's host prompts.
+
+---
+
+## ➕ Additions captured 25 Jul 2026 (TestFlight-eve consolidation)
+
+Everything the assistant + Garry had scattered across sessions but
+hadn't yet written into this file. Priorities are rough steer only —
+adjust when you come back.
+
+### 🎪 Events Module — Session B (Garry, 17 Jul, still open)
+Reiterated here so it lives in one place — carries over from the
+Events block above:
+- [ ] Public `/events/[slug]` detail page + email-capture RSVP form (no login)
+- [ ] Add-to-calendar `.ics` download on the detail page + confirmation email
+- [ ] **Mobile app RSVP UX** — dedicated Events tab in the mobile app that
+      reads `/api/public/events`, supports join / waitlist / cancel
+- [ ] Automatic cancellation email via Resend when admin cancels an event
+
+### 💬 B6 Session 3 — Stretch UI polish (P4)
+Only the disambiguation piece is left; core B6 is now stable.
+- [ ] **Disambiguation candidate chips** — the backend already returns
+      `edit.candidates` when a member's edit request could match >1 of
+      their events. Currently the mobile UI falls through to a typed
+      reply. Post-launch, render tappable chips so the member can
+      resolve the ambiguity in one tap.
+- [ ] Same treatment on the web preview.
+
+### 💛 B7 — George Remembers polish (P3)
+MVP is live; these are the "would be nice" extras Garry deferred:
+- [ ] **Attendee-facing pre-event and post-event messages** (organiser-only
+      for MVP). Copy + timing decisions to be re-locked before build.
+- [ ] **Per-community timezone** support — currently hardcoded to
+      `Australia/Sydney`. Add a `community.tz` column or a per-event
+      `tz` field and thread it through `_event_start_dt_utc()`.
+- [ ] **How-did-it-go workflow** — post-event message becomes a card
+      that lets the organiser jot a quick note or attach a photo the
+      community can see. Talk to Garry about tone before building.
+- [ ] **Remembered-change nudge** — bring this back if a real member
+      complaint proves George's edit-time confirmations aren't enough.
+      Explicitly not-shipping-for-launch (Garry, 25 Jul).
+
+### 🔊 George voice & audio (P4)
+- [ ] **Native TTS cache pruning** — `Paths.cache/george-*.mp3` grows
+      unbounded on device. Add an LRU sweeper (async task on app
+      background) that keeps the newest ~20 files and deletes the rest.
+- [ ] **Voice persona additions** — beyond George / Georgia, consider
+      an Australian-accented voice pair once the OpenAI TTS catalogue
+      supports it (or fall back to ElevenLabs).
+- [ ] **STT quality on noisy environments** — investigate a
+      confidence-threshold gate that asks "did you mean X?" instead
+      of blindly using low-confidence transcriptions.
+
+### 💬 Chats tab — member-to-member DMs (P3)
+Full feature deferred until after TestFlight:
+- [ ] 1:1 DMs with typing indicator + delivered receipts
+- [ ] Push notification on new message (needs push infra, below)
+- [ ] Block / mute / report
+- [ ] George opt-in for "gentle icebreaker" on new DMs
+
+### 🍎 Apple Sign-In finalisation (P2 — critical for TestFlight review)
+Client + server are shipped. Remaining infrastructure:
+- [ ] In Apple Developer portal — App ID `au.com.friendplace.app` MUST
+      have **"Sign in with Apple"** capability enabled BEFORE the first
+      TestFlight external test round, or Apple will reject the build.
+- [ ] Add a **Sign-In with Apple** button to any web surface that also
+      offers Google login, per Apple's parity rule.
+- [ ] Once live, confirm private-relay email forwarding round-trips
+      to a monitored inbox.
+
+### 🔔 Push notifications (P3)
+Explicitly deferred until after launch. When we're ready:
+- [ ] Wire the Emergent-managed push integration
+- [ ] Ask Garry for `google-services.json` from Firebase console
+- [ ] `EMERGENT_PUSH_KEY` gets injected by Emergent at deploy time —
+      no manual edit
+- [ ] Feature *only* works on native iOS/Android builds (never Expo Go)
+- [ ] First candidate use cases: new DM, RSVP flip on your event, B7
+      pre-event nudge, MCGS admin alerts
+
+### 🧭 MCGS Phase 4 — Health Pulse UI (P3)
+Backend rhythms are shipped; the dashboard is what's outstanding.
+- [ ] Community-wide vitals dashboard in Mission Control:
+      active members / new joins / event RSVPs / George interactions /
+      complaint volume — trend lines + week-on-week deltas
+- [ ] Drill-down into any metric to the underlying event / user rows
+- [ ] Alert thresholds Garry can tune (e.g. "flag if RSVPs drop >30%
+      week-on-week")
+
+### 🚨 MCGS Phase 5 — Alerts routing + SMS (P3)
+- [ ] Routing rules for who gets which alert kind (organiser, admin,
+      George itself)
+- [ ] SMS groundwork — Twilio integration for the highest-priority
+      alerts (community safety, event cancellations)
+- [ ] In-app alerts inbox on the mobile app (separate from George
+      Remembers)
+
+### 🧹 Codebase refactor — server.py + mcgs_module.py (P4)
+- [ ] `/app/backend/server.py` is ~10 000 lines. Split into domain
+      routers under `/app/backend/routes/` (auth, events, george,
+      cms, mcgs, admin, media). Ship route-by-route so tests can
+      catch regressions per slice.
+- [ ] `/app/backend/mcgs_module.py` is ~1 550 lines — same treatment.
+- [ ] Move Pydantic models out of the router files and into
+      `/app/backend/models/` per domain.
+- [ ] Ensure route-level tests in `/app/backend/tests/` still pass
+      after each move.
+
+### 📱 Native build sanity items (P3 — do before wider TestFlight round)
+- [ ] Verify audio playback in background on a real device (Voice
+      Phase 3 relies on `expo-audio` which needs a native build to
+      confirm)
+- [ ] Verify Apple Sign-In on a real device (Expo Go can't test it)
+- [ ] Verify push flow end-to-end on a real device (when built)
+- [ ] Icon / splash on both light and dark iOS themes
+- [ ] Screenshot capture for the App Store listing on iPhone 15 Pro
+      Max + iPhone 15 (App Store requires the top-two current sizes)
+
+### 🌏 Multi-community / multi-region (P5 — future thinking)
+- [ ] Per-community branding (colours, name, tagline)
+- [ ] Per-community timezone (see B7 polish)
+- [ ] Per-community admin scoping — a Mission Control admin should
+      only see their own community's data
+- [ ] Cross-community discovery (opt-in) — "See what's happening in
+      nearby FriendPlace communities"
+
+### 🩺 Observability & ops (P4)
+- [ ] Basic error reporting (Sentry or LogTail) on both backend and
+      frontend
+- [ ] Structured logs for the George LLM calls (prompt tokens,
+      completion tokens, cost per turn — for budget visibility)
+- [ ] Uptime monitoring for the deployed backend + Next.js portal
+- [ ] Automated DB backups (Mongo Atlas snapshots — configure retention)
+
+### 📝 Content & marketing (P3)
+- [ ] Privacy policy page hosted somewhere the App Store form can
+      link to (drafted in `app_store_listing_draft.md` — needs to
+      go live on friendplace.com.au before submission)
+- [ ] Terms of service page (same)
+- [ ] Contact / support email address publicly listed
+- [ ] "How George works" transparency page — explains AI use in
+      plain language, addresses the "is this real?" question
+- [ ] Founders' page updates as more Founding Members join
+
+---
+
+**Note (Garry, 25 Jul 2026):** Feature freeze is in effect from this
+consolidation onward. Nothing on this list gets built until FriendPlace
+is live on TestFlight and a full external test round has completed.
+
