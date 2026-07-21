@@ -989,8 +989,11 @@ function SpeakerButton({ text }: { text: string }) {
         // Non-fatal on web where audio-mode is a no-op.
         if (__DEV__) console.warn('[SpeakerButton] setAudioModeAsync failed', e);
       }
+      // `player.replace()` positions the new source at 0 and (on web
+      // especially) can auto-start loading. Calling `seekTo(0)` then
+      // `play()` restarts the clip after the first few frames — the
+      // "says their name and restarts" bug. Just call `play()`.
       player.replace({ uri });
-      try { player.seekTo(0); } catch { /* first-load: no position yet */ }
       player.play();
       setPhase('playing');
     } catch (e: any) {

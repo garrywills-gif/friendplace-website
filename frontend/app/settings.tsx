@@ -413,8 +413,10 @@ function GeorgeVoiceCard() {
     try {
       try { await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }); } catch { /* web no-op */ }
       const uri = await georgeApi.speak(PREVIEW_LINES[which], which);
+      // `replace()` positions the new source at 0 by itself — calling
+      // `seekTo(0)` here caused an audible restart-after-first-word
+      // stutter on web. Just play.
       player.replace({ uri });
-      try { player.seekTo(0); } catch { /* first-play */ }
       player.play();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Couldn\u2019t play the preview. Please try again.";
