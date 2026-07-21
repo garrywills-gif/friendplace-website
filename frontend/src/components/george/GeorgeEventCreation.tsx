@@ -250,10 +250,13 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const [postApproval, setPostApproval] = useState<boolean>(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const revealTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  // Track George turns we've already auto-read this modal open so we
-  // don't re-read the same reveal every time revealApiTurns re-runs.
-  // Keys are `${role}:${content?.slice(0,40)}:${at||''}`.
-  const spokenKeysRef = useRef<Set<string>>(new Set());
+  // Track how many turns we've already auto-read so we speak each
+  // fresh George reply exactly once per modal open (never re-reads
+  // the whole history when revealApiTurns re-runs on boot / resume).
+  // TestFlight follow-up (Garry, 27 July): earlier content-hash dedup
+  // was flaky when two consecutive George turns shared a `at` field
+  // or an empty `content` prefix — a running count is deterministic.
+  const lastAutoReadCountRef = useRef<number>(0);
 
   // ---- Cleanup any pending reveal timers on unmount ---------------------
   useEffect(() => () => {
@@ -336,6 +339,10 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     if (last.role === 'user') {
       // No animation for user turns coming from the server.
       setTurns([...priorLocal, { ...last, revealAt: 0 }]);
+      // Advance the auto-read cursor so subsequent George replies stay
+      // "fresh" — otherwise a user echo alone would skip the very next
+      // George reply.
+      lastAutoReadCountRef.current = apiTurns.length;
       return;
     }
 
@@ -352,25 +359,28 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     // handled by Reanimated fade-in staggers inside the bubble itself).
     setTurns([...priorLocal, { ...last, revealAt: Date.now() }]);
 
-    // B4 accessibility — if "Auto-read new messages" is on in
-    // Settings, speak the fresh George message the moment it's
-    // visible. TestFlight feedback (Garry, 27 July): route through
-    // the cloud voice so members hear the SAME persona voice as when
-    // they tap the Speaker (▶︎) button, and so the audio plays even
-    // when the iOS ringer switch is muted (playsInSilentMode:true).
-    if (prefs?.autoReadNewMessages && last.role === 'george') {
+    // TestFlight #6 follow-up (Garry, 27 July v2): auto-read fires
+    // when the turn-count has advanced past our last-auto-read cursor.
+    // Deterministic and immune to duplicate content / timestamps.
+    if (
+      prefs?.autoReadNewMessages
+      && last.role === 'george'
+      && apiTurns.length > lastAutoReadCountRef.current
+    ) {
+      lastAutoReadCountRef.current = apiTurns.length;
       const text = (
         [last.excitement_line, last.working_line, last.warmth_line, last.content]
           .filter(Boolean) as string[]
       ).join(' ').trim();
       if (text) {
-        const key = `${last.role}:${(last.content || '').slice(0, 40)}:${last.at || ''}`;
-        if (!spokenKeysRef.current.has(key)) {
-          spokenKeysRef.current.add(key);
-          // Fire-and-forget — errors are already swallowed inside.
-          void speakGeorgeAloud(text);
-        }
+        // Fire-and-forget — errors are already swallowed inside.
+        void speakGeorgeAloud(text);
       }
+    } else {
+      // Even if we skipped auto-read (pref off, or already-spoken),
+      // advance the cursor so we don't re-read old turns on the next
+      // reveal cycle.
+      lastAutoReadCountRef.current = apiTurns.length;
     }
 
     await new Promise(r => {
@@ -500,6 +510,12 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
         revealAt: Date.now() + 500,
       };
       setTurns(prev => [...prev, celebrationTurn, followUpTurn]);
+      // Auto-read the follow-up too if the pref is on so members
+      // don't have to tap Speaker on the celebration turn.
+      if (prefs?.autoReadNewMessages) {
+        const combined = `${celebrationText} ${followUpTurn.content}`.trim();
+        if (combined) void speakGeorgeAloud(combined);
+      }
       // 3. Reset event-mode state so composer, not preview, is shown
       setPostApproval(true);
       setStatus('in_progress');
@@ -530,7 +546,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     } finally {
       setApproving(false);
     }
-  }, [sessionId, approving, currentScreen, setActiveSessionId, clearActiveSession]);
+  }, [sessionId, approving, currentScreen, setActiveSessionId, clearActiveSession, prefs?.autoReadNewMessages]);
 
   const askForChanges = useCallback(() => {
     if (!sessionId || busy) return;
