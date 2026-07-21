@@ -15,11 +15,11 @@
  * This satisfies App Store Review Guideline 5.1.1(v) and Google Play's
  * 2024+ "in-app account deletion" requirement.
  */
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, Switch, Pressable, Modal, Alert, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, Switch, Pressable, Modal, Alert, ActivityIndicator, FlatList,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useTheme } from "@/src/lib/theme";
@@ -28,6 +28,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import { useGeorgeVoice, setVoice, VOICE_LABELS, type GeorgeVoice } from "@/src/lib/george-voice";
 import { georgeApi } from "@/src/lib/george-api";
+import { loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import Header from "@/src/components/Header";
 
 const GUIDELINES = [
@@ -41,10 +42,40 @@ const GUIDELINES = [
 export default function Settings() {
   const { c, scale, prefs, setPref } = useTheme();
   const { user, token, logout } = useAuth();
+  const { show } = useToast();
   const router = useRouter();
+  const params = useLocalSearchParams<{ anchor?: string }>();
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Favourite thoughts — surfaces items members have hearted from
+  // "Today's Thought". Kept from the old standalone Accessibility page
+  // because it's the only place these saves are viewable.
+  const [favsOpen, setFavsOpen] = useState(false);
+  const [favs, setFavs] = useState<string[]>([]);
+  useEffect(() => { (async () => setFavs(await loadFavourites()))(); }, [favsOpen]);
+
+  // Deep-link anchor. `router.push('/settings?anchor=accessibility')`
+  // (or any other section key) will scroll to the named section on
+  // mount. We remember each section's Y in refs via `onLayout`.
+  const scrollRef = useRef<ScrollView>(null);
+  const anchorYs = useRef<Record<string, number>>({});
+  const registerAnchor = useCallback((key: string) => (y: number) => {
+    anchorYs.current[key] = y;
+  }, []);
+  useEffect(() => {
+    const target = (params.anchor || '').toString();
+    if (!target) return;
+    // Give the layout a beat to settle so `onLayout` has fired.
+    const t = setTimeout(() => {
+      const y = anchorYs.current[target];
+      if (y != null && scrollRef.current) {
+        scrollRef.current.scrollTo({ y: Math.max(0, y - 12), animated: true });
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [params.anchor]);
 
   const doDelete = async () => {
     if (!token) {
@@ -74,8 +105,11 @@ export default function Settings() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Settings" emoji="⚙️" subtitle="Preferences · Account · Accessibility" />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
-        <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>Accessibility</Text>
+      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
+        <Text
+          style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}
+          onLayout={(e) => registerAnchor('accessibility')(e.nativeEvent.layout.y)}
+        >Accessibility</Text>
         {/* Text zoom — 4-step slider that scales every font in the app.
             Replaces the coarse "Large text" toggle for users who want a
             gentler bump or an even bigger boost. Live preview: tapping
@@ -123,14 +157,84 @@ export default function Settings() {
           </View>
           <Switch testID="toggle-high-contrast" value={prefs.highContrast} onValueChange={(v) => setPref("highContrast", v)} trackColor={{ true: c.brand, false: c.border }} />
         </View>
+        {/* Simplified mode — bumps padding and touch targets across
+            the app for members who prefer less clutter and bigger tap
+            areas. Backed by `theme.simplified`. */}
         <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           <View style={{ flex: 1 }}>
-            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>Voice-to-text</Text>
-            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Use your device&apos;s built-in microphone button on the keyboard to dictate messages anywhere in the app.</Text>
+            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>Simplified mode</Text>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Larger buttons and more breathing room. Reduces visual clutter.</Text>
           </View>
+          <Switch
+            testID="toggle-simplified"
+            value={prefs.simplified}
+            onValueChange={(v) => { setPref("simplified", v); show(`Simplified mode ${v ? "on" : "off"}`); }}
+            trackColor={{ true: c.brand, false: c.border }}
+          />
+        </View>
+
+        {/* Reading aloud — show a speaker icon beside messages, posts
+            and Today's Thought so members can tap to hear them. Uses
+            the device's built-in TTS via `expo-speech`. */}
+        <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>Read messages aloud</Text>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Show a speaker icon beside messages, posts and Today&apos;s Thought so you can tap to hear them.</Text>
+          </View>
+          <Switch
+            testID="toggle-read-aloud"
+            value={prefs.readMessagesAloud}
+            onValueChange={(v) => { setPref("readMessagesAloud", v); show(`Read aloud ${v ? "on" : "off"}`); }}
+            trackColor={{ true: c.brand, false: c.border }}
+          />
+        </View>
+
+        <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>Auto-read new messages</Text>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Automatically speak incoming chat messages as they arrive.</Text>
+          </View>
+          <Switch
+            testID="toggle-auto-read"
+            value={prefs.autoReadNewMessages}
+            onValueChange={(v) => { setPref("autoReadNewMessages", v); show(`Auto-read ${v ? "on" : "off"}`); }}
+            trackColor={{ true: c.brand, false: c.border }}
+          />
+        </View>
+
+        {/* Voice typing — the in-app tap-to-dictate mic (expo-audio
+            capture + OpenAI whisper-1). Members can also always fall
+            back to the device keyboard's built-in microphone key. */}
+        <View style={[styles.row, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>Voice typing</Text>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2 }}>Tap the mic beside any message box to dictate. You can always use the 🎤 on your device&apos;s keyboard instead.</Text>
+          </View>
+          <Switch
+            testID="toggle-voice-input"
+            value={prefs.voiceInputEnabled}
+            onValueChange={(v) => { setPref("voiceInputEnabled", v); show(`Voice typing ${v ? "on" : "off"}`); }}
+            trackColor={{ true: c.brand, false: c.border }}
+          />
         </View>
 
         <GeorgeVoiceCard />
+
+        {/* Favourite thoughts — carried over from the old dedicated
+            Accessibility screen. Only place in the app where members
+            can review the "Today's Thought" cards they've hearted. */}
+        <Pressable
+          testID="settings-open-favs"
+          onPress={() => setFavsOpen(true)}
+          style={[styles.favsLink, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+        >
+          <Ionicons name="heart" size={22} color={c.error} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 17 * scale }}>Favourite thoughts ({favs.length})</Text>
+            <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>Tap the heart on Today&apos;s Thought to save your favourites.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={c.muted} />
+        </Pressable>
 
         <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>Community Guidelines</Text>
         <View style={[styles.cardBig, { backgroundColor: c.brandTertiary }]}>
@@ -226,6 +330,50 @@ export default function Settings() {
             </View>
           </Pressable>
         </Pressable>
+      </Modal>
+
+      {/* Favourite Thoughts sheet — a bottom-sheet listing every
+          "Today's Thought" the member has hearted. Removing a favourite
+          from here is optimistic (removes from local state before the
+          async persist call). */}
+      <Modal visible={favsOpen} animationType="slide" transparent onRequestClose={() => setFavsOpen(false)}>
+        <View style={styles.favsWrap}>
+          <View style={[styles.favsSheet, { backgroundColor: c.surface }]}>
+            <View style={styles.favsHead}>
+              <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale }}>Favourite thoughts</Text>
+              <Pressable onPress={() => setFavsOpen(false)} hitSlop={8} style={{ padding: 6 }} accessibilityLabel="Close favourites">
+                <Ionicons name="close" size={26} color={c.onSurface} />
+              </Pressable>
+            </View>
+            <FlatList
+              data={favs}
+              keyExtractor={(t, i) => `${i}-${t}`}
+              ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+              ListEmptyComponent={() => (
+                <Text style={{ color: c.muted, textAlign: "center", padding: 20, fontSize: 14 * scale, lineHeight: 20 }}>
+                  You haven&apos;t saved any thoughts yet. Tap the heart on Today&apos;s Thought to add one here.
+                </Text>
+              )}
+              renderItem={({ item }) => (
+                <View style={[styles.favRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  <Text style={{ color: c.onSurface, flex: 1, fontSize: 15 * scale, lineHeight: 21 }}>{item}</Text>
+                  <Pressable
+                    onPress={async () => {
+                      // Optimistic remove; the async op just persists.
+                      setFavs(prev => prev.filter(t => t !== item));
+                      await toggleFavourite(item);
+                    }}
+                    accessibilityLabel="Remove favourite"
+                    hitSlop={8}
+                    style={{ padding: 6 }}
+                  >
+                    <Ionicons name="close-circle" size={22} color={c.muted} />
+                  </Pressable>
+                </View>
+              )}
+            />
+          </View>
+        </View>
       </Modal>
     </View>
   );
@@ -409,4 +557,12 @@ const styles = StyleSheet.create({
     flex: 1, alignItems: "center", paddingVertical: 14,
     borderRadius: 999, minHeight: 48, borderWidth: 1,
   },
+  favsLink: {
+    flexDirection: "row", alignItems: "center",
+    padding: 14, borderRadius: 16, borderWidth: 1,
+  },
+  favsWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  favsSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, maxHeight: "80%" },
+  favsHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  favRow: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 14, borderWidth: 1, gap: 6 },
 });

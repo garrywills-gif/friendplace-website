@@ -389,6 +389,10 @@ function InviteModal({
       setErr('Please give this admin a display name so they don\u2019t show up as just \u201cAdmin\u201d.');
       return;
     }
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setErr('Please enter a valid email address.');
+      return;
+    }
     setBusy(true);
     try {
       const res = await cmsApi.createAdmin({
@@ -416,7 +420,7 @@ function InviteModal({
           We\u2019ll create their account and generate a one-time link so they can set their own password.
         </p>
 
-        <form onSubmit={submit} style={{ marginTop: 18 }}>
+        <form onSubmit={submit} noValidate style={{ marginTop: 18 }}>
           <label style={a.label}>Display name</label>
           <input
             className="cms-input"
@@ -424,7 +428,6 @@ function InviteModal({
             value={displayName}
             onChange={e => setDisplayName(e.target.value)}
             placeholder="e.g. Sam Nguyen"
-            required
             autoFocus
             maxLength={80}
           />
@@ -437,7 +440,6 @@ function InviteModal({
             type="email"
             value={email}
             onChange={e => setEmail(e.target.value)}
-            required
           />
 
           {err && <div style={inlineError}>{err}</div>}

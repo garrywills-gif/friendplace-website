@@ -533,7 +533,7 @@ export default function Profile() {
       <View style={{ height: 12 }} />
       <Button label="Help & Support" variant="outline" onPress={() => router.push("/help")} testID="profile-help" />
       <View style={{ height: 12 }} />
-      <Button label="Accessibility Settings" variant="outline" onPress={() => router.push("/settings/accessibility")} testID="profile-accessibility" />
+      <Button label="Accessibility Settings" variant="outline" onPress={() => router.push("/settings?anchor=accessibility")} testID="profile-accessibility" />
       <View style={{ height: 12 }} />
       <Button label="Settings" variant="ghost" onPress={() => router.push("/settings")} testID="profile-settings" />
       {(user as any)?.is_admin && (
