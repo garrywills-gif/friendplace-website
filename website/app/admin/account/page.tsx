@@ -417,7 +417,7 @@ function InviteModal({
       <div style={modalCard} onClick={e => e.stopPropagation()}>
         <h3 style={{ margin: 0, fontSize: 20, color: '#0A2540', fontWeight: 900 }}>Add admin</h3>
         <p style={{ ...a.helper, marginTop: 6 }}>
-          We\u2019ll create their account and generate a one-time link so they can set their own password.
+          {"We\u2019ll create their account and generate a one-time link so they can set their own password."}
         </p>
 
         <form onSubmit={submit} noValidate style={{ marginTop: 18 }}>
