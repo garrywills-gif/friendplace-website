@@ -8,6 +8,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { georgeApi } from '@/src/lib/george-api';
 import SpeakButton from '@/src/components/SpeakButton';
+import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
+import { useTheme } from '@/src/lib/theme';
+import * as Speech from 'expo-speech';
+import { speakGeorgeAloud, stopGeorgeAutoRead } from '@/src/lib/george-auto-read';
+import { Ionicons } from '@expo/vector-icons';
+import { useGeorgeVoiceInput } from '@/src/lib/useGeorgeVoiceInput';
 
 /**
  * George's onboarding conversation surface — Slice B4 mobile MVP.
@@ -52,6 +58,9 @@ const FIELD_LABELS: Record<string, string> = {
 
 export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   const insets = useSafeAreaInsets();
+  const { voice } = useGeorgeVoice();
+  const voiceLabel = VOICE_LABELS[voice]?.short || 'George';
+  const { prefs } = useTheme();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState<string>('in_progress');
@@ -59,6 +68,31 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(true);
   const scrollRef = useRef<ScrollView | null>(null);
+
+  // B4 voice input — push-to-talk mic that transcribes into the composer.
+  const voiceIn = useGeorgeVoiceInput(setInput);
+  const isRecording = voiceIn.voicePhase === 'recording';
+  const isTranscribing = voiceIn.voicePhase === 'transcribing';
+
+  // B4 accessibility — auto-read new George turns aloud when the
+  // "Auto-read new messages" setting is on. TestFlight feedback
+  // (Garry, 27 July 2026): route through the cloud persona voice so
+  // members hear the SAME voice the Speaker (▶︎) button uses, and so
+  // the clip plays even when the iOS ringer switch is muted.
+  const spokenIdxRef = useRef<number>(-1);
+  useEffect(() => {
+    if (!prefs?.autoReadNewMessages) return;
+    const last = turns.length - 1;
+    if (last <= spokenIdxRef.current) return;
+    const t = turns[last];
+    if (!t || t.role !== 'george' || !t.content?.trim()) return;
+    spokenIdxRef.current = last;
+    void speakGeorgeAloud(t.content);
+  }, [turns, prefs?.autoReadNewMessages]);
+
+  // Stop any in-flight speech when the screen unmounts so a
+  // half-spoken bubble doesn't linger after the user leaves.
+  useEffect(() => () => { stopGeorgeAutoRead(); Speech.stop(); }, []);
 
   useEffect(() => {
     (async () => {
@@ -129,7 +163,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     >
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
-        <Text style={styles.headerName}>George</Text>
+        <Text style={styles.headerName}>{voiceLabel}</Text>
         <Pressable onPress={finishLater} hitSlop={8}>
           <Text style={styles.finishLater}>Finish later</Text>
         </Pressable>
@@ -203,7 +237,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
                 style={styles.input}
                 value={input}
                 onChangeText={setInput}
-                placeholder="Reply to George…"
+                placeholder={`Reply to ${voiceLabel}\u2026`}
                 placeholderTextColor="#94A3B8"
                 multiline
                 editable={!busy}
@@ -211,10 +245,43 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
                   requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
                 }}
               />
-              <Pressable onPress={send} disabled={busy || !input.trim()} style={({ pressed }) => [styles.sendBtn, (busy || !input.trim()) && { opacity: 0.5 }, pressed && styles.pressed]}>
+              <Pressable onPress={send} disabled={busy || !input.trim() || isRecording || isTranscribing} style={({ pressed }) => [styles.sendBtn, (busy || !input.trim() || isRecording || isTranscribing) && { opacity: 0.5 }, pressed && styles.pressed]}>
                 <Text style={styles.sendBtnText}>Send</Text>
               </Pressable>
+              {/* Push-to-talk mic — swaps in only when the composer is empty
+                  so the Send action stays the primary tap target once
+                  there's text to send. */}
+              {!input.trim() && !busy ? (
+                <Pressable
+                  onPress={isRecording ? voiceIn.stopRecording : voiceIn.startRecording}
+                  disabled={isTranscribing}
+                  style={({ pressed }) => [
+                    styles.micBtn,
+                    isRecording && styles.micBtnActive,
+                    (pressed || isTranscribing) && { opacity: 0.6 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={isRecording ? 'Stop recording' : 'Record voice message'}
+                >
+                  <Ionicons
+                    name={isRecording ? 'stop' : 'mic'}
+                    size={20}
+                    color={isRecording ? '#FFFFFF' : '#0F766E'}
+                  />
+                </Pressable>
+              ) : null}
             </View>
+            {voiceIn.voiceError ? (
+              <Pressable onPress={voiceIn.dismissError} hitSlop={6}>
+                <Text style={styles.voiceErrorText}>{voiceIn.voiceError}</Text>
+              </Pressable>
+            ) : voiceIn.permissionBlocked ? (
+              <Text style={styles.voiceErrorText}>Microphone access is off. Enable it in Settings to talk to {voiceLabel}.</Text>
+            ) : isRecording ? (
+              <Text style={styles.recordingHint}>Listening… tap ⏹ to stop ({voiceIn.voiceSeconds}s)</Text>
+            ) : isTranscribing ? (
+              <Text style={styles.recordingHint}>Transcribing…</Text>
+            ) : null}
             <Pressable onPress={sendSkip} disabled={busy} hitSlop={6}>
               <Text style={styles.skipChip}>I&rsquo;d rather skip that</Text>
             </Pressable>
@@ -236,7 +303,7 @@ function PreviewRow({ label, field }: { label: string; field: Field }) {
       <Text style={styles.previewLabel}>{label}</Text>
       <Text style={styles.previewValue}>
         {display}{inferred ? '  ' : ''}
-        {inferred && <Text style={styles.inferredTag}>(George inferred this)</Text>}
+        {inferred && <Text style={styles.inferredTag}>({voiceLabel} inferred this)</Text>}
       </Text>
     </View>
   );
@@ -318,6 +385,23 @@ const styles = StyleSheet.create({
     borderRadius: 16, alignSelf: 'flex-end',
   },
   sendBtnText: { color: '#FFFFFF', fontWeight: '800' },
+  micBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    borderWidth: 1.5, borderColor: '#0F766E',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  micBtnActive: {
+    backgroundColor: '#DC2626', borderColor: '#B91C1C',
+  },
+  voiceErrorText: {
+    alignSelf: 'center', paddingVertical: 6, fontSize: 12,
+    color: '#B91C1C', fontWeight: '600',
+  },
+  recordingHint: {
+    alignSelf: 'center', paddingVertical: 6, fontSize: 12,
+    color: '#0F766E', fontWeight: '700',
+  },
   skipChip: { alignSelf: 'center', paddingVertical: 8, fontSize: 12, color: '#94A3B8', textDecorationLine: 'underline' },
   actionsWrap: {
     paddingHorizontal: 16, paddingTop: 12, gap: 10,

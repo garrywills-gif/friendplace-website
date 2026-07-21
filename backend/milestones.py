@@ -56,8 +56,8 @@ MILESTONES: List[Dict] = [
      "value": lambda u, s: len(u.get("friends") or [])},
 
     # Activity
-    {"key": "first_lounge",   "group": "Activity",  "label": "First Coffee Lounge visit",   "emoji": "☕", "threshold": 1,
-     "message": "You pulled up a chair in the Coffee Lounge.",
+    {"key": "first_lounge",   "group": "Activity",  "label": "First FP Café visit",   "emoji": "☕", "threshold": 1,
+     "message": "You pulled up a chair in the FP Café.",
      "value": lambda u, s: s.get("lounge_visits", 0)},
     {"key": "first_event",    "group": "Activity",  "label": "First event attended",        "emoji": "🎉", "threshold": 1,
      "message": "First event attended — what a lovely way to meet people.",

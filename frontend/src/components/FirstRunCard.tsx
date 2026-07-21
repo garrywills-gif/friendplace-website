@@ -6,7 +6,7 @@
  *   The 6-step onboarding wizard collects interests + location + groups, but
  *   when the user lands on /home for the first time the page can still feel
  *   like a wall of tiles. This card sits at the very top and gives them
- *   three concrete next actions ("join a Coffee Lounge table", "browse
+ *   three concrete next actions ("join a FP Café table", "browse
  *   events", "say hi to a neighbour"). Dismissable + auto-hides after 3
  *   sessions so it never nags returning users.
  *
@@ -49,7 +49,7 @@ type Step = {
 const STEPS: Step[] = [
   {
     key: "lounge",
-    label: "Join a Coffee Lounge table",
+    label: "Join a FP Café table",
     hint: "Drop into a chat — no scheduling, no pressure.",
     icon: "cafe",
     route: "/lounge",

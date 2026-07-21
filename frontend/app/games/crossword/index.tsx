@@ -108,7 +108,7 @@ export default function CrosswordHub() {
               {daily.puzzle.theme}
             </Text>
             <Text style={{ color: "rgba(255,255,255,0.93)", fontSize: 14 * scale, marginTop: 4, lineHeight: 20 }}>
-              Same medium puzzle for everyone today. Solve it, then chat about it in the Coffee Lounge {"\u2615"}
+              Same medium puzzle for everyone today. Solve it, then chat about it in the FP Café {"\u2615"}
             </Text>
             <View style={{ flexDirection: "row", alignItems: "center", marginTop: 14, gap: 8 }}>
               <View style={[styles.cta, { backgroundColor: "#FFF" }]}>

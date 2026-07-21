@@ -83,7 +83,7 @@ export default function Lounge() {
           <Pressable
             testID="lounge-back"
             onPress={() => {
-              // Coffee Lounge is a top-level tab, so "back" always means
+              // FP Café is a top-level tab, so "back" always means
               // Home. router.back() silently no-ops on iPad Safari from a
               // hard-loaded tab route (history is empty) and could take
               // the user off the app entirely; a hard URL change on web +
@@ -104,12 +104,12 @@ export default function Lounge() {
           </Pressable>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>Coffee Lounge ☕</Text>
+              <Text style={[styles.title, { color: c.onSurface, fontSize: 28 * scale }]}>FP Café ☕</Text>
               <Pressable
                 testID="lounge-info-btn"
                 onPress={() => setShowHelp(true)}
                 hitSlop={12}
-                accessibilityLabel="How Coffee Lounge works"
+                accessibilityLabel="How the FP Café works"
                 style={({ pressed }) => [styles.infoBtn, { backgroundColor: c.brandTertiary, opacity: pressed ? 0.7 : 1 }]}
               >
                 <Ionicons name="information-circle" size={26} color={c.brand} />
@@ -156,7 +156,8 @@ export default function Lounge() {
             <Text style={styles.emptyEmoji}>☕</Text>
             <Text style={[styles.emptyTitle, { color: c.onSurface, fontSize: 22 * scale }]}>Be the first to pull up a chair</Text>
             <Text style={[styles.emptyBody, { color: c.muted, fontSize: 15 * scale }]}>
-              The Coffee Lounge is quiet right now. Start a table and we&apos;ll let your friends know.
+              The FP Café is always open at the top &mdash; and it&apos;s quiet down here.
+              Start a table and we&apos;ll let your friends know.
             </Text>
             <Pressable
               testID="lounge-empty-create"
@@ -185,13 +186,30 @@ export default function Lounge() {
                 }
                 router.push(`/table/${item.id}` as any);
               }}
-              style={({ pressed }) => [styles.card, { backgroundColor: c.surfaceSecondary, borderColor: item.founder_only ? "#D4A017" : (active ? "#10B981" : c.border), borderWidth: (item.founder_only || active) ? 2 : 1, opacity: pressed ? 0.85 : 1 }]}
+              style={({ pressed }) => [
+                styles.card,
+                {
+                  backgroundColor: item.pinned ? "#F0FDFA" : c.surfaceSecondary,
+                  borderColor: item.pinned
+                    ? "#14B8A6"
+                    : item.founder_only
+                      ? "#D4A017"
+                      : active ? "#10B981" : c.border,
+                  borderWidth: (item.pinned || item.founder_only || active) ? 2 : 1,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
             >
               <View style={styles.topRow}>
                 <Text style={{ fontSize: 44 }}>{item.emoji}</Text>
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                     <Text style={[styles.cardTitle, { color: c.onSurface, fontSize: 22 * scale }]}>{item.name}</Text>
+                    {item.pinned && (
+                      <View style={styles.pinnedBadge} testID={`pinned-badge-${item.id}`}>
+                        <Text style={styles.pinnedBadgeText}>📌 ALWAYS OPEN</Text>
+                      </View>
+                    )}
                     {item.founder_only && (
                       <View style={[styles.founderBadge]} testID={`founder-badge-${item.id}`}>
                         <Text style={styles.founderBadgeText}>🦋 FOUNDERS</Text>
@@ -205,8 +223,10 @@ export default function Lounge() {
                     )}
                   </View>
                   {!!item.description && <Text style={[styles.cardDesc, { color: c.muted, fontSize: 15 * scale }]} numberOfLines={2}>{item.description}</Text>}
-                  {/* Host attribution + relative time — gives the card a human signature. */}
-                  {(item.host_display || ago) && (
+                  {/* Host attribution + relative time — gives the card a human signature.
+                      The pinned FP Café has no member host, so we skip attribution
+                      and let the "Always Open" badge do the talking. */}
+                  {!item.pinned && (item.host_display || ago) && (
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
                       {item.host_display && <AvatarBubble value={item.host_display.avatar} size={16} />}
                       <Text style={[styles.agoText, { color: c.muted, fontSize: 12 * scale }]} numberOfLines={1}>
@@ -276,7 +296,9 @@ export default function Lounge() {
                   <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 16 * scale }}>
                     {item.founder_only && !(user as any)?.is_founder
                       ? "🦋 Founders Only"
-                      : (seatedCount === 0 ? "Start a Chat" : "Take a Seat")}
+                      : (item.pinned
+                        ? "Pull Up a Chair"
+                        : (seatedCount === 0 ? "Start a Chat" : "Take a Seat"))}
                   </Text>
                 </View>
               </View>
@@ -298,10 +320,11 @@ export default function Lounge() {
             <View style={[styles.helpIconWrap, { backgroundColor: c.brandTertiary }]}>
               <Ionicons name="information-circle" size={40} color={c.brand} />
             </View>
-            <Text style={[styles.helpTitle, { color: c.onSurface, fontSize: 22 * scale }]}>How Coffee Lounge Works</Text>
+            <Text style={[styles.helpTitle, { color: c.onSurface, fontSize: 22 * scale }]}>How the FP Café Works</Text>
             <Text style={[styles.helpBody, { color: c.onSurface, fontSize: 16 * scale }]}>
-              Coffee Lounge is designed for casual conversations.{"\n\n"}
-              <Text style={{ fontWeight: "700" }}>Tables and chat history that remain inactive for 24 hours are automatically removed.</Text>{"\n\n"}
+              The <Text style={{ fontWeight: "700" }}>FP Café</Text> at the top is always open &mdash; the community&apos;s living room where everyone&apos;s welcome. Tap it anytime to pull up a chair.{"\n\n"}
+              Below the Café, members can start their own tables for smaller chats (gardening, movies, pets\u2026).{"\n\n"}
+              <Text style={{ fontWeight: "700" }}>Tables (and chat history) that stay inactive for 24 hours are automatically removed.</Text>{"\n\n"}
               Active conversations stay near the top, so you&apos;ll always find what&apos;s lively first.
             </Text>
             <Pressable testID="lounge-help-close" onPress={() => setShowHelp(false)} style={[styles.helpBtn, { backgroundColor: c.brand }]}>
@@ -469,6 +492,20 @@ const styles = StyleSheet.create({
   },
   founderBadgeText: {
     color: "#7C5300",
+    fontWeight: "900",
+    fontSize: 11,
+    letterSpacing: 0.4,
+  },
+  pinnedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "#CCFBF1",
+    borderWidth: 1,
+    borderColor: "#14B8A6",
+  },
+  pinnedBadgeText: {
+    color: "#0F766E",
     fontWeight: "900",
     fontSize: 11,
     letterSpacing: 0.4,

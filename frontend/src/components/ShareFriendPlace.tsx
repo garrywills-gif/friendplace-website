@@ -39,7 +39,7 @@ export const SHARE_URL = BASE_SHARE_URL;
 
 export const SHARE_MESSAGE =
   "Join me on FriendPlace – a friendly community where you can meet people, " +
-  "join local events, chat in the Coffee Lounge, share interests and make new friends.";
+  "join local events, chat in the FP Café, share interests and make new friends.";
 
 export const SHARE_SUBJECT = "Join me on FriendPlace";
 
@@ -101,7 +101,7 @@ export default function ShareFriendPlace({
         typeof founderRemaining === "number" && founderRemaining > 0
           ? ` There are ${founderRemaining.toLocaleString()} Founding Member spots left.`
           : "";
-      return `I'm one of the founding members of FriendPlace — a friendly community where you can meet people, join local events, chat in the Coffee Lounge and make new friends.${seats} Come join me 🦋`;
+      return `I'm one of the founding members of FriendPlace — a friendly community where you can meet people, join local events, chat in the FP Café and make new friends.${seats} Come join me 🦋`;
     }
     return SHARE_MESSAGE;
   }, [founderUser, founderRemaining]);

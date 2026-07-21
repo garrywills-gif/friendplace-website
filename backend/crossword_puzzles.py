@@ -756,7 +756,7 @@ def get_puzzle(puzzle_id: str) -> dict | None:
 def daily_puzzle(now: datetime | None = None) -> dict | None:
     """The shared **Daily Crossword** — deliberately challenging so that
     players genuinely want to ask each other for hints at the "Today's
-    Crossword" Coffee Lounge table.
+    Crossword" FP Café table.
 
     Day-by-day we alternate between the HARD and EXPERT pools. With both
     cohorts at 8 puzzles each that gives 16 unique brain-teasers in

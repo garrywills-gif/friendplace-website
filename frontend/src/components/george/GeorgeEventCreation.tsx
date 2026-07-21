@@ -17,8 +17,10 @@ import { EventChangeSummaryCard } from './EventChangeSummaryCard';
 import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
 import { useGeorge } from '@/src/lib/george-context';
 import { useToast } from '@/src/lib/toast';
+import { useTheme } from '@/src/lib/theme';
 import { subscribeVoice, useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 import { playAudioUri, type PlaybackController } from '@/src/lib/george-playback';
+import { speakGeorgeAloud, stopGeorgeAutoRead } from '@/src/lib/george-auto-read';
 import {
   georgeApi,
   type EventSession, type EventDraft, type EventApprovalResult,
@@ -79,6 +81,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   } = useGeorge();
   const { voice } = useGeorgeVoice();
   const personaName = VOICE_LABELS[voice].short;
+  const { prefs } = useTheme();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<LocalTurn[]>([]);
   const [status, setStatus] = useState<EventSession['status']>('in_progress');
@@ -240,12 +243,24 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   }, []);
   const [approving, setApproving] = useState(false);
   const [approvalError, setApprovalError] = useState<string | null>(null);
+  // TestFlight feedback #1/#2 — set once the current session has been
+  // approved so the header switches from "Don't save / Save for later"
+  // to the general-chat "Reset / Close" pair, and the composer stays
+  // usable for the follow-up conversation.
+  const [postApproval, setPostApproval] = useState<boolean>(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const revealTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // Track George turns we've already auto-read this modal open so we
+  // don't re-read the same reveal every time revealApiTurns re-runs.
+  // Keys are `${role}:${content?.slice(0,40)}:${at||''}`.
+  const spokenKeysRef = useRef<Set<string>>(new Set());
 
   // ---- Cleanup any pending reveal timers on unmount ---------------------
   useEffect(() => () => {
     revealTimers.current.forEach(t => clearTimeout(t));
+    // Also stop any in-flight auto-read speech so a half-spoken bubble
+    // doesn't keep talking after the modal is dismissed.
+    stopGeorgeAutoRead();
   }, []);
 
   // ---- Boot -------------------------------------------------------------
@@ -336,11 +351,33 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     // all appear together — the individual "beats" between parts are
     // handled by Reanimated fade-in staggers inside the bubble itself).
     setTurns([...priorLocal, { ...last, revealAt: Date.now() }]);
+
+    // B4 accessibility — if "Auto-read new messages" is on in
+    // Settings, speak the fresh George message the moment it's
+    // visible. TestFlight feedback (Garry, 27 July): route through
+    // the cloud voice so members hear the SAME persona voice as when
+    // they tap the Speaker (▶︎) button, and so the audio plays even
+    // when the iOS ringer switch is muted (playsInSilentMode:true).
+    if (prefs?.autoReadNewMessages && last.role === 'george') {
+      const text = (
+        [last.excitement_line, last.working_line, last.warmth_line, last.content]
+          .filter(Boolean) as string[]
+      ).join(' ').trim();
+      if (text) {
+        const key = `${last.role}:${(last.content || '').slice(0, 40)}:${last.at || ''}`;
+        if (!spokenKeysRef.current.has(key)) {
+          spokenKeysRef.current.add(key);
+          // Fire-and-forget — errors are already swallowed inside.
+          void speakGeorgeAloud(text);
+        }
+      }
+    }
+
     await new Promise(r => {
       const t = setTimeout(r, BEAT.afterMessage);
       revealTimers.current.push(t);
     });
-  }, []);
+  }, [prefs?.autoReadNewMessages]);
 
   // ---- Scroll -----------------------------------------------------------
   useEffect(() => {
@@ -428,21 +465,72 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const descAnother  = useCallback(() => sendText("Show me another version."), [sendText]);
 
   // ---- Approve -----------------------------------------------------------
+  // TestFlight feedback #1/#2 (Garry, 27 July 2026): The conversation
+  // must NEVER disappear after approval. We now keep the modal open,
+  // inject an inline celebration turn into the transcript, add a warm
+  // "anything else I can help with?" follow-up, and silently spawn a
+  // fresh session so subsequent messages have somewhere to land.
   const approve = useCallback(async () => {
     if (!sessionId || approving) return;
     setApproving(true);
     setApprovalError(null);
     try {
       const result = await georgeApi.eventApprove(sessionId);
-      // Event posted — the current conversation is done. Clear the
-      // sticky session so the next George open starts a fresh chat.
-      clearActiveSession();
-      onDone(result);
+      // 1. Inline celebration turn (renders a warm card beneath the bubble)
+      const celebrationTitle = result?.target?.title || 'your get-together';
+      const isPublished = result?.outcome === 'published';
+      const celebrationText = isPublished
+        ? `That's lovely — it's live. I've added ${celebrationTitle} to today's activity.`
+        : `Off to the FriendPlace team. I've sent ${celebrationTitle} for a quick look, and I'll let you know as soon as it's live.`;
+      const celebrationTurn: LocalTurn = {
+        role: 'george',
+        content: celebrationText,
+        revealAt: Date.now(),
+        celebration: {
+          outcome: result?.outcome || 'published',
+          title: result?.target?.title,
+          emoji: result?.target?.emoji || '🎉',
+          event_id: result?.target?.id,
+        },
+      };
+      // 2. Warm follow-up so the chat naturally continues
+      const followUpTurn: LocalTurn = {
+        role: 'george',
+        content: "Anything else I can help you with?",
+        revealAt: Date.now() + 500,
+      };
+      setTurns(prev => [...prev, celebrationTurn, followUpTurn]);
+      // 3. Reset event-mode state so composer, not preview, is shown
+      setPostApproval(true);
+      setStatus('in_progress');
+      setDraft(null);
+      setPendingSuggestion(null);
+      setSuggestionOffered(false);
+      setApprovalError(null);
+      // 4. Silently spawn a fresh session for subsequent user turns.
+      // The old approved session remains server-side as an audit
+      // record, and its turns live in local state until the modal
+      // is dismissed. New user messages hit the fresh session so the
+      // backend never rejects them for being past-terminal.
+      try {
+        const fresh = await georgeApi.eventStart('', currentScreen);
+        setSessionId(fresh.session_id);
+        setActiveSessionId(fresh.session_id);
+      } catch {
+        // If the follow-up session fails to spawn, still let the
+        // user close the modal cleanly on the next tick.
+        clearActiveSession();
+      }
+      // 5. Scroll to the celebration
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollToEnd({ animated: true });
+      });
     } catch {
       setApprovalError("I couldn't quite get that through — mind trying again in a moment?");
+    } finally {
       setApproving(false);
     }
-  }, [sessionId, approving, onDone, clearActiveSession]);
+  }, [sessionId, approving, currentScreen, setActiveSessionId, clearActiveSession]);
 
   const askForChanges = useCallback(() => {
     if (!sessionId || busy) return;
@@ -483,6 +571,11 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   // state OR the composer has been signalling ready_to_draft. Otherwise
   // it's a companion chat and the event-specific labels are misleading.
   const isEventMode = useMemo(() => {
+    // TestFlight feedback #1/#2 — once the current session has been
+    // approved (celebration turn appended locally), we're back in
+    // general-chat mode: header shows "Reset / Close", composer stays
+    // usable, and no "Save for later" is offered.
+    if (postApproval) return false;
     if (draft) return true;
     if (status === 'drafted' || status === 'paused') return true;
     // If any past George turn advanced to ready_to_draft, treat it as
@@ -491,7 +584,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       if (t.role === 'george' && t.state === 'ready_to_draft') return true;
     }
     return false;
-  }, [draft, status, turns]);
+  }, [draft, status, turns, postApproval]);
 
   // The last George turn — used to decide whether to show suggestion
   // chips or description-feedback buttons below it.
@@ -639,6 +732,9 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
                 busy={busy || i !== latestGeorgeIndex}
                 onAction={onEditAction}
               />
+            ) : null}
+            {t.role === 'george' && t.celebration ? (
+              <EventCelebrationCard celebration={t.celebration} />
             ) : null}
           </React.Fragment>
         ))}
@@ -803,7 +899,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
                 style={styles.input}
                 value={input}
                 onChangeText={setInput}
-                placeholder="Tell George anything…"
+                placeholder={`Tell ${personaName} anything\u2026`}
                 placeholderTextColor="#94A3B8"
                 multiline
                 editable={!busy && voicePhase !== 'transcribing'}
@@ -1168,6 +1264,41 @@ function EventPreviewCard({ draft }: { draft: EventDraft }) {
   );
 }
 
+// -----------------------------------------------------------------------
+// EventCelebrationCard — TestFlight feedback #1/#2 (Garry, 27 July 2026).
+// Warm inline confirmation card rendered beneath the celebration turn's
+// bubble so the conversation stays visible in the same scroll after an
+// event is posted. Replaces the previous fullscreen celebration modal.
+// -----------------------------------------------------------------------
+
+function EventCelebrationCard({ celebration }: {
+  celebration: NonNullable<LocalTurn['celebration']>;
+}) {
+  const published = celebration.outcome === 'published';
+  const label = published ? 'It\u2019s live' : 'Off to the FriendPlace team';
+  const emoji = celebration.emoji || '🎉';
+  return (
+    <View style={styles.celebrationCard}>
+      <View style={styles.celebrationEmojiWrap}>
+        <Text style={styles.celebrationEmoji}>{emoji}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.celebrationBadge}>{label}</Text>
+        {celebration.title ? (
+          <Text style={styles.celebrationTitle} numberOfLines={2}>
+            {celebration.title}
+          </Text>
+        ) : null}
+        <Text style={styles.celebrationHint}>
+          {published
+            ? 'Members can see this in Events now.'
+            : 'We\u2019ll let you know as soon as it\u2019s live.'}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function prettyDate(iso: string): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso;
   try {
@@ -1261,6 +1392,24 @@ const styles = StyleSheet.create({
   previewLabel: { fontSize: 12, color: '#64748B', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
   previewValue: { fontSize: 15, color: '#0F172A', lineHeight: 22, marginTop: 2 },
   inferredTag: { fontSize: 11, color: '#0F766E', fontStyle: 'italic' },
+  // TestFlight feedback #1/#2 — inline celebration card
+  celebrationCard: {
+    marginTop: 12, marginHorizontal: 4, marginBottom: 4,
+    flexDirection: 'row', gap: 14, alignItems: 'center',
+    backgroundColor: '#ECFEFF', borderColor: '#14B8A6', borderWidth: 1,
+    borderRadius: 18, padding: 14,
+  },
+  celebrationEmojiWrap: {
+    width: 56, height: 56, borderRadius: 28, backgroundColor: '#CCFBF1',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  celebrationEmoji: { fontSize: 30 },
+  celebrationBadge: {
+    fontSize: 11, fontWeight: '800', color: '#0F766E',
+    textTransform: 'uppercase', letterSpacing: 0.6,
+  },
+  celebrationTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A', marginTop: 2, letterSpacing: -0.2 },
+  celebrationHint: { fontSize: 13, color: '#334155', marginTop: 4, lineHeight: 18 },
   errText: {
     fontSize: 13, color: '#DC2626', textAlign: 'center', marginTop: 12,
     paddingHorizontal: 16,

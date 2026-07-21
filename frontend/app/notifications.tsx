@@ -28,7 +28,7 @@ const ICON: Record<string, { name: keyof typeof Ionicons.glyphMap; tint: string 
 const CHEER_OPTIONS: { kind: "well_done" | "congrats" | "coffee" | "flutter"; emoji: string; label: string }[] = [
   { kind: "well_done", emoji: "👏", label: "Well Done" },
   { kind: "congrats",  emoji: "🎉", label: "Congratulations" },
-  { kind: "coffee",    emoji: "☕", label: "Join me in the Coffee Lounge" },
+  { kind: "coffee",    emoji: "☕", label: "Join me in the FP Café" },
   { kind: "flutter",   emoji: "🦋", label: "Flutter Sent" },
 ];
 

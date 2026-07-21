@@ -44,7 +44,7 @@ export default function PrivacyPolicy() {
         </Section>
 
         <Section title="How we use it" c={c} scale={scale}>
-          <Bullet c={c} scale={scale}>To run FriendPlace — show your profile to friends, deliver your messages, suggest people nearby (by suburb), and let you join groups, events and Coffee Lounge tables.</Bullet>
+          <Bullet c={c} scale={scale}>To run FriendPlace — show your profile to friends, deliver your messages, suggest people nearby (by suburb), and let you join groups, events and FP Café tables.</Bullet>
           <Bullet c={c} scale={scale}>To keep the community safe — review reports, prevent abuse, and apply our community guidelines.</Bullet>
           <Bullet c={c} scale={scale}>To send service notifications (e.g. event reminders, friend requests). You can turn these off in Settings.</Bullet>
           <Bullet c={c} scale={scale}>To improve the app — measure aggregate usage (never tied to your identity in marketing reports).</Bullet>

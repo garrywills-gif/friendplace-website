@@ -23,7 +23,7 @@ const ALL_BADGES = [
 ];
 const STATUS_OPTIONS: { key: string; emoji: string; label: string }[] = [
   { key: "looking_to_chat",  emoji: "🟢", label: "Looking to chat" },
-  { key: "in_coffee_lounge", emoji: "☕", label: "In the Coffee Lounge" },
+  { key: "in_coffee_lounge", emoji: "☕", label: "In the FP Café" },
   { key: "happy_to_connect", emoji: "😊", label: "Happy to connect" },
   { key: "busy",             emoji: "🟡", label: "Busy right now" },
   { key: "offline",          emoji: "⚫", label: "Offline" },

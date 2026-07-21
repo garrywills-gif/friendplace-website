@@ -14,7 +14,7 @@
  *   • Wrong letters tint red until typed over.
  *   • Progress auto-saves: every keystroke (debounced), on unmount,
  *     and when the app goes to the background.
- *   • Win flow: confetti + Butterfly Points toast + Coffee Lounge CTA on
+ *   • Win flow: confetti + Butterfly Points toast + FP Café CTA on
  *     the daily.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -590,7 +590,7 @@ export default function CrosswordPlay() {
           </Pressable>
         </View>
 
-        {/* Daily — discuss in Coffee Lounge */}
+        {/* Daily — discuss in FP Café */}
         {isDaily && discussionTableId && (
           <Pressable
             onPress={() => router.push(`/table/${discussionTableId}` as any)}
@@ -605,7 +605,7 @@ export default function CrosswordPlay() {
                 {"Discuss today\u2019s puzzle \u2615"}
               </Text>
               <Text style={{ color: "rgba(255,255,255,0.92)", fontSize: 12 * scale, marginTop: 2 }}>
-                {"Coffee Lounge table is open \u2014 everyone\u2019s solving the same puzzle."}
+                {"FP Café table is open \u2014 everyone\u2019s solving the same puzzle."}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color="#FFF" />
@@ -826,7 +826,7 @@ export default function CrosswordPlay() {
                 onPress={() => { setShowWin(false); router.push(`/table/${discussionTableId}` as any); }}
               >
                 <Ionicons name="cafe" size={18} color={c.onSurface} />
-                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Brag in the Coffee Lounge ☕</Text>
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Brag in the FP Café ☕</Text>
               </Pressable>
             )}
             <Pressable

@@ -40,7 +40,7 @@ type Benefit = { icon: string; title: string; body: string };
 
 const BENEFITS: Benefit[] = [
   { icon: "🌟", title: "Founder badge",        body: "A permanent crest displayed on your profile so people know you were here from the start." },
-  { icon: "🛋️", title: "Founders Lounge",      body: "Exclusive private group + Coffee Lounge table just for Founding Members." },
+  { icon: "🛋️", title: "Founders Lounge",      body: "Exclusive private group + FP Café table just for Founding Members." },
   { icon: "🦋", title: "Founders Wall",        body: "A permanent place on the wall, numbered in the order you joined." },
   { icon: "💬", title: "Direct line to the team", body: "Your feedback shapes what we build next. We read every message." },
   { icon: "🎁", title: "Early access",          body: "New features land in your app first, before the wider community." },

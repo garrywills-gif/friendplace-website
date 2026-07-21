@@ -11,9 +11,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { GeorgeEventCreation } from './GeorgeEventCreation';
-import { GeorgeEventCelebration } from './GeorgeEventCelebration';
 import { useGeorge } from '@/src/lib/george-context';
-import { georgeApi, type Presence, type EventApprovalResult } from '@/src/lib/george-api';
+import { georgeApi, type Presence } from '@/src/lib/george-api';
 
 /**
  * George's butterfly on FriendPlace mobile.
@@ -56,10 +55,9 @@ export function GeorgeButterfly() {
   const [greeting, setGreeting] = useState<string | null>(null);
   const [showBubble, setShowBubble] = useState(false);
   const [showChat, setShowChat] = useState(false);
-  // Milestone B5 — event creation & its celebration surface.
+  // Milestone B5 — event creation & its (now inline) celebration.
   const [showEvent, setShowEvent] = useState(false);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
-  const [celebration, setCelebration] = useState<EventApprovalResult | null>(null);
 
   // ---- Reanimated values -------------------------------------------------
   // Position of the butterfly relative to the bottom-right corner.
@@ -337,11 +335,34 @@ export function GeorgeButterfly() {
     transform: [{ translateY: bubbleTranslate.value }],
   }));
 
+  // TestFlight feedback #6 (Garry, 27 July 2026): "George feels too
+  // static." A very subtle 3-flap wing flutter + 3px hop every ~10s
+  // while at rest. Understated — a soft heartbeat that reminds the
+  // member George is there without ever pulling attention away.
+  useEffect(() => {
+    if (phase !== 'resting' && phase !== 'landed') return;
+    const tick = () => {
+      wingFlap.value = withSequence(
+        withTiming(0.82, { duration: 130, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1.08, { duration: 150, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0.9,  { duration: 130, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1,    { duration: 180, easing: Easing.out(Easing.quad) }),
+      );
+      y.value = withSequence(
+        withTiming(-3, { duration: 220, easing: Easing.out(Easing.quad) }),
+        withTiming(0,  { duration: 300, easing: Easing.inOut(Easing.quad) }),
+      );
+    };
+    // First tick after ~10s so the arrival animation has time to finish.
+    const timer = setInterval(tick, 10000);
+    return () => clearInterval(timer);
+  }, [phase, wingFlap, y]);
+
   // ---- Render ------------------------------------------------------------
 
   // Resting position: INSIDE the white header strip on tab screens
   // (Garry, C1 Slice 3 v6 — v5's `+140` was still floating over the
-  // teal action button on Coffee Lounge). +108 lifts him up so his
+  // teal action button on FP Café). +108 lifts him up so his
   // body sits inside the header area, wings just kissing the blue
   // divider line below, aligned with the same y as the shared
   // `<GeorgeHeaderMark />` on secondary screens. He is now truly
@@ -448,6 +469,11 @@ export function GeorgeButterfly() {
        *  continues: George opens with an open-ended warmth line, the
        *  event emerges naturally, and only once George understands the
        *  idea does he confirm it back. Principle #18 in every turn.
+       *
+       *  TestFlight feedback #1/#2 (Garry, 27 July 2026): approval
+       *  no longer jumps to a separate celebration modal — the
+       *  conversation stays in place and celebration is rendered
+       *  inline. `onDone` is a no-op (kept for API stability).
        */}
       <Modal
         visible={showEvent}
@@ -462,27 +488,8 @@ export function GeorgeButterfly() {
             setShowEvent(false);
             setResumeSessionId(null);
           }}
-          onDone={(result) => {
-            setShowEvent(false);
-            setResumeSessionId(null);
-            setCelebration(result);
-          }}
+          onDone={() => { /* inline celebration — no-op */ }}
         />
-      </Modal>
-
-      {/* Warm celebration once an event is created. */}
-      <Modal
-        visible={!!celebration}
-        animationType="fade"
-        transparent={false}
-        onRequestClose={() => setCelebration(null)}
-      >
-        {celebration ? (
-          <GeorgeEventCelebration
-            result={celebration}
-            onDone={() => setCelebration(null)}
-          />
-        ) : <View />}
       </Modal>
     </>
   );

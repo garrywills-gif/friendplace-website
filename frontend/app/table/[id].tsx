@@ -372,7 +372,7 @@ export default function TableChat() {
             <Text style={{ fontSize: 36 }}>📷</Text>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale, marginTop: 6, textAlign: "center" }}>Photo access blocked</Text>
             <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center", lineHeight: 22 }}>
-              To share photos in the Coffee Lounge, allow FriendPlace access to your photos in Settings.
+              To share photos in the FP Café, allow FriendPlace access to your photos in Settings.
             </Text>
             <Pressable onPress={() => { setPermBlocked(false); Linking.openSettings(); }} style={[styles.permBtn, { backgroundColor: c.brand }]}>
               <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Open Settings</Text>

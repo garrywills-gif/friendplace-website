@@ -9,7 +9,7 @@
  * card on the /profile tab.
  *
  * Steps:
- *   0  Welcome — full feature showcase (Coffee Lounge, Find Friends,
+ *   0  Welcome — full feature showcase (FP Café, Find Friends,
  *      Groups, Events, Recipes, Games, Notice Board, Founders Wall).
  *      Uses the teal butterfly logo, older-audience-friendly type.
  *   1  Accessibility — Large text, Speak Instead of Type, and Listen
@@ -56,7 +56,7 @@ const BUTTERFLY_LOGO = require("../assets/brand/friendplace-app-icon-v5.png");
 // rendered any more; the George-narrated tour below replaces it.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const FEATURES: { emoji: string; title: string; body: string }[] = [
-  { emoji: "☕", title: "Coffee Lounge",         body: "Drop into live conversations and chat with friendly faces anytime." },
+  { emoji: "☕", title: "FP Café",         body: "Drop into live conversations and chat with friendly faces anytime." },
   { emoji: "🤝", title: "Find Friends",          body: "Browse member profiles and connect with people who share your interests." },
   { emoji: "👥", title: "Friendship Groups",     body: "Join groups based on your interests and meet like-minded people." },
   { emoji: "📅", title: "Local Events",          body: "Discover walks, lunches, meet-ups and community events near you." },
@@ -86,8 +86,8 @@ type TourPage = {
 };
 const TOUR_STEPS: TourPage[] = [
   {
-    icon: "\u2615", title: "Coffee Lounge",
-    bubble: "Let\u2019s start with the Coffee Lounge.",
+    icon: "\u2615", title: "FP Café",
+    bubble: "Let\u2019s start with the FP Café.",
     body: "Imagine walking into your local caf\u00e9. Drop in anytime and chat with people who are online.",
     heroBg: "#FEF3E2", heroBorder: "#F5C99B",
     decorations: ["\u2615", "\uD83E\uDD50", "\uD83C\uDF75", "\uD83E\uDDC1"],

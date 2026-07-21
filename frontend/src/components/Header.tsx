@@ -195,6 +195,26 @@ function GeorgeHeaderMark() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landedFrom, currentScreen]);
 
+  // TestFlight feedback #6 (Garry, 27 July 2026): subtle bob every
+  // ~10s so the inline George in header feels alive too — matches
+  // the floating butterfly on tab screens.
+  useEffect(() => {
+    const tick = () => {
+      wingFlap.value = withSequence(
+        withTiming(0.82, { duration: 130, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1.08, { duration: 150, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0.9,  { duration: 130, easing: Easing.inOut(Easing.quad) }),
+        withTiming(1,    { duration: 180, easing: Easing.out(Easing.quad) }),
+      );
+      scale.value = withSequence(
+        withTiming(1.05, { duration: 220, easing: Easing.out(Easing.quad) }),
+        withTiming(1,    { duration: 300, easing: Easing.inOut(Easing.quad) }),
+      );
+    };
+    const timer = setInterval(tick, 10000);
+    return () => clearInterval(timer);
+  }, [wingFlap, scale]);
+
   const markStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
     transform: [

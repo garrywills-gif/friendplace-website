@@ -62,7 +62,7 @@ async def transcribe_audio_bytes(
             transcription.
         prompt: Optional style hint. Nice-to-have if we later want
             George to be primed for FriendPlace-specific vocabulary
-            (member names, "Coffee Lounge", etc.). Left None for now.
+            (member names, "FP Café", etc.). Left None for now.
 
     Returns:
         The transcribed text, stripped of leading/trailing whitespace.

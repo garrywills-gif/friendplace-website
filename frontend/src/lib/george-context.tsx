@@ -99,7 +99,7 @@ interface GeorgeCtx {
   consumePendingOpener: () => string | null;
   closeGeorge: () => void;       // just close the modal, keep session
   /** Slice 3 v2 — set to a screen key by whoever triggered a
-   * George-led navigation (e.g. the "Take me to Coffee Lounge" chip).
+   * George-led navigation (e.g. the "Take me to FP Café" chip).
    * The butterfly reads this and plays a brief flutter-in on the new
    * page, then clears it. */
   landedFrom: GeorgeScreenKey | null;
@@ -110,6 +110,10 @@ interface GeorgeCtx {
 const Ctx = createContext<GeorgeCtx | null>(null);
 
 const STORAGE_KEY = 'george.activeSession';
+// Bug #5 (TestFlight, 27 July 2026): a stored session was resurfacing
+// unexpectedly on later opens. Cap the persisted session's lifetime
+// so a dropped/backgrounded chat can't spring back after a long gap.
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export function GeorgeProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -127,7 +131,27 @@ export function GeorgeProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw) _setActiveSessionId(raw);
+        if (raw) {
+          // The stored value may be a bare session_id (legacy) or a
+          // JSON object `{ id, ts }` (v2). Fall through gracefully.
+          let sid: string | null = null;
+          let ts: number | null = null;
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object' && parsed.id) {
+              sid = String(parsed.id);
+              ts = typeof parsed.ts === 'number' ? parsed.ts : null;
+            }
+          } catch { /* legacy string form */ }
+          if (!sid) sid = raw;
+          // Enforce TTL — if the stored session is older than 24h,
+          // discard it silently so a stale chat doesn't reappear.
+          if (ts !== null && Date.now() - ts > SESSION_TTL_MS) {
+            try { await AsyncStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+          } else if (sid) {
+            _setActiveSessionId(sid);
+          }
+        }
       } catch { /* ignore — non-fatal */ }
       hydrated.current = true;
     })();
@@ -138,8 +162,12 @@ export function GeorgeProvider({ children }: { children: React.ReactNode }) {
     if (!hydrated.current) return;
     (async () => {
       try {
-        if (id) await AsyncStorage.setItem(STORAGE_KEY, id);
-        else    await AsyncStorage.removeItem(STORAGE_KEY);
+        if (id) {
+          const payload = JSON.stringify({ id, ts: Date.now() });
+          await AsyncStorage.setItem(STORAGE_KEY, payload);
+        } else {
+          await AsyncStorage.removeItem(STORAGE_KEY);
+        }
       } catch { /* ignore */ }
     })();
   }, []);

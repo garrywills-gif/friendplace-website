@@ -3,7 +3,7 @@
  * butterfly (C1 Slice 3, locked with Garry 22 July 2026).
  *
  * Renders `<GeorgeButterfly />` at the root of the app so it lives on
- * every member screen — Home, Coffee Lounge, Friends, Events, Groups,
+ * every member screen — Home, FP Café, Friends, Events, Groups,
  * Notice Board, Games, Recipes, Profile, Chats, Settings, Help, and any
  * secondary pages under those.
  *

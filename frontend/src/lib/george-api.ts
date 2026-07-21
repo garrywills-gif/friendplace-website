@@ -95,6 +95,16 @@ export interface EventTurn {
    * George turn was produced by the edit flow and the UI should render
    * an EventChangeSummaryCard beneath the bubble. */
   edit?: EventEditMeta | null;
+  /** TestFlight feedback #1/#2 (Garry, 27 July 2026) — Inline
+   * celebration turn produced by the client on event approval so the
+   * chat conversation stays in place. Renders a warm confirmation
+   * card below the bubble instead of jumping to a fullscreen modal. */
+  celebration?: {
+    outcome: 'published' | 'submitted_for_review';
+    title?: string;
+    emoji?: string;
+    event_id?: string;
+  } | null;
 }
 
 export type EventEditKind =

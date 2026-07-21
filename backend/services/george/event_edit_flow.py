@@ -105,7 +105,7 @@ RULES
   `is_edit_intent = false`. Creation is handled elsewhere.
 
 - If the member is chatting generally (hello, how are you, what's a
-  Coffee Lounge, sensitive topic, etc.), set `is_edit_intent = false`.
+  FP Café, sensitive topic, etc.), set `is_edit_intent = false`.
 
 - `SESSION_HAS_DRAFT_IN_PROGRESS = true` in the payload means the
   member is actively planning a NEW event with George right now.
@@ -302,10 +302,10 @@ _HIGH_RISK_PATTERNS: dict[str, tuple[str, ...]] = {
     "cancel": (
         r"(?i)\bcancel(?:ling|led)?\s+(?:it|this|the event|my|our|the\s+\w+)\b",
         r"(?i)\bplease cancel\b",
-        r"(?i)\bcall (?:it|the event) off\b",
-        r"(?i)\bscrap (?:it|the event)\b",
-        r"(?i)\bdelete (?:it|the event|the\s+\w+)\b",
-        r"(?i)\bdrop (?:it|the event)\b",
+        r"(?i)\bcall (?:it|the event|the\s+\w+|my\s+\w+|our\s+\w+) off\b",
+        r"(?i)\bscrap (?:it|the event|the\s+\w+|my\s+\w+)\b",
+        r"(?i)\bdelete (?:it|the event|the\s+\w+|my\s+\w+)\b",
+        r"(?i)\bdrop (?:it|the event|the\s+\w+|my\s+\w+)\b",
         r"(?i)\bnot happening\b",
     ),
     "restore": (
@@ -317,6 +317,47 @@ _HIGH_RISK_PATTERNS: dict[str, tuple[str, ...]] = {
         r"(?i)\bput (?:it|the event) back on\b",
     ),
 }
+
+
+# B6 v2 (Garry, 27 July 2026 TestFlight feedback #3):
+# Broader edit-signal detector used as an additional safety net.
+# Catches common phrasings that the LLM classifier occasionally
+# under-classifies ("edit my event", "modify the coffee morning",
+# "update the description", "add a note to the BBQ"). If ANY of these
+# fire AND we can match at least one of the actor's events, the flow
+# forces `is_edit_intent = true` regardless of the classifier verdict.
+_EDIT_SIGNAL_PATTERNS: tuple[str, ...] = (
+    # Explicit "edit" verbs (avoid catching "edit the description of my
+    # new event" during CREATION by requiring the pattern to occur
+    # outside a "please help me organise" context — the caller already
+    # skips this path when the session has a draft-in-progress).
+    r"(?i)\bedit(?:ing)?\s+(?:my|the|our|this|that)\b",
+    r"(?i)\bmodif(?:y|ying)\s+(?:my|the|our|this|that)\b",
+    r"(?i)\bupdat(?:e|ing)\s+(?:my|the|our|this|that)\b",
+    r"(?i)\brenam(?:e|ing)\s+(?:my|the|our|this|that)\b",
+    r"(?i)\bchange(?:d|s)?\s+(?:my|the|our|this|that)\b",
+    r"(?i)\btweak(?:ing)?\s+(?:my|the|our|this|that)\b",
+    r"(?i)\badd\s+(?:a\s+)?(?:note|line|detail|paragraph|description)\s+to\b",
+    r"(?i)\bremove\s+(?:a\s+)?(?:note|line|detail|paragraph|the\s+description)\s+from\b",
+    # Reference words that strongly imply an existing event ("my event",
+    # "the coffee morning I organised", "the BBQ").
+    r"(?i)\bmy\s+(?:event|catch[- ]up|coffee\s+\w+|meet[- ]?up|gathering|get[- ]?together|bbq|walk|book\s+club|movie\s+night)\b",
+    # Explicit reschedule / postpone family
+    r"(?i)\breschedul\w*",
+    r"(?i)\bpostpon\w*",
+    r"(?i)\bcall\s+(?:it|the\s+event)\s+off\b",
+    # Existing event queries
+    r"(?i)\bthe\s+(?:event|catch[- ]up|coffee\s+\w+|meet[- ]?up|gathering|get[- ]?together|bbq|walk|book\s+club|movie\s+night)\s+(?:i\s+organised|i\s+created|i\s+set\s+up|last\s+week|this\s+week|on\s+\w+day)\b",
+)
+
+
+def _has_edit_signal(user_text: str) -> bool:
+    if not user_text:
+        return False
+    for p in _EDIT_SIGNAL_PATTERNS:
+        if re.search(p, user_text):
+            return True
+    return False
 
 
 def _scan_high_risk_intent(user_text: str) -> set[str]:
@@ -735,6 +776,11 @@ async def try_handle_edit_intent(
     # can override its verdict if it under-classified.
     risk_hits = _scan_high_risk_intent(user_text)
 
+    # B6 v2 (TestFlight feedback #3): broader edit signal detector.
+    # Catches "edit my event", "update the coffee morning" etc. that
+    # the Haiku classifier occasionally under-classifies as chat.
+    has_edit_signal = _has_edit_signal(user_text) and not session_has_draft
+
     # Explicit cancel / restore keywords are treated as strong intent
     # signals — the classifier might miss them if the member is terse.
     forced_action: Optional[str] = None
@@ -748,12 +794,49 @@ async def try_handle_edit_intent(
         session_has_draft=session_has_draft,
     )
 
+    log.info(
+        "event_edit_intent classification actor=%s text=%r verdict=%s risk_hits=%s edit_signal=%s",
+        actor_id, (user_text or "")[:120],
+        {k: intent.get(k) for k in ("is_edit_intent", "action", "confidence", "event_query")},
+        sorted(risk_hits), has_edit_signal,
+    )
+
     # Merge deterministic overrides into the classifier's verdict.
     if forced_action and not session_has_draft:
         intent["is_edit_intent"] = True
         intent["action"] = forced_action
         # Confidence promoted — we KNOW this is a cancel/restore ask.
         intent["confidence"] = "high"
+
+    # If the classifier said "no" but we detected a broader edit signal
+    # OR any high-risk keyword hits, verify by matching against the
+    # actor's actual upcoming events. If we find any plausible match,
+    # promote to a moderate-confidence UPDATE intent so the flow
+    # proceeds. This safety net specifically targets the TestFlight
+    # bug where George refused to enter the edit flow.
+    if (
+        not intent.get("is_edit_intent")
+        and not session_has_draft
+        and (has_edit_signal or (risk_hits & {"date", "time", "location", "capacity", "visibility"}))
+    ):
+        # Extract a plausible event_query from the text — anything after
+        # "the "/"my " that looks like a title. Fall back to empty which
+        # returns the actor's upcoming events.
+        q = ""
+        m = re.search(r"(?i)\b(?:my|the)\s+([A-Za-z][A-Za-z0-9 \-\u2019']{1,40}?)(?:\s+(?:to|from|on|at|by)\b|[.,!?]|$)", user_text or "")
+        if m:
+            q = m.group(1).strip()
+        candidates = await match_events(db, actor_id=actor_id, query=q, limit=5)
+        if candidates:
+            intent["is_edit_intent"] = True
+            intent["action"] = intent.get("action") or "update"
+            intent["confidence"] = "moderate"
+            if not intent.get("event_query"):
+                intent["event_query"] = q or None
+            log.info(
+                "event_edit_intent promoted via safety net actor=%s q=%r matches=%d",
+                actor_id, q, len(candidates),
+            )
 
     if not intent.get("is_edit_intent"):
         # No LLM intent AND no cancel/restore keywords → truly not an

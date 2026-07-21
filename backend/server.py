@@ -1,6 +1,6 @@
 """FriendPlace backend — FastAPI + MongoDB + WebSockets.
 
-Real-time Coffee Lounge tables, private messaging, community groups, events,
+Real-time FP Café tables, private messaging, community groups, events,
 notice board, butterfly points/badges, and a seeded sample dataset so the
 prototype feels alive on first launch.
 """
@@ -305,7 +305,7 @@ class Message(BaseModel):
     text: str
     # Optional base64 data URI for an attached photo. Stored inline so messages
     # remain a single document — fine for the resized previews (≤200 KB) the
-    # client uploads from the Coffee Lounge image picker.
+    # client uploads from the FP Café image picker.
     image: str = ""
     created_at: str = Field(default_factory=now_iso)
 
@@ -675,6 +675,60 @@ async def _ensure_daily_crossword_table(puzzle: dict | None = None) -> Optional[
     return t
 
 
+FP_CAFE_TABLE_ID = "fp-cafe-permanent"
+
+
+async def _ensure_fp_cafe_table() -> Optional[dict]:
+    """Create / fetch the permanent FP Café table.
+
+    Locked with Garry 27 July 2026 (TestFlight feedback): every FriendPlace
+    member should have an obvious place to start. The FP Café is:
+      • pinned to the top of the FP Café list forever,
+      • undeletable (persistent=True, protected=True),
+      • one-tap opt-in (not auto-join — respectful),
+      • hosted by "system" so no member is responsible for it,
+      • open to everyone (visibility="public").
+
+    Members can still leave whenever they wish, and no idle-prune
+    reaches it thanks to `persistent=True`. Any code path that mutates
+    tables should refuse to delete or rename a doc where
+    `protected=True`.
+    """
+    t = await db.tables.find_one({"id": FP_CAFE_TABLE_ID}, {"_id": 0})
+    if t:
+        # Belt-and-braces: make sure protection stays on even if a
+        # legacy row escaped without the flag.
+        if not t.get("protected") or not t.get("persistent"):
+            await db.tables.update_one(
+                {"id": FP_CAFE_TABLE_ID},
+                {"$set": {"protected": True, "persistent": True, "pinned": True}},
+            )
+            t = await db.tables.find_one({"id": FP_CAFE_TABLE_ID}, {"_id": 0})
+        return t
+    t = {
+        "id": FP_CAFE_TABLE_ID,
+        "name": "FP Caf\u00e9",
+        "emoji": "\u2615",
+        "description": "Everyone's welcome. The community's living room \u2014 pop in anytime for a chat.",
+        "visibility": "public",
+        "host_id": "system",
+        "seated": [],
+        "created_at": now_iso(),
+        "last_activity_at": now_iso(),
+        "persistent": True,
+        "protected": True,
+        "pinned": True,
+    }
+    try:
+        await db.tables.insert_one(t)
+    except Exception:
+        # Race-safe.
+        t = await db.tables.find_one({"id": FP_CAFE_TABLE_ID}, {"_id": 0})
+    return t
+
+
+
+
 async def _ensure_founders_table() -> Optional[dict]:
     """Create / fetch the special Founders Lounge Coffee Table.
 
@@ -703,7 +757,7 @@ async def _ensure_founders_table() -> Optional[dict]:
         "id": nid(),
         "name": "Founders Lounge",
         "emoji": "🦋",
-        "description": "An exclusive Coffee Lounge table just for Founding Members. Pull up a chair.",
+        "description": "An exclusive FP Café table just for Founding Members. Pull up a chair.",
         "visibility": "public",
         "host_id": host_id,
         "seated": [host_id] if host_id else [],
@@ -942,7 +996,7 @@ async def signup(body: SignupBody, request: Request):
     await db.notifications.insert_one({
         "id": nid(), "user_id": user.id, "type": "welcome",
         "title": "Welcome to FriendPlace!",
-        "body": "We're so glad you're here. Take a look at the Coffee Lounge or send a friend request to say hello.",
+        "body": "We're so glad you're here. Take a look at the FP Café or send a friend request to say hello.",
         "read": False, "created_at": now_iso(),
     })
     # Extra "you're a Founder!" notification when applicable — lands at the
@@ -1613,7 +1667,7 @@ async def auth_apple(body: AppleAuthBody):
                 message="🎉 Just joined through your invite — say hi!",
             ).dict())
 
-    # Founder cohort + Coffee Lounge seating (same rules as Google flow)
+    # Founder cohort + FP Café seating (same rules as Google flow)
     await _assign_founder_status(doc)
     _fl_id_a = doc.pop("_founders_lounge_id", None)
     _ft_id_a = doc.pop("_founders_table_id", None)
@@ -2504,7 +2558,7 @@ STARTER_GROUPS = [
      "tags": ["gardening", "plants", "garden"]},
     {"name": "Walking & Trails", "emoji": "🥾", "description": "Bushwalks, beach strolls, and gentle daily walks — find a walking buddy.",
      "tags": ["walking", "fitness", "hiking", "outdoors"]},
-    {"name": "Coffee Lounge Crew", "emoji": "☕", "description": "Regulars who love a virtual cuppa in the Coffee Lounge — chat anytime.",
+    {"name": "FP Café Crew", "emoji": "☕", "description": "Regulars who love a virtual cuppa in the FP Café — chat anytime.",
      "tags": ["coffee", "chat", "lounge", "social"], "is_system": True},
 ]
 
@@ -2648,11 +2702,11 @@ async def onboarding_complete_full(body: OnboardingCompleteBody):
         if r.matched_count:
             joined.append(gid)
 
-    # Welcome notification — phrased to push the user into Coffee Lounge first
+    # Welcome notification — phrased to push the user into FP Café first
     await db.notifications.insert_one({
         "id": nid(), "user_id": body.user_id, "type": "onboarding_done",
         "title": "You're all set up!",
-        "body": f"Welcome aboard! You've joined {len(joined)} group{'s' if len(joined) != 1 else ''}. Why not pop into the Coffee Lounge and say hello?",
+        "body": f"Welcome aboard! You've joined {len(joined)} group{'s' if len(joined) != 1 else ''}. Why not pop into the FP Café and say hello?",
         "read": False, "created_at": now_iso(),
     })
 
@@ -2864,7 +2918,7 @@ def _status_from(last_seen: Optional[str], privacy: str = "everyone", chosen: Op
 # Member-selectable status codes (community / friendship — not dating).
 STATUS_LABELS: Dict[str, Dict] = {
     "looking_to_chat":   {"label": "Looking to chat",      "code": "looking_to_chat",   "emoji": "🟢"},
-    "in_coffee_lounge":  {"label": "In the Coffee Lounge", "code": "in_coffee_lounge",  "emoji": "☕"},
+    "in_coffee_lounge":  {"label": "In the FP Café", "code": "in_coffee_lounge",  "emoji": "☕"},
     "happy_to_connect":  {"label": "Happy to connect",     "code": "happy_to_connect",  "emoji": "😊"},
     "busy":              {"label": "Busy right now",       "code": "busy",              "emoji": "🟡"},
     "offline":           {"label": "Offline",              "code": "offline",           "emoji": "⚫"},
@@ -3118,7 +3172,7 @@ class CheerBody(BaseModel):
 CHEER_TEXT = {
     "well_done":  ("👏", "well done"),
     "congrats":   ("🎉", "congratulations"),
-    "coffee":     ("☕", "let's celebrate in the Coffee Lounge"),
+    "coffee":     ("☕", "let's celebrate in the FP Café"),
     "flutter":    ("🦋", "sent a Flutter"),
 }
 
@@ -4739,10 +4793,10 @@ async def bingo_stats(user_id: str):
     }
 
 
-# ------------- Tables (Coffee Lounge) -------------
+# ------------- Tables (FP Café) -------------
 async def _prune_idle_tables() -> None:
     """Delete non-persistent tables (and their messages) that have had no
-    activity for 24 hours. Keeps the Coffee Lounge tidy without a separate
+    activity for 24 hours. Keeps the FP Café tidy without a separate
     cron job — fast enough to run inline on each /tables GET.
     """
     from datetime import datetime as _dt, timedelta as _td, timezone as _tz
@@ -4786,11 +4840,28 @@ async def _migrate_table_metadata() -> None:
     if test_ids:
         await db.messages.delete_many({"table_id": {"$in": test_ids}})
         await db.tables.delete_many({"id": {"$in": test_ids}})
+    # Ensure the FP Café permanent table exists (TestFlight feedback,
+    # Garry 27 July 2026). Idempotent — safe on every call.
+    try:
+        await _ensure_fp_cafe_table()
+    except Exception as e:
+        logger.warning("ensure fp_cafe table failed: %s", e)
+    # Rebrand rollover: any table description created before the
+    # Coffee Lounge → FP Café rename still references the old name.
+    # Update in place so members see consistent wording.
+    try:
+        await db.tables.update_one(
+            {"name": "Founders Lounge",
+             "description": {"$regex": "Coffee Lounge", "$options": "i"}},
+            {"$set": {"description": "An exclusive FP Café table just for Founding Members. Pull up a chair."}},
+        )
+    except Exception:
+        pass
 
 
 @api.get("/tables")
 async def list_tables(user_id: str | None = None):
-    """List Coffee Lounge tables sorted by most recently active.
+    """List FP Café tables sorted by most recently active.
 
     When `user_id` is supplied the response is enriched with:
       • `host_display` — `{first_name, avatar}` for the table's host so the
@@ -4806,6 +4877,13 @@ async def list_tables(user_id: str | None = None):
     await _migrate_table_metadata()
     await _prune_idle_tables()
     docs = await db.tables.find({}, {"_id": 0}).sort("last_activity_at", -1).to_list(500)
+    # TestFlight feedback (Garry 27 July 2026): the FP Café is the
+    # community's obvious first door — always pin it at the very top.
+    def _sort_key(d: dict) -> tuple[int, str]:
+        # (0) pinned always come first; (1) everyone else by recency
+        # (already applied by the DB sort). Two-tier stable sort.
+        return (0 if d.get("pinned") else 1, "")
+    docs.sort(key=_sort_key)
 
     if not user_id:
         return docs
@@ -4868,7 +4946,7 @@ async def create_table(body: CreateTableBody):
             hname = host.get("first_name") or host.get("username") or "Someone"
             havatar = host.get("avatar") or "☕"
             emoji = body.emoji or "☕"
-            title = f"{emoji} {hname} just opened a Coffee Lounge table"
+            title = f"{emoji} {hname} just opened a FP Café table"
             body_text = f"{havatar} \u201c{body.name}\u201d — come pull up a chair and say hi."
             for fid in friend_ids[:100]:
                 await push_notification(
@@ -4951,7 +5029,7 @@ async def list_groups(include_pending: bool = False, include_system: bool = Fals
     """Public Community Groups list.
 
     By default hides:
-      • `is_system=True`  — Founders Lounge & Coffee Lounge Crew (these
+      • `is_system=True`  — Founders Lounge & FP Café Crew (these
         live in their own dedicated tabs, would be confusing in the
         public listing)
       • `pending_approval=True` — user-suggested groups waiting on admin
@@ -6273,7 +6351,7 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
         d.arc([cx - 12, cy - 30, cx + 12, cy + 30], 0, 360, fill="#10B981", width=3)
         d.line([cx, cy - 28, cx, cy + 28], fill="#10B981", width=3)
 
-    draw_chip(0, "#92400E", "Coffee Lounge", icon_coffee)
+    draw_chip(0, "#92400E", "FP Café", icon_coffee)
     draw_chip(1, "#0369A1", "Local Events", icon_calendar)
     draw_chip(2, "#7C3AED", "Make Friends", icon_people)
     draw_chip(3, "#0F766E", "Community Groups", icon_globe)
@@ -6592,7 +6670,7 @@ async def _hard_delete_user_data(user_id: str) -> None:
       * Friend & block links — pulled from every other user's arrays.
       * Group post authorship — anonymised, not deleted, so threads remain
         coherent for the rest of the community.
-      * Their seat at any Coffee Lounge table — pulled.
+      * Their seat at any FP Café table — pulled.
       * Reports filed *against* them — kept for audit, but the
         target_user_id is anonymised to "[deleted]".
 
@@ -8859,7 +8937,7 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
     await hub.connect(room, websocket)
     # SEC-005: Require a valid bearer token on connect AND require it to
     # belong to the same user_id. Without this an attacker could impersonate
-    # anyone in the Coffee Lounge. Fail the socket cleanly with a typed
+    # anyone in the FP Café. Fail the socket cleanly with a typed
     # "unauthorized" so the client can surface a friendly re-login prompt.
     token_uid = decode_token(token) if token else None
     if not token_uid or token_uid != user_id:
@@ -8894,7 +8972,7 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
         hub.disconnect(room, websocket)
         return
     await db.tables.update_one({"id": table_id}, {"$addToSet": {"seated": user_id}})
-    # Auto-update presence status when sitting at a Coffee Lounge table.
+    # Auto-update presence status when sitting at a FP Café table.
     prior_status = (user or {}).get("status")
     await db.users.update_one(
         {"id": user_id},
@@ -8914,8 +8992,8 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
             for fid in friends[:25]:
                 await push_notification(
                     fid, "coffee_seat",
-                    f"☕ {user.get('first_name','A friend')} is in the Coffee Lounge and has a seat available",
-                    f"Table: {tbl.get('name','Coffee Lounge')} — pull up a chair!",
+                    f"☕ {user.get('first_name','A friend')} is in the FP Café and has a seat available",
+                    f"Table: {tbl.get('name','FP Café')} — pull up a chair!",
                     {"table_id": table_id, "from_id": user_id},
                 )
     except Exception:
@@ -8963,7 +9041,7 @@ async def ws_table(websocket: WebSocket, table_id: str, user_id: str = Query(...
     finally:
         hub.disconnect(room, websocket)
         await db.tables.update_one({"id": table_id}, {"$pull": {"seated": user_id}})
-        # Restore prior status (if any) when leaving the Coffee Lounge.
+        # Restore prior status (if any) when leaving the FP Café.
         u2 = await db.users.find_one({"id": user_id}, {"_id": 0, "status": 1, "status_prior": 1}) or {}
         if u2.get("status") == "in_coffee_lounge":
             restore = u2.get("status_prior")
@@ -9151,7 +9229,7 @@ async def _ensure_indexes():
 
     Why these specific indexes:
       • users.id / username / email — login + every user lookup
-      • messages.table_id + created_at — Coffee Lounge chat history pagination
+      • messages.table_id + created_at — FP Café chat history pagination
       • dms.room_id + created_at — private message thread reads
       • events.date — events list sorts by date on every fetch
       • events.host_id, .series_id — host-side & recurring-series filters
@@ -9334,9 +9412,9 @@ async def seed():
     await db.users.update_one({"username": "maggie"}, {"$set": {"is_admin": True}})
     # Backfill `is_system` flag on the two special groups so they no
     # longer appear in the public Community Groups list (they live in
-    # their own dedicated tabs — Founders area + Coffee Lounge).
+    # their own dedicated tabs — Founders area + FP Café).
     await db.groups.update_many(
-        {"name": {"$in": ["Founders Lounge", "Coffee Lounge Crew"]}, "is_system": {"$ne": True}},
+        {"name": {"$in": ["Founders Lounge", "FP Café Crew"]}, "is_system": {"$ne": True}},
         {"$set": {"is_system": True}},
     )
     users_count = await db.users.count_documents({})
@@ -9458,7 +9536,7 @@ _DEFAULT_SITE_CONTENT = {
         ),
     },
     "features": [
-        {"emoji": "☕", "title": "Coffee Lounge", "body": "Drop into a virtual table with folks nearby."},
+        {"emoji": "☕", "title": "FP Café", "body": "Drop into a virtual table with folks nearby."},
         {"emoji": "📅", "title": "Local Events", "body": "Real gatherings in your neighbourhood, not just online chatter."},
         {"emoji": "👥", "title": "Community Groups", "body": "Book clubs, walkers, bakers, players — find your people."},
         {"emoji": "🦋", "title": "Flutters", "body": "Send a small note of kindness. Someone always needs one."},

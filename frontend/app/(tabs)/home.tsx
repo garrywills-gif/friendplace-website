@@ -264,7 +264,7 @@ export default function Home() {
   };
 
   const tiles: Tile[] = [
-    { key: "lounge", title: "Coffee Lounge", icon: "cafe", route: "/lounge", bg: "#0F766E", full: true },
+    { key: "lounge", title: "FP Café", icon: "cafe", route: "/lounge", bg: "#0F766E", full: true },
     { key: "friends", title: "Find Friends", icon: "people", route: "/friends", bg: "#0369A1" },
     { key: "events", title: "Local Events", icon: "calendar", route: "/events", bg: "#0EA5E9" },
     { key: "recipes", title: "Post Your Recipe", icon: "restaurant", route: "/recipes", bg: "#B45309" },
@@ -279,7 +279,7 @@ export default function Home() {
       {/*
        * George's butterfly is now mounted globally in the root layout
        * (`app/_layout.tsx` → `<GeorgeGlobalHost />`) so he follows the
-       * member across every screen — Coffee Lounge, Friends, Events,
+       * member across every screen — FP Café, Friends, Events,
        * Groups, Notice Board, Games, and so on. C1 Slice 3, locked
        * with Garry 22 July 2026. Do not re-mount him here.
        */}
@@ -615,7 +615,7 @@ export default function Home() {
             <View style={{ marginTop: 10, gap: 10 }}>
               {[
                 { emoji: "🦋", label: "Send a flutter", pts: "+2" },
-                { emoji: "☕", label: "Join or post in the Coffee Lounge", pts: "+3" },
+                { emoji: "☕", label: "Join or post in the FP Café", pts: "+3" },
                 { emoji: "🤝", label: "Post in a Community Group", pts: "+4" },
                 { emoji: "📅", label: "RSVP to a local event", pts: "+5" },
                 { emoji: "🎮", label: "Complete a daily game", pts: "+10–15" },

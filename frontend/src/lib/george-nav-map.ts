@@ -41,7 +41,7 @@ export const GEORGE_NAV_MAP: Record<GeorgeNavKey, GeorgeNavTarget> = {
   home:          { key: 'home',          href: '/(tabs)/home',    fallbackLabel: 'Take me home' },
   chats:         { key: 'chats',         href: '/(tabs)/chats',   fallbackLabel: 'Open Chats' },
   friends:       { key: 'friends',       href: '/(tabs)/friends', fallbackLabel: 'Open Friends' },
-  lounge:        { key: 'lounge',        href: '/(tabs)/lounge',  fallbackLabel: 'Open the Coffee Lounge' },
+  lounge:        { key: 'lounge',        href: '/(tabs)/lounge',  fallbackLabel: 'Open the FP Café' },
   profile:       { key: 'profile',       href: '/(tabs)/profile', fallbackLabel: 'Open my Profile' },
   games:         { key: 'games',         href: '/games',          fallbackLabel: 'Take me to Games' },
   groups:        { key: 'groups',        href: '/groups',         fallbackLabel: 'Open Groups' },
