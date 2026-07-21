@@ -415,3 +415,36 @@ Backend rhythms are shipped; the dashboard is what's outstanding.
 consolidation onward. Nothing on this list gets built until FriendPlace
 is live on TestFlight and a full external test round has completed.
 
+---
+
+## 🐛 Live TestFlight feedback (Garry, 25 Jul 2026 evening — build 113)
+
+Small polish items surfaced by running the actual TestFlight build on
+Garry's iPhone. None launch-blocking; queue for a build after 114.
+
+### Simplified mode — buttons lose their outline (P2)
+- **What Garry sees:** with Simplified mode ON, chip / pill buttons
+  across the app lose their visible border, becoming hard to distinguish
+  from the background — especially the OFF-state Text Size chips
+  (Small / Large / Extra) which currently rely on a subtle border that
+  Simplified mode strips out.
+- **Fix:** in Simplified mode, ALL buttons must retain a **thicker,
+  darker outline** (not remove it). Keep the mode's goals — larger
+  buttons + more breathing room + reduced visual clutter — but make
+  the outline stronger, not weaker. Rule of thumb: Simplified should
+  make things MORE tappable, not more ambiguous.
+- **Where to touch:** the `simplified` theme variant in
+  `/app/frontend/src/lib/theme.tsx` — check the border / outline
+  tokens for `chip`, `button`, `toggle`, `card`. Also audit any
+  component that switches its `borderWidth` on the simplified flag.
+- **Acceptance:** in Simplified mode, un-selected chips are clearly
+  outlined, toggle tracks have a visible border in both on and off
+  states, and secondary buttons don't ghost into the background.
+
+### Build 114 already-queued fixes (Garry, 25 Jul 2026)
+Captured in code but pending Publish:
+- ✅ Extra top padding below Dynamic Island (onboarding + main George chat)
+- ✅ First George intro card centered vertically instead of anchored to bottom
+- ✅ Speaker button added to onboarding chat bubbles (parity with main chat)
+- ⏳ Mic (STT) button in the onboarding composer — half-finished, resume next session
+
