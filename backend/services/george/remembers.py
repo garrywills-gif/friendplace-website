@@ -198,8 +198,31 @@ def _comma_name(name: str) -> str:
     return f", {name}" if name else ""
 
 
+def _humanise_relative_when(kind: str, start_utc: datetime, now: datetime) -> str:
+    """Warm short label like 'Tomorrow' / 'Later today' / 'Earlier today'
+    for the timing chip. Kept short (<= 16 chars) so it fits comfortably
+    beside the event title."""
+    local_start = start_utc.astimezone(COMMUNITY_TZ)
+    local_now = now.astimezone(COMMUNITY_TZ)
+    same_day = local_start.date() == local_now.date()
+    if kind == "pre_event":
+        if same_day:
+            return "Later today"
+        # If the event is anywhere in the next ~30h, call it "tomorrow"
+        # (matches how members talk); otherwise fall back to weekday.
+        delta_h = (local_start - local_now).total_seconds() / 3600
+        if delta_h <= 30:
+            return "Tomorrow"
+        return local_start.strftime("%A")
+    # post_event
+    if same_day:
+        return "Earlier today"
+    return f"On {local_start.strftime('%A')}"
+
+
 def render_pre_event(ev: dict, organiser: dict) -> str:
-    """Template for the ~18h-before message."""
+    """Template for the ~18h-before message. Used for accessibility
+    read-out and TTS playback."""
     title = ev.get("title") or "your event"
     name = _first_name(organiser)
     return (
@@ -217,6 +240,41 @@ def render_post_event(ev: dict, organiser: dict, start_local: datetime) -> str:
         f"How did {title} go{_comma_name(name)}? "
         f"I hope you had a lovely {tod}."
     )
+
+
+def render_display(
+    kind: str, ev: dict, organiser: dict,
+    start_utc: datetime, now: datetime,
+) -> dict:
+    """Structured payload for the visual card.
+
+    Returned shape:
+        {
+          emoji: str,          # small icon at the leading edge
+          title: str,          # the event title, prominent
+          when_label: str,     # short chip like "Tomorrow"
+          body:  str,          # trailing warm line (no title repeat)
+          cta_label: str,      # what the action button reads
+          cta_kind:  str,      # 'view_event' for now
+        }
+    """
+    name = _first_name(organiser)
+    title = ev.get("title") or "your event"
+    emoji = ev.get("emoji") or ("📅" if kind == "pre_event" else "💛")
+    when = _humanise_relative_when(kind, start_utc, now)
+    if kind == "pre_event":
+        body = f"I hope everyone has a lovely time{_comma_name(name)}."
+    else:
+        tod = _time_of_day(start_utc.astimezone(COMMUNITY_TZ))
+        body = f"I hope you had a lovely {tod}{_comma_name(name)}."
+    return {
+        "emoji": emoji,
+        "title": title,
+        "when_label": when,
+        "body": body,
+        "cta_label": "View event",
+        "cta_kind": "view_event",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -299,12 +357,14 @@ async def _process_event(db, ev: dict, now: datetime, summary: dict) -> None:
 
     kinds = [
         ("pre_event",  start_utc - timedelta(hours=PRE_EVENT_LEAD_H),
-         lambda: render_pre_event(ev, organiser)),
+         lambda: render_pre_event(ev, organiser),
+         lambda: render_display("pre_event", ev, organiser, start_utc, now)),
         ("post_event", start_utc + timedelta(hours=ASSUMED_DURATION_H + POST_EVENT_DELAY_H),
-         lambda: render_post_event(ev, organiser, start_local)),
+         lambda: render_post_event(ev, organiser, start_local),
+         lambda: render_display("post_event", ev, organiser, start_utc, now)),
     ]
 
-    for kind, at, render in kinds:
+    for kind, at, render, render_disp in kinds:
         # Skip if the scheduled moment is too far in the past.
         if at + timedelta(hours=DELIVERY_GRACE_H) < now:
             continue
@@ -354,9 +414,11 @@ async def _process_event(db, ev: dict, now: datetime, summary: dict) -> None:
             "recipient_id": host_id,
             "scheduled_for": target_iso,
             "content": render(),
+            "display": render_disp(),
             "status": "scheduled",
             "event_snapshot": {
                 "title": ev.get("title"),
+                "emoji": ev.get("emoji"),
                 "date":  ev.get("date"),
                 "time":  ev.get("time"),
                 "location": ev.get("location"),

@@ -131,16 +131,29 @@ export interface EventEditMeta {
 }
 
 // B7 — George Remembers
+export interface RemembersDisplay {
+  emoji?: string;
+  title?: string;
+  when_label?: string;
+  body?: string;
+  cta_label?: string;
+  cta_kind?: 'view_event' | string;
+}
+
 export interface RemembersMessage {
   id: string;
   kind: 'pre_event' | 'post_event';
   event_id: string;
   recipient_id: string;
   content: string;
+  /** Structured payload for the visual card. Falls back to `content`
+   * when absent (rows created before Session 2 refinement). */
+  display?: RemembersDisplay;
   status: 'scheduled' | 'delivered' | 'dismissed' | 'cancelled' | 'superseded';
   scheduled_for?: string;
   event_snapshot?: {
     title?: string;
+    emoji?: string;
     date?: string;
     time?: string;
     location?: string;

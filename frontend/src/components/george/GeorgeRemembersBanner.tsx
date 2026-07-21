@@ -1,30 +1,24 @@
 /**
- * GeorgeRemembersBanner — B7 MVP UI.
+ * GeorgeRemembersBanner — B7 UI (refined per Garry's feedback 25 Jul 2026).
  *
- * A quiet, warm card that surfaces George's pre-event well-wishes
- * and post-event follow-ups on `/home`. It's:
+ * Design changes vs the first cut:
+ *   • Header is warmer — "🦋 George" with a small subtitle rather
+ *     than the loud "GEORGE REMEMBERS".
+ *   • Event is pulled OUT of the sentence so the eye finds it fast:
+ *     emoji + title with a soft timing chip ("Tomorrow" /
+ *     "Earlier today"). The warm one-liner sits below.
+ *   • A gentle "View event" button opens the event's edit screen —
+ *     one tap away when a member has forgotten the details.
+ *   • ONLY ONE reminder at a time on Home. If more are queued they
+ *     surface after the current one is dismissed. Keeps the home
+ *     screen from getting busy as the app grows.
  *
- *   • Persistent — the message stays until the member dismisses it,
- *     even across app restarts.
- *   • Non-blocking — if the inbox is empty, the component renders
- *     nothing (returns null) so the home layout is untouched.
- *   • Cross-platform — pure React Native primitives; the SpeakButton
- *     component handles voice playback for us.
- *
- * Behaviour:
- *   1. On mount and on every re-focus of the home tab, fetch the
- *      inbox from `/api/mcgs/george/remembers/inbox`.
- *   2. Render the newest undismissed message as a butterfly-branded
- *      card with George's message text.
- *   3. If there are more messages queued, show a small "1 of N"
- *      pill and let the member cycle through them.
- *   4. Tapping the dismiss icon calls `/dismiss`, optimistically
- *      removes the card from the list, and reveals the next one.
+ * The banner still renders `null` when the inbox is empty.
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useTheme } from '@/src/lib/theme';
 import { georgeApi, type RemembersMessage } from '@/src/lib/george-api';
@@ -35,25 +29,20 @@ type Message = RemembersMessage;
 
 export function GeorgeRemembersBanner() {
   const { c, scale } = useTheme();
+  const router = useRouter();
   const [items, setItems] = useState<Message[]>([]);
-  const [cursor, setCursor] = useState(0);   // index of the visible card
   const [loading, setLoading] = useState(false);
-  const [busy, setBusy] = useState(false);   // dismiss in flight
+  const [busy, setBusy] = useState(false);
 
-  // Fetch every time the home tab regains focus. That way a member
-  // returning from another tab (or from George's chat) gets the
-  // freshest inbox without a hard refresh.
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await georgeApi.remembersInbox();
       const list: Message[] = Array.isArray(res?.items) ? res.items : [];
-      // Sort newest first (fresh delivery beats older ones).
+      // Newest first so a just-arrived nudge wins over stale ones.
       list.sort((a, b) => (b.scheduled_for || '').localeCompare(a.scheduled_for || ''));
       setItems(list);
-      setCursor(0);
     } catch {
-      // Silent — this is a "quiet extra" surface, not a blocker.
       setItems([]);
     } finally {
       setLoading(false);
@@ -62,94 +51,112 @@ export function GeorgeRemembersBanner() {
 
   useFocusEffect(useCallback(() => { load(); return () => {}; }, [load]));
 
-  // Beacon: mark the top-most card as seen when we first render it.
-  const visible = items[cursor];
+  const visible = items[0] || null;
+
+  // Fire a viewport beacon the first time we render each message.
   useEffect(() => {
     if (!visible) return;
     (async () => {
-      try {
-        await georgeApi.remembersSeen(visible.id);
-      } catch {
-        // Non-fatal.
-      }
+      try { await georgeApi.remembersSeen(visible.id); } catch {}
     })();
   }, [visible?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const onDismiss = useCallback(async () => {
     if (!visible || busy) return;
     setBusy(true);
-    // Optimistic — drop the item from the queue immediately.
-    const remaining = items.filter((_, i) => i !== cursor);
+    const remaining = items.slice(1);
     setItems(remaining);
-    setCursor(prev => Math.min(prev, Math.max(0, remaining.length - 1)));
     try {
       await georgeApi.remembersDismiss(visible.id);
     } catch {
-      // Revert on failure.
+      // Revert on failure so the member isn't silently dropped.
       setItems(items);
     } finally {
       setBusy(false);
     }
-  }, [visible, busy, items, cursor]);
+  }, [visible, busy, items]);
 
-  if (loading && items.length === 0) return null;   // stay invisible during first fetch
+  const onViewEvent = useCallback(() => {
+    if (!visible?.event_id) return;
+    router.push({ pathname: '/events/edit/[id]', params: { id: visible.event_id } });
+  }, [visible?.event_id, router]);
+
+  if (loading && items.length === 0) return null;
   if (!visible) return null;
 
   const s = styles(c, scale);
+  const disp = visible.display || {};
+  const snapshot = visible.event_snapshot || {};
+  const emoji = disp.emoji || snapshot.emoji || (visible.kind === 'pre_event' ? '📅' : '💛');
+  const title = disp.title || snapshot.title || 'Your event';
+  const whenLabel = disp.when_label ||
+    (visible.kind === 'pre_event' ? 'Tomorrow' : 'Earlier today');
+  const bodyText = disp.body ||
+    // Legacy fallback: strip the title from the full content if we can,
+    // otherwise show the whole thing.
+    visible.content;
+  const spokenText = visible.content;
+  const showViewEvent = disp.cta_kind !== 'none';
 
   return (
     <View style={s.card} testID="george-remembers-banner">
+      {/* Header — warm and personal. */}
       <View style={s.head}>
         <View style={s.headLeft}>
-          <GeorgeButterflyMark size={26} />
-          <Text style={s.headTitle}>George remembers</Text>
-        </View>
-        <View style={s.headRight}>
-          {items.length > 1 ? (
-            <Text style={s.pill}>{cursor + 1} of {items.length}</Text>
-          ) : null}
-          <Pressable
-            onPress={onDismiss}
-            disabled={busy}
-            hitSlop={10}
-            accessibilityLabel="Dismiss this message"
-            style={({ pressed }) => [s.dismissBtn, (pressed || busy) && { opacity: 0.5 }]}
-            testID="george-remembers-dismiss"
-          >
-            <Ionicons name="close" size={20} color={c.muted} />
-          </Pressable>
-        </View>
-      </View>
-
-      <View style={s.body}>
-        <Text style={s.text} accessibilityLabel="George says">{visible.content}</Text>
-      </View>
-
-      <View style={s.foot}>
-        <SpeakButton text={visible.content} color={c.brand} size={20} />
-        {items.length > 1 ? (
-          <View style={s.navRow}>
-            <Pressable
-              onPress={() => setCursor(p => Math.max(0, p - 1))}
-              disabled={cursor === 0}
-              hitSlop={8}
-              style={({ pressed }) => [s.navBtn, (pressed || cursor === 0) && { opacity: 0.4 }]}
-              accessibilityLabel="Previous message"
-            >
-              <Ionicons name="chevron-back" size={18} color={c.brand} />
-            </Pressable>
-            <Pressable
-              onPress={() => setCursor(p => Math.min(items.length - 1, p + 1))}
-              disabled={cursor === items.length - 1}
-              hitSlop={8}
-              style={({ pressed }) => [s.navBtn, (pressed || cursor === items.length - 1) && { opacity: 0.4 }]}
-              accessibilityLabel="Next message"
-            >
-              <Ionicons name="chevron-forward" size={18} color={c.brand} />
-            </Pressable>
+          <GeorgeButterflyMark size={22} />
+          <View>
+            <Text style={s.headTitle}>George</Text>
+            <Text style={s.headSubtitle}>
+              {visible.kind === 'pre_event' ? 'Thinking ahead' : 'Just checking in'}
+            </Text>
           </View>
+        </View>
+        <Pressable
+          onPress={onDismiss}
+          disabled={busy}
+          hitSlop={10}
+          accessibilityLabel="Dismiss this message"
+          style={({ pressed }) => [s.dismissBtn, (pressed || busy) && { opacity: 0.5 }]}
+          testID="george-remembers-dismiss"
+        >
+          <Ionicons name="close" size={20} color={c.muted} />
+        </Pressable>
+      </View>
+
+      {/* Highlighted event row — emoji + title + timing chip. */}
+      <View style={s.eventRow}>
+        <Text style={s.eventEmoji} accessibilityElementsHidden>{emoji}</Text>
+        <View style={s.eventTitleCol}>
+          <Text style={s.eventTitle} numberOfLines={1} accessibilityLabel={`Event: ${title}`}>
+            {title}
+          </Text>
+        </View>
+        <View style={s.whenChip}>
+          <Text style={s.whenChipText}>{whenLabel}</Text>
+        </View>
+      </View>
+
+      {/* The warm one-liner. */}
+      <Text style={s.body} accessibilityLabel="George says">{bodyText}</Text>
+
+      {/* Actions row — speaker + View event. */}
+      <View style={s.foot}>
+        <SpeakButton text={spokenText} color={c.brand} size={22} />
+        {showViewEvent ? (
+          <Pressable
+            onPress={onViewEvent}
+            hitSlop={6}
+            style={({ pressed }) => [s.cta, pressed && { opacity: 0.7 }]}
+            accessibilityRole="button"
+            accessibilityLabel={disp.cta_label || 'View event'}
+            testID="george-remembers-view-event"
+          >
+            <Text style={s.ctaText}>{disp.cta_label || 'View event'}</Text>
+            <Ionicons name="chevron-forward" size={16} color={c.brand} />
+          </Pressable>
         ) : null}
       </View>
+
       {busy ? <ActivityIndicator style={s.busy} color={c.brand} /> : null}
     </View>
   );
@@ -161,55 +168,106 @@ const styles = (c: ReturnType<typeof useTheme>['c'], scale: number) => StyleShee
     padding: 14,
     borderRadius: 18,
     backgroundColor: c.surfaceSecondary,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: c.brand,
-    gap: 10,
+    gap: 12,
   },
   head: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   headLeft: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
   headTitle: {
-    fontSize: 12 * scale,
+    fontSize: 14 * scale,
     fontWeight: '900',
-    color: c.brand,
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
+    color: c.onSurface,
   },
-  headRight: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-  },
-  pill: {
-    color: c.muted, fontSize: 11 * scale, fontWeight: '700',
-    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
-    backgroundColor: c.surface,
+  headSubtitle: {
+    fontSize: 11 * scale,
+    fontWeight: '600',
+    color: c.muted,
+    marginTop: 1,
   },
   dismissBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    alignItems: 'center', justifyContent: 'center',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  body: {
-    paddingVertical: 2,
-  },
-  text: {
-    fontSize: 16 * scale,
-    lineHeight: 24 * scale,
-    color: c.onSurface,
-    fontWeight: '600',
-  },
-  foot: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-  },
-  navRow: { flexDirection: 'row', gap: 4 },
-  navBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: c.brand,
-  },
-  busy: { position: 'absolute', right: 12, bottom: 12 },
-});
 
-// Small local re-export helper (GeorgeButterflyMark isn't in the barrel)
-// Explicit import above.
+  eventRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.border,
+  },
+  eventEmoji: {
+    fontSize: 22 * scale,
+  },
+  eventTitleCol: {
+    flex: 1,
+  },
+  eventTitle: {
+    fontSize: 15 * scale,
+    fontWeight: '800',
+    color: c.onSurface,
+  },
+  whenChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: c.brandTertiary,
+  },
+  whenChipText: {
+    color: c.brand,
+    fontSize: 11 * scale,
+    fontWeight: '800',
+  },
+
+  body: {
+    fontSize: 15 * scale,
+    lineHeight: 22 * scale,
+    color: c.onSurface,
+    fontWeight: '500',
+  },
+
+  foot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: c.brand,
+    backgroundColor: c.surface,
+    minHeight: 36,
+  },
+  ctaText: {
+    color: c.brand,
+    fontWeight: '800',
+    fontSize: 13 * scale,
+  },
+
+  busy: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+  },
+});
