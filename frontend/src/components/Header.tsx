@@ -212,6 +212,7 @@ function GeorgeHeaderMark() {
       hitSlop={10}
       accessibilityRole="button"
       accessibilityLabel="Talk to George"
+      testID="george-butterfly-header"
       style={styles.brandMark}
     >
       <Reanimated.View style={markStyle}>

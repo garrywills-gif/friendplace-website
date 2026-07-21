@@ -188,7 +188,11 @@ export default function EditEvent() {
               onPress={() => {
                 const t = (title || ev.title || 'this event').trim();
                 openGeorgeWithPrompt(`Help me edit my "${t}" event`);
-                router.back();
+                // Only pop this screen if we can. If we deep-linked
+                // straight to /events/edit/[id] the stack is empty
+                // and router.back() would warn — leave the user on
+                // this screen and let George open on top of it.
+                if (router.canGoBack()) router.back();
               }}
               style={({ pressed }) => ({
                 flexDirection: 'row',
