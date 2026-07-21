@@ -7,6 +7,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { georgeApi } from '@/src/lib/george-api';
+import SpeakButton from '@/src/components/SpeakButton';
 
 /**
  * George's onboarding conversation surface — Slice B4 mobile MVP.
@@ -124,7 +125,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   return (
     <KeyboardAvoidingView
       behavior="padding"
-      style={[styles.wrap, { paddingTop: insets.top + 8 }]}
+      style={[styles.wrap, { paddingTop: insets.top + 20 }]}
     >
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
@@ -149,6 +150,15 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
             ) : null}
             <View style={t.role === 'george' ? styles.bubble : styles.userBubble}>
               <Text style={t.role === 'george' ? styles.bubbleText : styles.userBubbleText}>{t.content}</Text>
+              {/* B4 accessibility: tap-to-read on every George bubble
+                  (parity with the main George chat). Uses on-device
+                  `expo-speech` so it works offline / when the backend
+                  can't be reached. */}
+              {t.role === 'george' && t.content?.trim() ? (
+                <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
+                  <SpeakButton text={t.content} color="#0F766E" size={18} />
+                </View>
+              ) : null}
             </View>
           </View>
         ))}
@@ -263,7 +273,12 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 12, paddingTop: 16, paddingBottom: 6,
-    flexGrow: 1, justifyContent: 'flex-end',
+    flexGrow: 1,
+    // Onboarding: keep the first George intro comfortably in the
+    // upper-middle of the screen rather than tucked against the
+    // composer at the bottom. Feels warmer for a new member who
+    // just landed.
+    justifyContent: 'center',
   },
   bubbleRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 8 },
   bubbleRowRight: { justifyContent: 'flex-end' },

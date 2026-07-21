@@ -354,7 +354,7 @@ export default function OnboardingWizard() {
       {/* Top header — teal butterfly + FriendPlace wordmark + a slim
           progress bar under the wordmark so users always see where they
           are in the flow. Progress excludes the celebration screen. */}
-      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + 22 }]}>
         <View style={styles.brandBar}>
           <Image source={BUTTERFLY_LOGO} style={styles.brandLogo} resizeMode="contain" />
           <View style={{ flexDirection: "row", alignItems: "baseline" }}>
@@ -379,7 +379,7 @@ export default function OnboardingWizard() {
 
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 6 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 20 }}
         keyboardShouldPersistTaps="handled"
       >
         {step === 0 ? <StepWelcome scale={scale} c={c} /> : null}

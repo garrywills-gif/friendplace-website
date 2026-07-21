@@ -591,7 +591,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   return (
     <KeyboardAvoidingView
       behavior="padding"
-      style={[styles.wrap, { paddingTop: insets.top + 8 }]}
+      style={[styles.wrap, { paddingTop: insets.top + 20 }]}
     >
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
