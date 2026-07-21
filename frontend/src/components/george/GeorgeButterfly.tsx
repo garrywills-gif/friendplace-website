@@ -539,6 +539,20 @@ function firstName(name: string): string {
 
 // ---- Daily gate ---------------------------------------------------------
 
+// C1 (Garry, 22 July 2026): the daily gate is per-actor and stored in
+// AsyncStorage. Exported so the auth layer can clear it on every fresh
+// login — otherwise a returning member sees no welcome-back from George
+// because the gate was still set from earlier that day.
+export async function clearArrivalGates(): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const ours = keys.filter(k => k.startsWith(`${STORAGE_KEY}.`));
+    if (ours.length) await AsyncStorage.multiRemove(ours);
+  } catch {
+    // Non-fatal — worst case the greeting doesn't play on this login.
+  }
+}
+
 async function shouldArriveToday(actorId: string): Promise<{ allowed: boolean; warmWelcome: boolean }> {
   try {
     const raw = await AsyncStorage.getItem(`${STORAGE_KEY}.${actorId}`);

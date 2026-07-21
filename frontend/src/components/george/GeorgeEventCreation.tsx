@@ -16,7 +16,7 @@ import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
 import { useGeorge } from '@/src/lib/george-context';
 import { useToast } from '@/src/lib/toast';
-import { subscribeVoice } from '@/src/lib/george-voice';
+import { subscribeVoice, useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 import { playAudioUri, type PlaybackController } from '@/src/lib/george-playback';
 import {
   georgeApi,
@@ -76,6 +76,8 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     currentScreen, activeSessionId, setActiveSessionId, clearActiveSession,
     markGeorgeLedNavigation,
   } = useGeorge();
+  const { voice } = useGeorgeVoice();
+  const personaName = VOICE_LABELS[voice].short;
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<LocalTurn[]>([]);
   const [status, setStatus] = useState<EventSession['status']>('in_progress');
@@ -561,7 +563,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     >
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
-        <Text style={styles.headerName}>George</Text>
+        <Text style={styles.headerName}>{personaName}</Text>
         {isEventMode ? (
           <>
             <Pressable onPress={dontSave} hitSlop={8}>

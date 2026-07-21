@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api, setAuthToken, registerUnauthorizedHandler } from "./api";
 import { registerForPush } from "./push";
+import { clearArrivalGates } from "@/src/components/george/GeorgeButterfly";
 
 export type User = {
   id: string;
@@ -107,6 +108,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const persist = async (u: User | null, tok: string | null) => {
+    // A fresh login just happened when we're transitioning from
+    // "no user" to "user". In that case reset George's daily-arrival
+    // gate so the returning-user greeting always plays on log-in.
+    const isFreshLogin = !!u && !user;
     setUser(u);
     setToken(tok);
     // Push the token into api.ts's in-memory cache so every subsequent
@@ -119,6 +124,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (tok) await AsyncStorage.setItem(TOKEN_KEY, tok);
       else await AsyncStorage.removeItem(TOKEN_KEY);
     } catch {}
+    if (isFreshLogin) {
+      // Fire-and-forget — if this fails the app still works, just no
+      // welcome-back for this session.
+      clearArrivalGates().catch(() => {});
+    }
   };
 
   return (
