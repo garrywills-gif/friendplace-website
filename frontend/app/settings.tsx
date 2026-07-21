@@ -15,14 +15,19 @@
  * This satisfies App Store Review Guideline 5.1.1(v) and Google Play's
  * 2024+ "in-app account deletion" requirement.
  */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  View, Text, StyleSheet, ScrollView, Switch, Pressable, Modal, Alert,
+  View, Text, StyleSheet, ScrollView, Switch, Pressable, Modal, Alert, ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { useAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
+import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import { useGeorgeVoice, setVoice, VOICE_LABELS, type GeorgeVoice } from "@/src/lib/george-voice";
+import { georgeApi } from "@/src/lib/george-api";
 import Header from "@/src/components/Header";
 
 const GUIDELINES = [
@@ -125,6 +130,8 @@ export default function Settings() {
           </View>
         </View>
 
+        <GeorgeVoiceCard />
+
         <Text style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}>Community Guidelines</Text>
         <View style={[styles.cardBig, { backgroundColor: c.brandTertiary }]}>
           {GUIDELINES.map((g, i) => (
@@ -223,6 +230,142 @@ export default function Settings() {
     </View>
   );
 }
+
+// ---------------------------------------------------------------------------
+// George's voice — Voice Phase 3 picker
+// ---------------------------------------------------------------------------
+
+const PREVIEW_LINES: Record<GeorgeVoice, string> = {
+  george:  "G\u2019day, I\u2019m George. I\u2019ll be your community companion here at FriendPlace.",
+  georgia: "Hi there, I\u2019m Georgia. I\u2019ll be your community companion here at FriendPlace.",
+};
+
+function GeorgeVoiceCard() {
+  const { c, scale } = useTheme();
+  const { show } = useToast();
+  const { voice } = useGeorgeVoice();
+  const player = useAudioPlayer(null);
+  const [previewing, setPreviewing] = useState<GeorgeVoice | null>(null);
+
+  useEffect(() => () => {
+    try { player.pause(); } catch { /* noop */ }
+  }, [player]);
+
+  useEffect(() => {
+    if (previewing && !player.playing) setPreviewing(null);
+  }, [player.playing, previewing]);
+
+  const preview = async (which: GeorgeVoice) => {
+    if (previewing === which) {
+      try { player.pause(); } catch { /* noop */ }
+      setPreviewing(null);
+      return;
+    }
+    setPreviewing(which);
+    try {
+      try { await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }); } catch { /* web no-op */ }
+      const uri = await georgeApi.speak(PREVIEW_LINES[which], which);
+      player.replace({ uri });
+      try { player.seekTo(0); } catch { /* first-play */ }
+      player.play();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Couldn\u2019t play the preview. Please try again.";
+      show(msg);
+      setPreviewing(null);
+    }
+  };
+
+  const pick = async (which: GeorgeVoice) => {
+    if (which === voice) return;
+    await setVoice(which);
+    show(`George\u2019s voice set to ${VOICE_LABELS[which].short}.`);
+    preview(which);
+  };
+
+  return (
+    <View style={[voiceStyles.card, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+      <View style={voiceStyles.head}>
+        <Ionicons name="chatbubbles" size={20} color={c.brand} />
+        <Text style={[voiceStyles.title, { color: c.brand, fontSize: 15 * scale }]}>GEORGE&#39;S VOICE</Text>
+      </View>
+      <Text style={[voiceStyles.subtitle, { color: c.onBrandTertiary, fontSize: 14 * scale }]}>
+        Choose the voice George uses when reading his replies aloud in FriendPlace.
+      </Text>
+
+      <View style={voiceStyles.options}>
+        {(Object.keys(VOICE_LABELS) as GeorgeVoice[]).map((key) => {
+          const info = VOICE_LABELS[key];
+          const selected = voice === key;
+          return (
+            <Pressable
+              key={key}
+              testID={`voice-option-${key}`}
+              onPress={() => pick(key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              accessibilityLabel={`Use ${info.short}, ${info.description}`}
+              style={[
+                voiceStyles.option,
+                {
+                  backgroundColor: selected ? c.brand : c.surface,
+                  borderColor: selected ? c.brand : c.border,
+                },
+              ]}
+            >
+              <View style={voiceStyles.optionHead}>
+                <Text style={{ fontSize: 18 }}>{info.flag}</Text>
+                <Text style={[voiceStyles.optionLabel, {
+                  color: selected ? "#FFFFFF" : c.onSurface,
+                  fontSize: 15 * scale,
+                }]}>{info.short}</Text>
+                {selected && (
+                  <Ionicons name="checkmark-circle" size={18} color={"#FFFFFF"} style={{ marginLeft: "auto" }} />
+                )}
+              </View>
+              <Text style={[voiceStyles.optionDesc, {
+                color: selected ? "rgba(255,255,255,0.9)" : c.muted,
+                fontSize: 12 * scale,
+              }]}>{info.description}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Pressable
+        testID="voice-preview-current"
+        onPress={() => preview(voice)}
+        style={[voiceStyles.previewBtn, { backgroundColor: c.brand }]}
+        accessibilityRole="button"
+        accessibilityLabel={previewing === voice ? "Stop preview" : `Preview ${VOICE_LABELS[voice].short}`}
+      >
+        {previewing === voice ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <Ionicons name={"play"} size={16} color={"#FFFFFF"} />
+        )}
+        <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 14 * scale }}>
+          {previewing === voice ? "Stop preview" : `Preview ${VOICE_LABELS[voice].short}`}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const voiceStyles = StyleSheet.create({
+  card: { marginTop: 14, borderRadius: 18, padding: 14, borderWidth: 1.5 },
+  head: { flexDirection: "row", alignItems: "center", gap: 8 },
+  title: { fontWeight: "900", letterSpacing: 0.6 },
+  subtitle: { fontWeight: "500", marginTop: 6, lineHeight: 20 },
+  options: { flexDirection: "row", gap: 10, marginTop: 12 },
+  option: { flex: 1, borderRadius: 16, borderWidth: 2, padding: 12 },
+  optionHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  optionLabel: { fontWeight: "900" },
+  optionDesc: { marginTop: 4, lineHeight: 18, fontWeight: "500" },
+  previewBtn: {
+    marginTop: 12, flexDirection: "row", alignItems: "center",
+    alignSelf: "flex-start", gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999,
+  },
+});
 
 const styles = StyleSheet.create({
   section: { fontWeight: "800", marginTop: 8 },
