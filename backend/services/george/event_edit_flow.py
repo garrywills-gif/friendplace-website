@@ -222,29 +222,182 @@ def _looks_like_confirm(txt: str) -> Optional[bool]:
 
 
 # ---------------------------------------------------------------------------
+# Deterministic safety net — high-risk keyword detection
+# ---------------------------------------------------------------------------
+#
+# The classifier (Haiku) is fast and usually right, but it CAN mislabel a
+# high-risk edit as a low-risk one — for example, extracting "next Monday"
+# as a description update instead of a date change. That would silently
+# auto-apply what should have been a confirmed change.
+#
+# This scanner runs on the raw user_text AFTER the classifier so we always
+# have the final word. If any of these patterns match, the flow forces a
+# confirmation path regardless of what the model decided.
+#
+# The patterns are intentionally conservative — false positives (over-
+# confirming) are strictly safer than false negatives (silently applying).
+
+_HIGH_RISK_PATTERNS: dict[str, tuple[str, ...]] = {
+    "date": (
+        r"(?i)\bchange (?:the )?date\b",
+        r"(?i)\breschedul\w*",
+        r"(?i)\bmove (?:it |the event |this )?(?:to )?(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\b",
+        r"(?i)\bmove (?:it |the event |this )?(?:to )?next\b",
+        r"(?i)\bmove (?:it |the event |this )?(?:to )?tomorrow\b",
+        r"(?i)\bshift (?:it|the event|to)\b",
+        r"(?i)\bpostpon\w*",
+        r"(?i)\bpush (?:it|the event|back|forward|to)\b",
+        r"(?i)\bbring (?:it|the event) forward\b",
+        r"(?i)\bto\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\b",
+        r"(?i)\bnext\s+(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\b",
+        r"(?i)\bnext\s+(?:week|month|weekend)\b",
+        r"(?i)\bfor\s+tomorrow\b",
+        r"(?i)\bday\s+after\s+tomorrow\b",
+        r"\b\d{4}-\d{2}-\d{2}\b",
+        r"(?i)\bto\s+\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\w*\b",
+    ),
+    "time": (
+        r"(?i)\bchange (?:the )?time\b",
+        r"(?i)\bstart(?:ing|s)? (?:at|earlier|later)\b",
+        r"(?i)\b(?:reschedul|move|shift)\w*\s+(?:it |the event |to )?(?:earlier|later)\b",
+        r"(?i)\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b",
+        r"(?i)\bto\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b",
+        r"(?i)\b\d{1,2}\s*(?:am|pm)\b",
+        r"(?i)\bmove (?:it|the event) to\s+\d",
+        r"(?i)\bnoon\b", r"(?i)\bmidnight\b", r"(?i)\bmidday\b",
+    ),
+    "location": (
+        r"(?i)\bchange (?:the )?(?:location|venue|place|address)\b",
+        r"(?i)\bnew\s+(?:location|venue|place|address)\b",
+        # "Move it to the X" (X capitalised proper noun). Requires "the"
+        # to avoid catching weekday names like "move it to Friday".
+        r"\bmove (?:it|the event|this)\s+to\s+the\s+[A-Z][A-Za-z]",
+        # "at the Town Hall" style — capital-letter proper noun.
+        r"\bat\s+the\s+[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*",
+        r"(?i)\bat\s+(?:the\s+)?(?:town|community|city|main|local)\s+(?:hall|centre|center|library|park)\b",
+        r"(?i)\bhost(?:ing)? (?:it|the event)\s+at\b",
+        r"(?i)\bhold(?:ing)? (?:it|the event)\s+at\b",
+        r"(?i)\brelocate\b",
+    ),
+    "capacity": (
+        r"(?i)\bchange (?:the )?(?:capacity|limit|max(?:imum)?|min(?:imum)?)\b",
+        r"(?i)\b(?:cap|limit|capacity)\s+(?:it|the event|at|to)\s+\d+\b",
+        r"(?i)\bup to\s+\d+\s+(?:people|attendees|guests|folks|members)\b",
+        r"(?i)\bfor\s+\d+\s+(?:people|attendees|guests)\b",
+        r"(?i)\ballow\s+\d+\s+(?:more|people|folks|guests)\b",
+        r"(?i)\b(?:invite|fit|seat)\s+\d+\s+(?:more|people|folks|guests)\b",
+        r"(?i)\bmore\s+(?:spots|seats|places|guests|attendees|people)\b",
+        r"(?i)\bmake\s+(?:it|the event)\s+(?:bigger|smaller)\b",
+    ),
+    "visibility": (
+        r"(?i)\bchange (?:the )?visibility\b",
+        r"(?i)\bmake (?:it|the event) (?:public|private)\b",
+        r"(?i)\bfriends?\s+only\b",
+        r"(?i)\bwho can see\b",
+        r"(?i)\bset (?:it|the event) (?:to )?(?:public|private)\b",
+        r"(?i)\bhide (?:it|the event)\b",
+        r"(?i)\bshow (?:it|the event) to (?:everyone|the public)\b",
+        r"(?i)\bopen (?:it|the event) up to (?:everyone|the public)\b",
+    ),
+    "cancel": (
+        r"(?i)\bcancel(?:ling|led)?\s+(?:it|this|the event|my|our|the\s+\w+)\b",
+        r"(?i)\bplease cancel\b",
+        r"(?i)\bcall (?:it|the event) off\b",
+        r"(?i)\bscrap (?:it|the event)\b",
+        r"(?i)\bdelete (?:it|the event|the\s+\w+)\b",
+        r"(?i)\bdrop (?:it|the event)\b",
+        r"(?i)\bnot happening\b",
+    ),
+    "restore": (
+        r"(?i)\brestor(?:e|ing)\b",
+        r"(?i)\bbring (?:it|the event) back\b",
+        r"(?i)\buncancel\b",
+        r"(?i)\breinstat\w*",
+        r"(?i)\brevive\s+(?:it|the event)\b",
+        r"(?i)\bput (?:it|the event) back on\b",
+    ),
+}
+
+
+def _scan_high_risk_intent(user_text: str) -> set[str]:
+    """Return the set of high-risk categories the raw user_text mentions.
+
+    Categories: 'date', 'time', 'location', 'capacity', 'visibility',
+    'cancel', 'restore'.
+
+    Safety-net for the classifier — patterns are conservative and biased
+    toward flagging. False positives cost us an extra confirmation; false
+    negatives could silently move an event.
+
+    Patterns run against the RAW text (case preserved) so location
+    heuristics can distinguish "the Town Hall" (a real place name) from
+    "the town hall" (usually descriptive prose). Most patterns are
+    case-insensitive via `(?i)` — only the proper-noun sniff on
+    locations needs the original casing.
+    """
+    if not user_text:
+        return set()
+    hits: set[str] = set()
+    for cat, pats in _HIGH_RISK_PATTERNS.items():
+        for p in pats:
+            if re.search(p, user_text):
+                hits.add(cat)
+                break
+    return hits
+
+
+def _high_risk_field_set(hits: set[str]) -> set[str]:
+    """Map keyword categories to actual event field names in `EDITABLE_FIELDS`.
+
+    'cancel' / 'restore' map to the pseudo-field 'cancelled' since they
+    swap the cancelled boolean rather than a specific data field.
+    """
+    field_map = {
+        "date": "date", "time": "time", "location": "location",
+        "capacity": "capacity", "visibility": "visibility",
+        "cancel": "cancelled", "restore": "cancelled",
+    }
+    return {field_map[h] for h in hits if h in field_map}
+
+
+# ---------------------------------------------------------------------------
 # Business rules — low-risk vs. high-risk
 # ---------------------------------------------------------------------------
 
-def needs_confirmation(action: str, changes: dict[str, Any]) -> bool:
+def needs_confirmation(
+    action: str,
+    changes: dict[str, Any],
+    *,
+    user_text: str | None = None,
+) -> bool:
     """Return True if this change MUST be confirmed before applying.
 
     Business rules locked with Garry (25 Jul 2026):
       - cancel / restore    → always confirm
       - undo                → apply immediately (it's a "put it back")
       - update              → confirm if any field is in SIGNIFICANT_FIELDS,
-                              or if 3+ fields change at once.
+                              or if 3+ fields change at once, OR if the
+                              raw user_text mentions any high-risk keyword
+                              (safety net for classifier misses).
     """
     if action in ("cancel", "restore"):
         return True
     if action == "undo":
         return False
     # update
-    if not changes:
-        return False
-    if any(k in SIGNIFICANT_FIELDS for k in changes.keys()):
+    if changes and any(k in SIGNIFICANT_FIELDS for k in changes.keys()):
         return True
-    if len(changes) >= 3:
+    if changes and len(changes) >= 3:
         return True
+    # Deterministic safety net — force confirmation when the raw text
+    # mentions a high-risk field, even if the classifier didn't extract
+    # any changes into that field.
+    if user_text:
+        hits = _scan_high_risk_intent(user_text)
+        # Any high-risk category detected implies confirmation for update.
+        # (cancel/restore actions are already handled above.)
+        if hits & {"date", "time", "location", "capacity", "visibility"}:
+            return True
     return False
 
 
@@ -576,18 +729,46 @@ async def try_handle_edit_intent(
     session_has_draft = bool(session.get("draft")) and session.get("status") in ("in_progress", "drafted")
     today_iso = datetime.now(timezone.utc).date().isoformat()
 
+    # Deterministic first — scan the raw text for high-risk category
+    # keywords. If ANY hit, we already know this turn must confirm
+    # rather than auto-apply. This runs BEFORE the classifier so we
+    # can override its verdict if it under-classified.
+    risk_hits = _scan_high_risk_intent(user_text)
+
+    # Explicit cancel / restore keywords are treated as strong intent
+    # signals — the classifier might miss them if the member is terse.
+    forced_action: Optional[str] = None
+    if "cancel" in risk_hits and "restore" not in risk_hits:
+        forced_action = "cancel"
+    elif "restore" in risk_hits and "cancel" not in risk_hits:
+        forced_action = "restore"
+
     intent = await _classify_intent(
         api_key, user_text, today_iso,
         session_has_draft=session_has_draft,
     )
+
+    # Merge deterministic overrides into the classifier's verdict.
+    if forced_action and not session_has_draft:
+        intent["is_edit_intent"] = True
+        intent["action"] = forced_action
+        # Confidence promoted — we KNOW this is a cancel/restore ask.
+        intent["confidence"] = "high"
+
     if not intent.get("is_edit_intent"):
+        # No LLM intent AND no cancel/restore keywords → truly not an
+        # edit turn. But if the raw text still mentions high-risk
+        # keywords without an explicit event query, be safe: don't
+        # auto-invoke anything.
         return None
     confidence = str(intent.get("confidence") or "low").lower()
     action = str(intent.get("action") or "").lower()
     if action not in {"update", "cancel", "restore", "undo"}:
         return None
     # Low-confidence undo is fine; low-confidence update is not — the
-    # cost of misidentifying is too high.
+    # cost of misidentifying is too high. Cancel/restore may be low
+    # confidence from the classifier but if the safety net forced
+    # them, confidence is already promoted to 'high' above.
     if confidence == "low" and action != "undo":
         return None
 
@@ -714,6 +895,34 @@ async def try_handle_edit_intent(
     raw_changes = intent.get("changes") or {}
     changes = {k: v for k, v in raw_changes.items() if v is not None and k in EDITABLE_FIELDS}
 
+    # Deterministic safety net: if the raw text mentions a high-risk
+    # category BUT the classifier produced changes only for low-risk
+    # fields (e.g. it stuffed "next Monday" into the description), we
+    # DROP those low-risk auto-applies and ask what to change instead.
+    # This prevents the "silently applied instead of confirming" bug.
+    detected_high_risk_fields = _high_risk_field_set(risk_hits)
+    high_risk_in_changes = bool(set(changes.keys()) & SIGNIFICANT_FIELDS)
+    if detected_high_risk_fields and not high_risk_in_changes:
+        # The member clearly gestured toward a high-risk change but the
+        # classifier didn't capture it in the right field. Discard any
+        # spurious low-risk applies and ask for clarification.
+        content = (
+            f"What would you like to change on "
+            f"{event.get('title') or 'the event'}?"
+        )
+        turn = _make_george_turn(
+            content, action="update", event=event, kind="edit_needs_details",
+        )
+        session["edit_flow"] = {
+            **_blank_flow(), "active": True, "action": "update",
+            "step": "clarifying",
+            "target_event_id": event.get("id"),
+            "target_event_title": event.get("title"),
+            "pending_changes": {},
+        }
+        session.setdefault("turns", []).append(turn)
+        return session
+
     if not changes:
         # They named an event but didn't say what to change. Ask.
         content = f"What would you like to change on {event.get('title') or 'the event'}?"
@@ -730,7 +939,7 @@ async def try_handle_edit_intent(
         session.setdefault("turns", []).append(turn)
         return session
 
-    if needs_confirmation("update", changes):
+    if needs_confirmation("update", changes, user_text=user_text):
         content = render_confirm_prompt(event, changes, "update")
         proposal = {
             "summary": content,
@@ -913,7 +1122,7 @@ async def handle_clarifying(
         return session
 
     # Have both target and changes — apply or confirm.
-    if needs_confirmation("update", pending_changes):
+    if needs_confirmation("update", pending_changes, user_text=user_text):
         content = render_confirm_prompt(event, pending_changes, "update")
         turn = _make_george_turn(
             content, action="update", pending_changes=pending_changes,
