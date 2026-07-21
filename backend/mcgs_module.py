@@ -72,6 +72,16 @@ from services.george.onboarding import (
 from services.george import grounded_chat_stream
 from services.george.voice.transcribe import transcribe_audio_bytes
 from services.george.voice.synthesize import synthesize_george_speech
+from services.george.event_edit import (
+    match_events as _ee_match_events,
+    apply_edit as _ee_apply_edit,
+    cancel_event as _ee_cancel_event,
+    restore_event as _ee_restore_event,
+    undo_last_edit as _ee_undo_last_edit,
+    event_history as _ee_event_history,
+    EventEditError,
+    EDITABLE_FIELDS,
+)
 
 log = logging.getLogger("friendplace.mcgs.api")
 
@@ -205,6 +215,25 @@ class GeorgeSpeakIn(BaseModel):
         max_length=32,
         description="Persona key: 'george' (male, default) or 'georgia' (female).",
     )
+
+
+class EventEditMatchIn(BaseModel):
+    """B6 request body — match candidate events the actor can edit."""
+    query: Optional[str] = Field(default="", max_length=200)
+    limit: int = Field(default=5, ge=1, le=25)
+
+
+class EventEditApplyIn(BaseModel):
+    """B6 request body — apply field-level changes to an event."""
+    event_id: str
+    changes: dict[str, Any] = Field(default_factory=dict)
+    source: str = Field(default="george", max_length=32)
+
+
+class EventEditActionIn(BaseModel):
+    """B6 request body — cancel / restore / undo actions."""
+    event_id: str
+    source: str = Field(default="george", max_length=32)
 
 
 # ---------------------------------------------------------------------------
@@ -726,6 +755,93 @@ def build_router(db) -> APIRouter:
                 "Content-Disposition": 'inline; filename="george.mp3"',
             },
         )
+
+    # ============================================================
+    # B6 — Conversational event editing (Garry, 25 Jul 2026)
+    # Foundation layer: match / apply / cancel / restore / undo /
+    # history. LLM prompt integration + resume ships next session.
+    # ============================================================
+
+    def _ee_map_error(err: EventEditError) -> HTTPException:
+        code = {
+            "event_not_found": 404, "actor_not_found": 404,
+            "forbidden": 403, "forbidden_undo": 403,
+            "no_changes": 400, "already_cancelled": 400,
+            "not_cancelled": 400, "nothing_to_undo": 400,
+        }.get(err.code, 400)
+        return HTTPException(status_code=code, detail=err.message)
+
+    @router.post("/mcgs/george/event_edit/match")
+    async def api_event_edit_match(
+        body: EventEditMatchIn,
+        actor: dict = Depends(current_george_actor),
+    ):
+        """Return candidate events the actor is allowed to edit that
+        plausibly match `query`. Used as George's disambiguation
+        source of truth before he asks a clarifying question."""
+        events = await _ee_match_events(db, actor_id=actor["id"], query=(body.query or ""), limit=body.limit)
+        return {"items": events, "count": len(events)}
+
+    @router.post("/mcgs/george/event_edit/apply")
+    async def api_event_edit_apply(
+        body: EventEditApplyIn,
+        actor: dict = Depends(current_george_actor),
+    ):
+        # Filter to whitelisted fields early so an over-eager LLM
+        # can't push through admin-only fields even if the service
+        # layer already ignores them.
+        filtered = {k: v for k, v in (body.changes or {}).items() if k in EDITABLE_FIELDS}
+        try:
+            result = await _ee_apply_edit(
+                db, event_id=body.event_id, actor_id=actor["id"],
+                changes=filtered, source=body.source,
+            )
+        except EventEditError as e:
+            raise _ee_map_error(e)
+        return result
+
+    @router.post("/mcgs/george/event_edit/cancel")
+    async def api_event_edit_cancel(
+        body: EventEditActionIn,
+        actor: dict = Depends(current_george_actor),
+    ):
+        try:
+            return await _ee_cancel_event(db, event_id=body.event_id, actor_id=actor["id"], source=body.source)
+        except EventEditError as e:
+            raise _ee_map_error(e)
+
+    @router.post("/mcgs/george/event_edit/restore")
+    async def api_event_edit_restore(
+        body: EventEditActionIn,
+        actor: dict = Depends(current_george_actor),
+    ):
+        try:
+            return await _ee_restore_event(db, event_id=body.event_id, actor_id=actor["id"], source=body.source)
+        except EventEditError as e:
+            raise _ee_map_error(e)
+
+    @router.post("/mcgs/george/event_edit/undo")
+    async def api_event_edit_undo(
+        body: EventEditActionIn,
+        actor: dict = Depends(current_george_actor),
+    ):
+        try:
+            return await _ee_undo_last_edit(db, event_id=body.event_id, actor_id=actor["id"], source=body.source)
+        except EventEditError as e:
+            raise _ee_map_error(e)
+
+    @router.get("/mcgs/george/event_edit/history/{event_id}")
+    async def api_event_edit_history(
+        event_id: str,
+        limit: int = Query(default=25, ge=1, le=100),
+        actor: dict = Depends(current_george_actor),
+    ):
+        # Anyone with access to the event can read its audit trail,
+        # but a stricter permission check can be added when Mission
+        # Control surfaces this feed publicly.
+        _ = actor  # (auth check already performed by dependency)
+        return {"items": await _ee_event_history(db, event_id=event_id, limit=limit)}
+
 
     @router.get("/mcgs/george/presence")
     async def api_george_presence(actor: dict = Depends(current_george_actor)):

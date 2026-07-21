@@ -1400,7 +1400,21 @@ async def take_conversation_turn(
     *,
     current_screen: Optional[str] = None,
 ) -> dict:
-    """User replies. Re-extract on their text, merge state, ask composer."""
+    """User replies. Re-extract on their text, merge state, ask composer.
+
+    Milestone B6 Session 2 — before running the normal composer, the
+    turn is offered to the *edit flow* handlers. In priority order:
+
+      1. If the session is `awaiting_confirm`, interpret this reply as
+         a yes/no on the pending change and either apply or discard it.
+      2. If the session is `clarifying` (we asked "which event did
+         you mean?"), try to resolve the pick.
+      3. Otherwise, classify whether the member is asking for an EDIT
+         to an existing event. If yes, run the edit flow and return
+         without touching the extractor/composer at all.
+      4. If none of the above hits, fall through to normal creation
+         chat (unchanged from B5).
+    """
     session = await db[COLL_CONVERSATIONS].find_one(
         {"session_id": session_id}, {"_id": 0},
     )
@@ -1408,6 +1422,75 @@ async def take_conversation_turn(
         raise ValueError("Session not found")
     if session.get("status") in ("approved", "cancelled"):
         return session
+
+    now = _now_iso()
+    actor_id = session.get("actor_id")
+
+    # Import here to keep the top of file lean and avoid a circular
+    # import (the flow module imports from services.george.event_edit).
+    from ..event_edit_flow import (
+        handle_awaiting_confirm,
+        handle_clarifying,
+        try_handle_edit_intent,
+    )
+
+    edit_flow = session.get("edit_flow") or {}
+    edit_step = edit_flow.get("step")
+
+    # Prepare a mutable session copy with the user turn appended up-front
+    # so the edit handlers can append George's reply after it.
+    session_for_flow = dict(session)
+    turns_for_flow = list(session.get("turns") or [])
+    turns_for_flow.append({"role": "user", "content": user_text, "at": now})
+    session_for_flow["turns"] = turns_for_flow
+
+    handled: Optional[dict] = None
+    try:
+        if edit_step == "awaiting_confirm":
+            handled = await handle_awaiting_confirm(
+                db, session_for_flow, user_text, actor_id=actor_id,
+            )
+            # If awaiting-confirm was ambiguous (returned None), do NOT
+            # start a new edit-intent flow — that could quietly discard
+            # the pending change. Fall through to the normal composer
+            # so George can gently re-ask.
+        elif edit_step == "clarifying":
+            handled = await handle_clarifying(
+                db, session_for_flow, user_text,
+                actor_id=actor_id, api_key=_emergent_key(),
+            )
+            if handled is None:
+                # User has moved past the clarify prompt — try fresh edit intent.
+                handled = await try_handle_edit_intent(
+                    db, session_for_flow, user_text,
+                    actor_id=actor_id, actor_name=None,
+                    api_key=_emergent_key(),
+                )
+        else:
+            handled = await try_handle_edit_intent(
+                db, session_for_flow, user_text,
+                actor_id=actor_id, actor_name=None,
+                api_key=_emergent_key(),
+            )
+    except Exception:
+        # Never fail a turn because of the edit flow — fall back to
+        # normal creation chat so the member is never stuck.
+        log.exception("B6 edit flow hook raised; falling back to creation composer")
+        handled = None
+
+    if handled is not None:
+        updated = {
+            "turns": handled.get("turns") or turns_for_flow,
+            "edit_flow": handled.get("edit_flow") or {},
+            "current_screen": current_screen or session.get("current_screen"),
+            "status": "in_progress" if session.get("status") in (None, "paused")
+                      else session.get("status"),
+            "updated_at": now,
+        }
+        await db[COLL_CONVERSATIONS].update_one(
+            {"session_id": session_id}, {"$set": updated},
+        )
+        return {**session, **updated}
 
     today_iso = datetime.now(timezone.utc).date().isoformat()
     extracted_patch = await _extract(user_text, today_iso)

@@ -1,0 +1,40 @@
+{
+  "summary": "B6 Session 2 backend end-to-end test — 8/9 scenarios PASS. Real Alex login → single continuous George conversation covering low-risk auto-apply (description), high-risk time change awaiting confirm, yes-please apply, date change denied preserves original, cancel-then-decline, undo reverting the previous confirmed time change, then two fresh sessions for regression (normal event creation + companion chat). All 8 pass end-to-end against the live Emergent LLM (Haiku classifier + Sonnet composer). ONE test fails and it exposes a real bug: scenario 7 (ambiguous confirm reply preserves the pending edit). Sending 'hmm not sure' after a high-risk time change is being classified as a DENY, so `edit_flow` is cleared to `idle` and George replies with the decline copy. Root cause: `_looks_like_confirm()` in /app/backend/services/george/event_edit_flow.py uses naive `substring` matching on _DENY_HINTS, and the 2-char hint 'no' matches inside the word 'not'. Verified in isolation: `_looks_like_confirm('hmm not sure')` returns False, `_looks_like_confirm('not sure')` returns False, `_looks_like_confirm('i am not sure')` returns False, and even `_looks_like_confirm('unsure')` returns True (because 'sure' is a confirm hint). The design doc explicitly says ambiguity must be safe — 'the pending change is NOT discarded'. Every other Session 2 rule works exactly as documented — low-risk instant apply, high-risk confirm gate, cancel-decline, undo with `reverses_edit_id` correctly pointing back at the update audit row, and the classifier NEVER fires on the two regression paths (normal creation → composer takes over; companion chat → no edit block).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/mcgs/george/event/session/{sid}/turn (awaiting_confirm branch)",
+        "issue": "Ambiguous confirm replies containing the substring 'no' inside another word (e.g. 'not', 'note', 'know') are misclassified as DENY by `_looks_like_confirm()` in /app/backend/services/george/event_edit_flow.py. Effect: the pending high-risk edit is silently dropped and George says 'No worries — I've left it as it was' even though the member wrote 'hmm not sure'. This directly contradicts the Session 2 design principle 'Ambiguity is safe'. RCA: `_DENY_HINTS` contains the 2-char token 'no', and the classifier uses `any(hint in lc for hint in _DENY_HINTS)` — substring, not word-boundary. Same class of bug affects 'know', 'note', 'nod', 'nothing', 'north', etc. Also worth checking: 'unsure' → returns True (confirm) because 'sure' is a confirm hint. Recommended fix: use word-boundary regex matching for the short tokens (`\\bno\\b`, `\\by\\b`, `\\bn\\b`, `\\bok\\b`, `\\bok(?:ay)?\\b`) and only fall back to `in` for multi-word phrases like 'keep as is', 'never mind'. Alternatively, keep the small LLM fallback the module already comments about ('only escalate to a small LLM check on ambiguous replies') — that path currently doesn't exist; the function returns None only on fully empty strings.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_b6_session2_edit_flow.py",
+    "/app/test_reports/pytest/b6_session2.xml"
+  ],
+  "action_items": [
+    "Fix `_looks_like_confirm()` in /app/backend/services/george/event_edit_flow.py so short deny tokens ('no', 'n', 'y') are matched with word-boundary regex, not substring `in`. Add unit coverage for 'hmm not sure', 'not sure', 'i am not sure', 'unsure', 'know what you mean', 'a note about parking' — all should return None (ambiguous) or the correct verdict, NOT False for the 'not sure' family.",
+    "After the fix, re-run `pytest /app/backend/tests/test_b6_session2_edit_flow.py -v`. Scenario 7 should then pass end-to-end (ambiguous → step stays awaiting_confirm → 'yes please' applies time=16:00)."
+  ],
+  "critical_code_review_comments": [
+    "event_edit_flow.py `_looks_like_confirm` uses substring matching for single-letter/short tokens; this is the direct cause of the scenario-7 failure and is a hazard for any member reply containing 'not', 'know', 'note', 'north'.",
+    "event_edit_flow.py module docstring / design says '~750 lines' but the module is much shorter; low-risk observation. No file exceeds 700-line threshold."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_b6_session2_edit_flow.py (new — 9 scenarios, pytest)"
+  ],
+  "success_rate": {"backend": "88.9% (8/9 scenarios)", "frontend": "n/a (not tested per request)"},
+  "seed_data_creation": "None. Reused Alex's existing 'Coffee Catch-Up' event (id 62217b94-b6ee-45de-834c-912040e58dd3). Post-run state: description ends with 'near the venue', time reverted to 14:00, date unchanged, not cancelled. Session's edit_flow was left cleared. New event_edits rows added: update(time), undo (reverses that update), and one additional update from scenario 7's 'yes please' that landed AFTER 'hmm not sure' was misclassified as deny — however since flow was blanked, the subsequent 'yes please' turn triggered a fresh classify + apply cycle (time went 14:00 → 16:00 as an immediately-classified fresh update, then likely awaiting_confirm+apply). Tests do not clean up event_edits rows.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The test file /app/backend/tests/test_b6_session2_edit_flow.py runs scenarios 1–7 as ONE continuous session (module-scoped fixture), and scenarios 8–9 in fresh sessions. Each turn to /api/mcgs/george/event/session/{sid}/turn takes 3–10s (Haiku + optional Sonnet). The full run takes ~1.5 min. Use `pytest backend/tests/test_b6_session2_edit_flow.py -v --tb=short`. If the description on the Coffee Catch-Up event drifts too far during repeated runs, scenario 1 still passes because it only asserts the substring 'parking' after apply. If the test order changes so scenario 3 runs before scenario 2 seeds `time_before_confirm`, tests will KeyError — do not reorder. After the `_looks_like_confirm` fix, scenario 7 should turn green with zero test file changes.",
+  "rca_of_issue": "Repro: log in as Alex, start a George conversation, send a high-risk edit ('move Coffee Catch-Up to 4pm') → George correctly enters awaiting_confirm with pending_changes.time=16:00. Send 'hmm not sure'. Observed: session.edit_flow.step becomes 'idle', last George turn carries edit.kind='edit_declined' and content 'No worries — I've left Coffee Catch-Up as it was.' Expected per design doc /app/memory/b6-event-edit-session2.md § 'Ambiguity safety': edit_flow.step MUST remain 'awaiting_confirm' and the composer takes over. RCA: /app/backend/services/george/event_edit_flow.py lines 186–192 declare _DENY_HINTS containing the 2-char token 'no'. Line 209 uses `any(hint in lc for hint in _DENY_HINTS)`. For lc='hmm not sure', 'no' is a substring of 'not', so verdict=False → handle_awaiting_confirm treats it as a decline and calls `session['edit_flow'] = _blank_flow()`. Mitigation: switch short-token matching to word-boundary regex (`re.search(r'\\bno\\b', lc)` etc.) and keep the substring path only for multi-word deny phrases like 'keep as is', 'never mind', 'don\\'t'. Alternative fix: on `verdict is None OR message > 2 words AND no strong hint`, escalate to a Haiku consent-classifier call (the module docstring already anticipates this)."
+}
