@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { File, Paths } from 'expo-file-system';
+import { getVoice, DEFAULT_VOICE, type GeorgeVoice } from './george-voice';
 
 /**
  * George Platform — mobile API client.
@@ -206,8 +207,10 @@ export const georgeApi = {
   // ready for `expo-audio` playback. The frontend renders a speaker
   // icon on each George bubble; a tap calls this. Never auto-play.
   //
-  // `persona` accepts `"george"` (male, default) or `"georgia"` (female)
-  // — Phase 3 voice-selection wires a persisted preference through here.
+  // `persona` is optional — when omitted, we read the member's persisted
+  // preference from `george-voice` (defaults to `george`). Passing an
+  // explicit persona is useful for the "Preview voice" button on the
+  // settings screen where we want to demo the *other* voice too.
   //
   // Platform note: `expo-audio`'s `useAudioPlayer` reliably plays
   // `blob:` URLs on web, but on iOS/Android the native `AVAudioPlayer`
@@ -216,7 +219,8 @@ export const georgeApi = {
   // the mp3 bytes to the app's cache directory and return that path;
   // on web we return the blob URL directly. Cached files are named
   // by a hash of the text so repeated taps re-use the same file.
-  speak: async (text: string, persona: 'george' | 'georgia' = 'george'): Promise<string> => {
+  speak: async (text: string, persona?: GeorgeVoice): Promise<string> => {
+    const voice: GeorgeVoice = persona ?? (await getVoice()) ?? DEFAULT_VOICE;
     const tok = await _token();
     const res = await fetch(`${BASE}/api/mcgs/george/speak`, {
       method: 'POST',
@@ -225,7 +229,7 @@ export const georgeApi = {
         Accept: 'audio/mpeg',
         ...(tok ? { Authorization: `Bearer ${tok}` } : {}),
       },
-      body: JSON.stringify({ text, voice: persona }),
+      body: JSON.stringify({ text, voice }),
     });
     if (!res.ok) {
       const err = await res.text().catch(() => res.statusText);
@@ -242,7 +246,7 @@ export const georgeApi = {
     // path natively without any blob-URI hacks.
     const buf = await res.arrayBuffer();
     const bytes = new Uint8Array(buf);
-    const filename = `george-${persona}-${_shortHash(text)}.mp3`;
+    const filename = `george-${voice}-${_shortHash(text)}.mp3`;
     const file = new File(Paths.cache, filename);
     try { file.delete(); } catch { /* first-run: no prior file */ }
     file.create();

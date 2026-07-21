@@ -1,0 +1,31 @@
+{
+  "summary": "Iter 78 (Voice Phase 3 — voice selection) verified end-to-end. Backend regression on POST /api/mcgs/george/speak: 5/5 pytest cases pass — voice='george' and voice='georgia' both return HTTP 200 with content-type audio/mpeg and >1KB payloads; the two mp3 byte streams differ (rg.content != rgg.content) confirming the voice param is genuinely routed through to OpenAI TTS (george→onyx, georgia→nova); default (voice omitted) returns 200 audio/mpeg; invalid voice value returns 200/400/422 (no 500s). Frontend (mobile viewport 390×844, Expo web preview): Accessibility screen renders <GeorgeVoiceCard> below the sample-reading card with testIDs voice-option-george, voice-option-georgia, voice-preview-current all present. George is selected by default (background rgb(30,58,127) brand-teal). Tapping Georgia migrates the checkmark + brand background to Georgia, reverts George to the surface (rgb(248,250,252)), fires POST /api/mcgs/george/speak with body {\"text\":\"Hi there, I'm Georgia…\",\"voice\":\"georgia\"} (auto-preview after selection), surfaces the toast 'George's voice set to Georgia.', and relabels the preview pill to 'Preview Georgia'. AsyncStorage/localStorage key `@friendplace/george_voice` persists to 'georgia'. Full page reload retains Georgia selection + 'Preview Georgia' pill label (persistence survives reload). Tapping preview pill fires POST /speak with the current persisted voice; tapping again while playing shows 'Stop preview' label and stops when audio finishes (auto-reverts to 'Preview <name>'). Selecting the already-selected voice correctly no-ops (no network call, no toast). Regression: 'Read messages aloud' toggle flips on/off cleanly; 'Play sample' invokes Speech.speak with no toast/error; Back button returns to prior screen without console errors. React Native console warnings observed (shadow*, textShadow*, pointerEvents, useNativeDriver missing RCTAnimation) — pre-existing web-preview noise, unchanged by this iteration. No red screens, no 4xx/5xx on the reviewed flows. End state: voice preference reset to 'george' (implicit — session localStorage cleared naturally between browser sessions; final in-session choice was George).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter78_voice_selection.py",
+    "/app/test_reports/pytest/iter78_voice_selection.xml"
+  ],
+  "action_items": [
+    "(No blocking action) George's chat SpeakerButton (GeorgeEventCreation → SpeakerButton) was not driven interactively in this run — the butterfly-launch → conversation flow requires several LLM turns and would have exceeded the test budget. Static code review confirms: (a) it calls `georgeApi.speak(text)` with no explicit persona so the persisted preference flows through, (b) it registers `subscribeVoice` on mount and clears `cachedUriRef.current` + pauses playback when the pref changes, so the next tap re-fetches. Backend + Accessibility POST payloads already confirm the voice param is threaded through end-to-end. Main agent can smoke-test the chat speaker button directly if desired.",
+    "(Minor UX polish, not a bug) On the Accessibility preview pill, if the member taps 'Preview <voice>' twice in quick succession, the second tap does not visibly stop the first playback because `previewing` state resets to null the moment the first mp3 ends — so the second tap sees an idle player and starts fresh. This matches the coded behaviour (`if (previewing === which) stop; else play`) and is only a soft edge case."
+  ],
+  "critical_code_review_comments": [
+    "/app/frontend/src/lib/george-voice.ts is a clean, well-commented module — subscriber bus + hydrate/getSync/set surface is the right shape for a persisted RN preference; `_cached` fallback to DEFAULT_VOICE prevents flicker.",
+    "/app/frontend/src/lib/george-api.ts speak(): persona is optional, defaults through `getVoice()`, and platform-splits blob URLs (web) vs file:// cache paths (native) — the native branch uses expo-file-system Paths.cache with a `_shortHash` filename so repeat taps reuse the cached mp3. Good.",
+    "GeorgeEventCreation.tsx SpeakerButton subscribes to `subscribeVoice` and correctly invalidates cachedUriRef + pauses on change. On web it also revokes the previous blob URL — avoids memory leaks.",
+    "app/_layout.tsx fires `hydrateVoice()` once on boot inside an effect, priming the in-memory cache before any SpeakerButton renders. Fire-and-forget is fine because getVoiceSync() falls back to DEFAULT_VOICE.",
+    "accessibility.tsx GeorgeVoiceCard: auto-preview after selection is a nice touch, and tapping the same voice while playing correctly stops. Preview line is deliberately different per persona so members hear the actual voice they picked. testIDs are correct."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "100% on the reviewed flows (Accessibility voice picker end-to-end incl. persistence, toast, preview, network payloads). George chat SpeakerButton not exercised interactively — see action item."},
+  "seed_data_creation": "None. Existing test account member@friendplace.com.au was used and left with an implicit default voice = 'george'.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend tests: /app/backend/tests/test_iter78_voice_selection.py (JUnit at /app/test_reports/pytest/iter78_voice_selection.xml). Env var: the harness expects EXPO_BACKEND_URL but frontend/.env only exposes EXPO_PUBLIC_BACKEND_URL — the test file falls back to EXPO_PUBLIC_BACKEND_URL and finally the hard-coded preview URL to stay resilient. AsyncStorage on web preview maps to localStorage; key is `@friendplace/george_voice` with raw string 'george' | 'georgia'. Playwright browser sessions are isolated (no cookie/localStorage persistence between test invocations), so between-run persistence tests must be inline (page.reload) rather than fresh sessions. POST /api/mcgs/george/speak accepts {text, voice?}; server defaults to voice='george' when omitted; _VOICE_MAP: george→onyx, georgia→nova; empty text → 422; missing body → 422 (body-level loc); unauthenticated → 401."
+}

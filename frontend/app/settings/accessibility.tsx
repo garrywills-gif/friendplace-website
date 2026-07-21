@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Modal, FlatList } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Switch, Modal, FlatList, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Speech from "expo-speech";
+import { useAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { useTheme, ThemePrefs } from "@/src/lib/theme";
 import { useToast } from "@/src/lib/toast";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import { loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
+import { useGeorgeVoice, setVoice, VOICE_LABELS, type GeorgeVoice } from "@/src/lib/george-voice";
+import { georgeApi } from "@/src/lib/george-api";
 
 type RowDef = {
   key: keyof ThemePrefs;
@@ -99,6 +102,8 @@ export default function Accessibility() {
           </View>
         </View>
 
+        <GeorgeVoiceCard />
+
         <Pressable testID="acc-open-favs" onPress={() => setFavsOpen(true)} style={[styles.favsLink, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           <Ionicons name="heart" size={22} color={c.error} />
           <View style={{ flex: 1, marginLeft: 12 }}>
@@ -147,6 +152,128 @@ export default function Accessibility() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// George's voice — Voice Phase 3 picker
+// ---------------------------------------------------------------------------
+
+const PREVIEW_LINES: Record<GeorgeVoice, string> = {
+  george:  "G\u2019day, I\u2019m George. I\u2019ll be your community companion here at FriendPlace.",
+  georgia: "Hi there, I\u2019m Georgia. I\u2019ll be your community companion here at FriendPlace.",
+};
+
+function GeorgeVoiceCard() {
+  const { c, scale } = useTheme();
+  const { show } = useToast();
+  const { voice } = useGeorgeVoice();
+  const player = useAudioPlayer(null);
+  const [previewing, setPreviewing] = React.useState<GeorgeVoice | null>(null);
+
+  React.useEffect(() => () => {
+    try { player.pause(); } catch { /* noop */ }
+  }, [player]);
+
+  // When the mp3 finishes we snap the icon back to "Play".
+  React.useEffect(() => {
+    if (previewing && !player.playing) setPreviewing(null);
+  }, [player.playing, previewing]);
+
+  const preview = async (which: GeorgeVoice) => {
+    // Tapping the same voice while it's playing stops playback.
+    if (previewing === which) {
+      try { player.pause(); } catch { /* noop */ }
+      setPreviewing(null);
+      return;
+    }
+    setPreviewing(which);
+    try {
+      try { await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }); } catch { /* web no-op */ }
+      const uri = await georgeApi.speak(PREVIEW_LINES[which], which);
+      player.replace({ uri });
+      try { player.seekTo(0); } catch { /* no prior position */ }
+      player.play();
+    } catch (e: any) {
+      show(e?.message || "Couldn\u2019t play the preview. Please try again.");
+      setPreviewing(null);
+    }
+  };
+
+  const pick = async (which: GeorgeVoice) => {
+    if (which === voice) return;
+    await setVoice(which);
+    show(`George\u2019s voice set to ${VOICE_LABELS[which].short}.`);
+    // Auto-play a preview of the newly chosen voice for confirmation.
+    preview(which);
+  };
+
+  return (
+    <View style={[styles.voiceCard, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+      <View style={styles.voiceHead}>
+        <Ionicons name="chatbubbles" size={20} color={c.brand} />
+        <Text style={[styles.voiceTitle, { color: c.brand, fontSize: 15 * scale }]}>GEORGE&#39;S VOICE</Text>
+      </View>
+      <Text style={[styles.voiceSubtitle, { color: c.onSurface, fontSize: 14 * scale }]}>
+        Choose the voice George uses when reading his replies aloud in FriendPlace.
+      </Text>
+
+      <View style={styles.voiceOptions}>
+        {(Object.keys(VOICE_LABELS) as GeorgeVoice[]).map((key) => {
+          const info = VOICE_LABELS[key];
+          const selected = voice === key;
+          return (
+            <Pressable
+              key={key}
+              testID={`voice-option-${key}`}
+              onPress={() => pick(key)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              accessibilityLabel={`Use ${info.short}, ${info.description}`}
+              style={[
+                styles.voiceOption,
+                {
+                  backgroundColor: selected ? c.brand : c.surface,
+                  borderColor: selected ? c.brand : c.border,
+                },
+              ]}
+            >
+              <View style={styles.voiceOptionHead}>
+                <Text style={{ fontSize: 18 }} accessibilityElementsHidden>{info.flag}</Text>
+                <Text style={[styles.voiceOptionLabel, {
+                  color: selected ? "#FFFFFF" : c.onSurface,
+                  fontSize: 15 * scale,
+                }]}>{info.short}</Text>
+                {selected && (
+                  <Ionicons name="checkmark-circle" size={18} color={"#FFFFFF"} style={{ marginLeft: "auto" }} />
+                )}
+              </View>
+              <Text style={[styles.voiceOptionDesc, {
+                color: selected ? "rgba(255,255,255,0.9)" : c.muted,
+                fontSize: 12 * scale,
+              }]}>{info.description}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Pressable
+        testID="voice-preview-current"
+        onPress={() => preview(voice)}
+        style={[styles.previewBtn, { backgroundColor: c.brand }]}
+        accessibilityRole="button"
+        accessibilityLabel={previewing === voice ? "Stop preview" : `Preview ${VOICE_LABELS[voice].short}`}
+      >
+        {previewing === voice ? (
+          <ActivityIndicator color="#FFFFFF" />
+        ) : (
+          <Ionicons name={"play"} size={16} color={"#FFFFFF"} />
+        )}
+        <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 14 * scale }}>
+          {previewing === voice ? "Stop preview" : `Preview ${VOICE_LABELS[voice].short}`}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   content: { padding: 18, gap: 10 },
   intro: { fontWeight: "500", marginBottom: 6, lineHeight: 22 },
@@ -165,4 +292,18 @@ const styles = StyleSheet.create({
   modalSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, maxHeight: "80%" },
   modalHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   favRow: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 14, borderWidth: 1, gap: 6 },
+  // George voice picker
+  voiceCard: { marginTop: 14, borderRadius: 18, padding: 14, borderWidth: 1.5 },
+  voiceHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  voiceTitle: { fontWeight: "900", letterSpacing: 0.6 },
+  voiceSubtitle: { fontWeight: "500", marginTop: 6, lineHeight: 20 },
+  voiceOptions: { flexDirection: "row", gap: 10, marginTop: 12 },
+  voiceOption: { flex: 1, borderRadius: 16, borderWidth: 2, padding: 12 },
+  voiceOptionHead: { flexDirection: "row", alignItems: "center", gap: 6 },
+  voiceOptionLabel: { fontWeight: "900" },
+  voiceOptionDesc: { marginTop: 4, lineHeight: 18, fontWeight: "500" },
+  previewBtn: {
+    marginTop: 12, flexDirection: "row", alignItems: "center",
+    alignSelf: "flex-start", gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999,
+  },
 });

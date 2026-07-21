@@ -16,6 +16,7 @@ import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
 import { useGeorge } from '@/src/lib/george-context';
 import { useToast } from '@/src/lib/toast';
+import { subscribeVoice } from '@/src/lib/george-voice';
 import {
   georgeApi,
   type EventSession, type EventDraft, type EventApprovalResult,
@@ -976,7 +977,9 @@ function SpeakerButton({ text }: { text: string }) {
     try {
       let uri = cachedUriRef.current;
       if (!uri) {
-        uri = await georgeApi.speak(text, 'george');
+        // No explicit persona — georgeApi.speak() reads the member's
+        // persisted preference (Accessibility → George's voice).
+        uri = await georgeApi.speak(text);
         cachedUriRef.current = uri;
       }
       // Ensure the OS lets us play through the earpiece / speaker.
@@ -1010,6 +1013,21 @@ function SpeakerButton({ text }: { text: string }) {
     _releaseActive(stopRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // When the member switches George ↔ Georgia in Accessibility we
+  // must drop the cached audio URI so the next tap re-fetches from
+  // the backend with the new voice. Also stop anything playing.
+  React.useEffect(() => {
+    const unsub = subscribeVoice(() => {
+      if (Platform.OS === 'web' && cachedUriRef.current) {
+        try { URL.revokeObjectURL(cachedUriRef.current); } catch { /* noop */ }
+      }
+      cachedUriRef.current = null;
+      try { player.pause(); } catch { /* noop */ }
+      setPhase('idle');
+    });
+    return unsub;
+  }, [player]);
 
   if (!text || !text.trim()) return null;
 

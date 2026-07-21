@@ -16,6 +16,7 @@ import { ThemeProvider } from "@/src/lib/theme";
 import { AuthProvider } from "@/src/lib/auth";
 import { ToastProvider } from "@/src/lib/toast";
 import { GeorgeProvider } from "@/src/lib/george-context";
+import { hydrateVoice } from "@/src/lib/george-voice";
 import GeorgeGlobalHost from "@/src/components/george/GeorgeGlobalHost";
 import SplashGate from "@/src/components/SplashGate";
 import ErrorBoundary from "@/src/components/ErrorBoundary";
@@ -30,6 +31,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (loaded || error) SplashScreen.hideAsync();
   }, [loaded, error]);
+
+  // Prime George's voice preference (AsyncStorage → in-memory cache)
+  // so the SpeakerButton doesn't briefly render before the pref loads.
+  useEffect(() => { hydrateVoice(); }, []);
 
   if (!loaded && !error) return null;
 
