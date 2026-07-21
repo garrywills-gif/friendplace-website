@@ -834,7 +834,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
           </View>
         )}
 
-        {showPreview && draft && <EventPreviewCard draft={draft} />}
+        {showPreview && draft && <EventPreviewCard draft={draft} personaName={personaName} />}
 
         {approvalError ? (<Text style={styles.errText}>{approvalError}</Text>) : null}
 
@@ -1239,7 +1239,7 @@ function TypingDots() {
 
 // -----------------------------------------------------------------------
 
-function EventPreviewCard({ draft }: { draft: EventDraft }) {
+function EventPreviewCard({ draft, personaName }: { draft: EventDraft; personaName: string }) {
   const rows: { label: string; value: string; inferred?: boolean }[] = [];
   const sourceMap = new Map<string, string>();
   for (const s of draft.sources || []) {
@@ -1272,7 +1272,7 @@ function EventPreviewCard({ draft }: { draft: EventDraft }) {
           <Text style={styles.previewLabel}>{r.label}</Text>
           <Text style={styles.previewValue}>
             {r.value}
-            {r.inferred ? <Text style={styles.inferredTag}>  (George pencilled this in)</Text> : null}
+            {r.inferred ? <Text style={styles.inferredTag}>  ({personaName} pencilled this in)</Text> : null}
           </Text>
         </View>
       ))}
