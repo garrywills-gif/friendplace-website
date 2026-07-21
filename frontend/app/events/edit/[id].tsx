@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
+import { useGeorge } from "@/src/lib/george-context";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
@@ -18,6 +19,7 @@ export default function EditEvent() {
   const { c, scale } = useTheme();
   const { user } = useAuth();
   const { show } = useToast();
+  const { openGeorgeWithPrompt } = useGeorge();
   const [ev, setEv] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState("");
@@ -173,6 +175,49 @@ export default function EditEvent() {
 
           <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Capacity</Text>
           <TextInput value={capacity != null ? String(capacity) : ""} onChangeText={(t) => { const n = parseInt(t.replace(/[^0-9]/g, "") || "0", 10); setCapacity(n > 0 ? n : null); }} keyboardType="number-pad" placeholder="Leave blank for no limit" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+
+          <View style={{ height: 16 }} />
+
+          {/* B6 Session 3 — Conversational edit entry point. Only offered
+              on active (non-cancelled) events; opening George with a
+              prefilled prompt lands the member straight in the edit
+              flow. */}
+          {!ev.cancelled && (
+            <Pressable
+              testID="ask-george-to-edit"
+              onPress={() => {
+                const t = (title || ev.title || 'this event').trim();
+                openGeorgeWithPrompt(`Help me edit my "${t}" event`);
+                router.back();
+              }}
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 10,
+                paddingVertical: 14,
+                paddingHorizontal: 14,
+                borderRadius: 14,
+                backgroundColor: c.brandTertiary,
+                borderWidth: 1,
+                borderColor: c.brand,
+                opacity: pressed ? 0.75 : 1,
+              })}
+              accessibilityRole="button"
+              accessibilityLabel="Ask George to edit this event"
+              accessibilityHint="Opens a conversation with George where you can describe the change you want"
+            >
+              <Ionicons name="chatbubble-ellipses" size={20} color={c.brand} />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: c.brand, fontWeight: '900', fontSize: 14 * scale }}>
+                  Ask George to edit this event
+                </Text>
+                <Text style={{ color: c.brand, fontSize: 12 * scale, opacity: 0.85, marginTop: 2 }}>
+                  Just tell George what to change — no forms.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={c.brand} />
+            </Pressable>
+          )}
 
           <View style={{ height: 16 }} />
           {!ev.cancelled && (

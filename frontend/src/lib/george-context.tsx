@@ -87,6 +87,16 @@ interface GeorgeCtx {
   clearActiveSession: () => void;
   openRequested: number;         // bumped by openGeorge() so the host reacts
   openGeorge: () => void;
+  /** B6 Session 3 — Open George with a prefilled first message.
+   * Sets `pendingOpener` and bumps `openRequested`. The Butterfly
+   * host will forward the opener to a fresh event conversation so
+   * George naturally begins the edit dialogue on the target event. */
+  openGeorgeWithPrompt: (text: string) => void;
+  /** Opener text set by `openGeorgeWithPrompt`, consumed once by the
+   * event surface (either used as the first user turn on a new session
+   * or dropped into the composer for review if a session is active). */
+  pendingOpener: string | null;
+  consumePendingOpener: () => string | null;
   closeGeorge: () => void;       // just close the modal, keep session
   /** Slice 3 v2 — set to a screen key by whoever triggered a
    * George-led navigation (e.g. the "Take me to Coffee Lounge" chip).
@@ -109,6 +119,7 @@ export function GeorgeProvider({ children }: { children: React.ReactNode }) {
   const [activeSessionId, _setActiveSessionId] = useState<string | null>(null);
   const [openRequested, setOpenRequested] = useState<number>(0);
   const [landedFrom, setLandedFrom] = useState<GeorgeScreenKey | null>(null);
+  const [pendingOpener, setPendingOpener] = useState<string | null>(null);
   const hydrated = useRef(false);
 
   // Hydrate from AsyncStorage once on mount.
@@ -139,6 +150,18 @@ export function GeorgeProvider({ children }: { children: React.ReactNode }) {
     setOpenRequested(n => n + 1);
   }, []);
 
+  const openGeorgeWithPrompt = useCallback((text: string) => {
+    const trimmed = (text || '').trim();
+    setPendingOpener(trimmed || null);
+    setOpenRequested(n => n + 1);
+  }, []);
+
+  const consumePendingOpener = useCallback((): string | null => {
+    const t = pendingOpener;
+    if (t !== null) setPendingOpener(null);
+    return t;
+  }, [pendingOpener]);
+
   const closeGeorge = useCallback(() => {
     // Keep activeSessionId — the whole point of C1 Slice 3 is that the
     // conversation follows George. Closing the modal is not the same
@@ -166,6 +189,9 @@ export function GeorgeProvider({ children }: { children: React.ReactNode }) {
     clearActiveSession,
     openRequested,
     openGeorge,
+    openGeorgeWithPrompt,
+    pendingOpener,
+    consumePendingOpener,
     closeGeorge,
     landedFrom,
     markGeorgeLedNavigation,
@@ -173,7 +199,8 @@ export function GeorgeProvider({ children }: { children: React.ReactNode }) {
   }), [
     currentScreen, pathname, butterflyVisible,
     activeSessionId, setActiveSessionId, clearActiveSession,
-    openRequested, openGeorge, closeGeorge,
+    openRequested, openGeorge, openGeorgeWithPrompt,
+    pendingOpener, consumePendingOpener, closeGeorge,
     landedFrom, markGeorgeLedNavigation, consumeLanded,
   ]);
 

@@ -1,76 +1,68 @@
-# B6 Session 2 — Conversational Event Editing (Wired into George's SSE turn)
+# B6 Session 3 — Conversational Event Edit UI
 
-## Change since last iteration
-- **Milestone B6 Session 2 shipped** — George now understands and performs event edits inside the normal event conversation loop.
-  - Low-risk edits (description, notes, title, emoji, price, audience, duration) are applied **immediately** and George replies warmly ("Done — I've updated the description on Coffee Catch-Up.").
-  - High-risk edits (date, time, location, capacity, visibility, cancel/restore) ALWAYS require confirmation. George shows a short change summary and asks: *"Just to confirm, you'd like me to change the time from 2pm to 3pm on Coffee Catch-Up?"*. A yes/no reply from the member is interpreted and either applied or discarded.
-  - Multi-field updates (3+ fields at once) are also confirmed regardless of risk.
-  - Undo is treated as low-risk (it's a "put it back"): applied immediately.
-  - **Mid-edit resume**: the confirmation state is stored on the conversation session (`edit_flow.step: 'awaiting_confirm'`), so if the member drops off and comes back, their next reply is still interpreted as the confirmation.
-  - **Ambiguity is safe**: if the confirm-or-deny reply is unclear ("hmm not sure"), the pending edit is preserved and the normal composer picks up so George can gently re-ask.
-- **`capacity` is now a significant field** in `event_edits.py` — capacity changes now always require confirmation per Garry's Session 2 rules.
+## Change since Session 2
+B6 Session 3 ships the **frontend polish** that renders and interacts
+with the edit metadata George's turns now carry:
 
-## Files touched
-- `/app/backend/services/george/event_edit.py` — added `capacity` to `SIGNIFICANT_FIELDS`.
-- `/app/backend/services/george/event_edit_flow.py` — **new module**. Haiku-backed intent classifier + confirmation flow + service calls into the existing match/apply/cancel/undo layer. Also owns the warm George copy for edit outcomes.
-- `/app/backend/services/george/event_creation/service.py` — `take_conversation_turn` now offers each turn to the edit-flow hooks BEFORE the normal creation composer runs. Three hooks in priority order:
-    1. `handle_awaiting_confirm` — interpret a yes/no reply to a pending high-risk change.
-    2. `handle_clarifying` — resolve a "which event did you mean?" reply.
-    3. `try_handle_edit_intent` — classify a fresh edit intent (Haiku) and either apply / confirm / disambiguate.
-  If any hook handles the turn, the session's `edit_flow` sub-state is persisted and the composer is skipped.
-- No new API endpoints — Session 2 wires into the existing `/api/mcgs/george/event/session/{sid}/turn` endpoint.
+- **`<EventChangeSummaryCard>`** — new component rendered beneath any
+  George bubble whose turn has `edit`. It supports:
+  - **Compact chip pair** for single-field edits (e.g. `TIME 2pm → 3pm`
+    with `Confirm` / `Keep as is`).
+  - **Full card** for 2+ field edits (per-field OLD → NEW rows).
+  - **Applied "done" state** — muted card with a green checkmark,
+    field diffs still visible, plus...
+  - **Undo chip with 30-second countdown** — taps send "undo that"
+    through the George turn endpoint (the classifier + service
+    handles the revert).
+  - **Cancel confirmation** shown as a danger-styled "Yes, cancel it"
+    button.
+  - **Declined state** — a quiet muted "Left as it was" line.
+- **"Ask George to edit this event"** row on `/events/edit/[id]`
+  (organiser-only) opens George with a prefilled prompt.
+- **`openGeorgeWithPrompt(text)`** added to `GeorgeContext` so any
+  screen can hand a starter message to George — the composer receives
+  the text and the member reviews before sending (review-first rule).
+- **Backend enhancement**: `edit_applied` turns now carry a `before`
+  snapshot alongside `applied`, so the UI can render accurate
+  OLD → NEW diffs after the event has been mutated. Old smoke test
+  still all-green: `pytest tests/test_b6_session2_edit_flow.py -v` = 9/9.
 
-## How the George turn payload changed
-The George turn dict now optionally carries an `edit` object so Session 3 UI can render change summary cards and confirmation chips:
+## Files touched / created
+- `/app/frontend/src/components/george/EventChangeSummaryCard.tsx` (new, ~400 lines).
+- `/app/frontend/src/components/george/GeorgeEventCreation.tsx` — imports the card, adds `onEditAction` handler (`confirm` → "yes please", `decline` → "no, keep as is", `undo` → "undo that"), consumes `pendingOpener` into the composer, and only makes chip actions interactive on the latest George turn.
+- `/app/frontend/src/lib/george-context.tsx` — adds `openGeorgeWithPrompt`, `pendingOpener`, `consumePendingOpener`.
+- `/app/frontend/src/lib/george-api.ts` — adds `edit?: EventEditMeta` to `EventTurn` plus `EventEditKind`, `EventEditAction`, `EventEditMeta` types (including the new `before` field).
+- `/app/frontend/app/events/edit/[id].tsx` — new "Ask George to edit this event" row.
+- `/app/backend/services/george/event_edit_flow.py` — `_before_from_audit()` helper; three `edit_applied` sites now pass `before`.
 
-```json
-"edit": {
-  "kind": "edit_awaiting_confirm" | "edit_applied" | "edit_declined" | "edit_disambiguate" | "edit_needs_details" | "edit_undo_needs_target" | "edit_error",
-  "action": "update" | "cancel" | "restore" | "undo",
-  "pending_changes": { "time": "15:00", ... },
-  "applied": { "description": "..." },
-  "proposal": { "summary": "...", "action": "update", "changes": {...} },
-  "event":   { "id": "...", "title": "...", "date": "...", "time": "...", "location": "..." },
-  "candidates": [ { "id": "...", "title": "..." } ],
-  "audit":   { "id": "...", "summary": "...", "severity": "significant" | "minor", "action": "update" }
-}
-```
+## What to test (frontend)
 
-Frontend Session 3 will use `edit.kind` to switch UI (chip pair vs applied indicator vs disambiguation list).
+Log in on the mobile web preview as `member@friendplace.com.au` / `TestPass2026!`. Alex hosts a seeded "Coffee Catch-Up" event (id `62217b94-b6ee-45de-834c-912040e58dd3`).
 
-## What to test
+### P0 — Session 3 UI
+1. **Entry point exists**: navigate to `/events/edit/62217b94-b6ee-45de-834c-912040e58dd3`. Scroll — the "Ask George to edit this event" row (blue butterfly-bg tile) should appear above the Save/Cancel buttons.
+2. **Entry point opens George with opener**: tap it. George should open (butterfly host modal) and the composer should be prefilled with `Help me edit my "Coffee Catch-Up" event` — the member can review before tapping Send.
+3. **Compact card for a single-field high-risk edit**: type *"please change the time to 3pm"* → Send. Wait for George's reply (~5-10s). A card should appear underneath the bubble showing `TIME 2pm → 3pm` with `Confirm` and `Keep as is` buttons.
+4. **Confirm applies + applied card + Undo chip**: tap `Confirm`. Composer shows "yes please" as the sent turn. George replies with `Done — I've updated the time on Coffee Catch-Up.` and a **muted APPLIED card** appears showing `TIME 2pm → 3pm` and an **Undo · 30s** chip that visibly counts down.
+5. **Undo works**: within 30s, tap the Undo chip. George replies `Done — I've reverted the last change on Coffee Catch-Up.` and time reverts to 2pm on the event in Mongo. The applied card disappears from the latest turn.
+6. **Historical cards become inert**: after scrolling back through the conversation, the older `TIME 2pm → 3pm` awaiting-confirm card's Confirm button should be visually disabled (opacity ~0.6) — historical only.
+7. **Full card for a multi-field edit**: send *"please move Coffee Catch-Up to next Friday at 5pm at the Town Hall instead"*. The card should show all three fields (DATE / TIME / LOCATION) with each row struck-through OLD → downarrow → bold NEW.
+8. **Decline preserves original**: send *"actually change the date to next Monday"*, then tap `Keep as is`. George says `No worries — I've left Coffee Catch-Up as it was.` and a quiet muted "Left as it was" line replaces the card.
+9. **Cancel confirmation is danger-styled**: send *"cancel the Coffee Catch-Up event"*. The card should say "Cancel Coffee Catch-Up" with a red `Yes, cancel it` button. Tap `Keep as is` — event stays uncancelled in Mongo.
+10. **Low-risk edit shows applied card only (no confirm)**: send *"please update the description to mention parking is limited"*. George should reply immediately with `Done — I've updated the description...` and an APPLIED card should appear (no confirm chip step). Undo chip still shows 30s.
 
-### P0 — Backend / Conversation
-**Preconditions:** log in as `member@friendplace.com.au` / `TestPass2026!`. There must be at least one event the member hosts (Alex has one seeded — "Coffee Catch-Up").
+### P1 — Regression
+11. Normal event creation still works — start a new session (no opener), send *"I'd like to organise a book club on Friday at 6pm"*. No edit cards should render — the normal composer replies.
+12. Companion chat unaffected — send *"hello George"*. No edit metadata / cards.
 
-1. Start a George conversation (`POST /api/mcgs/george/event/start` with `{"text":"hello"}`), then send edit turns via `/api/mcgs/george/event/session/{sid}/turn`.
-2. **LOW-RISK applies immediately** — send *"please update the description of my Coffee Catch-Up to mention that parking is limited"*. Last George turn should have `edit.kind = "edit_applied"` and content starting with *"Done — I've updated the description on Coffee Catch-Up."*
-3. **HIGH-RISK requires confirmation** — send *"actually let's move the Coffee Catch-Up to 3pm instead"*. George's turn should have `edit.kind = "edit_awaiting_confirm"`, `edit.pending_changes.time = "15:00"`, and content like *"Just to confirm, you'd like me to change the time from 2pm to 3pm on Coffee Catch-Up?"* Session should persist `edit_flow.step = "awaiting_confirm"`.
-4. **Confirmation via yes** — reply *"yes please"*. Turn kind should be `edit_applied`; event row's `time` should now be `15:00`; a new `event_edits` audit row should exist with `action=update, severity=significant`.
-5. **Denial preserves original** — trigger a fresh high-risk edit (*"change the date to next Saturday"*), then reply *"no, keep it as is"*. Kind should be `edit_declined`. No mutation to the event.
-6. **Cancel requires confirmation** — *"cancel the Coffee Catch-Up event"* → `edit_awaiting_confirm` with `action=cancel`. Reply *"no, actually don't"* → `edit_declined`; event NOT cancelled.
-7. **Undo works** — send *"undo the last change please"*. Kind should be `edit_applied` with `action=undo`, and the previously applied field should be reverted. A new `event_edits` audit row with `action=undo` exists linked to the prior row (`reverses_edit_id` / `reversed_by_edit_id`).
-8. **Multiple significant fields** — *"change the Coffee Catch-Up to next Friday at 4pm at the Town Hall"* should always ask to confirm.
-9. **Mid-edit persistence** — after step 3 (awaiting confirm), GET `/api/mcgs/george/event/session/{sid}` should show `edit_flow.step = "awaiting_confirm"` and `edit_flow.pending_changes.time = "15:00"`. This survives a page refresh; the next `/turn` "yes" applies it.
-10. **Ambiguous confirm reply** — after step 3, reply *"hmm not sure"*. `edit_flow.step` should STILL be `"awaiting_confirm"` (pending change preserved). George's next turn comes from the normal composer.
+### Not for this session
+- Disambiguation candidate chips (backend supports it via `edit.candidates` but the UI just falls through to typed replies for MVP).
+- Native (iOS/Android) — Session 3 tests on the mobile web preview only. Native builds should be validated on a device.
 
-### P1 — Regression guard
-11. Normal event **creation** still works (send *"I'd like to organise a bingo night on Friday"* on a fresh session — Sonnet composer handles it, no edit flow interference).
-12. Sensitive/companion chat unchanged (say *"hello George, I'm having a difficult day"*).
-13. Save-for-later / resume from B5 still work.
+## Credentials
+- Mobile member: `member@friendplace.com.au` / `TestPass2026!` (Alex; hosts "Coffee Catch-Up" event `62217b94-b6ee-45de-834c-912040e58dd3`).
 
-### Not in Session 2 (deferred to Session 3)
-- `<EventChangeSummaryCard>` UI component
-- Confirmation chip pattern in mobile UI
-- "Edit with George" button on organiser event cards
-- Frontend rendering of `edit.kind` in the George bubble
-
-## Test credentials
-- Mobile member: `member@friendplace.com.au` / `TestPass2026!` (Alex; has a seeded "Coffee Catch-Up" event).
-- Mission Control admin: `hello@friendplace.com.au` / `TestPass2026!`.
-
-## Notes for the tester
-- The intent classifier (Haiku) is called on every turn — expect ~500ms extra latency per turn. This is acceptable for MVP.
-- The classifier is aware of `session_has_draft_in_progress` — if the member is actively planning a new event, references like "change the time to 4pm" are interpreted as draft edits (composer), NOT edits to an existing event.
-- All edit outcomes write immutable rows to `event_edits` (see B6 Session 1 foundation doc).
-- Backend smoke test lives at `/tmp/b6_session2_smoke.py` (5 scenarios, all passing).
+## Notes
+- The chip actions (`Confirm` / `Keep as is` / `Undo`) fire "yes please" / "no, keep as is" / "undo that" through the normal event turn endpoint — the backend classifier short-circuits these on `_looks_like_confirm` word-boundary regex without hitting an LLM. Latency: ~200-500ms typical.
+- The `before` snapshot on applied turns comes from the audit row's per-field `{old, new}` changes list — no extra Mongo read.
+- The Undo chip is a client-only countdown; the actual undo works whenever, but the chip disappears at 0s. Members can always type "undo that" to trigger it.

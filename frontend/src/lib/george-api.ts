@@ -91,6 +91,43 @@ export interface EventTurn {
   welcome_back?: boolean;
   /** C1 Slice 2 — Deep-link chip. See `/app/frontend/src/lib/george-nav-map.ts`. */
   navigate_to?: { key: string; label: string } | null;
+  /** B6 Session 2 — Conversational event editing. When present, this
+   * George turn was produced by the edit flow and the UI should render
+   * an EventChangeSummaryCard beneath the bubble. */
+  edit?: EventEditMeta | null;
+}
+
+export type EventEditKind =
+  | 'edit_awaiting_confirm'
+  | 'edit_applied'
+  | 'edit_declined'
+  | 'edit_disambiguate'
+  | 'edit_needs_details'
+  | 'edit_undo_needs_target'
+  | 'edit_no_change'
+  | 'edit_error';
+
+export type EventEditAction = 'update' | 'cancel' | 'restore' | 'undo';
+
+export interface EventEditMeta {
+  kind: EventEditKind;
+  action?: EventEditAction;
+  /** Fields the member proposed changing but that still need consent. */
+  pending_changes?: Record<string, unknown>;
+  /** Fields we already applied on this turn (low-risk or post-confirmation). */
+  applied?: Record<string, unknown>;
+  /** Snapshot of the field values BEFORE the apply (parallel to
+   * `applied`). Populated on `edit_applied` turns so the UI can
+   * render OLD → NEW diffs without re-reading the pre-apply event. */
+  before?: Record<string, unknown>;
+  /** Change summary + action for the UI's card view. */
+  proposal?: { summary?: string; action?: EventEditAction; changes?: Record<string, unknown> };
+  /** The target event we're editing. */
+  event?: { id: string; title?: string; date?: string; time?: string; location?: string };
+  /** When multiple events matched an ambiguous reference. */
+  candidates?: { id: string; title?: string }[];
+  /** The immutable audit row that was written. Used for undo affordances. */
+  audit?: { id?: string; summary?: string; severity?: 'minor' | 'significant'; action?: string };
 }
 
 export interface EventSuggestion {

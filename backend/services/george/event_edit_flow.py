@@ -387,6 +387,20 @@ def _current_flow(session: dict) -> dict:
     return dict(session.get("edit_flow") or _blank_flow())
 
 
+def _before_from_audit(audit: Optional[dict]) -> dict:
+    """Extract a `{field: old_value}` map from the audit's per-field
+    changes list. Used to render OLD → NEW diffs on applied turns
+    (since `event` reflects the post-apply state after we've written)."""
+    if not audit:
+        return {}
+    out: dict[str, Any] = {}
+    for ch in (audit.get("changes") or []):
+        f = ch.get("field")
+        if f:
+            out[f] = ch.get("old")
+    return out
+
+
 def _make_george_turn(
     content: str,
     *,
@@ -394,6 +408,7 @@ def _make_george_turn(
     pending_changes: Optional[dict] = None,
     proposal: Optional[dict] = None,
     applied: Optional[dict] = None,
+    before: Optional[dict] = None,
     event: Optional[dict] = None,
     candidates: Optional[list] = None,
     audit: Optional[dict] = None,
@@ -425,6 +440,13 @@ def _make_george_turn(
         edit_meta["proposal"] = proposal
     if applied:
         edit_meta["applied"] = applied
+    if before:
+        # Snapshot of the values BEFORE the apply, keyed by the same
+        # fields as `applied`. Used by the UI to render OLD → NEW
+        # diffs on applied turns (otherwise `event` reflects the
+        # post-apply state and the "old" column would be identical to
+        # "new").
+        edit_meta["before"] = before
     if event:
         edit_meta["event"] = {
             "id": event.get("id"),
@@ -516,6 +538,7 @@ async def handle_awaiting_confirm(
         content,
         action=action,
         applied=pending_changes if action == "update" else None,
+        before=_before_from_audit(audit) if action == "update" else None,
         event=ev,
         audit=audit,
         kind="edit_applied",
@@ -764,8 +787,9 @@ async def try_handle_edit_intent(
     audit = result["audit"]
     content = render_applied_summary(ev, changes)
     turn = _make_george_turn(
-        content, action="update", applied=changes, event=ev, audit=audit,
-        kind="edit_applied",
+        content, action="update", applied=changes,
+        before=_before_from_audit(audit),
+        event=ev, audit=audit, kind="edit_applied",
     )
     session["edit_flow"] = {
         **_blank_flow(),
@@ -919,8 +943,9 @@ async def handle_clarifying(
     ev = result["event"]; audit = result["audit"]
     content = render_applied_summary(ev, pending_changes)
     turn = _make_george_turn(
-        content, action="update", applied=pending_changes, event=ev, audit=audit,
-        kind="edit_applied",
+        content, action="update", applied=pending_changes,
+        before=_before_from_audit(audit),
+        event=ev, audit=audit, kind="edit_applied",
     )
     session["edit_flow"] = {
         **_blank_flow(),

@@ -13,6 +13,7 @@ import {
 } from 'expo-audio';
 import { Ionicons } from '@expo/vector-icons';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
+import { EventChangeSummaryCard } from './EventChangeSummaryCard';
 import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
 import { useGeorge } from '@/src/lib/george-context';
 import { useToast } from '@/src/lib/toast';
@@ -74,7 +75,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const insets = useSafeAreaInsets();
   const {
     currentScreen, activeSessionId, setActiveSessionId, clearActiveSession,
-    markGeorgeLedNavigation,
+    markGeorgeLedNavigation, consumePendingOpener,
   } = useGeorge();
   const { voice } = useGeorgeVoice();
   const personaName = VOICE_LABELS[voice].short;
@@ -283,6 +284,15 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
         setPendingSuggestion(s.pending_suggestion || null);
         setSuggestionOffered(!!s.suggestion_offered);
         await revealApiTurns(s.turns || []);
+
+        // B6 Session 3 — Consume any pending opener set by
+        // `openGeorgeWithPrompt` (e.g. from the "Ask George to edit
+        // this event" row on the event details screen). We drop it
+        // into the composer so the member can review before sending
+        // — trust-first, and it matches the review-first rule from
+        // voice input.
+        const opener = consumePendingOpener();
+        if (opener) setInput(opener);
       } catch {
         setTurns([{
           role: 'george',
@@ -372,6 +382,28 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       setBusy(false);
     }
   }, [sessionId, busy, revealApiTurns, currentScreen]);
+
+  // ---- B6 Session 3 — Edit chip handlers -------------------------------
+  // Confirm / Keep-as-is / Undo tap turns straight back into normal
+  // conversational replies. That way the same edit-flow logic on the
+  // backend handles them exactly like a typed reply. The classifier's
+  // `_looks_like_confirm` short-circuits these phrases without a real
+  // LLM call, so latency stays snappy.
+  const onEditAction = useCallback((action: 'confirm' | 'decline' | 'undo') => {
+    if (action === 'confirm')      sendText('yes please');
+    else if (action === 'decline') sendText('no, keep as is');
+    else                           sendText('undo that');
+  }, [sendText]);
+
+  // Index of the latest George turn — we only make the change card's
+  // chips interactive on this turn (older cards are a historical
+  // record, so their chips are disabled and read-only).
+  const latestGeorgeIndex = useMemo(() => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      if (turns[i].role === 'george') return i;
+    }
+    return -1;
+  }, [turns]);
 
   const send = useCallback(() => { sendText(input.trim()); }, [input, sendText]);
 
@@ -596,11 +628,19 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
         showsVerticalScrollIndicator={false}
       >
         {turns.map((t, i) => (
-          <GeorgeBubble
-            key={i}
-            turn={t}
-            firstInThread={i === 0}
-          />
+          <React.Fragment key={i}>
+            <GeorgeBubble
+              turn={t}
+              firstInThread={i === 0}
+            />
+            {t.role === 'george' && t.edit ? (
+              <EventChangeSummaryCard
+                edit={t.edit}
+                busy={busy || i !== latestGeorgeIndex}
+                onAction={onEditAction}
+              />
+            ) : null}
+          </React.Fragment>
         ))}
 
         {typing && (
