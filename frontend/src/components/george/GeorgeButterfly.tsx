@@ -100,13 +100,25 @@ export function GeorgeButterfly() {
 
       // Start the arrival.
       setPhase('arriving');
+      // Consume the "just onboarded" hint at boot-time so George
+      // slips in a mention of Georgia on his very first returning
+      // greeting. The flag is one-shot — we clear it as soon as we
+      // read it so subsequent sessions get the normal rotation.
+      let georgiaHint = false;
+      try {
+        const flag = await AsyncStorage.getItem(GEORGIA_HINT_FLAG);
+        if (flag) {
+          georgiaHint = true;
+          await AsyncStorage.removeItem(GEORGIA_HINT_FLAG);
+        }
+      } catch { /* non-fatal */ }
       playArrival(() => {
         if (cancelled) return;
         if (firstMeeting) {
           setPhase('intro');
         } else {
           setPhase('landed');
-          setGreeting(pickReturningGreeting(pres, gate.warmWelcome));
+          setGreeting(pickReturningGreeting(pres, gate.warmWelcome, georgiaHint));
           setShowBubble(true);
         }
       });
@@ -506,7 +518,7 @@ export function GeorgeButterfly() {
 
 // ---- Greeting logic -----------------------------------------------------
 
-function pickReturningGreeting(pres: Presence | null, warmWelcome: boolean): string {
+function pickReturningGreeting(pres: Presence | null, warmWelcome: boolean, georgiaHint: boolean = false): string {
   const rawName = pres?.name || '';
   const first = firstName(rawName);
   const hour = new Date().getHours();
@@ -515,6 +527,13 @@ function pickReturningGreeting(pres: Presence | null, warmWelcome: boolean): str
     hour < 12 ? 'Morning' :
     hour < 17 ? 'Afternoon' :
     hour < 21 ? 'Evening' : 'Hi';
+
+  // First greeting after onboarding — take the chance to gently
+  // introduce Georgia so members know they can switch anytime.
+  // This overrides the standard rotations for exactly one session.
+  if (georgiaHint) {
+    return `${partOfDay}${first ? ', ' + first : ''}. Lovely to see you again. If you\u2019d ever prefer to chat with Georgia instead of me, you can switch anytime in Settings \u2014 we both know the same things.`;
+  }
 
   const unfinished = pres?.unfinished?.[0];
   if (unfinished && unfinished.title) {
@@ -538,6 +557,10 @@ function firstName(name: string): string {
 }
 
 // ---- Daily gate ---------------------------------------------------------
+
+// Fired once by the onboarding wizard on completion. When present,
+// George's next returning-greeting slips in a warm mention of Georgia.
+const GEORGIA_HINT_FLAG = 'george.needs_georgia_hint';
 
 // C1 (Garry, 22 July 2026): the daily gate is per-actor and stored in
 // AsyncStorage. Exported so the auth layer can clear it on every fresh

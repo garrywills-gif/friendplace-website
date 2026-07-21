@@ -23,6 +23,9 @@
  * final step. Skipping interests just sends an empty list.
  */
 import React, { useEffect, useRef, useState } from "react";
+import Animated, {
+  useSharedValue, useAnimatedStyle, withTiming, withSequence, withDelay, Easing,
+} from "react-native-reanimated";
 import {
   View,
   Text,
@@ -36,7 +39,9 @@ import {
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "@/src/lib/theme";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
@@ -46,9 +51,9 @@ import { api } from "@/src/lib/api";
 // splash/home screens.
 const BUTTERFLY_LOGO = require("../assets/brand/friendplace-app-icon-v5.png");
 
-// Feature showcase — the elevator pitch for FriendPlace. Kept short so
-// the whole list is scannable at a glance, and larger body type so
-// members with reduced vision can read it comfortably.
+// Retained for reference — the original feature-showcase list. Not
+// rendered any more; the George-narrated tour below replaces it.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const FEATURES: { emoji: string; title: string; body: string }[] = [
   { emoji: "☕", title: "Coffee Lounge",         body: "Drop into live conversations and chat with friendly faces anytime." },
   { emoji: "🤝", title: "Find Friends",          body: "Browse member profiles and connect with people who share your interests." },
@@ -58,6 +63,44 @@ const FEATURES: { emoji: string; title: string; body: string }[] = [
   { emoji: "🧩", title: "Games Hub",             body: "Enjoy bingo, crosswords, solitaire, puzzles and more." },
   { emoji: "📌", title: "Community Notice Board", body: "Buy, sell, give away items, ask for help or share community news." },
   { emoji: "🦋", title: "Founders Wall",         body: "Celebrate our founding members — and become one while places remain." },
+];
+
+// George-narrated feature tour (Garry, 23 July 2026). Six pages,
+// user-paced, before the existing accessibility / privacy / interests /
+// groups steps. Copy sits in George's voice — one short sentence in
+// the speech bubble, one warm paragraph in the body.
+type TourPage = { icon: string; title: string; bubble: string; body: string };
+const TOUR_STEPS: TourPage[] = [
+  {
+    icon: "\u2615", title: "Coffee Lounge",
+    bubble: "Let\u2019s start with the Coffee Lounge.",
+    body: "It\u2019s a bit like walking into your local caf\u00e9 \u2014 drop in anytime and chat with people who are online.",
+  },
+  {
+    icon: "\uD83E\uDD1D", title: "Find Friends",
+    bubble: "Next, let\u2019s look at Find Friends.",
+    body: "Discover members with similar interests and send them a friend request. No pressure \u2014 take your time.",
+  },
+  {
+    icon: "\uD83D\uDC65", title: "Friendship Groups",
+    bubble: "Now, Friendship Groups.",
+    body: "Groups bring people together around what they love \u2014 walking, books, cooking, gardening, faith, and more.",
+  },
+  {
+    icon: "\uD83D\uDCC5", title: "Local Events",
+    bubble: "Local Events.",
+    body: "Find walks, lunches, meet-ups and community gatherings near you \u2014 and RSVP straight from the app.",
+  },
+  {
+    icon: "\uD83C\uDFB2", title: "Games Hub",
+    bubble: "The Games Hub.",
+    body: "When you feel like a quiet moment, play bingo, crosswords, solitaire or a puzzle. Some you can play with other members too.",
+  },
+  {
+    icon: "\uD83D\uDCCC", title: "Community Notice Board",
+    bubble: "And the Community Notice Board.",
+    body: "Share news, ask for a hand, or offer something to your community \u2014 like the notice board at your local hall.",
+  },
 ];
 
 // Accessibility features — all three are shipped and available today.
@@ -87,7 +130,24 @@ const INTERESTS = [
   "Pets", "Classic cars", "History", "Local meetups",
 ];
 
-const STEP_COUNT = 5; // 5 real steps: Welcome, Accessibility, Privacy, Interests, Suggested Groups. Celebration is separate.
+// Step map — Welcome, six George tour pages, then the existing four.
+// Keeping the numeric-index model so we don't need to touch the
+// wizard's navigation / progress plumbing.
+//   0     George welcome
+//   1..6  George feature tour (TOUR_STEPS[step - 1])
+//   7     Accessibility
+//   8     Privacy
+//   9     Interests
+//   10    Suggested Groups
+const STEP_COUNT = 1 + TOUR_STEPS.length + 4;
+const STEP_ACCESSIBILITY = 1 + TOUR_STEPS.length;      // 7
+const STEP_PRIVACY       = STEP_ACCESSIBILITY + 1;      // 8
+const STEP_INTERESTS     = STEP_ACCESSIBILITY + 2;      // 9
+const STEP_GROUPS        = STEP_ACCESSIBILITY + 3;      // 10
+
+// AsyncStorage flag set on onboarding completion; consumed once on the
+// next George greeting so he can slip in a warm mention of Georgia.
+const GEORGIA_HINT_FLAG = 'george.needs_georgia_hint';
 
 export default function OnboardingWizard() {
   const router = useRouter();
@@ -129,7 +189,7 @@ export default function OnboardingWizard() {
   // also fires when the user navigates back-then-forward, and so the
   // interests-based ranking uses the LATEST interest selection.
   useEffect(() => {
-    if (step === 4 && !suggestedGroups && !groupsLoading && user?.id) {
+    if (step === STEP_GROUPS && !suggestedGroups && !groupsLoading && user?.id) {
       setGroupsLoading(true);
       // First push the freshly-picked interests up to the backend so the
       // suggested-groups scorer can rank against them. We don't await
@@ -198,6 +258,10 @@ export default function OnboardingWizard() {
     // Always transition to the celebration screen — even on API error
     // the user gets a warm hand-off and can retry from Profile.
     setCelebrating(true);
+    // Set a one-shot flag so George can casually mention Georgia the
+    // very first time the member opens the app after onboarding.
+    // See `GeorgeButterfly.pickReturningGreeting`.
+    AsyncStorage.setItem(GEORGIA_HINT_FLAG, '1').catch(() => {});
     // Auto-redirect after a short beat so the "You're all set" screen
     // feels like a rewarding moment rather than another button-tap.
     setTimeout(goHome, 1600);
@@ -206,9 +270,14 @@ export default function OnboardingWizard() {
   const canNext = step < STEP_COUNT - 1 ? true : true; // interests step allows 0-selected
   const isLast = step === STEP_COUNT - 1;
 
-  const primaryLabel = step === 0 ? "Get Started"
-    : isLast ? "Take me to FriendPlace"
-    : "Continue";
+  // Button copy varies by phase — the tour needs a warm invitation on
+  // the welcome step, then a plain "Next" through the six feature pages,
+  // then "Continue" through the settings, then a final CTA.
+  const primaryLabel =
+    step === 0                          ? "Let\u2019s take a quick tour" :
+    step >= 1 && step <= TOUR_STEPS.length ? "Next" :
+    isLast                              ? "Take me to FriendPlace" :
+                                          "Continue";
 
   // ------- Celebration screen -------
   if (celebrating) {
@@ -270,9 +339,12 @@ export default function OnboardingWizard() {
         keyboardShouldPersistTaps="handled"
       >
         {step === 0 ? <StepWelcome scale={scale} c={c} /> : null}
-        {step === 1 ? <StepAccessibility scale={scale} c={c} /> : null}
-        {step === 2 ? <StepPrivacy scale={scale} c={c} /> : null}
-        {step === 3 ? (
+        {step >= 1 && step <= TOUR_STEPS.length ? (
+          <StepFeatureTour scale={scale} c={c} page={TOUR_STEPS[step - 1]} />
+        ) : null}
+        {step === STEP_ACCESSIBILITY ? <StepAccessibility scale={scale} c={c} /> : null}
+        {step === STEP_PRIVACY       ? <StepPrivacy       scale={scale} c={c} /> : null}
+        {step === STEP_INTERESTS ? (
           <StepInterests
             scale={scale}
             c={c}
@@ -280,7 +352,7 @@ export default function OnboardingWizard() {
             toggle={toggleInterest}
           />
         ) : null}
-        {step === 4 ? (
+        {step === STEP_GROUPS ? (
           <StepGroups
             scale={scale}
             c={c}
@@ -310,7 +382,7 @@ export default function OnboardingWizard() {
           <View style={{ width: 60 }} />
         )}
 
-        {step === 3 || step === 4 ? (
+        {step === STEP_INTERESTS || step === STEP_GROUPS ? (
           <Pressable
             testID="onb-skip"
             onPress={finishWizard}
@@ -348,12 +420,72 @@ export default function OnboardingWizard() {
   );
 }
 
-// ---------- Step 0 — Welcome + Feature Showcase ----------
+// ---------- Step 0 — George welcomes you ----------
+//
+// A companion-first welcome. On mount, George flies out of the brand
+// logo at the top-left and settles into the top-right corner — the
+// same spot he lives in on every other screen — so members meet him
+// exactly where they'll find him later. His speech bubble carries the
+// intro copy (Garry, 23 July 2026) and a small info card teaches
+// members where he lives and when to tap him.
 function StepWelcome({ scale, c }: { scale: number; c: any }) {
+  // Reanimated: offset from resting spot at top-right. `translateX/Y`
+  // start negative (up-left, near the brand logo) then animate to 0.
+  // Opacity fades in as the flight lands so his arrival feels light.
+  const tx = useSharedValue(-260);
+  const ty = useSharedValue(-90);
+  const op = useSharedValue(0);
+  const rot = useSharedValue(-14);
+  const wingScale = useSharedValue(1);
+  const [bubble, setBubble] = useState(false);
+
+  useEffect(() => {
+    // Small delay so members read the FriendPlace title first, THEN
+    // George arrives. ~700ms feels warm without being sluggish.
+    op.value = withDelay(700, withTiming(1, { duration: 500 }));
+    tx.value = withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }));
+    ty.value = withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }));
+    rot.value = withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }));
+    // Continuous flap during flight so he reads as a butterfly.
+    wingScale.value = withSequence(
+      withDelay(700, withTiming(1.15, { duration: 220 })),
+      withTiming(0.85, { duration: 220 }),
+      withTiming(1.10, { duration: 220 }),
+      withTiming(1.00, { duration: 220 }),
+    );
+    // Reveal the speech bubble once he lands.
+    const t = setTimeout(() => setBubble(true), 1650);
+    return () => clearTimeout(t);
+  }, [op, tx, ty, rot, wingScale]);
+
+  const flyStyle = useAnimatedStyle(() => ({
+    opacity: op.value,
+    transform: [
+      { translateX: tx.value },
+      { translateY: ty.value },
+      { rotate: `${rot.value}deg` },
+      { scaleX: wingScale.value },
+    ],
+  }));
+
   return (
     <View style={{ gap: 14, paddingTop: 6 }}>
-      <View style={{ alignItems: "center", paddingTop: 4 }}>
-        <Image source={BUTTERFLY_LOGO} style={styles.stepHero} resizeMode="contain" />
+      {/* Welcome hero — kept centred so it still reads like a warm
+          greeting, with George animating into the top-right corner. */}
+      <View style={{ alignItems: "center", paddingTop: 4, minHeight: 132 }}>
+        <View style={{ position: "relative", width: "100%", alignItems: "center" }}>
+          <Image source={BUTTERFLY_LOGO} style={styles.stepHero} resizeMode="contain" />
+          <Animated.View
+            testID="onb-george-butterfly"
+            pointerEvents="none"
+            style={[
+              { position: "absolute", top: 4, right: 6 },
+              flyStyle,
+            ]}
+          >
+            <GeorgeButterflyMark size={64} />
+          </Animated.View>
+        </View>
       </View>
       <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>
         Welcome to FriendPlace
@@ -361,36 +493,116 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
       <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
         A warm, friendly place for friendship, connection and community.
       </Text>
-      <Text style={[styles.sectionLabel, { color: c.onSurface, fontSize: 15 * scale, marginTop: 8 }]}>
-        Here&apos;s what you&apos;ll discover:
-      </Text>
-      <View style={{ gap: 10 }}>
-        {FEATURES.map((f) => (
-          <View
-            key={f.title}
-            style={[styles.featureRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
-          >
-            <Text style={styles.featureEmoji}>{f.emoji}</Text>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>{f.title}</Text>
-              <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 2, lineHeight: 19 }}>{f.body}</Text>
-            </View>
+
+      {/* George speech bubble — appears after he lands. Framed like a
+          conversation opener rather than product copy. */}
+      {bubble ? (
+        <View
+          testID="onb-george-bubble"
+          style={[
+            styles.georgeBubble,
+            { backgroundColor: c.brandTertiary, borderColor: c.brand },
+          ]}
+        >
+          <View style={styles.georgeBubbleHead}>
+            <GeorgeButterflyMark size={28} />
+            <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 13 * scale }}>
+              GEORGE
+            </Text>
           </View>
-        ))}
+          <Text style={[styles.georgeBubbleText, { color: c.onSurface, fontSize: 16 * scale }]}>
+            {"Hi, I\u2019m George \uD83D\uDC4B\n\nWelcome to FriendPlace! I\u2019ll be your guide while you\u2019re getting started \u2014 I\u2019ll show you around, answer questions and help you find your way whenever you need me.\n\nYou\u2019ll also meet Georgia. We know exactly the same things \u2014 we just have different personalities, so you can chat with whichever of us feels right for you."}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Info card — teaches members where the butterfly lives so
+          they can find George after onboarding. */}
+      <View
+        testID="onb-need-help-card"
+        style={[styles.helpCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+      >
+        <Text style={[styles.helpCardTitle, { color: c.onSurface, fontSize: 16 * scale }]}>
+          {"\uD83E\uDD8B Need a hand?"}
+        </Text>
+        <Text style={[styles.helpCardBody, { color: c.muted, fontSize: 14 * scale }]}>
+          {"You\u2019ll usually find me (or Georgia) in the top corner of your screen. Tap the butterfly anytime if you have a question, aren\u2019t sure where to go, or simply feel like a chat."}
+        </Text>
       </View>
+
       <Text style={[styles.footerCopy, { color: c.muted, fontSize: 13 * scale }]}>
-        Setup only takes about a minute. You can change anything later from your Profile.
+        Setup only takes a couple of minutes. You can change anything later from your Profile.
       </Text>
     </View>
   );
 }
 
-// ---------- Step 1 — Accessibility ----------
+// ---------- Steps 1..6 — George-narrated feature tour ----------
+//
+// User-paced tour (Garry, 23 July 2026): one page per feature, George
+// in the corner with a short speech bubble, then a big illustration
+// and one warm paragraph. Explicit Next tap — never auto-advances.
+function StepFeatureTour({ scale, c, page }: { scale: number; c: any; page: TourPage }) {
+  return (
+    <View style={{ gap: 14, paddingTop: 6 }}>
+      {/* George bubble — anchored top-right so he feels like a companion
+          reading over the member's shoulder. */}
+      <View style={styles.tourGeorgeRow}>
+        <View style={[styles.georgeBubbleTight, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+          <View style={styles.georgeBubbleHead}>
+            <GeorgeButterflyMark size={26} />
+            <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
+              GEORGE
+            </Text>
+          </View>
+          <Text style={{ color: c.onSurface, fontSize: 15 * scale, fontWeight: "700", lineHeight: 21 }}>
+            {page.bubble}
+          </Text>
+        </View>
+      </View>
+
+      {/* Feature illustration — a large, high-contrast emoji card so
+          it reads at a glance without needing bespoke artwork. */}
+      <View style={[styles.tourHero, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+        <Text style={{ fontSize: 88 }}>{page.icon}</Text>
+      </View>
+
+      <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>
+        {page.title}
+      </Text>
+      <Text style={[styles.stepBody, { color: c.onSurface, fontSize: 17 * scale, textAlign: "center" }]}>
+        {page.body}
+      </Text>
+
+      <Text style={[styles.footerCopy, { color: c.muted, fontSize: 13 * scale }]}>
+        {"Take your time \u2014 tap Next when you\u2019re ready."}
+      </Text>
+    </View>
+  );
+}
+
+// Small helper — a single-line George intro that sits at the top of
+// the settings-style steps (Accessibility / Privacy / Interests /
+// Groups). Keeps the personality of the tour without repeating the
+// full-size bubble on every screen.
+function StepGeorgeLine({ text, c, scale }: { text: string; c: any; scale: number }) {
+  return (
+    <View style={[styles.georgeLine, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
+      <GeorgeButterflyMark size={22} />
+      <Text style={{ color: c.onSurface, fontSize: 14 * scale, fontWeight: "700", flex: 1, lineHeight: 19 }}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+// ---------- Step 7 — Accessibility ----------
 function StepAccessibility({ scale, c }: { scale: number; c: any }) {
   return (
     <View style={{ gap: 14, paddingTop: 6 }}>
+      <StepGeorgeLine c={c} scale={scale} text={"Let\u2019s make FriendPlace comfortable for you."} />
       <View style={{ alignItems: "center", paddingTop: 4 }}>
-        <Text style={{ fontSize: 72 }}>♿</Text>
+        <Text style={{ fontSize: 72 }}>{"\u267F"}</Text>
       </View>
       <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>Made for everyone</Text>
       <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
@@ -426,12 +638,13 @@ function StepAccessibility({ scale, c }: { scale: number; c: any }) {
   );
 }
 
-// ---------- Step 2 — Privacy & Safety ----------
+// ---------- Step 8 — Privacy & Safety ----------
 function StepPrivacy({ scale, c }: { scale: number; c: any }) {
   return (
     <View style={{ gap: 14, paddingTop: 6 }}>
+      <StepGeorgeLine c={c} scale={scale} text={"You decide what other members can see."} />
       <View style={{ alignItems: "center", paddingTop: 4 }}>
-        <Text style={{ fontSize: 72 }}>🛡️</Text>
+        <Text style={{ fontSize: 72 }}>{"\uD83D\uDEE1\uFE0F"}</Text>
       </View>
       <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>You&apos;re in control</Text>
       <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
@@ -458,7 +671,7 @@ function StepPrivacy({ scale, c }: { scale: number; c: any }) {
   );
 }
 
-// ---------- Step 3 — Choose interests ----------
+// ---------- Step 9 — Choose interests ----------
 function StepInterests({
   scale,
   c,
@@ -472,8 +685,9 @@ function StepInterests({
 }) {
   return (
     <View style={{ gap: 14, paddingTop: 6 }}>
+      <StepGeorgeLine c={c} scale={scale} text={"Tell me what you\u2019re interested in."} />
       <View style={{ alignItems: "center", paddingTop: 4 }}>
-        <Text style={{ fontSize: 72 }}>💛</Text>
+        <Text style={{ fontSize: 72 }}>{"\uD83D\uDC9B"}</Text>
       </View>
       <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>What do you love?</Text>
       <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
@@ -534,8 +748,9 @@ function StepGroups({
 }) {
   return (
     <View style={{ gap: 14, paddingTop: 6 }}>
+      <StepGeorgeLine c={c} scale={scale} text={"Here are a few groups I think you\u2019ll like."} />
       <View style={{ alignItems: "center", paddingTop: 4 }}>
-        <Text style={{ fontSize: 72 }}>👥</Text>
+        <Text style={{ fontSize: 72 }}>{"\uD83D\uDC65"}</Text>
       </View>
       <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>Join some groups</Text>
       <Text style={[styles.stepBody, { color: c.muted, fontSize: 17 * scale, textAlign: "center" }]}>
@@ -744,6 +959,63 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 5 },
     elevation: 5,
+  },
+
+  // ----- George welcome + feature-tour surfaces (Voice-narrated onboarding, Garry, 23 Jul 2026) -----
+  georgeBubble: {
+    borderRadius: 20,
+    borderWidth: 1.5,
+    padding: 16,
+    marginTop: 4,
+    gap: 10,
+  },
+  georgeBubbleTight: {
+    borderRadius: 18,
+    borderWidth: 1.5,
+    padding: 12,
+    gap: 8,
+  },
+  georgeBubbleHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  georgeBubbleText: {
+    fontWeight: "500",
+    lineHeight: 23,
+  },
+  helpCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+    gap: 4,
+  },
+  helpCardTitle: {
+    fontWeight: "900",
+  },
+  helpCardBody: {
+    lineHeight: 20,
+    marginTop: 2,
+  },
+  tourGeorgeRow: {
+    alignItems: "flex-end",
+    paddingRight: 4,
+  },
+  tourHero: {
+    height: 180,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+  },
+  georgeLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
   },
 
   // ----- Celebration screen -----
