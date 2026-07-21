@@ -7,7 +7,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
-  useAudioRecorder, useAudioRecorderState, useAudioPlayer, RecordingPresets,
+  useAudioRecorder, useAudioRecorderState, RecordingPresets,
   requestRecordingPermissionsAsync, getRecordingPermissionsAsync,
   setAudioModeAsync,
 } from 'expo-audio';
@@ -17,6 +17,7 @@ import { resolveGeorgeNavigate } from '@/src/lib/george-nav-map';
 import { useGeorge } from '@/src/lib/george-context';
 import { useToast } from '@/src/lib/toast';
 import { subscribeVoice } from '@/src/lib/george-voice';
+import { playAudioUri, type PlaybackController } from '@/src/lib/george-playback';
 import {
   georgeApi,
   type EventSession, type EventDraft, type EventApprovalResult,
@@ -950,23 +951,19 @@ function _releaseActive(stop: () => void) {
 function SpeakerButton({ text }: { text: string }) {
   const { show } = useToast();
   const [phase, setPhase] = React.useState<'idle' | 'loading' | 'playing'>('idle');
-  // Create a lazy player — empty source until we actually load one.
-  const player = useAudioPlayer(null);
   const cachedUriRef = React.useRef<string | null>(null);
-  // Watch player.playing so we drop back to idle when the clip ends.
-  React.useEffect(() => {
-    if (phase === 'playing' && !player.playing) {
-      setPhase('idle');
-      _releaseActive(stopRef.current);
-    }
-  }, [player.playing, phase]);
+  // Active playback controller (fresh Audio element on web,
+  // createAudioPlayer on native). We stop this on: tap-to-stop, unmount,
+  // voice-preference change, and natural completion.
+  const activeCtrlRef = React.useRef<PlaybackController | null>(null);
 
   const stopRef = React.useRef<() => void>(() => {});
   const stop = React.useCallback(() => {
-    try { player.pause(); } catch { /* noop */ }
+    try { activeCtrlRef.current?.stop(); } catch { /* noop */ }
+    activeCtrlRef.current = null;
     setPhase('idle');
     _releaseActive(stopRef.current);
-  }, [player]);
+  }, []);
   stopRef.current = stop;
 
   const play = React.useCallback(async () => {
@@ -982,20 +979,19 @@ function SpeakerButton({ text }: { text: string }) {
         uri = await georgeApi.speak(text);
         cachedUriRef.current = uri;
       }
-      // Ensure the OS lets us play through the earpiece / speaker.
-      try {
-        await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
-      } catch (e) {
-        // Non-fatal on web where audio-mode is a no-op.
-        if (__DEV__) console.warn('[SpeakerButton] setAudioModeAsync failed', e);
-      }
-      // `player.replace()` positions the new source at 0 and (on web
-      // especially) can auto-start loading. Calling `seekTo(0)` then
-      // `play()` restarts the clip after the first few frames — the
-      // "says their name and restarts" bug. Just call `play()`.
-      player.replace({ uri });
-      player.play();
+      // Use the cross-platform playback helper — sidesteps the
+      // expo-audio double-play race on web that caused the
+      // "restart-after-first-word" stutter.
+      const ctrl = playAudioUri(uri);
+      activeCtrlRef.current = ctrl;
       setPhase('playing');
+      ctrl.whenDone.then(() => {
+        if (activeCtrlRef.current === ctrl) {
+          activeCtrlRef.current = null;
+          setPhase('idle');
+          _releaseActive(stopRef.current);
+        }
+      });
     } catch (e: any) {
       if (__DEV__) console.warn('[SpeakerButton] playback failed', e);
       const msg = (e?.message || 'Could not play George\u2019s voice');
@@ -1006,15 +1002,14 @@ function SpeakerButton({ text }: { text: string }) {
       setPhase('idle');
       _releaseActive(stopRef.current);
     }
-  }, [text, phase, stop, player, show]);
+  }, [text, phase, stop, show]);
 
   React.useEffect(() => () => {
-    try { player.pause(); } catch { /* noop */ }
+    try { activeCtrlRef.current?.stop(); } catch { /* noop */ }
     if (cachedUriRef.current && Platform.OS === 'web') {
       try { URL.revokeObjectURL(cachedUriRef.current); } catch { /* noop */ }
     }
     _releaseActive(stopRef.current);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // When the member switches George ↔ Georgia in Accessibility we
@@ -1026,11 +1021,12 @@ function SpeakerButton({ text }: { text: string }) {
         try { URL.revokeObjectURL(cachedUriRef.current); } catch { /* noop */ }
       }
       cachedUriRef.current = null;
-      try { player.pause(); } catch { /* noop */ }
+      try { activeCtrlRef.current?.stop(); } catch { /* noop */ }
+      activeCtrlRef.current = null;
       setPhase('idle');
     });
     return unsub;
-  }, [player]);
+  }, []);
 
   if (!text || !text.trim()) return null;
 

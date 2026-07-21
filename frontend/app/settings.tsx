@@ -21,7 +21,7 @@ import {
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { useAudioPlayer, setAudioModeAsync } from "expo-audio";
+import { playAudioUri, type PlaybackController } from "@/src/lib/george-playback";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
@@ -392,32 +392,39 @@ function GeorgeVoiceCard() {
   const { c, scale } = useTheme();
   const { show } = useToast();
   const { voice } = useGeorgeVoice();
-  const player = useAudioPlayer(null);
   const [previewing, setPreviewing] = useState<GeorgeVoice | null>(null);
+  // Holds the active playback controller so a second tap can stop it,
+  // and so we can tear it down on unmount.
+  const activeRef = useRef<PlaybackController | null>(null);
 
   useEffect(() => () => {
-    try { player.pause(); } catch { /* noop */ }
-  }, [player]);
-
-  useEffect(() => {
-    if (previewing && !player.playing) setPreviewing(null);
-  }, [player.playing, previewing]);
+    try { activeRef.current?.stop(); } catch { /* noop */ }
+  }, []);
 
   const preview = async (which: GeorgeVoice) => {
+    // Tapping the currently-playing voice stops it.
     if (previewing === which) {
-      try { player.pause(); } catch { /* noop */ }
+      try { activeRef.current?.stop(); } catch { /* noop */ }
+      activeRef.current = null;
       setPreviewing(null);
       return;
     }
+    // Starting a new preview supersedes any in-flight one.
+    if (activeRef.current) {
+      try { activeRef.current.stop(); } catch { /* noop */ }
+      activeRef.current = null;
+    }
     setPreviewing(which);
     try {
-      try { await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false }); } catch { /* web no-op */ }
       const uri = await georgeApi.speak(PREVIEW_LINES[which], which);
-      // `replace()` positions the new source at 0 by itself — calling
-      // `seekTo(0)` here caused an audible restart-after-first-word
-      // stutter on web. Just play.
-      player.replace({ uri });
-      player.play();
+      const ctrl = playAudioUri(uri);
+      activeRef.current = ctrl;
+      ctrl.whenDone.then(() => {
+        if (activeRef.current === ctrl) {
+          activeRef.current = null;
+          setPreviewing(null);
+        }
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Couldn\u2019t play the preview. Please try again.";
       show(msg);
