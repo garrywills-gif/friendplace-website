@@ -24,7 +24,8 @@
  */
 import React, { useEffect, useRef, useState } from "react";
 import Animated, {
-  useSharedValue, useAnimatedStyle, withTiming, withSequence, withDelay, Easing,
+  useSharedValue, useAnimatedStyle, withTiming, withSequence, withDelay,
+  withRepeat, Easing,
 } from "react-native-reanimated";
 import {
   View,
@@ -87,14 +88,14 @@ const TOUR_STEPS: TourPage[] = [
   {
     icon: "\u2615", title: "Coffee Lounge",
     bubble: "Let\u2019s start with the Coffee Lounge.",
-    body: "It\u2019s a bit like walking into your local caf\u00e9 \u2014 drop in anytime and chat with people who are online.",
+    body: "Imagine walking into your local caf\u00e9. Drop in anytime and chat with people who are online.",
     heroBg: "#FEF3E2", heroBorder: "#F5C99B",
     decorations: ["\u2615", "\uD83E\uDD50", "\uD83C\uDF75", "\uD83E\uDDC1"],
   },
   {
     icon: "\uD83E\uDD1D", title: "Find Friends",
     bubble: "Next, let\u2019s look at Find Friends.",
-    body: "Discover members with similar interests and send them a friend request. No pressure \u2014 take your time.",
+    body: "Find people who share your interests. Send a friend request whenever you\u2019re ready \u2014 there\u2019s no pressure, take your time.",
     heroBg: "#E8F3FD", heroBorder: "#93C5FD",
     decorations: ["\uD83D\uDC4B", "\uD83D\uDC96", "\uD83D\uDCAC", "\uD83E\uDD73"],
   },
@@ -287,9 +288,10 @@ export default function OnboardingWizard() {
     // very first time the member opens the app after onboarding.
     // See `GeorgeButterfly.pickReturningGreeting`.
     AsyncStorage.setItem(GEORGIA_HINT_FLAG, '1').catch(() => {});
-    // Auto-redirect after a short beat so the "You're all set" screen
-    // feels like a rewarding moment rather than another button-tap.
-    setTimeout(goHome, 1600);
+    // Auto-redirect after a warm beat so members have time to read
+    // George's closing line but aren't left staring at a static
+    // screen. ~5.5s reads comfortably on the celebration bubble.
+    setTimeout(goHome, 5500);
   };
 
   const canNext = step < STEP_COUNT - 1 ? true : true; // interests step allows 0-selected
@@ -310,14 +312,29 @@ export default function OnboardingWizard() {
       <View style={[styles.celebrateWrap, { backgroundColor: c.brand, paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24 }}>
           <View style={styles.celebrateBadge}>
-            <Text style={{ fontSize: 88 }}>🎉</Text>
+            <Text style={{ fontSize: 88 }}>{"\uD83C\uDF89"}</Text>
           </View>
           <Text style={[styles.celebrateHero, { fontSize: 34 * scale }]}>You&apos;re all set!</Text>
-          <Text style={[styles.celebrateHeadline, { fontSize: 22 * scale, marginTop: 12 }]}>Welcome to FriendPlace.</Text>
-          <Text style={[styles.celebrateSub, { fontSize: 17 * scale, marginTop: 14 }]}>
-            Let&apos;s find your people.
-          </Text>
-          <ActivityIndicator size="small" color="#FFFFFF" style={{ marginTop: 28 }} />
+
+          {/* Final George bubble — the last thing members read before
+              landing on Home. Ties the onboarding shut with warmth
+              and reinforces where to find the butterfly. */}
+          <View
+            testID="onb-celebrate-george"
+            style={styles.celebrateBubble}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <GeorgeButterflyMark size={26} />
+              <Text style={{ color: "#0F766E", fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
+                GEORGE
+              </Text>
+            </View>
+            <Text style={{ color: "#0A2540", fontSize: 15 * scale, fontWeight: "700", lineHeight: 22 }}>
+              {"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces.\n\nAnd remember\u2026 I\u2019m only ever a butterfly tap away. \uD83E\uDD8B"}
+            </Text>
+          </View>
+
+          <ActivityIndicator size="small" color="#FFFFFF" style={{ marginTop: 24 }} />
         </View>
         <Pressable
           onPress={goHome}
@@ -466,6 +483,8 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
   const rot = useSharedValue(-18);
   const wingScale = useSharedValue(1);
   const bob = useSharedValue(0);
+  const idleBreathe = useSharedValue(1);
+  const flutter = useSharedValue(1);
   const [bubble, setBubble] = useState(false);
 
   useEffect(() => {
@@ -475,31 +494,49 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
     tx.value = withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }));
     ty.value = withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }));
     rot.value = withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }));
-    // Wing-flap while flying, then a slow perched breathing.
+    // Wing-flap while flying, then settle. A slow, gentle idle wing
+    // motion loops forever while he's perched so he never freezes.
     wingScale.value = withSequence(
       withDelay(700, withTiming(1.15, { duration: 220 })),
       withTiming(0.85, { duration: 220 }),
       withTiming(1.10, { duration: 220 }),
       withTiming(0.95, { duration: 220 }),
-      withTiming(1.02, { duration: 900 }),
-      withTiming(0.98, { duration: 900 }),
-      withTiming(1.02, { duration: 900 }),
-      withTiming(0.98, { duration: 900 }),
+      // Hand off to a slow forever-loop starting after the arrival
+      // completes. `withRepeat(-1, true)` reverses on each cycle so
+      // the motion feels like breathing rather than a hard reset.
     );
-    // Once he's landed, a tiny vertical bob so he feels alive.
-    bob.value = withDelay(1600,
+    // Delay the idle loop until after the arrival flap. ~1.7s in he
+    // starts breathing gently. -1 = infinite, true = reverse.
+    idleBreathe.value = withDelay(1700, withRepeat(
+      withTiming(1.05, { duration: 1400, easing: Easing.inOut(Easing.quad) }),
+      -1,
+      true,
+    ));
+    // Gentle 1-2px bob, forever, once perched. Bidirectional.
+    bob.value = withDelay(1700, withRepeat(
+      withTiming(-2, { duration: 1600, easing: Easing.inOut(Easing.sin) }),
+      -1,
+      true,
+    ));
+    // Occasional wing "flutter" every ~12s: three quick flaps then
+    // back to the idle breath. Adds a spark of life without being
+    // distracting.
+    flutter.value = withDelay(4000, withRepeat(
       withSequence(
-        withTiming(-2, { duration: 900 }),
-        withTiming(0,  { duration: 900 }),
-        withTiming(-2, { duration: 900 }),
-        withTiming(0,  { duration: 900 }),
-        withTiming(-2, { duration: 900 }),
-        withTiming(0,  { duration: 900 }),
+        withTiming(1.20, { duration: 90 }),
+        withTiming(0.80, { duration: 90 }),
+        withTiming(1.15, { duration: 90 }),
+        withTiming(0.85, { duration: 90 }),
+        withTiming(1.00, { duration: 120 }),
+        // Long pause between flutters, ~10s.
+        withTiming(1.00, { duration: 10000 }),
       ),
-    );
+      -1,
+      false,
+    ));
     const t = setTimeout(() => setBubble(true), 1650);
     return () => clearTimeout(t);
-  }, [op, tx, ty, rot, wingScale, bob]);
+  }, [op, tx, ty, rot, wingScale, bob, idleBreathe, flutter]);
 
   const flyStyle = useAnimatedStyle(() => ({
     opacity: op.value,
@@ -507,7 +544,9 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
       { translateX: tx.value },
       { translateY: ty.value + bob.value },
       { rotate: `${rot.value}deg` },
-      { scaleX: wingScale.value },
+      // Combine three motions: arrival flap × idle breath × flutter.
+      { scaleX: wingScale.value * idleBreathe.value * flutter.value },
+      { scaleY: idleBreathe.value },
     ],
   }));
 
@@ -557,7 +596,7 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
             style={[
               {
                 position: "absolute",
-                top: -28,
+                top: -38,
                 right: 12,
                 shadowColor: "#000",
                 shadowOpacity: 0.15,
@@ -1104,6 +1143,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
 
+  celebrateBubble: {
+    marginTop: 22,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#5EEAD4",
+    padding: 16,
+    maxWidth: 340,
+    width: "100%",
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
   // ----- Celebration screen -----
   celebrateWrap: { flex: 1 },
   celebrateBadge: {
