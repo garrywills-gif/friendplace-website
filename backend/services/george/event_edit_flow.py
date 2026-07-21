@@ -177,38 +177,46 @@ async def _classify_intent(
 # ambiguous replies. In practice most confirmations are 1-3 words.
 # ---------------------------------------------------------------------------
 
-_CONFIRM_HINTS = (
-    "yes", "yep", "yeah", "confirm", "go ahead", "please do", "do it",
-    "that's right", "correct", "sounds good", "sounds right", "sure",
-    "okay", "ok", "alright", "great", "perfect", "lovely", "please",
-    "affirmative", "proceed",
+_CONFIRM_HINTS_WORDS = (
+    r"\byes\b", r"\byep\b", r"\byeah\b", r"\bconfirm\b", r"\bgo ahead\b",
+    r"\bplease do\b", r"\bdo it\b", r"\bthat'?s right\b", r"\bcorrect\b",
+    r"\bsounds good\b", r"\bsounds right\b", r"\bsure thing\b",
+    r"\bof course\b", r"\bplease proceed\b",
+    r"\baffirmative\b", r"\bproceed\b", r"\bapprove\b",
+    # short one-word affirmatives (with boundary)
+    r"^\s*(?:y|ok|okay|yep|yes|sure|please|great|perfect|lovely)\s*[.!]?\s*$",
 )
-_DENY_HINTS = (
-    "no", "nope", "cancel", "keep as is", "leave it", "leave as is",
-    "don't", "do not", "never mind", "nevermind", "hold on", "actually no",
-    "actually not", "not yet", "wait", "stop", "abort", "not now",
-    "keep it as is", "leave it as it was", "actually leave", "as it was",
-    "actually keep",
+_DENY_HINTS_WORDS = (
+    r"\bno\b", r"\bnope\b",
+    r"\bcancel that\b", r"\bkeep as is\b", r"\bkeep it as is\b",
+    r"\bleave it\b", r"\bleave as is\b", r"\bdon'?t\b", r"\bdo not\b",
+    r"\bnever ?mind\b", r"\bhold on\b", r"\bactually no\b",
+    r"\bactually not\b", r"\bnot yet\b", r"\bwait\b", r"\bstop\b",
+    r"\babort\b", r"\bnot now\b", r"\bleave it as it was\b",
+    r"\bas it was\b", r"\bactually keep\b", r"\bactually leave\b",
 )
 
 
 def _looks_like_confirm(txt: str) -> Optional[bool]:
     """Return True (confirm), False (deny), or None (unclear) from a
-    short reply. Cheap; the LLM only gets called when this is None.
+    short reply. Cheap — the LLM never runs here; ambiguous inputs
+    return None so the caller can preserve the pending state.
+
+    Uses word-boundary matching to avoid false positives like
+    "not sure" being read as "no" or "unsure" being read as "sure".
     """
     lc = (txt or "").strip().lower()
     if not lc:
         return None
-    # Aggressive short-circuits (single word replies)
-    if lc in {"yes", "y", "yep", "yeah", "confirm", "ok", "okay", "sure", "please"}:
-        return True
-    if lc in {"no", "n", "nope", "cancel", "stop", "abort"}:
+    # Guard: sentences containing hedge/uncertainty words are ambiguous.
+    if re.search(r"\b(?:not sure|unsure|maybe|perhaps|i think|i guess|possibly|dunno|don'?t know|"
+                 r"hmm+|umm+|uh+|hesitant|on the fence|either way|whichever|up to you)\b", lc):
+        return None
+    # Check DENY first — a deny phrase may contain the word "yes"
+    # ("no, keep it as is" wouldn't but "no yes actually" might).
+    if any(re.search(pat, lc) for pat in _DENY_HINTS_WORDS):
         return False
-    # Fuzzy contains, but check DENY first (a deny phrase may contain "yes"
-    # e.g. "no, keep it as it is").
-    if any(hint in lc for hint in _DENY_HINTS):
-        return False
-    if any(hint in lc for hint in _CONFIRM_HINTS):
+    if any(re.search(pat, lc) for pat in _CONFIRM_HINTS_WORDS):
         return True
     return None
 
@@ -727,6 +735,23 @@ async def try_handle_edit_intent(
             changes=changes, source="george",
         )
     except EventEditError as exc:
+        if exc.code == "no_changes":
+            # Warm reply — the classifier saw an edit intent but the
+            # proposed value equals what's already on the event. Never
+            # a real error, just a gentle acknowledgement.
+            title = event.get("title") or "the event"
+            fields = ", ".join(_human_field(f) for f in changes.keys()) or "that"
+            turn = _make_george_turn(
+                f"That's already how the {fields} is set on {title} — nothing to change.",
+                action="update", event=event, kind="edit_no_change",
+            )
+            session["edit_flow"] = {
+                **_blank_flow(),
+                "target_event_id": event.get("id"),
+                "target_event_title": event.get("title"),
+            }
+            session.setdefault("turns", []).append(turn)
+            return session
         turn = _make_george_turn(
             f"I couldn't quite make that change — {exc.message}",
             action="update", kind="edit_error",
