@@ -379,7 +379,7 @@ export default function OnboardingWizard() {
 
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 20 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 36 }}
         keyboardShouldPersistTaps="handled"
       >
         {step === 0 ? <StepWelcome scale={scale} c={c} /> : null}
