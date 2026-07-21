@@ -1,0 +1,24 @@
+{
+  "summary": "Iteration 81 — Frontend polish pass verified end-to-end on /onboarding + /home as member_first (Alex). ALL nine review checkpoints PASS. Delete-confirmation: /app/frontend/src/components/george/GeorgeIntroduction.tsx is GONE (ls of that dir shows only GeorgeButterfly, GeorgeButterflyMark, GeorgeEventCelebration, GeorgeEventCreation, GeorgeGlobalHost, GeorgeOnboarding) and grep -r 'GeorgeIntroduction' /app/frontend/app /app/frontend/src returns ZERO matches. In GeorgeButterfly.tsx there is no phase==='intro' Modal branch, no GeorgeIntroduction import, no onIntroChoice — the first-meeting path now flows through the returning-greeting pipeline. Onboarding Welcome step: progress header reads exactly 'Welcome · About a minute' (NOT 'Step 1 of 11'). Brand logo + FriendPlace wordmark render at top. 'Welcome to FriendPlace' hero title present. George butterfly (testID onb-george-butterfly) fades and flies in ~700ms after mount and settles perched on the top-right EDGE of the speech bubble wrapper (testID onb-george-bubble-wrap) — computed CSS confirmed position:absolute, top:-28px, right:12px, and the DOM measurement shows the butterfly's top at 363.6px vs its parent (bubble wrap) top at 392px, i.e. an actual visual overhang of 28.4px above the bubble's border (butterfly half-off the card, as required). Speech bubble text (testID onb-george-bubble) matches the exact curly-apostrophe + em-dash copy from the spec (all four paragraphs, no raw \\u2019 or \\u2014 in DOM). testID onb-need-help-card is present with the exact '🦋 Need a hand?' + full body copy. CTA button (testID onb-next) reads exactly 'Let\u2019s take a quick tour' with curly apostrophe. Feature tour: all 6 pages have DISTINCT background tints — Coffee Lounge rgb(254,243,226)+border rgb(245,201,155), Find Friends rgb(232,243,253)+rgb(147,197,253), Friendship Groups rgb(239,232,253)+rgb(196,181,253), Local Events rgb(232,247,236)+rgb(134,239,172), Games Hub rgb(252,231,243)+rgb(249,168,212), Community Notice Board rgb(254,249,195)+rgb(253,224,71). All 6 unique. Each hero contains EXACTLY 4 position:absolute decoration emojis behind the primary 88px icon (verified via DOM query). Progress on tour pages reads 'Step 2 of 11' … 'Step 7 of 11' · About a minute. Steps 8–11 render George one-liner + 'Step X of 11' progress; titles 'Made for everyone', 'You\u2019re in control', 'What do you love?', 'Join some groups' present. Final CTA reads 'Take me to FriendPlace'. After completion: /home loads within ~1.6s, George's greeting bubble reads 'Morning, Alex. Lovely to see you again. If you\u2019d ever prefer to chat with Georgia instead of me, you can switch anytime in Settings — we both know the same things.' (Georgia-mention on first visit). No 'Hi, I\u2019m George' modal appeared at ANY point. Reload of /home: greeting cycles normally to a short returning line, Georgia hint NOT mentioned again (one-shot AsyncStorage flag correctly consumed). Sign-out (localStorage.clear()) + sign-in regression: /home shows the George arrival + returning greeting ('Hi Alex. I\u2019m around if you need me — no rush.'), zero console errors, no crash where the intro-modal used to render. Cleaned up george.* localStorage keys at end of run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "observations": [
+    "Only non-blocking console output is the pre-existing RN-Web deprecation warnings for shadow*, textShadow*, and props.pointerEvents. Not introduced by this iteration.",
+    "GeorgeIntroduction.tsx confirmed deleted; no import references remain anywhere in /app/frontend."
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "seed_data_creation": "None. Used existing member_first (member@friendplace.com.au / TestPass2026!). Cleared george.* localStorage keys at end of both browser sessions so next dev-cycle starts clean.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Onboarding is reachable only after auth. Fastest path: POST /api/auth/login → inject yb_token + yb_user into localStorage → navigate to /onboarding. To retest the Georgia one-shot hint, clear george.* localStorage keys before the run. For the perched-butterfly assertion, use DOM measurement via getBoundingClientRect on [data-testid=onb-george-butterfly] and its parent [data-testid=onb-george-bubble-wrap] — the butterfly's top should be roughly 28px above the parent's top (position:absolute, top:-28px, right:12px).",
+  "rca_of_issue": "N/A — no bugs found. All spec items from iteration 81 (companion-first onboarding polish pass) pass."
+}

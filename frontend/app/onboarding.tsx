@@ -69,37 +69,62 @@ const FEATURES: { emoji: string; title: string; body: string }[] = [
 // user-paced, before the existing accessibility / privacy / interests /
 // groups steps. Copy sits in George's voice — one short sentence in
 // the speech bubble, one warm paragraph in the body.
-type TourPage = { icon: string; title: string; bubble: string; body: string };
+type TourPage = {
+  icon: string;
+  title: string;
+  bubble: string;
+  body: string;
+  /** Background tint of the illustration hero — makes each page feel
+   *  visually distinct at a glance. */
+  heroBg: string;
+  /** Border colour of the illustration hero. Matches the tint family. */
+  heroBorder: string;
+  /** Secondary decorations scattered behind the primary icon, so the
+   *  page reads as more than "big emoji in a rectangle". */
+  decorations: string[];
+};
 const TOUR_STEPS: TourPage[] = [
   {
     icon: "\u2615", title: "Coffee Lounge",
     bubble: "Let\u2019s start with the Coffee Lounge.",
     body: "It\u2019s a bit like walking into your local caf\u00e9 \u2014 drop in anytime and chat with people who are online.",
+    heroBg: "#FEF3E2", heroBorder: "#F5C99B",
+    decorations: ["\u2615", "\uD83E\uDD50", "\uD83C\uDF75", "\uD83E\uDDC1"],
   },
   {
     icon: "\uD83E\uDD1D", title: "Find Friends",
     bubble: "Next, let\u2019s look at Find Friends.",
     body: "Discover members with similar interests and send them a friend request. No pressure \u2014 take your time.",
+    heroBg: "#E8F3FD", heroBorder: "#93C5FD",
+    decorations: ["\uD83D\uDC4B", "\uD83D\uDC96", "\uD83D\uDCAC", "\uD83E\uDD73"],
   },
   {
     icon: "\uD83D\uDC65", title: "Friendship Groups",
     bubble: "Now, Friendship Groups.",
     body: "Groups bring people together around what they love \u2014 walking, books, cooking, gardening, faith, and more.",
+    heroBg: "#EFE8FD", heroBorder: "#C4B5FD",
+    decorations: ["\uD83D\uDCDA", "\uD83C\uDF31", "\uD83D\uDEB6", "\uD83E\uDD50"],
   },
   {
     icon: "\uD83D\uDCC5", title: "Local Events",
     bubble: "Local Events.",
     body: "Find walks, lunches, meet-ups and community gatherings near you \u2014 and RSVP straight from the app.",
+    heroBg: "#E8F7EC", heroBorder: "#86EFAC",
+    decorations: ["\uD83D\uDCCD", "\uD83C\uDF7D\uFE0F", "\uD83C\uDF3F", "\u2600\uFE0F"],
   },
   {
     icon: "\uD83C\uDFB2", title: "Games Hub",
     bubble: "The Games Hub.",
     body: "When you feel like a quiet moment, play bingo, crosswords, solitaire or a puzzle. Some you can play with other members too.",
+    heroBg: "#FCE7F3", heroBorder: "#F9A8D4",
+    decorations: ["\uD83E\uDDE9", "\u2660\uFE0F", "\uD83C\uDFB0", "\uD83C\uDFAF"],
   },
   {
     icon: "\uD83D\uDCCC", title: "Community Notice Board",
     bubble: "And the Community Notice Board.",
     body: "Share news, ask for a hand, or offer something to your community \u2014 like the notice board at your local hall.",
+    heroBg: "#FEF9C3", heroBorder: "#FDE047",
+    decorations: ["\uD83D\uDCC4", "\uD83D\uDD8A\uFE0F", "\uD83D\uDCE2", "\uD83C\uDFF7\uFE0F"],
   },
 ];
 
@@ -329,7 +354,9 @@ export default function OnboardingWizard() {
           />
         </View>
         <Text style={[styles.progressLabel, { color: c.muted, fontSize: 12 * scale }]}>
-          Step {step + 1} of {STEP_COUNT} · About a minute
+          {step === 0
+            ? "Welcome \u00b7 About a minute"
+            : `Step ${step + 1} of ${STEP_COUNT} \u00b7 About a minute`}
         </Text>
       </View>
 
@@ -429,40 +456,56 @@ export default function OnboardingWizard() {
 // intro copy (Garry, 23 July 2026) and a small info card teaches
 // members where he lives and when to tap him.
 function StepWelcome({ scale, c }: { scale: number; c: any }) {
-  // Reanimated: offset from resting spot at top-right. `translateX/Y`
-  // start negative (up-left, near the brand logo) then animate to 0.
-  // Opacity fades in as the flight lands so his arrival feels light.
-  const tx = useSharedValue(-260);
+  // Reanimated: George flies out of the FriendPlace logo, curves down
+  // to the top-right edge of the speech bubble, and perches there —
+  // half-off the card so he feels like a companion who's just landed,
+  // not a UI element inside a rectangle.
+  const tx = useSharedValue(-140);
   const ty = useSharedValue(-90);
   const op = useSharedValue(0);
-  const rot = useSharedValue(-14);
+  const rot = useSharedValue(-18);
   const wingScale = useSharedValue(1);
+  const bob = useSharedValue(0);
   const [bubble, setBubble] = useState(false);
 
   useEffect(() => {
-    // Small delay so members read the FriendPlace title first, THEN
+    // Delay so members read "Welcome to FriendPlace" first, THEN
     // George arrives. ~700ms feels warm without being sluggish.
     op.value = withDelay(700, withTiming(1, { duration: 500 }));
     tx.value = withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }));
     ty.value = withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }));
     rot.value = withDelay(700, withTiming(0, { duration: 900, easing: Easing.out(Easing.cubic) }));
-    // Continuous flap during flight so he reads as a butterfly.
+    // Wing-flap while flying, then a slow perched breathing.
     wingScale.value = withSequence(
       withDelay(700, withTiming(1.15, { duration: 220 })),
       withTiming(0.85, { duration: 220 }),
       withTiming(1.10, { duration: 220 }),
-      withTiming(1.00, { duration: 220 }),
+      withTiming(0.95, { duration: 220 }),
+      withTiming(1.02, { duration: 900 }),
+      withTiming(0.98, { duration: 900 }),
+      withTiming(1.02, { duration: 900 }),
+      withTiming(0.98, { duration: 900 }),
     );
-    // Reveal the speech bubble once he lands.
+    // Once he's landed, a tiny vertical bob so he feels alive.
+    bob.value = withDelay(1600,
+      withSequence(
+        withTiming(-2, { duration: 900 }),
+        withTiming(0,  { duration: 900 }),
+        withTiming(-2, { duration: 900 }),
+        withTiming(0,  { duration: 900 }),
+        withTiming(-2, { duration: 900 }),
+        withTiming(0,  { duration: 900 }),
+      ),
+    );
     const t = setTimeout(() => setBubble(true), 1650);
     return () => clearTimeout(t);
-  }, [op, tx, ty, rot, wingScale]);
+  }, [op, tx, ty, rot, wingScale, bob]);
 
   const flyStyle = useAnimatedStyle(() => ({
     opacity: op.value,
     transform: [
       { translateX: tx.value },
-      { translateY: ty.value },
+      { translateY: ty.value + bob.value },
       { rotate: `${rot.value}deg` },
       { scaleX: wingScale.value },
     ],
@@ -470,22 +513,12 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
 
   return (
     <View style={{ gap: 14, paddingTop: 6 }}>
-      {/* Welcome hero — kept centred so it still reads like a warm
-          greeting, with George animating into the top-right corner. */}
-      <View style={{ alignItems: "center", paddingTop: 4, minHeight: 132 }}>
-        <View style={{ position: "relative", width: "100%", alignItems: "center" }}>
-          <Image source={BUTTERFLY_LOGO} style={styles.stepHero} resizeMode="contain" />
-          <Animated.View
-            testID="onb-george-butterfly"
-            pointerEvents="none"
-            style={[
-              { position: "absolute", top: 4, right: 6 },
-              flyStyle,
-            ]}
-          >
-            <GeorgeButterflyMark size={64} />
-          </Animated.View>
-        </View>
+      {/* Welcome hero — brand logo + title. George doesn't animate
+          up here anymore; he flies straight down onto the bubble
+          so his final resting spot reads as "he just landed to talk
+          to you", not "he's in the corner of the screen". */}
+      <View style={{ alignItems: "center", paddingTop: 4 }}>
+        <Image source={BUTTERFLY_LOGO} style={styles.stepHero} resizeMode="contain" />
       </View>
       <Text style={[styles.stepTitle, { color: c.onSurface, fontSize: 28 * scale }]}>
         Welcome to FriendPlace
@@ -494,30 +527,53 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
         A warm, friendly place for friendship, connection and community.
       </Text>
 
-      {/* George speech bubble — appears after he lands. Framed like a
-          conversation opener rather than product copy. */}
+      {/* George speech bubble with him perched on the top-right edge.
+          The wrapper is `overflow: 'visible'` so his little butterfly
+          hangs half-off the card like a bird on a windowsill. */}
       {bubble ? (
-        <View
-          testID="onb-george-bubble"
-          style={[
-            styles.georgeBubble,
-            { backgroundColor: c.brandTertiary, borderColor: c.brand },
-          ]}
-        >
-          <View style={styles.georgeBubbleHead}>
-            <GeorgeButterflyMark size={28} />
-            <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 13 * scale }}>
-              GEORGE
+        <View style={{ position: "relative", overflow: "visible", marginTop: 12 }} testID="onb-george-bubble-wrap">
+          <View
+            style={[
+              styles.georgeBubble,
+              { backgroundColor: c.brandTertiary, borderColor: c.brand, paddingTop: 22 },
+            ]}
+          >
+            <View style={styles.georgeBubbleHead}>
+              <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 13 * scale }}>
+                GEORGE
+              </Text>
+            </View>
+            <Text
+              testID="onb-george-bubble"
+              style={[styles.georgeBubbleText, { color: c.onSurface, fontSize: 16 * scale }]}
+            >
+              {"Hi, I\u2019m George \uD83D\uDC4B\n\nWelcome to FriendPlace! I\u2019ll be your guide while you\u2019re getting started.\n\nI\u2019ll show you around, answer questions and help you find your way whenever you need me.\n\nYou\u2019ll also meet Georgia. We know the same things \u2014 we just have different personalities, so you can chat with whichever of us feels right for you."}
             </Text>
           </View>
-          <Text style={[styles.georgeBubbleText, { color: c.onSurface, fontSize: 16 * scale }]}>
-            {"Hi, I\u2019m George \uD83D\uDC4B\n\nWelcome to FriendPlace! I\u2019ll be your guide while you\u2019re getting started \u2014 I\u2019ll show you around, answer questions and help you find your way whenever you need me.\n\nYou\u2019ll also meet Georgia. We know exactly the same things \u2014 we just have different personalities, so you can chat with whichever of us feels right for you."}
-          </Text>
+          {/* George perches half-off the top-right edge of the bubble */}
+          <Animated.View
+            testID="onb-george-butterfly"
+            pointerEvents="none"
+            style={[
+              {
+                position: "absolute",
+                top: -28,
+                right: 12,
+                shadowColor: "#000",
+                shadowOpacity: 0.15,
+                shadowRadius: 8,
+                shadowOffset: { width: 0, height: 3 },
+              },
+              flyStyle,
+            ]}
+          >
+            <GeorgeButterflyMark size={64} />
+          </Animated.View>
         </View>
       ) : null}
 
-      {/* Info card — teaches members where the butterfly lives so
-          they can find George after onboarding. */}
+      {/* Info card — separate from George's bubble, teaches members
+          where to find the butterfly in day-to-day use. */}
       <View
         testID="onb-need-help-card"
         style={[styles.helpCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
@@ -526,7 +582,7 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
           {"\uD83E\uDD8B Need a hand?"}
         </Text>
         <Text style={[styles.helpCardBody, { color: c.muted, fontSize: 14 * scale }]}>
-          {"You\u2019ll usually find me (or Georgia) in the top corner of your screen. Tap the butterfly anytime if you have a question, aren\u2019t sure where to go, or simply feel like a chat."}
+          {"You\u2019ll usually find me (or Georgia) in the top corner of your screen. Just tap the butterfly whenever you\u2019d like some help, aren\u2019t sure where to go, or simply feel like a chat."}
         </Text>
       </View>
 
@@ -561,9 +617,23 @@ function StepFeatureTour({ scale, c, page }: { scale: number; c: any; page: Tour
         </View>
       </View>
 
-      {/* Feature illustration — a large, high-contrast emoji card so
-          it reads at a glance without needing bespoke artwork. */}
-      <View style={[styles.tourHero, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+      {/* Feature illustration — per-page tint + scattered secondary
+          emoji decorations so each page has its own visual signature.
+          Members should immediately feel they've moved to a new page. */}
+      <View style={[styles.tourHero, { backgroundColor: page.heroBg, borderColor: page.heroBorder }]}>
+        {/* Absolute-positioned decorations. Reproducible positions per
+            index so the layout is stable, not random. */}
+        {page.decorations.map((glyph, i) => (
+          <Text
+            key={`${i}-${glyph}`}
+            style={[
+              styles.tourDecoration,
+              _decorationPositions[i] ?? { top: 12, left: 12 },
+            ]}
+          >
+            {glyph}
+          </Text>
+        ))}
         <Text style={{ fontSize: 88 }}>{page.icon}</Text>
       </View>
 
@@ -580,6 +650,15 @@ function StepFeatureTour({ scale, c, page }: { scale: number; c: any; page: Tour
     </View>
   );
 }
+
+// Fixed decoration positions inside the hero card — corners + a couple
+// on the inner edges. Rotations add a hand-scattered feel.
+const _decorationPositions: { top?: number; left?: number; right?: number; bottom?: number; transform?: { rotate: string }[] }[] = [
+  { top: 14,   left: 18,  transform: [{ rotate: "-14deg" }] },
+  { top: 18,   right: 22, transform: [{ rotate: "12deg" }] },
+  { bottom: 18, left: 22, transform: [{ rotate: "18deg" }] },
+  { bottom: 14, right: 18, transform: [{ rotate: "-8deg" }] },
+];
 
 // Small helper — a single-line George intro that sits at the top of
 // the settings-style steps (Accessibility / Privacy / Interests /
@@ -1002,12 +1081,19 @@ const styles = StyleSheet.create({
     paddingRight: 4,
   },
   tourHero: {
-    height: 180,
+    height: 200,
     borderRadius: 22,
-    borderWidth: 1,
+    borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 4,
+    overflow: "hidden",
+    position: "relative",
+  },
+  tourDecoration: {
+    position: "absolute",
+    fontSize: 28,
+    opacity: 0.45,
   },
   georgeLine: {
     flexDirection: "row",

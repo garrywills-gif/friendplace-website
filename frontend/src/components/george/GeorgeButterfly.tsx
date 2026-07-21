@@ -9,7 +9,6 @@ import Animated, {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
-import { GeorgeIntroduction, type IntroChoice } from './GeorgeIntroduction';
 import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { GeorgeEventCreation } from './GeorgeEventCreation';
 import { GeorgeEventCelebration } from './GeorgeEventCelebration';
@@ -114,13 +113,14 @@ export function GeorgeButterfly() {
       } catch { /* non-fatal */ }
       playArrival(() => {
         if (cancelled) return;
-        if (firstMeeting) {
-          setPhase('intro');
-        } else {
-          setPhase('landed');
-          setGreeting(pickReturningGreeting(pres, gate.warmWelcome, georgiaHint));
-          setShowBubble(true);
-        }
+        // First-meeting used to open the dedicated "Hi, I'm George"
+        // modal — that's gone now (Garry, 23 Jul 2026). George
+        // introduces himself in the onboarding wizard instead, so on
+        // his very first appearance here he plays the standard
+        // returning-greeting flow and settles into his resting spot.
+        setPhase('landed');
+        setGreeting(pickReturningGreeting(pres, gate.warmWelcome, georgiaHint));
+        setShowBubble(true);
       });
       await markArrivedToday(pres?.actor_id || 'anonymous');
     }
@@ -319,19 +319,6 @@ export function GeorgeButterfly() {
     }, 320);
   }, [wingFlap, bubbleOpacity]);
 
-  // ---- Handle introduction choice ---------------------------------------
-  const onIntroChoice = useCallback(async (choice: IntroChoice) => {
-    // Principle #17 — the conversation never ends, so we do NOT open
-    // a placeholder sheet here. George has already spoken his warm
-    // follow-up inside the intro surface and settled his butterfly
-    // down to its resting corner. We simply retire the first-meeting
-    // flag on the server and hand control back to the Home screen,
-    // where the resting butterfly is now the member's constant
-    // companion — waiting to be tapped whenever they're ready.
-    try { await georgeApi.introduced(); } catch { /* silent — cosmetic */ }
-    setPhase('resting');
-  }, []);
-
   // ---- Animated styles ---------------------------------------------------
   const butterflyStyle = useAnimatedStyle(() => ({
     transform: [
@@ -433,21 +420,6 @@ export function GeorgeButterfly() {
         )}
         </Animated.View>
       )}
-
-      {/* First-meeting introduction as a continuous conversation.
-       *  The intro handles its own settling animation before calling
-       *  back — see GeorgeIntroduction. We use a transparent modal so
-       *  the butterfly can appear to glide *through* the boundary and
-       *  land on the Home screen without a visible seam.
-       */}
-      <Modal
-        visible={phase === 'intro'}
-        animationType="fade"
-        transparent
-        onRequestClose={() => onIntroChoice('maybe_later')}
-      >
-        <GeorgeIntroduction onSettled={onIntroChoice} />
-      </Modal>
 
       {/* Onboarding conversation — opens when the resting butterfly
        *  is tapped and the member hasn't completed their profile yet.
