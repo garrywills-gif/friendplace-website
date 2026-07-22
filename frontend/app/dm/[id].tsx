@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView, Platform, Pressable } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as Speech from "expo-speech";
+import { speakGeorgeAuto, stopGeorgeAuto } from "@/src/lib/tts-shared";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
@@ -44,9 +44,12 @@ export default function DM() {
       if (data.type === "message") {
         setMessages((m) => [...m, data.message]);
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
-        // Auto-read incoming messages from the OTHER person if the user enabled it
+        // Auto-read incoming messages from the OTHER person if the user
+        // enabled it. TestFlight round-5 (Garry, Feb 2026 #15): plays via
+        // George's cloud voice instead of Apple's OS default so incoming
+        // DMs sound the same as every other read-aloud in the app.
         if (prefs.autoReadNewMessages && data.message?.user_id !== user.id && data.message?.text) {
-          Speech.speak(String(data.message.text), { language: "en-US", rate: 0.95, pitch: 1.02 });
+          void speakGeorgeAuto(String(data.message.text));
         }
         // Since we're actively viewing this thread, keep it marked as read
         // so a fresh incoming message doesn't leave a "1" badge behind.
@@ -55,7 +58,7 @@ export default function DM() {
         }
       }
     };
-    return () => { ws.close(); Speech.stop(); };
+    return () => { ws.close(); stopGeorgeAuto(); };
   }, [id, user?.id, prefs.autoReadNewMessages]);
 
   const send = () => {

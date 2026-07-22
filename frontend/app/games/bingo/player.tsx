@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import * as Speech from "expo-speech";
+import { speakGeorgeAuto, stopGeorgeAuto } from "@/src/lib/tts-shared";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
@@ -71,7 +71,11 @@ export default function BingoPlayer() {
       const newIndex = cur.call_index + 1;
       const callNum = cur.sequence[cur.call_index];
       if (prefs.readMessagesAloud) {
-        try { Speech.stop(); Speech.speak(`${letterFor(callNum)} ${callNum}`, { rate: 0.85, pitch: 1.0 }); } catch {}
+        // TestFlight round-5 (Feb 2026 #15): bingo call-outs now use
+        // George's cloud voice so members hear a single consistent
+        // voice across the whole app.
+        stopGeorgeAuto();
+        void speakGeorgeAuto(`${letterFor(callNum)} ${callNum}`);
       }
       queueSave({ call_index: newIndex });
       return { ...cur, call_index: newIndex };
@@ -97,7 +101,8 @@ export default function BingoPlayer() {
     try {
       const r: any = await api.bingoComplete(user!.id, sid);
       setCompletion(r); setS((cur) => cur ? { ...cur, completed: true } : cur);
-      try { Speech.stop(); if (prefs.readMessagesAloud) Speech.speak("Bingo! Well done!", { rate: 0.95, pitch: 1.1 }); } catch {}
+      stopGeorgeAuto();
+      if (prefs.readMessagesAloud) void speakGeorgeAuto("Bingo! Well done!");
     } catch (e: any) {
       show("No winning pattern yet \u2014 keep going!");
     }

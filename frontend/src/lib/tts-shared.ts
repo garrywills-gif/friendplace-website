@@ -61,3 +61,55 @@ export function setCachedUri(voice: string, text: string, uri: string) {
 export function clearUriCache() {
   uriCache.clear();
 }
+
+// -- Fire-and-forget speak (auto-read paths) -----------------------------
+//
+// Used by places that speak WITHOUT a visible speaker button — e.g. auto-
+// read of an incoming DM, bingo-number call-outs. Async import of
+// `georgeApi` / `playAudioUri` here to avoid a circular module load
+// during app startup (this file is imported by SpeakButton which is
+// imported very early).
+
+/**
+ * Speak `text` using George's cloud voice, coordinated with the same
+ * active-speaker registry as `SpeakButton` / `GeorgeSpeakButton`. Safe
+ * to await or ignore. Silently no-ops on error (auto-read paths must
+ * never disrupt the UX — matches the intent of the old `Speech.speak`
+ * calls we're replacing).
+ */
+export async function speakGeorgeAuto(text: string): Promise<void> {
+  const clean = (text || '').toString().trim();
+  if (!clean) return;
+  try {
+    // Dynamic imports break the SpeakButton → tts-shared → george-api →
+    // (indirect) SpeakButton cycle that would otherwise happen if we
+    // imported at the top of the file.
+    const { georgeApi } = await import('./george-api');
+    const { getVoice, DEFAULT_VOICE } = await import('./george-voice');
+    const { playAudioUri } = await import('./george-playback');
+
+    const voice = (await getVoice()) ?? DEFAULT_VOICE;
+    let uri = getCachedUri(voice, clean);
+    if (!uri) {
+      uri = await georgeApi.speak(clean);
+      setCachedUri(voice, clean, uri);
+    }
+
+    const ctrl = playAudioUri(uri);
+    const stopFn = () => { try { ctrl.stop(); } catch { /* noop */ } };
+    claimActiveSpeaker(stopFn);
+    void ctrl.whenDone.finally(() => releaseActiveSpeaker(stopFn));
+  } catch (e) {
+    // Silent: this is a background courtesy, not a user action.
+    if (__DEV__) console.warn('[speakGeorgeAuto] failed', e);
+  }
+}
+
+/** Stop any in-flight George auto-read (matches `Speech.stop()` call
+ *  sites we're replacing). */
+export function stopGeorgeAuto() {
+  if (_activeStop) {
+    try { _activeStop(); } catch { /* noop */ }
+    _activeStop = null;
+  }
+}

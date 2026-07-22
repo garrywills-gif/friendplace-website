@@ -10,7 +10,6 @@ import { georgeApi } from '@/src/lib/george-api';
 import GeorgeSpeakButton from '@/src/components/george/GeorgeSpeakButton';
 import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 import { useTheme } from '@/src/lib/theme';
-import * as Speech from 'expo-speech';
 import { speakGeorgeAloud, stopGeorgeAutoRead } from '@/src/lib/george-auto-read';
 import { Ionicons } from '@expo/vector-icons';
 import { useGeorgeVoiceInput } from '@/src/lib/useGeorgeVoiceInput';
@@ -85,7 +84,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
 
   // Stop any in-flight speech when the screen unmounts so a
   // half-spoken bubble doesn't linger after the user leaves.
-  useEffect(() => () => { stopGeorgeAutoRead(); Speech.stop(); }, []);
+  useEffect(() => () => { stopGeorgeAutoRead(); }, []);
 
   useEffect(() => {
     (async () => {
