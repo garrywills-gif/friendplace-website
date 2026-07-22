@@ -146,13 +146,28 @@ export default function VoiceInputButton({
   // ─── Kickoff ─────────────────────────────────────────────────────────
   const beginCapture = useCallback(async () => {
     try {
-      // iOS needs the audio session configured for recording BEFORE the
-      // recorder is prepared, otherwise you get silent failures / short
-      // truncated files. Setting playsInSilentMode:true ensures we can
-      // also play back the transcribed message via TTS later.
+      // TestFlight round-4 (Garry, 29 July 2026): the "Empty audio
+      // upload" issue on iOS is almost always an audio-session /
+      // recorder-lifecycle problem. Steps to make recording bulletproof:
+      //   1. Configure the session for recording (playsInSilentMode +
+      //      allowsRecording) BEFORE preparing the recorder.
+      //   2. Await `prepareToRecordAsync` fully — this both allocates
+      //      the file and initialises the AVAudioSession category.
+      //   3. Give iOS a short (~150ms) breath before `record()` starts
+      //      so the underlying `AVAudioRecorder.record` call actually
+      //      begins writing samples. Without this, `record()` can
+      //      return immediately with the underlying encoder still
+      //      warming up, producing an empty file when stopped quickly.
       await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
       await recorder.prepareToRecordAsync();
+      await new Promise((r) => setTimeout(r, 150));
       recorder.record();
+      // Guard against silent failures: if the recorder didn't actually
+      // start, bail out with a friendly message rather than record 0
+      // bytes and confuse the member.
+      if (recorder.isRecording === false) {
+        throw new Error("recorder failed to start");
+      }
       setState("recording");
       setElapsed(0);
       tickRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -162,7 +177,8 @@ export default function VoiceInputButton({
         void stopAndTranscribe();
       }, MAX_RECORD_SEC * 1000);
     } catch (e: any) {
-      onError?.(`Couldn't start recording: ${e?.message || "unknown error"}`);
+      if (__DEV__) console.warn('[VoiceInputButton] beginCapture failed:', e);
+      onError?.("Sorry, I couldn't start recording. Please try again in a moment.");
       setState("idle");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,0 +1,39 @@
+{
+  "summary": "TestFlight Round-4 v2 STT bulletproofing (Bug 16 v2) + George voice consistency re-verify (Bug 15 v2). HONEST SCOPE: only CODE STRUCTURE + backend contract could be verified from this web-preview sandbox — actual iOS AVAudioRecorder lifecycle and cloud-TTS playback on Garry's iPhone CANNOT be exercised here. This report does NOT claim device-level pass. Backend + structural: 15/15 pytest PASS in /app/backend/tests/test_iter88_stt_bulletproofing_v2.py. Verified in VoiceInputButton.tsx beginCapture (L147-185): (1) 150ms warm-up sleep between prepareToRecordAsync() and record() at L163; (2) `recorder.isRecording === false` guard immediately after record() throws 'recorder failed to start' at L168-170; (3) hardened friendly-error copy \"Sorry, I couldn't start recording. Please try again in a moment.\" at L181 with no raw JSON leak; ordering setAudioModeAsync → prepareToRecordAsync → 150ms sleep → record() is correct. Bug 15 v2: GeorgeRemembersBanner.tsx L25 imports GeorgeSpeakButton and L144 renders `<GeorgeSpeakButton text={spokenText} …/>`; no legacy device-TTS `<SpeakButton>` remains. Correctly scoped: only George surfaces (GeorgeRemembersBanner, GeorgeOnboarding) use cloud TTS; recipes/[id], (tabs)/home, notices, dm/[id] and all games still import the device-TTS `SpeakButton` — matches Garry's 'cloud voice for George only' spec. Backend /api/voice/transcribe still returns 422 on empty POST (contract unchanged). app.json pins remain 1.0.12 / iOS build 119 / Android versionCode 119 — NOT modified. Frontend live-smoke on 375x667: Welcome screen ('FriendPlace / Because you belong too.') renders cleanly, no red screen, only pre-existing legacy warnings (shadow*/textShadow*/pointerEvents/useNativeDriver) unrelated to these fixes.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {"component": "props.pointerEvents / useNativeDriver / shadow*/textShadow*", "issue": "Legacy web-preview console warnings only. Harmless on native iOS build. Unrelated to Round-4 v2 fixes. Reference: pre-existing across the app."}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter88_stt_bulletproofing_v2.py",
+    "/app/test_reports/pytest/iter88_stt_v2.xml"
+  ],
+  "action_items": [
+    "DEVICE-TEST REQUIRED (cannot be automated here): (a) Install build 119 on Garry's iPhone. Tap the mic on a text input, speak 2-3 seconds, tap to stop. EXPECTED: transcript appears in the input. If the 0-byte issue recurs, the new 150ms warm-up + isRecording guard should now surface the warm sentence 'Sorry, I couldn't start recording. Please try again in a moment.' rather than a raw JSON error. (b) Open the George Remembers banner on Home; tap the speaker icon. EXPECTED: cloud voice (OpenAI onyx/nova via /api/mcgs/george/speak) plays — NOT the Apple robotic voice. If cloud fetch fails, the button shows a toast 'Could not play George's voice. Please try again.' with no device-TTS fallback (by design).",
+    "If STT still records 0-byte audio on the iPhone even with the 150ms warm-up + isRecording guard, the next escalation is either (i) explicitly polling `recorder.isRecording` for up to ~500ms after record() before starting the tick timer, or (ii) discarding the first 200ms of the buffer via a minimum-duration guard (already partially covered by the 500-byte blob-size gate)."
+  ],
+  "critical_code_review_comments": [
+    "VoiceInputButton.tsx L147-185 beginCapture: chain is setAudioModeAsync → prepareToRecordAsync → 150ms sleep → record() → isRecording===false guard (throws) → set 'recording' state + tick timer + 60s auto-stop. Order is correct; catch on L179-183 surfaces the warm copy and never leaks raw JSON.",
+    "VoiceInputButton.tsx L94-97: BACKEND_URL uses process.env.EXPO_PUBLIC_BACKEND_URL || EXPO_BACKEND_URL — Metro-inlinable, no `(process.env as any)` cast. Good — was the round-2 fix for native builds.",
+    "GeorgeRemembersBanner.tsx L25/L144: cloud TTS wired correctly; only George-attributed content triggers it (spokenText = visible.content, i.e. the George-authored 'thinking ahead' / 'just checking in' message).",
+    "Non-George surfaces (app/dm/[id].tsx, app/recipes/[id].tsx, app/notices.tsx, app/(tabs)/home.tsx, all game screens) continue to use SpeakButton (device TTS) — the George-only scoping spec is respected.",
+    "app.json pins verified: version 1.0.12, iOS buildNumber 119, Android versionCode 119. Unchanged as required."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter88_stt_bulletproofing_v2.py (new — 15 tests, all passing)"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15 structural + endpoint contract)",
+    "frontend": "Welcome screen renders clean on 375x667; no red screen; no new regressions"
+  },
+  "seed_data_creation": "None. Existing credentials member@friendplace.com.au / TestPass2026! not exercised beyond the login gate.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iter88 = STT Bug 16 v2 (three defensive changes in VoiceInputButton.beginCapture: 150ms AVAudioSession warm-up, isRecording===false guard, hardened friendly copy) + Bug 15 v2 re-verify (GeorgeSpeakButton imported AND rendered in GeorgeRemembersBanner; only George surfaces use cloud TTS). All 15 pytest checks pass. Backend /api/voice/transcribe empty-POST still returns 422 unchanged. app.json build pins (1.0.12 / 119) MUST remain untouched. The three code changes are STRUCTURE-VERIFIED ONLY — actual iPhone STT capture and OpenAI cloud voice playback require a native TestFlight build; do NOT claim device-level pass from web preview.",
+  "rca_of_issue": "PRIOR FALSE-POSITIVE RCA: Iterations 85-87 verified code structure (imports, string literals, method presence) but did not — and could not from a web preview — verify runtime AVAudioRecorder behaviour or cloud-TTS audio playback on a physical iPhone. That is why Garry saw 'verified fixed' 3× while the bug persisted on-device. Iter88 explicitly labels the scope: structural + backend contract PASS; device runtime UNVERIFIABLE HERE. The three new defensive changes address the KNOWN iOS record() lifecycle issues (warm-up race, silent-start, raw-error leak) but MUST be confirmed on build 119 on Garry's device before shipping."
+}
