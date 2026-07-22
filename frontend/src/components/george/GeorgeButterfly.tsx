@@ -367,7 +367,11 @@ export function GeorgeButterfly() {
   // divider line below, aligned with the same y as the shared
   // `<GeorgeHeaderMark />` on secondary screens. He is now truly
   // part of the header, not placed on top of the page.
-  const restTop = insets.top + 108;
+  // TestFlight round-2 v2 (Garry, 28 July 2026): give the greeting
+  // bubble a bit more room by pushing George a few pt further down
+  // — combined with the shorter georgiaHint greeting, the bubble now
+  // sits comfortably below any Dynamic Island / notch.
+  const restTop = insets.top + 116;
   const restRight = 16;
 
   const canTap = phase === 'resting' || phase === 'landed';
@@ -432,7 +436,11 @@ export function GeorgeButterfly() {
           </Pressable>
         </Animated.View>
 
-        {/* Returning-user greeting bubble */}
+        {/* Returning-user greeting bubble. TestFlight round-2 v2 —
+         *  cap the bubble's height so its top edge can never slide
+         *  behind the Dynamic Island / notch on any device. Combined
+         *  with the shortened georgiaHint greeting text, the bubble
+         *  sits comfortably below the status bar. */}
         {showBubble && greeting && (
           <Animated.View style={[styles.bubbleWrap, bubbleStyle]}>
             <Pressable onPress={() => {
@@ -441,7 +449,7 @@ export function GeorgeButterfly() {
               setPhase('resting');
             }}>
               <View style={styles.bubble}>
-                <Text style={styles.bubbleText}>{greeting}</Text>
+                <Text style={styles.bubbleText} numberOfLines={4}>{greeting}</Text>
               </View>
               <View style={styles.bubbleTail} />
             </Pressable>
@@ -518,8 +526,12 @@ function pickReturningGreeting(pres: Presence | null, warmWelcome: boolean, geor
   // First greeting after onboarding — take the chance to gently
   // introduce Georgia so members know they can switch anytime.
   // This overrides the standard rotations for exactly one session.
+  // TestFlight round-2 v2 (Garry, 28 July 2026): the original one-
+  // paragraph greeting rendered ~6 lines high and its top edge slid
+  // beneath the iPhone Dynamic Island. Trimmed to 2 short lines so
+  // the bubble stays well below the notch area on every device.
   if (georgiaHint) {
-    return `${partOfDay}${first ? ', ' + first : ''}. Lovely to see you again. If you\u2019d ever prefer to chat with Georgia instead of me, you can switch anytime in Settings \u2014 we both know the same things.`;
+    return `${partOfDay}${first ? ', ' + first : ''}. Lovely to see you again \u2014 tap Settings anytime to chat with Georgia instead.`;
   }
 
   const unfinished = pres?.unfinished?.[0];

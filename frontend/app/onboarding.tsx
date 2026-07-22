@@ -417,33 +417,42 @@ export default function OnboardingWizard() {
           breathing room ON TOP of the safe-area inset so no home
           indicator or rounded corner clips the CTA. */}
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 12, 24), borderTopColor: c.border }]}>
-        {step > 0 ? (
-          <Pressable
-            testID="onb-back"
-            onPress={() => setStep((s) => Math.max(0, s - 1))}
-            hitSlop={10}
-            style={styles.backLink}
-          >
-            <Ionicons name="chevron-back" size={20} color={c.muted} />
-            <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale }}>Back</Text>
-          </Pressable>
-        ) : (
-          <View style={{ width: 60 }} />
-        )}
+        {/* Row 1 — secondary controls (Back / Skip). TestFlight round-2
+            v2 (Garry, 28 July 2026): "Take me to FriendPlace" was
+            being clipped off the right edge because Back + Skip + CTA
+            shared one horizontal row. Splitting the CTA into a full-
+            width row below gives every device room for the longest
+            possible label. */}
+        <View style={styles.footerNavRow}>
+          {step > 0 ? (
+            <Pressable
+              testID="onb-back"
+              onPress={() => setStep((s) => Math.max(0, s - 1))}
+              hitSlop={10}
+              style={styles.backLink}
+            >
+              <Ionicons name="chevron-back" size={20} color={c.muted} />
+              <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale }}>Back</Text>
+            </Pressable>
+          ) : (
+            <View style={{ width: 60 }} />
+          )}
 
-        {step === STEP_INTERESTS || step === STEP_GROUPS ? (
-          <Pressable
-            testID="onb-skip"
-            onPress={finishWizard}
-            hitSlop={10}
-            style={{ paddingHorizontal: 12, paddingVertical: 8 }}
-          >
-            <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale }}>Skip</Text>
-          </Pressable>
-        ) : (
-          <View style={{ width: 44 }} />
-        )}
+          {step === STEP_INTERESTS || step === STEP_GROUPS ? (
+            <Pressable
+              testID="onb-skip"
+              onPress={finishWizard}
+              hitSlop={10}
+              style={{ paddingHorizontal: 12, paddingVertical: 8 }}
+            >
+              <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale }}>Skip</Text>
+            </Pressable>
+          ) : (
+            <View style={{ width: 44 }} />
+          )}
+        </View>
 
+        {/* Row 2 — primary CTA. Full width so long labels can't clip. */}
         <Pressable
           testID="onb-next"
           onPress={() => (isLast ? finishWizard() : setStep((s) => Math.min(STEP_COUNT - 1, s + 1)))}
@@ -453,13 +462,19 @@ export default function OnboardingWizard() {
             {
               backgroundColor: c.brand,
               opacity: pressed || busy ? 0.85 : 1,
+              alignSelf: "stretch",
+              marginTop: 8,
             },
           ]}
         >
           {busy ? (
             <ActivityIndicator size="small" color={c.onBrandPrimary} />
           ) : (
-            <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 17 * scale, letterSpacing: 0.3 }}>
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 17 * scale, letterSpacing: 0.3 }}
+            >
               {primaryLabel}
             </Text>
           )}
@@ -1056,13 +1071,18 @@ const styles = StyleSheet.create({
   },
 
   footer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    // Column layout so the primary CTA can live on its own full-width
+    // row below Back/Skip — long labels ("Take me to FriendPlace")
+    // can't be clipped by the row's horizontal constraint.
+    flexDirection: "column",
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 8,
+  },
+  footerNavRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   backLink: {
     flexDirection: "row",
