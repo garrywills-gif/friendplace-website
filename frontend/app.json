@@ -2,7 +2,7 @@
   "expo": {
     "name": "FriendPlace",
     "slug": "friendplace",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "friendplace",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.youbelong.community",
-      "buildNumber": "117",
+      "buildNumber": "119",
       "usesAppleSignIn": true,
       "infoPlist": {
         "CFBundleDisplayName": "FriendPlace",
@@ -55,7 +55,7 @@
     },
     "android": {
       "package": "com.youbelong.community",
-      "versionCode": 118,
+      "versionCode": 119,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0A2540"

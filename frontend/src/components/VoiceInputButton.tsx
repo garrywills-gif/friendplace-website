@@ -204,14 +204,21 @@ export default function VoiceInputButton({
     let audioUri: string | null = null;
     try {
       await recorder.stop();
+      // TestFlight round-3 (Garry, 29 July 2026 #16): on iOS the file
+      // sometimes isn't flushed to disk before `recorder.uri` is read,
+      // producing a 0-byte blob that the backend correctly rejects as
+      // "Empty audio upload". Give the OS a moment to finalise the
+      // container before we grab the URI.
+      await new Promise((r) => setTimeout(r, 250));
       audioUri = recorder.uri;
     } catch (e: any) {
-      onError?.(`Couldn't finish recording: ${e?.message || "unknown"}`);
+      onError?.("Sorry, I couldn't hear anything. Please try again.");
+      if (__DEV__) console.warn('[VoiceInputButton] recorder.stop failed:', e);
       setState("idle");
       return;
     }
     if (!audioUri) {
-      onError?.("No audio captured");
+      onError?.("Sorry, I couldn't hear anything. Please try again.");
       setState("idle");
       return;
     }
@@ -231,6 +238,15 @@ export default function VoiceInputButton({
       // build, and TestFlight — so we use it unconditionally.
       const audioResp = await fetch(audioUri);
       const audioBlob = await audioResp.blob();
+      // Round-3 (#16): guard against empty payloads — surfaces a
+      // friendly message rather than the raw backend error text.
+      if (!audioBlob || audioBlob.size < 500) {
+        if (__DEV__) console.warn('[VoiceInputButton] empty/short blob:', audioBlob?.size);
+        onError?.("Sorry, I couldn't hear anything. Please try again.");
+        setState("idle");
+        setElapsed(0);
+        return;
+      }
       // Some Safari versions strip the type from a file:// blob — fill
       // it in explicitly so multipart correctly labels the payload.
       const typedBlob =
@@ -241,7 +257,14 @@ export default function VoiceInputButton({
       const resp = await fetch(url, { method: "POST", body: form });
       if (!resp.ok) {
         const errBody = await resp.text().catch(() => "");
-        throw new Error(errBody?.slice(0, 140) || `HTTP ${resp.status}`);
+        if (__DEV__) console.warn('[VoiceInputButton] transcribe error:', resp.status, errBody);
+        // Never surface raw backend JSON to members. Map to a warm
+        // sentence and let __DEV__ logs surface the technical detail.
+        throw new Error(
+          resp.status === 401 || resp.status === 403
+            ? "You'll need to sign in again to use voice input."
+            : "Sorry, I couldn't hear you clearly. Please try again."
+        );
       }
       const data = await resp.json();
       const transcript = String(data?.text || "").trim();
@@ -258,10 +281,15 @@ export default function VoiceInputButton({
               : transcript;
         onChangeText(next);
       } else {
-        onError?.("Didn't catch that — try again");
+        onError?.("Sorry, I couldn't hear anything. Please try again.");
       }
     } catch (e: any) {
-      onError?.(e?.message ? `Voice failed: ${e.message}` : "Voice failed");
+      // Never leak raw JSON like `{"detail":"Empty audio upload"}` to
+      // members — always show a friendly, actionable line.
+      const msg = e?.message && !e.message.startsWith('{')
+        ? e.message
+        : "Sorry, I couldn't hear anything. Please try again.";
+      onError?.(msg);
     } finally {
       setState("idle");
       setElapsed(0);

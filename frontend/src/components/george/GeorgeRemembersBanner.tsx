@@ -22,7 +22,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useTheme } from '@/src/lib/theme';
 import { georgeApi, type RemembersMessage } from '@/src/lib/george-api';
-import SpeakButton from '@/src/components/SpeakButton';
+import GeorgeSpeakButton from '@/src/components/george/GeorgeSpeakButton';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 
 type Message = RemembersMessage;
@@ -141,7 +141,7 @@ export function GeorgeRemembersBanner() {
 
       {/* Actions row — speaker + View event. */}
       <View style={s.foot}>
-        <SpeakButton text={spokenText} color={c.brand} size={22} />
+        <GeorgeSpeakButton text={spokenText} color={c.brand} size={22} />
         {showViewEvent ? (
           <Pressable
             onPress={onViewEvent}

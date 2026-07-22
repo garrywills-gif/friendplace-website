@@ -121,9 +121,13 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
       const nextStatus = s.status || 'in_progress';
       if (nextStatus === 'drafted' && status !== 'drafted') {
         const firstName = (returnedTurns.find((tt: any) => tt.role === 'user')?.content?.split(/\s+/)[0]) || null;
+        // TestFlight round-3 v3 (Garry, 29 July 2026 #14): the closing
+        // turn now includes a warm invitation to the FP Café — the
+        // obvious first destination for a brand-new member. Pairs
+        // with the single "☕ Head to FP Café" button below.
         const thankYou = firstName
-          ? `That's really helpful, ${firstName}. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.`
-          : `That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.`;
+          ? `That's really helpful, ${firstName}. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.\n\nWhy not head over to the FP Caf\u00e9 first? It's a lovely place to say hello and see who's around. I'll be here if you need me.`
+          : `That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.\n\nWhy not head over to the FP Caf\u00e9 first? It's a lovely place to say hello and see who's around. I'll be here if you need me.`;
         // Find the last George turn and replace it. If none exists, append.
         let replaced = false;
         for (let i = returnedTurns.length - 1; i >= 0; i--) {
@@ -233,11 +237,13 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
 
       {showPreview ? (
         <View style={[styles.actionsWrap, { paddingBottom: insets.bottom + 12 }]}>
+          {/* TestFlight round-3 (Garry, 29 July 2026 #14): retired the
+              "That looks right / Change something" pair — there's no
+              summary card to review anymore. Single warm CTA now
+              points members to their obvious first destination: the
+              FP Café. Finish later still available for pausers. */}
           <Pressable onPress={approve} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
-            <Text style={styles.primaryBtnText}>That looks right</Text>
-          </Pressable>
-          <Pressable onPress={() => setStatus('in_progress')} style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}>
-            <Text style={styles.secondaryBtnText}>Change something</Text>
+            <Text style={styles.primaryBtnText}>☕ Head to FP Café</Text>
           </Pressable>
           <Pressable onPress={finishLater} style={({ pressed }) => [styles.tertiaryBtn, pressed && styles.pressed]}>
             <Text style={styles.tertiaryBtnText}>Finish later</Text>

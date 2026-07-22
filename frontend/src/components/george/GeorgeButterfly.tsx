@@ -8,6 +8,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { GeorgeEventCreation } from './GeorgeEventCreation';
@@ -476,6 +477,11 @@ export function GeorgeButterfly() {
             // subsequent tap opens event creation rather than
             // re-opening onboarding.
             georgeApi.presence().then(setPresence).catch(() => {});
+            // TestFlight round-3 v3 (Garry, 29 July 2026 #14): the
+            // onboarding closing CTA is now "☕ Head to FP Café" —
+            // route the member straight there as their first
+            // destination.
+            try { router.push('/(tabs)/lounge'); } catch { /* noop */ }
           }}
           onFinishLater={() => setShowChat(false)}
         />
