@@ -2,7 +2,7 @@
   "expo": {
     "name": "FriendPlace",
     "slug": "friendplace",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "friendplace",
@@ -55,7 +55,7 @@
     },
     "android": {
       "package": "com.youbelong.community",
-      "versionCode": 117,
+      "versionCode": 118,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0A2540"

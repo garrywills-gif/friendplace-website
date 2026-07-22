@@ -85,6 +85,17 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const { prefs } = useTheme();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<LocalTurn[]>([]);
+  // TestFlight round-2 v2 (Garry, 28 July 2026) safety net: ensure
+  // the post-approval scrollback is NEVER empty. If for any reason
+  // turns becomes empty while postApproval is true, restore from the
+  // preserved history ref. This guards against any accidental state
+  // reset triggered by re-renders or hydration races.
+  useEffect(() => {
+    if (postApproval && turns.length === 0 && preApprovalHistoryRef.current.length > 0) {
+      setTurns([...preApprovalHistoryRef.current]);
+    }
+  }, [postApproval, turns.length]);
+
   // Mirror `turns` in a ref so callbacks that fire during async flows
   // (approve, sendText response) can read the latest snapshot without
   // needing to be re-created on every turn change.
@@ -783,29 +794,19 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
         <Text style={styles.headerName}>{personaName}</Text>
-        {isEventMode ? (
-          <>
-            <Pressable onPress={dontSave} hitSlop={8}>
-              <Text style={styles.headerAction}>Don&rsquo;t save</Text>
-            </Pressable>
-            <Pressable onPress={saveForLater} hitSlop={8}>
-              <Text style={styles.headerActionPrimary}>Save for later</Text>
-            </Pressable>
-          </>
-        ) : (
-          // General companion chat: no event-specific labels. The
-          // conversation is kept sticky via GeorgeProvider (Slice 3),
-          // so "Close" just dismisses the modal without discarding.
-          // "Reset" gives the member a clean-slate option if they want.
-          <>
-            <Pressable onPress={dontSave} hitSlop={8}>
-              <Text style={styles.headerAction}>Reset</Text>
-            </Pressable>
-            <Pressable onPress={onLeave} hitSlop={8}>
-              <Text style={styles.headerActionPrimary}>Close</Text>
-            </Pressable>
-          </>
-        )}
+        {/* TestFlight round-2 v2 (Garry, 28 July 2026 #5): the two
+            header actions are ALWAYS "Save for later" and "Clear
+            chat" — never "Reset" or "Don't save". Semantics:
+            - Save for later: pauses the session on the server so the
+              conversation can be resumed later, then closes the modal.
+            - Clear chat: irreversibly forgets the current thread and
+              starts fresh next time (still closes the modal). */}
+        <Pressable onPress={saveForLater} hitSlop={8}>
+          <Text style={styles.headerAction}>Save for later</Text>
+        </Pressable>
+        <Pressable onPress={dontSave} hitSlop={8}>
+          <Text style={styles.headerActionPrimary}>Clear chat</Text>
+        </Pressable>
       </View>
 
       <ScrollView

@@ -7,7 +7,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { georgeApi } from '@/src/lib/george-api';
-import SpeakButton from '@/src/components/SpeakButton';
+import GeorgeSpeakButton from '@/src/components/george/GeorgeSpeakButton';
 import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 import { useTheme } from '@/src/lib/theme';
 import * as Speech from 'expo-speech';
@@ -113,23 +113,27 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     setBusy(true);
     try {
       const s = await georgeApi.onboardingTurn(sessionId, t);
-      // TestFlight round-2 (Garry, 28 July 2026 addendum): the profile
-      // summary card felt like George was analysing / profiling the
-      // member. We now retire it entirely and let George simply
-      // thank the member for what they've shared. If the backend just
-      // transitioned to 'drafted' status, append a warm thank-you
-      // turn so members see it in-chat before the two action buttons.
-      const returnedTurns = s.turns || [];
+      // TestFlight round-2 (Garry, 28 July 2026) v2: profile summary
+      // card retired. We now unconditionally REPLACE the closing
+      // George turn on the drafted transition so the wording is
+      // exact regardless of what the LLM produced.
+      const returnedTurns: any[] = s.turns || [];
       const nextStatus = s.status || 'in_progress';
       if (nextStatus === 'drafted' && status !== 'drafted') {
         const firstName = (returnedTurns.find((tt: any) => tt.role === 'user')?.content?.split(/\s+/)[0]) || null;
         const thankYou = firstName
-          ? `That's really helpful${firstName ? ', ' + firstName : ''}. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know — I'm always learning.`
-          : `That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know — I'm always learning.`;
-        // Only add if the backend didn't already provide a similar closing turn.
-        const lastGeorge = [...returnedTurns].reverse().find((tt: any) => tt.role === 'george');
-        const already = lastGeorge?.content && /lovely picture|thank you.*learning|I'll remember|got a picture/i.test(lastGeorge.content);
-        if (!already) {
+          ? `That's really helpful, ${firstName}. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.`
+          : `That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.`;
+        // Find the last George turn and replace it. If none exists, append.
+        let replaced = false;
+        for (let i = returnedTurns.length - 1; i >= 0; i--) {
+          if (returnedTurns[i]?.role === 'george') {
+            returnedTurns[i] = { ...returnedTurns[i], content: thankYou };
+            replaced = true;
+            break;
+          }
+        }
+        if (!replaced) {
           returnedTurns.push({ role: 'george', content: thankYou } as any);
         }
       }
@@ -203,7 +207,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
                   can't be reached. */}
               {t.role === 'george' && t.content?.trim() ? (
                 <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                  <SpeakButton text={t.content} color="#0F766E" size={18} />
+                  <GeorgeSpeakButton text={t.content} color="#0F766E" size={18} />
                 </View>
               ) : null}
             </View>

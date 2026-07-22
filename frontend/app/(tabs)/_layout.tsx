@@ -150,12 +150,14 @@ export default function TabsLayout() {
         },
       })}
     >
-      {/* Tab order: Home · Chats · Lounge · Friends · Profile — Chats sits
-          right after Home so it's within thumb reach and mirrors the
-          messaging-first mental model users have from iMessage/WhatsApp. */}
+      {/* Tab order: Home · Chats · FP Café · Friends · Profile — Chats sits
+       *  right after Home so it's within thumb reach and mirrors the
+       *  messaging-first mental model users have from iMessage/WhatsApp.
+       *  TestFlight round-2 v2 (Garry, 28 July 2026 #7): tab title
+       *  renamed "Lounge" → "FP Café" so it matches the screen. */}
       <Tabs.Screen name="home" options={{ title: "Home" }} />
       <Tabs.Screen name="chats" options={{ title: "Chats" }} />
-      <Tabs.Screen name="lounge" options={{ title: "Lounge" }} />
+      <Tabs.Screen name="lounge" options={{ title: "FP Café" }} />
       <Tabs.Screen name="friends" options={{ title: "Friends" }} />
       <Tabs.Screen name="profile" options={{ title: "Profile" }} />
     </Tabs>

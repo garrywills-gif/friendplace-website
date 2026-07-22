@@ -105,6 +105,13 @@ export default function DM() {
           }}
         />
         <View style={[styles.composer, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          {/* Mic goes to the RIGHT of the input to match tables, groups
+              and recipes. TestFlight round-2 v2 (Garry, 28 July 2026
+              #11): private chats had the mic on the left — flipped
+              here for cross-surface consistency. */}
+          <TextInput
+            testID="dm-input" value={text} onChangeText={setText} placeholder="Type a message…" placeholderTextColor={c.muted}
+            style={{ flex: 1, color: c.onSurface, fontSize: 17 * scale, paddingVertical: 10, paddingHorizontal: 12 }} multiline />
           {prefs.voiceInputEnabled && (
             <VoiceInputButton
               testID="dm-mic"
@@ -115,9 +122,6 @@ export default function DM() {
               size={40}
             />
           )}
-          <TextInput
-            testID="dm-input" value={text} onChangeText={setText} placeholder="Type a message…" placeholderTextColor={c.muted}
-            style={{ flex: 1, color: c.onSurface, fontSize: 17 * scale, paddingVertical: 10, paddingHorizontal: 12 }} multiline />
           <Pressable testID="dm-send" onPress={send} style={[styles.sendBtn, { backgroundColor: c.brand }]}><Ionicons name="send" size={20} color="#FFF" /></Pressable>
         </View>
       </KeyboardAvoidingView>
