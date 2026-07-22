@@ -38,6 +38,6 @@
   "seed_data_creation": "None. Tests use frankie + maggie demo accounts; sudoku_progress, game_completions, and achievements for frankie are wiped before/after every stateful test by the cleanup_user_state fixture. Friends list is restored after the friend-flutter test.",
   "retest_needed": false,
   "should_main_agent_self_test": false,
-  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_sudoku.py -v. Uses EXPO_PUBLIC_BACKEND_URL from frontend/.env (https://belong-together.preview.emergentagent.com). Cleanup fixture only wipes frankie's sudoku/game_completion/achievement rows for the 4 keys ['hard','nightmare','daily_challenge','first_game'] — no other state is touched. The friend-flutter test temporarily adds maggie to frankie.friends and restores it in `finally`. /games/dailies does NOT yet include 'sudoku' — that's an open follow-up for the main agent, not a regression.",
+  "context_for_next_testing_agent": "Run: pytest /app/backend/tests/test_sudoku.py -v. Uses EXPO_PUBLIC_BACKEND_URL from frontend/.env (https://friendplace-v1.preview.emergentagent.com). Cleanup fixture only wipes frankie's sudoku/game_completion/achievement rows for the 4 keys ['hard','nightmare','daily_challenge','first_game'] — no other state is touched. The friend-flutter test temporarily adds maggie to frankie.friends and restores it in `finally`. /games/dailies does NOT yet include 'sudoku' — that's an open follow-up for the main agent, not a regression.",
   "rca_of_issue": "n/a — no bugs found."
 }

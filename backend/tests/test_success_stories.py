@@ -21,7 +21,7 @@ sys.path.insert(0, "/app/backend")
 from motor.motor_asyncio import AsyncIOMotorClient  # noqa: E402
 import cms_module  # noqa: E402
 
-BASE_URL = "https://belong-together.preview.emergentagent.com".rstrip("/")
+BASE_URL = "https://friendplace-v1.preview.emergentagent.com".rstrip("/")
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "test_database")
 

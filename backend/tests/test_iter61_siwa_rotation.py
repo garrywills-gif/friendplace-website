@@ -43,7 +43,7 @@ if BACKEND_DIR not in sys.path:
 
 BASE_URL = (
     os.environ.get("EXPO_PUBLIC_BACKEND_URL")
-    or "https://belong-together.preview.emergentagent.com"
+    or "https://friendplace-v1.preview.emergentagent.com"
 ).rstrip("/")
 
 APPLE_URL = f"{BASE_URL}/api/auth/apple"

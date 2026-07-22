@@ -6,7 +6,7 @@ import pytest
 import requests
 from PIL import Image
 
-BASE_URL = (os.environ.get("EXPO_PUBLIC_BACKEND_URL") or "https://belong-together.preview.emergentagent.com").rstrip("/")
+BASE_URL = (os.environ.get("EXPO_PUBLIC_BACKEND_URL") or "https://friendplace-v1.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 

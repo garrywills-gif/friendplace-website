@@ -37,7 +37,7 @@
   "seed_data_creation": "None. Used the pre-existing 'maggie' demo account via the 'Try a demo account' pill.",
   "retest_needed": false,
   "should_main_agent_self_test": true,
-  "context_for_next_testing_agent": "Web preview served at https://belong-together.preview.emergentagent.com. Auth token/user are stored under localStorage keys yb_user / yb_token (AsyncStorage web adapter). To simulate a signed-out visitor from Playwright, use page.add_init_script to clear localStorage BEFORE navigation, plus page.context.clear_cookies(). Do NOT do the clear on about:blank — the origin won't match. The /home route has no anonymous-user guard, so a bare 'Friend 🦋' greeting there does NOT prove a user is logged in; use the presence/absence of the yb_token localStorage key instead.",
+  "context_for_next_testing_agent": "Web preview served at https://friendplace-v1.preview.emergentagent.com. Auth token/user are stored under localStorage keys yb_user / yb_token (AsyncStorage web adapter). To simulate a signed-out visitor from Playwright, use page.add_init_script to clear localStorage BEFORE navigation, plus page.context.clear_cookies(). Do NOT do the clear on about:blank — the origin won't match. The /home route has no anonymous-user guard, so a bare 'Friend 🦋' greeting there does NOT prove a user is logged in; use the presence/absence of the yb_token localStorage key instead.",
   "rca_of_issue": {
     "symptom": "Product owner: 'Still no apple sign in button' on /auth/login.",
     "actual_defect": "The Apple button code on /auth/login was correct and shouldShowAppleButton() returns true on web. The button was never rendered because the /auth/login screen itself was never reachable — a broken useEffect immediately redirected the user to /home on mount.",

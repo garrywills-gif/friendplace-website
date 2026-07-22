@@ -32,7 +32,7 @@
     "backend": "100% (19/19)",
     "frontend": "100% of in-scope flows verified"
   },
-  "seed_data_creation": "One dm notification doc inserted directly into MongoDB (db.notifications) for user_id=7452ce79-7027-4a94-9669-0ee3a521a5ec (Margaret) with id=eec18479-da5a-449a-bc39-36304f8c56c7 so the dm-chat/dm-dismiss buttons could be UI-verified. Also one TEST_ANZAC recipe + its comments + likes were created and then DELETEd within the pytest run, leaving no residue. Frank's admin flag was toggled True→False during the safety-rails test and ended back as False (Frank is not an admin).",
+  "seed_data_creation": "One dm notification doc inserted directly into MongoDB (db.notifications) for user_id=friendplace-v1 (Margaret) with id=friendplace-v1 so the dm-chat/dm-dismiss buttons could be UI-verified. Also one TEST_ANZAC recipe + its comments + likes were created and then DELETEd within the pytest run, leaving no residue. Frank's admin flag was toggled True→False during the safety-rails test and ended back as False (Frank is not an admin).",
   "retest_needed": false,
   "should_main_agent_self_test": false,
   "context_for_next_testing_agent": "All iteration_18 features pass on mobile viewport 390x844. The DM notification UI is fully gated on `item.type === 'dm'`; if you need to test, seed via direct Mongo insert OR send a real WS message (backend POST /dm/start; the WS at /api/ws/dm/{conv_id} actually creates the 'dm' notification — there is no REST POST for DM messages). Spot/play requires both theme AND difficulty query params or you'll see a 400. Events month-pill testIDs are `month-pill-all` and `month-pill-<YYYY-MM>` (not aliased). /admin/promote search testID is `promote-search`. Recipes endpoints under /api/recipes are all working.",

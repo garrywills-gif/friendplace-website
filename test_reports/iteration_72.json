@@ -28,7 +28,7 @@
   "action_items": [
     "OPTIONAL cleanup: silence the shorthand-vs-non-shorthand React warning in GeorgeButterfly.tsx by avoiding the {top:32,right:-80} → {top:'auto', bottom:24, right:24} spread on the same element (either two separate wrappers, or animate purely via the fp-arrive-* keyframes so the anchor never rewrites top/right).",
     "OPTIONAL: make /api/mcgs/george/introduced write george_first_met_at with $setOnInsert semantics so a second call doesn't overwrite the true first-met timestamp.",
-    "OPTIONAL: the stale unfinished session (session_id=a23b90c8-882f-4939-99d0-afd11b55e414, title:null) is masking the rotating time-of-day greeting on returning logins. Either give it a title, mark it abandoned, or delete it in test data — this would let human testers observe the 'Morning/Evening, Garry…' rotations documented in the spec."
+    "OPTIONAL: the stale unfinished session (session_id=friendplace-v1, title:null) is masking the rotating time-of-day greeting on returning logins. Either give it a title, mark it abandoned, or delete it in test data — this would let human testers observe the 'Morning/Evening, Garry…' rotations documented in the spec."
   ],
   "critical_code_review_comments": [
     "GeorgeButterfly.tsx line 245: onTap is now correctly wired for both 'landed' and 'resting' phases — matches the fix note from iteration_71. Also correctly calls markIntroductionDone() when tap occurs mid-intro (line 220), and clears the bubble timer before opening the chat (line 216). Clean fix.",

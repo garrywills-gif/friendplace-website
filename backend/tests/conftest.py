@@ -14,5 +14,5 @@ if str(BACKEND_DIR) not in sys.path:
 
 os.environ.setdefault(
     "EXPO_PUBLIC_BACKEND_URL",
-    "https://belong-together.preview.emergentagent.com",
+    "https://friendplace-v1.preview.emergentagent.com",
 )

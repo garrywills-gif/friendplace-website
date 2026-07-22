@@ -1,0 +1,146 @@
+<analysis>**original_problem_statement**: Continue Apple Sign-In configuration for the new Bundle ID. Build Web Portal (Next.js 14 marketing website) and an associated Mini-CMS so the user can manage site content. PRODUCT REQUIREMENTS: Launch a responsive marketing website sharing the same FastAPI/MongoDB backend as the mobile app. Integrate a dedicated Chats tab in the mobile app. Implement MCGS (Mission Control George System) to act as an AI Chief of Staff. Add Milestone C1 (George Lives in FriendPlace) and Voice interactions (Speech-to-Text & Text-to-Speech). 
+
+**User's preferred language**: English (INSTRUCT next agent to respond in English only)
+
+**what currently exists?** 
+A full-stack React Native (Expo) mobile application and a Next.js 14 Mini-CMS portal sharing a FastAPI/MongoDB backend. The app features George, an AI Chief of Staff with STT (OpenAI Whisper) and TTS capabilities. The application is strictly in a **Feature Freeze** and is undergoing heavy physical-device QA testing via TestFlight for its V1 launch.
+
+**Last working item**:
+    - Last item agent was working: Awaiting user's physical TestFlight QA results for Build 119. The user is actively testing previous fixes for Bug 14 (Onboarding routing), Bug 15 (George TTS consistency), and Bug 16 (STT failing in non-George chats).
+    - Status: USER VERIFICATION PENDING
+    - Agent Testing Done: Y (Structural and backend contract testing was completed in a prior session, but native iOS capabilities cannot be tested by the ).
+    - Which testing method agent to use? NA (Native audio/microphone capabilities require user physical device testing via TestFlight).
+    - User Testing Done: N (User is currently running Build 119 tests on TestFlight and will report back).
+
+**All Pending/In progress Issue list**:  
+  - Issue 1: Speech-to-Text (STT) fails outside of the dedicated George Chat (Bug 16) (P0)
+     - Attempted fixes: iOS audio session configuration in  was tightened and fallbacks were added to prevent raw JSON error displays.
+     - Next debug checklist: Await user TestFlight QA. If STT still fails on the physical device, investigate polling  for ~500ms post-record() or implement a minimum-duration buffer guard before upload in  and .
+     - Why fix this issue and what will be achieved with the fix? Ensures users can use voice typing in FP Café and Private Chats natively.
+     - Status: USER VERIFICATION PENDING
+     - Is recurring issue? Y (User has reported this multiple times; previous fixes only worked structurally in Expo Go but failed on physical TestFlight hardware).
+     - Should Test frontend/backend/both after fix? Both (Requires native iOS build).
+     - Blocked on other issue: None.
+
+  - Issue 2: George's Voice (TTS) inconsistency across the app (Bug 15) (P1)
+     - Attempted fixes: Replaced standard  with  across home screen, DM chats, and Remembers Banner to enforce cloud TTS instead of the default Apple robotic device voice.
+     - Next debug checklist: Wait for user confirmation from physical device. 
+     - Why fix this issue and what will be achieved with the fix? Maintains consistent personality for the AI companion.
+     - Status: USER VERIFICATION PENDING
+     - Is recurring issue? Y
+     - Should Test frontend/backend/both after fix? Both (Requires native iOS build).
+     - Blocked on other issue: None.
+
+  - Issue 3: Onboarding ending feels unfinished (Bug 14) (P1)
+     - Attempted fixes: Added a new Head to FP Café button that navigates directly to the lounge, removing redundant confirmation buttons.
+     - Next debug checklist: 
+     - Why fix this issue and what will be achieved with the fix? Smooths the first-time user experience.
+     - Status: USER VERIFICATION PENDING
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Frontend.
+     - Blocked on other issue: None.
+
+**In progress Task List**:
+*(None. The app is in strict Feature Freeze for TestFlight.)*
+
+**Upcoming and Future Tasks**
+*(Note: All future tasks have been deferred to . DO NOT start these until the TestFlight deployment is completely stable and the user explicitly requests them).*
+  - Task 1: Rotating welcome backgrounds from CMS media library (P2)
+  - Task 2: Mission Control expansion (Partnerships, Analytics, Settings, Maintenance mode) (P2)
+  - Task 3: Mission Control dashboard round 2 (Quick Actions, Status panel, Activity feed, Widgets) (P3)
+  - Task 4: Events Module Session B remaining (Public , RSVP UX, auto-cancel emails) (P3)
+  - Task 5: Push notifications using Emergent-managed integration (P3)
+  - Task 6: Native TTS cache LRU pruning for device storage (P4)
+  - Task 7: Refactor  +  into domain routers (P4)
+
+**Completed work in this session**
+- Agent acknowledged user's intent to test Build 119 on TestFlight and prepared a standby state to wait for feedback. (Code changes were completed in the previous fork).
+
+**Earlier issues found/mentioned but not fixed**
+- None
+
+**Known issue recurrence from previous fork**
+  - Issue recurrence in previous fork: STT (Bug 16) fails on physical hardware despite structural/testing_agent passes.
+  - Recurrence count: 1
+  - Status: USER VERIFICATION PENDING
+
+**Code Architecture**
+- : Core FastAPI backend.
+- : API router for MCGS & George endpoints.
+- : AI specific flows (edit flow, creation, remembering, voice transcribe).
+- : React Native Expo app.
+- : Next.js CMS/Portal.
+
+**Key Technical Concepts**
+React Native (Expo), FastAPI, Next.js 14, MongoDB. LLM Tool Usage, SSE (Server-Sent Events), , . Apple Sign-In configuration, TestFlight/App Store Connect metadata.
+
+**key DB schema**
+  - : Tracks active chat state and SSE streams.
+  - : Audit trail for event changes.
+  - : Inbox and scheduled delivery queue for messages.
+
+**changes in tech stack**
+  - None.
+
+**All files of reference**
+-  (Contains recent iOS audio session setups for STT)
+-  (Created to unify Cloud TTS playback)
+-  (Updated onboarding completion UI)
+-  (End-to-End manual testing checklist)
+-  (Notes from testing iterations)
+
+**Areas that need refactoring**:
+-  and  are heavily bloated and require domain-specific router extraction.
+- Native device TTS cache () needs LRU cleanup logic.
+
+**key api endpoints**
+-  (Failing sporadically on physical hardware)
+-  (TTS generator)
+- 
+
+**Critical Info for New Agent**
+- **FEATURE FREEZE**: The app is strictly in bug-fix mode for TestFlight deployment. DO NOT initiate new feature development.
+- **WAITING FOR USER**: Do NOT modify code yet. The agent's next action should be to ask the user for the results of their TestFlight testing for Build 119.
+- **NATIVE AUDIO LIMITATIONS**: The  **cannot** test native  interactions or actual microphone capture. Rely strictly on the user's physical TestFlight hardware results for issues #14, #15, and #16. 
+
+**documents and test reports created in this job**
+  -  (From previous fork)
+  - 
+  - 
+  - 
+
+**Last 10 User Messages and any pending HUMAN messages** 
+ - *User*: Provided handoff context, highlighting Feature Freeze and the need to test Bugs 14, 15, and 16. (Completed)
+ - *User*: Asked agent to use  tool to confirm plan. (Completed)
+ - *User*: Stated they will test Build 119 on TestFlight right now and report back with results specifically checking onboarding flow, TTS consistency, and STT in non-George chats. (User Feedback Pending)
+
+**Project Health Check:**
+Healthy. Nearing final stability for V1 TestFlight release.
+
+**3rd Party Integrations**
+  - Claude Sonnet/Haiku — uses Emergent LLM Key
+  - OpenAI Whisper (STT) — uses Emergent LLM Key
+  - OpenAI TTS (Audio) — uses Emergent LLM Key
+  - Apple Sign-In (Authentication) — uses Native App capabilities + Developer Portal config.
+
+**Testing status**
+  - Testing agent used after significant changes: NO (Code changes weren't made in this brief handoff session).
+  - Troubleshoot agent used after agent stuck in loop: NO
+  - Test files created: None
+  - Known regressions: None currently (Awaiting physical device check for STT/TTS).
+
+**Credentials to test flow:**
+Preview Environment Seed:  / 
+(Note: Only works locally/preview; production TestFlight builds require actual Apple Sign In).
+
+**What agent forgot to execute**
+Nothing. The agent correctly stopped to allow the user to complete physical device testing for native components.
+
+**Debugging checklist for current issue**
+    Issue: Wait for user's report on STT/TTS/Onboarding. If STT (Speech-to-Text) still fails on iOS physical devices in non-George chats:
+    Frontend files to check: 
+    -  (Check if  recording parameters need explicit buffer wait times or polling before upload).
+    - 
+  
+    Backend files to check:
+    -  (Verify it handles empty audio chunks gracefully without raw 500s).</analysis>
