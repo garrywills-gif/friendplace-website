@@ -53,7 +53,18 @@ export default function Friends() {
       }
       const list = await api.listUsers(params);
       setUsers((list as any[]).filter((u) => u.id !== user?.id));
-    } catch { show("Failed to load"); }
+    } catch (e: any) {
+      // TestFlight round-2 (Garry, 28 July 2026 polish): a transient
+      // 401 during hydrate would show a red "Failed to load" toast to
+      // members who simply had no friends yet — misleading. Only
+      // surface a real network error; swallow the 401 quietly since
+      // useFocusEffect will re-try once the token is set.
+      const status = (e?.status ?? e?.response?.status);
+      const isAuth = status === 401 || status === 403;
+      if (!isAuth) show("Failed to load");
+      // Ensure the list falls back to an empty state cleanly.
+      setUsers([]);
+    }
   };
   useFocusEffect(useCallback(() => { load(); }, [q, user?.id, nearMe?.lat, nearMe?.lng, radius]));
 
