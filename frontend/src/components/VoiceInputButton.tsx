@@ -54,6 +54,7 @@ import {
   Animated,
   Easing,
   ActivityIndicator,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -227,6 +228,9 @@ export default function VoiceInputButton({
       // container before we grab the URI.
       await new Promise((r) => setTimeout(r, 250));
       audioUri = recorder.uri;
+      // Release the audio session so other sounds (TTS, ringers) can
+      // resume — mirrors what `useGeorgeVoiceInput` does.
+      try { await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); } catch { /* noop */ }
     } catch (e: any) {
       onError?.("Sorry, I couldn't hear anything. Please try again.");
       if (__DEV__) console.warn('[VoiceInputButton] recorder.stop failed:', e);
@@ -238,38 +242,60 @@ export default function VoiceInputButton({
       setState("idle");
       return;
     }
+    // TestFlight round-5 (Garry, Feb 2026 #16): if the user tapped stop
+    // almost immediately (< 1s) the recording is essentially empty and
+    // Whisper will 4xx. Bail out silently rather than showing a scary
+    // banner — matches the proven `useGeorgeVoiceInput` behaviour.
+    if (elapsed < 1) {
+      setState("idle");
+      setElapsed(0);
+      return;
+    }
     setState("transcribing");
     try {
       const url = `${BACKEND_URL}/api/voice/transcribe${
         userId ? `?user_id=${encodeURIComponent(userId)}&language=en` : "?language=en"
       }`;
       const form = new FormData();
-      // Cross-platform file upload: on web, React Native's shortcut
-      // `{ uri, name, type }` FormData object gets stringified to
-      // "[object Object]" (backend then rejects with a 422 "expected
-      // UploadFile, received str"). On iOS/Android the shortcut works
-      // but so does the Blob path. Fetching the local file:// URI and
-      // appending the resulting Blob is the ONE approach that works on
-      // every runtime we ship on — web preview, Expo Go, native dev
-      // build, and TestFlight — so we use it unconditionally.
-      const audioResp = await fetch(audioUri);
-      const audioBlob = await audioResp.blob();
-      // Round-3 (#16): guard against empty payloads — surfaces a
-      // friendly message rather than the raw backend error text.
-      if (!audioBlob || audioBlob.size < 500) {
-        if (__DEV__) console.warn('[VoiceInputButton] empty/short blob:', audioBlob?.size);
-        onError?.("Sorry, I couldn't hear anything. Please try again.");
-        setState("idle");
-        setElapsed(0);
-        return;
+
+      // TestFlight round-5 (Garry, Feb 2026 #16): the previous
+      // `fetch(audioUri).blob()` approach produced empty/corrupt blobs
+      // on physical iOS devices — RN's file:// blob fetching is
+      // unreliable in TestFlight builds even though it works in Expo
+      // Go. The George chat has always used the native file-object
+      // FormData shortcut and it's rock-solid on hardware, so we align
+      // both paths here.
+      if (Platform.OS === "web") {
+        // On web, RN's file-object shortcut serialises to "[object
+        // Object]" so we still need the blob path. Web fetch of a
+        // blob: URL is reliable.
+        const audioResp = await fetch(audioUri);
+        const audioBlob = await audioResp.blob();
+        if (!audioBlob || audioBlob.size < 500) {
+          if (__DEV__) console.warn('[VoiceInputButton] empty/short blob:', audioBlob?.size);
+          onError?.("Sorry, I couldn't hear anything. Please try again.");
+          setState("idle");
+          setElapsed(0);
+          return;
+        }
+        const typedBlob =
+          audioBlob.type && audioBlob.type !== ""
+            ? audioBlob
+            : new Blob([audioBlob], { type: "audio/m4a" });
+        form.append("audio", typedBlob, "voice.m4a");
+      } else {
+        // Native (iOS / Android): pass the file object directly. RN's
+        // FormData stream implementation reads the file from disk and
+        // uploads it as a proper multipart part. This is exactly what
+        // `georgeApi.transcribe` does — and that path is verified
+        // working on TestFlight hardware.
+        form.append("audio", {
+          uri: audioUri,
+          name: "voice.m4a",
+          type: "audio/m4a",
+        } as unknown as Blob);
       }
-      // Some Safari versions strip the type from a file:// blob — fill
-      // it in explicitly so multipart correctly labels the payload.
-      const typedBlob =
-        audioBlob.type && audioBlob.type !== ""
-          ? audioBlob
-          : new Blob([audioBlob], { type: "audio/m4a" });
-      form.append("audio", typedBlob, "voice.m4a");
+
       const resp = await fetch(url, { method: "POST", body: form });
       if (!resp.ok) {
         const errBody = await resp.text().catch(() => "");
@@ -310,7 +336,7 @@ export default function VoiceInputButton({
       setState("idle");
       setElapsed(0);
     }
-  }, [recorder, userId, value, onChangeText, appendMode, onError]);
+  }, [recorder, userId, value, onChangeText, appendMode, onError, elapsed]);
 
   // ─── Rendering ───────────────────────────────────────────────────────
   const isRecording = state === "recording";

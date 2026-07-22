@@ -312,6 +312,23 @@ export const georgeApi = {
   // by a hash of the text so repeated taps re-use the same file.
   speak: async (text: string, persona?: GeorgeVoice): Promise<string> => {
     const voice: GeorgeVoice = persona ?? (await getVoice()) ?? DEFAULT_VOICE;
+
+    // ── Disk cache check (native only) ────────────────────────────────
+    // Files are named by (voice + content-hash), so if the same text was
+    // spoken in this voice previously and is still on disk, we can skip
+    // the network + OpenAI TTS call entirely. Critical for cost after
+    // TestFlight round-5 (Garry, Feb 2026): SpeakButton is now cloud-
+    // backed on every screen (games, notices, DMs, events…) so caching
+    // is the difference between "acceptable" and "expensive".
+    const filename = `george-${voice}-${_shortHash(text)}.mp3`;
+    if (Platform.OS !== 'web') {
+      try {
+        const cached = new File(Paths.cache, filename);
+        // `.exists` is synchronous in expo-file-system's new File API.
+        if (cached.exists) return cached.uri;
+      } catch { /* fall through to network */ }
+    }
+
     const tok = await _token();
     const res = await fetch(`${BASE}/api/mcgs/george/speak`, {
       method: 'POST',
@@ -337,7 +354,6 @@ export const georgeApi = {
     // path natively without any blob-URI hacks.
     const buf = await res.arrayBuffer();
     const bytes = new Uint8Array(buf);
-    const filename = `george-${voice}-${_shortHash(text)}.mp3`;
     const file = new File(Paths.cache, filename);
     try { file.delete(); } catch { /* first-run: no prior file */ }
     file.create();

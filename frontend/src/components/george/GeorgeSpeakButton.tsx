@@ -17,12 +17,19 @@
  *     toast — silence is better than the wrong voice.
  */
 import React from 'react';
-import { Pressable, StyleSheet, Platform } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useToast } from '@/src/lib/toast';
 import { georgeApi } from '@/src/lib/george-api';
-import { subscribeVoice } from '@/src/lib/george-voice';
+import { subscribeVoice, getVoice, DEFAULT_VOICE } from '@/src/lib/george-voice';
 import { playAudioUri, type PlaybackController } from '@/src/lib/george-playback';
+import {
+  claimActiveSpeaker,
+  releaseActiveSpeaker,
+  getCachedUri,
+  setCachedUri,
+  clearUriCache,
+} from '@/src/lib/tts-shared';
 
 type Props = {
   text: string;
@@ -32,16 +39,10 @@ type Props = {
   testID?: string;
 };
 
-// Only one George speaker plays at a time (matches SpeakerButton
-// semantics inside the main chat modal).
-let _activeStop: null | (() => void) = null;
-function _claimActive(stop: () => void) {
-  if (_activeStop && _activeStop !== stop) _activeStop();
-  _activeStop = stop;
-}
-function _releaseActive(stop: () => void) {
-  if (_activeStop === stop) _activeStop = null;
-}
+// TestFlight round-5 (Feb 2026): active-speaker coordination is now
+// shared with `SpeakButton` via `tts-shared.ts` so tapping ANY speaker
+// in the app stops any other one currently playing. Prevents two
+// George voices overlapping.
 
 export default function GeorgeSpeakButton({
   text,
@@ -52,7 +53,6 @@ export default function GeorgeSpeakButton({
 }: Props) {
   const { show } = useToast();
   const [phase, setPhase] = React.useState<'idle' | 'loading' | 'playing'>('idle');
-  const cachedUriRef = React.useRef<string | null>(null);
   const activeCtrlRef = React.useRef<PlaybackController | null>(null);
 
   const stopRef = React.useRef<() => void>(() => {});
@@ -60,7 +60,7 @@ export default function GeorgeSpeakButton({
     try { activeCtrlRef.current?.stop(); } catch { /* noop */ }
     activeCtrlRef.current = null;
     setPhase('idle');
-    _releaseActive(stopRef.current);
+    releaseActiveSpeaker(stopRef.current);
   }, []);
   stopRef.current = stop;
 
@@ -68,12 +68,13 @@ export default function GeorgeSpeakButton({
     if (phase === 'playing') { stop(); return; }
     if (phase === 'loading') return;
     setPhase('loading');
-    _claimActive(stopRef.current);
+    claimActiveSpeaker(stopRef.current);
     try {
-      let uri = cachedUriRef.current;
+      const voice = (await getVoice()) ?? DEFAULT_VOICE;
+      let uri = getCachedUri(voice, text);
       if (!uri) {
         uri = await georgeApi.speak(text);
-        cachedUriRef.current = uri;
+        setCachedUri(voice, text, uri);
       }
       const ctrl = playAudioUri(uri);
       activeCtrlRef.current = ctrl;
@@ -82,7 +83,7 @@ export default function GeorgeSpeakButton({
         if (activeCtrlRef.current === ctrl) {
           activeCtrlRef.current = null;
           setPhase('idle');
-          _releaseActive(stopRef.current);
+          releaseActiveSpeaker(stopRef.current);
         }
       });
     } catch (e: any) {
@@ -91,28 +92,22 @@ export default function GeorgeSpeakButton({
         console.warn('[GeorgeSpeakButton] playback failed', e);
       }
       show('Could not play George\u2019s voice. Please try again.');
-      cachedUriRef.current = null;
       setPhase('idle');
-      _releaseActive(stopRef.current);
+      releaseActiveSpeaker(stopRef.current);
     }
   }, [text, phase, stop, show]);
 
   React.useEffect(() => () => {
     try { activeCtrlRef.current?.stop(); } catch { /* noop */ }
-    if (cachedUriRef.current && Platform.OS === 'web') {
-      try { URL.revokeObjectURL(cachedUriRef.current); } catch { /* noop */ }
-    }
-    _releaseActive(stopRef.current);
+    releaseActiveSpeaker(stopRef.current);
   }, []);
 
-  // Drop cache + stop on voice-preference change so the next tap
-  // fetches with the newly-selected voice.
+  // Drop the shared in-memory cache + stop on voice-preference change
+  // so the next tap fetches with the newly-selected voice. Disk cache
+  // remains keyed by (voice+hash) so it stays valid.
   React.useEffect(() => {
     const unsub = subscribeVoice(() => {
-      if (Platform.OS === 'web' && cachedUriRef.current) {
-        try { URL.revokeObjectURL(cachedUriRef.current); } catch { /* noop */ }
-      }
-      cachedUriRef.current = null;
+      clearUriCache();
       try { activeCtrlRef.current?.stop(); } catch { /* noop */ }
       activeCtrlRef.current = null;
       setPhase('idle');
