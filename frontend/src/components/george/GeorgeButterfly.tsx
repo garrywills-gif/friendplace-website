@@ -49,7 +49,7 @@ type Phase = 'idle' | 'arriving' | 'landed' | 'resting' | 'intro';
 
 export function GeorgeButterfly() {
   const insets = useSafeAreaInsets();
-  const { landedFrom, consumeLanded, currentScreen, openRequested } = useGeorge();
+  const { landedFrom, consumeLanded, currentScreen, openRequested, currentPathname } = useGeorge();
   const [phase, setPhase] = useState<Phase>('idle');
   const [, setPresence] = useState<Presence | null>(null);
   const [greeting, setGreeting] = useState<string | null>(null);
@@ -392,11 +392,19 @@ export function GeorgeButterfly() {
   // screens so there's only ONE George on screen at a time.
   //
   // We keep the overlay on the 5 root tab screens whose custom
-  // headers don't yet embed George: home, chats, friends, lounge,
-  // profile. When those get inline treatment later, we can drop
-  // this to a single-screen list.
+  // On some screens George LIVES inline in the header — the extra
+  // floating overlay would be a duplicate, so hide it there. The
+  // white-list stays on the primary tab screens where the header
+  // doesn't yet embed George: home, chats, friends, lounge, profile.
+  // TestFlight round-2 (Garry, 28 July 2026 #7): member profile
+  // pages (`/user/[id]`) render the floating George too because
+  // they alias to the `friends` screen key. That's confusing — the
+  // extra butterfly hovers above the profile hero and has no
+  // purpose there. Suppress the overlay whenever we're on a
+  // secondary user profile route.
   const FLOATING_OK: readonly string[] = ['home', 'chats', 'friends', 'lounge', 'profile'];
-  const showFloatingButterfly = FLOATING_OK.includes(currentScreen);
+  const isSecondaryUserRoute = typeof currentPathname === 'string' && /^\/user(\/|$)/.test(currentPathname);
+  const showFloatingButterfly = FLOATING_OK.includes(currentScreen) && !isSecondaryUserRoute;
 
   return (
     <>

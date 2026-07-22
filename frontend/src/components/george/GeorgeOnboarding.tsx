@@ -44,18 +44,6 @@ interface Props {
 type Turn = { role: 'user' | 'george'; content: string };
 type Field = { value: any; source: 'stated' | 'inferred' };
 
-// Member-language labels for the preview. NOT database field names.
-const FIELD_LABELS: Record<string, string> = {
-  preferred_name:    'What I should call you',
-  area:              'Your area',
-  interests:         'Things you enjoy',
-  life_stage:        "What's on for you at the moment",
-  availability:      'Times that may suit you',
-  wants_more_of:     "You'd like more",
-  connection_scope:  "You seem to prefer",
-  connection_styles: 'You may prefer',
-};
-
 export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   const insets = useSafeAreaInsets();
   const { voice } = useGeorgeVoice();
@@ -64,6 +52,11 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [status, setStatus] = useState<string>('in_progress');
+  // TestFlight round-2 (Garry, 28 July 2026): profile summary card
+  // retired. `known` is still populated from server responses so
+  // downstream systems (analytics, retries) see the same payload,
+  // but nothing renders it. Silence the unused-var warning.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [known, setKnown] = useState<Record<string, Field>>({});
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(true);
@@ -120,8 +113,28 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     setBusy(true);
     try {
       const s = await georgeApi.onboardingTurn(sessionId, t);
-      setTurns(s.turns || []);
-      setStatus(s.status || 'in_progress');
+      // TestFlight round-2 (Garry, 28 July 2026 addendum): the profile
+      // summary card felt like George was analysing / profiling the
+      // member. We now retire it entirely and let George simply
+      // thank the member for what they've shared. If the backend just
+      // transitioned to 'drafted' status, append a warm thank-you
+      // turn so members see it in-chat before the two action buttons.
+      const returnedTurns = s.turns || [];
+      const nextStatus = s.status || 'in_progress';
+      if (nextStatus === 'drafted' && status !== 'drafted') {
+        const firstName = (returnedTurns.find((tt: any) => tt.role === 'user')?.content?.split(/\s+/)[0]) || null;
+        const thankYou = firstName
+          ? `That's really helpful${firstName ? ', ' + firstName : ''}. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know — I'm always learning.`
+          : `That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know — I'm always learning.`;
+        // Only add if the backend didn't already provide a similar closing turn.
+        const lastGeorge = [...returnedTurns].reverse().find((tt: any) => tt.role === 'george');
+        const already = lastGeorge?.content && /lovely picture|thank you.*learning|I'll remember|got a picture/i.test(lastGeorge.content);
+        if (!already) {
+          returnedTurns.push({ role: 'george', content: thankYou } as any);
+        }
+      }
+      setTurns(returnedTurns);
+      setStatus(nextStatus);
       setKnown(s.known || {});
     } catch {
       setTurns(x => [...x, { role: 'george', content: "That didn't quite reach me \u2014 could you say that once more?" }]);
@@ -205,14 +218,11 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
           </View>
         )}
 
-        {showPreview && (
-          <View style={styles.previewCard}>
-            <Text style={styles.previewTitle}>Here&rsquo;s what I&rsquo;ve learned about you</Text>
-            {Object.entries(known).map(([k, v]) => (
-              <PreviewRow key={k} label={FIELD_LABELS[k] || k} field={v} />
-            ))}
-          </View>
-        )}
+        {/* TestFlight round-2 (Garry, 28 July 2026 addendum) — the
+            profile summary card ("Here's what I've learned about
+            you") was retired. George's own warm thank-you now
+            closes the conversation instead; the two action buttons
+            below let the member accept or make changes. */}
 
         <View style={{ height: 20 }} />
       </ScrollView>
@@ -292,6 +302,10 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   );
 }
 
+// PreviewRow — retired 28 July 2026 with the profile summary card.
+// Kept as a comment in git history via this stub to make future
+// re-introduction trivial.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function PreviewRow({ label, field }: { label: string; field: Field }) {
   const val = field?.value;
   const display = Array.isArray(val)

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
   ActivityIndicator, Animated, Easing, Platform, Linking,
@@ -84,6 +85,11 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const { prefs } = useTheme();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<LocalTurn[]>([]);
+  // Mirror `turns` in a ref so callbacks that fire during async flows
+  // (approve, sendText response) can read the latest snapshot without
+  // needing to be re-created on every turn change.
+  const turnsRef = useRef<LocalTurn[]>([]);
+  useEffect(() => { turnsRef.current = turns; }, [turns]);
   const [status, setStatus] = useState<EventSession['status']>('in_progress');
   const [draft, setDraft] = useState<EventDraft | null>(null);
   const [pendingSuggestion, setPendingSuggestion] = useState<EventSuggestion | null>(null);
@@ -250,13 +256,42 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   const [postApproval, setPostApproval] = useState<boolean>(false);
   const scrollRef = useRef<ScrollView | null>(null);
   const revealTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  // Track how many turns we've already auto-read so we speak each
-  // fresh George reply exactly once per modal open (never re-reads
-  // the whole history when revealApiTurns re-runs on boot / resume).
-  // TestFlight follow-up (Garry, 27 July): earlier content-hash dedup
-  // was flaky when two consecutive George turns shared a `at` field
-  // or an empty `content` prefix — a running count is deterministic.
+  // TestFlight round-2 (Garry, 28 July 2026 #4): "George reads the
+  // last message again when reopened." Cursor is now persisted per
+  // session_id in AsyncStorage so reopens skip already-spoken turns,
+  // and only fresh replies (turn count > persisted) get read aloud.
   const lastAutoReadCountRef = useRef<number>(0);
+  // TestFlight round-2 (Garry, 28 July 2026 #1): "George chat closes
+  // after final event confirmation." Root cause was the fresh session
+  // spawned after approval — when the user next sent a message, its
+  // response (with just the fresh opener + reply) REPLACED the local
+  // turns state, wiping the pre-approval history + inline
+  // celebration. We now retain the pre-approval turns here and
+  // prepend them to every subsequent revealApiTurns call so the
+  // scrollback stays whole.
+  const preApprovalHistoryRef = useRef<LocalTurn[]>([]);
+  const AUTO_READ_STORE_KEY = '@george.autoread.cursor.v1';
+  const persistAutoReadCursor = useCallback(async (sid: string | null, count: number) => {
+    if (!sid) return;
+    try {
+      const raw = await AsyncStorage.getItem(AUTO_READ_STORE_KEY);
+      const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+      map[sid] = count;
+      // Bound the map so it doesn't grow forever — keep the last 30.
+      const keys = Object.keys(map);
+      if (keys.length > 30) {
+        for (const k of keys.slice(0, keys.length - 30)) delete map[k];
+      }
+      await AsyncStorage.setItem(AUTO_READ_STORE_KEY, JSON.stringify(map));
+    } catch { /* non-fatal */ }
+  }, []);
+  const loadAutoReadCursor = useCallback(async (sid: string): Promise<number> => {
+    try {
+      const raw = await AsyncStorage.getItem(AUTO_READ_STORE_KEY);
+      const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+      return typeof map[sid] === 'number' ? map[sid] : 0;
+    } catch { return 0; }
+  }, []);
 
   // ---- Cleanup any pending reveal timers on unmount ---------------------
   useEffect(() => () => {
@@ -301,6 +336,13 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
         setDraft(s.draft || null);
         setPendingSuggestion(s.pending_suggestion || null);
         setSuggestionOffered(!!s.suggestion_offered);
+        // TestFlight round-2 #4 — load the persisted auto-read cursor
+        // so reopens don't re-speak the tail message. For a brand-new
+        // session (no persisted entry) the cursor starts at 0 and the
+        // opener will be read once, then persisted.
+        try {
+          lastAutoReadCountRef.current = await loadAutoReadCursor(s.session_id);
+        } catch { lastAutoReadCountRef.current = 0; }
         await revealApiTurns(s.turns || []);
 
         // B6 Session 3 — Consume any pending opener set by
@@ -329,7 +371,11 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     // Replace non-latest George turns synchronously; only stage-reveal the
     // latest George turn. This keeps history stable and only animates the
     // new part.
-    if (apiTurns.length === 0) { setTurns([]); return; }
+    if (apiTurns.length === 0) { setTurns([...preApprovalHistoryRef.current]); return; }
+    // TestFlight round-2 #1 — always prepend the pre-approval history
+    // (if any) so a post-approval fresh session's turns append to the
+    // previous conversation rather than replace it.
+    const history = preApprovalHistoryRef.current;
     const lastIdx = apiTurns.length - 1;
     const last = apiTurns[lastIdx];
     const priorLocal: LocalTurn[] = apiTurns.slice(0, lastIdx).map((t) => ({
@@ -338,7 +384,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     }));
     if (last.role === 'user') {
       // No animation for user turns coming from the server.
-      setTurns([...priorLocal, { ...last, revealAt: 0 }]);
+      setTurns([...history, ...priorLocal, { ...last, revealAt: 0 }]);
       // Advance the auto-read cursor so subsequent George replies stay
       // "fresh" — otherwise a user echo alone would skip the very next
       // George reply.
@@ -347,7 +393,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     }
 
     // Show prior turns + a "typing" placeholder for George.
-    setTurns(priorLocal);
+    setTurns([...history, ...priorLocal]);
     setTyping(true);
     await new Promise(r => {
       const t = setTimeout(r, BEAT.typingDots);
@@ -357,7 +403,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     // Reveal the George turn (excitement + working + warmth + message
     // all appear together — the individual "beats" between parts are
     // handled by Reanimated fade-in staggers inside the bubble itself).
-    setTurns([...priorLocal, { ...last, revealAt: Date.now() }]);
+    setTurns([...history, ...priorLocal, { ...last, revealAt: Date.now() }]);
 
     // TestFlight #6 follow-up (Garry, 27 July v2): auto-read fires
     // when the turn-count has advanced past our last-auto-read cursor.
@@ -368,6 +414,8 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       && apiTurns.length > lastAutoReadCountRef.current
     ) {
       lastAutoReadCountRef.current = apiTurns.length;
+      // Persist immediately so a modal reopen won't re-speak this turn.
+      void persistAutoReadCursor(sessionId, apiTurns.length);
       const text = (
         [last.excitement_line, last.working_line, last.warmth_line, last.content]
           .filter(Boolean) as string[]
@@ -381,13 +429,14 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       // advance the cursor so we don't re-read old turns on the next
       // reveal cycle.
       lastAutoReadCountRef.current = apiTurns.length;
+      void persistAutoReadCursor(sessionId, apiTurns.length);
     }
 
     await new Promise(r => {
       const t = setTimeout(r, BEAT.afterMessage);
       revealTimers.current.push(t);
     });
-  }, [prefs?.autoReadNewMessages]);
+  }, [prefs?.autoReadNewMessages, sessionId, persistAutoReadCursor]);
 
   // ---- Scroll -----------------------------------------------------------
   useEffect(() => {
@@ -408,6 +457,29 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       revealTimers.current.push(to);
     });
     try {
+      // TestFlight round-2 #1 — first message after event approval:
+      // lazy-spawn a fresh session using this text as the seed so we
+      // don't ping the backend with a redundant opener. The
+      // pre-approval history stays in place via
+      // preApprovalHistoryRef, which revealApiTurns prepends every
+      // call, so the celebration + prior chat remain visible.
+      if (postApproval) {
+        setPostApproval(false);
+        const fresh = await georgeApi.eventStart(t, currentScreen);
+        setSessionId(fresh.session_id);
+        setActiveSessionId(fresh.session_id);
+        setStatus(fresh.status || 'in_progress');
+        setDraft(fresh.draft || null);
+        setPendingSuggestion(fresh.pending_suggestion || null);
+        setSuggestionOffered(!!fresh.suggestion_offered);
+        // Persist a fresh cursor for the new session so its opener
+        // doesn't count against the auto-read dedup.
+        lastAutoReadCountRef.current = 0;
+        await gate;
+        setTyping(false);
+        await revealApiTurns(fresh.turns || []);
+        return;
+      }
       const [s] = await Promise.all([
         georgeApi.eventTurn(sessionId, t, currentScreen),
         gate,
@@ -428,7 +500,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     } finally {
       setBusy(false);
     }
-  }, [sessionId, busy, revealApiTurns, currentScreen]);
+  }, [sessionId, busy, revealApiTurns, currentScreen, postApproval, setActiveSessionId]);
 
   // ---- B6 Session 3 — Edit chip handlers -------------------------------
   // Confirm / Keep-as-is / Undo tap turns straight back into normal
@@ -486,7 +558,12 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     setApprovalError(null);
     try {
       const result = await georgeApi.eventApprove(sessionId);
-      // 1. Inline celebration turn (renders a warm card beneath the bubble)
+      // 1. Snapshot the current turns so they survive the fresh-session
+      //    boundary. The pre-approval conversation is the whole reason
+      //    the celebration exists — without this snapshot, the next
+      //    user message would wipe it.
+      const historyBefore: LocalTurn[] = [...turnsRef.current];
+      // 2. Inline celebration turn (renders a warm card beneath the bubble)
       const celebrationTitle = result?.target?.title || 'your get-together';
       const isPublished = result?.outcome === 'published';
       const celebrationText = isPublished
@@ -510,6 +587,10 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
         revealAt: Date.now() + 500,
       };
       setTurns(prev => [...prev, celebrationTurn, followUpTurn]);
+      // Snapshot AFTER appending celebration + follow-up so those turns
+      // are part of the retained history that survives the fresh-session
+      // switch below.
+      preApprovalHistoryRef.current = [...historyBefore, celebrationTurn, followUpTurn];
       // Auto-read the follow-up too if the pref is on so members
       // don't have to tap Speaker on the celebration turn.
       if (prefs?.autoReadNewMessages) {
@@ -523,20 +604,17 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       setPendingSuggestion(null);
       setSuggestionOffered(false);
       setApprovalError(null);
-      // 4. Silently spawn a fresh session for subsequent user turns.
-      // The old approved session remains server-side as an audit
-      // record, and its turns live in local state until the modal
-      // is dismissed. New user messages hit the fresh session so the
-      // backend never rejects them for being past-terminal.
-      try {
-        const fresh = await georgeApi.eventStart('', currentScreen);
-        setSessionId(fresh.session_id);
-        setActiveSessionId(fresh.session_id);
-      } catch {
-        // If the follow-up session fails to spawn, still let the
-        // user close the modal cleanly on the next tick.
-        clearActiveSession();
-      }
+      // 4. DO NOT spawn a fresh session synchronously — the members
+      // most common next action is to close the modal ("thank you"),
+      // and spawning a session they never use just noises up the
+      // backend history. Instead we mark `postApproval = true` and
+      // `sendText` will lazily spawn a fresh session the moment they
+      // type anything (using their first message as the seed so we
+      // skip George's redundant opener).
+      // (Previously we called `georgeApi.eventStart` here — that
+      // produced a duplicate George opener that clashed with the
+      // "Anything else I can help with?" follow-up and confused
+      // members. Locked with Garry, 28 July 2026 TestFlight #1.)
       // 5. Scroll to the celebration
       requestAnimationFrame(() => {
         scrollRef.current?.scrollToEnd({ animated: true });
@@ -546,7 +624,7 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     } finally {
       setApproving(false);
     }
-  }, [sessionId, approving, currentScreen, setActiveSessionId, clearActiveSession, prefs?.autoReadNewMessages]);
+  }, [sessionId, approving, prefs?.autoReadNewMessages]);
 
   const askForChanges = useCallback(() => {
     if (!sessionId || busy) return;

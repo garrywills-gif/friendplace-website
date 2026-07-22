@@ -410,8 +410,13 @@ export default function OnboardingWizard() {
 
       {/* Footer — Back / Skip / Continue. Skip is only shown on the
           interests step (opt-out is fine); all other steps are
-          quick-read and always want a Continue tap. */}
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 14), borderTopColor: c.border }]}>
+          quick-read and always want a Continue tap.
+          TestFlight round-2 (Garry, 28 July 2026 #3): "Take me to
+          FriendPlace" button was partially off the bottom of the
+          screen on some devices. We now bake in an extra 12pt of
+          breathing room ON TOP of the safe-area inset so no home
+          indicator or rounded corner clips the CTA. */}
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + 12, 24), borderTopColor: c.border }]}>
         {step > 0 ? (
           <Pressable
             testID="onb-back"

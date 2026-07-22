@@ -84,9 +84,16 @@ type Props = {
   testID?: string;
 };
 
+// TestFlight round-2 feedback (Garry, 28 July 2026): the previous
+// `(process.env as any).EXPO_PUBLIC_BACKEND_URL` reference prevented
+// Metro/Babel from statically inlining the value on native builds, so
+// physical devices ended up POSTing to a relative `/api/voice/...`
+// URL and native `fetch` rejected it as `Invalid URL`. Reference the
+// env vars WITHOUT the `as any` cast so Metro's transform can replace
+// them at bundle time.
 const BACKEND_URL: string =
-  (process.env as any).EXPO_PUBLIC_BACKEND_URL ||
-  (process.env as any).EXPO_BACKEND_URL ||
+  process.env.EXPO_PUBLIC_BACKEND_URL ||
+  process.env.EXPO_BACKEND_URL ||
   "";
 
 export default function VoiceInputButton({

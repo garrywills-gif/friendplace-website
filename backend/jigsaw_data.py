@@ -49,23 +49,15 @@ for _p in _CURATED:
 # stable image for a given seed. We tag each with a category and a numbered
 # title so the experience reads as a "rotating library" — 20 per category by
 # default which can be increased without code changes.
-_SLUG = {
-    "Nature": "nat", "Gardens": "gar", "Animals": "ani", "Australia": "aus",
-    "Travel": "trv", "Classic Cars": "car", "Coffee & Cafes": "caf", "Local Landmarks": "lan",
-}
-_PER_CATEGORY = 20
-
+# --- Endless library --------------------------------------------------------
+# Retired 28 July 2026 (TestFlight round-2 feedback, Garry #5): the
+# Picsum-seeded "endless library" categorised random photos under
+# specific category labels (e.g. "Classic Cars #6" would render as a
+# wheat field). The mismatch between title/category and image is
+# jarring, so we now ship curated-only. If we want more variety, we
+# can hand-pick more Unsplash sources per category — but never
+# label an image with a category it doesn't visually match.
 _GENERATED: List[Dict] = []
-for cat in CATEGORIES:
-    slug = _SLUG[cat]
-    for n in range(1, _PER_CATEGORY + 1):
-        seed = f"yb-{slug}-{n:03d}"
-        _GENERATED.append({
-            "category": cat,
-            "id": f"gen-{slug}-{n:03d}",
-            "title": f"{cat} #{n}",
-            "url": f"https://picsum.photos/seed/{seed}/1200/800",
-        })
 
 JIGSAW_CATALOGUE: List[Dict] = _CURATED + _GENERATED
 

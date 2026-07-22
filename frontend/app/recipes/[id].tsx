@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import VoiceInputButton from "@/src/components/VoiceInputButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
 
 type Comment = { id: string; user_id: string; user_name: string; user_avatar: string; body: string; created_at: string };
@@ -159,7 +160,7 @@ export default function RecipeView() {
           </View>
 
           {user && (
-            <View style={{ marginTop: 12, flexDirection: "row", gap: 8 }}>
+            <View style={{ marginTop: 12, gap: 8 }}>
               <TextInput
                 testID="recipe-comment-input"
                 value={text}
@@ -167,11 +168,25 @@ export default function RecipeView() {
                 placeholder="Leave a comment…"
                 placeholderTextColor={c.muted}
                 multiline
-                style={{ flex: 1, borderWidth: 1.5, borderRadius: 12, padding: 12, backgroundColor: c.surfaceSecondary, borderColor: c.border, color: c.onSurface, fontSize: 15 * scale, minHeight: 48 }}
+                style={{ borderWidth: 1.5, borderRadius: 12, padding: 12, backgroundColor: c.surfaceSecondary, borderColor: c.border, color: c.onSurface, fontSize: 15 * scale, minHeight: 48 }}
               />
-              <Pressable testID="recipe-comment-send" disabled={!text.trim() || posting} onPress={addComment} style={[styles.sendBtn, { backgroundColor: c.brand, opacity: !text.trim() || posting ? 0.5 : 1 }]}>
-                {posting ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="send" size={20} color="#FFF" />}
-              </Pressable>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                {/* TestFlight round-2 (Garry, 28 July 2026 #10):
+                    Recipe comments now offer voice-to-text, matching
+                    every other conversational surface. Speaker for the
+                    recipe body already lives in the header. */}
+                <VoiceInputButton
+                  testID="recipe-comment-voice"
+                  value={text}
+                  onChangeText={setText}
+                  userId={user?.id}
+                  onError={(msg) => show(msg)}
+                  size={40}
+                />
+                <Pressable testID="recipe-comment-send" disabled={!text.trim() || posting} onPress={addComment} style={[styles.sendBtn, { backgroundColor: c.brand, opacity: !text.trim() || posting ? 0.5 : 1 }]}>
+                  {posting ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="send" size={20} color="#FFF" />}
+                </Pressable>
+              </View>
             </View>
           )}
         </View>

@@ -9,6 +9,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
+import VoiceInputButton from "@/src/components/VoiceInputButton";
 
 export default function GroupDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -63,7 +64,21 @@ export default function GroupDetail() {
         ListHeaderComponent={(
           <View style={[styles.composer, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <TextInput testID="group-post-input" value={text} onChangeText={setText} multiline placeholder="Share an update with the group…" placeholderTextColor={c.muted} style={{ minHeight: 60, color: c.onSurface, fontSize: 16 * scale }} />
-            <Pressable testID="group-post-submit" onPress={post} style={[styles.postBtn, { backgroundColor: c.brand }]}><Text style={{ color: "#FFF", fontWeight: "800", fontSize: 15 * scale }}>Post</Text></Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
+              {/* TestFlight round-2 (Garry, 28 July 2026 #9): Community
+                  Groups now have the same voice-to-text mic that DMs
+                  and tables already offer. Same VoiceInputButton, same
+                  cloud transcription. */}
+              <VoiceInputButton
+                testID="group-post-voice"
+                value={text}
+                onChangeText={setText}
+                userId={user?.id}
+                onError={(msg) => show(msg)}
+                size={40}
+              />
+              <Pressable testID="group-post-submit" onPress={post} style={[styles.postBtn, { backgroundColor: c.brand }]}><Text style={{ color: "#FFF", fontWeight: "800", fontSize: 15 * scale }}>Post</Text></Pressable>
+            </View>
           </View>
         )}
         contentContainerStyle={{ padding: 16, gap: 12 }}
