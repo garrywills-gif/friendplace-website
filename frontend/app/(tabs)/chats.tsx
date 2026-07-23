@@ -530,6 +530,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   onlineDot: {
+    // Legacy — replaced by AvatarWithBadge (Presence & Status v2).
+    // Kept in the stylesheet only for reference in case a follow-up
+    // surface needs a pure "online" dot again. Not referenced by any
+    // <View> today. Safe to delete in Commit 3 cleanup pass.
     position: "absolute",
     right: -1,
     bottom: -1,

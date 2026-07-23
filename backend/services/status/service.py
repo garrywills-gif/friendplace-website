@@ -287,7 +287,7 @@ async def list_looking(
 
     users = await db.users.find(
         id_filter,
-        {"id": 1, "name": 1, "avatar_url": 1, "suburb": 1, "_id": 0},
+        {"id": 1, "name": 1, "first_name": 1, "username": 1, "avatar_url": 1, "suburb": 1, "_id": 0},
     ).to_list(limit)
     by_id = {u["id"]: u for u in users}
 
@@ -297,9 +297,15 @@ async def list_looking(
         u = by_id.get(d["user_id"])
         if not u:
             continue
+        # Real member accounts store the display name in `first_name`;
+        # the historical `name` field only exists on synthetic test
+        # fixtures. Fall back through both plus username so the banner
+        # never renders the generic "Member" placeholder unless the
+        # account genuinely lacks any name at all.
+        display = u.get("name") or u.get("first_name") or u.get("username")
         out.append({
             "user_id": u["id"],
-            "name": u.get("name"),
+            "name": display,
             "avatar_url": u.get("avatar_url"),
             "suburb": u.get("suburb"),
             "since": d.get("manual_status_set_at"),
