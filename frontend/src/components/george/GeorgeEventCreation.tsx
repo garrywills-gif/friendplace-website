@@ -501,7 +501,8 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
       setSuggestionOffered(!!s.suggestion_offered);
       setTyping(false);
       await revealApiTurns(s.turns || []);
-    } catch {
+    } catch (e) {
+      if (__DEV__) console.warn('[GeorgeEventCreation] turn failed:', e);
       setTyping(false);
       setTurns(x => [...x, {
         role: 'george',
