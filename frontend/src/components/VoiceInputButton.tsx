@@ -133,6 +133,19 @@ export default function VoiceInputButton({
   const [showRationale, setShowRationale] = useState(false);
   const [showBlocked, setShowBlocked] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  // TestFlight round-8 (Garry, Feb 2026 #21): STT was failing silently
+  // outside George Chat because the `elapsed` state captured inside
+  // `stopAndTranscribe`'s closure was stale (its useCallback deps
+  // pulled `elapsed` in, but `handleMicPress` only re-memoised on
+  // `state` change — so it kept calling the FIRST stopAndTranscribe
+  // that was bound when `state → 'recording'`, with `elapsed = 0`
+  // frozen in its closure). Result: the `< 1s` guard bailed silently
+  // on every stop, no matter how long the recording. We now track the
+  // recording start time in a ref and compute duration synchronously,
+  // eliminating any dependency on stale state. `elapsed` state is
+  // kept for the visible on-button timer display only.
+  const elapsedRef = useRef(0);
+  const startedAtRef = useRef<number | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -191,7 +204,17 @@ export default function VoiceInputButton({
       }
       setState("recording");
       setElapsed(0);
-      tickRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+      elapsedRef.current = 0;
+      startedAtRef.current = Date.now();
+      tickRef.current = setInterval(() => {
+        // Update BOTH the visible timer and the authoritative ref.
+        // The ref is what `stopAndTranscribe` actually reads.
+        if (startedAtRef.current != null) {
+          const secs = Math.floor((Date.now() - startedAtRef.current) / 1000);
+          elapsedRef.current = secs;
+          setElapsed(secs);
+        }
+      }, 500);
       autoStopRef.current = setTimeout(() => {
         // Auto-stop respects the 60s cap. We call the same stop path so
         // the transcription pipeline runs identically to a manual stop.
@@ -222,8 +245,11 @@ export default function VoiceInputButton({
     // FriendPlace permission contract — never fire the native prompt
     // without a plain-English "here's why".
     setShowRationale(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, beginCapture]);
+    // TestFlight round-8 (Garry, Feb 2026 #21): `stopAndTranscribe` and
+    // `beginCapture` are now in deps so this handler ALWAYS calls the
+    // most current versions. Prevents any residual stale-closure risk
+    // if either callback is later re-memoised mid-recording.
+  }, [state, beginCapture, stopAndTranscribe]);
 
   const acceptRationaleAndRequest = useCallback(async () => {
     setShowRationale(false);
@@ -237,7 +263,22 @@ export default function VoiceInputButton({
 
   // ─── Stop + upload ───────────────────────────────────────────────────
   const stopAndTranscribe = useCallback(async () => {
+    // TestFlight round-8 (Garry, Feb 2026 #21): show the processing
+    // indicator IMMEDIATELY so members get instant feedback on stop
+    // tap. Previously we only entered `transcribing` after 250ms +
+    // audio-URI + duration guards passed — which meant if any guard
+    // silently bailed, the member saw nothing at all. Matches
+    // George's `useGeorgeVoiceInput.stopRecording` ordering (line 62).
+    setState("transcribing");
     clearTimers();
+
+    // Capture the recording duration from the ref set by `beginCapture`
+    // + the tick interval — NOT from the `elapsed` state. State
+    // captured in this closure was frozen at the render that bound
+    // `handleMicPress` (i.e., when `state → 'recording'`), where
+    // `elapsed = 0`. The ref always holds the current value.
+    const durationSec = elapsedRef.current;
+
     let audioUri: string | null = null;
     try {
       await recorder.stop();
@@ -250,28 +291,35 @@ export default function VoiceInputButton({
       audioUri = recorder.uri;
       // Release the audio session so other sounds (TTS, ringers) can
       // resume — mirrors what `useGeorgeVoiceInput` does.
-      try { await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); } catch { /* noop */ }
+      try { await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); } catch (e) {
+        if (__DEV__) console.warn('[VoiceInputButton] setAudioModeAsync(release) failed:', e);
+      }
+      if (__DEV__) console.log('[VoiceInputButton] stopped', { durationSec, audioUri });
     } catch (e: any) {
-      onError?.("Sorry, I couldn't hear anything. Please try again.");
       if (__DEV__) console.warn('[VoiceInputButton] recorder.stop failed:', e);
-      setState("idle");
-      return;
-    }
-    if (!audioUri) {
-      onError?.("Sorry, I couldn't hear anything. Please try again.");
-      setState("idle");
-      return;
-    }
-    // TestFlight round-5 (Garry, Feb 2026 #16): if the user tapped stop
-    // almost immediately (< 1s) the recording is essentially empty and
-    // Whisper will 4xx. Bail out silently rather than showing a scary
-    // banner — matches the proven `useGeorgeVoiceInput` behaviour.
-    if (elapsed < 1) {
+      onError?.(`Voice failed while stopping the recorder${e?.message ? ` (${e.message})` : ''}. Please try again.`);
       setState("idle");
       setElapsed(0);
       return;
     }
-    setState("transcribing");
+    if (!audioUri) {
+      if (__DEV__) console.warn('[VoiceInputButton] no audio URI after stop; recorder returned null');
+      onError?.("Voice failed: no audio was captured. Please try again.");
+      setState("idle");
+      setElapsed(0);
+      return;
+    }
+    // If the user tapped stop almost immediately (< 1s) the recording
+    // is essentially empty and Whisper will 4xx. Previously this bailed
+    // SILENTLY, which was the root cause of the "no feedback" symptom.
+    // We now emit both a dev log and a friendly member-facing message.
+    if (durationSec < 1) {
+      if (__DEV__) console.warn('[VoiceInputButton] recording too short:', durationSec, 's');
+      onError?.("That was too quick — please hold the mic and speak for at least a second.");
+      setState("idle");
+      setElapsed(0);
+      return;
+    }
     try {
       // TestFlight round-6 (Garry, Feb 2026 #16): swap to the proven-
       // working George transcribe endpoint. `/api/mcgs/george/transcribe`
@@ -297,8 +345,8 @@ export default function VoiceInputButton({
         const audioResp = await fetch(audioUri);
         const audioBlob = await audioResp.blob();
         if (!audioBlob || audioBlob.size < 500) {
-          if (__DEV__) console.warn('[VoiceInputButton] empty/short blob:', audioBlob?.size);
-          onError?.("Sorry, I couldn't hear anything. Please try again.");
+          if (__DEV__) console.warn('[VoiceInputButton] empty/short blob on web:', audioBlob?.size);
+          onError?.("Voice failed: no audio was captured. Please try again.");
           setState("idle");
           setElapsed(0);
           return;
@@ -339,6 +387,7 @@ export default function VoiceInputButton({
       }
       const data = await resp.json();
       const transcript = String(data?.text || "").trim();
+      if (__DEV__) console.log('[VoiceInputButton] transcribe ok:', resp.status, `transcript.length=${transcript.length}`);
       if (transcript) {
         // Compose the new value based on appendMode. Append is the
         // safe default — the user may have already typed something.
@@ -352,20 +401,28 @@ export default function VoiceInputButton({
               : transcript;
         onChangeText(next);
       } else {
-        onError?.("Sorry, I couldn't hear anything. Please try again.");
+        if (__DEV__) console.warn('[VoiceInputButton] empty transcript from server:', data);
+        onError?.("I didn't catch any words that time. Please try again a little closer to the mic.");
       }
     } catch (e: any) {
+      if (__DEV__) console.warn('[VoiceInputButton] transcribe threw:', e);
       // Never leak raw JSON like `{"detail":"Empty audio upload"}` to
       // members — always show a friendly, actionable line.
       const msg = e?.message && !e.message.startsWith('{')
         ? e.message
-        : "Sorry, I couldn't hear anything. Please try again.";
+        : "Voice failed on the way to George. Please try again.";
       onError?.(msg);
     } finally {
       setState("idle");
       setElapsed(0);
     }
-  }, [recorder, userId, value, onChangeText, appendMode, onError, elapsed]);
+    // TestFlight round-8 (Garry, Feb 2026 #21): `elapsed` intentionally
+    // REMOVED from deps — it was the source of the stale-closure bug.
+    // Duration is now read from `elapsedRef.current` inside the body,
+    // which is always up-to-date regardless of when this callback was
+    // memoised.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recorder, userId, value, onChangeText, appendMode, onError]);
 
   // ─── Rendering ───────────────────────────────────────────────────────
   const isRecording = state === "recording";
