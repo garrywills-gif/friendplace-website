@@ -1,0 +1,25 @@
+{
+  "summary": "Iteration 96 (Presence & Status + button-outline mock-up preview) — ALL CHECKS PASS. STATIC: git status confirms /app/frontend/app/preview/ is the ONLY new/untracked path this iteration; git diff HEAD reports zero changes to theme.tsx, (tabs)/profile.tsx, (tabs)/home.tsx, VoiceInputButton.tsx, table/[id].tsx, and dm/[id].tsx. The preview file imports only React, react-native, @expo/vector-icons, and expo-router — no imports from any production status/presence code (none exists yet). ESLint: 0 issues. LIVE: /preview/status-mockups renders cleanly at 375x667. Header 'Status & buttons — mock-up' visible; all 8 sections (My Status, Looking states, FP Café single, FP Café multi, Tap-a-name sheet, MemberBadge contexts, Button before/after, Reference glyphs) are present and scroll into view. Theme toggle flips Light↔Dark and back; palette colours visibly change (dark bg + brighter outline). Tapping 🦋 'Looking for a chat' switches to the active label '✓ Looking for a chat — tap to stop' (local useState only). End-of-preview marker visible at the bottom. Zero pageerrors. Only pre-existing deprecation warnings (shadow*/textShadow*/pointerEvents/useNativeDriver) — carried over from prior iterations, unrelated to this file. REGRESSION: /table/fp-cafe-permanent still loads with Café table + tight-mic composer intact; /dm/test-user-id still renders Message header + composer + mic — zero console errors on both. Metro bundled the new route in ~1s with 1549 modules. No new deprecated Expo packages introduced.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Preview file is self-contained (594 lines) — well below the 700-line split threshold. Local palettes PAL_LIGHT/PAL_DARK are correctly file-scoped so global theme.tsx is not touched.",
+    "All interactive elements are React Native Pressables and no raw text sits outside <Text>. StyleSheet.create is used for the two shared style keys; per-view style objects are inline as expected for a throwaway mock.",
+    "No new testID attributes were added, but the request is 'mock-up only for Garry to eyeball on TestFlight' — testIDs are unnecessary here and text-based Playwright selectors worked reliably.",
+    "Preview intentionally has zero backend calls / zero navigation into real routes (only router.back()). Matches the spec that nothing writes to storage or affects real status."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only iteration)", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iter96 added exactly one new file: /app/frontend/app/preview/status-mockups.tsx (route /preview/status-mockups). It's a UI mock-up only — hardcoded fake data, local useState, no backend, no navigation into production screens beyond router.back(). Confirmed via git that theme.tsx, profile.tsx, home.tsx, VoiceInputButton.tsx, table/[id].tsx, and dm/[id].tsx are byte-identical to iter95. When Garry approves the design, the corresponding real components should be lifted into src/components/status/* and src/components/ui/* and this preview file deleted. All 8 sections render, theme toggle works, 🦋 button toggles local state. Regression pages /table/fp-cafe-permanent and /dm/<id> still render cleanly.",
+  "rca_of_issue": "N/A — mock-up-only iteration, no bugs found."
+}
