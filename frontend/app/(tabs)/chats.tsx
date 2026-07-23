@@ -10,7 +10,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
-import AvatarBubble from "@/src/components/AvatarBubble";
+import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
 
 /**
@@ -378,7 +378,6 @@ export default function Chats() {
           ) : null
         }
         renderItem={({ item }) => {
-          const online = item.other?.status?.code === "online";
           const unread = Math.max(0, item.unread_count || 0);
           const preview = item.last?.text || "Start a conversation";
           const isMineLast = item.last?.user_id === user?.id;
@@ -414,17 +413,19 @@ export default function Chats() {
                   },
                 ]}
               >
-                {/* Avatar + online dot overlay */}
+                {/* Avatar + status badge (Presence & Status v2) — the
+                    corner glyph replaces the old green online dot. See
+                    /app/memory/design-presence-and-status.md §5.4. */}
                 <View style={styles.avatarWrap}>
                   <View style={[styles.av, { backgroundColor: c.brand + "22", overflow: "hidden" }]}>
-                    <AvatarBubble value={item.other?.avatar} size={52} textSize={34} fallback="🙂" />
-                  </View>
-                  {online && (
-                    <View
-                      style={[styles.onlineDot, { backgroundColor: "#10B981", borderColor: c.surface }]}
-                      testID={`chat-online-${item.id}`}
+                    <AvatarWithBadge
+                      value={item.other?.avatar}
+                      userId={item.other?.id}
+                      size={52}
+                      textSize={34}
+                      fallback="🙂"
                     />
-                  )}
+                  </View>
                 </View>
 
                 {/* Name + preview */}

@@ -185,6 +185,26 @@ export const api = {
   setStatus: (uid: string, status: string | null) =>
     req(`/users/${uid}/status`, { method: "POST", body: JSON.stringify({ status }) }),
 
+  // Presence & Status v2 — the LOCKED design at
+  // /app/memory/design-presence-and-status.md. Backed by
+  // /app/backend/services/status/router.py. All calls are token-scoped
+  // (the "me" is implied by the bearer). Silent variants used by
+  // background pollers / heartbeats so transient 401s don't nuke a
+  // valid local session.
+  statusMe: () => req(`/status/me`, {}, { silent: true }),
+  statusSetManual: (manual_status: "looking" | "happy" | "busy" | null) =>
+    req(`/status/me`, { method: "PATCH", body: JSON.stringify({ manual_status }) }),
+  statusHeartbeat: () => req(`/status/heartbeat`, { method: "POST" }, { silent: true }),
+  statusLooking: (scope: "nearby" | "friends" | "all" = "nearby") =>
+    req(`/status/looking?scope=${scope}`, {}, { silent: true }),
+  statusForUsers: (ids: string[]) => {
+    // De-dup + cap at 50 per contract. Empty list short-circuits to
+    // avoid a wasted round-trip.
+    const uniq = Array.from(new Set(ids.filter(Boolean))).slice(0, 50);
+    if (!uniq.length) return Promise.resolve({ statuses: {} as Record<string, string> });
+    return req(`/status/for-users?ids=${encodeURIComponent(uniq.join(","))}`, {}, { silent: true });
+  },
+
   // suburbs / location
   suburbsSearch: (q: string, limit = 10) => req(`/suburbs/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   suburbsNearest: (lat: number, lng: number) => req(`/suburbs/nearest?lat=${lat}&lng=${lng}`),

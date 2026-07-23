@@ -16,6 +16,7 @@ import { ThemeProvider } from "@/src/lib/theme";
 import { AuthProvider } from "@/src/lib/auth";
 import { ToastProvider } from "@/src/lib/toast";
 import { GeorgeProvider } from "@/src/lib/george-context";
+import { StatusProvider } from "@/src/lib/status-context";
 import { hydrateVoice } from "@/src/lib/george-voice";
 import GeorgeGlobalHost from "@/src/components/george/GeorgeGlobalHost";
 import SplashGate from "@/src/components/SplashGate";
@@ -46,7 +47,8 @@ export default function RootLayout() {
             <ThemeProvider>
               <AuthProvider>
                 <ToastProvider>
-                  <GeorgeProvider>
+                  <StatusProvider>
+                    <GeorgeProvider>
                     <StatusBar style="dark" />
                     <SplashGate>
                       {/* contentStyle sets the Stack's scene background so
@@ -67,6 +69,7 @@ export default function RootLayout() {
                         on auth / onboarding / landing / waitlist. */}
                     <GeorgeGlobalHost />
                   </GeorgeProvider>
+                  </StatusProvider>
                 </ToastProvider>
               </AuthProvider>
             </ThemeProvider>

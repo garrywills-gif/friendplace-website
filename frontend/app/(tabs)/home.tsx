@@ -13,6 +13,7 @@ import AvatarBubble from "@/src/components/AvatarBubble";
 import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import FirstRunCard from "@/src/components/FirstRunCard";
 import BrandLockup from "@/src/components/BrandLockup";
+import MyStatusCard from "@/src/components/status/MyStatusCard";
 import { GeorgeRemembersBanner } from "@/src/components/george/GeorgeRemembersBanner";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -324,6 +325,12 @@ export default function Home() {
         </View>
         <Text style={[styles.hello, { color: c.muted, fontSize: 16 * scale }]}>Welcome back</Text>
         <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{user?.first_name || "Friend"} 🦋</Text>
+
+        {/* Presence & Status — My Status card. Sits directly under the
+            greeting so it's the first thing members reach when they
+            open the app. Design ref: §5.1 in
+            /app/memory/design-presence-and-status.md. */}
+        <MyStatusCard />
 
         {/* Today's Thought — surfaced at the top of Home (above First-Run
             and Flutters) so the very first thing returning members read is

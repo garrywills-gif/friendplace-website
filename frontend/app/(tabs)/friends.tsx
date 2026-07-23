@@ -9,7 +9,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import { emitFlutter } from "@/src/lib/flutter-fx";
 import * as Location from "expo-location";
-import AvatarBubble from "@/src/components/AvatarBubble";
+import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
 
 // Primary FriendPlace butterfly logo — surfaces in every header so the
@@ -286,7 +286,7 @@ export default function Friends() {
                 collapsable={false}
                 style={[styles.avatar, { backgroundColor: c.brandTertiary }]}
               >
-                <AvatarBubble value={item.avatar} size={28} fallback="🙂" />
+                <AvatarWithBadge value={item.avatar} userId={item.id} size={28} fallback="🙂" />
               </View>
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>

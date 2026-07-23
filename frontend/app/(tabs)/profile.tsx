@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Modal, TextInput, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,13 +21,11 @@ const ALL_BADGES = [
   // Onboarding wizard badges
   "Welcome Aboard", "Community Joiner",
 ];
-const STATUS_OPTIONS: { key: string; emoji: string; label: string }[] = [
-  { key: "looking_to_chat",  emoji: "🟢", label: "Looking to chat" },
-  { key: "in_coffee_lounge", emoji: "☕", label: "In the FP Café" },
-  { key: "happy_to_connect", emoji: "😊", label: "Happy to connect" },
-  { key: "busy",             emoji: "🟡", label: "Busy right now" },
-  { key: "offline",          emoji: "⚫", label: "Offline" },
-];
+// Presence & Status v2: the old `STATUS_OPTIONS` list + audience picker
+// that used to power the Profile "Send a chat alert" flow are now
+// retired. Setting status happens on the Home "My Status" card and
+// the audience list is implied by scope=nearby on the café banner.
+// See /app/memory/design-presence-and-status.md §5.3.
 
 export default function Profile() {
   const { c, scale } = useTheme();
@@ -36,11 +34,6 @@ export default function Profile() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [friends, setFriends] = useState<any[]>([]);
-  const [alertOpen, setAlertOpen] = useState(false);
-  const [alertAudience, setAlertAudience] = useState<"friends" | "nearby" | "selected">("friends");
-  const [alertMsg, setAlertMsg] = useState("");
-  const [alertBusy, setAlertBusy] = useState(false);
-  const [alertSelected, setAlertSelected] = useState<string[]>([]);
   const [nearbyOptedIn, setNearbyOptedIn] = useState<boolean>(((user as any)?.preferences?.nearby_chat_alerts) ?? false);
   const [inviteCount, setInviteCount] = useState<number>(0);
   // Recent invitees — used to render the "Your invites" panel further down
@@ -330,36 +323,16 @@ export default function Profile() {
       )}
 
       <View style={{ height: 24 }} />
-      <Text style={[styles.section, { color: c.onSurface, fontSize: 18 * scale }]}>💬 My status</Text>
-      <Text style={{ color: c.muted, fontSize: 13 * scale, marginBottom: 6 }}>Let neighbours know how you&apos;re feeling today.</Text>
-      <View style={styles.row}>
-        {STATUS_OPTIONS.map((s) => {
-          const active = (user as any).status === s.key;
-          return (
-            <Pressable
-              key={s.key}
-              testID={`status-${s.key}`}
-              onPress={async () => {
-                try {
-                  await api.setStatus(user.id, active ? null : s.key);
-                  await refresh();
-                } catch {}
-              }}
-              style={[styles.chip, { backgroundColor: active ? c.brand : c.surfaceSecondary, borderColor: active ? c.brand : c.border }]}
-            >
-              <Text style={{ color: active ? c.onBrandPrimary : c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>{s.emoji} {s.label}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      <View style={{ height: 10 }} />
-      <Pressable
-        testID="open-chat-alert"
-        onPress={() => setAlertOpen(true)}
-        style={[styles.chip, { backgroundColor: c.brand, borderColor: c.brand, alignSelf: "flex-start" }]}
-      >
-        <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 14 * scale }}>🦋 Send a &ldquo;Looking to chat&rdquo; alert</Text>
-      </Pressable>
+      {/*
+        Presence & Status v2 — the "My Status" chips + "Send a chat
+        alert" flow that used to live here have moved to the Home
+        screen (see /src/components/status/MyStatusCard.tsx). Profile
+        now keeps ONLY the "Nearby Opt-In" preference — that's a
+        separate notification setting, not a live status. Design ref:
+        §5.3 in /app/memory/design-presence-and-status.md.
+      */}
+      <Text style={[styles.section, { color: c.onSurface, fontSize: 18 * scale }]}>🔔 Nearby chats</Text>
+      <Text style={{ color: c.muted, fontSize: 13 * scale, marginBottom: 6 }}>Let neighbours nearby say hi to you.</Text>
       {/* TestFlight round-7 (Garry, Feb 2026 #18): the whole row is now
           tappable — previously only the tiny 22×22 checkbox itself was
           a Pressable, so members tapping the (much larger) label text
@@ -375,7 +348,7 @@ export default function Profile() {
         accessibilityState={{ checked: nearbyOptedIn }}
         accessibilityLabel="Let nearby neighbours send me chat alerts"
         hitSlop={8}
-        style={{ flexDirection: "row", alignItems: "center", marginTop: 10, gap: 10, minHeight: 44, paddingVertical: 4 }}
+        style={{ flexDirection: "row", alignItems: "center", marginTop: 6, gap: 10, minHeight: 44, paddingVertical: 4 }}
       >
         <View style={{ width: 22, height: 22, borderWidth: 2, borderRadius: 6, borderColor: c.brand, backgroundColor: nearbyOptedIn ? c.brand : "transparent", alignItems: "center", justifyContent: "center" }}>
           {nearbyOptedIn && <Ionicons name="checkmark" size={14} color="#FFF" />}
@@ -552,117 +525,6 @@ export default function Profile() {
       )}
       <View style={{ height: 12 }} />
       <Button testID="logout" label="Log Out" variant="ghost" onPress={async () => { await logout(); router.replace("/"); }} />
-
-      {/* Looking-to-chat alert modal */}
-      <Modal visible={alertOpen} animationType="slide" transparent onRequestClose={() => setAlertOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" }}>
-          <View style={{ backgroundColor: c.surface, padding: 18, borderTopLeftRadius: 20, borderTopRightRadius: 20, gap: 12 }}>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 18 * scale, flex: 1 }}>🦋 Send a chat alert</Text>
-              <Pressable testID="close-alert" onPress={() => setAlertOpen(false)} hitSlop={10}><Ionicons name="close" size={24} color={c.muted} /></Pressable>
-            </View>
-            <Text style={{ color: c.muted, fontSize: 13 * scale }}>Choose who hears that you&apos;d like a chat right now.</Text>
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-              {(["friends", "nearby", "selected"] as const).map((a) => {
-                const on = alertAudience === a;
-                const label = a === "friends" ? "My friends" : a === "nearby" ? "Nearby opt-ins" : "Choose people";
-                return (
-                  <Pressable
-                    key={a}
-                    testID={`audience-${a}`}
-                    onPress={() => setAlertAudience(a)}
-                    style={[styles.chip, { backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}
-                  >
-                    <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>{label}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {/* TestFlight round-7 (Garry, Feb 2026 #19): dedicated "no
-                friends" empty-state for the "My friends" audience so
-                members aren't sent into a dead-end toast. Existing
-                toast fallback still catches network / server errors. */}
-            {alertAudience === "friends" && friends.length === 0 && (
-              <View style={{ backgroundColor: c.surfaceSecondary, borderColor: c.border, borderWidth: 1, borderRadius: 14, padding: 14, gap: 8 }}>
-                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>You don&apos;t have any friends yet</Text>
-                <Text style={{ color: c.muted, fontSize: 13 * scale, lineHeight: 18 }}>Head to Find Friends to say hi to someone. Once you&apos;re connected, you can send them a chat alert from here.</Text>
-                <Pressable
-                  testID="alert-friends-find-friends"
-                  onPress={() => { setAlertOpen(false); router.push("/friends" as any); }}
-                  style={{ backgroundColor: c.brand, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8, alignSelf: "flex-start" }}
-                >
-                  <Ionicons name="people" size={18} color={c.onBrandPrimary} />
-                  <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 14 * scale }}>Find Friends</Text>
-                </Pressable>
-              </View>
-            )}
-            {alertAudience === "selected" && (
-              <View>
-                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginBottom: 6 }}>Pick from your friends ({alertSelected.length}/20)</Text>
-                {friends.length === 0 ? (
-                  <Text style={{ color: c.muted, fontSize: 13 * scale }}>No friends to choose from yet.</Text>
-                ) : (
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                    {friends.map((f: any) => {
-                      const on = alertSelected.includes(f.id);
-                      return (
-                        <Pressable
-                          key={f.id}
-                          testID={`pick-${f.id}`}
-                          onPress={() => setAlertSelected((prev) => on ? prev.filter((x) => x !== f.id) : (prev.length < 20 ? [...prev, f.id] : prev))}
-                          style={[styles.chip, { backgroundColor: on ? c.brand : c.surfaceSecondary, borderColor: on ? c.brand : c.border }]}
-                        >
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                            <AvatarBubble value={f.avatar} size={16} />
-                            <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontWeight: "700", fontSize: 13 * scale }}>{f.first_name}</Text>
-                          </View>
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-            )}
-            <TextInput
-              testID="alert-message"
-              value={alertMsg}
-              onChangeText={setAlertMsg}
-              placeholder="Add a short message (optional)"
-              placeholderTextColor={c.muted}
-              multiline
-              maxLength={280}
-              style={{ color: c.onSurface, backgroundColor: c.surfaceSecondary, borderColor: c.border, borderWidth: 1.5, borderRadius: 12, padding: 12, minHeight: 70, textAlignVertical: "top", fontSize: 14 * scale }}
-            />
-            <Text style={{ color: c.muted, fontSize: 11 * scale }}>Alerts go to friends, nearby opt-ins, or the people you choose — never the whole community.</Text>
-            <Pressable
-              testID="send-alert"
-              disabled={alertBusy || (alertAudience === "selected" && alertSelected.length === 0)}
-              onPress={async () => {
-                setAlertBusy(true);
-                try {
-                  const res: any = await api.sendChatAlert({
-                    user_id: user.id,
-                    audience: alertAudience,
-                    message: alertMsg.trim() || undefined,
-                    recipient_ids: alertAudience === "selected" ? alertSelected : undefined,
-                    radius_km: alertAudience === "nearby" ? 10 : undefined,
-                  });
-                  show(res.delivered_to ? `Sent to ${res.delivered_to} ${res.delivered_to === 1 ? "neighbour" : "neighbours"}` : (res.message || "Nobody to send to"));
-                  setAlertOpen(false);
-                  setAlertMsg("");
-                  setAlertSelected([]);
-                } catch (e: any) {
-                  show(e?.message || "Could not send alert");
-                } finally { setAlertBusy(false); }
-              }}
-              style={{ backgroundColor: c.brand, paddingVertical: 14, borderRadius: 14, alignItems: "center", opacity: alertBusy ? 0.6 : 1 }}
-            >
-              {alertBusy ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 15 * scale }}>Send alert</Text>}
-            </Pressable>
-            <View style={{ height: insets.bottom }} />
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }

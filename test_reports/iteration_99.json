@@ -1,0 +1,37 @@
+{
+  "summary": "Presence & Status — Commit 2 frontend verified. My Status card (Home), Café Looking banner (table), StatusProvider heartbeat + /status/me, self-exclusion, action sheet with PM route, auto-clear on DM send (Commit 1 hook), Chats/Friends/Table AvatarWithBadge, Profile cleanup (removed 'Send a chat alert'/audience picker, kept Nearby Opt-In under '🔔 Nearby chats'), and /preview/status-mockups route all pass. ONE presentation bug found: the Café banner rows render the name as fallback 'Member' instead of the real first name because the backend query in /api/status/looking selects only `users.name` (which is null for real accounts that store their display name in `first_name`).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/status/looking", "issue": "Banner row names show 'Member' for all real accounts (Frank, Margaret, Alex, etc.). service.py:288-307 projects only `name` from users collection, but demo & member accounts store the display name in `first_name`. Recommendation: change the projection to include `first_name` and return `u.get('name') or u.get('first_name') or u.get('username')` in the response.", "priority": "HIGH"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CafeLookingBanner rows", "issue": "Row label falls back to 'Member' because backend `name` field is null (see backend_issues.critical). Downstream visual impact: user cannot identify who is looking to chat.", "testID": "cafe-looking-banner-row-*", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_99.json"
+  ],
+  "action_items": [
+    "Patch /app/backend/services/status/service.py get_looking(): add `first_name` (and optionally `username`) to the users projection and fall back to it when building the response `name` field, so the Café banner shows real display names.",
+    "Retest the banner after the fix: expect rows to read '🦋 Margaret' and '🦋 Frank' rather than '🦋 Member'."
+  ],
+  "critical_code_review_comments": [
+    "chats.tsx still contains a dead `onlineDot` style block after the migration to AvatarWithBadge (leftover). Not a functional issue but worth removing for hygiene.",
+    "StatusProvider.getUserStatuses is well-guarded (batched, TTL-cached, seed-on-error) — no notes.",
+    "CafeLookingBanner self-filter is defensive (server excludes self AND client double-checks) — good.",
+    "Test IDs on all interactive elements (my-status-looking/happy/busy/clear, cafe-looking-banner, cafe-looking-banner-row-<uid>, looking-sheet-pm/join/cancel) are present and stable."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not retested per request)", "frontend": "~95% (14/15 P0 checks pass; 1 P0 blocked by backend name projection)"},
+  "seed_data_creation": "Set maggie + frankie manual_status='looking' + heartbeat, suburb='Bondi', nearby_opt_in=true; also set Alex (member_first) to suburb='Bondi', nearby_opt_in=true so /status/looking?scope=nearby returns both seeded lookers. Files: /tmp/seed_lookers.py and /tmp/seed2.py.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "P0 verified via browser automation (mobile viewport 390x844): (1) MyStatusCard toggles fire PATCH /api/status/me — Looking → filled brand blue with '✓ Looking for a chat · 53 min left', effective chip '🦋 Looking for a chat' appears, Clear pill appears; Happy → chip '😊 Happy to connect'; Busy → chip '🟡 Busy right now'; Clear removes chip + hides Clear pill; all mutually exclusive. (2) StatusProvider POSTs /api/status/heartbeat immediately on login then GETs /api/status/me (verified in request log). (3) Café banner appears above coffee-table seating on /table/fp-cafe-permanent with multi-member layout heading 'People looking for a chat' and 2 rows (Frankie, Maggie) prefixed 🦋 with chevron. (4) Alex is self-excluded (his uid row is absent). (5) Tapping a row opens action sheet — only 'Send a private message' shows because seeded lookers have in_cafe_table_id=null (correct branch). looking-sheet-pm navigates to /dm/{convId}?other_id=<uid>. (6) Sending a DM to Frankie auto-cleared his manual_status to None server-side (verified via mongo query — Commit 1 hook fires). Maggie remained 'looking' (untouched). (7) /preview/status-mockups still renders. (8) Chats tab shows small 🦋 corner badge on Frank's avatar (Alex's own status is Looking after the earlier test); no chat-online-* testID. (9) Profile screen: NO 'Send a chat alert' text, NO 'Looking to chat' button, '🔔 Nearby chats' section header present. (10) Friends tab AvatarWithBadge wraps each Find Friends avatar. (11) Table screen compact seated strip uses AvatarWithBadge (code inspection line 200). Only real bug is the 'Member' fallback for all banner rows caused by backend name projection (see backend_issues.critical). Once patched, banner + auto-clear + PM flow are production-ready.",
+  "rca_of_issue": "RCA — Café banner shows 'Member' instead of real first name. Root cause: /app/backend/services/status/service.py::get_looking() (lines 288-307) projects only fields `{id, name, avatar_url, suburb}` from db.users and returns `u.get('name')` verbatim. For real accounts (Alex, all demo users) the `name` field is unset — the display name lives in `first_name`. As a result the backend returns name=null for every looker, and CafeLookingBanner falls back to the string 'Member' (component code lines 155 & 201: `{lookers[0].name || 'Someone'}` / `{m.name || 'Member'}`). Reproduction: seed any real user as looking (see /tmp/seed2.py) → visit /table/fp-cafe-permanent as another nearby user → banner row reads '🦋 Member' instead of '🦋 Margaret'. Mitigation: expand the projection to include `first_name` and `username`, and in the response builder use `u.get('name') or u.get('first_name') or u.get('username')`. This is safe & purely additive — no schema change required."
+}

@@ -1,97 +1,190 @@
-# B7 — George Remembers (MVP)
+# Presence & Status — Commit 2 (Frontend)
 
-## What shipped
-- **Persistent inbox** (`george_remembers` Mongo collection) that queues:
-  - **`pre_event`** — organiser-only, fires ~18 h before the event start.
-  - **`post_event`** — organiser-only, fires ~2 h after the event's estimated end (start + 4 h).
-- **Sweep loop** (`services/george/remembers.py::sweep_loop`) runs every 5 minutes with a 15 s startup delay. Idempotent: it never inserts a duplicate active row for the same `(event_id, kind)`.
-- **Reschedule handling** — when an event's date/time changes, still-scheduled rows are superseded and fresh rows inserted for the new time. Delivered rows (already-seen) are left alone unless the shift is > 6 h.
-- **Cancellation handling** — events with `cancelled: True` produce no rows; a second sweep pass cancels any orphaned scheduled rows whose event was removed. The inbox endpoint also does a belt-and-braces per-fetch re-verification so a cancelled event never surfaces even if the sweep hasn't run yet.
-- **Inactive account handling** — sweep skips inactive/deleted organisers.
-- **Timezone-aware** — all wall-clock event date+time interpreted as `Australia/Sydney`; storage is UTC ISO8601.
-- **Home banner** (`GeorgeRemembersBanner`) — quiet, warm card that fetches on home focus, plays TTS via `SpeakButton`, cycles through multiple messages, and supports dismiss. Renders `null` when empty (no home layout disruption).
+## Context
+Commit 1 (backend) shipped last session — `member_status` collection,
+`/api/status/*` endpoints, auto-clear hooks. See
+`/app/memory/design-presence-and-status.md` for the LOCKED spec and
+`/app/backend/services/status/` for implementation. Backend was
+already verified by testing_agent in iterations 91–98.
 
-## API surface
-- `GET  /api/mcgs/george/remembers/inbox` → `{ items: RemembersMessage[] }`. Upgrades due `scheduled` rows to `delivered` on read.
-- `POST /api/mcgs/george/remembers/{msg_id}/dismiss` → 404 if not this user's row.
-- `POST /api/mcgs/george/remembers/{msg_id}/seen` — idempotent viewport beacon (never 404s).
+## What just shipped (frontend)
+- `src/lib/status-context.tsx` — global `StatusProvider` mounted in
+  `app/_layout.tsx` (wraps AuthProvider + ToastProvider). Handles the
+  60 s heartbeat, foreground/background AppState transitions, and a
+  200 ms-debounced batched lookup for other users' statuses
+  (`useUserBadgeStatus` / `useUserBadgeStatuses`).
+- `src/components/status/AvatarWithBadge.tsx` — wraps existing
+  `AvatarBubble` with a bottom-right status glyph.
+- `src/components/status/MyStatusCard.tsx` — Home "My Status" card
+  (design §5.1). 🦋 primary button, Happy/Busy pills side-by-side,
+  Clear pill, effective status header chip.
+- `src/components/status/CafeLookingBanner.tsx` — FP Café banner
+  (design §5.2). Single- vs multi-member layout, tap-action sheet
+  with Join-table + PM (or PM only), 30 s polling.
+- `src/lib/api.ts` — 5 new methods: `statusMe`, `statusSetManual`,
+  `statusHeartbeat`, `statusLooking`, `statusForUsers` (all silent
+  variants where appropriate so background pollers don't nuke the
+  session on transient 401s).
+- Home screen (`app/(tabs)/home.tsx`) — `MyStatusCard` slotted
+  directly under the greeting.
+- Table screen (`app/table/[id].tsx`) — `CafeLookingBanner` slotted
+  above the seating diagram.
+- Profile screen (`app/(tabs)/profile.tsx`) — removed the OLD status
+  chip row, "Send a chat alert" button, and the audience-picker
+  modal. Kept the Nearby Opt-In checkbox (renamed section to
+  "🔔 Nearby chats").
+- `AvatarWithBadge` applied on: Chats tab (replaces the old green
+  "online dot"), Friends tab (Find Friends list), Table screen's
+  compact seated strip.
 
-## Files touched / created
-- `/app/backend/services/george/remembers.py` (new, ~450 lines) — sweep, delivery, inbox helpers, templates.
-- `/app/backend/mcgs_module.py` — 3 new endpoints under `/mcgs/george/remembers/*`.
-- `/app/backend/server.py` — startup hook wires `ensure_indexes` + `sweep_loop` as a background task.
-- `/app/frontend/src/components/george/GeorgeRemembersBanner.tsx` (new) — home banner.
-- `/app/frontend/src/lib/george-api.ts` — `remembersInbox` / `remembersDismiss` / `remembersSeen` methods + `RemembersMessage` type.
-- `/app/frontend/app/(tabs)/home.tsx` — banner slotted below `FirstRunCard`.
-- `/tmp/b7_remembers_smoke.py` — sweep-level smoke test (5 scenarios, ALL PASS).
+## What to test — frontend
 
-## Message templates (deterministic, no LLM cost)
-- Pre-event: *"Your {title} is tomorrow, {first_name}. I hope everyone has a lovely time."*
-- Post-event: *"How did {title} go, {first_name}? I hope you had a lovely {morning|afternoon|evening}."* — time-of-day derived from the event's local start hour.
+### P0 — My Status card (Home)
+1. **First-visit render** — after login, the Home screen shows a
+   "MY STATUS" card between the greeting and Today's Thought. The
+   header chip is HIDDEN when effective status is `online`. The
+   primary 🦋 button shows "Looking for a chat" (unfilled state).
+   The two half-width pills are 😊 Happy to connect · 🟡 Busy right
+   now. Footer: "☕ In the FP Café and ⚫ Offline are set
+   automatically."
+2. **Toggle "Looking for a chat"** — tap `my-status-looking`. Button
+   fills brand blue and label becomes "✓ Looking for a chat · 1h
+   left". Effective chip appears with "🦋 Looking for a chat".
+   Clear pill (`my-status-clear`) appears below.
+3. **Toggle "Happy to connect"** — from the online state, tap
+   `my-status-happy`. Pill lights up. Effective chip becomes "😊
+   Happy to connect". No time-left suffix (24 h TTL is too long to
+   show).
+4. **Toggle "Busy"** — same as #3 for `my-status-busy` (4 h TTL).
+   Effective chip becomes "🟡 Busy right now".
+5. **Mutually exclusive** — activating Happy clears Looking and vice
+   versa. Activating Busy while Happy is on → only Busy shows.
+6. **Clear pill** — visible ONLY when manual status is set. Tapping
+   clears back to `online` and hides the effective chip.
+7. **Precedence** — with `manual_status = "busy"` set, effective
+   shows `busy` (design §2). With `manual_status = "looking"` set,
+   effective shows `looking` regardless of café state.
+8. **Optimistic update + revert** — flakey network: the toggle
+   should flip immediately then reconcile with the server response
+   without flicker.
 
-## What to test (backend + frontend)
-
-### P0 — Backend (queue + delivery)
-Use `member@friendplace.com.au` / `TestPass2026!` (Alex, id `d8ef0bc1-1dfe-44d8-aa8b-46a0ad68e0ba`).
-
-1. **Sweep creates rows for a future event** — insert an event `18h + 1h = 19h` from now (so pre_event = 1h from now). Call `POST /api/mcgs/george/remembers/inbox` before the sweep — should be empty. Run the sweep (either wait 5 min or `python -c "from services.george.remembers import sweep_once; ..."`). Now the row exists in Mongo with `status='scheduled'`.
-2. **Idempotency** — running the sweep twice results in `created=0` on the second pass.
-3. **Rescheduling** — after step 1, update the event to a different time. Next sweep marks the old row `status='superseded'` and inserts a fresh row aligned to the new time.
-4. **Cancellation** — set `cancelled: True` on an event with a scheduled row. Next sweep marks the row `status='cancelled'` with `cancelled_reason='event_removed'`.
-5. **Inactive user** — set `is_active: False` on an organiser. Sweep skips them (`skipped_inactive_user` count increments; no rows inserted).
-6. **TZ handling** — events with time in Sydney local should compute `scheduled_for` in UTC correctly (18h before local start).
-
-### P0 — Inbox + Dismiss (HTTP)
-7. **Due rows are delivered on read** — a `scheduled` row whose `scheduled_for` is in the past is returned by the inbox and upgraded to `delivered` in the same call.
-8. **Delivered rows persist across restarts** — after step 7, restart the backend (`sudo supervisorctl restart backend`) and re-fetch the inbox. The row should still be in the list with `status='delivered'`.
-9. **Dismiss removes the row from inbox** — `POST /remembers/{id}/dismiss` → row transitions to `status='dismissed'` and no longer appears in `/inbox`.
-10. **Cancelled event is filtered from inbox** — even if a `delivered` row exists, if its event is now `cancelled: True`, the inbox endpoint filters it out (belt-and-braces).
-11. **Wrong user can't dismiss** — dismissing another user's row returns 404.
-12. **Regression: `/mcgs/george/presence` and event edit endpoints untouched** — Session 2 tests should still pass (`pytest tests/test_b6_session2_edit_flow.py` = 9/9).
-
-### P0 — Frontend banner
-13. **Empty state renders nothing** — no rows → home shows nothing extra (no visible banner).
-14. **Card renders** — with a delivered row, the banner appears below `FirstRunCard` with:
-    - Green butterfly icon + "GEORGE REMEMBERS" label
-    - Message text ("Your ... is tomorrow, Alex. I hope everyone has a lovely time.")
-    - Speaker button + dismiss (×) button
-15. **Dismiss works** — tap ×, card disappears optimistically. Refresh page → still gone.
-16. **Multiple messages cycle** — with 2+ rows, a "1 of N" pill appears with prev/next chevron buttons. Nav cycles between them.
-17. **Speaker button plays TTS** — tap speaker icon, audio plays (uses existing `SpeakButton` — no B7 change).
-
-## Test credentials
-- Mobile member: `member@friendplace.com.au` / `TestPass2026!`
-- Mission Control admin: `hello@friendplace.com.au` / `TestPass2026!`
-
-## Helpers for testers
-- Reset test state:
+### P0 — Café banner
+Because the seed only has one member logged in, seed a second user's
+status manually:
 ```python
-import asyncio, os
-from motor.motor_asyncio import AsyncIOMotorClient
-async def main():
-    c = AsyncIOMotorClient(os.environ.get('MONGO_URL','mongodb://localhost:27017'))
-    db = c['test_database']
-    alex = await db.users.find_one({'username': 'member_first'})
-    await db.events.delete_many({'host_id': alex['id'], 'title': {'$regex': '^DEMO_'}})
-    await db.george_remembers.delete_many({'recipient_id': alex['id']})
-asyncio.run(main())
-```
-- Seed a due `pre_event` row: run `/tmp/b7_remembers_smoke.py` first (creates SMOKE_ events), then adapt for DEMO_ events kept for manual UI testing.
-- Force a sweep pass without waiting for the 5-minute loop:
-```python
-import asyncio, sys
+import asyncio, sys, os
 sys.path.insert(0, "/app/backend")
 from motor.motor_asyncio import AsyncIOMotorClient
-from services.george import remembers
+from services.status import service as svc
 async def main():
     c = AsyncIOMotorClient(os.environ.get("MONGO_URL","mongodb://localhost:27017"))
-    await remembers.sweep_once(c["test_database"])
+    db = c["test_database"]
+    # Pick any demo user (e.g. Maggie) that is NOT the viewer.
+    u = await db.users.find_one({"username": "maggie"})
+    await svc.set_manual(db, u["id"], "looking")
+    await svc.heartbeat(db, u["id"])
+    # Also flip nearby_opt_in + same suburb so nearby scope matches:
+    await db.users.update_one({"id": u["id"]}, {"$set": {"nearby_opt_in": True, "suburb": (await db.users.find_one({"username":"member_first"}))["suburb"]}})
 asyncio.run(main())
 ```
+9. **Banner renders** — visit any table (`/table/{id}`). The banner
+   `cafe-looking-banner` should appear ABOVE the seating diagram
+   with "🦋 Maggie would love a chat · Tap to start chatting."
+10. **Multi-member layout** — repeat the seed for a 2nd user. Banner
+    heading becomes "People looking for a chat" with each row
+    prefixed 🦋 and chevron on the right.
+11. **Tap → action sheet** — tap a row. Modal slides up. If the
+    tapped member has `in_cafe_table_id` set AND it's not the current
+    table, `[Join their table]` primary + `[Send a private message]`
+    secondary. Else, only `[Send a private message]` primary.
+12. **PM action** — tap `looking-sheet-pm`. Deep-links to `/dm/{id}?
+    other_id=...` after `api.startDm` succeeds.
+13. **Cancel** — tap `looking-sheet-cancel` or the backdrop → sheet
+    dismisses without side effects.
+14. **Auto-clear on DM message** — after tapping PM and sending a
+    message, the target member's `manual_status` clears server-side
+    (Commit 1's DM auto-clear hook). Refetch `/api/status/for-users`
+    for that id — should return `online`.
+15. **Auto-hide when empty** — clear the seeded users' looking status
+    (`svc.set_manual(db, uid, None)`). Refresh the table view within
+    30 s; banner disappears cleanly.
+16. **Self-excluded** — set the LOGGED-IN user's own status to
+    looking. Their name must NOT appear in the banner.
 
-## Not in this MVP
-- Push notifications (needs the emergent-managed push integration + deploy)
-- Attendee-facing messages (organiser-only for MVP)
-- "How did it go?" follow-ups with notes/photo workflows
-- Remembered-change nudge (would repeat what George already confirms at edit-time)
-- Per-community timezone (Aus fixed for now)
+### P1 — AvatarWithBadge across surfaces
+17. **Chats tab** — DM list rows show a status badge on the other
+    party's avatar (corner glyph). Old solid-green "online dot" is
+    gone. `chat-online-*` test-id no longer present.
+18. **Friends tab** — Find Friends list avatars show the badge.
+19. **Café compact strip** — while the keyboard is open at a table,
+    the compact seated strip shows badges on avatars. Signed-in user
+    (self) shows NO badge (design §5.4 refinement).
+20. **Offline members** — offline users show no badge (design §2
+    refinement: ⚫ only shown when known-offline in explicit contexts).
+
+### P1 — Profile cleanup
+21. **Nearby chats section** — old "My status" chip row + "Send a
+    chat alert" primary button + audience picker modal are all
+    GONE. The Nearby Opt-In checkbox remains, now under a "🔔
+    Nearby chats" section header. Toggling it still hits
+    `updatePreferences` with `nearby_chat_alerts`.
+
+### P0 — Heartbeat + presence
+22. **Heartbeat on foreground** — from a cold start, network log
+    shows `POST /api/status/heartbeat` fires immediately and then
+    every 60 s while the app is foregrounded.
+23. **Background pause** — putting the app in the background stops
+    heartbeats. Returning to foreground fires one immediately and
+    then resumes the interval.
+24. **/api/status/me on login** — fires ONCE right after the initial
+    heartbeat. Sets the initial state of the My Status card.
+
+### P0 — Non-regression checks
+25. **`/preview/status-mockups` route still renders** — DO NOT
+    delete this route. User wants it retained as visual reference
+    until the whole feature is approved.
+26. **VoiceInputButton unchanged** — mic/send toggle in the table
+    composer and George's composer must still work exactly as
+    before (STT baseline is LOCKED).
+27. **Existing table/dm/notifications flows untouched** — sending a
+    photo, editing an event, sending a flutter etc. must all still
+    work as they did before Commit 2.
+
+## Test credentials
+- Mobile member: `member@friendplace.com.au` / `TestPass2026!` (Alex)
+- Additional users (demo — no password, use "Try a demo account"):
+  `maggie`, `frankie`, `joycey`, `billdo`, `dot`
+- Mission Control admin: `hello@friendplace.com.au` / `TestPass2026!`
+
+## Files touched / created in this session
+- **New**:
+  - `/app/frontend/src/lib/status-context.tsx`
+  - `/app/frontend/src/components/status/AvatarWithBadge.tsx`
+  - `/app/frontend/src/components/status/MyStatusCard.tsx`
+  - `/app/frontend/src/components/status/CafeLookingBanner.tsx`
+- **Modified**:
+  - `/app/frontend/app/_layout.tsx` (StatusProvider wired in)
+  - `/app/frontend/src/lib/api.ts` (5 new methods)
+  - `/app/frontend/app/(tabs)/home.tsx` (MyStatusCard slotted)
+  - `/app/frontend/app/table/[id].tsx` (banner slotted + badge on compact strip)
+  - `/app/frontend/app/(tabs)/profile.tsx` (removed old chat-alert flow, kept Nearby Opt-In)
+  - `/app/frontend/app/(tabs)/chats.tsx` (AvatarWithBadge replaces onlineDot)
+  - `/app/frontend/app/(tabs)/friends.tsx` (AvatarWithBadge on Find Friends list)
+
+## Non-goals for Commit 2 (deferred to Commit 3)
+- Live WebSocket status_change / looking_list_update broadcast wiring
+  (currently 30 s polling on the banner). Server broadcasts are ready
+  per Commit 1; we deliberately kept the client on polling until we
+  can prove UX first.
+- AvatarWithBadge on group members list and event attendees (need
+  those screens to expose the batched-fetch pattern too — small work
+  but held for Commit 3 cleanup pass).
+- LRU/pruning of the batched cache (currently unbounded per session;
+  it's small — an object per unique user id — so this is fine for the
+  TestFlight builds).
+
+## Known good state to protect
+- STT (`VoiceInputButton.tsx`) — DO NOT alter.
+- George event creation prompt logic — DO NOT alter.
+- Nearby Opt-In checkbox behaviour — unchanged from TestFlight
+  round-7 fix #18.

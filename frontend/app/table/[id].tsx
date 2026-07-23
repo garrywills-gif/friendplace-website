@@ -14,9 +14,11 @@ import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import CoffeeTableSeating from "@/src/components/CoffeeTableSeating";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
 import ZoomableImageViewer from "@/src/components/ZoomableImageViewer";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
+import CafeLookingBanner from "@/src/components/status/CafeLookingBanner";
 
 type Msg = {
   id: string;
@@ -180,6 +182,11 @@ export default function TableChat() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title={table ? `${table.emoji} ${table.name}` : "Table"} />
+      {/* Presence & Status — global "Looking for a chat" banner. Sits
+          above seating so a chatter's invitation is the first social
+          signal a visitor sees. Auto-hides when the list is empty.
+          Design ref: §5.2 in /app/memory/design-presence-and-status.md. */}
+      <CafeLookingBanner currentTableId={typeof id === "string" ? id : undefined} />
       {collapseSeating ? (
         // Compact strip — keeps seated members visible even while the user
         // is typing so it still feels like a conversation with faces, not
@@ -190,7 +197,13 @@ export default function TableChat() {
           <View style={{ flex: 1, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
             {seated.slice(0, 8).map((u: any) => (
               <View key={u.id} style={{ alignItems: "center", marginRight: 4 }}>
-                <AvatarBubble value={u.avatar} size={30} fallback="🙂" />
+                <AvatarWithBadge
+                  value={u.avatar}
+                  userId={u.id}
+                  size={30}
+                  fallback="🙂"
+                  isSelf={u.id === user?.id}
+                />
               </View>
             ))}
             {seated.length === 0 && (
