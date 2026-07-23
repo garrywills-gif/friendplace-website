@@ -242,17 +242,15 @@ function MyStatusCard({ pal, current, setCurrent }: {
   current: Status;
   setCurrent: (s: Status) => void;
 }) {
-  const meta = STATUS_META[current];
   const isLooking = current === 'looking';
   return (
     <View style={[styles.card, { backgroundColor: pal.surface, borderColor: pal.border }]}>
-      <Text style={[styles.cardTitle, { color: pal.onSurface }]}>My status</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
-        <Text style={{ fontSize: 22 }}>{meta.glyph}</Text>
-        <Text style={{ color: pal.onSurface, fontWeight: '800', fontSize: 17 }}>{meta.label}</Text>
-      </View>
+      <Text style={[styles.cardTitle, { color: pal.onSurface }]}>My Status</Text>
 
-      {/* PRIMARY 🦋 toggle — full-width, obvious tap target. */}
+      {/* PRIMARY 🦋 toggle — full-width, obvious tap target.
+          Refinement (Garry Feb 2026): removed the "🟢 Online" header
+          line since Online is the automatic default — no need to state
+          it explicitly. */}
       <ButtonNew
         pal={pal}
         kind="primary"
@@ -262,21 +260,24 @@ function MyStatusCard({ pal, current, setCurrent }: {
         label={isLooking ? '✓ Looking for a chat — tap to stop' : 'Looking for a chat'}
       />
 
-      {/* Secondary status chips. */}
+      {/* Secondary status chips. Refinement: "Busy" → "Busy right now"
+          (friendlier, less permanent). */}
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         <ButtonNew pal={pal} kind="pill" selected={current === 'happy'}
                    onPress={() => setCurrent(current === 'happy' ? 'online' : 'happy')}
-                   icon="😊" label="Happy" />
+                   icon="😊" label="Happy to connect" />
         <ButtonNew pal={pal} kind="pill" selected={current === 'busy'}
                    onPress={() => setCurrent(current === 'busy' ? 'online' : 'busy')}
-                   icon="🟡" label="Busy" />
-        <ButtonNew pal={pal} kind="pill"
-                   onPress={() => setCurrent('online')}
-                   label="✕ Clear" />
+                   icon="🟡" label="Busy right now" />
+        {current !== 'online' && (
+          <ButtonNew pal={pal} kind="pill"
+                     onPress={() => setCurrent('online')}
+                     label="✕ Clear" />
+        )}
       </View>
 
       <Text style={{ color: pal.muted, fontSize: 12, marginTop: 10, lineHeight: 17 }}>
-        {'\u2615 In the FP Café and \u26AB Offline update automatically.\n\u{1F98B} Looking clears after 60 min.'}
+        {'\u2615 In the FP Café and \u26AB Offline are set automatically.'}
       </Text>
     </View>
   );
@@ -289,8 +290,11 @@ function CafeBannerSingle({ pal }: { pal: Pal }) {
   return (
     <View style={[styles.banner, { backgroundColor: pal.brandTint, borderColor: pal.outline }]}>
       <View style={{ flex: 1 }}>
+        {/* Refinement (Garry Feb 2026): warmer, more conversational
+            wording — "would love a chat" vs the clinical "is looking
+            for a chat". Fits FriendPlace's personality. */}
         <Text style={{ color: pal.onSurface, fontWeight: '800', fontSize: 15 }}>
-          🦋 Susan is looking for a chat
+          🦋 Susan would love a chat
         </Text>
         <Text style={{ color: pal.muted, fontSize: 13, marginTop: 2 }}>
           Tap to say hello.
@@ -305,8 +309,12 @@ function CafeBannerMulti({ pal }: { pal: Pal }) {
   const lookers = MEMBERS.filter((m) => m.status === 'looking');
   return (
     <View style={[styles.banner, { flexDirection: 'column', alignItems: 'stretch', backgroundColor: pal.brandTint, borderColor: pal.outline }]}>
+      {/* Refinement (Garry Feb 2026): heading changed from "Looking for
+          a chat" to "People looking for a chat" and each row gets its
+          own 🦋 prefix, reinforcing why each person is in the list and
+          making the group easier to scan. */}
       <Text style={{ color: pal.onSurface, fontWeight: '800', fontSize: 15, marginBottom: 6 }}>
-        🦋 Looking for a chat
+        People looking for a chat
       </Text>
       {lookers.map((m, i) => (
         <Pressable
@@ -317,7 +325,7 @@ function CafeBannerMulti({ pal }: { pal: Pal }) {
             borderTopColor: pal.border,
           }}
         >
-          <Text style={{ fontSize: 18 }}>{m.avatar}</Text>
+          <Text style={{ fontSize: 16 }}>🦋</Text>
           <Text style={{ color: pal.onSurface, fontWeight: '700', fontSize: 15, flex: 1 }}>{m.name}</Text>
           <Ionicons name="chevron-forward" size={20} color={pal.outline} />
         </Pressable>
