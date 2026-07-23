@@ -1,9 +1,32 @@
 # FriendPlace Presence & Status — Design Document
 
 **Author**: Neo (E1 agent) for Garry
-**Status**: DRAFT — awaiting approval before any code is written
+**Status**: **LOCKED — Feb 2026 (post-refinement round).** Ready for implementation. Any further design changes require an explicit new round.
 **Date**: Feb 2026, TestFlight round-9 planning
 **Scope**: Items 2, 3, 4 from Garry's Feb 2026 review — combined into one coherent feature because they share the same underlying data.
+
+## LOCKED DECISIONS
+
+**Q1 — Banner scope**: Globally-scoped. Everyone `looking` appears in the FP Café banner regardless of whether they're currently at a café table. Tap action varies: `in_cafe` → **Join table** + **Private message**; else → **Private message** only.
+
+**Q2 — Flutter option removed.** Only Join-table + Private-message on the tap sheet. Someone who's `looking` has already invited contact; a third choice adds noise.
+
+**Q3 — Status precedence (locked, `Busy` now above `Happy`):**
+```
+Offline > Looking > In FP Café > Busy right now > Happy to connect > Online
+```
+
+**Q4 — Emoji glyphs** for TestFlight. Can be upgraded to branded SVG later without schema change.
+
+**Q5 — Heartbeat cadence**: 60 seconds.
+
+**Additional refinements from Garry's Feb 2026 review:**
+- **"My Status" card**: no "🟢 Online" header line (Online is the automatic default; no need to announce it).
+- **Wording**: "Busy" → "**Busy right now**". "Happy" → "**Happy to connect**".
+- **Single-member café banner**: "🦋 Susan is looking for a chat" → "**🦋 Susan would love a chat**" (warmer, more conversational).
+- **Multi-member café banner**: heading is "**People looking for a chat**" (not "🦋 Looking for a chat"). Each row prefixed with 🦋 to reinforce why the person is in the list.
+- **Badge placement**: `<AvatarWithBadge>` used EVERYWHERE an avatar is visible (Find Friends, café seats, DM headers, group members list, event attendees). The name shown beside the avatar is JUST the name — no icon repeat, no status label. Status is recognised at a glance via the corner glyph.
+- **No text-only `<MemberBadge>` variant.** The old `MemberBadge` component has been retired from the design. If a future context needs status without an avatar, we'll design that case separately.
 
 ---
 
@@ -27,11 +50,11 @@
 | **Happy to connect** | 😊 | Manual toggle | Toggle off · going offline · 24 h timeout               |
 | **Busy**       | 🟡    | Manual toggle| Toggle off · going offline · 4 h timeout                      |
 
-**Precedence** (when multiple could apply, which one displays beside the name):
+**Precedence** (when multiple could apply, which one displays beside the name — **LOCKED per Garry Feb 2026**):
 ```
-Offline > Busy > Looking > In FP Café > Happy to connect > Online
+Offline > Looking > In FP Café > Busy right now > Happy to connect > Online
 ```
-Reasoning: offline is a hard "cannot reach me" signal; busy overrides social invites; looking is the strongest positive signal so it beats the passive café-presence; happy is milder than looking; plain online is the fallback.
+Reasoning: offline is a hard "cannot reach me" signal. Looking is the strongest positive social invite so it beats everything reachable. Café-presence beats Busy because "I'm here right now" is a more actionable positional signal than "generally busy". Busy beats Happy because if someone has actively said Busy, that overrides the passive Happy setting. Plain online is the fallback.
 
 **Automatic statuses (Café + Offline) are always computed server-side** so we don't rely on the client sending them. This prevents inconsistencies when the app crashes or a device goes offline abruptly.
 

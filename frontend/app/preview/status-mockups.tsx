@@ -89,39 +89,12 @@ const MEMBERS: Member[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────
-// <MemberBadge> — proposed shared component.
-// Renders a small glyph beside a member's name, or in the corner of an
-// avatar bubble. Two layouts covered per design doc §5.4.
+// <AvatarWithBadge> — the ONE component used to show status beside a
+// member's name everywhere in the app (per Garry's refinement Feb 2026).
+// A tiny glyph is anchored to the bottom-right corner of the avatar
+// bubble. The name shown beside it is JUST the name — no icon repeat,
+// no status label. Members recognise the status at a glance.
 // ─────────────────────────────────────────────────────────────────────
-function MemberBadge({
-  name,
-  status,
-  pal,
-  size = 'md',
-  showLabel = false,
-}: {
-  name: string;
-  status: Status;
-  pal: Pal;
-  size?: 'sm' | 'md' | 'lg';
-  showLabel?: boolean;
-}) {
-  const fontSize = size === 'sm' ? 13 : size === 'lg' ? 18 : 15;
-  const glyphSize = size === 'sm' ? 12 : size === 'lg' ? 16 : 14;
-  const { glyph, label } = STATUS_META[status];
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-      <Text style={{ fontSize, color: pal.onSurface, fontWeight: '700' }}>{name}</Text>
-      <Text style={{ fontSize: glyphSize }} accessibilityLabel={label}>{glyph}</Text>
-      {showLabel && (
-        <Text style={{ fontSize: fontSize - 2, color: pal.muted }}>{label}</Text>
-      )}
-    </View>
-  );
-}
-
-// Avatar + tiny corner glyph — used in café tables and Find Friends
-// where the avatar is the dominant visual.
 function AvatarWithBadge({
   avatar,
   status,
@@ -359,7 +332,11 @@ function TapSheet({ pal, memberInCafe }: { pal: Pal; memberInCafe: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// PIECE: MemberBadge in different contexts (rows / cards / avatars)
+// PIECE: Avatar + status badge in every list context.
+// Refinement (Garry Feb 2026): avatar-corner badge is used EVERYWHERE
+// an avatar is visible. The name beside it is JUST the name — no icon
+// repeat, no status label. Status is recognised at a glance via the
+// glyph on the avatar corner. This keeps every list scannable.
 // ─────────────────────────────────────────────────────────────────────
 function BadgeContexts({ pal }: { pal: Pal }) {
   return (
@@ -368,7 +345,7 @@ function BadgeContexts({ pal }: { pal: Pal }) {
       <View style={{ padding: 12, borderRadius: 14, backgroundColor: pal.surface, borderWidth: 1, borderColor: pal.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         <AvatarWithBadge avatar="👩🏻" status="looking" pal={pal} diameter={54} />
         <View style={{ flex: 1 }}>
-          <MemberBadge name="Susan" status="looking" pal={pal} showLabel />
+          <Text style={{ color: pal.onSurface, fontWeight: '800', fontSize: 16 }}>Susan</Text>
           <Text style={{ color: pal.muted, fontSize: 13, marginTop: 2 }}>Ballarat · 2 friends in common</Text>
         </View>
       </View>
@@ -380,27 +357,28 @@ function BadgeContexts({ pal }: { pal: Pal }) {
         <Text style={{ color: pal.muted, fontSize: 12 }}>at the table</Text>
       </View>
 
-      {/* DM header */}
-      <View style={{ padding: 12, borderRadius: 14, backgroundColor: pal.surface, borderWidth: 1, borderColor: pal.border, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <Text style={{ fontSize: 30 }}>👩🏽</Text>
+      {/* DM header — badge on the avatar, no icon after the name. */}
+      <View style={{ padding: 12, borderRadius: 14, backgroundColor: pal.surface, borderWidth: 1, borderColor: pal.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <AvatarWithBadge avatar="👩🏽" status="happy" pal={pal} diameter={48} />
         <View style={{ flex: 1 }}>
-          <MemberBadge name="Diana" status="happy" pal={pal} size="lg" />
+          <Text style={{ color: pal.onSurface, fontWeight: '800', fontSize: 17 }}>Diana</Text>
           <Text style={{ color: pal.muted, fontSize: 12, marginTop: 2 }}>Direct message</Text>
         </View>
       </View>
 
-      {/* Group members row */}
+      {/* Group members row — every member gets a small avatar with a
+          corner badge; just the name beside it. */}
       <View style={{ padding: 12, borderRadius: 14, backgroundColor: pal.surface, borderWidth: 1, borderColor: pal.border, gap: 10 }}>
         <Text style={{ color: pal.muted, fontSize: 12 }}>Ballarat Walkers · members</Text>
         {[MEMBERS[0], MEMBERS[3], MEMBERS[4], MEMBERS[6]].map((m) => (
           <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Text style={{ fontSize: 22 }}>{m.avatar}</Text>
-            <MemberBadge name={m.name} status={m.status} pal={pal} showLabel />
+            <AvatarWithBadge avatar={m.avatar} status={m.status} pal={pal} diameter={36} />
+            <Text style={{ color: pal.onSurface, fontWeight: '700', fontSize: 15 }}>{m.name}</Text>
           </View>
         ))}
       </View>
 
-      {/* Event attendees */}
+      {/* Event attendees — grid of avatars with corner badges + name below. */}
       <View style={{ padding: 12, borderRadius: 14, backgroundColor: pal.surface, borderWidth: 1, borderColor: pal.border, gap: 10 }}>
         <Text style={{ color: pal.muted, fontSize: 12 }}>Sunday Brunch · attendees</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
@@ -542,9 +520,9 @@ export default function StatusMockupsPreview() {
         </Section>
 
         {/* Member badges everywhere */}
-        <Section title="6 · Status glyph beside member names">
+        <Section title="6 · Status glyph beside member avatars">
           <Text style={{ color: pal.muted, fontSize: 13 }}>
-            Appears in Find Friends, café seats, DM headers, groups and event attendees.
+            The badge sits on the avatar corner in Find Friends, café seats, DM headers, group members and event attendees. Names stay clean — the glyph tells the story.
           </Text>
           <BadgeContexts pal={pal} />
         </Section>
@@ -564,7 +542,7 @@ export default function StatusMockupsPreview() {
               </View>
             ))}
             <Text style={{ color: pal.muted, fontSize: 12, marginTop: 4 }}>
-              Precedence: Offline &gt; Busy &gt; Looking &gt; In FP Café &gt; Happy &gt; Online
+              Precedence: Offline &gt; Looking &gt; In FP Café &gt; Busy right now &gt; Happy to connect &gt; Online
             </Text>
           </View>
         </Section>
