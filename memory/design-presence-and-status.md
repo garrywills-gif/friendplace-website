@@ -22,11 +22,18 @@ Offline > Looking > In FP Café > Busy right now > Happy to connect > Online
 
 **Additional refinements from Garry's Feb 2026 review:**
 - **"My Status" card**: no "🟢 Online" header line (Online is the automatic default; no need to announce it).
+- **"My Status" layout**: Happy + Busy pills sit **side-by-side** (each taking half the row) rather than stacked, so the card stays compact.
 - **Wording**: "Busy" → "**Busy right now**". "Happy" → "**Happy to connect**".
-- **Single-member café banner**: "🦋 Susan is looking for a chat" → "**🦋 Susan would love a chat**" (warmer, more conversational).
-- **Multi-member café banner**: heading is "**People looking for a chat**" (not "🦋 Looking for a chat"). Each row prefixed with 🦋 to reinforce why the person is in the list.
-- **Badge placement**: `<AvatarWithBadge>` used EVERYWHERE an avatar is visible (Find Friends, café seats, DM headers, group members list, event attendees). The name shown beside the avatar is JUST the name — no icon repeat, no status label. Status is recognised at a glance via the corner glyph.
-- **No text-only `<MemberBadge>` variant.** The old `MemberBadge` component has been retired from the design. If a future context needs status without an avatar, we'll design that case separately.
+- **Single-member café banner**: "🦋 Susan is looking for a chat" → "**🦋 Susan would love a chat**" (warmer, more conversational). Subtitle: "**Tap to start chatting.**"
+- **Multi-member café banner**: heading is "**People looking for a chat**". Each row prefixed with 🦋.
+- **Badge placement**: `<AvatarWithBadge>` used EVERYWHERE an avatar is visible (Find Friends, café seats, DM headers, group members list, event attendees). The name shown beside the avatar is JUST the name — no icon repeat, no status label.
+- **No text-only `<MemberBadge>` variant.** Retired.
+- **Auto-off on conversation start (LOCKED, Garry Feb 2026)**: When a member has `manual_status = "looking"` and one of the following happens, the server automatically clears `manual_status` back to `null` (member becomes `online` / `in_cafe` per precedence):
+  1. Any private message thread with them becomes non-empty for the first time in this "looking" session (they receive OR send a message).
+  2. Another member joins the café table where they're currently seated.
+  3. They join a café table where another member is seated.
+
+  Reasoning: the butterfly's job is to signal "please make contact with me". Once contact has been made, keeping the badge on would mis-signal to third parties that they're still available. Backend server implements this because the client can't reliably observe all three trigger events. The auto-clear fires a `status_change` WebSocket broadcast so any café banner they're in visibly disappears within ~1s.
 
 ---
 
@@ -46,7 +53,7 @@ Offline > Looking > In FP Café > Busy right now > Happy to connect > Online
 | **Offline**    | ⚫     | Auto         | App comes to foreground → transitions to `online`             |
 | **Online**     | 🟢    | Auto         | App backgrounded > 5 min OR logout → `offline`                |
 | **In FP Café** | ☕     | Auto         | Leaving the café table screen → back to prior status          |
-| **Looking**    | 🦋    | Manual toggle| Toggle off · leaving FP Café · going offline · 60 min timeout |
+| **Looking**    | 🦋    | Manual toggle| Toggle off · leaving FP Café · going offline · **conversation started** · 60 min timeout |
 | **Happy to connect** | 😊 | Manual toggle | Toggle off · going offline · 24 h timeout               |
 | **Busy**       | 🟡    | Manual toggle| Toggle off · going offline · 4 h timeout                      |
 

@@ -233,21 +233,31 @@ function MyStatusCard({ pal, current, setCurrent }: {
         label={isLooking ? '✓ Looking for a chat — tap to stop' : 'Looking for a chat'}
       />
 
-      {/* Secondary status chips. Refinement: "Busy" → "Busy right now"
-          (friendlier, less permanent). */}
-      <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-        <ButtonNew pal={pal} kind="pill" selected={current === 'happy'}
-                   onPress={() => setCurrent(current === 'happy' ? 'online' : 'happy')}
-                   icon="😊" label="Happy to connect" />
-        <ButtonNew pal={pal} kind="pill" selected={current === 'busy'}
-                   onPress={() => setCurrent(current === 'busy' ? 'online' : 'busy')}
-                   icon="🟡" label="Busy right now" />
-        {current !== 'online' && (
+      {/* Secondary status chips. Refinements:
+          - "Busy" → "Busy right now" / "Happy" → "Happy to connect"
+          - Side-by-side layout (each pill takes half the row) so the
+            card stays compact and doesn't force scrolling.
+          - The "✕ Clear" pill sits on its own row below and only
+            appears when there IS something to clear. */}
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+        <View style={{ flex: 1 }}>
+          <ButtonNew pal={pal} kind="pill" selected={current === 'happy'}
+                     onPress={() => setCurrent(current === 'happy' ? 'online' : 'happy')}
+                     icon="😊" label="Happy to connect" />
+        </View>
+        <View style={{ flex: 1 }}>
+          <ButtonNew pal={pal} kind="pill" selected={current === 'busy'}
+                     onPress={() => setCurrent(current === 'busy' ? 'online' : 'busy')}
+                     icon="🟡" label="Busy right now" />
+        </View>
+      </View>
+      {current !== 'online' && (
+        <View style={{ marginTop: 8, alignSelf: 'flex-start' }}>
           <ButtonNew pal={pal} kind="pill"
                      onPress={() => setCurrent('online')}
                      label="✕ Clear" />
-        )}
-      </View>
+        </View>
+      )}
 
       <Text style={{ color: pal.muted, fontSize: 12, marginTop: 10, lineHeight: 17 }}>
         {'\u2615 In the FP Café and \u26AB Offline are set automatically.'}
@@ -270,7 +280,7 @@ function CafeBannerSingle({ pal }: { pal: Pal }) {
           🦋 Susan would love a chat
         </Text>
         <Text style={{ color: pal.muted, fontSize: 13, marginTop: 2 }}>
-          Tap to say hello.
+          Tap to start chatting.
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={22} color={pal.outline} />
