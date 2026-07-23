@@ -108,24 +108,24 @@ export default function DM() {
           }}
         />
         <View style={[styles.composer, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-          {/* Mic goes to the RIGHT of the input to match tables, groups
-              and recipes. TestFlight round-2 v2 (Garry, 28 July 2026
-              #11): private chats had the mic on the left — flipped
-              here for cross-surface consistency. */}
+          {/* TestFlight round-7 (Garry, Feb 2026 #20): unified mic/send
+              toggle via shared VoiceInputButton — empty text shows the
+              mic, typed text shows send. Matches George's composer for
+              cross-app consistency. */}
           <TextInput
             testID="dm-input" value={text} onChangeText={setText} placeholder="Type a message…" placeholderTextColor={c.muted}
             style={{ flex: 1, color: c.onSurface, fontSize: 17 * scale, paddingVertical: 10, paddingHorizontal: 12 }} multiline />
-          {prefs.voiceInputEnabled && (
-            <VoiceInputButton
-              testID="dm-mic"
-              value={text}
-              onChangeText={setText}
-              userId={user?.id}
-              onError={show}
-              size={40}
-            />
-          )}
-          <Pressable testID="dm-send" onPress={send} style={[styles.sendBtn, { backgroundColor: c.brand }]}><Ionicons name="send" size={20} color="#FFF" /></Pressable>
+          <VoiceInputButton
+            testID="dm-mic"
+            sendTestID="dm-send"
+            value={text}
+            onChangeText={setText}
+            userId={user?.id}
+            onError={show}
+            size={40}
+            onSend={send}
+            voiceEnabled={prefs.voiceInputEnabled}
+          />
         </View>
       </KeyboardAvoidingView>
       {reportTarget && (

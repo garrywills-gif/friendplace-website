@@ -340,25 +340,22 @@ export default function TableChat() {
             multiline
             onSubmitEditing={send}
           />
-          {/* Tap-to-dictate mic — sits between the input and the send
-              button so users can naturally: type OR speak, then hit
-              send. On short taps the transcribed text is appended to
-              whatever's already there, so half-typed messages don't get
-              lost. Gated on the Accessibility → Voice input pref so
-              users who prefer typing can switch it off. */}
-          {prefs.voiceInputEnabled && (
-            <VoiceInputButton
-              testID="table-voice"
-              value={text}
-              onChangeText={setText}
-              userId={user?.id}
-              onError={show}
-              size={40}
-            />
-          )}
-          <Pressable testID="table-send" onPress={send} style={[styles.sendBtn, { backgroundColor: c.brand }]}>
-            <Ionicons name="send" size={20} color="#FFF" />
-          </Pressable>
+          {/* TestFlight round-7 (Garry, Feb 2026 #20): unified mic/send
+              toggle via shared VoiceInputButton. Empty text → mic; text
+              → send. Matches George's composer. Accessibility voice-
+              input pref still honoured via `voiceEnabled` — when off,
+              the button stays as send. */}
+          <VoiceInputButton
+            testID="table-voice"
+            sendTestID="table-send"
+            value={text}
+            onChangeText={setText}
+            userId={user?.id}
+            onError={show}
+            size={40}
+            onSend={send}
+            voiceEnabled={prefs.voiceInputEnabled}
+          />
         </View>
       </KeyboardAvoidingView>
 

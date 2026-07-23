@@ -360,20 +360,28 @@ export default function Profile() {
       >
         <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 14 * scale }}>🦋 Send a &ldquo;Looking to chat&rdquo; alert</Text>
       </Pressable>
-      <View style={{ flexDirection: "row", alignItems: "center", marginTop: 10, gap: 8 }}>
-        <Pressable
-          testID="toggle-nearby-opt-in"
-          onPress={async () => {
-            const next = !nearbyOptedIn;
-            setNearbyOptedIn(next);
-            try { await api.updatePreferences(user.id, { nearby_chat_alerts: next }); show(next ? "You'll get chat alerts from neighbours" : "Nearby alerts off"); } catch { setNearbyOptedIn(!next); }
-          }}
-          style={{ width: 22, height: 22, borderWidth: 2, borderRadius: 6, borderColor: c.brand, backgroundColor: nearbyOptedIn ? c.brand : "transparent", alignItems: "center", justifyContent: "center" }}
-        >
+      {/* TestFlight round-7 (Garry, Feb 2026 #18): the whole row is now
+          tappable — previously only the tiny 22×22 checkbox itself was
+          a Pressable, so members tapping the (much larger) label text
+          got no response. Meets 44 pt iOS minimum touch target. */}
+      <Pressable
+        testID="toggle-nearby-opt-in"
+        onPress={async () => {
+          const next = !nearbyOptedIn;
+          setNearbyOptedIn(next);
+          try { await api.updatePreferences(user.id, { nearby_chat_alerts: next }); show(next ? "You'll get chat alerts from neighbours" : "Nearby alerts off"); } catch { setNearbyOptedIn(!next); }
+        }}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: nearbyOptedIn }}
+        accessibilityLabel="Let nearby neighbours send me chat alerts"
+        hitSlop={8}
+        style={{ flexDirection: "row", alignItems: "center", marginTop: 10, gap: 10, minHeight: 44, paddingVertical: 4 }}
+      >
+        <View style={{ width: 22, height: 22, borderWidth: 2, borderRadius: 6, borderColor: c.brand, backgroundColor: nearbyOptedIn ? c.brand : "transparent", alignItems: "center", justifyContent: "center" }}>
           {nearbyOptedIn && <Ionicons name="checkmark" size={14} color="#FFF" />}
-        </Pressable>
+        </View>
         <Text style={{ color: c.muted, fontSize: 13 * scale, flex: 1 }}>Let nearby neighbours send me chat alerts</Text>
-      </View>
+      </Pressable>
       <View style={{ height: 12 }} />
       <Button label="Friend Requests" onPress={() => router.push("/friends/inbox")} testID="profile-friend-requests" />
       <View style={{ height: 8 }} />
@@ -570,6 +578,24 @@ export default function Profile() {
                 );
               })}
             </View>
+            {/* TestFlight round-7 (Garry, Feb 2026 #19): dedicated "no
+                friends" empty-state for the "My friends" audience so
+                members aren't sent into a dead-end toast. Existing
+                toast fallback still catches network / server errors. */}
+            {alertAudience === "friends" && friends.length === 0 && (
+              <View style={{ backgroundColor: c.surfaceSecondary, borderColor: c.border, borderWidth: 1, borderRadius: 14, padding: 14, gap: 8 }}>
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>You don&apos;t have any friends yet</Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale, lineHeight: 18 }}>Head to Find Friends to say hi to someone. Once you&apos;re connected, you can send them a chat alert from here.</Text>
+                <Pressable
+                  testID="alert-friends-find-friends"
+                  onPress={() => { setAlertOpen(false); router.push("/friends" as any); }}
+                  style={{ backgroundColor: c.brand, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8, alignSelf: "flex-start" }}
+                >
+                  <Ionicons name="people" size={18} color={c.onBrandPrimary} />
+                  <Text style={{ color: c.onBrandPrimary, fontWeight: "900", fontSize: 14 * scale }}>Find Friends</Text>
+                </Pressable>
+              </View>
+            )}
             {alertAudience === "selected" && (
               <View>
                 <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginBottom: 6 }}>Pick from your friends ({alertSelected.length}/20)</Text>

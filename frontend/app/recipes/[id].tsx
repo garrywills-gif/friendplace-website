@@ -15,7 +15,7 @@ type Comment = { id: string; user_id: string; user_name: string; user_avatar: st
 
 export default function RecipeView() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { c, scale } = useTheme();
+  const { c, scale, prefs } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
   const { show, confirm } = useToast();
@@ -170,22 +170,25 @@ export default function RecipeView() {
                 multiline
                 style={{ borderWidth: 1.5, borderRadius: 12, padding: 12, backgroundColor: c.surfaceSecondary, borderColor: c.border, color: c.onSurface, fontSize: 15 * scale, minHeight: 48 }}
               />
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                {/* TestFlight round-2 (Garry, 28 July 2026 #10):
-                    Recipe comments now offer voice-to-text, matching
-                    every other conversational surface. Speaker for the
-                    recipe body already lives in the header. */}
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end" }}>
+                {/* TestFlight round-7 (Garry, Feb 2026 #20): unified
+                    mic/send toggle via shared VoiceInputButton so the
+                    recipe comment composer behaves the same as DMs and
+                    FP Café — empty text shows mic, typed text shows
+                    send. Loading state during POST still surfaces via
+                    the shared button's disabled state. */}
                 <VoiceInputButton
                   testID="recipe-comment-voice"
+                  sendTestID="recipe-comment-send"
                   value={text}
                   onChangeText={setText}
                   userId={user?.id}
                   onError={(msg) => show(msg)}
                   size={40}
+                  onSend={addComment}
+                  voiceEnabled={prefs.voiceInputEnabled}
+                  sendDisabled={!text.trim() || posting}
                 />
-                <Pressable testID="recipe-comment-send" disabled={!text.trim() || posting} onPress={addComment} style={[styles.sendBtn, { backgroundColor: c.brand, opacity: !text.trim() || posting ? 0.5 : 1 }]}>
-                  {posting ? <ActivityIndicator color="#FFF" size="small" /> : <Ionicons name="send" size={20} color="#FFF" />}
-                </Pressable>
               </View>
             </View>
           )}

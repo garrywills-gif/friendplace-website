@@ -84,6 +84,21 @@ type Props = {
   size?: number;
   /** Optional test ID for e2e. */
   testID?: string;
+  /** TestFlight round-7 (Garry, Feb 2026 #20): when provided, this
+   *  component becomes a single mic/send toggle (matching George's
+   *  composer). Empty text → mic; text present OR voice disabled →
+   *  send. Callers who omit `onSend` still get the legacy mic-only
+   *  behaviour so any existing usage continues to work unchanged. */
+  onSend?: () => void;
+  /** When `onSend` is provided AND `voiceEnabled` is false, the button
+   *  always renders as send (used when the accessibility "Voice input"
+   *  preference is off). Defaults to true. */
+  voiceEnabled?: boolean;
+  /** When rendering the send button, disable it if there's nothing to
+   *  send. Defaults to true. */
+  sendDisabled?: boolean;
+  /** Optional testID for the send state. Defaults to `${testID}-send`. */
+  sendTestID?: string;
 };
 
 // TestFlight round-2 feedback (Garry, 28 July 2026): the previous
@@ -106,6 +121,10 @@ export default function VoiceInputButton({
   onError,
   size = 44,
   testID,
+  onSend,
+  voiceEnabled = true,
+  sendDisabled,
+  sendTestID,
 }: Props) {
   const { c } = useTheme();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -353,6 +372,47 @@ export default function VoiceInputButton({
   const isBusy = state === "transcribing";
   const bg = isRecording ? "#EF4444" : c.surfaceSecondary;
   const iconColor = isRecording ? "#FFFFFF" : c.brand;
+
+  // TestFlight round-7 (Garry, Feb 2026 #20): when the caller provides
+  // `onSend`, this component becomes the whole composer action —
+  // matching George's proven "mic-when-empty / send-when-typed" toggle.
+  // If voice input is disabled by accessibility preference OR the text
+  // input already has content, render a send button instead of the mic.
+  // Recording / transcribing states still take precedence (we never
+  // hide the recording UI mid-capture, even if the user types).
+  const hasText = (value || "").trim().length > 0;
+  const showSend =
+    onSend != null &&
+    !isRecording &&
+    !isBusy &&
+    (hasText || !voiceEnabled);
+
+  if (showSend) {
+    const disabled = sendDisabled ?? !hasText;
+    return (
+      <Pressable
+        testID={sendTestID || (testID ? `${testID}-send` : "composer-send")}
+        onPress={onSend}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel="Send message"
+        style={({ pressed }) => [
+          styles.btn,
+          {
+            width: size,
+            height: size,
+            borderRadius: size / 2,
+            backgroundColor: c.brand,
+            borderColor: c.brand,
+            opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
+          },
+        ]}
+        hitSlop={6}
+      >
+        <Ionicons name="send" size={20} color="#FFFFFF" />
+      </Pressable>
+    );
+  }
 
   return (
     <>
