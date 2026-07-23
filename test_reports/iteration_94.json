@@ -1,0 +1,36 @@
+{
+  "summary": "iter94 — TDZ fix VERIFIED. `stopAndTranscribe` is now declared at line 237 BEFORE `handleMicPress` (line 400) and `acceptRationaleAndRequest` (line 422) in /app/frontend/src/components/VoiceInputButton.tsx. The ReferenceError from iter93 is gone. Live verification: logged in as member@friendplace.com.au and navigated to /table/fp-cafe-permanent, /recipes/<id>, and /dm/<id> — all three screens render correctly with NO ErrorBoundary and NO 'Cannot access stopAndTranscribe before initialization' error. Composer visible on the table screen with `data-testid=\"table-voice\"` present (Fix C mic-when-empty toggle intact). DM screen renders 'Message' header with 'Type a message…' composer + mic on the right. Recipe detail screen renders cleanly. Zero React runtime errors in the browser console (only pre-existing shadow*/textShadow*/pointerEvents deprecation warnings + expected 401/404s from unrelated API probes). All 7 iter93 static assertions independently re-verified (elapsedRef line 147, startedAtRef line 148, beginCapture writes state+ref+startedAtRef lines 206–208, tick reads Date.now()−startedAtRef.current line 213, setState('transcribing') is FIRST statement of stopAndTranscribe line 244, stopAndTranscribe deps line 397 do NOT include `elapsed`, handleMicPress deps line 420 include stopAndTranscribe, ≥5 __DEV__ warn+onError branches at lines 224, 267+272, 278+279, 289+290, 320+321, 351/354, 376+377, 380+386, setAudioModeAsync release inside catch(e) lines 266–268). Backend regression 3/3 PASS on POST /api/mcgs/george/transcribe (401 no bearer, 400/422 no file, 200 {text:string} happy path). Metro bundles cleanly (1523 modules; no build errors). Physical-device mic capture remains user-only per Garry's scope.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter93_stt_contract.py",
+    "/app/test_reports/pytest/iter94_stt.xml"
+  ],
+  "action_items": [
+    "None from the TDZ fix perspective — the declaration-order swap is applied correctly and verified in the running app.",
+    "Optional cleanup (not blocking): Expo doctor flags `expo@54.0.35` (expected ~54.0.36) and `react-native-keyboard-controller@1.18.6` (expected 1.18.5). Unrelated to this iter."
+  ],
+  "critical_code_review_comments": [
+    "Declaration order in VoiceInputButton.tsx is now correct: refs/timers → beginCapture (181) → stopAndTranscribe (237) → handleMicPress (400) → acceptRationaleAndRequest (422). Note: `beginCapture` at line 221 forward-references `stopAndTranscribe` inside its setTimeout callback body, which is fine because that reference is only evaluated at timer-fire time (well after both `const`s have initialised). The eslint-disable comment on line 228 is retained by design for that same reason.",
+    "The `handleMicPress` deps array `[state, beginCapture, stopAndTranscribe]` (line 420) is now evaluated AFTER both `beginCapture` and `stopAndTranscribe` have initialised — no TDZ.",
+    "Everything from iter93's diagnostic instrumentation and stale-closure fix remains intact: elapsedRef+startedAtRef pattern (monotonic Date.now-based), setState('transcribing') as the very first statement of stopAndTranscribe, no `elapsed` in stopAndTranscribe deps, and every early-return path emits both a __DEV__ warn and a member-facing onError message."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (3/3 pytest — bearer, missing-file, happy-path)",
+    "frontend": "100% for the TDZ regression — /table/fp-cafe-permanent, /recipes/<id>, /dm/<id> all mount cleanly with no ErrorBoundary and no runtime ReferenceError. Native audio capture out of Playwright scope (user does physical-device verification)."
+  },
+  "seed_data_creation": "None. Reused member@friendplace.com.au / TestPass2026!.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "iter93's TDZ crash is fully resolved. VoiceInputButton.tsx now has stopAndTranscribe (line 237) declared before handleMicPress (line 400). All 7 iter93 static assertions still hold. Backend transcribe endpoint contract unchanged. Physical mic capture is user-verified only.",
+  "rca_of_issue": "iter93 introduced a TDZ crash by adding `stopAndTranscribe` to `handleMicPress`'s useCallback deps array while `stopAndTranscribe` was still declared BELOW `handleMicPress` in source order. `const` declarations are hoisted but stay in the Temporal Dead Zone until their initialiser runs, so reading `stopAndTranscribe` from the deps array (evaluated eagerly during render, top-to-bottom) threw `ReferenceError: Cannot access 'stopAndTranscribe' before initialization`. iter94 fixed this by a single mechanical move: the entire `const stopAndTranscribe = useCallback(...)` block now sits above `handleMicPress` (order: beginCapture → stopAndTranscribe → handleMicPress → acceptRationaleAndRequest). No behavioural code was changed; deps arrays, internal logic, and comments are identical to iter93. Verified by loading the previously-crashing screens (/table/fp-cafe-permanent, /recipes/<id>, /dm/<id>) in the preview and observing clean mounts with the composer + mic button visible."
+}

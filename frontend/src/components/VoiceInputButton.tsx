@@ -228,40 +228,12 @@ export default function VoiceInputButton({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder, onError]);
 
-  // ─── Permission gate ─────────────────────────────────────────────────
-  const handleMicPress = useCallback(async () => {
-    if (state === "recording") return void stopAndTranscribe();
-    if (state === "transcribing") return; // ignore while uploading
-
-    // Fast path: already granted → just go.
-    const current = await getRecordingPermissionsAsync();
-    if (current.granted) return beginCapture();
-    if (!current.canAskAgain) {
-      setShowBlocked(true);
-      return;
-    }
-    // First-time (or "denied but can ask again"): show our rationale so
-    // the user knows WHY we're about to prompt them. This is per the
-    // FriendPlace permission contract — never fire the native prompt
-    // without a plain-English "here's why".
-    setShowRationale(true);
-    // TestFlight round-8 (Garry, Feb 2026 #21): `stopAndTranscribe` and
-    // `beginCapture` are now in deps so this handler ALWAYS calls the
-    // most current versions. Prevents any residual stale-closure risk
-    // if either callback is later re-memoised mid-recording.
-  }, [state, beginCapture, stopAndTranscribe]);
-
-  const acceptRationaleAndRequest = useCallback(async () => {
-    setShowRationale(false);
-    const r = await requestRecordingPermissionsAsync();
-    if (!r.granted) {
-      if (!r.canAskAgain) setShowBlocked(true);
-      return;
-    }
-    await beginCapture();
-  }, [beginCapture]);
-
   // ─── Stop + upload ───────────────────────────────────────────────────
+  // TestFlight round-8 iter93 fix (Feb 2026): `stopAndTranscribe` must
+  // be declared BEFORE `handleMicPress` because `handleMicPress`'s
+  // useCallback deps array eagerly references it — declaring it after
+  // caused a TDZ (Temporal Dead Zone) ReferenceError that crashed every
+  // screen mounting `<VoiceInputButton>` (DMs, tables, recipes).
   const stopAndTranscribe = useCallback(async () => {
     // TestFlight round-8 (Garry, Feb 2026 #21): show the processing
     // indicator IMMEDIATELY so members get instant feedback on stop
@@ -423,6 +395,39 @@ export default function VoiceInputButton({
     // memoised.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recorder, userId, value, onChangeText, appendMode, onError]);
+
+  // ─── Permission gate ─────────────────────────────────────────────────
+  const handleMicPress = useCallback(async () => {
+    if (state === "recording") return void stopAndTranscribe();
+    if (state === "transcribing") return; // ignore while uploading
+
+    // Fast path: already granted → just go.
+    const current = await getRecordingPermissionsAsync();
+    if (current.granted) return beginCapture();
+    if (!current.canAskAgain) {
+      setShowBlocked(true);
+      return;
+    }
+    // First-time (or "denied but can ask again"): show our rationale so
+    // the user knows WHY we're about to prompt them. This is per the
+    // FriendPlace permission contract — never fire the native prompt
+    // without a plain-English "here's why".
+    setShowRationale(true);
+    // TestFlight round-8 (Garry, Feb 2026 #21): `stopAndTranscribe` and
+    // `beginCapture` are now in deps so this handler ALWAYS calls the
+    // most current versions. Prevents any residual stale-closure risk
+    // if either callback is later re-memoised mid-recording.
+  }, [state, beginCapture, stopAndTranscribe]);
+
+  const acceptRationaleAndRequest = useCallback(async () => {
+    setShowRationale(false);
+    const r = await requestRecordingPermissionsAsync();
+    if (!r.granted) {
+      if (!r.canAskAgain) setShowBlocked(true);
+      return;
+    }
+    await beginCapture();
+  }, [beginCapture]);
 
   // ─── Rendering ───────────────────────────────────────────────────────
   const isRecording = state === "recording";
