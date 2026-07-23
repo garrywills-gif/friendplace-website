@@ -4995,6 +4995,26 @@ async def join_table(table_id: str, user_id: str):
         {"id": table_id},
         {"$addToSet": {"seated": user_id}, "$set": {"last_activity_at": now_iso()}},
     )
+    # Presence hook (Garry Feb 2026 spec): mark the joiner as In-Café
+    # and, if they were "looking", auto-clear (they've found company).
+    # If anyone ELSE was already seated AND is "looking", also clear
+    # their status (someone joined them → contact made). Swallow errors
+    # so a status glitch never blocks the join itself.
+    try:
+        from services.status.service import (  # noqa: E402
+            set_in_cafe as _set_in_cafe,
+            auto_clear as _auto_clear,
+            TRIG_CAFE_JOIN,
+            TRIG_CAFE_JOINED_BY,
+        )
+        await _set_in_cafe(db, user_id, table_id)
+        await _auto_clear(db, user_id, TRIG_CAFE_JOIN)
+        others_seated = [x for x in (t.get("seated") or []) if x != user_id]
+        if others_seated:
+            for other in others_seated:
+                await _auto_clear(db, other, TRIG_CAFE_JOINED_BY)
+    except Exception:
+        logging.exception("cafe_join status hook failed for %s @ %s", user_id, table_id)
     host_id = t.get("host_id")
     if host_id and host_id != user_id:
         joiner = await db.users.find_one({"id": user_id}, {"first_name": 1, "avatar": 1, "_id": 0}) or {}
@@ -5013,6 +5033,13 @@ async def join_table(table_id: str, user_id: str):
 @api.post("/tables/{table_id}/leave/{user_id}")
 async def leave_table(table_id: str, user_id: str):
     await db.tables.update_one({"id": table_id}, {"$pull": {"seated": user_id}})
+    # Presence hook: clear the In-Café marker so the effective status
+    # falls back to Online (or whatever manual status is active).
+    try:
+        from services.status.service import set_in_cafe as _set_in_cafe  # noqa: E402
+        await _set_in_cafe(db, user_id, None)
+    except Exception:
+        logging.exception("cafe_leave status hook failed for %s", user_id)
     return {"ok": True}
 
 
@@ -9130,6 +9157,23 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                 conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0})
                 if conv:
                     others = [x for x in (conv.get("participants") or []) if x != user_id]
+                    # Presence auto-off (Garry Feb 2026 spec): if ANY participant
+                    # in this DM is currently 'looking', clear that status —
+                    # but only if the message's created_at is after their
+                    # manual_status_set_at (i.e. a NEW message during this
+                    # looking session, not a historical thread). service.py
+                    # enforces the timestamp gate; we just fire the hook.
+                    try:
+                        from services.status.service import auto_clear as _auto_clear, TRIG_DM_MESSAGE  # noqa: E402
+                        msg_ts = msg.dict().get("created_at")
+                        if isinstance(msg_ts, str):
+                            from datetime import datetime as _dt
+                            try: msg_ts = _dt.fromisoformat(msg_ts.replace("Z", "+00:00"))
+                            except Exception: msg_ts = None
+                        for pid in conv.get("participants") or []:
+                            await _auto_clear(db, pid, TRIG_DM_MESSAGE, event_time=msg_ts)
+                    except Exception:
+                        logging.exception("dm_auto_clear failed for conv %s", conv_id)
                     sender_name = (user or {}).get("first_name") or "Someone"
                     sender_avatar = (user or {}).get("avatar") or "🦋"
                     # Count messages from THIS sender in THIS conversation
@@ -10008,6 +10052,22 @@ app.include_router(_build_public_router(db), prefix="/api")
 # Mission Control George System (MCGS) — see /app/memory/mcgs-architecture.md
 from mcgs_module import build_router as _build_mcgs_router  # noqa: E402
 app.include_router(_build_mcgs_router(db), prefix="/api")
+
+# Presence & Status — see /app/memory/design-presence-and-status.md.
+# Zero user-visible impact in Commit 1: routes exist and store data, but
+# no production screen reads them yet.
+from services.status.router import build_status_router as _build_status_router  # noqa: E402
+from services.status.service import ensure_indexes as _ensure_status_indexes  # noqa: E402
+app.include_router(_build_status_router(db, current_user), prefix="/api")
+
+
+@app.on_event("startup")
+async def _status_startup_indexes():  # noqa: D401
+    """Idempotent — safe to run on every boot."""
+    try:
+        await _ensure_status_indexes(db)
+    except Exception:
+        logging.exception("member_status ensure_indexes failed")
 
 # Static assets — currently used for Spot the Difference lifelike backdrops.
 # Files live at /app/backend/static/spot_bg/<theme>.jpg and are served under

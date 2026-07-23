@@ -29,11 +29,11 @@ Offline > Looking > In FP Café > Busy right now > Happy to connect > Online
 - **Badge placement**: `<AvatarWithBadge>` used EVERYWHERE an avatar is visible (Find Friends, café seats, DM headers, group members list, event attendees). The name shown beside the avatar is JUST the name — no icon repeat, no status label.
 - **No text-only `<MemberBadge>` variant.** Retired.
 - **Auto-off on conversation start (LOCKED, Garry Feb 2026)**: When a member has `manual_status = "looking"` and one of the following happens, the server automatically clears `manual_status` back to `null` (member becomes `online` / `in_cafe` per precedence):
-  1. Any private message thread with them becomes non-empty for the first time in this "looking" session (they receive OR send a message).
+  1. **Any DM message (sent OR received) with `created_at > manual_status_set_at`** — i.e. a NEW message that lands after the member turned "Looking for a chat" on. An existing historical thread that already contains messages does NOT clear the status by itself. Historical messages are ignored.
   2. Another member joins the café table where they're currently seated.
-  3. They join a café table where another member is seated.
+  3. They join a café table where another member is already seated.
 
-  Reasoning: the butterfly's job is to signal "please make contact with me". Once contact has been made, keeping the badge on would mis-signal to third parties that they're still available. Backend server implements this because the client can't reliably observe all three trigger events. The auto-clear fires a `status_change` WebSocket broadcast so any café banner they're in visibly disappears within ~1s.
+  Reasoning: the butterfly's job is to signal "please make contact with me". Once contact has been made DURING this "looking" session, keeping the badge on would mis-signal to third parties that they're still available. Backend server implements this because the client can't reliably observe all three trigger events. The auto-clear fires a `status_change` WebSocket broadcast so any café banner they're in visibly disappears within ~1s.
 
 ---
 
