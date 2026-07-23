@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
   authorOnImg: { fontWeight: "700", marginBottom: 4, marginTop: 2, marginLeft: 6, color: "#475569" },
   body: { fontWeight: "500" },
   msgImage: { width: 240, height: 240, borderRadius: 12, backgroundColor: "#E2E8F0" },
-  composer: { flexDirection: "row", alignItems: "flex-end", padding: 8, borderTopWidth: 1, gap: 8 },
+  composer: { flexDirection: "row", alignItems: "flex-end", paddingLeft: 8, paddingRight: 4, paddingTop: 8, paddingBottom: 8, borderTopWidth: 1, gap: 4 },
   photoBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   sendBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   draftBar: { flexDirection: "row", alignItems: "center", padding: 10, borderTopWidth: 1, gap: 6 },

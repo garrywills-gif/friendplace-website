@@ -143,7 +143,7 @@ export default function DM() {
 }
 
 const styles = StyleSheet.create({
-  composer: { flexDirection: "row", alignItems: "flex-end", padding: 8, borderTopWidth: 1, gap: 8 },
+  composer: { flexDirection: "row", alignItems: "flex-end", paddingLeft: 8, paddingRight: 4, paddingTop: 8, paddingBottom: 8, borderTopWidth: 1, gap: 4 },
   sendBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   micBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
 });
