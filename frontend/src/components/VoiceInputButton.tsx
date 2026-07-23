@@ -57,6 +57,7 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   useAudioRecorder,
   RecordingPresets,
@@ -253,9 +254,14 @@ export default function VoiceInputButton({
     }
     setState("transcribing");
     try {
-      const url = `${BACKEND_URL}/api/voice/transcribe${
-        userId ? `?user_id=${encodeURIComponent(userId)}&language=en` : "?language=en"
-      }`;
+      // TestFlight round-6 (Garry, Feb 2026 #16): swap to the proven-
+      // working George transcribe endpoint. `/api/mcgs/george/transcribe`
+      // is the exact path George Chat uses successfully on TestFlight
+      // hardware — using it here (with the same bearer-token auth and
+      // `file` field name) eliminates any behavioural difference
+      // between the two runtime paths.
+      const tok = await AsyncStorage.getItem("yb_token");
+      const url = `${BACKEND_URL}/api/mcgs/george/transcribe`;
       const form = new FormData();
 
       // TestFlight round-5 (Garry, Feb 2026 #16): the previous
@@ -282,21 +288,25 @@ export default function VoiceInputButton({
           audioBlob.type && audioBlob.type !== ""
             ? audioBlob
             : new Blob([audioBlob], { type: "audio/m4a" });
-        form.append("audio", typedBlob, "voice.m4a");
+        form.append("file", typedBlob, "voice.m4a");
       } else {
         // Native (iOS / Android): pass the file object directly. RN's
         // FormData stream implementation reads the file from disk and
         // uploads it as a proper multipart part. This is exactly what
         // `georgeApi.transcribe` does — and that path is verified
         // working on TestFlight hardware.
-        form.append("audio", {
+        form.append("file", {
           uri: audioUri,
           name: "voice.m4a",
           type: "audio/m4a",
         } as unknown as Blob);
       }
 
-      const resp = await fetch(url, { method: "POST", body: form });
+      const resp = await fetch(url, {
+        method: "POST",
+        body: form,
+        headers: tok ? { Authorization: `Bearer ${tok}` } : undefined,
+      });
       if (!resp.ok) {
         const errBody = await resp.text().catch(() => "");
         if (__DEV__) console.warn('[VoiceInputButton] transcribe error:', resp.status, errBody);
