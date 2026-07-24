@@ -881,11 +881,16 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
 
 @api.post("/auth/signup")
 async def signup(body: SignupBody, request: Request):
-    # Anti-spam: cap signups to 5 per 10 min per source IP. Real users only
-    # ever sign up once; this stops bot floods cheaply. The auth/login
-    # endpoint already has per-account brute-force lockout (5 fails / 15 min).
+    # Anti-spam: cap signups per source IP. Bumped from `5 / 10 min` to
+    # `20 / hour` after a TestFlight incident (24 Jun 2026) where a
+    # single genuinely-new user was tripping the limit — TestFlight
+    # cohorts routinely share a NAT gateway IP, and a frustrated user
+    # retrying (understandably) after seeing the old generic error was
+    # enough to fully exhaust the 5-attempt bucket. 20/hour still stops
+    # bot floods dead (the per-account brute-force lockout on
+    # /auth/login is the real defence against credential stuffing).
     client_ip = (request.client.host if request.client else "unknown") or "unknown"
-    rate_limit(f"signup:{client_ip}", max_calls=5, window_seconds=600)
+    rate_limit(f"signup:{client_ip}", max_calls=20, window_seconds=3600)
     uname = body.username.strip()
     if len(uname) < 3:
         raise HTTPException(400, "Username must be at least 3 characters")

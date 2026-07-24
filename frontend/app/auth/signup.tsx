@@ -136,10 +136,79 @@ export default function Signup() {
       show(`Welcome${firstName ? `, ${firstName.trim()}` : ""}! 🦋`);
       router.replace("/onboarding");
     } catch (e: any) {
-      const msg = String(e?.message || "");
-      if (msg.includes("Username already taken")) { show("Username already taken"); setStep(1); }
-      else if (msg.includes("Email already registered")) { show("Email already registered"); setStep(1); }
-      else show("Could not create account. Try again.");
+      // Bug fix (Garry, 24 Jun 2026): the old string-match branch here
+      // recognised ONLY "Username already taken" and "Email already
+      // registered" — every other backend failure (rate limit, invalid
+      // chars, spaces in username, Pydantic 422 for a too-short
+      // password, etc.) was silently squashed into the generic
+      // "Could not create account. Try again." toast, which is what
+      // led to Garry's TestFlight incident where a genuinely-new email
+      // signup kept failing without any hint as to why.
+      //
+      // `api.ts` wraps failures as `new Error(\`${status} ${text}\`)`,
+      // so the message begins with the HTTP status followed by the
+      // JSON body (which is either `{"detail":"..."}` for HTTPException
+      // or an array for Pydantic 422). We parse both shapes and
+      // surface the real message, jumping to the correct wizard step
+      // where relevant. Only truly unexpected shapes (network drop,
+      // non-JSON body) fall through to the generic toast.
+      const raw = String(e?.message || "");
+      const m = raw.match(/^(\d{3})\s+(.*)$/s);
+      const status = m ? parseInt(m[1], 10) : 0;
+      let payload: any = null;
+      try { payload = m ? JSON.parse(m[2]) : null; } catch { payload = null; }
+
+      // Extract a plain-English detail message from either shape.
+      // HTTPException → { detail: "..." }
+      // Pydantic 422  → { detail: [ { loc, msg, ... } ] }
+      let detail = "";
+      if (payload && typeof payload.detail === "string") {
+        detail = payload.detail;
+      } else if (payload && Array.isArray(payload.detail) && payload.detail[0]?.msg) {
+        // Pydantic — turn "String should have at least 6 characters"
+        // into something the member can act on. `loc` tells us which
+        // field failed.
+        const first = payload.detail[0];
+        const field = Array.isArray(first.loc) ? first.loc[first.loc.length - 1] : "";
+        const msg = String(first.msg || "");
+        if (field === "password" && /at least (\d+) characters/i.test(msg)) {
+          detail = "Password must be at least 6 characters";
+        } else if (field === "email") {
+          detail = "Please enter a valid email address";
+        } else {
+          detail = msg;
+        }
+      }
+
+      // Route the toast + step-jump based on what the backend actually
+      // said. Explicit branches are more readable than a long regex.
+      if (status === 429) {
+        show("Too many attempts from this network right now — please wait a few minutes and try again.");
+      } else if (detail.includes("Username already taken")) {
+        show("Username already taken"); setStep(1);
+      } else if (detail.includes("Email already registered")) {
+        show("Email already registered"); setStep(1);
+      } else if (detail.toLowerCase().includes("username")) {
+        // "at least 3 characters", "can't contain spaces", "can only
+        // contain letters, numbers, and . _ -" — send them back to
+        // step 1 with the actual reason.
+        show(detail); setStep(1);
+      } else if (detail.toLowerCase().includes("password")) {
+        show(detail); setStep(1);
+      } else if (detail.toLowerCase().includes("email")) {
+        show(detail); setStep(1);
+      } else if (detail) {
+        // Any other detail — show it verbatim so members aren't left
+        // guessing (e.g. a future field validation, a moderation
+        // block, etc.).
+        show(detail);
+      } else if (status >= 500 || status === 0) {
+        // Network drop / non-JSON body / server crash — the only
+        // scenario where the generic fallback is appropriate.
+        show("Could not create account. Try again.");
+      } else {
+        show("Could not create account. Try again.");
+      }
     } finally { setBusy(false); }
   };
 
