@@ -333,7 +333,13 @@ export default function TableChat() {
           </View>
         )}
 
-        <View style={[styles.composer, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+        {/* Round-8 polish (Garry, Jun 2026 #4d): composer restructured
+            to mirror George Event Creation exactly — the input and mic
+            sit inside a rounded pill, the photo attach button lives
+            OUTSIDE the pill on the left. Same paddings, same gap, same
+            teal mic colour so members get one visual language across
+            every composer in the app. */}
+        <View style={[styles.composerRow, { backgroundColor: c.surface, borderColor: c.border }]}>
           <Pressable
             testID="table-photo"
             onPress={pickPhoto}
@@ -343,32 +349,32 @@ export default function TableChat() {
           >
             {picking ? <ActivityIndicator color={c.brand} size="small" /> : <Ionicons name="image" size={24} color={c.brand} />}
           </Pressable>
-          <TextInput
-            testID="table-input"
-            value={text}
-            onChangeText={setText}
-            placeholder={draftImage ? "Add a caption…" : "Say something kind…"}
-            placeholderTextColor={c.muted}
-            style={{ flex: 1, color: c.onSurface, fontSize: 17 * scale, paddingVertical: 10, paddingHorizontal: 12 }}
-            multiline
-            onSubmitEditing={send}
-          />
-          {/* TestFlight round-7 (Garry, Feb 2026 #20): unified mic/send
-              toggle via shared VoiceInputButton. Empty text → mic; text
-              → send. Matches George's composer. Accessibility voice-
-              input pref still honoured via `voiceEnabled` — when off,
-              the button stays as send. */}
-          <VoiceInputButton
-            testID="table-voice"
-            sendTestID="table-send"
-            value={text}
-            onChangeText={setText}
-            userId={user?.id}
-            onError={show}
-            size={40}
-            onSend={send}
-            voiceEnabled={prefs.voiceInputEnabled}
-          />
+          <View style={[styles.composerPill, { backgroundColor: c.surfaceSecondary }]}>
+            <TextInput
+              testID="table-input"
+              value={text}
+              onChangeText={setText}
+              placeholder={draftImage ? "Add a caption…" : "Say something kind…"}
+              placeholderTextColor={c.muted}
+              style={[styles.pillInput, { color: c.onSurface, fontSize: 15 * scale }]}
+              multiline
+              onSubmitEditing={send}
+            />
+            {/* TestFlight round-7 (Garry, Feb 2026 #20): unified mic/send
+                toggle via shared VoiceInputButton. Empty text → mic; text
+                → send. Matches George's composer 1:1. */}
+            <VoiceInputButton
+              testID="table-voice"
+              sendTestID="table-send"
+              value={text}
+              onChangeText={setText}
+              userId={user?.id}
+              onError={show}
+              size={42}
+              onSend={send}
+              voiceEnabled={prefs.voiceInputEnabled}
+            />
+          </View>
         </View>
       </KeyboardAvoidingView>
 
@@ -426,24 +432,32 @@ const styles = StyleSheet.create({
   authorOnImg: { fontWeight: "700", marginBottom: 4, marginTop: 2, marginLeft: 6, color: "#475569" },
   body: { fontWeight: "500" },
   msgImage: { width: 240, height: 240, borderRadius: 12, backgroundColor: "#E2E8F0" },
-  composer: {
+  // Round-8 polish (#4d): composer 1:1 with George. Outer row hosts the
+  // photo attach on the left + a rounded pill wrapping the input and
+  // mic on the right — the same structure George Event Creation uses.
+  composerRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingLeft: 8,
-    // Round-8 polish (Garry, Jun 2026 #4): the mic button sat almost
-    // flush to the right edge, uncomfortably close to the iOS system
-    // globe/mic in the keyboard toolbar and easy to mis-tap. Bumped
-    // right padding 4→14 (+10 pt) so the button reads as its own
-    // control, vertical centring untouched.
-    paddingRight: 14,
-    // Round-8 polish (Garry, Jun 2026 #5): the last bubble kissed the
-    // composer border. Extra 4 pt above the input gives the
-    // conversation the same "settle" beat as iMessage / WhatsApp
-    // without introducing a large dead zone.
-    paddingTop: 12,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 8,
     paddingBottom: 8,
     borderTopWidth: 1,
-    gap: 4,
+  },
+  composerPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    borderRadius: 20,
+    paddingLeft: 14,
+    paddingRight: 4,
+    paddingVertical: 4,
+  },
+  pillInput: {
+    flex: 1,
+    paddingVertical: 8,
+    maxHeight: 120,
   },
   photoBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   sendBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },

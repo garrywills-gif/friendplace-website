@@ -107,25 +107,26 @@ export default function DM() {
             );
           }}
         />
-        <View style={[styles.composer, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-          {/* TestFlight round-7 (Garry, Feb 2026 #20): unified mic/send
-              toggle via shared VoiceInputButton — empty text shows the
-              mic, typed text shows send. Matches George's composer for
-              cross-app consistency. */}
-          <TextInput
-            testID="dm-input" value={text} onChangeText={setText} placeholder="Type a message…" placeholderTextColor={c.muted}
-            style={{ flex: 1, color: c.onSurface, fontSize: 17 * scale, paddingVertical: 10, paddingHorizontal: 12 }} multiline />
-          <VoiceInputButton
-            testID="dm-mic"
-            sendTestID="dm-send"
-            value={text}
-            onChangeText={setText}
-            userId={user?.id}
-            onError={show}
-            size={40}
-            onSend={send}
-            voiceEnabled={prefs.voiceInputEnabled}
-          />
+        <View style={[styles.composerRow, { backgroundColor: c.surface, borderColor: c.border }]}>
+          {/* Round-8 polish (#4d): DM composer restructured to match
+              George Event Creation exactly — input + mic sit inside a
+              rounded pill for one visual language across the app. */}
+          <View style={[styles.composerPill, { backgroundColor: c.surfaceSecondary }]}>
+            <TextInput
+              testID="dm-input" value={text} onChangeText={setText} placeholder="Type a message…" placeholderTextColor={c.muted}
+              style={[styles.pillInput, { color: c.onSurface, fontSize: 15 * scale }]} multiline />
+            <VoiceInputButton
+              testID="dm-mic"
+              sendTestID="dm-send"
+              value={text}
+              onChangeText={setText}
+              userId={user?.id}
+              onError={show}
+              size={42}
+              onSend={send}
+              voiceEnabled={prefs.voiceInputEnabled}
+            />
+          </View>
         </View>
       </KeyboardAvoidingView>
       {reportTarget && (
@@ -143,19 +144,30 @@ export default function DM() {
 }
 
 const styles = StyleSheet.create({
-  composer: {
+  // Round-8 polish (#4d): DM composer 1:1 with George. Outer row has
+  // paddings + top border; inner pill hosts input + mic.
+  composerRow: {
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingLeft: 8,
-    // Round-8 polish (Garry, Jun 2026 #4): mic away from iOS keyboard
-    // toolbar; paddingTop bumped so the last bubble doesn't kiss the
-    // composer. Mirrors the change in /app/table/[id].tsx.
-    paddingRight: 14,
-    paddingTop: 12,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 8,
     paddingBottom: 8,
     borderTopWidth: 1,
-    gap: 4,
   },
-  sendBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
-  micBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  composerPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    borderRadius: 20,
+    paddingLeft: 14,
+    paddingRight: 4,
+    paddingVertical: 4,
+  },
+  pillInput: {
+    flex: 1,
+    paddingVertical: 8,
+    maxHeight: 120,
+  },
 });

@@ -432,8 +432,14 @@ export default function VoiceInputButton({
   // ─── Rendering ───────────────────────────────────────────────────────
   const isRecording = state === "recording";
   const isBusy = state === "transcribing";
-  const bg = isRecording ? "#EF4444" : c.surfaceSecondary;
-  const iconColor = isRecording ? "#FFFFFF" : c.brand;
+  // Round-8 polish (Garry, Jun 2026 #4c): visual parity with George's
+  // composer mic — deep teal `#0F766E` idle, bright red `#DC2626` while
+  // recording, matching George Event Creation exactly so members get
+  // one visual language across every composer in the app.
+  // PURE STYLE CHANGE — recording/transcription pipeline untouched, so
+  // the locked STT baseline remains intact.
+  const bg = isRecording ? "#DC2626" : "#0F766E";
+  const iconColor = "#FFFFFF";
 
   // TestFlight round-7 (Garry, Feb 2026 #20): when the caller provides
   // `onSend`, this component becomes the whole composer action —
@@ -464,8 +470,12 @@ export default function VoiceInputButton({
             width: size,
             height: size,
             borderRadius: size / 2,
-            backgroundColor: c.brand,
-            borderColor: c.brand,
+            // Round-8 polish (#4c): matches George Event Creation's
+            // bright-teal Send button (`#14B8A6`) so the composer
+            // switches between mic → send with a visually consistent
+            // teal palette shared with George.
+            backgroundColor: "#14B8A6",
+            borderColor: "#14B8A6",
             opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
           },
         ]}
@@ -497,14 +507,18 @@ export default function VoiceInputButton({
             height: size,
             borderRadius: size / 2,
             backgroundColor: bg,
-            borderColor: isRecording ? "#EF4444" : c.border,
+            // Border colour matches fill so the mic reads as a solid
+            // George-style pill, not an outlined ring.
+            borderColor: bg,
             opacity: pressed ? 0.85 : 1,
           },
         ]}
         hitSlop={6}
       >
         {isBusy ? (
-          <ActivityIndicator size="small" color={c.brand} />
+          // Spinner colour bumped from `c.brand` (invisible on brand bg)
+          // to white to remain readable on the new filled background.
+          <ActivityIndicator size="small" color="#FFFFFF" />
         ) : isRecording ? (
           <View style={{ alignItems: "center" }}>
             <Animated.View
