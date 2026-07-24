@@ -49,6 +49,14 @@ type Conversation = {
   id: string;
   other?: { id?: string; first_name?: string; avatar?: string } | null;
   unread_count?: number;
+  // Backend `/api/dm/{uid}/conversations` (server.py) returns the
+  // most-recent message under `last` and stamps the conv's
+  // `updated_at` on every new message — these are the fields we key
+  // off. The older `last_message` / `last_message_at` field names
+  // were from an earlier iteration and are no longer emitted; if
+  // they ever come back we still accept them defensively below.
+  last?: { text?: string; created_at?: string } | null;
+  updated_at?: string | null;
   last_message?: { text?: string; created_at?: string } | null;
   last_message_at?: string | null;
 };
@@ -117,7 +125,17 @@ function _pick_prompt(
 
   if (eligible.length === 1) {
     const c = eligible[0];
-    const ts = c.last_message?.created_at || c.last_message_at || "";
+    // The dismissed-set key MUST include the newest-message timestamp
+    // so a fresh DM re-arms the prompt after a prior dismissal. The
+    // canonical backend fields are `last.created_at` and `updated_at`
+    // (bumped on every incoming DM at server.py:9142). We fall back
+    // to the legacy `last_message.*` names purely for defensiveness.
+    const ts =
+      c.last?.created_at ||
+      c.updated_at ||
+      c.last_message?.created_at ||
+      c.last_message_at ||
+      "";
     const p: DmPrompt = {
       kind: "single",
       convId: c.id,
@@ -131,9 +149,16 @@ function _pick_prompt(
   }
 
   // Group prompt — take the newest message timestamp so a fresh
-  // arrival re-arms the prompt after dismissal.
+  // arrival re-arms the prompt after dismissal. Same field-name
+  // priority as the single case: `last.created_at` → `updated_at` →
+  // legacy fallbacks.
   const newest = eligible.reduce<string>((acc, c) => {
-    const t = c.last_message?.created_at || c.last_message_at || "";
+    const t =
+      c.last?.created_at ||
+      c.updated_at ||
+      c.last_message?.created_at ||
+      c.last_message_at ||
+      "";
     return t > acc ? t : acc;
   }, "");
   const previewNames = eligible
