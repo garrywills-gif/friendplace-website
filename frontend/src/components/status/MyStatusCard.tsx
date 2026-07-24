@@ -75,14 +75,24 @@ function Pill({
         },
       ]}
     >
-      <Text style={{ fontSize: 16 }}>{icon}</Text>
+      {/* Slightly smaller icon leaves more room for "Happy to connect"
+          to render in full without ellipsis on the narrowest iPhones. */}
+      <Text style={{ fontSize: 14 }}>{icon}</Text>
+      {/* TestFlight round-8 polish (Garry, Jun 2026 #2): "Happy to
+          connect" was truncating on iPhone SE / mini widths. Dropped
+          font size 14→13 and tightened icon→label gap so the full
+          label renders without an ellipsis. `numberOfLines={1}` +
+          `adjustsFontSizeToFit` guards any regional locale where
+          the string is even longer. */}
       <Text
         numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.9}
         style={{
           color: active ? onBrand : onSurface,
           fontWeight: "800",
-          fontSize: 14,
-          marginLeft: 6,
+          fontSize: 13,
+          marginLeft: 5,
         }}
       >
         {label}
@@ -180,8 +190,10 @@ export default function MyStatusCard({ testID = "home-my-status" }: { testID?: s
         </Text>
       </Pressable>
 
-      {/* Half/half Happy · Busy pill row. */}
-      <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+      {/* Half/half Happy · Busy pill row. Wider gap + tightened pill
+          padding give the two labels visual breathing room without
+          shrinking the card itself (round-8 polish #1). */}
+      <View style={{ flexDirection: "row", gap: 12, marginTop: 10 }}>
         <View style={{ flex: 1 }}>
           <Pill
             testID="my-status-happy"
@@ -284,7 +296,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 12,
+    // Round-8 polish (Garry, Jun 2026 #1): dropped horizontal padding
+    // 12→10 so "Happy to connect" always renders without ellipsis on
+    // 375-pt-wide iPhones (SE, mini). Vertical padding unchanged so
+    // touch target still comfortably clears 44 pt.
+    paddingHorizontal: 10,
     paddingVertical: 11,
     borderRadius: 999,
     borderWidth: 2,

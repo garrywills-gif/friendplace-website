@@ -273,7 +273,7 @@ export default function TableChat() {
           ref={listRef}
           data={messages}
           keyExtractor={(m) => m.id}
-          contentContainerStyle={{ padding: 14, gap: 10, paddingBottom: 14 }}
+          contentContainerStyle={{ padding: 14, gap: 10, paddingBottom: 20 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => {
             // Local-only system messages ("🪑 Garry took a seat") render
@@ -426,7 +426,25 @@ const styles = StyleSheet.create({
   authorOnImg: { fontWeight: "700", marginBottom: 4, marginTop: 2, marginLeft: 6, color: "#475569" },
   body: { fontWeight: "500" },
   msgImage: { width: 240, height: 240, borderRadius: 12, backgroundColor: "#E2E8F0" },
-  composer: { flexDirection: "row", alignItems: "flex-end", paddingLeft: 8, paddingRight: 4, paddingTop: 8, paddingBottom: 8, borderTopWidth: 1, gap: 4 },
+  composer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    paddingLeft: 8,
+    // Round-8 polish (Garry, Jun 2026 #4): the mic button sat almost
+    // flush to the right edge, uncomfortably close to the iOS system
+    // globe/mic in the keyboard toolbar and easy to mis-tap. Bumped
+    // right padding 4→14 (+10 pt) so the button reads as its own
+    // control, vertical centring untouched.
+    paddingRight: 14,
+    // Round-8 polish (Garry, Jun 2026 #5): the last bubble kissed the
+    // composer border. Extra 4 pt above the input gives the
+    // conversation the same "settle" beat as iMessage / WhatsApp
+    // without introducing a large dead zone.
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    gap: 4,
+  },
   photoBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   sendBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   draftBar: { flexDirection: "row", alignItems: "center", padding: 10, borderTopWidth: 1, gap: 6 },

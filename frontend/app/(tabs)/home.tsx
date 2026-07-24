@@ -324,7 +324,15 @@ export default function Home() {
           </View>
         </View>
         <Text style={[styles.hello, { color: c.muted, fontSize: 16 * scale }]}>Welcome back</Text>
-        <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{user?.first_name || "Friend"} 🦋</Text>
+        {/* Round-8 polish (Garry, Jun 2026 #3): the butterfly badge was
+            visually running into the name because it sat inside the
+            same <Text> as `first_name` with only a single space. Split
+            into a flex row with an explicit 10 pt gap so the emoji
+            reads as a distinct badge, not part of the name string. */}
+        <View style={styles.nameRow}>
+          <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{user?.first_name || "Friend"}</Text>
+          <Text style={{ fontSize: 26 * scale }} accessibilityLabel="butterfly">🦋</Text>
+        </View>
 
         {/* Presence & Status — My Status card. Sits directly under the
             greeting so it's the first thing members reach when they
@@ -700,7 +708,10 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   brand: { fontWeight: "900", letterSpacing: 0.3 },
   hello: { fontWeight: "600", marginTop: 6 },
-  name: { fontWeight: "900", marginTop: 2 },
+  name: { fontWeight: "900" },
+  // Row wrapper for "Alex 🦋" — gives the butterfly badge a small but
+  // deliberate gap so it reads as a badge, not part of the name text.
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 2 },
   iconBtn: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   flutterBox: { borderWidth: 2, borderRadius: 18, padding: 14, backgroundColor: "#F5F3FF", gap: 8 },
   flutterItem: { padding: 12, borderRadius: 14, borderWidth: 1, gap: 4 },

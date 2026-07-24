@@ -86,7 +86,7 @@ export default function DM() {
           ref={listRef}
           data={messages}
           keyExtractor={(m) => m.id}
-          contentContainerStyle={{ padding: 14, gap: 8 }}
+          contentContainerStyle={{ padding: 14, gap: 8, paddingBottom: 20 }}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => {
             const mine = item.user_id === user?.id;
@@ -143,7 +143,19 @@ export default function DM() {
 }
 
 const styles = StyleSheet.create({
-  composer: { flexDirection: "row", alignItems: "flex-end", paddingLeft: 8, paddingRight: 4, paddingTop: 8, paddingBottom: 8, borderTopWidth: 1, gap: 4 },
+  composer: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    paddingLeft: 8,
+    // Round-8 polish (Garry, Jun 2026 #4): mic away from iOS keyboard
+    // toolbar; paddingTop bumped so the last bubble doesn't kiss the
+    // composer. Mirrors the change in /app/table/[id].tsx.
+    paddingRight: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    gap: 4,
+  },
   sendBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   micBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
 });
