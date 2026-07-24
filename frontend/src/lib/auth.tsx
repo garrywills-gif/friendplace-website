@@ -51,7 +51,19 @@ type Ctx = {
   loginWithApple: (identity_token: string, authorization_code?: string | null, first_name?: string | null, last_name?: string | null, referrer_id?: string | null) => Promise<{ isNew: boolean }>;
   demoLogin: (username: string) => Promise<void>;
   logout: () => Promise<void>;
-  refresh: () => Promise<void>;
+  /**
+   * Refresh the current user from the server. Returns the freshly-
+   * fetched user object (or `null` on network failure) so callers
+   * can hydrate derived state (e.g. the Profile screen's `friends`
+   * list) WITHOUT having to wait for the React re-render caused by
+   * `setUser`. Bug fix (Garry, 24 Jun 2026): the previous
+   * fire-and-forget `refresh()` meant the profile's focus effect
+   * read the OLD `user.friends` from the closure and never saw
+   * newly-accepted friendships until a fresh mount. Returning the
+   * user makes the fresh data available synchronously to the
+   * awaiting caller.
+   */
+  refresh: () => Promise<User | null>;
 };
 
 const AuthCtx = createContext<Ctx | null>(null);
@@ -166,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         },
         logout: async () => { await persist(null, null); },
         refresh: async () => {
-          if (!user) return;
+          if (!user) return null;
           try {
             // Silent variant — a background focus refresh must NEVER nuke
             // the local session on a transient 401, otherwise tabs like
@@ -177,7 +189,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const u = await api.getUserSilent(user.id);
             setUser(u as User);
             await AsyncStorage.setItem(USER_KEY, JSON.stringify(u));
-          } catch {}
+            // Returning the fresh user lets callers hydrate derived
+            // state without waiting for React to re-render — see the
+            // profile screen's focus effect for the motivating case.
+            return u as User;
+          } catch { return null; }
         },
       }}
     >

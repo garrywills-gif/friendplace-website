@@ -1,0 +1,29 @@
+{
+  "summary": "Frontend-only verification of the Profile 'Friends count/list stale after accept' bug fix (refresh() in auth.tsx now returns Promise<User|null>; profile.tsx focus effect awaits and hydrates from the fresh user). All 5 tests (P0-1..P0-4 + P1 regression) pass. Verified via UI browser flow logged in as demo user 'Arthur' (@art), with the eil→art friend request+accept driven through fetch calls to the real backend inside the page context. No React Native red screen. Only pre-existing console warnings observed (shadow*/textShadow* deprecation, useNativeDriver on web) — unrelated to this fix.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/tmp/10_profile_empty.png (initial 0 friends / 'No friends yet')",
+    "/tmp/12_profile_after_accept.png (Friends=1, Eileen listed after focus refresh)",
+    "/tmp/13_profile_after_switch.png (persistence after tab switch)",
+    "/tmp/14_profile_after_reload.png (cold reload hydrated)",
+    "/tmp/15_profile_after_remove.png (Friends=0 after removeFriend)"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "profile.tsx L373 reads `user.privacy` but the User type in src/lib/auth.tsx exposes `privacy_settings` (not `privacy`). The runtime falls through to the default 'everyone' branch which is why the Privacy chips still work, but this is a latent typing bug. Not a regression from this fix.",
+    "profile.tsx useFocusEffect deps only track `user?.id`. That's correct for the current fix (we now use the returned fresh user, not the closure), but if you ever wire an extra useEffect on `user?.friends?.length` (as the request note contemplates) you must not double-fetch the friends `arr` — consider gating on a ref or on `friends.length !== user?.friends?.length`."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only)", "frontend": "100%" },
+  "seed_data_creation": "Temporary friendship art (a04b55cd-…) ↔ eil (3a3d6089-…) was created and then removed inside the test. Final DB state: art.friends=[], eil.friends=[] (clean). No orphaned friend requests: the acceptReq call consumes the request row.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Test used demo users art & eil (both start with 0 friends — cleanest pair). maggie<->joycey were left as-is (they are already mutual friends in the seeded DB, so the accept flow can't be re-tested on them without first removing the friendship). All API calls made from inside page.evaluate using bearer tokens obtained via /api/auth/demo-login. useFocusEffect is triggered by navigating away to /home and back to /profile — this reliably fires the focus refresh on Expo Router web preview.",
+  "rca_of_issue": "Verified fix: (1) In src/lib/auth.tsx the `refresh` context value is now `Promise<User|null>` (line 66, comment L54-65) and returns `u as User` at line 195 after `setUser(u)` + AsyncStorage write. (2) In app/(tabs)/profile.tsx the useFocusEffect (L55-108) `await refresh().catch(()=>null)` and uses `const src = fresh || user;` (L73) to hydrate BOTH the `friends` list (L74-79) AND the derived queries (invite stats L82-87, inviter L89-91, founder status L96-104). The Friends stat cell at L277 renders `friends.length` — which is now sourced from the FRESH server response, not the stale closure. Reproduction of the OLD bug is no longer possible via UI. Direct API-level test confirmed the backend accept endpoint mutates both users' friends arrays atomically (art.friends contained eil's id immediately after acceptReq returned {ok:true})."
+}

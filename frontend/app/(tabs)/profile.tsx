@@ -60,32 +60,40 @@ export default function Profile() {
     // still runs because `friends` starts empty.
     let cancelled = false;
     (async () => {
-      // Best-effort refresh (silent) — never trips loading UI now.
-      refresh().catch(() => {});
+      // Bug fix (Garry, 24 Jun 2026): the previous flow fired
+      // `refresh()` and then read `user.friends` from the closure's
+      // stale value on the very same tick, which meant a member
+      // whose friend request had just been accepted would still see
+      // "No friends yet" and a 0 count until the app was cold-
+      // started. `refresh()` now RETURNS the fresh user, so we
+      // hydrate the derived friends list from THAT rather than
+      // from the stale closure snapshot.
+      const fresh = await refresh().catch(() => null);
       if (cancelled) return;
-      if (user?.friends?.length) {
-        const arr = await Promise.all(user.friends.map((id) => api.getUser(id).catch(() => null)));
+      const src = fresh || user;
+      if (src?.friends?.length) {
+        const arr = await Promise.all(src.friends.map((id) => api.getUser(id).catch(() => null)));
         if (!cancelled) setFriends(arr.filter(Boolean));
       } else if (!cancelled) {
         setFriends([]);
       }
-      if (user?.id && !cancelled) {
+      if (src?.id && !cancelled) {
         try {
-          const s: any = await api.inviteStats(user.id);
+          const s: any = await api.inviteStats(src.id);
           if (!cancelled) {
             setInviteCount(s?.count || 0);
             setRecentInvites(Array.isArray(s?.recent) ? s.recent : []);
           }
         } catch {}
         try {
-          const r: any = await api.inviter(user.id);
+          const r: any = await api.inviter(src.id);
           setInviter(r?.inviter || null);
         } catch {}
         // Founder cohort status — used to render the upgrade card (or
         // hide it entirely once the cohort is full). Silently ignored on
         // failure so profile still renders offline / when the endpoint
         // isn't available.
-        if (!(user as any)?.is_founder) {
+        if (!(src as any)?.is_founder) {
           try {
             const s: any = await api.founderStatus();
             if (!cancelled && s) {
@@ -96,6 +104,7 @@ export default function Profile() {
         }
       }
     })();
+    return () => { cancelled = true; };
   }, [user?.id]));
 
   async function sendHello(invitee: any, tap?: { pageX: number; pageY: number }) {
