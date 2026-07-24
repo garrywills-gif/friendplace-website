@@ -22,6 +22,7 @@ import { useTheme } from '@/src/lib/theme';
 import { subscribeVoice, useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 import { playAudioUri, type PlaybackController } from '@/src/lib/george-playback';
 import { speakGeorgeAloud, stopGeorgeAutoRead } from '@/src/lib/george-auto-read';
+import { useComposerLock } from '@/src/lib/composer-lock';
 import {
   georgeApi,
   type EventSession, type EventDraft, type EventApprovalResult,
@@ -125,6 +126,16 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _recorderState = useAudioRecorderState(audioRecorder, 500);
   const [voicePhase, setVoicePhase] = useState<'idle' | 'recording' | 'transcribing'>('idle');
+
+  // Composer-lock (approved 24 Jun 2026): hold the global composer
+  // lock while the member is drafting an event with George or the
+  // voice pipeline is engaged so the GlobalDmPrompt defers instead
+  // of interrupting.
+  useComposerLock(
+    input.length > 0 ||
+      voicePhase === 'recording' ||
+      voicePhase === 'transcribing',
+  );
   const [permissionBlocked, setPermissionBlocked] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   // Elapsed recording seconds, driven by a lightweight local timer so

@@ -13,6 +13,7 @@ import ReportSheet from "@/src/components/ReportSheet";
 import { parseAvatar } from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
+import { useComposerLock } from "@/src/lib/composer-lock";
 
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
@@ -25,6 +26,13 @@ export default function DM() {
   const [reportTarget, setReportTarget] = useState<null | { type: "user" } | { type: "message"; id: string }>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<FlatList>(null);
+  // Composer-lock (approved 24 Jun 2026): hold the global composer
+  // lock whenever the member has typed something so the
+  // GlobalDmPrompt defers instead of interrupting. Recording is
+  // covered separately by VoiceInputButton's own lock. We also hold
+  // the lock while viewing THIS DM screen, but the path filter in
+  // dm-notify-context already prevents any prompt for this conv.
+  useComposerLock(text.length > 0);
 
   useEffect(() => {
     if (!id || !user) return;

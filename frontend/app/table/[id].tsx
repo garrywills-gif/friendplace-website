@@ -19,6 +19,7 @@ import FounderMark from "@/src/components/FounderMark";
 import ZoomableImageViewer from "@/src/components/ZoomableImageViewer";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import CafeLookingBanner from "@/src/components/status/CafeLookingBanner";
+import { useComposerLock } from "@/src/lib/composer-lock";
 
 type Msg = {
   id: string;
@@ -64,6 +65,12 @@ export default function TableChat() {
     return () => { show.remove(); hide.remove(); };
   }, []);
   const collapseSeating = kbOpen || text.length > 0;
+  // Composer-lock (approved 24 Jun 2026): hold the global composer
+  // lock whenever the member has typed something, queued a photo, or
+  // the keyboard is open — so the GlobalDmPrompt defers to the next
+  // poll cycle instead of interrupting them. Recording is covered
+  // separately by VoiceInputButton's own lock.
+  useComposerLock(text.length > 0 || draftImage !== null || kbOpen);
   const [zoom, setZoom] = useState<string | null>(null); // full-screen image viewer
   const [permBlocked, setPermBlocked] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);

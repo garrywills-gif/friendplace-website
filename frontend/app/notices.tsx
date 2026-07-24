@@ -12,6 +12,7 @@ import Button from "@/src/components/Button";
 import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
+import { useComposerLock } from "@/src/lib/composer-lock";
 
 const CATS = ["All", "Announcement", "Question", "Looking For", "Recommendation", "Local Event", "Success Story", "Community Help"];
 const POST_CATS = CATS.filter((c) => c !== "All");
@@ -41,6 +42,17 @@ export default function Notices() {
   const [replyTo, setReplyTo] = useState<{ commentId: string; userName: string } | null>(null);
   const [actionMenuFor, setActionMenuFor] = useState<any | null>(null);
   const [reportFor, setReportFor] = useState<any | null>(null);
+
+  // Composer-lock (approved 24 Jun 2026): hold the global composer
+  // lock while the member is drafting a notice OR a comment so the
+  // GlobalDmPrompt defers to the next poll cycle instead of
+  // interrupting them.
+  useComposerLock(
+    posting ||
+      pTitle.length > 0 ||
+      pBody.length > 0 ||
+      commentText.length > 0,
+  );
 
   const load = async () => {
     if (!user) return;

@@ -17,8 +17,10 @@ import { AuthProvider } from "@/src/lib/auth";
 import { ToastProvider } from "@/src/lib/toast";
 import { GeorgeProvider } from "@/src/lib/george-context";
 import { StatusProvider } from "@/src/lib/status-context";
+import { DmNotifyProvider } from "@/src/lib/dm-notify-context";
 import { hydrateVoice } from "@/src/lib/george-voice";
 import GeorgeGlobalHost from "@/src/components/george/GeorgeGlobalHost";
+import GlobalDmPrompt from "@/src/components/GlobalDmPrompt";
 import SplashGate from "@/src/components/SplashGate";
 import ErrorBoundary from "@/src/components/ErrorBoundary";
 import FlutterOverlay from "@/src/components/FlutterOverlay";
@@ -49,6 +51,7 @@ export default function RootLayout() {
                 <ToastProvider>
                   <StatusProvider>
                     <GeorgeProvider>
+                    <DmNotifyProvider>
                     <StatusBar style="dark" />
                     <SplashGate>
                       {/* contentStyle sets the Stack's scene background so
@@ -68,6 +71,16 @@ export default function RootLayout() {
                         every screen. `GeorgeGlobalHost` hides itself
                         on auth / onboarding / landing / waitlist. */}
                     <GeorgeGlobalHost />
+                    {/* Global DM prompt (approved 24 Jun 2026) — small
+                        "🦋 Kerry sent you a private message" card that
+                        slides in from the top on ANY screen when a
+                        new private message arrives, so members inside
+                        FP Café / group / event pages (where the tab
+                        bar is hidden) don't miss chats. Hides itself
+                        while a composer holds the composer-lock so
+                        typing/recording isn't interrupted. */}
+                    <GlobalDmPrompt />
+                  </DmNotifyProvider>
                   </GeorgeProvider>
                   </StatusProvider>
                 </ToastProvider>

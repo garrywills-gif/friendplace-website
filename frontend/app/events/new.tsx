@@ -9,6 +9,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import { DateField, TimeField } from "@/src/components/DateTimePicker";
+import { useComposerLock } from "@/src/lib/composer-lock";
 
 const EMOJIS = ["☕", "🍰", "🚌", "🏞️", "🎲", "🎵", "📚", "🌳", "🎨", "🍵", "🥖", "🦋", "🌷"];
 const CAPACITY_PRESETS = [
@@ -52,6 +53,18 @@ export default function NewEvent() {
   const [recurrence, setRecurrence] = useState<Recurrence>("none");
   const [repeatCount, setRepeatCount] = useState<number>(3); // +3 extras = 4 total
   const [busy, setBusy] = useState(false);
+
+  // Composer-lock (approved 24 Jun 2026): hold the global composer
+  // lock while the member is filling out a new event so the
+  // GlobalDmPrompt defers to the next poll cycle. Any non-default
+  // field content counts as "actively composing".
+  useComposerLock(
+    title.length > 0 ||
+      description.length > 0 ||
+      location.length > 0 ||
+      date.length > 0 ||
+      time.length > 0,
+  );
 
   // ─── Business-event preflight state. When the user taps "Create event"
   // we call /events/preflight first. If the heuristic flags it AND the

@@ -66,6 +66,7 @@ import {
   setAudioModeAsync,
 } from "expo-audio";
 import { useTheme } from "@/src/lib/theme";
+import { useComposerLock } from "@/src/lib/composer-lock";
 
 // Hard cap so users don't accidentally leave the mic recording for a
 // half-hour and get a 25 MB rejection at the backend. Chosen at 60s
@@ -432,6 +433,14 @@ export default function VoiceInputButton({
   // ─── Rendering ───────────────────────────────────────────────────────
   const isRecording = state === "recording";
   const isBusy = state === "transcribing";
+
+  // Global composer-lock (approved 24 Jun 2026): while THIS button is
+  // recording, hold the lock so the GlobalDmPrompt defers to the next
+  // poll cycle instead of interrupting the member mid-dictation. Every
+  // <VoiceInputButton> in the app participates through this one line
+  // — no per-composer wiring needed. Pure additive; no behavioural
+  // change to the STT pipeline.
+  useComposerLock(isRecording || isBusy);
   // Round-8 polish (Garry, Jun 2026 #4c): visual parity with George's
   // composer mic — deep teal `#0F766E` idle, bright red `#DC2626` while
   // recording, matching George Event Creation exactly so members get

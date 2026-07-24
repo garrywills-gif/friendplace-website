@@ -13,6 +13,7 @@ import { useTheme } from '@/src/lib/theme';
 import { speakGeorgeAloud, stopGeorgeAutoRead } from '@/src/lib/george-auto-read';
 import { Ionicons } from '@expo/vector-icons';
 import { useGeorgeVoiceInput } from '@/src/lib/useGeorgeVoiceInput';
+import { useComposerLock } from '@/src/lib/composer-lock';
 
 /**
  * George's onboarding conversation surface — Slice B4 mobile MVP.
@@ -65,6 +66,12 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   const voiceIn = useGeorgeVoiceInput(setInput);
   const isRecording = voiceIn.voicePhase === 'recording';
   const isTranscribing = voiceIn.voicePhase === 'transcribing';
+
+  // Composer-lock (approved 24 Jun 2026): hold the global composer
+  // lock while the member is drafting, recording, or transcribing so
+  // the GlobalDmPrompt defers to the next poll cycle instead of
+  // interrupting.
+  useComposerLock(input.length > 0 || isRecording || isTranscribing);
 
   // B4 accessibility — auto-read new George turns aloud when the
   // "Auto-read new messages" setting is on. TestFlight feedback
