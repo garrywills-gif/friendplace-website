@@ -88,14 +88,35 @@ export default function AvatarWithBadge({
 
   const effective: EffectiveStatus | null = status ?? (isSelf ? null : fetched);
 
-  // Whether to actually show the badge. We hide it for:
-  //   • self avatars,
-  //   • offline members (⚫ everywhere would be visual noise per
-  //     Garry's feedback — offline shows in DM list / café roster
-  //     only, both of which pass status explicitly),
-  //   • unknown status,
-  //   • callers that opt out with showBadge={false}.
-  const shouldShowBadge = showBadge && !isSelf && !!effective && effective !== "offline";
+  // Whether to actually show the badge. Bug fix (Garry, 24 Jun 2026):
+  // the earlier "hide offline" heuristic buried the fact that most of
+  // Garry's testers were showing NO badge at all — every member who
+  // hadn't opened the app since Presence & Status shipped had no
+  // `member_status` doc and therefore computed as "offline", which
+  // this component then silently hid. Result: Kaya, Xanda, Roy and
+  // everyone else appeared badge-less next to Admin's butterfly,
+  // making it look as though the whole feature was broken.
+  //
+  // Per Garry's re-issued precedence spec:
+  //   Online   → 🟢 green dot as the default presence indicator
+  //   Offline  → ⚫ grey/black dot (visible, not hidden)
+  //   Looking  → 🦋
+  //   In café  → ☕
+  //   Busy     → 🟡
+  //   Happy    → 😊
+  //   Invisible → no badge (future — the backend doesn't emit this
+  //                yet; when it does, `effective` will be null for
+  //                those users and we'll continue to hide the badge)
+  //
+  // So the ONLY reasons to hide the badge now are:
+  //   • self avatars (Garry's original ask — members don't need to
+  //     see their own badge; the "My Status" card is authoritative);
+  //   • callers that opt out via `showBadge={false}` (used on message
+  //     bubbles + notifications feed to keep those dense surfaces
+  //     visually calm);
+  //   • unknown status (`effective` is null — the batched fetch
+  //     hasn't resolved yet — showing nothing avoids a flicker).
+  const shouldShowBadge = showBadge && !isSelf && !!effective;
 
   // Badge diameter scales with the avatar but stays legible on tiny
   // avatars (min 16). Cap at 26 so it doesn't dominate big avatars.

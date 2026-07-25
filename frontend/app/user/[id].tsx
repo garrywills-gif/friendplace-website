@@ -11,6 +11,7 @@ import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import ReportSheet from "@/src/components/ReportSheet";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
 
 export default function UserView() {
@@ -110,7 +111,16 @@ export default function UserView() {
       <Header title={u.first_name} titleAccessory={<FounderMark user={u} size={16} testID="user-profile-founder" />} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
         <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
-          <View style={[styles.av, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}><AvatarBubble value={u.avatar} size={u.avatar && /^https?:\/\//i.test(u.avatar) ? 110 : 110} textSize={88} fallback="🙂" /></View>
+          <View style={[styles.av, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}>
+            {/* Presence & Status v2 (bug fix, Garry 24 Jun 2026):
+                the member's profile hero used a plain AvatarBubble
+                so the status glyph never appeared. Swap to
+                AvatarWithBadge so the corner badge (green Online
+                dot as default, or Looking/Café/Busy/Happy/Offline)
+                shows per the LOCKED precedence spec. Layout
+                untouched. */}
+            <AvatarWithBadge value={u.avatar} userId={u.id} size={110} textSize={88} fallback="🙂" />
+          </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" }}>
             <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{u.first_name}</Text>
             <FounderMark user={u} size={20} testID="user-profile-name-founder" />

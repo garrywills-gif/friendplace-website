@@ -11,6 +11,7 @@ import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import { api } from "@/src/lib/api";
 import { emitFlutter } from "@/src/lib/flutter-fx";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderBadge from "@/src/components/FounderBadge";
 import FounderMark from "@/src/components/FounderMark";
 
@@ -321,7 +322,14 @@ export default function Profile() {
         <View style={styles.row}>
           {friends.map((f) => (
             <Pressable key={f.id} onPress={() => router.push(`/user/${f.id}` as any)} style={[styles.friendDot, { backgroundColor: c.brandTertiary }]}>
-              <AvatarBubble value={f.avatar} size={28} fallback="🙂" />
+              {/* Presence & Status v2 (bug fix, Garry 24 Jun 2026):
+                  the Profile friends list previously used a plain
+                  AvatarBubble, so Garry could never see a status
+                  glyph next to his friends. Swapped to AvatarWithBadge
+                  so the corner badge renders per the LOCKED precedence
+                  spec (Offline > Looking > In Café > Busy > Happy >
+                  Online). Pure additive — layout unchanged. */}
+              <AvatarWithBadge value={f.avatar} userId={f.id} size={28} fallback="🙂" />
               <View style={{ flexDirection: "row", alignItems: "center", gap: 2, marginTop: 4 }}>
                 <Text style={{ color: c.onBrandTertiary, fontWeight: "700", fontSize: 13 * scale }}>{f.first_name}</Text>
                 <FounderMark user={f} size={12} />
