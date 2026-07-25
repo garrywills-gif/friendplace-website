@@ -111,14 +111,13 @@ export default function UserView() {
       <Header title={u.first_name} titleAccessory={<FounderMark user={u} size={16} testID="user-profile-founder" />} />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
         <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
-          <View style={[styles.av, { backgroundColor: c.surfaceSecondary, overflow: "hidden" }]}>
-            {/* Presence & Status v2 (bug fix, Garry 24 Jun 2026):
-                the member's profile hero used a plain AvatarBubble
-                so the status glyph never appeared. Swap to
-                AvatarWithBadge so the corner badge (green Online
-                dot as default, or Looking/Café/Busy/Happy/Offline)
-                shows per the LOCKED precedence spec. Layout
-                untouched. */}
+          <View style={[styles.av, { backgroundColor: c.surfaceSecondary }]}>
+            {/* Bug fix (Garry, 25 Jun 2026 TestFlight): dropped
+                `overflow: "hidden"` here so the AvatarWithBadge's
+                corner status glyph isn't clipped. AvatarBubble
+                internally rounds its own image via borderRadius,
+                so removing this outer clip has no effect on the
+                avatar shape. */}
             <AvatarWithBadge value={u.avatar} userId={u.id} size={110} textSize={88} fallback="🙂" />
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" }}>

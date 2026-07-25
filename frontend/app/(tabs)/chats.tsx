@@ -417,7 +417,20 @@ export default function Chats() {
                     corner glyph replaces the old green online dot. See
                     /app/memory/design-presence-and-status.md §5.4. */}
                 <View style={styles.avatarWrap}>
-                  <View style={[styles.av, { backgroundColor: c.brand + "22", overflow: "hidden" }]}>
+                  {/* Bug fix (Garry, 25 Jun 2026 TestFlight): the
+                      wrapping <View> around the avatar used to set
+                      `overflow: "hidden"` so the avatar image would
+                      be clipped to the round border. That worked
+                      when the avatar was a plain <AvatarBubble>, but
+                      it also CLIPPED the corner status badge that
+                      AvatarWithBadge positions at `right/bottom: -2`.
+                      Result: the badge glyph was rendering as a tiny
+                      dark half-moon peeking out from the wrapper.
+                      Dropping the overflow lets the badge sit
+                      naturally on top; the inner AvatarBubble still
+                      round-clips its own image via `borderRadius`,
+                      so the avatar itself stays a circle. */}
+                  <View style={[styles.av, { backgroundColor: c.brand + "22" }]}>
                     <AvatarWithBadge
                       value={item.other?.avatar}
                       userId={item.other?.id}
