@@ -337,17 +337,19 @@ export function StatusProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user?.id) return;
     const tick = () => {
-      const now = Date.now();
-      const stale: string[] = [];
-      cacheRef.current.forEach((entry, uid) => {
-        if ((now - entry.ts) >= BATCH_TTL_MS) stale.push(uid);
-      });
-      if (stale.length) {
-        // Wipe stale entries so `enqueue` re-adds them; without this,
-        // enqueue's own TTL check would skip them (chicken/egg).
-        for (const uid of stale) cacheRef.current.delete(uid);
-        enqueue(stale);
-      }
+      // Force-refresh every cached user_id on every sweep. Earlier
+      // version guarded on TTL freshness, but with REFRESH_TICK_MS ===
+      // BATCH_TTL_MS the freshness check made every other tick a
+      // no-op — a status change made just after a batch would only
+      // reach the viewer at t+60s, not t+30s. Unconditional
+      // invalidation gives the ≤30s propagation cadence Garry
+      // explicitly required. Cost is one extra `/api/status/for-users`
+      // roundtrip per 30s per foregrounded client — negligible next
+      // to the 60s heartbeat and 15s DM poll already running.
+      const uids = Array.from(cacheRef.current.keys());
+      if (!uids.length) return;
+      for (const uid of uids) cacheRef.current.delete(uid);
+      enqueue(uids);
     };
     const id = setInterval(tick, REFRESH_TICK_MS);
     return () => clearInterval(id);
