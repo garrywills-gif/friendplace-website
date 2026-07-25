@@ -74,7 +74,19 @@ export const STATUS_META: Record<EffectiveStatus, { glyph: string; label: string
 
 const HEARTBEAT_MS = 60_000; // 60s per LOCKED design §5.5
 const BATCH_DEBOUNCE_MS = 200; // Coalesce list-view badge fetches
-const BATCH_TTL_MS = 45_000; // Cached statuses stay fresh 45s
+const BATCH_TTL_MS = 30_000; // Cached statuses stay fresh 30s
+const REFRESH_TICK_MS = 30_000; // Rescan cache for staleness every 30s
+
+// Bug fix (Garry, 25 Jun 2026): Xanda's Happy-to-connect status wasn't
+// appearing on other members' devices because the badge cache never
+// invalidated after the initial fetch — a status set AFTER an avatar
+// was already rendered stayed stale until the whole screen unmounted.
+// Per Garry's ask ("It needs to refresh every 30 seconds so it's
+// current. 10 minutes and change to admin or xanda is too long"), the
+// provider now runs a lightweight tick every REFRESH_TICK_MS that
+// force-re-batches every currently-cached user_id, so newly-set
+// manual statuses (Happy / Busy / Looking / café / offline decay)
+// propagate within one refresh cycle across every list-view screen.
 
 // ─── Context shape ─────────────────────────────────────────────────
 
@@ -314,6 +326,35 @@ export function StatusProvider({ children }: { children: React.ReactNode }) {
     // rendering "unknown" until they re-mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cacheVersion]);
+
+  // Periodic refresh sweep — every REFRESH_TICK_MS, force-re-enqueue
+  // any cached user_id whose entry is older than the TTL. This is the
+  // fix for Garry's TestFlight report (25 Jun 2026): before this,
+  // once a friend's status was cached it stayed put until the screen
+  // remounted, so Xanda's "Happy to connect" never showed up on
+  // Admin's device (and vice-versa). The sweep is cheap — it only
+  // adds stale IDs, and if none are stale it's a single Map walk.
+  useEffect(() => {
+    if (!user?.id) return;
+    const tick = () => {
+      const now = Date.now();
+      const stale: string[] = [];
+      cacheRef.current.forEach((entry, uid) => {
+        if ((now - entry.ts) >= BATCH_TTL_MS) stale.push(uid);
+      });
+      if (stale.length) {
+        // Wipe stale entries so `enqueue` re-adds them; without this,
+        // enqueue's own TTL check would skip them (chicken/egg).
+        for (const uid of stale) cacheRef.current.delete(uid);
+        enqueue(stale);
+      }
+    };
+    const id = setInterval(tick, REFRESH_TICK_MS);
+    return () => clearInterval(id);
+    // Other deps (`enqueue`) are stable refs so we intentionally omit
+    // them to avoid re-arming the interval on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const value = useMemo<Ctx>(() => ({
     me,
