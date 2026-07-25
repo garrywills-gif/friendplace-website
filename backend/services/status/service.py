@@ -190,6 +190,45 @@ async def heartbeat(db, user_id: str) -> None:
     )
 
 
+async def sign_off(db, user_id: str) -> None:
+    """Immediately mark a user as offline. Called by the client on
+    logout / sign-out so their status reflects reality within the
+    same 30s poll cycle instead of decaying naturally over the
+    5-minute stale-heartbeat window.
+
+    Approach: back-date last_seen_at to 10 minutes ago (2× the
+    5-minute offline threshold in compute_effective_status) and clear
+    any manual status. Also drops café presence so a user who signs
+    out while seated doesn't linger in the café roster.
+
+    Bug fix (Garry, 25 Jun 2026): admin signed out at 10:09pm and
+    still showed 🟢 online on other members' devices at 10:14pm — the
+    5-minute offline decay was too slow, and observers who cached
+    admin's status just before he logged out held onto "online" until
+    the next batch refresh at t+30s. This endpoint gives every
+    observer a definitive "offline" answer immediately.
+    """
+    from datetime import timedelta as _td
+    stale = _utc_now() - _td(minutes=10)
+    now = _utc_now()
+    await db[COLL].update_one(
+        {"user_id": user_id},
+        {
+            "$set": {
+                "last_seen_at": stale,
+                "manual_status": None,
+                "manual_status_set_at": None,
+                "manual_status_expires_at": None,
+                "in_cafe_table_id": None,
+                "in_cafe_since": None,
+                "updated_at": now,
+            },
+            "$setOnInsert": {"user_id": user_id},
+        },
+        upsert=True,
+    )
+
+
 async def set_in_cafe(db, user_id: str, table_id: Optional[str]) -> None:
     """Called by the café join/leave handlers. `table_id=None` means the
     member left the café."""

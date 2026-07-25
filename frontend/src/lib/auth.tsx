@@ -176,7 +176,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await persist(r.user as User, r.access_token as string);
           registerForPush(r.user?.id).catch(() => {});
         },
-        logout: async () => { await persist(null, null); },
+        logout: async () => {
+          // Bug fix (Garry, 25 Jun 2026): before this call, logout
+          // just stopped the client's heartbeat and relied on the 5-min
+          // stale-heartbeat decay to flip observers from 🟢 to ⚫. A
+          // member's mates saw them "still online" for up to 5 minutes
+          // after signout. Fire /status/sign-off first (silent, so a
+          // network failure doesn't block logout) which back-dates
+          // last_seen_at + clears manual status, giving every observer
+          // an "offline" answer on their next 30 s status batch.
+          try { await api.statusSignOff(); } catch { /* best-effort */ }
+          await persist(null, null);
+        },
         refresh: async () => {
           if (!user) return null;
           try {

@@ -41,6 +41,15 @@ def build_status_router(db, current_user):
         await svc.heartbeat(db, me["id"])
         return {"ok": True}
 
+    @r.post("/sign-off")
+    async def status_sign_off(me: dict = Depends(current_user)):
+        """Immediately mark the authed user as offline. The mobile
+        client calls this from its logout path so other members see
+        the change in ≤30 s instead of waiting for the natural 5-min
+        heartbeat-stale decay. Idempotent — safe to retry."""
+        await svc.sign_off(db, me["id"])
+        return {"ok": True}
+
     @r.get("/looking")
     async def status_looking(
         me: dict = Depends(current_user),

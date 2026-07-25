@@ -195,6 +195,7 @@ export const api = {
   statusSetManual: (manual_status: "looking" | "happy" | "busy" | null) =>
     req(`/status/me`, { method: "PATCH", body: JSON.stringify({ manual_status }) }),
   statusHeartbeat: () => req(`/status/heartbeat`, { method: "POST" }, { silent: true }),
+  statusSignOff: () => req(`/status/sign-off`, { method: "POST" }, { silent: true }),
   statusLooking: (scope: "nearby" | "friends" | "all" = "nearby") =>
     req(`/status/looking?scope=${scope}`, {}, { silent: true }),
   statusForUsers: (ids: string[]) => {
