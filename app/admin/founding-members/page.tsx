@@ -122,7 +122,7 @@ function MemberRow({
   onMoveDown: () => void;
   onDelete: () => void;
 }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
   const avatarUrl = member.avatar_url
     ? (member.avatar_url.startsWith('http') ? member.avatar_url : `${BASE}${member.avatar_url}`)
     : null;

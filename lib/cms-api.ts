@@ -7,8 +7,9 @@
  */
 
 import { getToken, clearAuth } from './cms-auth';
+import { API_BASE } from './api-base';
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || '';
+const BASE = API_BASE;
 
 async function req<T>(
   method: string,
