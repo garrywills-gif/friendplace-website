@@ -55,20 +55,13 @@ export function GeorgePresenceCard({ onAsk }: GeorgePresenceProps) {
       <button
         type="button"
         onClick={() => onAsk?.(suggestion)}
-        disabled={!onAsk}
-        aria-disabled={!onAsk}
-        title={onAsk ? undefined : 'Coming soon'}
-        style={onAsk ? askBtn : askBtnComingSoon}
+        style={askBtn}
       >
-        {onAsk ? 'Ask George' : 'Ask George — Coming soon'}
+        Ask George
       </button>
 
       <div style={helpRow}>
-        {onAsk ? (
-          <span>Tip: press <kbd style={kbd}>⌘K</kbd> from anywhere to focus the Ask George bar.</span>
-        ) : (
-          <span>George is on his way. The full Ask George experience unlocks with the next Mission Control release.</span>
-        )}
+        <span>Tip: press <kbd style={kbd}>⌘K</kbd> from anywhere to focus the Ask George bar.</span>
       </div>
     </div>
   );
@@ -89,12 +82,6 @@ const askBtn: React.CSSProperties = {
   borderRadius: 10, border: 'none', fontWeight: 800, fontSize: 14,
   color: '#FFFFFF', background: 'linear-gradient(135deg,#14B8A6,#38BDF8)',
   cursor: 'pointer',
-};
-const askBtnComingSoon: React.CSSProperties = {
-  width: '100%', padding: '10px 14px', marginTop: 12,
-  borderRadius: 10, border: '1px dashed #CBD5E1', fontWeight: 700, fontSize: 13,
-  color: '#64748B', background: '#F8FAFC',
-  cursor: 'not-allowed',
 };
 const helpRow: React.CSSProperties = {
   marginTop: 12, fontSize: 11, color: '#94A3B8', lineHeight: 1.5,

@@ -9,12 +9,12 @@ import { MiddayPulse } from '@/components/mcgs/MiddayPulse';
 import { EndOfDay } from '@/components/mcgs/EndOfDay';
 
 export default function BridgePage() {
-  // NOTE (Bridge pilot): the "Ask George" flow is intentionally not
-  // wired up in this deploy. AskGeorgeBar isn't mounted on the shell,
-  // so dispatching a custom event would silently do nothing. Instead
-  // we omit the `onAsk` prop everywhere below — the child cards guard
-  // on it and hide their "Ask George" buttons when it's undefined,
-  // which keeps the UI honest until the full MCGS shell ships.
+  // Reach up to the AdminShell-mounted Ask George bar. It listens on
+  // the global `mcgs:ask-george` custom event so any surface in MCGS
+  // can open George without prop-drilling.
+  const dispatchAsk = (message?: string) => {
+    window.dispatchEvent(new CustomEvent('mcgs:ask-george', { detail: { message } }));
+  };
 
   return (
     <AdminShell>
@@ -31,20 +31,20 @@ export default function BridgePage() {
         <div style={grid}>
           {/* Left / main column */}
           <div>
-            <MorningBriefing />
+            <MorningBriefing onAsk={dispatchAsk} />
 
-            <MiddayPulse />
+            <MiddayPulse onAsk={dispatchAsk} />
 
-            <EndOfDay />
+            <EndOfDay onAsk={dispatchAsk} />
 
             <SignalFeed />
           </div>
 
           {/* Right rail */}
           <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <GeorgePresenceCard />
+            <GeorgePresenceCard onAsk={dispatchAsk} />
 
-            <GeorgeSuggestionCard comingSoon />
+            <GeorgeSuggestionCard />
 
             {/* Health Pulse placeholder — Phase 4 will make this live. */}
             <div style={pulseCard}>
