@@ -26,7 +26,7 @@ function ResetForm() {
     try {
       const res = await cmsApi.reset(token, password);
       setToken(res.token);
-      router.replace('/admin/bridge');
+      router.replace('/admin/dashboard');
     } catch (e: any) {
       setError(e?.message || 'Reset failed. The link may have expired.');
     } finally {

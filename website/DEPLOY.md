@@ -21,7 +21,7 @@ switch. Safe to share the Vercel URL privately for feedback.
 
 | Name                     | Value                                                        | Notes                              |
 | ------------------------ | ------------------------------------------------------------ | ---------------------------------- |
-| `NEXT_PUBLIC_API_URL`    | `https://friendplace-v1.preview.emergentagent.com`          | Your live FastAPI + MongoDB URL    |
+| `NEXT_PUBLIC_API_URL`    | `https://belong-together.preview.emergentagent.com`          | Your live FastAPI + MongoDB URL    |
 | `FRIENDPLACE_INDEXABLE`  | *(leave unset for now)*                                      | Set to `true` at official launch   |
 
 ## Deploying — three options

@@ -22,7 +22,7 @@ export default function LoginPage() {
       const res = await cmsApi.login({ email: email.trim(), password });
       setToken(res.token);
       setAdmin(res.admin);
-      router.replace('/admin/bridge');
+      router.replace('/admin/dashboard');
     } catch (e: any) {
       setError(e?.message || 'Login failed.');
     } finally {
