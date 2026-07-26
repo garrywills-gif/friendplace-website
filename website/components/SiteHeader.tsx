@@ -123,6 +123,22 @@ export default function SiteHeader() {
               {n.label}
             </Link>
           ))}
+          {MOBILE_EXTRAS.map((n) => (
+            <Link
+              key={n.href}
+              href={n.href}
+              onClick={() => setOpen(false)}
+              style={{
+                display: 'block', padding: '10px 0 10px 32px', fontWeight: 500,
+                fontSize: 14,
+                color: isActive(n.href) ? '#14B8A6' : '#475569',
+                borderBottom: '1px solid #F1F5F9',
+                borderLeft: isActive(n.href) ? '3px solid #14B8A6' : '3px solid transparent',
+              }}
+            >
+              ↳ {n.label}
+            </Link>
+          ))}
           <Link href="/#download" onClick={() => setOpen(false)} className="btn btn-primary" style={{ marginTop: 16, width: '100%' }}>
             Get the App
           </Link>
@@ -218,7 +234,17 @@ const NAV = [
   { label: 'About', href: '/about' },
   { label: 'How It Works', href: '/how-it-works' },
   { label: 'Features', href: '/features' },
+  { label: 'Events', href: '/events' },
   { label: 'Stories', href: '/success-stories' },
   { label: 'FAQs', href: '/faqs' },
   { label: 'Contact', href: '/contact' },
+];
+
+// A small extra link surfaced only inside the mobile hamburger, so that
+// organisations (RSLs, community groups, councils, libraries,
+// retirement villages, sporting clubs) can find the event-submission
+// entry without cluttering the desktop top-bar. Desktop users see the
+// same option via the prominent CTA on /events and via the footer.
+const MOBILE_EXTRAS = [
+  { label: 'List an Event', href: '/list-your-event' },
 ];

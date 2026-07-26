@@ -30,6 +30,26 @@ export default async function EventsPage() {
         <p style={{ fontSize: 17, color: '#475569', maxWidth: 640, margin: '16px auto 0', lineHeight: 1.7 }}>
           Walks by the beach. Morning coffees. Craft afternoons. Real moments where FriendPlace friendships happen.
         </p>
+        {/* Organisation entry-point. Kept as a small, quiet chip so it
+            never competes with the primary event grid, but is visible
+            enough that a council staffer, RSL, community group or
+            library scanning this page can find it in one glance. */}
+        <div style={{ marginTop: 20 }}>
+          <Link
+            href="/list-your-event"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              padding: '10px 18px', borderRadius: 999,
+              background: 'rgba(20,184,166,0.08)',
+              border: '1px solid rgba(20,184,166,0.25)',
+              color: '#0F766E', fontWeight: 700, fontSize: 14,
+              textDecoration: 'none',
+            }}
+          >
+            <span aria-hidden>🏛️</span>
+            <span>For organisations: List an event →</span>
+          </Link>
+        </div>
       </div>
 
       {events.length === 0 ? (
@@ -73,6 +93,45 @@ export default async function EventsPage() {
           })}
         </div>
       )}
+
+      {/* End-of-page organisation CTA. Larger and more explanatory
+          than the top chip, aimed at the reader who scrolled through
+          the whole list and is now ready to convert. */}
+      <div
+        style={{
+          marginTop: 64, padding: '36px 32px',
+          borderRadius: 24, background: '#FFFFFF',
+          border: '1px solid #E2E8F0',
+          boxShadow: '0 4px 16px rgba(10,37,64,0.05)',
+          display: 'flex', flexWrap: 'wrap', gap: 20,
+          alignItems: 'center', justifyContent: 'space-between',
+        }}
+      >
+        <div style={{ maxWidth: 620 }}>
+          <div style={{ fontSize: 12, letterSpacing: '0.2em', textTransform: 'uppercase', fontWeight: 800, color: '#14B8A6', marginBottom: 8 }}>
+            For organisations
+          </div>
+          <h2 style={{ fontSize: 22, fontWeight: 900, color: '#0A2540', margin: 0, marginBottom: 6, letterSpacing: '-0.01em' }}>
+            Run a community group, RSL, library or council program?
+          </h2>
+          <p style={{ fontSize: 15, color: '#475569', lineHeight: 1.6, margin: 0 }}>
+            Add your event to FriendPlace. Our team reviews each submission before it goes live, so members always see events that match FriendPlace’s friendship-first values.
+          </p>
+        </div>
+        <Link
+          href="/list-your-event"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 10,
+            padding: '14px 24px', borderRadius: 12,
+            background: 'linear-gradient(135deg,#14B8A6,#0F766E)',
+            color: '#FFFFFF', fontWeight: 800, fontSize: 15,
+            textDecoration: 'none',
+            boxShadow: '0 4px 12px rgba(20,184,166,0.25)',
+          }}
+        >
+          List an event →
+        </Link>
+      </div>
     </main>
   );
 }

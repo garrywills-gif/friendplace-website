@@ -73,6 +73,10 @@ export default function SiteFooter() {
             { label: 'Features', href: '/features' },
             { label: 'FAQs', href: '/faqs' },
           ]} />
+          <FooterCol title="Events" links={[
+            { label: 'Browse events', href: '/events' },
+            { label: 'List an event', href: '/list-your-event' },
+          ]} />
           <FooterCol title="Community" links={[
             { label: 'Founding Members', href: '/#founders' },
             { label: 'Success Stories', href: '/#stories' },
