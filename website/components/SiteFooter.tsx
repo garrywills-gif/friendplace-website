@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { brandAssets } from '@/lib/brand-assets';
 import { site } from '@/lib/brand';
+import SecretAdminTrigger from './SecretAdminTrigger';
 
 /**
  * Rich site footer — dark navy band matching the invite flyer.
@@ -26,13 +27,16 @@ export default function SiteFooter() {
         {/* Top brand block — butterfly + tagline + strapline */}
         <div style={{ textAlign: 'center', marginBottom: 56, paddingBottom: 48, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-            <img
-              src={brandAssets.butterfly.src}
-              alt={brandAssets.butterfly.alt}
-              width={brandAssets.butterfly.width}
-              height={brandAssets.butterfly.height}
-              style={{ width: 44, height: 'auto', display: 'block' }}
-            />
+            <SecretAdminTrigger>
+              <img
+                src={brandAssets.butterfly.src}
+                alt={brandAssets.butterfly.alt}
+                width={brandAssets.butterfly.width}
+                height={brandAssets.butterfly.height}
+                draggable={false}
+                style={{ width: 44, height: 'auto', display: 'block' }}
+              />
+            </SecretAdminTrigger>
             <span style={{ fontWeight: 900, fontSize: 28, color: '#FFFFFF', letterSpacing: '-0.02em' }}>
               Friend<span style={{ color: '#5EEAD4' }}>Place</span>
             </span>
