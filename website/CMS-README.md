@@ -2,6 +2,8 @@
 
 Self-service editor for the FriendPlace marketing website.
 
+Deployment refresh: 26 July 2026
+
 ## Getting in for the first time
 
 1. Visit `https://friendplace.com.au/admin` (or `/admin/setup` directly).
