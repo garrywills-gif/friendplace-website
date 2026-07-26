@@ -5,14 +5,19 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi } from '@/lib/cms-api';
+import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
+import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
 
-const NAV = [
-  { href: '/admin/dashboard',        label: 'Dashboard',         icon: '📊' },
+const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions'; group?: string }[] = [
+  { href: '/admin/bridge',           label: 'The Bridge',        icon: '🌉' },
+  { href: '/admin/george',           label: "George's Workspace", icon: '🦋' },
   { href: '/admin/home',             label: 'Home page',         icon: '🏠' },
   { href: '/admin/about',            label: 'About page',        icon: 'ℹ️' },
   { href: '/admin/faqs',             label: 'FAQs',              icon: '❓' },
   { href: '/admin/success-stories',  label: 'Success Stories',   icon: '📖' },
   { href: '/admin/founding-members', label: 'Founding Members',  icon: '👥' },
+  { href: '/admin/events',           label: 'Events',            icon: '📅' },
+  { href: '/admin/event-submissions',label: 'Event Submissions', icon: '📝', badgeKey: 'submissions' },
   { href: '/admin/media',            label: 'Media library',     icon: '🖼️' },
 ];
 
@@ -26,6 +31,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   const pathname = usePathname();
   const [ready, setReady] = useState(false);
   const [admin, setLocalAdmin] = useState<CmsAdmin | null>(null);
+  const [pendingSubmissions, setPendingSubmissions] = useState<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -43,6 +49,22 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
      
   }, []);
 
+  // Refresh the pending submissions badge whenever the route changes so
+  // admins see an up-to-date count after approving / rejecting an entry.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await cmsApi.listEventSubmissions('pending');
+        if (!cancelled) setPendingSubmissions(res.counts?.pending ?? 0);
+      } catch {
+        // Silent fail — badge just stays at last known value.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [ready, pathname]);
+
   const signOut = () => {
     clearAuth();
     router.replace('/admin/login');
@@ -59,7 +81,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   return (
     <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: 'Public Sans, system-ui, sans-serif', display: 'flex' }}>
       <aside style={sidebar}>
-        <Link href="/admin/dashboard" style={sidebarBrand}>
+        <Link href="/admin/bridge" style={sidebarBrand}>
           <span style={{ fontSize: 34, lineHeight: 1 }}>🦋</span>
           <div>
             <div style={{ fontSize: 19, fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.01em' }}>FriendPlace</div>
@@ -69,7 +91,12 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
 
         <nav style={{ flex: 1, marginTop: 32 }}>
           {NAV.map(item => {
-            const active = pathname?.startsWith(item.href);
+            // Exact match OR next char is "/" so /admin/events doesn't also
+            // light up when visiting /admin/event-submissions.
+            const active =
+              pathname === item.href ||
+              (pathname?.startsWith(item.href + '/') ?? false);
+            const badgeCount = item.badgeKey === 'submissions' ? pendingSubmissions : 0;
             return (
               <Link
                 key={item.href}
@@ -79,7 +106,15 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                 data-active={active ? '1' : '0'}
               >
                 <span style={{ fontSize: 18 }}>{item.icon}</span>
-                <span>{item.label}</span>
+                <span style={{ flex: 1 }}>{item.label}</span>
+                {badgeCount > 0 && (
+                  <span
+                    aria-label={`${badgeCount} pending`}
+                    style={navBadge}
+                  >
+                    {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -87,15 +122,45 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '16px 20px' }}>
           <div style={{ color: '#94A3B8', fontSize: 12, marginBottom: 4 }}>Signed in as</div>
-          <div style={{ color: '#FFFFFF', fontWeight: 700, fontSize: 14, marginBottom: 12, wordBreak: 'break-all' }}>{admin?.email}</div>
-          <button onClick={signOut} className="cms-sign-out" style={signOutBtn}>Sign out</button>
+          <div style={{ color: '#FFFFFF', fontWeight: 700, fontSize: 15, marginBottom: 12, wordBreak: 'break-word' }}>
+            {admin?.display_name || admin?.email || 'Admin'}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Link
+              href="/admin/account"
+              className={`cms-footer-btn${(pathname === '/admin/account' || pathname?.startsWith('/admin/account/')) ? ' cms-footer-btn-active' : ''}`}
+              style={{
+                ...footerBtn,
+                background: (pathname === '/admin/account' || pathname?.startsWith('/admin/account/')) ? 'rgba(94,234,212,0.15)' : 'transparent',
+                borderColor: (pathname === '/admin/account' || pathname?.startsWith('/admin/account/')) ? '#5EEAD4' : 'rgba(255,255,255,0.2)',
+                textDecoration: 'none',
+              }}
+              aria-label="Account settings"
+            >
+              <span aria-hidden style={{ fontSize: 14 }}>⚙️</span>
+              <span>Account</span>
+            </Link>
+            <button onClick={signOut} className="cms-sign-out" style={{ ...footerBtn, cursor: 'pointer', flex: 1 }}>
+              Sign out
+            </button>
+          </div>
         </div>
       </aside>
 
       <main style={mainCol}>
-        {title && <h1 style={pageTitle}>{title}</h1>}
-        {children}
+        <AskGeorgeBar />
+        <div style={{ padding: '24px 40px 64px' }}>
+          {title && <h1 style={pageTitle}>{title}</h1>}
+          {children}
+        </div>
       </main>
+      {/*
+       * George's butterfly. Present on every authenticated admin page.
+       * The arrival animation fires at most once per calendar day (with a
+       * warmer welcome after ≥ 3 days away). After it lands he simply
+       * rests in the corner, quietly keeping company.
+       */}
+      <GeorgeButterfly actorId={admin?.id} />
     </div>
   );
 }
@@ -114,8 +179,36 @@ const sidebar: React.CSSProperties = {
 };
 const sidebarBrand: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '0 20px', color: '#FFFFFF', textDecoration: 'none' };
 const navLink: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '12px 20px', fontSize: 15, fontWeight: 700, textDecoration: 'none' };
-const signOutBtn: React.CSSProperties = { width: '100%', padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)', background: 'transparent', color: '#FFFFFF', fontSize: 13, fontWeight: 700, cursor: 'pointer' };
-const mainCol: React.CSSProperties = { flex: 1, padding: '32px 40px 64px', maxWidth: 1200, width: '100%' };
+const navBadge: React.CSSProperties = {
+  minWidth: 22,
+  height: 22,
+  padding: '0 7px',
+  borderRadius: 999,
+  background: 'linear-gradient(135deg, #F97316, #EF4444)',
+  color: '#FFFFFF',
+  fontSize: 11,
+  fontWeight: 900,
+  letterSpacing: '0.02em',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  boxShadow: '0 4px 12px rgba(249,115,22,0.4)',
+};
+const footerBtn: React.CSSProperties = {
+  flex: 1,
+  padding: '10px 12px',
+  borderRadius: 10,
+  border: '1px solid rgba(255,255,255,0.2)',
+  background: 'transparent',
+  color: '#FFFFFF',
+  fontSize: 13,
+  fontWeight: 700,
+  display: 'inline-flex',
+  gap: 6,
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+const mainCol: React.CSSProperties = { flex: 1, maxWidth: 1400, width: '100%' };
 const pageTitle: React.CSSProperties = { fontSize: 28, color: '#0A2540', fontWeight: 900, marginTop: 0, marginBottom: 24 };
 
 // Reusable button/panel styles for admin editor pages.
