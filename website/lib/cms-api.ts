@@ -53,42 +53,9 @@ export const cmsApi = {
   login: (data: { email: string; password: string }) =>
     req<{ ok: true; token: string; admin: any }>('POST', '/cms/auth/login', data),
   me: () => req<{ id: string; email: string; display_name?: string; last_login_at?: string }>('GET', '/cms/auth/me'),
-  updateMe: (display_name: string) =>
-    req<{
-      ok: true;
-      admin: { id: string; email: string; display_name: string; last_login_at?: string | null };
-    }>('PATCH', '/cms/auth/me', { display_name }),
   forgot: (email: string) => req<{ ok: true }>('POST', '/cms/auth/forgot', { email }),
   reset: (token: string, new_password: string) =>
     req<{ ok: true; token: string }>('POST', '/cms/auth/reset', { token, new_password }),
-  changePassword: (current_password: string, new_password: string) =>
-    req<{ ok: true; token: string }>('POST', '/cms/auth/change-password', { current_password, new_password }),
-
-  // Admins — same-tier management (all admins are equal in permissions).
-  listAdmins: () => req<{
-    items: Array<{
-      id: string;
-      email: string;
-      display_name?: string;
-      created_at?: string;
-      last_login_at?: string | null;
-    }>;
-    count: number;
-  }>('GET', '/cms/admins'),
-  createAdmin: (data: { email: string; display_name?: string }) =>
-    req<{
-      ok: true;
-      admin: {
-        id: string;
-        email: string;
-        display_name?: string;
-        created_at?: string;
-        last_login_at?: string | null;
-      };
-      invite_url: string;
-      expires_in_minutes: number;
-    }>('POST', '/cms/admins', data),
-  deleteAdmin: (id: string) => req<{ ok: true }>('DELETE', `/cms/admins/${id}`),
 
   // Content
   getContent: () => req<any>('GET', '/cms/content'),
@@ -100,8 +67,6 @@ export const cmsApi = {
     success_stories_count: number;
     founding_members_count_editable: number;
     founder_signups_count: number;
-    events_count: number;
-    events_upcoming_count: number;
     status: { label: string; color: 'amber' | 'green' | 'red'; dot: string };
     updated_at?: string;
     system: {
@@ -138,33 +103,6 @@ export const cmsApi = {
   updateFoundingMember: (id: string, patch: Partial<FoundingMember>) => req<FoundingMember>('PATCH', `/cms/founding-members/${id}`, patch),
   deleteFoundingMember: (id: string) => req<{ ok: true }>('DELETE', `/cms/founding-members/${id}`),
   reorderFoundingMembers: (ids: string[]) => req<{ items: FoundingMember[] }>('POST', '/cms/founding-members/reorder', { ids }),
-
-  // Events
-  listEvents: () => req<{ items: EventRow[]; count: number }>('GET', '/cms/events'),
-  createEvent: (data?: Partial<EventRow>) => req<EventRow>('POST', '/cms/events', data || {}),
-  getEvent: (id: string) => req<EventRow>('GET', `/cms/events/${id}`),
-  updateEvent: (id: string, patch: Partial<EventRow>) => req<EventRow>('PATCH', `/cms/events/${id}`, patch),
-  deleteEvent: (id: string) => req<{ ok: true }>('DELETE', `/cms/events/${id}`),
-  cancelEvent: (id: string, reason?: string) =>
-    req<{ ok: true; emailed: number; event: EventRow; already_cancelled?: boolean }>('POST', `/cms/events/${id}/cancel`, reason ? { reason } : {}),
-
-  // Public event submissions (draft-first) — used by the /list-your-event
-  // page. Nothing auth-gated here; Mission Control handles review.
-  submitPublicEvent: (payload: PublicEventSubmission) =>
-    req<{ ok: true; submission_ref: string; message: string }>('POST', '/public/events/submit', payload),
-  listEventSubmissions: (status?: string) =>
-    req<{ items: EventSubmissionRow[]; counts: { pending: number; approved: number; rejected: number } }>(
-      'GET', `/cms/event-submissions${status ? `?status=${encodeURIComponent(status)}` : ''}`,
-    ),
-  approveEventSubmission: (id: string) =>
-    req<{ ok: true; event_id: string; event_slug: string }>('POST', `/cms/event-submissions/${id}/approve`, {}),
-  rejectEventSubmission: (id: string, reason?: string) =>
-    req<{ ok: true }>('POST', `/cms/event-submissions/${id}/reject`, reason ? { reason } : {}),
-  // RSVPs
-  listRsvps: (eventId: string) => req<{ items: EventRsvp[]; counts: { going: number; waitlist: number }; capacity: number | null }>('GET', `/cms/events/${eventId}/rsvps`),
-  addRsvp: (eventId: string, data: Partial<EventRsvp>) => req<EventRsvp>('POST', `/cms/events/${eventId}/rsvps`, data),
-  updateRsvp: (eventId: string, rsvpId: string, patch: Partial<EventRsvp>) => req<EventRsvp>('PATCH', `/cms/events/${eventId}/rsvps/${rsvpId}`, patch),
-  deleteRsvp: (eventId: string, rsvpId: string) => req<{ ok: true }>('DELETE', `/cms/events/${eventId}/rsvps/${rsvpId}`),
 };
 
 export type SuccessStory = {
@@ -197,100 +135,4 @@ export type FoundingMember = {
   created_at: string;
   updated_at: string;
   created_by?: string;
-};
-
-export type EventSponsor = {
-  name?: string;
-  logo_url?: string;
-  website_url?: string;
-};
-
-export type EventRow = {
-  id: string;
-  slug: string;
-  title: string;
-  description: string;
-  body_html: string;
-  cover_image_url?: string;
-  starts_at: string;
-  ends_at?: string;
-  timezone: string;
-  is_online: boolean;
-  venue_name?: string;
-  venue_address?: string;
-  venue_url?: string;
-  meeting_url?: string;
-  capacity: number | null;
-  rsvp_deadline_at?: string;
-  cost_type: 'free' | 'paid';
-  cost_display: string;
-  organiser_name?: string;
-  organiser_contact?: string;
-  accessibility_info?: string;
-  sponsors: EventSponsor[];
-  status: 'draft' | 'published' | 'cancelled';
-  hidden?: boolean;
-  cancelled_at?: string;
-  cancellation_reason?: string;
-  created_at: string;
-  updated_at: string;
-  created_by?: string;
-  rsvp_counts?: { going: number; waitlist: number };
-};
-
-export type EventRsvp = {
-  id: string;
-  event_id: string;
-  name: string;
-  email?: string;
-  user_id?: string;
-  guests_count: number;
-  note?: string;
-  status: 'going' | 'waitlist' | 'cancelled';
-  created_at: string;
-  updated_at: string;
-};
-
-export type PublicEventSubmission = {
-  organisation_name: string;
-  contact_name: string;
-  contact_email: string;
-  contact_phone?: string;
-  event_title: string;
-  event_starts_at: string;
-  event_ends_at?: string;
-  venue_name?: string;
-  venue_address?: string;
-  description?: string;
-  capacity?: number | null;
-  cost_type?: 'free' | 'paid';
-  cost_display?: string;
-  accessibility_info?: string;
-  cover_image_base64?: string;
-  agreed_to_review: boolean;
-};
-
-export type EventSubmissionRow = {
-  id: string;
-  submission_ref: string;
-  organisation_name: string;
-  contact_name: string;
-  contact_email: string;
-  contact_phone?: string | null;
-  event_title: string;
-  event_starts_at: string;
-  event_ends_at?: string | null;
-  venue_name?: string | null;
-  venue_address?: string | null;
-  description?: string | null;
-  capacity?: number | null;
-  cost_type?: string;
-  cost_display?: string | null;
-  accessibility_info?: string | null;
-  cover_image_base64?: string | null;
-  status: 'pending' | 'approved' | 'rejected';
-  reviewer_notes?: string | null;
-  resulting_event_id?: string | null;
-  created_at: string;
-  updated_at: string;
 };

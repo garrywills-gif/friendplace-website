@@ -50,7 +50,7 @@ export default function SetupPage() {
       });
       setToken(res.token);
       setAdmin(res.admin);
-      router.replace('/admin/bridge');
+      router.replace('/admin/dashboard');
     } catch (e: any) {
       setError(e?.message || 'Setup failed.');
     } finally {

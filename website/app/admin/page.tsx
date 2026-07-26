@@ -20,7 +20,7 @@ export default function AdminIndexPage() {
           // Optimistic: try /me — if it fails the api client clears the token.
           try {
             await cmsApi.me();
-            router.replace('/admin/bridge');
+            router.replace('/admin/dashboard');
             return;
           } catch {
             /* fall through to setup/login decision */
