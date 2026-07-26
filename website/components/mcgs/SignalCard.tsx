@@ -42,11 +42,17 @@ export function SignalCard({ case_, onChanged }: SignalCardProps) {
     }
   }
 
-  const deepLink = case_.case_key.startsWith('event_submission:')
-    ? `/admin/event-submissions`
-    : case_.case_key.startsWith('support_ticket:')
-      ? `/admin/support` // placeholder — no page yet, still readable
-      : undefined;
+  // Bridge pilot: /admin/event-submissions and /admin/support are not
+  // yet deployed, so we intentionally do not surface a deep-link
+  // "Open" button. Once those routes ship, this map can grow. Keeping
+  // the branch here (rather than deleting the switch) preserves the
+  // wiring for the next iteration without exposing broken links today.
+  const DEEP_LINKS_ENABLED: Record<string, string> = {
+    // 'event_submission': '/admin/event-submissions',
+    // 'support_ticket':   '/admin/support',
+  };
+  const caseKind = case_.case_key.split(':', 1)[0];
+  const deepLink: string | undefined = DEEP_LINKS_ENABLED[caseKind];
 
   return (
     <div style={{
