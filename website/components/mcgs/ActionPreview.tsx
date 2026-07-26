@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { getToken } from '@/lib/cms-auth';
+import { API_BASE } from '@/lib/api-base';
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || '';
+const BASE = API_BASE;
 
 export interface ActionPreviewPayload {
   kind: 'action_preview';

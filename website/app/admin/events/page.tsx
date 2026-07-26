@@ -83,7 +83,7 @@ function EventsListInner() {
 }
 
 function EventRowCard({ event, onDelete }: { event: EventRow; onDelete: () => void }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
   const cover = event.cover_image_url
     ? (event.cover_image_url.startsWith('http') ? event.cover_image_url : `${BASE}${event.cover_image_url}`)
     : null;
@@ -150,7 +150,7 @@ function StatusPill({ draft, hidden }: { draft: boolean; hidden: boolean }) {
   return <span style={{ ...base, background: '#DCFCE7', color: '#166534' }}>Published</span>;
 }
 
-export function formatEventWhen(iso: string | undefined, tz: string = 'Australia/Sydney'): string {
+function formatEventWhen(iso: string | undefined, tz: string = 'Australia/Sydney'): string {
   if (!iso) return 'Date TBD';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'Date TBD';

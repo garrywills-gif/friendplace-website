@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || '';
+const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
 
 type SubmitState =
   | { kind: 'idle' }

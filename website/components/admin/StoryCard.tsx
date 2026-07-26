@@ -21,7 +21,7 @@ export function StoryCard({
   story: SuccessStory;
   variant?: 'full' | 'compact';
 }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
   const avatarUrl = story.author_avatar_url
     ? (story.author_avatar_url.startsWith('http')
         ? story.author_avatar_url

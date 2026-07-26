@@ -334,7 +334,7 @@ export default function EventEditorPage() {
                 <div style={{ width: 56, height: 56, borderRadius: 10, background: '#F1F5F9', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94A3B8', fontSize: 20 }}>
                   {sp.logo_url
                      
-                    ? <img src={sp.logo_url.startsWith('http') ? sp.logo_url : `${process.env.NEXT_PUBLIC_API_URL || ''}${sp.logo_url}`} alt={sp.name || 'Sponsor logo'} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4 }} />
+                    ? <img src={sp.logo_url.startsWith('http') ? sp.logo_url : `${process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com'}${sp.logo_url}`} alt={sp.name || 'Sponsor logo'} style={{ width: '100%', height: '100%', objectFit: 'contain', padding: 4 }} />
                     : '🏷️'}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -510,7 +510,7 @@ export default function EventEditorPage() {
 /* ---------- helpers & sub-components ---------- */
 
 function CoverWell({ url, title }: { url: string; title: string }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
   const abs = url ? (url.startsWith('http') ? url : `${BASE}${url}`) : '';
   return (
     <div style={{ width: '100%', aspectRatio: '16 / 9', borderRadius: 12, overflow: 'hidden',
@@ -573,7 +573,7 @@ function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: st
 }
 
 function EventPreviewModal({ event, onClose }: { event: EventRow; onClose: () => void }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
   const cover = event.cover_image_url ? (event.cover_image_url.startsWith('http') ? event.cover_image_url : `${BASE}${event.cover_image_url}`) : null;
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(10,37,64,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 24, overflow: 'auto' }}>

@@ -6,7 +6,7 @@ import type { SuccessStory } from '@/lib/cms-api';
 export const revalidate = 60;
 
 async function fetchStories(): Promise<SuccessStory[]> {
-  const base = process.env.NEXT_PUBLIC_API_URL || '';
+  const base = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
   try {
     const res = await fetch(`${base}/api/public/stories`, { next: { revalidate: 60 } });
     if (!res.ok) return [];

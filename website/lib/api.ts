@@ -12,7 +12,9 @@
  * indexable, and page loads are as fast as static HTML.
  */
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || '';
+import { API_BASE } from './api-base';
+
+const BASE = API_BASE;
 
 /** Fetch with a soft cache: revalidate every 60 s in production so
  *  admin edits show up within a minute without hammering the API. */
