@@ -43,6 +43,32 @@ const CONFIDENCE_STYLES: Record<string, { bg: string; color: string; label: stri
  * is the voice-safeguard gate applied uniformly regardless of channel.
  */
 export function ActionPreview({ preview, onResolved }: ActionPreviewProps) {
+  // Defensive guard (Issue 3): only render for action_type values we
+  // know how to present as a proper UI card. If a read-only tool
+  // result (e.g. list_signals, describe_bridge_state) accidentally
+  // arrives here — either because the George turn handler forgot to
+  // suppress it, or because a future tool is added without wiring —
+  // we render nothing rather than dumping raw JSON to the admin. The
+  // conversational assistant paraphrases the underlying data in text.
+  const KNOWN_ACTION_TYPES: Array<ActionPreviewPayload['action_type']> = [
+    'ticket_reply',
+    'submission_decision',
+  ];
+  if (!preview || !KNOWN_ACTION_TYPES.includes(preview.action_type)) {
+    if (typeof console !== 'undefined') {
+      // eslint-disable-next-line no-console
+      console.debug('[ActionPreview] suppressed non-action tool payload', preview?.action_type);
+    }
+    return null;
+  }
+  // A minimally-populated preview (no draft, no what, no why) is also
+  // treated as a read-only echo — the LLM will already have summarised
+  // the data in prose above this component. Rendering an empty card
+  // adds noise and can look like a broken tile.
+  if (!preview.what && !preview.why && !preview.draft) {
+    return null;
+  }
+
   const [draft, setDraft] = useState(preview.draft || '');
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);

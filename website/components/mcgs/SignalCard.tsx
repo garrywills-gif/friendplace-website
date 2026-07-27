@@ -28,15 +28,44 @@ export function SignalCard({ case_, onChanged }: SignalCardProps) {
   const conf = george?.confidence ? CONFIDENCE_STYLES[george.confidence] : null;
   const [busy, setBusy] = useState<null | 'review' | 'resolve' | 'dismiss'>(null);
 
+  // Finite-state machine for case status. Terminal states (RESOLVED,
+  // DISMISSED) allow no further actions — the row shows a status pill
+  // instead of action buttons.
+  //
+  // NEW / SEEN / OPEN  → Mark reviewing, Resolve, Dismiss
+  // IN_REVIEW          → Resolve, Dismiss
+  // RESOLVED / DISMISSED (terminal)
+  const currentStatus: string = (case_ as any).status || 'NEW';
+  const legalTransitions: Record<string, Array<'review' | 'resolve' | 'dismiss'>> = {
+    NEW:       ['review', 'resolve', 'dismiss'],
+    SEEN:      ['review', 'resolve', 'dismiss'],
+    OPEN:      ['review', 'resolve', 'dismiss'],
+    IN_REVIEW: ['resolve', 'dismiss'],
+    RESOLVED:  [],
+    DISMISSED: [],
+  };
+  const allowed = legalTransitions[currentStatus] ?? ['review', 'resolve', 'dismiss'];
+  const isTerminal = currentStatus === 'RESOLVED' || currentStatus === 'DISMISSED';
+
   async function act(to: SignalStatus, kind: 'review' | 'resolve' | 'dismiss') {
     if (busy) return;
+    if (!allowed.includes(kind)) return; // defensive: UI already gates
     setBusy(kind);
     try {
       const updated = await mcgsApi.transitionCase(case_.id, to, { resolved_action: kind });
       onChanged?.(updated);
     } catch (err) {
-      console.error(err);
-      alert(`Couldn't update: ${(err as Error).message}`);
+      // Translate backend FSM error strings ("illegal transition X -> Y")
+      // into plain English before showing to the admin. Never expose
+      // raw state names or arrow notation in the UI.
+      const raw = (err as Error).message || '';
+      let friendly = "Sorry — this couldn't be updated. Try refreshing the Bridge.";
+      if (/illegal transition/i.test(raw)) {
+        if (/RESOLVED/i.test(raw))       friendly = "This item is already resolved and can't be changed.";
+        else if (/DISMISSED/i.test(raw)) friendly = "This item has already been dismissed.";
+        else                             friendly = "This item is already up to date.";
+      }
+      alert(friendly);
     } finally {
       setBusy(null);
     }
@@ -104,15 +133,29 @@ export function SignalCard({ case_, onChanged }: SignalCardProps) {
         {deepLink && (
           <a href={deepLink} style={btnPrimary}>Open</a>
         )}
-        <button onClick={() => act('IN_REVIEW', 'review')} disabled={!!busy} style={btnGhost}>
-          {busy === 'review' ? '…' : 'Mark reviewing'}
-        </button>
-        <button onClick={() => act('RESOLVED', 'resolve')} disabled={!!busy} style={btnGhost}>
-          {busy === 'resolve' ? '…' : 'Resolve'}
-        </button>
-        <button onClick={() => act('DISMISSED', 'dismiss')} disabled={!!busy} style={btnMuted}>
-          {busy === 'dismiss' ? '…' : 'Dismiss'}
-        </button>
+        {isTerminal ? (
+          <span style={statusPill(currentStatus)}>
+            {currentStatus === 'RESOLVED' ? '✓ Resolved — no further actions' : '— Dismissed'}
+          </span>
+        ) : (
+          <>
+            {allowed.includes('review') && (
+              <button onClick={() => act('IN_REVIEW', 'review')} disabled={!!busy} style={btnGhost}>
+                {busy === 'review' ? '…' : 'Mark reviewing'}
+              </button>
+            )}
+            {allowed.includes('resolve') && (
+              <button onClick={() => act('RESOLVED', 'resolve')} disabled={!!busy} style={btnGhost}>
+                {busy === 'resolve' ? '…' : 'Resolve'}
+              </button>
+            )}
+            {allowed.includes('dismiss') && (
+              <button onClick={() => act('DISMISSED', 'dismiss')} disabled={!!busy} style={btnMuted}>
+                {busy === 'dismiss' ? '…' : 'Dismiss'}
+              </button>
+            )}
+          </>
+        )}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94A3B8' }}>
           {relTime(case_.last_signal_at)}
         </span>
@@ -143,3 +186,16 @@ const btnGhost: React.CSSProperties = {
 const btnMuted: React.CSSProperties = {
   ...btnGhost, color: '#94A3B8',
 };
+
+// Terminal-state pill: no button affordance, muted colour, tells the
+// admin the row is done rather than offering an illegal transition.
+function statusPill(status: string): React.CSSProperties {
+  const isResolved = status === 'RESOLVED';
+  return {
+    display: 'inline-flex', alignItems: 'center', gap: 6,
+    padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+    background: isResolved ? '#F0FDF4' : '#F1F5F9',
+    color:      isResolved ? '#166534' : '#64748B',
+    border: `1px solid ${isResolved ? '#BBF7D0' : '#E2E8F0'}`,
+  };
+}
