@@ -66,10 +66,6 @@ agenthub/agents/youtube/db
 
 # Archive files and large assets
 **/*.zip
-# TEMPORARY: allow db_backup.zip through so Emergent's "Save to GitHub"
-# can carry the 4.4 MB MongoDB pre-Publish backup. Remove this line after
-# the backup has been downloaded off the pod.
-!db_backup.zip
 **/*.tar.gz
 **/*.tar
 **/*.tgz
