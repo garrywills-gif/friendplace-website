@@ -74,10 +74,12 @@ export function AskGeorgeBar() {
         setInput(prev => (prev ? prev.trim() + ' ' : '') + transcript);
         inputRef.current?.focus();
       } catch (err) {
-        // Graceful, human wording \u2014 never expose HTTP/API technical detail.
+        // Log the real error so failures are diagnosable from the
+        // console, then show graceful, human wording.
+        console.error('[voice] transcription failed:', err);
         const msg = (err as Error).message || '';
-        if (/network|fetch|failed to fetch/i.test(msg)) {
-          setMicError("I lost the connection for a moment. Please try that again.");
+        if (/took a moment too long|network|fetch|failed to fetch/i.test(msg)) {
+          setMicError("The connection hiccupped while I was listening \u2014 please try that again.");
         } else if (/permission|denied/i.test(msg)) {
           setMicError("I need microphone access to hear you \u2014 please allow it in your browser.");
         } else {

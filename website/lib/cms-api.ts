@@ -8,6 +8,7 @@
 
 import { getToken, clearAuth } from './cms-auth';
 import { API_BASE } from './api-base';
+import { fetchWithRetry } from './fetch-retry';
 
 const BASE = API_BASE;
 
@@ -18,11 +19,14 @@ async function req<T>(
   isFormData = false,
 ): Promise<T> {
   const headers: Record<string, string> = {};
-  if (!isFormData) headers['Content-Type'] = 'application/json';
+  // Only attach Content-Type when a JSON body is actually sent.
+  // A Content-Type header on GETs forces a CORS preflight (OPTIONS),
+  // doubling round-trips through the edge for zero benefit.
+  if (!isFormData && body != null) headers['Content-Type'] = 'application/json';
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${BASE}/api${path}`, {
+  const res = await fetchWithRetry(`${BASE}/api${path}`, {
     method,
     headers,
     body: isFormData ? body : body != null ? JSON.stringify(body) : undefined,

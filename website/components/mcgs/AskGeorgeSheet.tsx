@@ -20,6 +20,7 @@ interface Turn {
   role: 'user' | 'george';
   content: string;
   streaming?: boolean;
+  failed?: boolean;
   plan?: unknown;
   results?: unknown;
   previews?: ActionPreviewPayload[];
@@ -32,6 +33,9 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
   const [minimised, setMinimised] = useState(false);
   const chatIdRef = useRef<string | null>(null);
   const abortRef = useRef<{ abort: () => void } | null>(null);
+  // Last message the user sent — powers the "Try again" action on a
+  // failed / timed-out George turn.
+  const lastUserRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // Ref guard so React 18 StrictMode's double-invocation of effects
@@ -75,6 +79,7 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
     if (!trimmed || busy) return;
     setBusy(true);
     setInput('');
+    lastUserRef.current = trimmed;
 
     setTurns(prev => [
       ...prev,
@@ -125,10 +130,26 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
                 : t,
             );
           });
+        } else if (ev.kind === 'error') {
+          // Timeout / unreachable server / stream failure. Mark the
+          // turn failed so a "Try again" chip appears; `done` follows
+          // from the stream helper and unlocks the composer.
+          const text = ev.text || 'Something went wrong. Please try again.';
+          setTurns(prev => prev.map((t, i) =>
+            i === prev.length - 1 && t.role === 'george'
+              ? { ...t, streaming: false, failed: true, content: t.content ? `${t.content}\n\n${text}` : text }
+              : t,
+          ));
         } else if (ev.kind === 'done') {
           setTurns(prev => prev.map((t, i) =>
             i === prev.length - 1 && t.role === 'george'
-              ? { ...t, streaming: false }
+              ? {
+                  ...t,
+                  streaming: false,
+                  // User pressed Stop before any text arrived — leave a
+                  // friendly note instead of an empty bubble.
+                  content: t.content || 'Stopped \u2014 ask me again whenever you\u2019re ready.',
+                }
               : t,
           ));
           setBusy(false);
@@ -140,13 +161,19 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
 
   // Full reset on explicit close (×). Minimise preserves; close discards.
   function handleClose() {
-    setTurns([]);
-    setInput('');
-    setMinimised(false);
-    chatIdRef.current = null;
     abortRef.current?.abort();
     abortRef.current = null;
+    setTurns([]);
+    setInput('');
+    setBusy(false); // never let a stuck stream survive a close/reopen
+    setMinimised(false);
+    chatIdRef.current = null;
+    lastUserRef.current = null;
     onClose();
+  }
+
+  function retryLast() {
+    if (lastUserRef.current) send(lastUserRef.current);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -209,7 +236,7 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
             </div>
           )}
           {turns.map((t, i) => (
-            <ChatBubble key={i} turn={t} />
+            <ChatBubble key={i} turn={t} onRetry={retryLast} />
           ))}
         </div>
 
@@ -232,21 +259,31 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
             style={{ ...micBtn, opacity: 0.35, cursor: 'not-allowed' }}
             aria-label="Voice input (coming soon)"
           >🎙️</button>
-          <button
-            type="button"
-            onClick={() => send(input)}
-            disabled={busy || !input.trim()}
-            style={{ ...sendBtn, opacity: busy || !input.trim() ? 0.5 : 1 }}
-          >Send</button>
+          {busy ? (
+            <button
+              type="button"
+              onClick={() => abortRef.current?.abort()}
+              style={stopBtn}
+              title="Stop waiting for this reply"
+            >Stop</button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => send(input)}
+              disabled={!input.trim()}
+              style={{ ...sendBtn, opacity: !input.trim() ? 0.5 : 1 }}
+            >Send</button>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function ChatBubble({ turn }: { turn: Turn }) {
+function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
   const isUser = turn.role === 'user';
   const [playing, setPlaying] = useState(false);
+  const [playFailed, setPlayFailed] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -256,26 +293,36 @@ function ChatBubble({ turn }: { turn: Turn }) {
       setPlaying(false);
       return;
     }
+    setPlayFailed(false);
+    // Safari autoplay policy: play() is only allowed while the click's
+    // user activation is alive — which an `await fetch` destroys. So we
+    // create the element synchronously inside the gesture and, when we
+    // still need to download the audio, "unlock" the element by playing
+    // a tiny silent clip within the gesture. After that, playing the
+    // real audio post-await is permitted.
+    const el = audioRef.current || new Audio();
+    audioRef.current = el;
     try {
       let url = audioUrl;
       if (!url) {
+        try {
+          el.src = SILENT_WAV;
+          await el.play();
+          el.pause();
+        } catch { /* some browsers reject the silent clip; harmless */ }
         const blob = await speakText(turn.content, 'onyx', 0.95);
         url = URL.createObjectURL(blob);
         setAudioUrl(url);
       }
-      const el = audioRef.current || new Audio();
-      audioRef.current = el;
       el.src = url;
       el.onended = () => setPlaying(false);
       el.onpause = () => setPlaying(false);
       await el.play();
       setPlaying(true);
     } catch (err) {
-      console.error(err);
+      console.error('[read-aloud] failed:', err);
       setPlaying(false);
-      // Graceful voice-playback fallback \u2014 the reply text is still fully
-      // readable, so we just note quietly and let the user try again.
-      alert("I couldn\u2019t play that just now \u2014 the reply is still on screen if you\u2019d like to read it.");
+      setPlayFailed(true);
     }
   }
   return (
@@ -309,16 +356,31 @@ function ChatBubble({ turn }: { turn: Turn }) {
             ))}
           </div>
         )}
-        {!isUser && !turn.streaming && (
+        {!isUser && turn.failed && !turn.streaming && (
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              onClick={onRetry}
+              style={retryBtn}
+              aria-label="Try that question again"
+            >↻ Try again</button>
+          </div>
+        )}
+        {!isUser && !turn.streaming && !turn.failed && (
           <div style={{ marginTop: 8, display: 'flex', gap: 10, alignItems: 'center', fontSize: 12, color: '#64748B' }}>
             <button
               type="button"
               onClick={play}
               disabled={!turn.content}
-              title={playing ? 'Stop' : 'Play with George\u2019s voice'}
+              title={playFailed ? 'Try playing again' : playing ? 'Stop' : 'Play with George\u2019s voice'}
               style={{ ...playBtn, opacity: turn.content ? 1 : 0.35, cursor: turn.content ? 'pointer' : 'not-allowed' }}
-              aria-label={playing ? 'Stop audio' : 'Play with George\u2019s voice'}
-            >{playing ? '⏸ Stop' : '▶︎ Play'}</button>
+              aria-label={playFailed ? 'Try playing again' : playing ? 'Stop audio' : 'Play with George\u2019s voice'}
+            >{playFailed ? '↻ Try again' : playing ? '⏸ Stop' : '▶︎ Play'}</button>
+            {playFailed && (
+              <span style={{ color: '#B91C1C' }}>
+                I couldn&rsquo;t play that just now &mdash; tap Try again.
+              </span>
+            )}
             {Array.isArray(turn.results) && turn.results.length > 0 && (
               <span title={JSON.stringify(turn.results, null, 2)}>
                 Grounded in {turn.results.length} tool result{turn.results.length === 1 ? '' : 's'}
@@ -332,6 +394,12 @@ function ChatBubble({ turn }: { turn: Turn }) {
 }
 
 // ---- styles ----
+
+// Minimal silent WAV used to unlock <audio> inside the click gesture
+// on Safari (see ChatBubble.play).
+const SILENT_WAV =
+  'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+
 const overlay: React.CSSProperties = {
   position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)',
   display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
@@ -382,6 +450,16 @@ const playBtn: React.CSSProperties = {
   padding: '4px 10px', borderRadius: 8,
   background: '#FFFFFF', border: '1px solid #CCFBF1',
   color: '#0F766E', fontWeight: 700, fontSize: 12,
+};
+const retryBtn: React.CSSProperties = {
+  padding: '5px 12px', borderRadius: 8,
+  background: '#FFFFFF', border: '1px solid #FECACA',
+  color: '#B91C1C', fontWeight: 700, fontSize: 12, cursor: 'pointer',
+};
+const stopBtn: React.CSSProperties = {
+  padding: '10px 18px', borderRadius: 12,
+  background: '#FFF1F2', border: '1px solid #FECACA',
+  color: '#B91C1C', fontWeight: 800, fontSize: 14, cursor: 'pointer',
 };
 const miniPill: React.CSSProperties = {
   position: 'fixed', bottom: 16, right: 16, zIndex: 1100,

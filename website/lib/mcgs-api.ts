@@ -9,14 +9,17 @@
 
 import { getToken, clearAuth } from './cms-auth';
 import { API_BASE } from './api-base';
+import { fetchWithRetry } from './fetch-retry';
 
 const BASE = API_BASE;
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {};
+  // Content-Type only when a body is sent — avoids CORS preflights on GETs.
+  if (body != null) headers['Content-Type'] = 'application/json';
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${BASE}/api${path}`, {
+  const res = await fetchWithRetry(`${BASE}/api${path}`, {
     method,
     headers,
     body: body != null ? JSON.stringify(body) : undefined,
@@ -342,7 +345,7 @@ export function subscribeToBridge(
 // ---------- George grounded chat ----------
 
 export interface GeorgeStreamEvent {
-  kind: 'session' | 'plan' | 'tools' | 'delta' | 'done' | 'action_preview';
+  kind: 'session' | 'plan' | 'tools' | 'delta' | 'done' | 'action_preview' | 'error';
   text?: string;
   chat_id?: string;
   plan?: unknown;
@@ -368,6 +371,15 @@ export interface GeorgeStreamEvent {
 /**
  * POST /api/george/chat and stream events back. Returns an object
  * with an `abort` method the caller can invoke to cancel.
+ *
+ * Hardened (June 2026):
+ *   - `res.ok` is checked — a non-SSE error response (e.g. the preview
+ *     edge's plain-text "404 page not found") becomes a visible
+ *     `error` event instead of a silent stall.
+ *   - A watchdog aborts after 30s with no first byte, or 60s with no
+ *     new data mid-stream, and reports a friendly timeout.
+ *   - A `done` event is GUARANTEED exactly once via `finally`, so the
+ *     caller's busy state can never get stuck.
  */
 export function askGeorge(
   message: string,
@@ -376,9 +388,25 @@ export function askGeorge(
 ): { abort: () => void } {
   const controller = new AbortController();
   const token = getToken();
+  let timedOut = false;
+  let watchdog: ReturnType<typeof setTimeout> | null = null;
+  const arm = (ms: number) => {
+    if (watchdog) clearTimeout(watchdog);
+    watchdog = setTimeout(() => { timedOut = true; controller.abort(); }, ms);
+  };
+
   (async () => {
+    let doneEmitted = false;
+    const emit = (ev: GeorgeStreamEvent) => {
+      if (ev.kind === 'done') {
+        if (doneEmitted) return;
+        doneEmitted = true;
+      }
+      onEvent(ev);
+    };
     try {
-      const res = await fetch(`${BASE}/api/george/chat`, {
+      arm(30_000); // 30s to reach the server and receive the first byte.
+      const res = await fetchWithRetry(`${BASE}/api/george/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -387,13 +415,20 @@ export function askGeorge(
         body: JSON.stringify({ message, chat_id: chatId || undefined, scope: 'mcgs' }),
         signal: controller.signal,
       });
-      if (!res.body) throw new Error('no body');
+      if (!res.ok || !res.body) {
+        emit({
+          kind: 'error',
+          text: `George couldn\u2019t reach the server just now (${res.status}). Please try again in a moment.`,
+        });
+        return;
+      }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        arm(60_000); // fresh 60s allowance between chunks.
         buffer += decoder.decode(value, { stream: true });
         let idx: number;
         while ((idx = buffer.indexOf('\n\n')) !== -1) {
@@ -408,17 +443,29 @@ export function askGeorge(
           if (dataLines.length === 0) continue;
           try {
             const payload = JSON.parse(dataLines.join('\n'));
-            onEvent({ kind: evType as GeorgeStreamEvent['kind'], ...payload });
+            emit({ kind: evType as GeorgeStreamEvent['kind'], ...payload });
           } catch {
             /* ignore */
           }
         }
       }
     } catch (err) {
-      if ((err as { name?: string }).name !== 'AbortError') {
-        onEvent({ kind: 'delta', text: '\n\nSorry — something went wrong. Try again in a moment.' });
-        onEvent({ kind: 'done' });
+      if ((err as { name?: string }).name === 'AbortError') {
+        if (timedOut) {
+          emit({
+            kind: 'error',
+            text: 'That took longer than it should have, so I\u2019ve stopped waiting. Please try again.',
+          });
+        }
+        // User-initiated cancel: no error message; `finally` still
+        // delivers `done` so the composer unlocks.
+      } else {
+        console.error('[george-chat] stream failed:', err);
+        emit({ kind: 'error', text: 'Sorry \u2014 something went wrong. Please try again in a moment.' });
       }
+    } finally {
+      if (watchdog) clearTimeout(watchdog);
+      emit({ kind: 'done' });
     }
   })();
   return { abort: () => controller.abort() };
@@ -434,12 +481,14 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
   const token = getToken();
   const form = new FormData();
   form.append('audio', blob, 'clip.webm');
-  const res = await fetch(`${BASE}/api/george/voice/transcribe`, {
+  const res = await fetchWithRetry(`${BASE}/api/george/voice/transcribe`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token || ''}` },
     body: form,
   });
-  const json = await res.json();
+  const text = await res.text();
+  let json: { detail?: string; transcript?: string } = {};
+  try { json = text ? JSON.parse(text) : {}; } catch { json = { detail: text }; }
   if (!res.ok) throw new Error(json?.detail || 'Transcription failed');
   return json.transcript || '';
 }
@@ -449,7 +498,7 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
  */
 export async function speakText(text: string, voice = 'onyx', speed = 0.95): Promise<Blob> {
   const token = getToken();
-  const res = await fetch(`${BASE}/api/george/voice/speak`, {
+  const res = await fetchWithRetry(`${BASE}/api/george/voice/speak`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
     body: JSON.stringify({ text, voice, speed }),
