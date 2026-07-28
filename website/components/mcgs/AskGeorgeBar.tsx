@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AskGeorgeSheet } from './AskGeorgeSheet';
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
 import { transcribeAudio } from '@/lib/mcgs-api';
+import { useGeorgeSession } from '@/lib/george-session';
 
 /**
  * The Ask George bar — persistent at the top of every MCGS screen.
@@ -19,6 +20,10 @@ export function AskGeorgeBar() {
   const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Batch-3 continuity: know if there's a preserved conversation so we
+  // can offer a "Continue" button when the sheet is closed.
+  const { hasConversation, turns } = useGeorgeSession();
+  const lastGeorge = [...turns].reverse().find(t => t.role === 'george');
 
   const rec = useVoiceRecorder({ maxSeconds: 60, silenceSeconds: 3 });
 
@@ -181,6 +186,35 @@ export function AskGeorgeBar() {
           >Ask</button>
         </div>
 
+        {/*
+         * Continue-conversation affordance. Appears when the sheet is
+         * closed but there's a preserved conversation for this admin
+         * session \u2014 so accidentally hitting \u00D7 doesn\u2019t leave Garry
+         * stranded with no visible way to bring George back.
+         */}
+        {!open && hasConversation && (
+          <div style={continuePillRow}>
+            <button
+              type="button"
+              onClick={() => { setInitialMessage(undefined); setOpen(true); }}
+              style={continuePill}
+              aria-label={`Continue conversation with George (${turns.length} messages)`}
+              title="Reopen your George conversation"
+            >
+              <span aria-hidden>\uD83E\uDD8B</span>
+              <span style={{ fontWeight: 800 }}>Continue with George</span>
+              <span style={{ color: '#64748B', fontSize: 12 }}>
+                &middot; {turns.length} message{turns.length === 1 ? '' : 's'}
+              </span>
+              {lastGeorge?.content && (
+                <span style={continuePreview} aria-hidden>
+                  &ldquo;{lastGeorge.content.slice(0, 60)}{lastGeorge.content.length > 60 ? '\u2026' : ''}&rdquo;
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
         {micError && (
           <div style={{ ...hintPop, background: '#7F1D1D' }} role="alert">{micError}</div>
         )}
@@ -261,6 +295,30 @@ const askBtn: React.CSSProperties = {
   background: 'linear-gradient(135deg,#14B8A6,#38BDF8)',
   color: '#FFFFFF', border: 'none', fontWeight: 800, fontSize: 14,
   cursor: 'pointer',
+};
+const continuePillRow: React.CSSProperties = {
+  marginTop: 8, display: 'flex', justifyContent: 'flex-start',
+};
+const continuePill: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 8,
+  padding: '8px 14px',
+  borderRadius: 999,
+  background: '#F0FDFA',
+  border: '1px solid #99F6E4',
+  color: '#0F766E',
+  fontSize: 13, fontWeight: 700,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  maxWidth: '100%',
+  overflow: 'hidden',
+  whiteSpace: 'nowrap',
+  textOverflow: 'ellipsis',
+};
+const continuePreview: React.CSSProperties = {
+  color: '#475569', fontSize: 12, fontWeight: 500, fontStyle: 'italic',
+  marginLeft: 8,
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  maxWidth: 380,
 };
 const hintPop: React.CSSProperties = {
   position: 'absolute', top: 60, right: 32,

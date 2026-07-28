@@ -3,13 +3,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { askGeorge, speakText, transcribeAudio, type GeorgeStreamEvent } from '@/lib/mcgs-api';
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
+import { useGeorgeSession, type GeorgeTurn } from '@/lib/george-session';
 import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
 
 /**
  * The Ask George bottom-sheet. Streaming grounded chat with George.
- * Voice-ready: mic button and TTS play button are already in the
- * layout, disabled until Milestone E ships. The bar and sheet share
- * the same input model so voice will slot in without a redesign.
+ *
+ * Batch-3 conversation continuity: the transcript is now owned by a
+ * session-scoped store (see /app/website/lib/george-session.ts) so
+ * Close (\u00D7), page navigation and minimise all preserve the working
+ * conversation. Only explicit \"New conversation\" or logout wipes it.
  */
 interface AskGeorgeSheetProps {
   open: boolean;
@@ -17,30 +20,43 @@ interface AskGeorgeSheetProps {
   onClose: () => void;
 }
 
-interface Turn {
-  role: 'user' | 'george';
-  content: string;
-  streaming?: boolean;
-  failed?: boolean;
-  plan?: unknown;
-  results?: unknown;
+// Local Turn is the same shape as GeorgeTurn from the store; aliased so
+// call sites stay short.
+type Turn = GeorgeTurn & {
   previews?: ActionPreviewPayload[];
-}
+};
 
 export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheetProps) {
-  const [turns, setTurns] = useState<Turn[]>([]);
+  // Persistent conversation — survives Close / page nav within the
+  // current admin session. Cleared on logout or explicit "New chat".
+  const {
+    turns,
+    chatId,
+    setTurns: persistTurns,
+    setChatId: persistChatId,
+    resetConversation,
+    hasConversation,
+  } = useGeorgeSession();
+
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [minimised, setMinimised] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  // "New conversation" confirm-dialog visibility.
+  const [confirmReset, setConfirmReset] = useState(false);
   // Track new content that arrives while the sheet is minimised so the
   // mini-pill can show a small "unread" indicator. Reset when Garry
   // re-opens the sheet.
   const [unreadWhileMin, setUnreadWhileMin] = useState(0);
-  const chatIdRef = useRef<string | null>(null);
+  // Sheet no longer owns chatId directly \u2014 the store does. This ref
+  // is kept as a fast, non-render read for the streaming callbacks.
+  const chatIdRef = useRef<string | null>(chatId);
+  useEffect(() => { chatIdRef.current = chatId; }, [chatId]);
+  // Alias so existing setTurns(...) call sites don't have to change.
+  const setTurns = persistTurns as unknown as React.Dispatch<React.SetStateAction<Turn[]>>;
   const abortRef = useRef<{ abort: () => void } | null>(null);
-  // Voice recorder for the composer mic — parallels the top Ask bar so
+  // Voice recorder for the composer mic \u2014 parallels the top Ask bar so
   // Garry gets identical behaviour whether he's talking to George from
   // the header or the sheet composer.
   const rec = useVoiceRecorder({ maxSeconds: 60, silenceSeconds: 3 });
@@ -54,6 +70,9 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
   const initialSentRef = useRef<string | null>(null);
 
   // Send an initial message when the sheet opens with a preloaded prompt.
+  // When `initialMessage` is undefined the sheet is being reopened via
+  // the "Continue with George" pill \u2014 we just show the stored transcript
+  // and let Garry type / speak the next turn.
   useEffect(() => {
     // Guard: never send while busy — prevents a rogue duplicate user turn
     // if a new initialMessage arrives while a stream is in flight.
@@ -131,6 +150,7 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
       (ev: GeorgeStreamEvent) => {
         if (ev.kind === 'session' && ev.chat_id) {
           chatIdRef.current = ev.chat_id;
+          persistChatId(ev.chat_id);
         } else if (ev.kind === 'plan') {
           setTurns(prev => prev.map((t, i) =>
             i === prev.length - 1 && t.role === 'george'
@@ -198,17 +218,41 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
     );
   }
 
-  // Full reset on explicit close (×). Minimise preserves; close discards.
+  // Close (\u00D7) now PRESERVES the conversation. Only aborts any
+  // in-flight stream and hides the sheet visually. The transcript
+  // persists in the store so the next open resumes the conversation.
   function handleClose() {
     abortRef.current?.abort();
     abortRef.current = null;
-    setTurns([]);
+    // If we were mid-stream, mark the last George turn as settled so it
+    // doesn't render as a blinking cursor when the sheet is reopened.
+    setTurns(prev => prev.map((t, i) =>
+      i === prev.length - 1 && t.role === 'george' && t.streaming
+        ? { ...t, streaming: false }
+        : t,
+    ));
     setInput('');
-    setBusy(false); // never let a stuck stream survive a close/reopen
+    setBusy(false);
     setMinimised(false);
+    // Do NOT clear turns / chatId / lastUserRef — that's what
+    // "New conversation" is for.
+    onClose();
+  }
+
+  // Explicit reset. Wired to the "\u21BB New conversation" button in the
+  // header and to logout via clearAllGeorgeSessions().
+  function handleReset() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    resetConversation();
     chatIdRef.current = null;
     lastUserRef.current = null;
-    onClose();
+    setInput('');
+    setBusy(false);
+    setConfirmReset(false);
+    // Focus the composer so Garry can immediately type the first
+    // message of the new conversation.
+    setTimeout(() => inputRef.current?.focus(), 50);
   }
 
   function retryLast() {
@@ -317,6 +361,17 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
             </div>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
+            {hasConversation && (
+              <button
+                style={{ ...closeBtn, width: 'auto', padding: '0 10px', fontSize: 13, fontWeight: 700 }}
+                onClick={() => setConfirmReset(true)}
+                aria-label="Start a new conversation"
+                title="Start a new conversation (clears the current one)"
+              >
+                <span style={{ marginRight: 4 }}>&#8635;</span>
+                <span>New</span>
+              </button>
+            )}
             <button
               style={closeBtn}
               onClick={() => setMinimised(true)}
@@ -329,10 +384,42 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
               style={closeBtn}
               onClick={handleClose}
               aria-label="Close George"
-              title="Close (ends this conversation)"
+              title="Close (keeps this conversation \u2014 reopen from the Ask bar)"
             >&times;</button>
           </div>
         </div>
+
+        {/* New-conversation confirm dialog. */}
+        {confirmReset && (
+          <div
+            style={confirmBackdrop}
+            onClick={() => setConfirmReset(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Start a new conversation"
+          >
+            <div style={confirmCard} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#0A2540', marginBottom: 6 }}>
+                Start a new conversation?
+              </div>
+              <div style={{ fontSize: 14, color: '#475569', lineHeight: 1.5 }}>
+                This will clear the current transcript ({turns.length} message{turns.length === 1 ? '' : 's'}).
+                George will still remember what he knows about FriendPlace \u2014 you\u2019ll just be starting fresh with him.
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setConfirmReset(false)}
+                  style={confirmCancel}
+                >Keep this conversation</button>
+                <button
+                  onClick={handleReset}
+                  style={confirmOk}
+                  autoFocus
+                >Start fresh</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div ref={scrollRef} style={sheetBody}>
           {turns.length === 0 && (
@@ -344,7 +431,7 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
             </div>
           )}
           {turns.map((t, i) => (
-            <ChatBubble key={i} turn={t} onRetry={retryLast} />
+            <ChatBubble key={i} turn={t as Turn} onRetry={retryLast} />
           ))}
         </div>
 
@@ -407,9 +494,36 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
 function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
   const isUser = turn.role === 'user';
   const [playing, setPlaying] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const [playFailed, setPlayFailed] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Batch-3 responsiveness: quietly prefetch the mp3 as soon as George
+  // has finished streaming this bubble. By the time Garry taps Play the
+  // clip is almost always already in memory \u2014 tap-to-audio is instant.
+  useEffect(() => {
+    if (isUser) return;
+    if (turn.streaming || turn.failed) return;
+    if (!turn.content) return;
+    if (audioUrl) return;
+    let cancelled = false;
+    // Small stagger so we don\u2019t launch the prefetch inside the same
+    // microtask that finalises the stream \u2014 gives React a beat to paint.
+    const timer = window.setTimeout(async () => {
+      try {
+        const blob = await speakText(turn.content, 'george', 1.05);
+        if (cancelled) return;
+        setAudioUrl(URL.createObjectURL(blob));
+      } catch {
+        // Silent \u2014 the on-demand path in play() will surface the error
+        // if Garry actually taps Play.
+      }
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isUser, turn.streaming, turn.failed, turn.content, audioUrl]);
 
   async function play() {
     if (playing) {
@@ -418,8 +532,12 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
       return;
     }
     setPlayFailed(false);
+    // Instant visual feedback \u2014 button flips to a spinner + "Preparing audio\u2026"
+    // caption before any network work happens. Batch-2 QA feedback: the
+    // silent gap after tapping Play made the UI feel broken.
+    setPreparing(true);
     // Safari autoplay policy: play() is only allowed while the click's
-    // user activation is alive — which an `await fetch` destroys. So we
+    // user activation is alive \u2014 which an `await fetch` destroys. So we
     // create the element synchronously inside the gesture and, when we
     // still need to download the audio, "unlock" the element by playing
     // a tiny silent clip within the gesture. After that, playing the
@@ -434,19 +552,23 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
           await el.play();
           el.pause();
         } catch { /* some browsers reject the silent clip; harmless */ }
-        // Persona key — backend maps "george" → onyx (deep male).
+        // Persona key \u2014 backend maps "george" \u2192 ash (warm male, tts-1-hd).
         // Never send a raw voice id from here; server enforces the map.
-        const blob = await speakText(turn.content, 'george', 0.95);
+        const blob = await speakText(turn.content, 'george', 1.05);
         url = URL.createObjectURL(blob);
         setAudioUrl(url);
       }
       el.src = url;
-      el.onended = () => setPlaying(false);
-      el.onpause = () => setPlaying(false);
+      el.onended   = () => { setPlaying(false); setPreparing(false); };
+      el.onpause   = () => { setPlaying(false); setPreparing(false); };
+      el.onplaying = () => { setPreparing(false); setPlaying(true); };
       await el.play();
+      // Fallback in case `onplaying` didn't fire (some browsers).
+      setPreparing(false);
       setPlaying(true);
     } catch (err) {
       console.error('[read-aloud] failed:', err);
+      setPreparing(false);
       setPlaying(false);
       setPlayFailed(true);
       // Bin any partly-loaded blob URL so a Try-Again refetches cleanly
@@ -503,11 +625,45 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
             <button
               type="button"
               onClick={play}
-              disabled={!turn.content}
-              title={playFailed ? 'Try playing again' : playing ? 'Stop' : 'Play with George\u2019s voice'}
-              style={{ ...playBtn, opacity: turn.content ? 1 : 0.35, cursor: turn.content ? 'pointer' : 'not-allowed' }}
-              aria-label={playFailed ? 'Try playing again' : playing ? 'Stop audio' : 'Play with George\u2019s voice'}
-            >{playFailed ? '↻ Try again' : playing ? '⏸ Stop' : '▶︎ Play'}</button>
+              disabled={!turn.content || preparing}
+              title={
+                playFailed ? 'Try playing again'
+                : preparing ? 'Preparing audio\u2026'
+                : playing ? 'Stop'
+                : 'Play with George\u2019s voice'
+              }
+              style={{
+                ...playBtn,
+                opacity: turn.content ? 1 : 0.35,
+                cursor: turn.content && !preparing ? 'pointer' : 'not-allowed',
+                minWidth: 92,
+              }}
+              aria-label={
+                playFailed ? 'Try playing again'
+                : preparing ? 'Preparing audio'
+                : playing ? 'Stop audio'
+                : 'Play with George\u2019s voice'
+              }
+              aria-busy={preparing ? 'true' : 'false'}
+            >
+              {playFailed ? '\u21BB Try again'
+                : preparing ? (<>
+                    <span
+                      aria-hidden
+                      style={{
+                        display: 'inline-block', width: 10, height: 10,
+                        borderRadius: '50%', border: '2px solid #14B8A6',
+                        borderTopColor: 'transparent',
+                        marginRight: 6, verticalAlign: '-1px',
+                        animation: 'playSpin 0.7s linear infinite',
+                      }}
+                    />
+                    Preparing\u2026
+                  </>)
+                : playing ? '\u23F8 Stop'
+                : '\u25B6\uFE0E Play'
+              }
+            </button>
             {playFailed && (
               <span style={{ color: '#B91C1C' }}>
                 I couldn&rsquo;t play that just now &mdash; tap Try again.
@@ -518,6 +674,9 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
                 Grounded in {turn.results.length} tool result{turn.results.length === 1 ? '' : 's'}
               </span>
             )}
+            <style>{`
+              @keyframes playSpin { to { transform: rotate(360deg); } }
+            `}</style>
           </div>
         )}
       </div>
@@ -616,4 +775,29 @@ const micErrorPop: React.CSSProperties = {
   padding: '10px 14px', borderRadius: 10, fontSize: 13,
   maxWidth: 460, textAlign: 'center',
   boxShadow: '0 8px 24px rgba(15,23,42,0.24)',
+};
+const confirmBackdrop: React.CSSProperties = {
+  position: 'absolute', inset: 0, zIndex: 1200,
+  background: 'rgba(15,23,42,0.42)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  padding: 20,
+};
+const confirmCard: React.CSSProperties = {
+  width: '100%', maxWidth: 420, background: '#FFFFFF',
+  borderRadius: 16, padding: '20px 22px',
+  boxShadow: '0 20px 50px rgba(15,23,42,0.28)',
+  fontFamily: 'inherit',
+};
+const confirmCancel: React.CSSProperties = {
+  padding: '9px 14px', borderRadius: 10,
+  border: '1.5px solid #CBD5E1', background: '#FFFFFF',
+  color: '#0A2540', fontSize: 13, fontWeight: 700,
+  cursor: 'pointer', fontFamily: 'inherit',
+};
+const confirmOk: React.CSSProperties = {
+  padding: '9px 14px', borderRadius: 10,
+  border: 'none', background: 'linear-gradient(135deg,#14B8A6,#0EA5A0)',
+  color: '#FFFFFF', fontSize: 13, fontWeight: 800,
+  cursor: 'pointer', fontFamily: 'inherit',
+  boxShadow: '0 6px 16px rgba(20,184,166,0.35)',
 };

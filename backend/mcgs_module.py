@@ -145,8 +145,8 @@ class SubmissionDecisionProposalIn(BaseModel):
 
 class TTSIn(BaseModel):
     text: str = Field(..., min_length=1, max_length=3800)
-    voice: str = Field("onyx")  # George — deep, warm, mature male
-    speed: float = Field(0.95, ge=0.5, le=1.5)
+    voice: str = Field("george")  # Persona key. Backend maps to real OpenAI voice.
+    speed: float = Field(1.05, ge=0.5, le=1.5)  # Warmer, more conversational pacing.
 
 
 class RhythmSettingsIn(BaseModel):
@@ -1563,13 +1563,19 @@ def build_router(db) -> APIRouter:
         """Return mp3 audio of the provided text. Called on-demand when
         Garry taps Play on a reply, or auto when 'Read to me' is on.
 
-        Voice policy (locked with Garry):
+        Voice policy (Batch-3, locked with Garry):
         - The frontend sends a persona key ("george" | "georgia"), NOT
-          a raw OpenAI voice id. We map to onyx (male) / nova (female).
-        - Unknown / missing personas fall back to the established male
-          voice so Garry never gets a surprise female clip.
+          a raw OpenAI voice id. We map to the *personality* Garry wants:
+              george  -> ash  (warm, conversational male \u2014 the closest
+                              match to a "trusted colleague" timbre)
+              georgia -> nova (bright female alternative)
+        - Model is `tts-1-hd` \u2014 richer, less screen-reader-flat than
+          the standard `tts-1`.
+        - Speed 1.05 \u2014 a shade above default so George doesn\u2019t drone.
+        - Unknown / missing personas fall back to the male voice so Garry
+          never gets a surprise female clip.
         - Legacy callers that still send a raw voice id are honoured only
-          if it maps to a valid OpenAI voice; otherwise we force onyx.
+          if it maps to a valid OpenAI voice; otherwise we force ash.
         """
         from emergentintegrations.llm.openai.text_to_speech import OpenAITextToSpeech
         import os as _os
@@ -1577,37 +1583,43 @@ def build_router(db) -> APIRouter:
         if not key:
             raise HTTPException(500, "EMERGENT_LLM_KEY missing")
 
-        # Persona → OpenAI voice id. Anything unrecognised → "onyx" (male).
+        # Persona -> OpenAI voice id. Anything unrecognised -> "ash" (male).
         _PERSONA_MAP = {
-            "george":  "onyx",
+            "george":  "ash",
             "georgia": "nova",
             # Also accept the raw ids so we don't break existing callers.
+            "ash":     "ash",
             "onyx":    "onyx",
             "nova":    "nova",
             "alloy":   "alloy",
             "echo":    "echo",
-            "ash":     "ash",
             "fable":   "fable",
             "sage":    "sage",
             "shimmer": "shimmer",
             "coral":   "coral",
         }
         requested = (body.voice or "").strip().lower()
-        voice = _PERSONA_MAP.get(requested, "onyx")
+        voice = _PERSONA_MAP.get(requested, "ash")
         if requested and requested not in _PERSONA_MAP:
-            log.warning("TTS voice %r not recognised; falling back to onyx", requested)
+            log.warning("TTS voice %r not recognised; falling back to ash", requested)
+
+        # Speed sanity-guard: OpenAI accepts 0.25 - 4.0. Anything outside
+        # sane conversational range is snapped so a malformed client can't
+        # give us a chipmunk or a lullaby.
+        speed = body.speed if 0.85 <= body.speed <= 1.35 else 1.05
 
         tts = OpenAITextToSpeech(api_key=key)
         try:
             audio = await tts.generate_speech(
-                text=body.text, model="tts-1", voice=voice,
-                speed=body.speed, response_format="mp3",
+                text=body.text, model="tts-1-hd", voice=voice,
+                speed=speed, response_format="mp3",
             )
         except Exception as exc:
-            log.exception("TTS failed (voice=%s)", voice)
+            log.exception("TTS failed (voice=%s, model=tts-1-hd)", voice)
             raise HTTPException(502, f"Speech generation failed: {exc}")
 
-        log.info("TTS ok (voice=%s, chars=%d)", voice, len(body.text or ""))
+        log.info("TTS ok (voice=%s, model=tts-1-hd, speed=%.2f, chars=%d)",
+                 voice, speed, len(body.text or ""))
         from fastapi.responses import Response as _Response
         # Disable any intermediary caching so a stale (wrong-voice) clip
         # can never be replayed by a browser or edge proxy.
@@ -1618,6 +1630,8 @@ def build_router(db) -> APIRouter:
                 "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
                 "Pragma": "no-cache",
                 "X-George-Voice": voice,
+                "X-George-Model": "tts-1-hd",
+                "X-George-Speed": f"{speed:.2f}",
             },
         )
 

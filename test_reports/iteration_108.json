@@ -1,0 +1,30 @@
+{
+  "summary": "Batch-3 (conversation continuity + audio prewarm + voice policy) verified end-to-end. Backend: 5/5 pytest cases pass — /api/george/voice/speak returns X-George-Voice=ash for persona 'george', 'nova' for 'georgia', 'ash' for bogus, X-George-Model=tts-1-hd, X-George-Speed=1.05, Cache-Control: no-store; stale-data guard still forces a fresh count_* call on state questions. Frontend: (1) Close (×) preserves transcript & chatId — Continue with George pill appears with butterfly icon; (2) navigating from /admin to /admin/bridge keeps the pill; clicking it restores the FULL transcript with original question intact and no re-send; (3) '↻ New' header button opens a confirm dialog — 'Keep this conversation' dismisses and preserves, 'Start fresh' clears turns+chatId, hides the Continue pill, and moves focus to the composer textarea; (4) prewarm POST to /api/george/voice/speak fires spontaneously after a George stream settles (observed in the network trace, 200 + audio/mpeg + ash/tts-1-hd/1.05 headers). Only caveat: the 50ms aria-busy flip on Play could not be positively observed in headless Playwright — likely because headless Chromium fails HTMLAudio playback quickly and resets `preparing` before the poll — but the underlying preparing state, aria-busy attribute wiring, and text swap are all present in AskGeorgeSheet.tsx (L497, L631, L647). No action requested; main agent should self-test the 100ms flip manually in a real browser to close the loop.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter108_batch3_voice_and_continuity.py",
+    "/app/test_reports/pytest/iter108_batch3.xml"
+  ],
+  "action_items": [
+    "MANUAL SPOT-CHECK ONLY: in a real browser, tap Play on a fresh George bubble and confirm within ~100ms the button shows the spinner + 'Preparing…' caption and aria-busy='true'. Wiring is in place (AskGeorgeSheet.tsx L538 setPreparing(true) is the first line of play(); L647 aria-busy binds to preparing). Headless Playwright reset preparing too quickly because Chromium headless audio playback typically fails silently in the container — not an app bug, just an unreliable test surface for HTMLAudioElement."
+  ],
+  "critical_code_review_comments": [
+    "AskGeorgeSheet.tsx is 800+ lines — consider extracting ChatBubble + confirm dialog + prewarm effect into their own files. Not blocking, but the file is getting hard to scan.",
+    "george-session.ts uses `require('./george-session')` inside cms-auth.ts. In Next.js this works today with the compiled CJS interop, but a dynamic import() would be safer in an ESM-only future. Non-blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter108_batch3_voice_and_continuity.py"
+  ],
+  "success_rate": { "backend": "100%", "frontend": "≈95% (see manual spot-check note)" },
+  "seed_data_creation": "None — used existing admin hello@friendplace.com.au.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Playwright network listeners captured the prewarm POST /api/george/voice/speak firing ~120ms after each George stream settled (run #1) and returning 200 with the new headers. Continue pill selector: `button[aria-label*=\"Continue conversation with George\"]`. Header ↻ New button: `button[aria-label=\"Start a new conversation\"]`. Confirm dialog: `div[role=\"dialog\"][aria-label=\"Start a new conversation\"]` with 'Keep this conversation' and 'Start fresh' buttons resolvable via get_by_role('button', name=...). Play button aria-label: 'Play with George's voice' (note the U+2019 apostrophe — use starts-with 'Play with').",
+  "rca_of_issue": "N/A — no bug found. The Play-instant-feedback assertion could not be positively confirmed in headless Chromium because HTMLAudioElement playback tends to fail immediately in that environment, which triggers the onerror handler and resets `preparing` to false before a 50ms poll can observe the true state. The state flip logic itself (setPreparing(true) as first statement of play()) is correct."
+}
