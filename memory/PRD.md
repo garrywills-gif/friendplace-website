@@ -126,3 +126,13 @@ On first startup the backend seeds 8 demo users, 7 tables (with starter messages
 - **Tech**: New `sponsors` collection · `events.sponsor_id` linkage · Stripe Subscriptions (test key already in pod) · Admin approval queue in existing Maggie dashboard.
 - **Trust**: All sponsors manually approved · No DMs to members · No tracking pixels · Clear "Sponsored" labels.
 - **Trigger to revisit**: When DAU > ~500 or specific local businesses start asking how they can promote.
+
+## June 2026 — Batch 2: shared-root-cause remediation (LOCAL ONLY, not pushed)
+- ROOT CAUSE PROVEN: Emergent preview edge intermittently returns plain-text "404 page not found" for the preview hostname. This single blip caused: admin 404, George stuck "thinking", voice failure, Read Aloud failure.
+- Fix A: `/app/website/lib/fetch-retry.ts` (new) — fetchWithRetry (2 retries, 500/1500ms backoff) on network errors, 502/503/504, and edge-signature 404. Wired into cms-api.ts + mcgs-api.ts (req, transcribeAudio, speakText, askGeorge). Content-Type dropped from GETs (no more CORS preflights).
+- Fix B: askGeorge hardened — res.ok check, 30s first-byte / 60s idle watchdog, guaranteed single `done` via finally, new `error` event kind. AskGeorgeSheet: Stop button while busy, "↻ Try again" chip on failed turns, busy reset on close, "Stopped —" bubble on user cancel.
+- Fix C: Read Aloud Safari fix — Audio element created inside click gesture + silent-WAV unlock before TTS fetch; inline Try again chip replaces alert().
+- Fix D: AskGeorgeBar mic errors — console.error real cause; retry-exhaustion maps to "connection hiccupped" wording. Composer mic still deliberately disabled (BATCH-B pending).
+- Support note drafted (NOT sent): /app/memory/support_note_preview_edge_404.md
+- Tested: iteration_106.json — 7/8 pass; voice fake-mic scenario skipped (harness limitation). Cosmetic wording fix applied after test.
+- STILL PENDING ON EMERGENT SUPPORT: production Mongo empty / data migration before any URL cutover; preview edge routing stability.

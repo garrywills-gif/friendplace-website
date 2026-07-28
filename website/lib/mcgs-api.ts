@@ -461,7 +461,13 @@ export function askGeorge(
         // delivers `done` so the composer unlocks.
       } else {
         console.error('[george-chat] stream failed:', err);
-        emit({ kind: 'error', text: 'Sorry \u2014 something went wrong. Please try again in a moment.' });
+        const msg = (err as Error).message || '';
+        emit({
+          kind: 'error',
+          text: /took a moment too long/i.test(msg)
+            ? 'George couldn\u2019t reach the server just now. Please try again in a moment.'
+            : 'Sorry \u2014 something went wrong. Please try again in a moment.',
+        });
       }
     } finally {
       if (watchdog) clearTimeout(watchdog);
