@@ -1561,25 +1561,64 @@ def build_router(db) -> APIRouter:
     @router.post("/george/voice/speak")
     async def api_george_speak(body: TTSIn, admin: dict = Depends(current_admin)):
         """Return mp3 audio of the provided text. Called on-demand when
-        Garry taps Play on a reply, or auto when 'Read to me' is on."""
+        Garry taps Play on a reply, or auto when 'Read to me' is on.
+
+        Voice policy (locked with Garry):
+        - The frontend sends a persona key ("george" | "georgia"), NOT
+          a raw OpenAI voice id. We map to onyx (male) / nova (female).
+        - Unknown / missing personas fall back to the established male
+          voice so Garry never gets a surprise female clip.
+        - Legacy callers that still send a raw voice id are honoured only
+          if it maps to a valid OpenAI voice; otherwise we force onyx.
+        """
         from emergentintegrations.llm.openai.text_to_speech import OpenAITextToSpeech
         import os as _os
         key = _os.environ.get("EMERGENT_LLM_KEY")
         if not key:
             raise HTTPException(500, "EMERGENT_LLM_KEY missing")
 
+        # Persona → OpenAI voice id. Anything unrecognised → "onyx" (male).
+        _PERSONA_MAP = {
+            "george":  "onyx",
+            "georgia": "nova",
+            # Also accept the raw ids so we don't break existing callers.
+            "onyx":    "onyx",
+            "nova":    "nova",
+            "alloy":   "alloy",
+            "echo":    "echo",
+            "ash":     "ash",
+            "fable":   "fable",
+            "sage":    "sage",
+            "shimmer": "shimmer",
+            "coral":   "coral",
+        }
+        requested = (body.voice or "").strip().lower()
+        voice = _PERSONA_MAP.get(requested, "onyx")
+        if requested and requested not in _PERSONA_MAP:
+            log.warning("TTS voice %r not recognised; falling back to onyx", requested)
+
         tts = OpenAITextToSpeech(api_key=key)
-        voice = body.voice if body.voice in OpenAITextToSpeech.VOICES else "onyx"
         try:
             audio = await tts.generate_speech(
                 text=body.text, model="tts-1", voice=voice,
                 speed=body.speed, response_format="mp3",
             )
         except Exception as exc:
-            log.exception("TTS failed")
+            log.exception("TTS failed (voice=%s)", voice)
             raise HTTPException(502, f"Speech generation failed: {exc}")
 
+        log.info("TTS ok (voice=%s, chars=%d)", voice, len(body.text or ""))
         from fastapi.responses import Response as _Response
-        return _Response(content=audio, media_type="audio/mpeg")
+        # Disable any intermediary caching so a stale (wrong-voice) clip
+        # can never be replayed by a browser or edge proxy.
+        return _Response(
+            content=audio,
+            media_type="audio/mpeg",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "X-George-Voice": voice,
+            },
+        )
 
     return router

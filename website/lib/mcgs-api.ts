@@ -501,12 +501,26 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
 
 /**
  * Fetch George's reply as an mp3 blob for playback via <audio>.
+ *
+ * Voice policy: the client sends a persona key ("george" = deep male,
+ * "georgia" = bright female). The backend resolves this to the actual
+ * OpenAI voice id so a bad client value can never leak the wrong voice.
+ * Anything other than "georgia" falls back to the established male
+ * voice server-side.
  */
-export async function speakText(text: string, voice = 'onyx', speed = 0.95): Promise<Blob> {
+export async function speakText(text: string, voice: 'george' | 'georgia' = 'george', speed = 0.95): Promise<Blob> {
   const token = getToken();
-  const res = await fetchWithRetry(`${BASE}/api/george/voice/speak`, {
+  // Cache-buster query param defeats any browser/edge cache that might
+  // otherwise replay a stale audio blob (e.g. a female clip after we
+  // switched George's persona to male).
+  const url = `${BASE}/api/george/voice/speak?_=${Date.now()}`;
+  const res = await fetchWithRetry(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token || ''}`,
+      'Cache-Control': 'no-cache',
+    },
     body: JSON.stringify({ text, voice, speed }),
   });
   if (!res.ok) throw new Error(`Speech failed: ${res.status}`);
