@@ -24,8 +24,26 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   });
   if (res.status === 401) clearAuth();
   const text = await res.text();
-  const json = text ? JSON.parse(text) : {};
-  if (!res.ok) throw new Error(json?.detail || json?.error || `Request failed (${res.status})`);
+  // Safely parse — a stray HTML error page from a proxy, or a
+  // truncated payload, must not surface as a raw
+  // "Unable to parse JSON string" to the user.
+  let json: unknown = {};
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      if (!res.ok) {
+        throw new Error(
+          `George couldn't reach that just now (${res.status}). Please try again in a moment.`,
+        );
+      }
+      throw new Error(
+        "George's answer came back in an unexpected shape. Please try again.",
+      );
+    }
+  }
+  const j = json as { detail?: string; error?: string };
+  if (!res.ok) throw new Error(j?.detail || j?.error || `Request failed (${res.status})`);
   return json as T;
 }
 
@@ -429,7 +447,7 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
 /**
  * Fetch George's reply as an mp3 blob for playback via <audio>.
  */
-export async function speakText(text: string, voice = 'nova', speed = 0.95): Promise<Blob> {
+export async function speakText(text: string, voice = 'onyx', speed = 0.95): Promise<Blob> {
   const token = getToken();
   const res = await fetch(`${BASE}/api/george/voice/speak`, {
     method: 'POST',

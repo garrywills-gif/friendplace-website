@@ -145,7 +145,7 @@ class SubmissionDecisionProposalIn(BaseModel):
 
 class TTSIn(BaseModel):
     text: str = Field(..., min_length=1, max_length=3800)
-    voice: str = Field("nova")
+    voice: str = Field("onyx")  # George — deep, warm, mature male
     speed: float = Field(0.95, ge=0.5, le=1.5)
 
 
@@ -1569,7 +1569,7 @@ def build_router(db) -> APIRouter:
             raise HTTPException(500, "EMERGENT_LLM_KEY missing")
 
         tts = OpenAITextToSpeech(api_key=key)
-        voice = body.voice if body.voice in OpenAITextToSpeech.VOICES else "nova"
+        voice = body.voice if body.voice in OpenAITextToSpeech.VOICES else "onyx"
         try:
             audio = await tts.generate_speech(
                 text=body.text, model="tts-1", voice=voice,

@@ -156,12 +156,30 @@ export function SignalCard({ case_, onChanged }: SignalCardProps) {
             )}
           </>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94A3B8' }}>
-          {relTime(case_.last_signal_at)}
+        <span
+          style={{ marginLeft: 'auto', fontSize: 11, color: '#94A3B8' }}
+          title={absTime(case_.last_signal_at)}
+        >
+          {`${absTime(case_.last_signal_at)} · ${relTime(case_.last_signal_at)}`}
         </span>
       </div>
     </div>
   );
+}
+
+// Absolute local time (Sydney by default via en-AU locale). Paired with
+// relTime so admins can identify newest/oldest at a glance without hover.
+function absTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString('en-AU', {
+      day: 'numeric', month: 'short', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+  } catch {
+    return iso;
+  }
 }
 
 function relTime(iso: string): string {

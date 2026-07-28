@@ -29,6 +29,7 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [minimised, setMinimised] = useState(false);
   const chatIdRef = useRef<string | null>(null);
   const abortRef = useRef<{ abort: () => void } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -39,13 +40,15 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
 
   // Send an initial message when the sheet opens with a preloaded prompt.
   useEffect(() => {
-    if (open && initialMessage && initialSentRef.current !== initialMessage) {
+    // Guard: never send while busy — prevents a rogue duplicate user turn
+    // if a new initialMessage arrives while a stream is in flight.
+    if (open && initialMessage && !busy && initialSentRef.current !== initialMessage) {
       initialSentRef.current = initialMessage;
       send(initialMessage);
     }
     if (!open) initialSentRef.current = null;
      
-  }, [open, initialMessage]);
+  }, [open, initialMessage, busy]);
 
   // Focus input when opened.
   useEffect(() => {
@@ -57,15 +60,15 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [turns]);
 
-  // Esc closes.
+  // Esc minimises the sheet (preserves the conversation) — Close (×) discards.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') setMinimised(true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [open]);
 
   function send(message: string) {
     const trimmed = message.trim();
@@ -107,11 +110,21 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
         } else if (ev.kind === 'delta') {
           const chunk = ev.text || '';
           if (!chunk) return;
-          setTurns(prev => prev.map((t, i) =>
-            i === prev.length - 1 && t.role === 'george'
-              ? { ...t, content: t.content + chunk }
-              : t,
-          ));
+          setTurns(prev => {
+            const last = prev[prev.length - 1];
+            // Defensive: if for any reason the last turn isn't George's
+            // (e.g. a stray tool-result frame slipped in), append a new
+            // George turn rather than mutate a user bubble. Prevents any
+            // possibility of George's text appearing under Garry's name.
+            if (!last || last.role !== 'george') {
+              return [...prev, { role: 'george', content: chunk, streaming: true }];
+            }
+            return prev.map((t, i) =>
+              i === prev.length - 1
+                ? { ...t, content: t.content + chunk }
+                : t,
+            );
+          });
         } else if (ev.kind === 'done') {
           setTurns(prev => prev.map((t, i) =>
             i === prev.length - 1 && t.role === 'george'
@@ -125,6 +138,17 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
     );
   }
 
+  // Full reset on explicit close (×). Minimise preserves; close discards.
+  function handleClose() {
+    setTurns([]);
+    setInput('');
+    setMinimised(false);
+    chatIdRef.current = null;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    onClose();
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Enter sends. Shift+Enter for a newline.
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -135,8 +159,26 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
 
   if (!open) return null;
 
+  // Minimised — collapse to a bottom-right pill; conversation is preserved.
+  if (minimised) {
+    return (
+      <button
+        type="button"
+        onClick={() => setMinimised(false)}
+        style={miniPill}
+        aria-label="Reopen George"
+      >
+        <span style={butterflyBig}>🦋</span>
+        <span style={{ fontWeight: 800, fontSize: 14 }}>George</span>
+        <span style={{ fontSize: 12, color: '#64748B' }}>
+          {turns.length ? `· ${turns.length} message${turns.length === 1 ? '' : 's'}` : ''}
+        </span>
+      </button>
+    );
+  }
+
   return (
-    <div style={overlay} onClick={onClose}>
+    <div style={overlay} onClick={() => setMinimised(true)}>
       <div style={sheet} onClick={e => e.stopPropagation()}>
         <div style={sheetHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -146,7 +188,15 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
               <div style={{ fontSize: 12, color: '#64748B' }}>Chief of staff · grounded in live data</div>
             </div>
           </div>
-          <button style={closeBtn} onClick={onClose} aria-label="Close">×</button>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button
+              style={closeBtn}
+              onClick={() => setMinimised(true)}
+              aria-label="Minimise"
+              title="Minimise (keeps this conversation)"
+            >─</button>
+            <button style={closeBtn} onClick={handleClose} aria-label="Close">×</button>
+          </div>
         </div>
 
         <div ref={scrollRef} style={sheetBody}>
@@ -209,7 +259,7 @@ function ChatBubble({ turn }: { turn: Turn }) {
     try {
       let url = audioUrl;
       if (!url) {
-        const blob = await speakText(turn.content, 'nova', 0.95);
+        const blob = await speakText(turn.content, 'onyx', 0.95);
         url = URL.createObjectURL(blob);
         setAudioUrl(url);
       }
@@ -332,4 +382,12 @@ const playBtn: React.CSSProperties = {
   padding: '4px 10px', borderRadius: 8,
   background: '#FFFFFF', border: '1px solid #CCFBF1',
   color: '#0F766E', fontWeight: 700, fontSize: 12,
+};
+const miniPill: React.CSSProperties = {
+  position: 'fixed', bottom: 16, right: 16, zIndex: 1100,
+  display: 'inline-flex', alignItems: 'center', gap: 10,
+  padding: '10px 16px', borderRadius: 999,
+  background: '#FFFFFF', border: '1px solid #CCFBF1',
+  boxShadow: '0 8px 24px rgba(15,23,42,0.18)',
+  cursor: 'pointer', fontFamily: 'inherit',
 };
