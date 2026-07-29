@@ -68,7 +68,14 @@ export function TourNext({
  * only line he says between /meet and /register-interest.
  *
  * The line and the button are quiet; the emotional weight is doing
- * the work.
+ * the work. The button is written as the visitor's REPLY, not as an
+ * action label — so the whole thing reads as a conversation:
+ *
+ *   George:   "I'd love to let you know when we open."
+ *   Visitor:  "Yes, please."
+ *
+ * Locked with Garry (Dec 2026): "It doesn't feel like navigating a
+ * website anymore — it feels like two people talking."
  */
 export function TourEnding() {
   return (
@@ -88,7 +95,7 @@ export function TourEnding() {
           let you know when we open.
         </p>
         <Link href="/register-interest" style={endingCta}>
-          Let him know
+          Yes, please
         </Link>
       </div>
     </section>

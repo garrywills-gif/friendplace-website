@@ -42,6 +42,18 @@ export interface WelcomeLines {
   name: (companion: CompanionId) => string;
   /** Line 3 — the closing beat. */
   closing: string;
+  /**
+   * Line 4 — the invitation. Garry (Dec 2026): "If FriendPlace is
+   * a visit, George should actually invite the visitor in. Those two
+   * words \u2014 'Come in' \u2014 make all the difference. It feels
+   * like a real host welcoming someone into their home, rather than
+   * a website presenting its next button."
+   *
+   * Text-only. No audio clip. The silence between the closing line
+   * and this invitation is deliberate \u2014 it reads as George
+   * pausing to think, then adding the invitation.
+   */
+  invite: string;
 }
 
 export interface WelcomeAudio {
@@ -99,6 +111,7 @@ export const WELCOMES: WelcomeVariant[] = [
       hello: 'Hello.',
       name: (c) => (c === 'george' ? "I\u2019m George." : "I\u2019m Georgia."),
       closing: "Merry Christmas \u2014 I\u2019m really pleased you dropped in today.",
+      invite: "Come in\u2026 let me show you around.",
     },
     audio: {
       george:  { hello: '/audio/hello-george.mp3',  intro: '/audio/intro-george-christmas.mp3'  },
@@ -119,6 +132,7 @@ export const WELCOMES: WelcomeVariant[] = [
       hello: 'Hello.',
       name: (c) => (c === 'george' ? "I\u2019m George." : "I\u2019m Georgia."),
       closing: "Happy New Year \u2014 I\u2019m so glad you found us.",
+      invite: "Come in\u2026 let me show you around.",
     },
     audio: {
       george:  { hello: '/audio/hello-george.mp3',  intro: '/audio/intro-george-newyear.mp3'  },
@@ -141,6 +155,7 @@ export const WELCOMES: WelcomeVariant[] = [
       hello: 'Hello.',
       name: (c) => (c === 'george' ? "I\u2019m George." : "I\u2019m Georgia."),
       closing: "Happy Easter \u2014 I\u2019m really pleased you came by.",
+      invite: "Come in\u2026 let me show you around.",
     },
     audio: {
       george:  { hello: '/audio/hello-george.mp3',  intro: '/audio/intro-george-easter.mp3'  },
@@ -160,6 +175,7 @@ export const WELCOMES: WelcomeVariant[] = [
       hello: 'Hello.',
       name: (c) => (c === 'george' ? "I\u2019m George." : "I\u2019m Georgia."),
       closing: "I\u2019m really pleased you found us.",
+      invite: "Come in\u2026 let me show you around.",
     },
     audio: 'default',
   },

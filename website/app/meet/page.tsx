@@ -62,7 +62,14 @@ const T = {
   TEXT_HELLO:     8150,   // text: "Hello."
   SAY_NAME:       9000,   // audio: "I'm George/Georgia."
   SAY_CLOSING:   10400,   // text: "I'm really pleased you found us."
-  CTAS_APPEAR:   12700,   // comfortable pause, then the way forward
+  // A comfortable pause, then George extends the invitation. Text-only
+  // (no audio clip) — the small silence between the closing line and
+  // the invite reads as George pausing to think, then adding the
+  // welcome. Locked with Garry (Dec 2026): "Come in... makes all the
+  // difference. It feels like a real host welcoming someone into
+  // their home, rather than a website presenting its next button."
+  SAY_INVITE:    11500,   // text: "Come in\u2026 let me show you around."
+  CTAS_APPEAR:   13600,   // comfortable pause, then the way forward
 } as const;
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -85,7 +92,7 @@ export default function MeetPage() {
   // React complains and the flight can start against the wrong DOM.
   const bootPhase: Phase = !ready ? 'idle' : (companion ? 'idle' : 'awaiting-choice');
   const [phase, setPhase] = useState<Phase>(bootPhase);
-  const [textStage, setTextStage] = useState<0 | 1 | 2 | 3>(0);
+  const [textStage, setTextStage] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [runId, setRunId] = useState(0);
 
   // The butterfly lives in the FriendPlace logo. It always starts nestled
@@ -127,6 +134,7 @@ export default function MeetPage() {
       hello: welcome.lines.hello,
       name: welcome.lines.name(effectiveCompanion),
       closing: welcome.lines.closing,
+      invite: welcome.lines.invite,
     }),
     [welcome, effectiveCompanion],
   );
@@ -322,6 +330,7 @@ export default function MeetPage() {
       playSafely(introAudioRef.current);
     });
     at(T.SAY_CLOSING,    () => setTextStage(3));
+    at(T.SAY_INVITE,     () => setTextStage(4));
     at(T.CTAS_APPEAR,    () => setPhase('complete'));
 
     return () => { timers.forEach(clearTimeout); };
@@ -420,12 +429,21 @@ export default function MeetPage() {
           lands. No card, no border. The page IS the conversation.
           Copy is data-driven from `getActiveWelcome()` so seasonal
           moments (Christmas, New Year, milestones) can flow through
-          without touching the choreography. */}
+          without touching the choreography. Four beats, on their own
+          timing:
+             1. "Hello."
+             2. "I'm George / Georgia."
+             3. "I'm really pleased you found us."
+             4. "Come in\u2026 let me show you around."
+          Beat 4 has no audio clip \u2014 the silence between it and
+          beat 3 is the invitation. See PUBLIC_EXPERIENCE_PRINCIPLES.md
+          \u2192 "The One Principle". */}
       <div style={greetingWrap} aria-live="polite">
         <div style={greetingStack}>
           <LineOfSpeech text={speechLines.hello}   visible={textStage >= 1} />
           <LineOfSpeech text={speechLines.name}    visible={textStage >= 2} />
           <LineOfSpeech text={speechLines.closing} visible={textStage >= 3} />
+          <LineOfSpeech text={speechLines.invite}  visible={textStage >= 4} />
         </div>
 
         {/* CTAs — fade in only after the greeting is fully delivered
