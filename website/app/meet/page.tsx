@@ -65,11 +65,12 @@ const T = {
   // A comfortable pause, then George extends the invitation. Beat 4
   // has its own Ash/Nova audio (see /public/audio/invite-*.mp3) so
   // he actually SAYS the invitation rather than the text landing in
-  // silence. Locked with Garry (Dec 2026): "Come in... makes all the
-  // difference. It feels like a real host welcoming someone into
-  // their home, rather than a website presenting its next button."
-  SAY_INVITE:    11500,   // "Come in\u2026 let me show you around." (audio + text)
-  CTAS_APPEAR:   14200,   // comfortable pause AFTER the invite audio ends
+  // silence. The pause between beat 3 and beat 4 is deliberately
+  // long — Garry (Dec 2026): "It felt a bit quick. Give it a proper
+  // considered pause before the invitation lands." ~2.6s reads as a
+  // real host thinking, then adding the welcome.
+  SAY_INVITE:    13000,   // "Come in\u2026 let me show you around." (audio + text)
+  CTAS_APPEAR:   15700,   // comfortable pause AFTER the invite audio ends
 } as const;
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -465,75 +466,59 @@ export default function MeetPage() {
             both modes. */}
         <NextSteps phase={phase} />
 
-        {/* Soft "meet the other one" affordance — very small, no
-            competing colour. Only shown after the greeting completes
-            so it doesn't distract from the arrival itself. */}
+        {/* Two small secondary options on the SAME row \u2014 kept
+            visually quiet, always fitting on shorter viewports, and
+            deliberately not styled as buttons. The row appears only
+            after the greeting completes so it never competes with
+            the arrival itself. Locked with Garry (Dec 2026): "The
+            button was falling off the screen \u2014 give me one soft
+            row instead of two stacked affordances." */}
         <div
           style={{
             ...meetOtherWrap,
             opacity: phase === 'complete' ? 1 : 0,
             transform: phase === 'complete' ? 'translateY(0)' : 'translateY(6px)',
+            display: 'flex',
+            gap: 14,
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexWrap: 'wrap',
           }}
         >
+          {/* "Hear George again" (or "Would you like to hear George?"
+              if autoplay was blocked). Same underlying handler as
+              before \u2014 restarts the whole sequence in the same
+              cadence as the timeline. */}
+          <button
+            type="button"
+            onClick={() => {
+              setAudioConsent(true);
+              setAudioBlocked(false);
+              const h = helloAudioRef.current;
+              const i = introAudioRef.current;
+              const v = inviteAudioRef.current;
+              [h, i, v].forEach((a) => { if (a) a.muted = false; });
+              playSafely(h);
+              window.setTimeout(() => playSafely(i), 1100);
+              // Match the timeline gap between SAY_NAME and SAY_INVITE.
+              window.setTimeout(() => playSafely(v), 5100);
+            }}
+            style={meetOtherBtn}
+            aria-label={
+              audioBlocked
+                ? `Hear ${effectiveMeta.name} say hello`
+                : `Hear ${effectiveMeta.name} again`
+            }
+          >
+            {audioBlocked
+              ? `Would you like to hear ${effectiveMeta.name}?`
+              : `Hear ${effectiveMeta.name} again.`}
+          </button>
+          <span aria-hidden style={dotSep}>&middot;</span>
           <button type="button" onClick={meetOther} style={meetOtherBtn}>
             Actually, I&rsquo;d rather meet {effectiveCompanion === 'george' ? 'Georgia' : 'George'}.
           </button>
         </div>
-
-        {/* Safari-friendly fallback + always-available replay. Two
-            things live here:
-              1. If autoplay was blocked (the classic Safari case),
-                 this button restarts the greeting from "Hello." and
-                 the whole sequence plays through in George or
-                 Georgia's voice.
-              2. Even when autoplay worked, the button remains as a
-                 quiet "Hear it again" affordance once the greeting
-                 completes. That means the visitor is never stuck
-                 without sound and never has to guess whether they
-                 missed something. Locked with Garry (Dec 2026):
-                 "Perhaps a hear George speak button if we can't get
-                 it to work consistently."
-
-            The label softens once the sequence has completed \u2014
-            "Hear it again" reads warmer than "Would you like to
-            hear George?" at that point. */}
-        {(
-          (audioBlocked && !audioConsent && (phase === 'greeting' || phase === 'complete'))
-          || (!audioBlocked && phase === 'complete')
-        ) && (
-          <div style={{ marginTop: 8, pointerEvents: 'auto', textAlign: 'center' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setAudioConsent(true);
-                setAudioBlocked(false);
-                const h = helloAudioRef.current;
-                const i = introAudioRef.current;
-                const v = inviteAudioRef.current;
-                // Unmute in case the primer left them muted after a
-                // rejected autoplay.
-                [h, i, v].forEach((a) => { if (a) a.muted = false; });
-                playSafely(h);
-                // Fire the intro clip on the same natural cadence as
-                // the scripted timing (~1.1s after "Hello.").
-                window.setTimeout(() => playSafely(i), 1100);
-                // And the invite ~3.6s after that — matches the gap
-                // between SAY_NAME and SAY_INVITE in the timeline.
-                window.setTimeout(() => playSafely(v), 3600);
-              }}
-              style={inlineHearBtn}
-              aria-label={
-                audioBlocked
-                  ? `Hear ${effectiveMeta.name} say hello`
-                  : `Hear ${effectiveMeta.name} again`
-              }
-            >
-              {audioBlocked
-                ? `Would you like to hear ${effectiveMeta.name}?`
-                : `Hear ${effectiveMeta.name} again`}
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Old corner "hear George" pill removed — replaced by the
@@ -958,26 +943,16 @@ const meetOtherBtn: React.CSSProperties = {
   textUnderlineOffset: 4,
 };
 
-const inlineHearBtn: React.CSSProperties = {
-  // Soft, warm invitation \u2014 not a bright CTA. Sits beneath the
-  // greeting only when Safari silenced the audio, so the visitor
-  // still has an easy way to hear George or Georgia. Deliberately
-  // lower-contrast than the primary CTAs so it feels like an offer,
-  // not a demand.
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '10px 20px',
-  background: 'rgba(255, 255, 255, 0.85)',
-  color: '#0F766E',
-  border: '1.5px solid #99F6E4',
-  borderRadius: 999,
-  fontSize: 14, fontWeight: 700, fontFamily: 'inherit',
-  cursor: 'pointer',
-  boxShadow: '0 4px 14px rgba(15, 23, 42, 0.06)',
-  backdropFilter: 'blur(4px)',
-  WebkitBackdropFilter: 'blur(4px)',
+const dotSep: React.CSSProperties = {
+  color: '#94A3B8',
+  fontSize: 14,
+  userSelect: 'none',
 };
+
+// (inlineHearBtn removed \u2014 the "Hear George again" affordance
+// now sits inline with "Actually, I'd rather meet Georgia." on a
+// single row of secondary options, so nothing falls off the viewport
+// on shorter screens.)
 
 const flyerWrap: React.CSSProperties = {
   position: 'fixed', zIndex: 10, pointerEvents: 'none',
