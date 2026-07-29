@@ -1,4 +1,6 @@
 import { cms } from '@/lib/api';
+import { TourNext } from '@/components/TourNav';
+import TapMeButterfly from '@/components/TapMeButterfly';
 
 export const metadata = { title: 'How It Works' };
 
@@ -42,6 +44,14 @@ export default async function HowPage() {
           ))}
         </div>
       </section>
+
+      {/* Tour continues \u2014 last stop is /features, which ends with
+          George's voice returning to close the journey. See
+          /app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md \u2192 "The
+          Quiet Host". */}
+      <TourNext href="/features" label="See what makes it feel like belonging" />
+
+      <TapMeButterfly />
     </>
   );
 }

@@ -1,4 +1,6 @@
 import { cms } from '@/lib/api';
+import { TourEnding } from '@/components/TourNav';
+import TapMeButterfly from '@/components/TapMeButterfly';
 
 export const metadata = { title: 'Features' };
 
@@ -53,6 +55,16 @@ export default async function FeaturesPage() {
           </div>
         </div>
       </section>
+
+      {/* George returns \u2014 one line, one button. This is the ONLY
+          moment his voice reappears during the tour. His silence
+          through /about \u2192 /how-it-works \u2192 the rest of this page
+          is what makes this land. Do not add a second paragraph
+          or a supporting line. See /app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md
+          \u2192 "The Quiet Host". */}
+      <TourEnding />
+
+      <TapMeButterfly />
     </>
   );
 }

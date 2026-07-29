@@ -23,12 +23,12 @@ import { useCompanion, COMPANIONS } from '@/lib/companion-context';
 import { API_BASE } from '@/lib/api-base';
 
 export default function RegisterInterestPage() {
+  // We still read the companion so we can record their choice with the
+  // registration (drives the "Welcome back" moment on first app login).
+  // But we no longer NAME them in the page copy \u2014 the visitor has
+  // just come off the tour and George's closing line; the form is not
+  // the moment for another host greeting.
   const { companion, meta } = useCompanion();
-  // The visitor may arrive here without having chosen a companion yet
-  // (deep link, back button, etc). We don't block them \u2014 the form
-  // works either way, and we still record the missing choice so we
-  // can offer the choice at first app login.
-  const companionName = meta?.name || 'the team';
 
   const [firstName, setFirstName]     = useState('');
   const [email, setEmail]             = useState('');
@@ -131,12 +131,12 @@ export default function RegisterInterestPage() {
     <div style={pageBg}>
       <div className="container" style={{ paddingTop: 72, paddingBottom: 96 }}>
         <div style={plate}>
-          <h1 style={openingLine}>Register your interest</h1>
-          <p style={leadCopy}>
-            {companion
-              ? `Leave your name and email and ${companionName} will be in touch when FriendPlace is ready for you.`
-              : 'Leave your name and email and one of us will be in touch when FriendPlace is ready for you.'}
-          </p>
+          {/* No explanation, no persuasion. By the time a visitor
+              reaches this page they've had the whole story. RYI is
+              the moment they say yes \u2014 nothing more. Locked with
+              Garry (Dec 2026): "This should be the natural conclusion
+              after they've explored the story." */}
+          <h1 style={openingLine}>Whenever you&rsquo;re ready.</h1>
 
           <form onSubmit={onSubmit} style={{ marginTop: 8 }} noValidate>
             <Field label="First name" required>
@@ -191,7 +191,7 @@ export default function RegisterInterestPage() {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
               <button type="submit" disabled={submitting} style={{ ...primaryCta, opacity: submitting ? 0.6 : 1 }}>
-                {submitting ? 'Sending\u2026' : 'Come in'}
+                {submitting ? 'Sending\u2026' : 'That\u2019s my hello'}
               </button>
             </div>
           </form>
