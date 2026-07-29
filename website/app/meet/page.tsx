@@ -846,7 +846,15 @@ function ChoiceCard({ companionId, onChoose }: {
 // soft ease — the same pace as a hand opening a door.
 
 const pageBg: React.CSSProperties = {
-  minHeight: 'calc(100vh - 200px)',
+  // Full-viewport minHeight (rather than the earlier `100vh - 200px`)
+  // so the site footer NEVER encroaches into the fixed greeting
+  // stack. Locked with Garry (Dec 2026) after a shorter viewport
+  // showed the greeting overlapping the "Because you belong too."
+  // masthead. The 120px bottom padding gives the "Hear George again /
+  // meet the other one" row breathing room below the primary CTA on
+  // any reasonable screen size.
+  minHeight: '100vh',
+  paddingBottom: 120,
   background: '#FEFCF8',
   position: 'relative',
   overflow: 'hidden',
