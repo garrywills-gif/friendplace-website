@@ -7,7 +7,7 @@ import CancelRsvpButton from './CancelRsvpButton';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://george-mcgs-cms.preview.emergentagent.com';
+const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
 
 type Lookup = {
   event: {

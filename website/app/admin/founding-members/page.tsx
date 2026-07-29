@@ -122,7 +122,7 @@ function MemberRow({
   onMoveDown: () => void;
   onDelete: () => void;
 }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://george-mcgs-cms.preview.emergentagent.com';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
   const avatarUrl = member.avatar_url
     ? (member.avatar_url.startsWith('http') ? member.avatar_url : `${BASE}${member.avatar_url}`)
     : null;

@@ -27,7 +27,7 @@ function MediaLibraryInner() {
   const [toast, setToast] = useState<string | null>(null);
   const [editingAlt, setEditingAlt] = useState<Record<string, string>>({});
 
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://george-mcgs-cms.preview.emergentagent.com';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
   const absUrl = (u: string) => (u.startsWith('http') ? u : `${BASE}${u}`);
 
   const load = async () => {

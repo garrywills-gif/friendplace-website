@@ -81,7 +81,7 @@ interface Props {
   shouldAllowArrival?: () => boolean;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://george-mcgs-cms.preview.emergentagent.com';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
 
 export function GeorgeButterfly({
   presenceUrl = `${API_BASE}/api/mcgs/george/presence`,

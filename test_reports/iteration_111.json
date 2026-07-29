@@ -1,0 +1,34 @@
+{
+  "summary": "V1 Vercel deploy-readiness verification after backend-URL migration from https://george-mcgs-cms.preview.emergentagent.com (pod preview) to https://belong-together.emergent.host (live production FastAPI). All acceptance criteria PASS. (1) Source-tree grep confirms ZERO remaining references to the old pod preview URL in ts/tsx/js/jsx across /app/website (excluding node_modules and the .next build cache which will regenerate on next build). (2) EXACTLY 23 references to the new URL 'belong-together.emergent.host' across ts/tsx/js/jsx source files — matches the review request expectation on the nose. (3) All 7 required local routes return 200 on http://localhost:3000: /, /meet, /about, /how-it-works, /features, /register-interest, /admin. (4) Pod preview URL https://george-mcgs-cms.preview.emergentagent.com still serves /meet → 200 and /register-interest → 200 as required (the pod's own preview URL is unaffected by the migration — only the FALLBACK constant changed). (5) lib/api-base.ts DEFAULT_API_BASE = 'https://belong-together.emergent.host' (no trailing slash, no /api suffix — correct). (6) next.config.js env.NEXT_PUBLIC_API_URL fallback = 'https://belong-together.emergent.host' — matches. (7) RYI end-to-end sanity: POST /api/public/register-interest with a unique test payload (testing-agent-iter111-<ts>@friendplace-test.dev) returned 200 {ok:true,id:...}, row persisted in MongoDB interest_registrations with all expected fields (id, first_name, email, state_country, heard_from, companion_choice='george', source='website', status='new', is_test=false, ip, created_at). Row deleted immediately after verification; interest_registrations count = 0 confirmed both before and after the test — V1 guest book stays empty for launch. (8) UI smoke via Playwright: /meet renders 'Come in' + 'Meet George or Georgia'; /register-interest renders the four labeled inputs (First name, Email address, State or country — optional, How did you hear about FriendPlace? — optional) and 'That's my hello' submit button, no red-screen errors, no console errors. CONCLUSION: The migration is clean. The local build is fully deploy-ready to Vercel with NEXT_PUBLIC_API_URL=https://belong-together.emergent.host (or omitted — the code falls back to the same value).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v1_launch_deploy_readiness.py (iter110 — still passes; not re-run this iteration as the RYI contract is unchanged)"
+  ],
+  "action_items": [
+    "PROCEED WITH VERCEL DEPLOYMENT. All migration checks pass. Set NEXT_PUBLIC_API_URL=https://belong-together.emergent.host in the Vercel project env (origin only, no /api suffix) per DEPLOY.md. The code's built-in fallback is identical, so a missing env var is now safe.",
+    "OPTIONAL / NON-BLOCKING: The .next/ build cache still contains 8 stale references to the old pod preview URL. These will be overwritten the next time `next build` runs on Vercel (Vercel does a clean build) so this is cosmetic only for the local pod. If you want the local pod cache clean too, run `cd /app/website && rm -rf .next && yarn build` — but this is not required for the Vercel deploy."
+  ],
+  "critical_code_review_comments": [
+    "components/george/GeorgeButterfly.tsx:84 still reads `process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host'` directly instead of importing API_BASE from lib/api-base.ts. It's functionally identical now (both fall back to the same URL) but the whole point of lib/api-base.ts is to have a single source of truth. Minor DRY nit — the next URL change would need updates in two places. Not blocking V1.",
+    "The other 18 admin/event/success-stories/register-interest components either import from lib/api-base.ts or use the same inline fallback pattern. Consider a follow-up sweep to normalise everything on `import { API_BASE } from '@/lib/api-base'` so a future backend cutover really is a one-line change as the api-base.ts docstring promises."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (RYI POST + persist + delete round-trip verified; interest_registrations count = 0 pre and post)",
+    "frontend": "100% (7/7 required routes 200 on localhost, 2/2 required routes 200 on pod preview URL, /meet + /register-interest render correctly with expected copy and inputs)"
+  },
+  "seed_data_creation": "Single ephemeral RYI row (testing-agent-iter111-<epoch>@friendplace-test.dev) inserted via POST /api/public/register-interest, verified via find_one, then deleted via delete_many in the same shell command. Final count re-verified = 0. V1 launch guest book untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The URL migration is confirmed: 0 old refs, 23 new refs in ts/tsx/js source files (matches spec exactly). DEPLOY.md has 5 new-URL refs and 0 old-URL refs. The local Next.js website (supervisor service 'website', port 3000) still points to the pod's own backend at 0.0.0.0:8001 for local dev — the migration only changed the FALLBACK string, which is what Vercel will use when NEXT_PUBLIC_API_URL is set (or missing) on the deploy. Do NOT test against https://belong-together.emergent.host from inside this pod — it's a separate production environment.",
+  "rca_of_issue": "N/A — no issues found. All 7 acceptance criteria from the review request pass on the first check."
+}

@@ -27,7 +27,7 @@
  * DEFAULT_API_BASE below and redeploy. That's the only edit.
  */
 
-const DEFAULT_API_BASE = 'https://george-mcgs-cms.preview.emergentagent.com';
+const DEFAULT_API_BASE = 'https://belong-together.emergent.host';
 
 export const API_BASE: string =
   process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.trim().length > 0

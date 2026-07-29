@@ -21,7 +21,7 @@ export function StoryCard({
   story: SuccessStory;
   variant?: 'full' | 'compact';
 }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://george-mcgs-cms.preview.emergentagent.com';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
   const avatarUrl = story.author_avatar_url
     ? (story.author_avatar_url.startsWith('http')
         ? story.author_avatar_url
