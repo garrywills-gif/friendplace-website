@@ -60,7 +60,7 @@ export default function SiteHeader() {
             alt={brandAssets.butterfly.alt}
             width={brandAssets.butterfly.width}
             height={brandAssets.butterfly.height}
-            style={{ width: 36, height: 'auto', display: 'block' }}
+            style={{ width: 40, height: 'auto', display: 'block' }}
           />
           <span style={{ fontWeight: 900, fontSize: 22, color: '#0A2540', letterSpacing: '-0.02em' }}>
             Friend<span style={{ color: '#14B8A6' }}>Place</span>

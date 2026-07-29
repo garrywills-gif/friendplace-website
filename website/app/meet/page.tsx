@@ -50,19 +50,19 @@ import { getActiveWelcome, resolveAudio } from '@/lib/welcomes';
 // be adjusted in one place.
 
 const T = {
-  NOTICE_END:      600,   // butterfly softens in place, notices someone
-  LIFTOFF_END:    1600,   // hesitant lift-off
-  DRIFT_END:      4600,   // wanders across, catches the air
-  APPROACH_END:   5100,   // decelerates
-  SETTLE_END:     5500,   // settles — final micro-adjustment
-  ARRIVED_HOLD:   6000,   // BEING at the destination. Do not speak yet.
-  LOOK_END:       6900,   // considered look left/right
-  EYE_CONTACT:    8000,   // held eye contact. Do not shorten.
-  SAY_HELLO:      8000,   // audio: "Hello."
-  TEXT_HELLO:     8250,   // text: "Hello."
-  SAY_NAME:       9100,   // audio: "I'm George/Georgia."
-  SAY_CLOSING:   10500,   // text: "I'm really pleased you found us."
-  CTAS_APPEAR:   12800,   // comfortable pause, then the way forward
+  NOTICE_END:      500,   // butterfly stirs in the logo, notices someone
+  LIFTOFF_END:    1300,   // clean lift-off, no hesitation
+  DRIFT_END:      4400,   // arc across the room
+  APPROACH_END:   5400,   // decelerates in
+  SETTLE_END:     6000,   // touches down at target
+  ARRIVED_HOLD:   6400,   // BEING at the destination. Do not speak yet.
+  LOOK_END:       7200,   // considered look left/right
+  EYE_CONTACT:    7900,   // held eye contact. Do not shorten.
+  SAY_HELLO:      7900,   // audio: "Hello."
+  TEXT_HELLO:     8150,   // text: "Hello."
+  SAY_NAME:       9000,   // audio: "I'm George/Georgia."
+  SAY_CLOSING:   10400,   // text: "I'm really pleased you found us."
+  CTAS_APPEAR:   12700,   // comfortable pause, then the way forward
 } as const;
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -78,21 +78,6 @@ type Phase =
   | 'greeting'         // has begun speaking
   | 'complete';        // greeting fully delivered, CTAs visible
 
-/**
- * Where does the butterfly fly *from*?
- *
- *   'header'       — the FriendPlace butterfly in the site header.
- *                    Used for returning visitors who already have a
- *                    companion in localStorage.
- *   'george-card'  — the butterfly on the George choice card.
- *   'georgia-card' — the butterfly on the Georgia choice card.
- *
- * When a first-time visitor clicks a card, the butterfly literally
- * lifts off that card and flies over — the unchosen card stays
- * put with its butterfly still there, "smiling from its perch".
- */
-type FlightOrigin = 'header' | 'george-card' | 'georgia-card';
-
 export default function MeetPage() {
   const { companion, choose, ready } = useCompanion();
 
@@ -103,18 +88,19 @@ export default function MeetPage() {
   const [textStage, setTextStage] = useState<0 | 1 | 2 | 3>(0);
   const [runId, setRunId] = useState(0);
 
-  // Which butterfly is doing the flying? Returning visitors get the
-  // header logo as the origin (arrival from "the front door"). First
-  // visitors get the card they clicked — the chosen butterfly LITERALLY
-  // lifts off that card and comes over. The unchosen card stays.
-  const [flightOrigin, setFlightOrigin] = useState<FlightOrigin>('header');
+  // The butterfly lives in the FriendPlace logo. It always starts nestled
+  // there and always leaves from there — for first-time visitors and
+  // returning ones alike. Locked with Garry (Nov 2026): "It feels like
+  // it leaves the logo to welcome the visitor."
+  //
+  // The choice cards still carry small butterfly marks as visual
+  // representations of George and Georgia, but the actual entity is
+  // the one nestled in the logo. There is one butterfly, and it comes
+  // over when a visitor arrives.
 
   // Which companion did the visitor click just now, if any? We hold
-  // this locally until the butterfly is airborne so the choice plate
-  // can stay visible during lift-off (Georgia keeps smiling on her
-  // card while George flies over). The persistent choice is committed
-  // to context/localStorage the moment the visitor clicks — this
-  // separate state only drives the transient UI states.
+  // this locally so the greeting can start immediately (with the right
+  // voice) without waiting for CompanionContext to hydrate.
   const [pendingCompanion, setPendingCompanion] = useState<CompanionId | null>(null);
 
   // Effective companion for the greeting. If the visitor hasn't chosen
@@ -157,29 +143,112 @@ export default function MeetPage() {
   // whatever OpenAI decided to space them at.
   const helloAudioRef = useRef<HTMLAudioElement | null>(null);
   const introAudioRef = useRef<HTMLAudioElement | null>(null);
-  // Audio consent — modern browsers will only let us play audio after
-  // a user gesture. Choosing a companion IS the gesture on first visit;
-  // for returning visitors we surface a soft "Play greeting" affordance
-  // only if the autoplay actually got blocked.
+  // Audio consent — Safari (and Chrome, on some settings) will only
+  // let us play audio after a user gesture. Choosing a companion IS
+  // the gesture on first visit; for returning visitors any pointer
+  // interaction on the page unlocks it. If autoplay actually gets
+  // blocked we surface a warm "Hear George" affordance so the visitor
+  // can catch the greeting.
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [audioConsent, setAudioConsent] = useState(false);
+  const primedRef = useRef(false);
 
-  // First-time visitors click a choice card — the butterfly on that
-  // card lifts off and comes over. Georgia stays smiling on her card,
-  // and vice versa. Committing the choice to storage happens right
-  // away (so if they refresh mid-flight nothing is lost), but the
-  // transient `pendingCompanion` + `flightOrigin` states are what
-  // drive the visual "flies off THIS card" moment. The measure effect
-  // will re-fire because `flightOrigin` is in `measure`'s useCallback
-  // dependency list — no manual setTimeout(measure) required.
+  /**
+   * Prime the audio elements on a user gesture — Safari (and Chrome
+   * with some settings) require a synchronous play() call within a
+   * user-gesture event loop tick before any subsequent programmatic
+   * play() is allowed. We start each element muted so the visitor
+   * hears nothing during the unlock, then pause and unmute — the
+   * elements are now "primed" for later timed play() calls to
+   * actually make a sound.
+   *
+   * Safe to call multiple times; only the first call does the work.
+   * All errors are swallowed silently — a failed unlock just means
+   * the visitor sees the "Hear George" fallback instead.
+   */
+  const primeAudio = useCallback(() => {
+    if (primedRef.current) return;
+    primedRef.current = true;
+    const els = [helloAudioRef.current, introAudioRef.current];
+    els.forEach((a) => {
+      if (!a) return;
+      try {
+        a.muted = true;
+        const p = a.play();
+        if (p && typeof (p as Promise<void>).then === 'function') {
+          (p as Promise<void>)
+            .then(() => {
+              try {
+                a.pause();
+                a.currentTime = 0;
+                a.muted = false;
+              } catch { /* silent */ }
+            })
+            .catch(() => {
+              try { a.muted = false; } catch { /* silent */ }
+            });
+        }
+      } catch { /* silent */ }
+    });
+  }, []);
+
+  // First user gesture anywhere on the page primes the audio. This
+  // covers the returning-visitor case (no card click) — the moment
+  // they scroll, tap or press a key, we unlock. In Safari this is
+  // the ONLY reliable way to make later programmatic play() work.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onGesture = () => primeAudio();
+    document.addEventListener('pointerdown', onGesture, { once: true, capture: true });
+    document.addEventListener('keydown', onGesture, { once: true, capture: true });
+    document.addEventListener('touchstart', onGesture, { once: true, capture: true });
+    return () => {
+      document.removeEventListener('pointerdown', onGesture, { capture: true } as any);
+      document.removeEventListener('keydown', onGesture, { capture: true } as any);
+      document.removeEventListener('touchstart', onGesture, { capture: true } as any);
+    };
+  }, [primeAudio]);
+
+  /** Play an audio element defensively. Rejections are silenced,
+   *  and if the browser blocked the play we surface the fallback.
+   *  Never bubbles a media error to the console — Safari logs
+   *  NotAllowedError even when the promise is caught, so we also
+   *  temporarily set `muted` on failure to keep the element quiet
+   *  and prevent it from cascading further errors. */
+  const playSafely = useCallback((el: HTMLAudioElement | null) => {
+    if (!el) return;
+    try {
+      el.currentTime = 0;
+      const p = el.play();
+      if (p && typeof (p as Promise<void>).then === 'function') {
+        (p as Promise<void>).catch(() => {
+          setAudioBlocked(true);
+          try { el.muted = true; } catch { /* silent */ }
+        });
+      }
+    } catch {
+      setAudioBlocked(true);
+    }
+  }, []);
+
+  // First-time visitors click a choice card — the butterfly stirs in
+  // the logo, then leaves it and flies over. Both card butterflies
+  // stay in place as visual "identity marks" for the two companions;
+  // the actual flying butterfly is the one in the header logo.
+  //
+  // We call primeAudio() SYNCHRONOUSLY inside this click handler so
+  // Safari treats it as a user gesture — that unlocks the audio
+  // elements for the later programmatic play() calls in the
+  // choreography timeline. Without this, Safari blocks the greeting
+  // and Garry sees only the "Hear George" fallback.
   const onChooseFromCard = useCallback((id: CompanionId) => {
+    primeAudio();
     setPendingCompanion(id);
-    setFlightOrigin(id === 'george' ? 'george-card' : 'georgia-card');
     choose(id);
     setGeom(null);
     setTextStage(0);
     setPhase('idle');
-  }, [choose]);
+  }, [choose, primeAudio]);
 
   // Sync phase with hydration + companion changes.
   useEffect(() => {
@@ -194,29 +263,26 @@ export default function MeetPage() {
     // on every phase transition.
   }, [ready, companion]);
 
-  // Measure the flight vector. The origin element depends on
-  // `flightOrigin`:
-  //   • 'header'       → id="fp-brand-butterfly" in the site header.
-  //   • 'george-card'  → id="fp-choice-btf-george"  on the choice card.
-  //   • 'georgia-card' → id="fp-choice-btf-georgia" on the choice card.
+  // Measure the flight vector. Origin = the butterfly nestled in the
+  // FriendPlace logo (SiteHeader gives it id="fp-brand-butterfly").
   // Target = the geometric centre of the viewport, lifted a touch
-  // above true centre so there's breathing room for the greeting.
+  // above true centre so there's breathing room for the greeting to
+  // grow beneath it. Larger butterfly footprint (~15% up from the
+  // previous 48px) — George/Georgia are the host of FriendPlace and
+  // deserve a little more presence.
+  const FLYER_SIZE = 55;
   const measure = useCallback(() => {
     if (typeof window === 'undefined') return;
-    const originElId =
-      flightOrigin === 'george-card'  ? 'fp-choice-btf-george'  :
-      flightOrigin === 'georgia-card' ? 'fp-choice-btf-georgia' :
-                                        'fp-brand-butterfly';
-    const el = document.getElementById(originElId);
+    const el = document.getElementById('fp-brand-butterfly');
     if (!el) return;
     const r = el.getBoundingClientRect();
     const originX = r.left + r.width / 2;
     const originY = r.top + r.height / 2;
     const targetX = window.innerWidth / 2;
     const targetY = window.innerHeight * 0.42;
-    setOrigin({ x: originX - 24, y: originY - 24 }); // -24 for 48px flyer half-size
+    setOrigin({ x: originX - FLYER_SIZE / 2, y: originY - FLYER_SIZE / 2 });
     setGeom({ dx: targetX - originX, dy: targetY - originY });
-  }, [flightOrigin]);
+  }, []);
 
   useEffect(() => {
     if (phase === 'awaiting-choice') return;
@@ -248,25 +314,12 @@ export default function MeetPage() {
     at(T.LOOK_END + 100, () => setPhase('eye-contact'));
     at(T.SAY_HELLO, () => {
       setPhase('greeting');
-      const el = helloAudioRef.current;
-      if (el) {
-        el.currentTime = 0;
-        el.play().catch(() => {
-          // Autoplay blocked — the visitor will still see the text on
-          // its intended beats. We surface a small "play greeting"
-          // affordance so they can hear it if they'd like.
-          setAudioBlocked(true);
-        });
-      }
+      playSafely(helloAudioRef.current);
     });
     at(T.TEXT_HELLO, () => setTextStage(1));
     at(T.SAY_NAME, () => {
       setTextStage(2);
-      const el = introAudioRef.current;
-      if (el) {
-        el.currentTime = 0;
-        el.play().catch(() => { setAudioBlocked(true); });
-      }
+      playSafely(introAudioRef.current);
     });
     at(T.SAY_CLOSING,    () => setTextStage(3));
     at(T.CTAS_APPEAR,    () => setPhase('complete'));
@@ -275,14 +328,12 @@ export default function MeetPage() {
   }, [runId, geom, phase === 'awaiting-choice']);
 
   // Re-run the choreography — used after "meet the other one" so the
-  // new companion arrives freshly. Flies from the header this time
-  // (the choice cards are gone by now).
+  // new companion arrives freshly. Flies from the logo (as always).
   const replay = useCallback(() => {
     // Stop any playing audio from the previous run.
     [helloAudioRef.current, introAudioRef.current].forEach(a => {
       if (a) { a.pause(); a.currentTime = 0; }
     });
-    setFlightOrigin('header');
     setPendingCompanion(null);
     setGeom(null);
     setPhase('idle');
@@ -317,13 +368,21 @@ export default function MeetPage() {
       (phase === 'idle' || phase === 'noticing' || phase === 'flying'));
   const choicePlateOpacity = showPlate ? 1 : 0;
 
-  // The chosen card's butterfly image is hidden the moment we
-  // transition out of awaiting-choice, so the visitor sees the
-  // butterfly literally lift off THAT card. Stays hidden — the card
-  // itself fades with the plate.
-  const chosenCardBtfHidden = phase !== 'awaiting-choice';
-  const georgeCardBtfHidden  = chosenCardBtfHidden && flightOrigin === 'george-card';
-  const georgiaCardBtfHidden = chosenCardBtfHidden && flightOrigin === 'georgia-card';
+  // The butterfly nestled in the FriendPlace logo. Once it "leaves"
+  // (phase transitions out of awaiting-choice / idle), we fade it out
+  // of the logo so it doesn't look like there are two of it. See the
+  // CSS block below for the actual rule targeting #fp-brand-butterfly.
+  const butterflyGone =
+    phase !== 'awaiting-choice' && phase !== 'idle';
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.dataset.fpFlight = butterflyGone ? 'airborne' : 'resting';
+    return () => {
+      if (typeof document !== 'undefined') {
+        delete document.body.dataset.fpFlight;
+      }
+    };
+  }, [butterflyGone]);
 
   return (
     <div style={pageBg}>
@@ -351,22 +410,14 @@ export default function MeetPage() {
               src={brandAssets.butterfly.src}
               alt=""
               aria-hidden
-              style={{ width: 96, height: 'auto', margin: '0 auto 20px', display: 'block' }}
+              style={{ width: 110, height: 'auto', margin: '0 auto 20px', display: 'block' }}
             />
             <h1 style={openingLine}>Come in.</h1>
             <p style={leadCopy}>Who would you like to show you around today?</p>
 
             <div style={choiceRow}>
-              <ChoiceCard
-                companionId="george"
-                onChoose={onChooseFromCard}
-                butterflyHidden={georgeCardBtfHidden}
-              />
-              <ChoiceCard
-                companionId="georgia"
-                onChoose={onChooseFromCard}
-                butterflyHidden={georgiaCardBtfHidden}
-              />
+              <ChoiceCard companionId="george"  onChoose={onChooseFromCard} />
+              <ChoiceCard companionId="georgia" onChoose={onChooseFromCard} />
             </div>
 
             <p style={footNote}>
@@ -409,36 +460,53 @@ export default function MeetPage() {
             Actually, I&rsquo;d rather meet {effectiveCompanion === 'george' ? 'Georgia' : 'George'}.
           </button>
         </div>
+
+        {/* Safari-friendly fallback — Safari's autoplay policy blocks
+            programmatic audio unless there's been a user gesture on
+            the page. If our timed play() call was blocked, we surface
+            a warm invitation right beneath the greeting rather than
+            tucking it in the corner. Tapping it counts as the
+            gesture, unlocks the audio elements, and restarts the
+            greeting from "Hello." — the visitor hears the whole
+            arrival in George or Georgia's voice, on the same beats
+            the text landed on. */}
+        {audioBlocked && !audioConsent && (phase === 'greeting' || phase === 'complete') && (
+          <div style={{ marginTop: 8, pointerEvents: 'auto', textAlign: 'center' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setAudioConsent(true);
+                setAudioBlocked(false);
+                const h = helloAudioRef.current;
+                const i = introAudioRef.current;
+                // Unmute in case the primer left them muted after a
+                // rejected autoplay.
+                if (h) h.muted = false;
+                if (i) i.muted = false;
+                playSafely(h);
+                // Fire the intro clip on the same natural cadence as
+                // the scripted timing (~1.1s after "Hello.").
+                window.setTimeout(() => playSafely(i), 1100);
+              }}
+              style={inlineHearBtn}
+              aria-label={`Hear ${effectiveMeta.name} say hello`}
+            >
+              Would you like to hear {effectiveMeta.name}?
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Small "play greeting" affordance — only shown if the browser
-          silenced our audio. Never pushed at the visitor; sits quietly
-          in a corner for anyone who notices they didn't hear anything. */}
-      {audioBlocked && !audioConsent && (
-        <button
-          type="button"
-          onClick={() => {
-            setAudioConsent(true);
-            setAudioBlocked(false);
-            const h = helloAudioRef.current;
-            const i = introAudioRef.current;
-            if (h) { h.currentTime = 0; h.play().catch(() => {}); }
-            // Fire the intro clip on the same natural cadence as the
-            // scripted timing (~1.1s after "Hello.").
-            window.setTimeout(() => {
-              if (i) { i.currentTime = 0; i.play().catch(() => {}); }
-            }, 1100);
-          }}
-          style={playGreetingBtn}
-          aria-label={`Play ${effectiveMeta.name}\u2019s greeting`}
-        >
-          <span style={{ marginRight: 6 }} aria-hidden>&#9654;</span>
-          Hear {effectiveMeta.name}
-        </button>
-      )}
+      {/* Old corner "hear George" pill removed — replaced by the
+          inline invitation inside the greeting stack above, which
+          feels less like an error banner and more like a natural
+          next step for anyone whose browser silenced the audio. */}
 
       {/* The butterfly overlay. Positioned fixed so it can cross the
-          site chrome. Keyed on runId so we always start fresh. */}
+          site chrome. Keyed on runId so we always start fresh.
+          Slightly larger (55px) than the earlier 48px — George and
+          Georgia are the host of FriendPlace and deserve a touch
+          more presence. */}
       {origin && geom && (
         <div
           key={`flyer-${runId}`}
@@ -460,7 +528,7 @@ export default function MeetPage() {
             <img
               src={brandAssets.butterfly.src}
               alt=""
-              style={{ width: 48, height: 'auto', display: 'block' }}
+              style={{ width: 55, height: 'auto', display: 'block' }}
             />
           </div>
         </div>
@@ -471,80 +539,70 @@ export default function MeetPage() {
           at their own recordings. Keyed on companion+variant so
           switching either swaps the source cleanly. `preload="auto"`
           so the first play() call fires immediately with no wait.
-          `onError` handler: if a seasonal clip 404s (e.g. the mp3
-          hasn't been recorded yet), we silently fall back to the
-          permanent /audio/{hello|intro}-{companion}.mp3 so the
-          greeting never dies mid-sentence. */}
+          onError is a NO-OP by design: Safari (and some Chrome
+          configurations) will log a red "1 error" to the console for
+          any bubbled media error, even ones we've handled. We swallow
+          them silently. If a seasonal clip is genuinely missing, the
+          greeting simply lands as text on beat — no sound, no error.
+          The visitor never sees a broken UI. */}
       <audio
         key={`hello-${effectiveCompanion}-${welcome.id}`}
         ref={helloAudioRef}
         src={audioSrcs.hello}
         preload="auto"
-        onError={(e) => {
-          const el = e.currentTarget;
-          const fallback = `/audio/hello-${effectiveCompanion}.mp3`;
-          if (el.src !== fallback && !el.src.endsWith(fallback)) el.src = fallback;
-        }}
+        onError={(e) => { try { e.stopPropagation(); } catch { /* silent */ } }}
       />
       <audio
         key={`intro-${effectiveCompanion}-${welcome.id}`}
         ref={introAudioRef}
         src={audioSrcs.intro}
         preload="auto"
-        onError={(e) => {
-          const el = e.currentTarget;
-          const fallback = `/audio/intro-${effectiveCompanion}.mp3`;
-          if (el.src !== fallback && !el.src.endsWith(fallback)) el.src = fallback;
-        }}
+        onError={(e) => { try { e.stopPropagation(); } catch { /* silent */ } }}
       />
 
       <style dangerouslySetInnerHTML={{ __html: `
         /* ────────────────────────────────────────────────────────────
            FLIGHT CHOREOGRAPHY
-           One keyframe animation for the whole arc — easier to reason
-           about than chaining transitions, and hardware-composed.
-           The path uses CSS custom properties --dx/--dy set on the
-           element so the same keyframes work at any viewport width.
+           One keyframe animation for the whole arc. Path uses CSS
+           custom properties --dx/--dy set on the element so the same
+           keyframes work at any viewport width.
+
+           Refined for a smoother, more PURPOSEFUL flight (Nov 2026):
+           fewer keyframes, cleaner lateral motion, less zigzag. A real
+           butterfly still catches the air a little — but it knows
+           where it's going, and it takes George and Georgia to the
+           middle of the room without dithering.
            ──────────────────────────────────────────────────────────── */
         @keyframes fpFlightArc {
-          /* Notice. Wings do NOT flap harder — just a heartbeat. */
+          /* Nestled in the logo — a small breath forward, aware of
+             the visitor. */
           0%     { transform: translate(0px, 0px)  rotate(0deg); }
-          6.5%   { transform: translate(0px, -3px) rotate(-2deg); }
-          9.4%   { transform: translate(0px, -1px) rotate(-1deg); }
+          5%     { transform: translate(0px, -2px) rotate(-2deg); }
 
-          /* Lift-off. Hesitant. Rises, drifts a little, thinks about it. */
-          12%    { transform: translate(-4px, -14px) rotate(-6deg); }
-          17%    { transform: translate(-6px, -22px) rotate(-4deg); }
-          20%    { transform: translate(-2px, -30px) rotate(-8deg); }
-          25%    { transform: translate(6px,  -34px) rotate(-6deg); }
+          /* Lift-off. Clean, decisive — no hesitation. Rises with
+             intent. */
+          10%    { transform: translate(2px,  -14px) rotate(-4deg); }
+          15%    { transform: translate(6px,  -26px) rotate(-3deg); }
 
-          /* Drift. Wanders. Doesn't head straight to the target. Small
-             negative dx offsets create the "catches the air" feel — a
-             butterfly does not fly in straight lines. */
-          30%    { transform: translate(calc(var(--dx) * 0.10 - 4px), calc(var(--dy) * 0.05 - 40px)) rotate(-3deg); }
-          38%    { transform: translate(calc(var(--dx) * 0.24 + 6px), calc(var(--dy) * 0.12 - 52px)) rotate(2deg);  }
-          46%    { transform: translate(calc(var(--dx) * 0.36 - 2px), calc(var(--dy) * 0.24 - 60px)) rotate(-4deg); }
-          52%    { transform: translate(calc(var(--dx) * 0.42 + 8px), calc(var(--dy) * 0.34 - 58px)) rotate(1deg);  }
-          58%    { transform: translate(calc(var(--dx) * 0.50 - 4px), calc(var(--dy) * 0.46 - 52px)) rotate(-2deg); }
-          64%    { transform: translate(calc(var(--dx) * 0.60 + 4px), calc(var(--dy) * 0.58 - 44px)) rotate(3deg);  }
-          70%    { transform: translate(calc(var(--dx) * 0.72 - 2px), calc(var(--dy) * 0.70 - 34px)) rotate(-1deg); }
+          /* Airborne. One gentle arc from lift-off to the visitor.
+             Small rotation shifts keep it alive without making it
+             feel like it's dodging obstacles. */
+          28%    { transform: translate(calc(var(--dx) * 0.16), calc(var(--dy) * 0.10 - 34px)) rotate(-2deg); }
+          44%    { transform: translate(calc(var(--dx) * 0.36), calc(var(--dy) * 0.30 - 32px)) rotate(1deg);  }
+          60%    { transform: translate(calc(var(--dx) * 0.58), calc(var(--dy) * 0.55 - 24px)) rotate(-1deg); }
+          74%    { transform: translate(calc(var(--dx) * 0.78), calc(var(--dy) * 0.78 - 12px)) rotate(1deg);  }
 
-          /* Approach. Decelerates. Small overshoot to feel like a
-             landing, not a stop. */
-          78%    { transform: translate(calc(var(--dx) * 0.88), calc(var(--dy) * 0.86 - 18px)) rotate(2deg);  }
-          82%    { transform: translate(calc(var(--dx) * 0.96), calc(var(--dy) * 0.95 - 6px))  rotate(1deg);  }
-          84%    { transform: translate(calc(var(--dx) * 1.02), calc(var(--dy) * 1.02 + 2px))  rotate(-1deg); }
+          /* Approach. Glides in — smooth deceleration, no overshoot. */
+          85%    { transform: translate(calc(var(--dx) * 0.94), calc(var(--dy) * 0.96 - 2px))  rotate(0deg); }
+          90%    { transform: translate(var(--dx), var(--dy)) rotate(0deg); }
 
-          /* Settle. Micro-adjustment. */
-          86%    { transform: translate(var(--dx), calc(var(--dy) + 1px)) rotate(0deg); }
           /* Arrived hold — do NOT merge with the look phase.
              This is the "arrive before you speak" beat. */
-          88%    { transform: translate(var(--dx), var(--dy)) rotate(0deg); }
-          92%    { transform: translate(var(--dx), var(--dy)) rotate(0deg); }
+          93%    { transform: translate(var(--dx), var(--dy)) rotate(0deg); }
 
-          /* Look around. Not eager. Considered. */
-          94.5%  { transform: translate(var(--dx), var(--dy)) rotate(-7deg); }
-          97%    { transform: translate(var(--dx), var(--dy)) rotate(6deg);  }
+          /* Look around. Subtle. Considered. Not a swivel. */
+          95.5%  { transform: translate(var(--dx), var(--dy)) rotate(-5deg); }
+          97.5%  { transform: translate(var(--dx), var(--dy)) rotate(4deg);  }
           99%    { transform: translate(var(--dx), var(--dy)) rotate(-1deg); }
           100%   { transform: translate(var(--dx), var(--dy)) rotate(0deg);  }
         }
@@ -572,8 +630,29 @@ export default function MeetPage() {
           99%           { transform: scaleX(0.96); }
         }
 
+        /* Very subtle wing "breath" for the butterfly nestled in the
+           header logo — so it looks alive when a visitor arrives,
+           not painted-on. Runs slower and smaller than the airborne
+           flutter — a resting butterfly. */
+        @keyframes fpLogoBreath {
+          0%, 100% { transform: scaleX(1)     scaleY(1); }
+          50%      { transform: scaleX(0.985) scaleY(1.008); }
+        }
+        #fp-brand-butterfly {
+          transform-origin: center;
+          animation: fpLogoBreath 5200ms ease-in-out infinite;
+          transition: opacity 500ms ease;
+        }
+        /* When the butterfly is airborne (or greeting a visitor), the
+           logo butterfly fades out so it doesn't look like there are
+           two of it. Returns when the visitor leaves the page or the
+           choreography resets. Set on <body data-fp-flight>. */
+        body[data-fp-flight="airborne"] #fp-brand-butterfly {
+          opacity: 0;
+        }
+
         .fp-flyer {
-          animation: fpFlightArc 6900ms cubic-bezier(0.36, 0.05, 0.30, 0.98) forwards;
+          animation: fpFlightArc 6600ms cubic-bezier(0.38, 0.02, 0.28, 1.0) forwards;
           will-change: transform;
         }
         .fp-flyer .fp-flyer-inner {
@@ -593,6 +672,7 @@ export default function MeetPage() {
         @media (prefers-reduced-motion: reduce) {
           .fp-flyer         { animation: none; transform: translate(var(--dx), var(--dy)); }
           .fp-flyer .fp-flyer-inner { animation: none; }
+          #fp-brand-butterfly { animation: none; }
         }
       ` }} />
     </div>
@@ -694,10 +774,9 @@ function LineOfSpeech({ text, visible }: { text: string; visible: boolean }) {
 // choice cards can share the same viewport during lift-off. This
 // helper renders one card. See the parent for the full plate.
 
-function ChoiceCard({ companionId, onChoose, butterflyHidden }: {
+function ChoiceCard({ companionId, onChoose }: {
   companionId: CompanionId;
   onChoose: (id: CompanionId) => void;
-  butterflyHidden?: boolean;
 }) {
   const meta = COMPANIONS[companionId];
   return (
@@ -709,22 +788,16 @@ function ChoiceCard({ companionId, onChoose, butterflyHidden }: {
       onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)'; }}
       onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)'; }}
     >
-      {/* Brand butterfly on the card. The id lets the /meet
-          choreography measure its position so, on click, the flying
-          butterfly can lift off THIS card — not a generic corner.
-          When the flight starts we hide this img via `opacity:0` so
-          the visitor sees the butterfly leave the card. The
-          unchosen card is untouched — Georgia keeps smiling. */}
+      {/* Small brand butterfly mark on the card. This is a visual
+          "identity mark" for the companion \u2014 the actual butterfly
+          entity lives in the FriendPlace logo and flies from there.
+          Both card marks stay in place at all times. Sized ~15%
+          larger than before so the host feels present. */}
       <img
-        id={`fp-choice-btf-${companionId}`}
         src={brandAssets.butterfly.src}
         alt=""
         aria-hidden
-        style={{
-          width: 48, height: 'auto', display: 'block',
-          opacity: butterflyHidden ? 0 : 1,
-          transition: 'opacity 240ms ease',
-        }}
+        style={{ width: 55, height: 'auto', display: 'block' }}
       />
       <span style={choiceName}>{meta.name}</span>
     </button>
@@ -835,23 +908,30 @@ const meetOtherBtn: React.CSSProperties = {
   textUnderlineOffset: 4,
 };
 
-const playGreetingBtn: React.CSSProperties = {
-  position: 'fixed',
-  right: 24, bottom: 24,
-  padding: '10px 16px',
-  background: '#FFFFFF',
+const inlineHearBtn: React.CSSProperties = {
+  // Soft, warm invitation \u2014 not a bright CTA. Sits beneath the
+  // greeting only when Safari silenced the audio, so the visitor
+  // still has an easy way to hear George or Georgia. Deliberately
+  // lower-contrast than the primary CTAs so it feels like an offer,
+  // not a demand.
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '10px 20px',
+  background: 'rgba(255, 255, 255, 0.85)',
   color: '#0F766E',
   border: '1.5px solid #99F6E4',
   borderRadius: 999,
   fontSize: 14, fontWeight: 700, fontFamily: 'inherit',
   cursor: 'pointer',
-  boxShadow: '0 6px 18px rgba(15, 23, 42, 0.10)',
-  zIndex: 20,
+  boxShadow: '0 4px 14px rgba(15, 23, 42, 0.06)',
+  backdropFilter: 'blur(4px)',
+  WebkitBackdropFilter: 'blur(4px)',
 };
 
 const flyerWrap: React.CSSProperties = {
   position: 'fixed', zIndex: 10, pointerEvents: 'none',
-  width: 48, height: 48,
+  width: 55, height: 55,
 };
 
 // ── Choice scene styles ──
