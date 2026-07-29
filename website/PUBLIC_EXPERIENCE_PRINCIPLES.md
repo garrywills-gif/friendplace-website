@@ -74,6 +74,105 @@ If we get that feeling right, everything else becomes much easier.
 
 ---
 
+## The Living Homepage
+
+_Locked with Garry, Nov 2026._
+
+Most websites greet you with the same words for years. FriendPlace
+should not.
+
+The structure of `/meet` never changes — the butterfly flight, the
+pause, the choice of companion, the arrival, the wings, the voice.
+That's the permanent room. But **what George or Georgia says inside
+that room may occasionally change** to match the time of year, a
+milestone, or a community moment. Examples:
+
+- **Christmas / Holidays.** _"Hello. I'm George. Merry Christmas! I'm
+  really pleased you dropped in today."_
+- **New Year.** _"Hello. I'm Georgia. Happy New Year — I'm so glad
+  you found us."_
+- **Easter.** A gentle acknowledgement of the season.
+- **FriendPlace milestones.** _"Hello. I'm George. We just welcomed
+  our thousandth Founding Member — thank you for finding us on such
+  a special day."_
+- **Community campaigns.** A one-week hand-crafted welcome tied to
+  something the community is doing together.
+
+Practical rules:
+
+1. **The default welcome is the ground truth.** If nothing else is
+   scheduled, George and Georgia use their permanent lines. A blank
+   catalog must never break the page.
+2. **Seasonal welcomes are additive, not clever.** Only the words
+   change — the shot list, the timing and the pauses do not. A
+   holiday welcome takes exactly as long to land as the default.
+3. **In-voice, not in-writing.** Every variant ships with its own
+   Ash / Nova audio so the greeting is spoken naturally, never
+   Frankenstein-spliced.
+4. **A named human is accountable for every variant.** George and
+   Georgia (via the Communications Manager pilot in `/admin/drafts`)
+   are the ones who write and voice new welcomes. Nothing goes live
+   without a person's name on it.
+5. **The change is a heartbeat, not a promotion.** Never sale copy,
+   never dark patterns, never a countdown timer. The point is that
+   a real person would greet you differently in December — so we
+   do too.
+
+The catalog + selection logic live in `/app/website/lib/welcomes.ts`.
+Read that file before adding a variant.
+
+## The Permanent Front Door
+
+_Locked with Garry, Nov 2026._
+
+`/meet` is not a launch page. It is not marketing. It is the permanent
+front door of FriendPlace — the first chapter of everyone's journey,
+before launch and forever after.
+
+**The welcome never changes. Only the next step changes.**
+
+Everything above the fold is permanent:
+
+- The soft cream room.
+- The words _"Come in."_ (they stay through launch and every year
+  after).
+- The question _"Who would you like to show you around today?"_
+- The two choice cards — George and Georgia, always both, always
+  the same warmth.
+- The butterfly lifting off the chosen card and coming over.
+- The three-line greeting: _"Hello. I'm George. I'm really pleased
+  you found us."_
+- The pauses, the wings, the eye contact, the voice.
+
+What changes is what George or Georgia offer at the end. In
+pre-launch mode, they invite the visitor to _"register your
+interest"_ or _"ask a question"_. In launched mode, they simply say:
+
+> **FriendPlace is ready now.**
+
+…and the two soft CTAs become **App Store / Google Play / Scan the
+QR code**. Nothing else moves. Same room, same welcome, same person;
+the door at the end just leads somewhere different.
+
+This has three practical consequences for every craft decision on
+`/meet` and every downstream surface:
+
+1. **Nothing about the arrival, the pause, the greeting, the wings,
+   the audio, the copy or the choice of companion is "launch
+   temporary"**. All of it stays. Build to keep, not to replace.
+2. **CTAs are behind a mode switch.** The choreography must never
+   need to know whether we're pre-launch or launched. Only the final
+   couple of lines and the buttons underneath change. Any code that
+   couples the two goes back.
+3. **The "register your interest" list is not a mailing list.** It's
+   the list of early friends George and Georgia already know by name.
+   When those people first open the app, the "Welcome back" moment
+   above has to feel earned — because on the site, they've already
+   met.
+
+If a change makes `/meet` feel like a temporary landing page rather
+than a permanent room, the change goes back.
+
 ## How this file is used
 
 Every PR that touches anything under `app/(public)/*`, `components/public/*`,

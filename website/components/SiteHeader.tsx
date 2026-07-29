@@ -50,7 +50,12 @@ export default function SiteHeader() {
     >
       <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72 }}>
         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+          {/* id="fp-brand-butterfly" is the anchor point used by the
+              /meet choreography so the butterfly can "step off" the
+              logo and fly to the visitor. Do not remove without
+              coordinating a change in /app/meet/page.tsx. */}
           <img
+            id="fp-brand-butterfly"
             src={brandAssets.butterfly.src}
             alt={brandAssets.butterfly.alt}
             width={brandAssets.butterfly.width}

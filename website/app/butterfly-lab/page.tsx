@@ -38,60 +38,107 @@ import { brandAssets } from '@/lib/brand-assets';
 // Values in milliseconds. Deliberately unrushed \u2014 the entire scene
 // runs ~7 seconds before George/Georgia even finishes speaking. Think
 // of this as the opening beat of a film, not a page loader.
+//
+// Garry's directives (Jul 2026):
+//   1. Don't be afraid of silence. The pauses are on purpose.
+//   2. Let the companion arrive BEFORE speaking. Arrive. Settle.
+//      Notice you. Then speak.
+//   3. Version B extends the sequence with a small smile and a
+//      soft follow-up: "Would you like me to show you around?"
 
 const T = {
   // Phase 1 \u2014 the butterfly notices someone.
-  NOTICE_END:      600,   // small, slow softening in the logo
+  NOTICE_END:      600,
   // Phase 2 \u2014 lifts off. Hesitant. Almost changes its mind.
   LIFTOFF_END:     1600,
   // Phase 3 \u2014 drifts across, catches the air, wanders a little.
-  //           The travel time itself matters less than the *feel*.
   DRIFT_END:       4600,
   // Phase 4 \u2014 approaches its landing. Slows into it.
   APPROACH_END:    5100,
   // Phase 5 \u2014 settles. Tiny final adjustment.
-  SETTLE_END:      5400,
-  // Phase 6 \u2014 looks around. Left, right, centre.
-  LOOK_END:        6100,
-  // Phase 7 \u2014 EYE CONTACT. Nothing happens. This is on purpose.
-  //           The pause is the moment. Do not shorten this.
-  EYE_CONTACT_END: 6900,
-  // Phase 8 \u2014 speaks.
-  SAY_HELLO:       6900,   // audio: "Hello."
-  TEXT_HELLO:      7100,   // text of "Hello." fades in a hair after
-  SAY_NAME:        7900,   // audio + text: "I'm George / Georgia."
-  SAY_CLOSING:     9100,   // audio + text: "I'm really pleased you found us."
+  SETTLE_END:      5500,
+  // Phase 5b \u2014 arrived. Just being. A moment of stillness before
+  //             even looking around. This is the "arrive before you
+  //             speak" beat Garry asked for.
+  ARRIVED_HOLD:    6000,
+  // Phase 6 \u2014 looks around. Not eager. Considered.
+  LOOK_END:        6900,
+  // Phase 7 \u2014 EYE CONTACT. Held. Do not shorten.
+  EYE_CONTACT_END: 8000,
+  // Phase 8 \u2014 speaks. Audio first, text a beat behind.
+  SAY_HELLO:       8000,
+  TEXT_HELLO:      8250,
+  SAY_NAME:        9100,
+  SAY_CLOSING:    10500,
+  // ── Version B only \u2014 the follow-up.
+  // Comfortable pause after the closing line before doing anything.
+  SMILE_START:    12800,   // a soft, small "smile" moment (wing shimmer + tiny lift)
+  SMILE_END:      13600,
+  ASK_SILENCE:    14400,   // another brief comfortable pause
+  ASK_AUDIO:      14400,   // "Would you like me to show you around?"
+  ASK_TEXT:       14650,
 } as const;
 
 // ─── Component ────────────────────────────────────────────────────────
 
 export default function ButterflyLabPage() {
   const [runId, setRunId] = useState(0);
-  const [phase, setPhase] = useState<'idle' | 'noticing' | 'flying' | 'landed' | 'looked' | 'eye-contact' | 'greeting'>('idle');
-  const [textStage, setTextStage] = useState<0 | 1 | 2 | 3>(0);
+  const [phase, setPhase] = useState<'idle' | 'noticing' | 'flying' | 'landed' | 'looked' | 'eye-contact' | 'greeting' | 'complete' | 'smiling' | 'asking'>('idle');
+  const [textStage, setTextStage] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [audioOn, setAudioOn] = useState(true);
   const [companion, setCompanion] = useState<'george' | 'georgia'>('george');
+  // Version A = original ending (just the three-line greeting).
+  // Version B = adds a comfortable pause, a small smile, another
+  //             comfortable pause, then a soft follow-up question.
+  const [version, setVersion] = useState<'A' | 'B'>('A');
+  // Destination model \u2014 what the butterfly is flying towards:
+  //   'plate'   \u2014 lands at the top of a card, greeting fills the card
+  //   'visitor' \u2014 lands at the geometric centre of the viewport,
+  //               greeting grows beneath. The whole screen is the
+  //               conversation space. Garry's brief: "the butterfly
+  //               isn't flying to a destination on the interface \u2014
+  //               it's flying to greet you."
+  const [destination, setDestination] = useState<'plate' | 'visitor'>('visitor');
+  // Smile visual state \u2014 toggled during the smile beat.
+  const [smiling, setSmiling] = useState(false);
 
   // Anchor points \u2014 measured live from the DOM so it works at any width.
   const originRef = useRef<HTMLDivElement>(null);
   const targetRef = useRef<HTMLDivElement>(null);
   const [geom, setGeom] = useState<{ dx: number; dy: number } | null>(null);
 
-  // The audio elements. Two clips per companion \u2014 the first "Hello."
-  // and the rest, so the beats between sentences are OUR beats, not
-  // whatever OpenAI decided to space them at.
-  const helloAudioRef = useRef<HTMLAudioElement | null>(null);
-  const introAudioRef = useRef<HTMLAudioElement | null>(null);
+  // The audio elements. Three clips per companion \u2014 the first
+  // "Hello.", the introduction, and (Version B only) the follow-up
+  // "Would you like me to show you around?" so the beats between
+  // sentences are OUR beats, not whatever OpenAI decided to space
+  // them at.
+  const helloAudioRef      = useRef<HTMLAudioElement | null>(null);
+  const introAudioRef      = useRef<HTMLAudioElement | null>(null);
+  const showAroundAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const measure = useCallback(() => {
     const o = originRef.current?.getBoundingClientRect();
-    const t = targetRef.current?.getBoundingClientRect();
-    if (!o || !t) return;
+    if (!o) return;
+    // Where is the butterfly heading?
+    //   \u2022 'plate'   \u2014 top of the greeting card (targetRef).
+    //   \u2022 'visitor' \u2014 the geometric centre of the visible viewport,
+    //                 lifted a touch above true centre so there's
+    //                 breathing room for the greeting to grow beneath.
+    let targetX: number, targetY: number;
+    if (destination === 'plate') {
+      const t = targetRef.current?.getBoundingClientRect();
+      if (!t) return;
+      targetX = t.left + t.width / 2;
+      targetY = t.top  + t.height/ 2;
+    } else {
+      targetX = window.innerWidth  / 2;
+      targetY = window.innerHeight * 0.42;
+    }
     setGeom({
-      dx: (t.left + t.width / 2) - (o.left + o.width / 2),
-      dy: (t.top  + t.height/ 2) - (o.top  + o.height/ 2),
+      dx: targetX - (o.left + o.width / 2),
+      dy: targetY - (o.top  + o.height/ 2),
     });
-  }, []);
+  }, [destination]);
 
   useEffect(() => {
     measure();
@@ -104,35 +151,60 @@ export default function ButterflyLabPage() {
     if (!geom) return;
     setPhase('noticing');
     setTextStage(0);
-    const t1 = window.setTimeout(() => setPhase('flying'),      T.NOTICE_END);
-    const t2 = window.setTimeout(() => setPhase('landed'),      T.SETTLE_END);
-    const t3 = window.setTimeout(() => setPhase('looked'),      T.LOOK_END);
-    const t4 = window.setTimeout(() => setPhase('eye-contact'), T.LOOK_END + 100);
-    const t5 = window.setTimeout(() => {
+    setSmiling(false);
+
+    const timers: number[] = [];
+    const at = (ms: number, fn: () => void) => timers.push(window.setTimeout(fn, ms));
+
+    // ── Shared shots (A + B).
+    at(T.NOTICE_END,      () => setPhase('flying'));
+    at(T.SETTLE_END,      () => setPhase('landed'));
+    at(T.ARRIVED_HOLD,    () => { /* just holding, no state change */ });
+    at(T.LOOK_END,        () => setPhase('looked'));
+    at(T.LOOK_END + 100,  () => setPhase('eye-contact'));
+    at(T.SAY_HELLO, () => {
       setPhase('greeting');
       if (audioOn && helloAudioRef.current) {
         helloAudioRef.current.currentTime = 0;
-        helloAudioRef.current.play().catch(() => { /* autoplay blocked \u2014 silent fall-through */ });
+        helloAudioRef.current.play().catch(() => { /* autoplay blocked \u2014 silent */ });
       }
-    }, T.SAY_HELLO);
-    const t6 = window.setTimeout(() => setTextStage(1), T.TEXT_HELLO);
-    const t7 = window.setTimeout(() => {
+    });
+    at(T.TEXT_HELLO,  () => setTextStage(1));
+    at(T.SAY_NAME, () => {
       setTextStage(2);
       if (audioOn && introAudioRef.current) {
         introAudioRef.current.currentTime = 0;
         introAudioRef.current.play().catch(() => { /* silent */ });
       }
-    }, T.SAY_NAME);
-    const t8 = window.setTimeout(() => setTextStage(3), T.SAY_CLOSING);
-    return () => { [t1,t2,t3,t4,t5,t6,t7,t8].forEach(clearTimeout); };
-  }, [runId, geom, audioOn]);
+    });
+    at(T.SAY_CLOSING,   () => setTextStage(3));
+    at(T.SAY_CLOSING + 2200, () => setPhase('complete'));
+
+    // ── Version B tail \u2014 pause, small smile, pause, soft question.
+    if (version === 'B') {
+      at(T.SMILE_START,      () => { setPhase('smiling'); setSmiling(true); });
+      at(T.SMILE_END,        () => { setSmiling(false); });
+      at(T.ASK_AUDIO, () => {
+        setPhase('asking');
+        if (audioOn && showAroundAudioRef.current) {
+          showAroundAudioRef.current.currentTime = 0;
+          showAroundAudioRef.current.play().catch(() => { /* silent */ });
+        }
+      });
+      at(T.ASK_TEXT,         () => setTextStage(4));
+    }
+
+    return () => { timers.forEach(clearTimeout); };
+  }, [runId, geom, audioOn, version]);
 
   const replay = () => {
     setPhase('idle');
     setTextStage(0);
+    setSmiling(false);
     setGeom(null);
     // Stop any playing audio from the previous run.
-    [helloAudioRef.current, introAudioRef.current].forEach(a => { if (a) { a.pause(); a.currentTime = 0; } });
+    [helloAudioRef.current, introAudioRef.current, showAroundAudioRef.current]
+      .forEach(a => { if (a) { a.pause(); a.currentTime = 0; } });
     setRunId(r => r + 1);
     setTimeout(measure, 20);
   };
@@ -161,6 +233,21 @@ export default function ButterflyLabPage() {
             <label style={dirCtrl}>
               <input type="radio" checked={companion === 'georgia'} onChange={() => setCompanion('georgia')} /> Georgia
             </label>
+            <span style={{ opacity: 0.4 }}>|</span>
+            <label style={dirCtrl}>
+              <input type="radio" checked={destination === 'plate'}   onChange={() => setDestination('plate')}   /> To the plate
+            </label>
+            <label style={dirCtrl}>
+              <input type="radio" checked={destination === 'visitor'} onChange={() => setDestination('visitor')} /> To the visitor
+            </label>
+            <span style={{ opacity: 0.4 }}>|</span>
+            <label style={dirCtrl}>
+              <input type="radio" checked={version === 'A'} onChange={() => setVersion('A')} /> A (greeting)
+            </label>
+            <label style={dirCtrl}>
+              <input type="radio" checked={version === 'B'} onChange={() => setVersion('B')} /> B (+ smile &amp; question)
+            </label>
+            <span style={{ opacity: 0.4 }}>|</span>
             <label style={dirCtrl}>
               <input type="checkbox" checked={audioOn} onChange={e => setAudioOn(e.target.checked)} /> Sound
             </label>
@@ -170,22 +257,64 @@ export default function ButterflyLabPage() {
           </div>
         </div>
 
-        {/* Landing plate \u2014 the greeting appears here. */}
-        <div style={plate}>
-          <div ref={targetRef} style={targetSlot} aria-hidden />
-          <div style={greetingStack}>
-            <LineOfSpeech text="Hello."                                             visible={textStage >= 1} />
-            <LineOfSpeech text={`I\u2019m ${companionName}.`}                       visible={textStage >= 2} />
-            <LineOfSpeech text={'I\u2019m really pleased you found us.'}             visible={textStage >= 3} />
+        {/* Landing plate \u2014 rendered only when the destination is
+            the interface ('plate'). In 'visitor' mode the butterfly
+            flies to the geometric centre of the viewport and the
+            greeting grows beneath it, without a card frame. */}
+        {destination === 'plate' && (
+          <div style={plate}>
+            <div ref={targetRef} style={targetSlot} aria-hidden />
+            <div style={greetingStack}>
+              <LineOfSpeech text="Hello."                                             visible={textStage >= 1} />
+              <LineOfSpeech text={`I\u2019m ${companionName}.`}                       visible={textStage >= 2} />
+              <LineOfSpeech text={'I\u2019m really pleased you found us.'}             visible={textStage >= 3} />
+              {version === 'B' && (
+                <div style={{ marginTop: 24 }}>
+                  <LineOfSpeech
+                    text={'Would you like me to show you around?'}
+                    visible={textStage >= 4}
+                    softer
+                  />
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Visitor mode: greeting floats in the viewport, below where
+            the butterfly landed. No card, no border, no chrome. The
+            page IS the conversation space. */}
+        {destination === 'visitor' && (
+          <>
+            <div style={visitorGreetingWrap} aria-live="polite">
+              <div style={visitorGreetingStack}>
+                <LineOfSpeech text="Hello."                                             visible={textStage >= 1} />
+                <LineOfSpeech text={`I\u2019m ${companionName}.`}                       visible={textStage >= 2} />
+                <LineOfSpeech text={'I\u2019m really pleased you found us.'}             visible={textStage >= 3} />
+                {version === 'B' && (
+                  <div style={{ marginTop: 20 }}>
+                    <LineOfSpeech
+                      text={'Would you like me to show you around?'}
+                      visible={textStage >= 4}
+                      softer
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Spacer so the director's notes stay below the fold and
+                don't clash with the butterfly's landing spot. Lab
+                artefact only \u2014 won't exist in the real /meet page. */}
+            <div style={{ height: '80vh' }} aria-hidden />
+          </>
+        )}
 
         {/* The butterfly overlay. Keyed on runId to restart cleanly. */}
         {geom && (
           <div
             key={runId}
-            className="flyer-outer"
-            data-landed={phase === 'landed' || phase === 'looked' || phase === 'eye-contact' || phase === 'greeting' ? 'true' : 'false'}
+            className={`flyer-outer${smiling ? ' flyer-smiling' : ''}`}
+            data-landed={phase === 'landed' || phase === 'looked' || phase === 'eye-contact' || phase === 'greeting' || phase === 'complete' || phase === 'smiling' || phase === 'asking' ? 'true' : 'false'}
             style={{
               ...flyerWrap,
               left: (originRef.current?.getBoundingClientRect().left ?? 0)
@@ -196,6 +325,9 @@ export default function ButterflyLabPage() {
               ['--dy' as any]: `${geom.dy}px`,
             }}
           >
+            {/* The soft "smile" glow \u2014 sits behind the butterfly during
+                the smile beat only. Warm, soft, brief. */}
+            <div className={`smile-glow${smiling ? ' on' : ''}`} aria-hidden />
             <div className="flyer-inner">
               <img src={brandAssets.butterfly.src} alt="" aria-hidden style={butterflyFlying} />
             </div>
@@ -204,17 +336,32 @@ export default function ButterflyLabPage() {
 
         {/* Audio \u2014 real Ash / Nova clips. Preload so the first "Hello."
             fires the instant the audio.play() call happens. */}
-        <audio ref={helloAudioRef} src={`/audio/hello-${companion}.mp3`} preload="auto" />
-        <audio ref={introAudioRef} src={`/audio/intro-${companion}.mp3`} preload="auto" />
+        <audio ref={helloAudioRef}      src={`/audio/hello-${companion}.mp3`}      preload="auto" />
+        <audio ref={introAudioRef}      src={`/audio/intro-${companion}.mp3`}      preload="auto" />
+        <audio ref={showAroundAudioRef} src={`/audio/showaround-${companion}.mp3`} preload="auto" />
 
         <div style={notesBox}>
           <div style={{ fontWeight: 800, marginBottom: 8, color: '#0A2540' }}>Director&rsquo;s notes</div>
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.65, color: '#334155' }}>
+            <li>
+              <strong>To the plate</strong>: butterfly flies to a designated slot on the interface.
+              Feels like the animation ends at a UI element.
+            </li>
+            <li>
+              <strong>To the visitor</strong>: butterfly flies to the geometric centre of the viewport.
+              Feels like someone walked over to greet you. The whole screen is the conversation space.
+            </li>
             <li>Flight is longer, less deliberate. The butterfly hesitates, drifts, catches the air.</li>
+            <li>Arrives, settles, then <strong>holds</strong> before looking around. Arrival is its own beat.</li>
+            <li>Look left, look right, then <strong>pause</strong>. Eye contact is held for a full second.</li>
             <li>After landing, wings are never fully still &mdash; a slow &ldquo;breath&rdquo; loop is always running.</li>
-            <li>Look left, look right, then <strong>pause</strong>. That pause is on purpose &mdash; hold it.</li>
             <li>Speech comes first (&ldquo;Hello.&rdquo;) &mdash; text follows a beat later.</li>
-            <li>Total pre-speech: ~6.9 seconds. Full greeting complete: ~10 seconds.</li>
+            <li>
+              <strong>Version A</strong>: three-line greeting, then silence.<br />
+              <strong>Version B</strong>: adds a comfortable pause &rarr; a soft smile &rarr; another pause
+              &rarr; &ldquo;Would you like me to show you around?&rdquo;
+            </li>
+            <li>Full scene: Version A &asymp; 12s. Version B &asymp; 16s.</li>
             <li>Reduced-motion visitors get a dignified single fade &mdash; no flight, no shake.</li>
           </ul>
         </div>
@@ -267,12 +414,16 @@ export default function ButterflyLabPage() {
 
           /* Phase 5: Settle. Micro-adjustment to centre. */
           86%    { transform: translate(var(--dx), calc(var(--dy) + 1px)) rotate(0deg); }
-          87%    { transform: translate(var(--dx), var(--dy))             rotate(0deg); }
+          /* Phase 5b: Arrived hold. Just BEING at the destination, no
+             rotation, no drift. This is the "arrive before you speak"
+             beat \u2014 don't merge it into the look phase. */
+          88%    { transform: translate(var(--dx), var(--dy)) rotate(0deg); }
+          92%    { transform: translate(var(--dx), var(--dy)) rotate(0deg); }
 
           /* Phase 6: Look around. Not eager. Considered. */
-          91%    { transform: translate(var(--dx), var(--dy)) rotate(-7deg); }
-          95%    { transform: translate(var(--dx), var(--dy)) rotate(6deg); }
-          98%    { transform: translate(var(--dx), var(--dy)) rotate(-1deg); }
+          94.5%  { transform: translate(var(--dx), var(--dy)) rotate(-7deg); }
+          97%    { transform: translate(var(--dx), var(--dy)) rotate(6deg); }
+          99%    { transform: translate(var(--dx), var(--dy)) rotate(-1deg); }
           100%   { transform: translate(var(--dx), var(--dy)) rotate(0deg); }
         }
 
@@ -302,7 +453,7 @@ export default function ButterflyLabPage() {
         }
 
         .flyer-outer {
-          animation: flightArc 6400ms cubic-bezier(0.36, 0.05, 0.30, 0.98) forwards;
+          animation: flightArc 6900ms cubic-bezier(0.36, 0.05, 0.30, 0.98) forwards;
           will-change: transform;
         }
         .flyer-outer .flyer-inner {
@@ -317,6 +468,37 @@ export default function ButterflyLabPage() {
           animation:
             wingBreath        6500ms ease-in-out infinite,
             wingMicroFlutter 11000ms ease-in-out infinite 4200ms;
+        }
+
+        /* The "smile" \u2014 a soft warm halo behind the butterfly for
+           less than a second. Not an emoticon, not a wink. Just a
+           quiet moment of warmth. Combined with a very gentle upward
+           lift on the flyer itself so the whole butterfly seems to
+           breathe in for a second. */
+        .smile-glow {
+          position: absolute; inset: -18px;
+          border-radius: 50%;
+          background: radial-gradient(circle at center,
+            rgba(255, 209, 132, 0.55) 0%,
+            rgba(255, 209, 132, 0.22) 45%,
+            rgba(255, 209, 132, 0) 78%);
+          opacity: 0;
+          transform: scale(0.85);
+          transition: opacity 900ms ease-in-out, transform 900ms ease-in-out;
+          pointer-events: none;
+          filter: blur(2px);
+        }
+        .smile-glow.on {
+          opacity: 1;
+          transform: scale(1);
+        }
+        /* A very small upward "breath" the butterfly does during the
+           smile beat \u2014 layered on top of the breath animation via a
+           CSS custom property translation. Kept tiny on purpose. */
+        .flyer-outer.flyer-smiling {
+          animation-play-state: paused; /* freeze the arc animation \u2014 already at destination */
+          transform: translate(var(--dx), calc(var(--dy) - 2px)) rotate(0deg) !important;
+          transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         /* Reduced motion: no flight, no flutter. The butterfly appears
@@ -336,11 +518,12 @@ export default function ButterflyLabPage() {
 // spoken, not pasted. The word rhythm matters here \u2014 do not merge
 // these into one paragraph.
 
-function LineOfSpeech({ text, visible }: { text: string; visible: boolean }) {
+function LineOfSpeech({ text, visible, softer }: { text: string; visible: boolean; softer?: boolean }) {
   return (
     <div
       style={{
         ...lineStyle,
+        ...(softer ? softerLine : null),
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(4px)',
       }}
@@ -410,6 +593,13 @@ const lineStyle: React.CSSProperties = {
   transition: 'opacity 700ms cubic-bezier(0.4, 0, 0.2, 1), transform 700ms cubic-bezier(0.4, 0, 0.2, 1)',
 };
 
+// A slightly softer variant for the follow-up line so it reads as a
+// separate thought spoken after a pause, not another headline stacked
+// on top of the greeting.
+const softerLine: React.CSSProperties = {
+  fontSize: 24, fontWeight: 600, color: '#334155', letterSpacing: '-0.01em',
+};
+
 const flyerWrap: React.CSSProperties = {
   position: 'fixed', zIndex: 10, pointerEvents: 'none',
   width: 48, height: 48,
@@ -417,6 +607,30 @@ const flyerWrap: React.CSSProperties = {
 
 const butterflyFlying: React.CSSProperties = {
   width: '100%', height: 'auto', display: 'block',
+};
+
+// ── Visitor-mode layout ────────────────────────────────────────────
+//
+// When the destination is "the visitor" (not the interface), the
+// greeting isn't in a card. It floats in the viewport, roughly
+// beneath where the butterfly landed (~55% viewport height). The
+// clean cream background does the work of "the room".
+
+const visitorGreetingWrap: React.CSSProperties = {
+  position: 'fixed',
+  top: '55vh',
+  left: 0,
+  right: 0,
+  display: 'flex', justifyContent: 'center',
+  zIndex: 5,
+  pointerEvents: 'none',   // greeting text is passive \u2014 the butterfly is the interaction
+};
+const visitorGreetingStack: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 8,
+  alignItems: 'center',
+  maxWidth: 640,
+  padding: '0 24px',
+  textAlign: 'center',
 };
 
 const notesBox: React.CSSProperties = {
