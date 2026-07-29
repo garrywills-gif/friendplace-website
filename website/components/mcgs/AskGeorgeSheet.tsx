@@ -322,7 +322,7 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
         aria-label={unreadWhileMin ? `Reopen George \u2014 ${unreadWhileMin} new` : 'Reopen George'}
         title="Reopen George (your conversation is saved)"
       >
-        <span style={butterflyBig} aria-hidden>\uD83E\uDD8B</span>
+        <span style={butterflyBig} aria-hidden>{'\uD83E\uDD8B'}</span>
         <span style={{ fontWeight: 800, fontSize: 14 }}>George</span>
         <span style={{ fontSize: 12, color: '#64748B' }}>
           {turns.length ? `\u00B7 ${turns.length} message${turns.length === 1 ? '' : 's'}` : ''}
@@ -403,8 +403,10 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
                 Start a new conversation?
               </div>
               <div style={{ fontSize: 14, color: '#475569', lineHeight: 1.5 }}>
-                This will clear the current transcript ({turns.length} message{turns.length === 1 ? '' : 's'}).
-                George will still remember what he knows about FriendPlace \u2014 you\u2019ll just be starting fresh with him.
+                {'This will clear the current transcript ('}
+                {turns.length}
+                {' message'}{turns.length === 1 ? '' : 's'}
+                {'). George will still remember what he knows about FriendPlace \u2014 you\u2019ll just be starting fresh with him.'}
               </div>
               <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
                 <button
@@ -498,6 +500,12 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
   const [playFailed, setPlayFailed] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Track how much of the clip we actually played. Batch-4 QA feedback:
+  // one longer response cut off part-way through. We now log the played
+  // vs total duration and, if we played < 80%, resurface the button as
+  // "Try again" so Garry can recover without hunting for a control.
+  const playedDurationRef = useRef<number>(0);
+  const totalDurationRef  = useRef<number>(0);
   // Batch-3 responsiveness: quietly prefetch the mp3 as soon as George
   // has finished streaming this bubble. By the time Garry taps Play the
   // clip is almost always already in memory \u2014 tap-to-audio is instant.
@@ -543,6 +551,9 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
     // a tiny silent clip within the gesture. After that, playing the
     // real audio post-await is permitted.
     const el = audioRef.current || new Audio();
+    // Batch-4 truncation defence: force full preload so a long clip
+    // isn't abandoned mid-stream by an over-aggressive browser.
+    el.preload = 'auto';
     audioRef.current = el;
     try {
       let url = audioUrl;
@@ -559,9 +570,47 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
         setAudioUrl(url);
       }
       el.src = url;
-      el.onended   = () => { setPlaying(false); setPreparing(false); };
-      el.onpause   = () => { setPlaying(false); setPreparing(false); };
-      el.onplaying = () => { setPreparing(false); setPlaying(true); };
+      // Batch-4: instrument every playback so we can catch truncation.
+      const finalise = (reason: string) => {
+        const played = playedDurationRef.current;
+        const total  = totalDurationRef.current;
+        const ratio  = total > 0 ? played / total : 1;
+        setPlaying(false);
+        setPreparing(false);
+        // "Truncated" ~= stopped before 80% AND didn't pause on purpose.
+        // Manual pause is caught earlier in the `if (playing)` branch,
+        // so if we're here it's an unexpected stop.
+        if (reason !== 'manual' && total > 2 && ratio < 0.8) {
+          console.warn('[read-aloud] audio ended early:', {
+            reason, playedSeconds: played.toFixed(2),
+            totalSeconds: total.toFixed(2), ratio: ratio.toFixed(2),
+            chars: turn.content.length,
+          });
+          setPlayFailed(true);
+          // Discard the (potentially truncated) blob so "Try again"
+          // fetches a fresh clip rather than replaying the short one.
+          if (audioUrl) {
+            try { URL.revokeObjectURL(audioUrl); } catch { /* noop */ }
+            setAudioUrl(null);
+          }
+        }
+      };
+      el.onended    = () => finalise('ended');
+      el.onpause    = () => {
+        // A pause with (currentTime === duration) is really an "ended"
+        // (already handled by onended). Only treat it as user pause
+        // when we haven't reached the end.
+        if (el.duration && Math.abs((el.currentTime || 0) - el.duration) < 0.05) return;
+        setPlaying(false);
+        setPreparing(false);
+      };
+      el.onerror         = () => finalise('error');
+      el.onstalled       = () => console.warn('[read-aloud] audio stalled', el.src);
+      el.ontimeupdate    = () => { playedDurationRef.current = el.currentTime || 0; };
+      el.onloadedmetadata = () => { totalDurationRef.current = el.duration || 0; };
+      el.onplaying       = () => { setPreparing(false); setPlaying(true); };
+      playedDurationRef.current = 0;
+      totalDurationRef.current  = 0;
       await el.play();
       // Fallback in case `onplaying` didn't fire (some browsers).
       setPreparing(false);
@@ -658,7 +707,7 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
                         animation: 'playSpin 0.7s linear infinite',
                       }}
                     />
-                    Preparing\u2026
+                    {'Preparing\u2026'}
                   </>)
                 : playing ? '\u23F8 Stop'
                 : '\u25B6\uFE0E Play'

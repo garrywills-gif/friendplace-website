@@ -201,7 +201,7 @@ export function AskGeorgeBar() {
               aria-label={`Continue conversation with George (${turns.length} messages)`}
               title="Reopen your George conversation"
             >
-              <span aria-hidden>\uD83E\uDD8B</span>
+              <span aria-hidden>{'\uD83E\uDD8B'}</span>
               <span style={{ fontWeight: 800 }}>Continue with George</span>
               <span style={{ color: '#64748B', fontSize: 12 }}>
                 &middot; {turns.length} message{turns.length === 1 ? '' : 's'}

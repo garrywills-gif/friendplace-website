@@ -17,6 +17,7 @@ Design refs:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
@@ -27,6 +28,79 @@ log = logging.getLogger("friendplace.george.tools")
 
 class ToolError(Exception):
     """Validation error for a tool call."""
+
+
+# ---------------------------------------------------------------------------
+# Test-data exclusion filter (Batch 4)
+# ---------------------------------------------------------------------------
+#
+# Garry's rule (Batch-3 QA feedback, Jul 2026):
+#   "George's operational summaries should never include obvious test
+#    artefacts. Prefer a dedicated flag (is_test / environment='test')
+#    over subject-name pattern matching."
+#
+# Every future test / seed / fixture inserts records with `is_test: True`
+# (see /app/backend/tests/conftest.py -> apply_test_marker). To keep
+# older-style seed rows out of George's view too, we also fall back to
+# a conservative subject-pattern regex \u2014 interim measure until every
+# fixture has been migrated to the explicit flag.
+#
+# Any tool that queries an operational collection MUST call
+# ``exclude_test_data(q)`` on its query before hitting Mongo, unless the
+# caller explicitly asked for `include_test_data: True`.
+
+_LEGACY_TEST_SUBJECT_RE = re.compile(
+    r"^(?:"
+    r"TEST[_\-\s]|"
+    r"PROP[_\-]|"
+    r"Proposal test PROP[_\-]|"
+    r"SSE (?:test|stream test)|"
+    r"MCGS (?:phase1 e2e|smoke test)|"
+    r"Test ticket[\s\-]|"
+    r"Iteration \d+|"
+    r"iter\d+[_\-]|"
+    r"Test [AB] - |"
+    r"Testing user acknowledgement|"
+    r"Preview of updated ack email"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def exclude_test_data(query: dict, subject_field: str | None = None) -> dict:
+    """Augment a Mongo query so test-flagged / legacy-test rows are
+    excluded. Returns the (mutated) query for chaining convenience.
+
+    - Any doc with ``is_test: True`` (or a future ``environment: "test"``)
+      is filtered out.
+    - If ``subject_field`` is given, docs whose subject matches the
+      legacy test-pattern regex are also excluded \u2014 defensive layer
+      until every fixture has been migrated to the explicit flag.
+    """
+    # Preserve any pre-existing $and clauses.
+    conditions = list(query.pop("$and", [])) if "$and" in query else []
+    conditions.append({"is_test": {"$ne": True}})
+    conditions.append({"environment": {"$ne": "test"}})
+
+    if subject_field:
+        # Subject either doesn't exist, or exists and doesn't match the
+        # legacy pattern. `$not` with a regex is the Mongo idiom.
+        conditions.append({
+            "$or": [
+                {subject_field: {"$exists": False}},
+                {subject_field: None},
+                {subject_field: {"$not": _LEGACY_TEST_SUBJECT_RE}},
+            ]
+        })
+
+    query["$and"] = conditions
+    return query
+
+
+def _should_include_test_data(args: dict) -> bool:
+    """Explicit opt-in so an admin can still ask George
+    "how many test tickets are there?" without the filter."""
+    return bool(args.get("include_test_data"))
 
 
 # ---------------------------------------------------------------------------
@@ -111,13 +185,14 @@ def _validate_args(name: str, args: dict, spec: dict) -> dict:
 
 @register(
     "count_signals",
-    "Count Signals filtered by producer/status/priority/category. Returns a single integer.",
+    "Count Signals filtered by producer/status/priority/category. Returns a single integer. Test-flagged rows are excluded by default; pass include_test_data=true to opt back in.",
     args={
         "producer": {"type": "str", "required": False},
         "status":   {"type": "list[str]", "required": False, "enum": _ALLOWED_STATUSES},
         "priority": {"type": "list[str]", "required": False, "enum": _ALLOWED_PRIORITIES},
         "category": {"type": "list[str]", "required": False,
                      "enum": {"attention", "anomaly", "risk", "milestone", "question", "housekeeping"}},
+        "include_test_data": {"type": "bool", "required": False},
     },
 )
 async def _count_signals(db: Any, args: dict) -> int:
@@ -129,17 +204,20 @@ async def _count_signals(db: Any, args: dict) -> int:
         q["priority"] = {"$in": args["priority"]}
     if "category" in args:
         q["category"] = {"$in": args["category"]}
+    if not _should_include_test_data(args):
+        exclude_test_data(q, subject_field="subject")
     return await db.mcgs_signals.count_documents(q)
 
 
 @register(
     "list_signals",
-    "List Signals (compact rows). Sorted priority then recency. Default limit 10.",
+    "List Signals (compact rows). Sorted priority then recency. Default limit 10. Test-flagged rows are excluded by default.",
     args={
         "producer": {"type": "str", "required": False},
         "status":   {"type": "list[str]", "required": False, "enum": _ALLOWED_STATUSES},
         "priority": {"type": "list[str]", "required": False, "enum": _ALLOWED_PRIORITIES},
         "limit":    {"type": "int", "required": False},
+        "include_test_data": {"type": "bool", "required": False},
     },
 )
 async def _list_signals(db: Any, args: dict) -> list[dict]:
@@ -149,6 +227,8 @@ async def _list_signals(db: Any, args: dict) -> list[dict]:
     q["status"] = {"$in": args["status"]} if "status" in args else {"$in": list(OPEN_STATES)}
     if "priority" in args:
         q["priority"] = {"$in": args["priority"]}
+    if not _should_include_test_data(args):
+        exclude_test_data(q, subject_field="subject")
     limit = max(1, min(int(args.get("limit") or 10), 25))
     rows = await db.mcgs_signals.find(
         q,
@@ -160,24 +240,27 @@ async def _list_signals(db: Any, args: dict) -> list[dict]:
 
 @register(
     "count_cases",
-    "Count Cases (grouped Signals) filtered by producer/status/priority.",
+    "Count Cases (grouped Signals) filtered by producer/status/priority. Test-flagged rows are excluded by default.",
     args={
         "producer": {"type": "str", "required": False},
         "status":   {"type": "list[str]", "required": False, "enum": _ALLOWED_STATUSES},
         "priority": {"type": "list[str]", "required": False, "enum": _ALLOWED_PRIORITIES},
+        "include_test_data": {"type": "bool", "required": False},
     },
 )
 async def _count_cases(db: Any, args: dict) -> int:
     q: dict = {}
     if "producer" in args:
-        # Cases don't carry producer directly, use a lookup via signals.
-        signal_ids = await db.mcgs_signals.distinct(
-            "case_id", {"producer": args["producer"]},
-        )
+        signal_q: dict = {"producer": args["producer"]}
+        if not _should_include_test_data(args):
+            exclude_test_data(signal_q, subject_field="subject")
+        signal_ids = await db.mcgs_signals.distinct("case_id", signal_q)
         q["id"] = {"$in": signal_ids}
     q["status"] = {"$in": args["status"]} if "status" in args else {"$in": list(OPEN_STATES)}
     if "priority" in args:
         q["priority"] = {"$in": args["priority"]}
+    if not _should_include_test_data(args):
+        exclude_test_data(q)
     return await db.mcgs_cases.count_documents(q)
 
 
@@ -187,23 +270,27 @@ async def _count_cases(db: Any, args: dict) -> int:
 
 @register(
     "count_event_submissions",
-    "Count community event submissions by status.",
+    "Count community event submissions by status. Test-flagged rows are excluded by default.",
     args={
         "status": {"type": "str", "required": False,
                    "enum": {"pending", "approved", "rejected", "changes_requested"}},
+        "include_test_data": {"type": "bool", "required": False},
     },
 )
 async def _count_event_submissions(db: Any, args: dict) -> int:
-    q = {"status": args.get("status", "pending")}
+    q: dict = {"status": args.get("status", "pending")}
+    if not _should_include_test_data(args):
+        exclude_test_data(q, subject_field="title")
     return await db.cms_event_submissions.count_documents(q)
 
 
 @register(
     "count_published_events",
-    "Count published CMS events, optionally within a date range (YYYY-MM-DD).",
+    "Count published CMS events, optionally within a date range (YYYY-MM-DD). Test-flagged rows are excluded by default.",
     args={
         "from_date": {"type": "iso_date", "required": False},
         "to_date":   {"type": "iso_date", "required": False},
+        "include_test_data": {"type": "bool", "required": False},
     },
 )
 async def _count_published_events(db: Any, args: dict) -> int:
@@ -215,19 +302,27 @@ async def _count_published_events(db: Any, args: dict) -> int:
         date_q["$lte"] = args["to_date"]
     if date_q:
         q["start_date"] = date_q
+    if not _should_include_test_data(args):
+        exclude_test_data(q, subject_field="title")
     return await db.cms_events.count_documents(q)
 
 
 @register(
     "list_upcoming_events",
-    "List the next N published events (default 5). Compact rows.",
-    args={"limit": {"type": "int", "required": False}},
+    "List the next N published events (default 5). Compact rows. Test-flagged rows are excluded by default.",
+    args={
+        "limit": {"type": "int", "required": False},
+        "include_test_data": {"type": "bool", "required": False},
+    },
 )
 async def _list_upcoming_events(db: Any, args: dict) -> list[dict]:
     limit = max(1, min(int(args.get("limit") or 5), 20))
     today = datetime.now(timezone.utc).date().isoformat()
+    q: dict = {"status": "published", "start_date": {"$gte": today}}
+    if not _should_include_test_data(args):
+        exclude_test_data(q, subject_field="title")
     rows = await db.cms_events.find(
-        {"status": "published", "start_date": {"$gte": today}},
+        q,
         {"_id": 0, "id": 1, "title": 1, "start_date": 1, "start_time": 1,
          "location_name": 1, "rsvp_count": 1, "capacity": 1},
     ).sort([("start_date", 1)]).to_list(limit)
@@ -240,14 +335,17 @@ async def _list_upcoming_events(db: Any, args: dict) -> list[dict]:
 
 @register(
     "count_support_tickets",
-    "Count support tickets by status.",
+    "Count support tickets by status. Test-flagged rows are excluded by default; pass include_test_data=true to include them.",
     args={
         "status": {"type": "str", "required": False,
                    "enum": {"open", "in_progress", "resolved", "closed"}},
+        "include_test_data": {"type": "bool", "required": False},
     },
 )
 async def _count_support_tickets(db: Any, args: dict) -> int:
-    q = {"status": args.get("status", "open")}
+    q: dict = {"status": args.get("status", "open")}
+    if not _should_include_test_data(args):
+        exclude_test_data(q, subject_field="subject")
     return await db.support_tickets.count_documents(q)
 
 
