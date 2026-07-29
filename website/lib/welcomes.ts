@@ -49,9 +49,12 @@ export interface WelcomeLines {
    * like a real host welcoming someone into their home, rather than
    * a website presenting its next button."
    *
-   * Text-only. No audio clip. The silence between the closing line
-   * and this invitation is deliberate \u2014 it reads as George
-   * pausing to think, then adding the invitation.
+   * Has its own audio clip in the "default" variant so George or
+   * Georgia actually SAYS the invitation. See
+   * `/app/backend/scripts/generate_invite_audio.py` \u2014 the
+   * pre-rendered Ash / Nova clips live at
+   * /audio/invite-{companion}.mp3 and are picked up automatically by
+   * `resolveAudio()` when `audio === 'default'`.
    */
   invite: string;
 }
@@ -61,6 +64,8 @@ export interface WelcomeAudio {
   hello: string;
   /** URL for the "name + closing" clip. */
   intro: string;
+  /** URL for the "Come in\u2026 let me show you around." clip. */
+  invite: string;
 }
 
 export interface WelcomeVariant {
@@ -114,8 +119,8 @@ export const WELCOMES: WelcomeVariant[] = [
       invite: "Come in\u2026 let me show you around.",
     },
     audio: {
-      george:  { hello: '/audio/hello-george.mp3',  intro: '/audio/intro-george-christmas.mp3'  },
-      georgia: { hello: '/audio/hello-georgia.mp3', intro: '/audio/intro-georgia-christmas.mp3' },
+      george:  { hello: '/audio/hello-george.mp3',  intro: '/audio/intro-george-christmas.mp3',  invite: '/audio/invite-george.mp3'  },
+      georgia: { hello: '/audio/hello-georgia.mp3', intro: '/audio/intro-georgia-christmas.mp3', invite: '/audio/invite-georgia.mp3' },
     },
     note: 'Warm, unhurried. Do not say "Happy Holidays" \u2014 Garry prefers "Merry Christmas".',
   },
@@ -135,8 +140,8 @@ export const WELCOMES: WelcomeVariant[] = [
       invite: "Come in\u2026 let me show you around.",
     },
     audio: {
-      george:  { hello: '/audio/hello-george.mp3',  intro: '/audio/intro-george-newyear.mp3'  },
-      georgia: { hello: '/audio/hello-georgia.mp3', intro: '/audio/intro-georgia-newyear.mp3' },
+      george:  { hello: '/audio/hello-george.mp3',  intro: '/audio/intro-george-newyear.mp3',  invite: '/audio/invite-george.mp3'  },
+      georgia: { hello: '/audio/hello-georgia.mp3', intro: '/audio/intro-georgia-newyear.mp3', invite: '/audio/invite-georgia.mp3' },
     },
   },
 
@@ -158,8 +163,8 @@ export const WELCOMES: WelcomeVariant[] = [
       invite: "Come in\u2026 let me show you around.",
     },
     audio: {
-      george:  { hello: '/audio/hello-george.mp3',  intro: '/audio/intro-george-easter.mp3'  },
-      georgia: { hello: '/audio/hello-georgia.mp3', intro: '/audio/intro-georgia-easter.mp3' },
+      george:  { hello: '/audio/hello-george.mp3',  intro: '/audio/intro-george-easter.mp3',  invite: '/audio/invite-george.mp3'  },
+      georgia: { hello: '/audio/hello-georgia.mp3', intro: '/audio/intro-georgia-easter.mp3', invite: '/audio/invite-georgia.mp3' },
     },
   },
 
@@ -202,8 +207,9 @@ export function getActiveWelcome(now: Date = new Date()): WelcomeVariant {
 export function resolveAudio(variant: WelcomeVariant, companion: CompanionId): WelcomeAudio {
   if (variant.audio === 'default') {
     return {
-      hello: `/audio/hello-${companion}.mp3`,
-      intro: `/audio/intro-${companion}.mp3`,
+      hello:  `/audio/hello-${companion}.mp3`,
+      intro:  `/audio/intro-${companion}.mp3`,
+      invite: `/audio/invite-${companion}.mp3`,
     };
   }
   return variant.audio[companion];

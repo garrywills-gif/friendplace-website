@@ -62,14 +62,14 @@ const T = {
   TEXT_HELLO:     8150,   // text: "Hello."
   SAY_NAME:       9000,   // audio: "I'm George/Georgia."
   SAY_CLOSING:   10400,   // text: "I'm really pleased you found us."
-  // A comfortable pause, then George extends the invitation. Text-only
-  // (no audio clip) — the small silence between the closing line and
-  // the invite reads as George pausing to think, then adding the
-  // welcome. Locked with Garry (Dec 2026): "Come in... makes all the
+  // A comfortable pause, then George extends the invitation. Beat 4
+  // has its own Ash/Nova audio (see /public/audio/invite-*.mp3) so
+  // he actually SAYS the invitation rather than the text landing in
+  // silence. Locked with Garry (Dec 2026): "Come in... makes all the
   // difference. It feels like a real host welcoming someone into
   // their home, rather than a website presenting its next button."
-  SAY_INVITE:    11500,   // text: "Come in\u2026 let me show you around."
-  CTAS_APPEAR:   13600,   // comfortable pause, then the way forward
+  SAY_INVITE:    11500,   // "Come in\u2026 let me show you around." (audio + text)
+  CTAS_APPEAR:   14200,   // comfortable pause AFTER the invite audio ends
 } as const;
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -146,11 +146,16 @@ export default function MeetPage() {
   const [geom, setGeom] = useState<{ dx: number; dy: number } | null>(null);
 
   // Audio elements — real Ash / Nova clips. Preloaded so the "Hello."
-  // fires the instant we call play(). We keep three separate clips
-  // per companion so the beats between sentences are OUR beats, not
+  // fires the instant we call play(). We keep separate clips per
+  // companion so the beats between sentences are OUR beats, not
   // whatever OpenAI decided to space them at.
-  const helloAudioRef = useRef<HTMLAudioElement | null>(null);
-  const introAudioRef = useRef<HTMLAudioElement | null>(null);
+  const helloAudioRef  = useRef<HTMLAudioElement | null>(null);
+  const introAudioRef  = useRef<HTMLAudioElement | null>(null);
+  // Beat 4: "Come in\u2026 let me show you around." A separate clip
+  // so the deliberate silence between beats 3 and 4 stays exactly as
+  // long as we want, and so seasonal welcomes can leave the invite
+  // untouched even when the earlier lines change.
+  const inviteAudioRef = useRef<HTMLAudioElement | null>(null);
   // Audio consent — Safari (and Chrome, on some settings) will only
   // let us play audio after a user gesture. Choosing a companion IS
   // the gesture on first visit; for returning visitors any pointer
@@ -177,7 +182,7 @@ export default function MeetPage() {
   const primeAudio = useCallback(() => {
     if (primedRef.current) return;
     primedRef.current = true;
-    const els = [helloAudioRef.current, introAudioRef.current];
+    const els = [helloAudioRef.current, introAudioRef.current, inviteAudioRef.current];
     els.forEach((a) => {
       if (!a) return;
       try {
@@ -330,7 +335,14 @@ export default function MeetPage() {
       playSafely(introAudioRef.current);
     });
     at(T.SAY_CLOSING,    () => setTextStage(3));
-    at(T.SAY_INVITE,     () => setTextStage(4));
+    at(T.SAY_INVITE, () => {
+      // George/Georgia now actually SAYS the invitation instead of
+      // silently displaying it. Locked with Garry (Dec 2026):
+      // "Come in..." is what turns this from someone describing a
+      // welcome into someone extending one.
+      setTextStage(4);
+      playSafely(inviteAudioRef.current);
+    });
     at(T.CTAS_APPEAR,    () => setPhase('complete'));
 
     return () => { timers.forEach(clearTimeout); };
@@ -340,7 +352,7 @@ export default function MeetPage() {
   // new companion arrives freshly. Flies from the logo (as always).
   const replay = useCallback(() => {
     // Stop any playing audio from the previous run.
-    [helloAudioRef.current, introAudioRef.current].forEach(a => {
+    [helloAudioRef.current, introAudioRef.current, inviteAudioRef.current].forEach(a => {
       if (a) { a.pause(); a.currentTime = 0; }
     });
     setPendingCompanion(null);
@@ -468,16 +480,27 @@ export default function MeetPage() {
           </button>
         </div>
 
-        {/* Safari-friendly fallback — Safari's autoplay policy blocks
-            programmatic audio unless there's been a user gesture on
-            the page. If our timed play() call was blocked, we surface
-            a warm invitation right beneath the greeting rather than
-            tucking it in the corner. Tapping it counts as the
-            gesture, unlocks the audio elements, and restarts the
-            greeting from "Hello." — the visitor hears the whole
-            arrival in George or Georgia's voice, on the same beats
-            the text landed on. */}
-        {audioBlocked && !audioConsent && (phase === 'greeting' || phase === 'complete') && (
+        {/* Safari-friendly fallback + always-available replay. Two
+            things live here:
+              1. If autoplay was blocked (the classic Safari case),
+                 this button restarts the greeting from "Hello." and
+                 the whole sequence plays through in George or
+                 Georgia's voice.
+              2. Even when autoplay worked, the button remains as a
+                 quiet "Hear it again" affordance once the greeting
+                 completes. That means the visitor is never stuck
+                 without sound and never has to guess whether they
+                 missed something. Locked with Garry (Dec 2026):
+                 "Perhaps a hear George speak button if we can't get
+                 it to work consistently."
+
+            The label softens once the sequence has completed \u2014
+            "Hear it again" reads warmer than "Would you like to
+            hear George?" at that point. */}
+        {(
+          (audioBlocked && !audioConsent && (phase === 'greeting' || phase === 'complete'))
+          || (!audioBlocked && phase === 'complete')
+        ) && (
           <div style={{ marginTop: 8, pointerEvents: 'auto', textAlign: 'center' }}>
             <button
               type="button"
@@ -486,19 +509,28 @@ export default function MeetPage() {
                 setAudioBlocked(false);
                 const h = helloAudioRef.current;
                 const i = introAudioRef.current;
+                const v = inviteAudioRef.current;
                 // Unmute in case the primer left them muted after a
                 // rejected autoplay.
-                if (h) h.muted = false;
-                if (i) i.muted = false;
+                [h, i, v].forEach((a) => { if (a) a.muted = false; });
                 playSafely(h);
                 // Fire the intro clip on the same natural cadence as
                 // the scripted timing (~1.1s after "Hello.").
                 window.setTimeout(() => playSafely(i), 1100);
+                // And the invite ~3.6s after that — matches the gap
+                // between SAY_NAME and SAY_INVITE in the timeline.
+                window.setTimeout(() => playSafely(v), 3600);
               }}
               style={inlineHearBtn}
-              aria-label={`Hear ${effectiveMeta.name} say hello`}
+              aria-label={
+                audioBlocked
+                  ? `Hear ${effectiveMeta.name} say hello`
+                  : `Hear ${effectiveMeta.name} again`
+              }
             >
-              Would you like to hear {effectiveMeta.name}?
+              {audioBlocked
+                ? `Would you like to hear ${effectiveMeta.name}?`
+                : `Hear ${effectiveMeta.name} again`}
             </button>
           </div>
         )}
@@ -563,6 +595,17 @@ export default function MeetPage() {
         key={`intro-${effectiveCompanion}-${welcome.id}`}
         ref={introAudioRef}
         src={audioSrcs.intro}
+        preload="auto"
+        onError={(e) => { try { e.stopPropagation(); } catch { /* silent */ } }}
+      />
+      {/* Beat 4 audio — George/Georgia actually SAYING the invitation
+          in the same Ash/Nova voice as the earlier lines. Generated
+          server-side by /app/backend/scripts/generate_invite_audio.py
+          and dropped into /public/audio/invite-{companion}.mp3. */}
+      <audio
+        key={`invite-${effectiveCompanion}-${welcome.id}`}
+        ref={inviteAudioRef}
+        src={audioSrcs.invite}
         preload="auto"
         onError={(e) => { try { e.stopPropagation(); } catch { /* silent */ } }}
       />
