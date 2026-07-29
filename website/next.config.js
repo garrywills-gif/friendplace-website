@@ -9,7 +9,7 @@ const nextConfig = {
   assetPrefix: process.env.NEXT_BASE_PATH || '',
   devIndicators: { appIsrStatus: false, buildActivity: false },
   env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com',
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'https://george-mcgs-cms.preview.emergentagent.com',
   },
   images: {
     remotePatterns: [

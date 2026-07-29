@@ -26,6 +26,6 @@
   "seed_data_creation": "None. Voice preference reset to 'george' in AsyncStorage/localStorage at end of test as instructed.",
   "retest_needed": false,
   "should_main_agent_self_test": true,
-  "context_for_next_testing_agent": "Voice preference key: localStorage['@friendplace/george_voice'] (values 'george'|'georgia'). Theme prefs key: localStorage['yb_theme_prefs'] (JSON). Profile tab selector that works on web preview: page.locator('button:has-text(\"Profile\")').last. The /settings screen reads ?anchor= and scrolls to the section registered via onLayout — the Accessibility section is the only one with an anchor key registered right now. Preview URL: https://friendplace-v1.preview.emergentagent.com — NOT the friendplace-cms one.",
+  "context_for_next_testing_agent": "Voice preference key: localStorage['@friendplace/george_voice'] (values 'george'|'georgia'). Theme prefs key: localStorage['yb_theme_prefs'] (JSON). Profile tab selector that works on web preview: page.locator('button:has-text(\"Profile\")').last. The /settings screen reads ?anchor= and scrolls to the section registered via onLayout — the Accessibility section is the only one with an anchor key registered right now. Preview URL: https://george-mcgs-cms.preview.emergentagent.com — NOT the friendplace-cms one.",
   "rca_of_issue": "N/A — no bugs found."
 }

@@ -9,7 +9,7 @@ Subject: Preview edge router intermittently returns "404 page not found" for a v
 Hi Emergent Support,
 
 Our production website (www.friendplace.com.au, hosted on Vercel) currently calls our
-preview backend at `https://friendplace-v1.preview.emergentagent.com/api/*` while we
+preview backend at `https://george-mcgs-cms.preview.emergentagent.com/api/*` while we
 wait on the production data-migration question (separate open ticket).
 
 **Problem:** API calls to that preview hostname intermittently fail with

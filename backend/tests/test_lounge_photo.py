@@ -19,7 +19,7 @@ import websockets
 # ---- Module: shared config ----------------------------------------------------
 BASE_URL = os.environ.get(
     "EXPO_PUBLIC_BACKEND_URL",
-    "https://friendplace-v1.preview.emergentagent.com",
+    "https://george-mcgs-cms.preview.emergentagent.com",
 ).rstrip("/")
 WS_BASE = BASE_URL.replace("https://", "wss://").replace("http://", "ws://")
 

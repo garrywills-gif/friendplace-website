@@ -21,7 +21,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://friendplace-v1.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://george-mcgs-cms.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 RUN_ID = uuid.uuid4().hex[:6]

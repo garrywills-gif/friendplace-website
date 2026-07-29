@@ -260,7 +260,7 @@ export default function SuccessStoryEditorPage() {
 /* ---------- Sub-components ---------- */
 
 function AvatarWell({ url, authorName }: { url: string; authorName: string }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://george-mcgs-cms.preview.emergentagent.com';
   const absUrl = url ? (url.startsWith('http') ? url : `${BASE}${url}`) : '';
   return (
     <div style={{

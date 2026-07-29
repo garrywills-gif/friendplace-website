@@ -17,7 +17,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_BACKEND_URL", "https://friendplace-v1.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_BACKEND_URL", "https://george-mcgs-cms.preview.emergentagent.com").rstrip("/")
 
 
 def _demo_login(username: str) -> dict:

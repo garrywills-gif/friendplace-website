@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 BASE_URL = (
     os.environ.get("EXPO_BACKEND_URL")
     or os.environ.get("EXPO_PUBLIC_BACKEND_URL")
-    or "https://friendplace-v1.preview.emergentagent.com"
+    or "https://george-mcgs-cms.preview.emergentagent.com"
 ).rstrip("/")
 
 CREDS = {"username": "member@friendplace.com.au", "password": "TestPass2026!"}

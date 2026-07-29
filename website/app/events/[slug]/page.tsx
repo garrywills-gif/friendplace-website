@@ -8,7 +8,7 @@ import RsvpForm from './RsvpForm';
 // this cache and hit the backend directly.
 export const revalidate = 60;
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
+const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://george-mcgs-cms.preview.emergentagent.com';
 
 async function fetchEvent(slug: string): Promise<EventRow | null> {
   try {

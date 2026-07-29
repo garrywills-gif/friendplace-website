@@ -43,7 +43,7 @@ export function MediaPicker({ open, onClose, onPick }: {
 
   if (!open) return null;
 
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://george-mcgs-cms.preview.emergentagent.com';
   const absUrl = (u: string) => (u.startsWith('http') ? u : `${BASE}${u}`);
 
   return (

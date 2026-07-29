@@ -13,7 +13,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("NEXT_PUBLIC_API_URL") or "https://friendplace-v1.preview.emergentagent.com"
+BASE_URL = os.environ.get("NEXT_PUBLIC_API_URL") or "https://george-mcgs-cms.preview.emergentagent.com"
 BASE_URL = BASE_URL.rstrip("/")
 
 ADMIN_EMAIL = "hello@friendplace.com.au"
