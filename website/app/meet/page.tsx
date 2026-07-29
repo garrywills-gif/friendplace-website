@@ -300,26 +300,28 @@ export default function MeetPage() {
   }, [effectiveCompanion, choose, replay]);
 
   // Compute derived UI signals for the render.
-  // The choice plate stays MOUNTED for every phase — even after the
-  // butterfly has flown and the greeting is speaking — because the
-  // "Come in. / Who would you like to show you around today?" moment
-  // is a permanent feature of the front door (locked with Garry,
-  // Nov 2026: "Come in. deserves to stay forever"). We fade its
-  // opacity down while the butterfly speaks so the greeting has the
-  // stage, then fade it back in once the greeting is complete so
-  // returning visitors (or someone who scrolled away and back) see
-  // the invitation again.
-  const choicePlateOpacity =
-    (phase === 'landed' || phase === 'looked' || phase === 'eye-contact'
-     || phase === 'greeting') ? 0
-     : phase === 'complete' ? 1
-     : 1;
+  //
+  // The choice plate — "Come in. / Who would you like to show you
+  // around today?" — is a permanent feature of the front door BUT
+  // only for first-time visitors, and only up to the moment the
+  // butterfly has landed. From landing onwards the middle of the
+  // screen belongs to George: no competing plate, no visual clutter.
+  // Locked with Garry (Nov 2026): "Once someone's inside the room,
+  // they shouldn't still see the front door."
+  //
+  // Kept mounted (opacity 0) rather than unmounted so the layout
+  // height never jumps under the visitor's feet during the flight.
+  const showPlate =
+    phase === 'awaiting-choice' ||
+    (pendingCompanion !== null &&
+      (phase === 'idle' || phase === 'noticing' || phase === 'flying'));
+  const choicePlateOpacity = showPlate ? 1 : 0;
 
   // The chosen card's butterfly image is hidden the moment we
   // transition out of awaiting-choice, so the visitor sees the
-  // butterfly literally lift off THAT card. It comes back once the
-  // sequence is fully complete so the card looks whole again.
-  const chosenCardBtfHidden = phase !== 'awaiting-choice' && phase !== 'complete';
+  // butterfly literally lift off THAT card. Stays hidden — the card
+  // itself fades with the plate.
+  const chosenCardBtfHidden = phase !== 'awaiting-choice';
   const georgeCardBtfHidden  = chosenCardBtfHidden && flightOrigin === 'george-card';
   const georgiaCardBtfHidden = chosenCardBtfHidden && flightOrigin === 'georgia-card';
 

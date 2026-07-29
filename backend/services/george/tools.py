@@ -382,6 +382,89 @@ async def _count_organisations(db: Any, args: dict) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Interest registrations (Phase C RYI)
+# ---------------------------------------------------------------------------
+#
+# The `interest_registrations` collection is populated by first-time
+# website visitors who leave their name + email on /register-interest.
+# It is NOT a marketing mailing list — it's the roll of early friends
+# George and Georgia already know by name. These tools let George
+# report on them: "how many people registered today?", "who chose to
+# meet you?", etc.
+#
+# Test-flagged rows (`is_test: true`) are excluded by default so QA
+# fixtures never inflate the real numbers.
+
+@register(
+    "count_interest_registrations",
+    "Count website visitors who registered their interest on /register-interest. "
+    "Optionally filter by status (new/reviewed/contacted/archived), companion_choice "
+    "(george/georgia), or since_days for a rolling window. Test-flagged rows are "
+    "excluded by default; pass include_test_data=true to include them.",
+    args={
+        "status": {"type": "str", "required": False,
+                   "enum": {"new", "reviewed", "contacted", "archived"}},
+        "companion_choice": {"type": "str", "required": False,
+                             "enum": {"george", "georgia"}},
+        "since_days": {"type": "int", "required": False},
+        "include_test_data": {"type": "bool", "required": False},
+    },
+)
+async def _count_interest_registrations(db: Any, args: dict) -> int:
+    q: dict = {}
+    if "status" in args:
+        q["status"] = args["status"]
+    if "companion_choice" in args:
+        q["companion_choice"] = args["companion_choice"]
+    if "since_days" in args:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
+        q["created_at"] = {"$gte": cutoff.isoformat()}
+    if not _should_include_test_data(args):
+        q["is_test"] = {"$ne": True}
+    return await db.interest_registrations.count_documents(q)
+
+
+@register(
+    "list_interest_registrations",
+    "List website visitors who registered their interest, newest first. Returns "
+    "a small list with first_name, email, state_country, heard_from, companion_choice, "
+    "status and created_at. Capped at 50 rows. Same filters as count_interest_registrations. "
+    "Test-flagged rows are excluded by default.",
+    args={
+        "status": {"type": "str", "required": False,
+                   "enum": {"new", "reviewed", "contacted", "archived"}},
+        "companion_choice": {"type": "str", "required": False,
+                             "enum": {"george", "georgia"}},
+        "since_days": {"type": "int", "required": False},
+        "limit": {"type": "int", "required": False},
+        "include_test_data": {"type": "bool", "required": False},
+    },
+)
+async def _list_interest_registrations(db: Any, args: dict) -> list:
+    q: dict = {}
+    if "status" in args:
+        q["status"] = args["status"]
+    if "companion_choice" in args:
+        q["companion_choice"] = args["companion_choice"]
+    if "since_days" in args:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
+        q["created_at"] = {"$gte": cutoff.isoformat()}
+    if not _should_include_test_data(args):
+        q["is_test"] = {"$ne": True}
+    limit = max(1, min(int(args.get("limit") or 20), 50))
+    # Public projection — never leak IP or internal metadata to the LLM.
+    projection = {
+        "_id": 0,
+        "id": 1, "first_name": 1, "email": 1,
+        "state_country": 1, "heard_from": 1,
+        "companion_choice": 1, "status": 1, "created_at": 1,
+    }
+    return await db.interest_registrations.find(q, projection).sort("created_at", -1).to_list(limit)
+
+
+
+
+# ---------------------------------------------------------------------------
 # Placeholders that honestly say "not yet built"
 # ---------------------------------------------------------------------------
 

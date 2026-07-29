@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 import os, uuid, logging, json, asyncio, random, re
+import html as html_module
 
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -9753,6 +9754,269 @@ async def public_contact(payload: dict, request: Request):
         logger.exception("failed to send contact-form notification email")
 
     return {"ok": True, "id": doc["id"]}
+
+
+# ────────────────────────────────────────────────────────────────────────
+#  REGISTER YOUR INTEREST (RYI) — Phase C
+#
+#  A first-time visitor meets George or Georgia on /meet, decides they'd
+#  like to know more, and leaves their name + email. What happens next
+#  matters a lot: this is the difference between a marketing "mailing
+#  list" and a set of early friends we already know by name.
+#
+#  Journey continuity (see /app/JOURNEY_CONTINUITY.md):
+#    - Their chosen companion (George/Georgia) is recorded alongside
+#      the registration, so on first mobile-app login the app can say
+#      "Welcome back" in that voice.
+#    - The confirmation email is signed by that companion and continues
+#      the conversation they just had on the website — not a marketing
+#      thank-you, not a newsletter.
+#
+#  Design notes:
+#    - Public endpoint, unauthenticated (deliberately — same pattern as
+#      the contact form).
+#    - Idempotent within 24h: if the same email registers twice, we
+#      quietly return the existing record without sending a second
+#      email, so the visitor never gets duplicate confirmations if they
+#      double-tap the submit button.
+#    - Fires the confirmation email via the existing email_service
+#      (verified `noreply@friendplace.com.au` sender). Never blocks the
+#      HTTP response on email — the DB record is the source of truth.
+#    - IP-based rate-limiting to deter drive-by spam (5/hour), matching
+#      the contact form pattern.
+# ────────────────────────────────────────────────────────────────────────
+
+_RYI_COMPANION_META = {
+    "george":  {"name": "George",  "signoff": "George",  "reply_from": "George"},
+    "georgia": {"name": "Georgia", "signoff": "Georgia", "reply_from": "Georgia"},
+}
+
+
+def _render_ryi_confirmation_html(first_name: str, companion: str) -> str:
+    """Warm, in-voice confirmation email. Continues the conversation from /meet.
+
+    Deliberately spare — no marketing footer, no unsubscribe blob, no
+    "you're receiving this because...". A real person doesn't send that
+    kind of thing after showing you around their community centre. The
+    only footnote is what we'll do with the address (nothing else).
+    """
+    meta = _RYI_COMPANION_META.get(companion, _RYI_COMPANION_META["george"])
+    safe_name = html_module.escape((first_name or "friend").strip())
+    signoff = meta["signoff"]
+    # Inline styles only — Gmail, Outlook, Apple Mail all differ on which
+    # external CSS survives, so we ship each line with the styles baked in.
+    return f"""\
+<!DOCTYPE html>
+<html><body style="margin:0;padding:0;background:#FEFCF8;font-family:'Public Sans','Helvetica Neue',Arial,sans-serif;color:#0A2540;line-height:1.55;">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#FEFCF8;padding:40px 16px;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="560" style="max-width:560px;background:#FFFFFF;border:1px solid #F1E9DC;border-radius:20px;padding:40px;">
+        <tr><td>
+          <p style="margin:0 0 20px;font-size:19px;color:#0A2540;">Hello {safe_name},</p>
+          <p style="margin:0 0 16px;font-size:17px;color:#334155;">I'm really glad you stopped by.</p>
+          <p style="margin:0 0 16px;font-size:17px;color:#334155;">You're on our list now, and I'll make sure you're one of the first to hear when FriendPlace is ready for you.</p>
+          <p style="margin:0 0 16px;font-size:17px;color:#334155;">We're taking our time &mdash; this needs to feel like a real community rather than another app &mdash; so please forgive us if things take a little while. When we're ready, I'll write again.</p>
+          <p style="margin:0 0 28px;font-size:17px;color:#334155;">Until then, take care.</p>
+          <p style="margin:0;font-size:17px;color:#0F766E;font-style:italic;">
+            <span style="font-size:22px;vertical-align:-3px;margin-right:6px;">&#129419;</span>{signoff}
+          </p>
+        </td></tr>
+        <tr><td style="padding-top:32px;">
+          <p style="margin:0;font-size:12px;color:#94A3B8;text-align:center;">
+            We&rsquo;ll only use your email to let you know when FriendPlace opens. No newsletters, no sharing, no noise.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+
+
+def _render_ryi_confirmation_text(first_name: str, companion: str) -> str:
+    meta = _RYI_COMPANION_META.get(companion, _RYI_COMPANION_META["george"])
+    name = (first_name or "friend").strip()
+    return (
+        f"Hello {name},\n\n"
+        "I'm really glad you stopped by.\n\n"
+        "You're on our list now, and I'll make sure you're one of the first\n"
+        "to hear when FriendPlace is ready for you.\n\n"
+        "We're taking our time — this needs to feel like a real community\n"
+        "rather than another app — so please forgive us if things take a\n"
+        "little while. When we're ready, I'll write again.\n\n"
+        "Until then, take care.\n\n"
+        f"{meta['signoff']} 🦋\n\n"
+        "— We'll only use your email to let you know when FriendPlace opens.\n"
+        "  No newsletters, no sharing, no noise."
+    )
+
+
+@api.post("/public/register-interest")
+async def public_register_interest(payload: dict, request: Request):
+    """Public "Register Your Interest" submission (no auth).
+
+    Persists to `interest_registrations` and fires a warm confirmation
+    email from the visitor's chosen companion. Idempotent within 24h so
+    the visitor never gets duplicate confirmations from double-clicks or
+    refresh-and-resubmit.
+    """
+    first_name = str(payload.get("first_name") or "").strip()[:80]
+    email = str(payload.get("email") or "").strip().lower()[:180]
+    state_country = str(payload.get("state_country") or "").strip()[:120] or None
+    heard_from = str(payload.get("heard_from") or "").strip()[:240] or None
+    raw_companion = str(payload.get("companion_choice") or "").strip().lower()
+    companion = raw_companion if raw_companion in {"george", "georgia"} else None
+
+    # Required fields.
+    if not first_name:
+        raise HTTPException(400, "Please leave your first name so I know how to greet you.")
+    if not email or "@" not in email or "." not in email:
+        raise HTTPException(400, "That email doesn't look quite right — could you double-check it?")
+
+    # IP for rate-limit. Behind Kubernetes ingress, X-Forwarded-For carries
+    # the real visitor. Same pattern as /public/contact — see notes there.
+    xff = request.headers.get("x-forwarded-for") if request else None
+    if xff:
+        ip = xff.split(",")[0].strip() or "unknown"
+    else:
+        ip = (request.client.host if request and request.client else "unknown") or "unknown"
+
+    # 5 registrations per IP per hour — same envelope as the contact form.
+    hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    try:
+        recent = await db.interest_registrations.count_documents({"ip": ip, "created_at": {"$gt": hour_ago}})
+    except Exception:
+        recent = 0
+    if recent >= 5:
+        raise HTTPException(429, "Too many registrations from this address — please try again later.")
+
+    # Idempotency: if this email already registered in the last 24h, we
+    # quietly return the existing record and skip the second email. The
+    # visitor still gets the warm success page — they don't need to know
+    # we've de-duplicated. Longer windows would risk missing a genuine
+    # "please add me again" case; 24h feels like the right threshold.
+    day_ago = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    existing = None
+    try:
+        existing = await db.interest_registrations.find_one(
+            {"email": email, "created_at": {"$gt": day_ago}},
+            {"_id": 0, "id": 1, "email": 1, "created_at": 1},
+        )
+    except Exception:
+        existing = None
+    if existing:
+        return {"ok": True, "id": existing.get("id"), "deduplicated": True}
+
+    doc = {
+        "id": str(uuid.uuid4()),
+        "first_name": first_name,
+        "email": email,
+        "state_country": state_country,
+        "heard_from": heard_from,
+        "companion_choice": companion,     # 'george' | 'georgia' | None
+        "status": "new",                    # new | reviewed | contacted | archived — set by admin
+        "source": "website",                # future: 'app_prelaunch', 'referral', etc.
+        "ip": ip,
+        "is_test": False,                   # tools.py filters this out of George's counts
+        "created_at": now_iso(),
+    }
+
+    try:
+        await db.interest_registrations.insert_one(dict(doc))
+    except Exception:
+        # If the DB write itself fails, we DO fail the request — silently
+        # persisting nowhere would be worse than telling the visitor to
+        # try again. Contact form does the opposite; here we're stricter
+        # because the visitor is explicitly leaving contact details.
+        logger.exception("failed to persist interest_registration")
+        raise HTTPException(500, "We couldn't save your details just now — please try again in a moment.")
+
+    # Fire the confirmation email. Chosen companion signs it. Failures
+    # are logged but never fail the request — the DB record is the
+    # source of truth, and the admin portal can resend if needed.
+    try:
+        from email_service import send_email
+        effective_companion = companion or "george"
+        meta = _RYI_COMPANION_META[effective_companion]
+        subject = f"Thank you for finding us, {first_name}"
+        html_body = _render_ryi_confirmation_html(first_name, effective_companion)
+        text_body = _render_ryi_confirmation_text(first_name, effective_companion)
+        # Reply-To goes to hello@friendplace.com.au (env default) so
+        # replies land in the shared inbox the whole team watches — a
+        # visitor writing back to "George" reaches a real human.
+        await send_email(
+            to=email,
+            subject=subject,
+            html=html_body,
+            text=text_body,
+        )
+        # Also nudge the internal inbox so the team knows a new visitor
+        # arrived. Deliberately separate from the confirmation email so
+        # neither can leak the other's recipient list.
+        internal_html = (
+            f"<p><b>{html_module.escape(first_name)}</b> registered their interest.</p>"
+            f"<p><b>Email:</b> {html_module.escape(email)}</p>"
+            f"<p><b>State/Country:</b> {html_module.escape(state_country or '—')}</p>"
+            f"<p><b>How did they hear about us:</b> {html_module.escape(heard_from or '—')}</p>"
+            f"<p><b>Chose to meet:</b> {meta['name']}</p>"
+        )
+        await send_email(
+            to="hello@friendplace.com.au",
+            subject=f"[FriendPlace RYI] {first_name} ({email})",
+            html=internal_html,
+            text=(
+                f"{first_name} registered their interest.\n\n"
+                f"Email: {email}\n"
+                f"State/Country: {state_country or '—'}\n"
+                f"How did they hear about us: {heard_from or '—'}\n"
+                f"Chose to meet: {meta['name']}\n"
+            ),
+        )
+    except Exception:
+        logger.exception("failed to send RYI confirmation email")
+
+    return {"ok": True, "id": doc["id"]}
+
+
+# ── Admin: interest-registrations ────────────────────────────────────
+
+@api.get("/admin/interest-registrations")
+async def admin_interest_registrations(admin_id: str, status: str = "", limit: int = 100):
+    """List interest registrations for the admin portal + MCGS.
+
+    Filter by `status` (new/reviewed/contacted/archived) or omit to get
+    all. Newest first, capped at 500 rows so a runaway wave can't OOM
+    the admin browser. Test fixtures (`is_test: true`) are always
+    excluded — those exist only so George's reporting tools have a
+    known ground truth in staging.
+    """
+    await _require_admin(admin_id)
+    q: Dict[str, Any] = {"is_test": {"$ne": True}}
+    if status:
+        q["status"] = status
+    limit = max(1, min(int(limit or 100), 500))
+    rows = await db.interest_registrations.find(q, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return {"count": len(rows), "items": rows}
+
+
+@api.patch("/admin/interest-registrations/{reg_id}")
+async def admin_interest_registrations_update(reg_id: str, payload: dict):
+    """Update an interest registration's status (mark as reviewed / contacted / archived)."""
+    admin_id = str(payload.get("admin_id") or "")
+    await _require_admin(admin_id)
+    new_status = str(payload.get("status") or "").strip().lower()
+    if new_status not in {"new", "reviewed", "contacted", "archived"}:
+        raise HTTPException(400, "status must be one of: new, reviewed, contacted, archived")
+    result = await db.interest_registrations.update_one(
+        {"id": reg_id},
+        {"$set": {"status": new_status, "updated_at": now_iso()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Interest registration not found.")
+    return {"ok": True, "id": reg_id, "status": new_status}
+
+
+
 
 
 # ────────────────────────────────────────────────────────────────────────

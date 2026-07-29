@@ -20,6 +20,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useCompanion, COMPANIONS } from '@/lib/companion-context';
+import { API_BASE } from '@/lib/api-base';
 
 export default function RegisterInterestPage() {
   const { companion, meta } = useCompanion();
@@ -51,10 +52,12 @@ export default function RegisterInterestPage() {
     }
     setSubmitting(true);
     try {
-      // Phase-C backend endpoint. For Phase A we do a soft simulate so
-      // the flow is walkable end-to-end without wiring the DB yet.
-      // When Phase C lands, this call becomes real.
-      const res = await fetch('/api/public/register-interest', {
+      // Phase-C endpoint: persists to `interest_registrations` and
+      // sends a warm, in-voice confirmation email signed by the
+      // chosen companion. Any non-2xx surfaces as a friendly error;
+      // the DB write itself is the source of truth so an email
+      // failure never punishes the visitor.
+      const res = await fetch(`${API_BASE}/api/public/register-interest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -64,22 +67,31 @@ export default function RegisterInterestPage() {
           heard_from: heardFrom.trim() || null,
           companion_choice: companion,
         }),
-      }).catch(() => null);
+      });
 
-      // Phase-A stub: the endpoint doesn't exist yet, so any non-2xx
-      // (including a network error) still shows the warm confirmation.
-      // Phase C will surface real errors.
-      if (res && !res.ok && res.status !== 404) {
-        const body = await res.text().catch(() => '');
-        console.warn('[ryi] backend responded non-2xx:', res.status, body);
+      if (!res.ok) {
+        let msg = '';
+        try {
+          const body = await res.json();
+          msg = typeof body?.detail === 'string' ? body.detail : '';
+        } catch {
+          msg = '';
+        }
+        // 429 = rate-limited (five per hour per IP). We soften the
+        // wording so it still feels like a person, not a server.
+        if (res.status === 429) {
+          setError('It looks like a few of you might be registering from the same place \u2014 give it a moment and try again.');
+        } else {
+          setError(msg || "Something went wrong on our side \u2014 could you try again in a moment?");
+        }
+        return;
       }
       setDone(true);
     } catch (err) {
       console.error('[ryi] submit failed', err);
-      // Even on failure we thank them warmly \u2014 we can retry the
-      // capture server-side later. Never punish a visitor for a
-      // network hiccup on their side.
-      setDone(true);
+      // Network hiccup on the visitor's side \u2014 don't punish them
+      // for it; the retry is just a tap away.
+      setError("Your internet seems a little slow. Could you try again?");
     } finally {
       setSubmitting(false);
     }
