@@ -1,0 +1,38 @@
+{
+  "summary": "V1-launch deploy-readiness verification for FriendPlace. Backend (13/13 pytest cases pass in /app/backend/tests/test_v1_launch_deploy_readiness.py) + frontend (mobile+desktop Playwright) both confirm the LOCAL Next.js build is deploy-ready. Routes /meet, /register-interest, /about, /how-it-works, /features, /admin, / all return 200 on localhost:3000 AND on the public preview URL (george-mcgs-cms.preview.emergentagent.com). /meet renders the Quiet Host welcome (butterfly logo, 'Come in.', 'Meet George or Georgia', 'Who would you like to show you around today?', 'Hello. I'm George. I'm really pleased you found us. Come in… let me show you around.'). /register-interest renders the RYI form with first_name, email, state_country (optional), heard_from (optional) inputs plus 'That's my hello' submit — companion_choice is NOT a visible form field (it is selected upstream on /meet via the useCompanion context, and the API accepts it as a payload field). POST /api/public/register-interest → 200, persists to MongoDB interest_registrations with all expected fields (id, first_name, email, state_country, heard_from, companion_choice='george', source='website', status='new', is_test=false), fires two real Resend emails (visitor confirmation id a5c84919-… and hello@ notification id 8cc51162-…), enforces validation (400 on empty first_name, 400 on malformed email), and is idempotent within 24h (2nd submit for same email returns deduplicated=true with the original id, no 2nd row inserted). All test rows deleted in class teardown; final interest_registrations count = 0 (matches the review-request requirement that the guest book stays empty for V1 launch). /admin loads a Next.js CSR shell that hydrates into the Mission Control sign-in surface ('Welcome back / Sign in to edit the FriendPlace website / Email / Password / Sign in / Forgot your password?') — no destructive login attempted. CONCLUSION: the code IS deploy-ready. The friendplace.com.au 404s on /meet and /register-interest are NOT a code issue — they are a deployment/DNS/routing issue at the production target, exactly as the main agent suspected. Escalation to Emergent Support is appropriate.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_v1_launch_deploy_readiness.py",
+    "/app/test_reports/pytest/iter110_v1_launch.xml"
+  ],
+  "action_items": [
+    "NON-BLOCKING: The /register-interest form does not expose a visible companion_choice picker. It's set upstream on /meet via the useCompanion cookie/context and posted through to the API (defaults to 'george' when absent). If Neo wants companion_choice as a visible RYI form control for V1, that's a separate design decision — the API already accepts it and the DB stores it correctly.",
+    "NON-BLOCKING: POST /api/public/register-interest hard-codes is_test=False (backend/server.py L9920). The review request asked me to mark my test row is_test=True, which the endpoint does not support. I cleaned up by email pattern (testing-agent-verify-*@friendplace-test.dev) via pytest teardown instead — collection is verified empty (count=0). If future automated QA needs an is_test flag, the endpoint should accept it from payload OR a hidden header for internal testing tooling.",
+    "PROCEED WITH DEPLOYMENT ESCALATION: The local build is verified deploy-ready. Send Emergent Support the deployment/DNS ticket — the production friendplace.com.au target is serving stale artefacts."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py is 10,447 lines — well past the 700-line guideline. /public/register-interest and its admin endpoints (L9854–L10020) could live in their own router module alongside the /public/contact endpoint. Not blocking V1 launch.",
+    "The RYI endpoint uses ISO-string comparison for the rate-limit window ({'created_at': {'$gt': hour_ago}}). That works because created_at is stored as ISO with UTC offset, but a native datetime + BSON date would be more robust for cross-DB portability. Not blocking."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_v1_launch_deploy_readiness.py"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13 pytest cases)",
+    "frontend": "100% (7/7 routes render, RYI form has all required inputs, /meet Quiet Host copy present, /admin sign-in surface renders)"
+  },
+  "seed_data_creation": "Ephemeral RYI rows inserted per test with pattern testing-agent-verify-<ts>-*@friendplace-test.dev. Class-scoped teardown fixture deletes them; final db.interest_registrations.countDocuments({}) = 0 confirmed after the run. The V1 guest book is untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "V1 launch website lives at /app/website (Next.js 14, App Router, port 3000, supervisor service name 'website'). Backend is FastAPI on :8001 with /api/* prefix. RYI endpoint = POST /api/public/register-interest; admin listing = GET /api/admin/interest-registrations. Public preview URL for this pod is https://george-mcgs-cms.preview.emergentagent.com — /meet and /register-interest return 200 there too (i.e. the pod's k8s ingress is fine — the friendplace.com.au 404 is downstream of the pod). Resend real IDs come back in backend.err.log as 'friendplace.email: email.send ok: to=… id=…'. Mongo collection to clean = interest_registrations (currently empty; keep it that way).",
+  "rca_of_issue": "Not a code bug. The user's report that friendplace.com.au serves an older build missing /meet and /register-interest is a deployment/DNS/CDN issue at the production target — the routes DO exist in the current codebase (verified 200 + expected copy on both localhost:3000 and the pod's public preview URL) and the RYI backend flow works end-to-end (persist + Resend email delivery + validation + idempotency all pass). Mitigation: escalate to Emergent Support with the pod's Publish-30 job ID so they can confirm the deploy artefact actually shipped to the production target and the DNS/CDN is pointed at the new revision."
+}
