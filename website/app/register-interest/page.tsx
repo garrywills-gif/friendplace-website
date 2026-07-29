@@ -119,7 +119,14 @@ export default function RegisterInterestPage() {
               {signOff}
             </p>
             <div style={{ marginTop: 32 }}>
-              <Link href="/" style={secondaryCta}>Back to FriendPlace</Link>
+              {/* Closes the conversation loop that began on /meet
+                  with "Come in\u2026 let me show you around." The
+                  visitor has now been welcomed, has taken the tour,
+                  has left their hello \u2014 and George gently
+                  invites them inside once more. Locked with Garry
+                  (Dec 2026): "Come inside" feels more like the final
+                  invitation than browser navigation. */}
+              <Link href="/" style={secondaryCta}>Come inside.</Link>
             </div>
           </div>
         </div>
