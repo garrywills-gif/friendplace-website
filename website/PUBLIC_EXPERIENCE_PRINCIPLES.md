@@ -82,3 +82,10 @@ file. If a reviewer can't point at a line above that a change serves,
 the change goes back.
 
 This isn't marketing copy. It's the acceptance criteria.
+
+## Related files
+
+- `/app/JOURNEY_CONTINUITY.md` — the cross-surface principle that
+  sits above this one. If you're touching two or more surfaces
+  (website + email, website + app, app + Mission Control), read that
+  file **first**.
