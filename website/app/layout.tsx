@@ -3,6 +3,7 @@ import { site } from '@/lib/brand';
 import './globals.css';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
+import { CompanionProvider } from '@/lib/companion-context';
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.urlProduction),
@@ -76,9 +77,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <SiteHeader />
-        <main>{children}</main>
-        <SiteFooter />
+        <CompanionProvider>
+          <SiteHeader />
+          <main>{children}</main>
+          <SiteFooter />
+        </CompanionProvider>
       </body>
     </html>
   );

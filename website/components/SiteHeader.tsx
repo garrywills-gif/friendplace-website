@@ -75,8 +75,8 @@ export default function SiteHeader() {
               {n.label}
             </Link>
           ))}
-          <Link href="/#download" className="btn btn-primary" style={{ padding: '10px 20px', fontSize: 14, marginLeft: 20 }}>
-            Get the App
+          <Link href="/meet" className="btn btn-primary" style={{ padding: '10px 20px', fontSize: 14, marginLeft: 20 }}>
+            Meet George or Georgia
           </Link>
         </nav>
 
@@ -139,8 +139,8 @@ export default function SiteHeader() {
               ↳ {n.label}
             </Link>
           ))}
-          <Link href="/#download" onClick={() => setOpen(false)} className="btn btn-primary" style={{ marginTop: 16, width: '100%' }}>
-            Get the App
+          <Link href="/meet" onClick={() => setOpen(false)} className="btn btn-primary" style={{ marginTop: 16, width: '100%' }}>
+            Meet George or Georgia
           </Link>
         </div>
       )}
