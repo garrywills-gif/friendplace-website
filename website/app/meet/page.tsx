@@ -368,21 +368,10 @@ export default function MeetPage() {
       (phase === 'idle' || phase === 'noticing' || phase === 'flying'));
   const choicePlateOpacity = showPlate ? 1 : 0;
 
-  // The butterfly nestled in the FriendPlace logo. Once it "leaves"
-  // (phase transitions out of awaiting-choice / idle), we fade it out
-  // of the logo so it doesn't look like there are two of it. See the
-  // CSS block below for the actual rule targeting #fp-brand-butterfly.
-  const butterflyGone =
-    phase !== 'awaiting-choice' && phase !== 'idle';
-  useEffect(() => {
-    if (typeof document === 'undefined') return;
-    document.body.dataset.fpFlight = butterflyGone ? 'airborne' : 'resting';
-    return () => {
-      if (typeof document !== 'undefined') {
-        delete document.body.dataset.fpFlight;
-      }
-    };
-  }, [butterflyGone]);
+  // Note (Dec 2026, locked with Garry): the FriendPlace logo remains
+  // visually complete throughout the choreography. The butterfly in
+  // the header is the brand mark; the character butterfly flying to
+  // the visitor is a separate manifestation. Both coexist.
 
   return (
     <div style={pageBg}>
@@ -633,7 +622,14 @@ export default function MeetPage() {
         /* Very subtle wing "breath" for the butterfly nestled in the
            header logo — so it looks alive when a visitor arrives,
            not painted-on. Runs slower and smaller than the airborne
-           flutter — a resting butterfly. */
+           flutter — a resting butterfly. NOTE (Dec 2026, locked with
+           Garry): the logo butterfly is a permanent part of the
+           FriendPlace brand mark. It stays visible AT ALL TIMES,
+           even while the character butterfly is flying to greet the
+           visitor. Think Disney logo + Tinkerbell: the castle stays
+           whole, the fairy is a separate manifestation. Do not hide
+           it during flight — that reads as a broken brand, not a
+           metaphor. */
         @keyframes fpLogoBreath {
           0%, 100% { transform: scaleX(1)     scaleY(1); }
           50%      { transform: scaleX(0.985) scaleY(1.008); }
@@ -641,14 +637,6 @@ export default function MeetPage() {
         #fp-brand-butterfly {
           transform-origin: center;
           animation: fpLogoBreath 5200ms ease-in-out infinite;
-          transition: opacity 500ms ease;
-        }
-        /* When the butterfly is airborne (or greeting a visitor), the
-           logo butterfly fades out so it doesn't look like there are
-           two of it. Returns when the visitor leaves the page or the
-           choreography resets. Set on <body data-fp-flight>. */
-        body[data-fp-flight="airborne"] #fp-brand-butterfly {
-          opacity: 0;
         }
 
         .fp-flyer {
@@ -737,14 +725,15 @@ function NextSteps({ phase }: { phase: Phase }) {
     );
   }
 
-  // Pre-launch — the default.
+  // Pre-launch — the default. One invitation, not two. George welcomes
+  // the visitor and offers to show them around. No secondary "I have
+  // a question" button — that role belongs to the small "Tap me if
+  // you'd like to chat." butterfly on the tour pages. Locked with
+  // Garry (Dec 2026): "one invitation, not a menu."
   return (
     <div style={baseWrap}>
-      <Link href="/register-interest" style={primaryCta}>
-        I&rsquo;d like to know more
-      </Link>
-      <Link href="/contact" style={secondaryCta}>
-        I have a question
+      <Link href="/about" style={primaryCta}>
+        Come on, let me show you around.
       </Link>
     </div>
   );

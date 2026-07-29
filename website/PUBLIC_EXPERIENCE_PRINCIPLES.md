@@ -6,6 +6,45 @@ by it._
 
 ---
 
+## The One Principle
+
+_Locked with Garry, Dec 2026, after building /meet, the tour, and
+Register Your Interest together._
+
+> **FriendPlace isn't a website. It's a visit.**
+>
+> George welcomes people at the door, invites them in, then quietly
+> lets FriendPlace speak for itself. He never competes with the
+> experience. He's simply available whenever someone wants to chat.
+
+This is the one that generates all the others. Before writing a
+line of copy, before designing a page, before adding a feature,
+before choosing a component, ask:
+
+> **Would this happen in a house you'd want to visit?**
+
+- A host doesn't hover over their guest. → George doesn't narrate
+  every page.
+- A host doesn't ask you to sign the guestbook before you've seen
+  the house. → We don't ask people to register before they've had
+  a look around.
+- A host doesn't decorate their front door with sales copy. → No
+  "download now" pop-ups, no urgency banners, no countdown timers.
+- A host doesn't demand your attention. → No push notifications,
+  no unread badges, no "chat with George!" pill.
+- A host is proud of their home but doesn't oversell it. → The
+  pages tell the story plainly; we trust the visitor to feel it.
+
+If a decision would feel wrong in a friend's home, it's wrong in
+FriendPlace.
+
+Every downstream principle in this file — the North Star, the
+Quiet Host, the Permanent Front Door, the Living Homepage — is a
+concrete expression of this one idea. If they ever contradict it,
+this one wins.
+
+---
+
 ## The North Star
 
 Before every feature, every page and every design decision, ask:
@@ -73,6 +112,67 @@ They should simply smile and say:
 If we get that feeling right, everything else becomes much easier.
 
 ---
+
+## The Quiet Host
+
+_Locked with Garry, Dec 2026._
+
+> "We've accidentally moved away from designing a website and started
+> designing what it feels like to visit someone."
+
+That is the whole thing.
+
+George (and Georgia) are hosts, not narrators. A good host welcomes
+you at the door, offers to show you around, and then **steps back
+and lets the space speak for itself**. They don't hover. They don't
+narrate every room. They're simply there if you need them.
+
+Concretely, on the FriendPlace public site:
+
+- **On `/meet`** — George is fully present. He notices, he flies over,
+  he greets you. One invitation, one line: _"Come on, let me show
+  you around."_
+- **On the tour pages** (`/about`, `/how-it-works`, `/features`) —
+  **George is silent**. Not one "George says" panel. Not one
+  George-flavoured heading. The pages tell FriendPlace's story in
+  their own confident voice. His silence is a feature, not a gap —
+  it lets the story land.
+- **The only mark of him during the tour** is a small brand-butterfly
+  affordance in the corner of every tour page, with a single line
+  visible on hover / focus:
+  > _"Tap me if you'd like to chat."_
+
+  Tapping opens a soft sheet with two options: _"Take me back to the
+  beginning"_ (→ `/meet`) and _"I have a question"_ (→ `/contact` or
+  a lightweight message form). He is available; he is never in the
+  way.
+- **On `/register-interest`** — George's voice returns for exactly
+  one line, the closing line of the whole journey:
+  > _"If this feels like somewhere you'd like to belong, I'd love to
+  > let you know when we open."_
+
+  Because he's been quiet through the tour, that line lands.
+
+Rules that fall out of this:
+
+1. **No George-voice copy** anywhere on the tour pages. If it reads
+   like something a host would say to fill silence, cut it. Trust the
+   pages.
+2. **Registration is not a persuasion page.** By the time a visitor
+   reaches it they've had the whole story. RYI's job is to be the
+   moment they say yes, nothing more. Short line, four fields.
+3. **The tour has one entry and one exit.** In: `/meet`. Out:
+   `/register-interest`. Anyone who lands mid-tour from Google can
+   still tap the little butterfly to meet George — but we never
+   redirect them there, and we never lecture them for arriving
+   sideways.
+4. **The butterfly-in-the-corner is quiet on purpose.** No pulsing
+   badges. No unread counts. No "Chat with George!" pill. It's just
+   there, breathing, the way a host stands quietly at the end of a
+   room until you catch their eye.
+
+If a change makes George feel like an assistant, a chatbot, or a
+narrator, the change goes back.
 
 ## The Living Homepage
 
