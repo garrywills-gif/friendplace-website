@@ -86,21 +86,27 @@ export default function RegisterInterestPage() {
   }
 
   if (done) {
+    const signOff = meta?.emailSignatureName || 'George';
     return (
       <div style={pageBg}>
         <div className="container" style={{ paddingTop: 72, paddingBottom: 96 }}>
           <div style={plate}>
-            <span style={{ fontSize: 56, display: 'block', marginBottom: 12 }} aria-hidden>&#129419;</span>
             <h1 style={openingLine}>Thank you, {firstName.trim() || 'friend'}.</h1>
             <p style={leadCopy}>
-              You&rsquo;re on the list. {companionName} will be in touch soon &mdash;
-              just a short note to say hello and to let you know when
-              FriendPlace is ready for you.
+              I&rsquo;m really glad you stopped by.
             </p>
-            <p style={{ ...leadCopy, marginTop: 8 }}>
-              Until then, take care of yourself.
+            <p style={{ ...leadCopy, marginTop: 12 }}>
+              You&rsquo;re on the list now, and I&rsquo;ll make sure you&rsquo;re
+              one of the first to hear when FriendPlace is ready.
             </p>
-            <div style={{ marginTop: 28 }}>
+            <p style={{ ...leadCopy, marginTop: 12 }}>
+              Until then, take care.
+            </p>
+            <p style={{ ...leadCopy, marginTop: 24, fontStyle: 'italic', color: '#0F766E' }}>
+              <span aria-hidden style={{ fontSize: 22, verticalAlign: '-3px', marginRight: 6 }}>&#129419;</span>
+              {signOff}
+            </p>
+            <div style={{ marginTop: 32 }}>
               <Link href="/" style={secondaryCta}>Back to FriendPlace</Link>
             </div>
           </div>
