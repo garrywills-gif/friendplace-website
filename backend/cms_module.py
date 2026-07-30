@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import (
     APIRouter,
+    Body,
     Depends,
     File,
     HTTPException,
@@ -1949,30 +1950,21 @@ def build_router(db) -> APIRouter:
             "counts": counts,
         }
 
-    # ---- Moderation action bodies ----
-    class _MemberActionBody(BaseModel):
-        reason: str = ""
-        report_id: Optional[str] = None
-
-    class _SuspendBody(_MemberActionBody):
-        duration_hours: int = 24
-
-    class _NoteBody(BaseModel):
-        note: str
-
-    class _DeleteBody(BaseModel):
-        confirm_member_id: str  # must equal path user_id — GitHub-style safe delete
-        reason: str = ""
+    # Body models declared at closure scope aren't reliably picked up
+    # as request bodies by FastAPI's introspection in some Python
+    # environments (parameters bind as query params instead), so the
+    # member-action routes below accept a plain ``dict`` body and
+    # validate the fields inline. Same schema, safer wiring.
 
     @router.post("/members/{user_id}/notes")
     async def add_member_note(
-        user_id: str, body: _NoteBody,
+        user_id: str,
+        body: dict = Body(...),
         admin: dict = Depends(current_cms_admin),
     ):
-        note = (body.note or "").strip()
+        note = (body.get("note") or "").strip()
         if not note:
             raise HTTPException(400, "Note cannot be empty")
-        await db.users.update_one({"id": user_id}, {"$set": {}})  # touch to error-out on missing
         u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
         if not u:
             raise HTTPException(404, "Member not found")
@@ -1981,9 +1973,12 @@ def build_router(db) -> APIRouter:
 
     @router.post("/members/{user_id}/actions/warn")
     async def warn_member(
-        user_id: str, body: _MemberActionBody,
+        user_id: str,
+        body: dict = Body(...),
         admin: dict = Depends(current_cms_admin),
     ):
+        reason = (body.get("reason") or "").strip()
+        report_id = body.get("report_id") or None
         u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
         if not u:
             raise HTTPException(404, "Member not found")
@@ -1991,35 +1986,39 @@ def build_router(db) -> APIRouter:
             "id": str(uuid.uuid4()), "user_id": user_id,
             "type": "moderation_warning",
             "title": "You have received a warning",
-            "body": body.reason or "Please review our community guidelines.",
+            "body": reason or "Please review our community guidelines.",
             "read": False, "created_at": _iso_now(),
         })
-        if body.report_id:
+        if report_id:
             await db.reports.update_one(
-                {"id": body.report_id},
+                {"id": report_id},
                 {"$set": {"status": "resolved", "outcome": "warned",
-                          "admin_note": body.reason, "updated_at": _iso_now()}},
+                          "admin_note": reason, "updated_at": _iso_now()}},
             )
         await _log_member_action(admin, user_id, "warn",
-                                 reason=body.reason, report_id=body.report_id)
+                                 reason=reason, report_id=report_id)
         return {"ok": True}
 
     @router.post("/members/{user_id}/actions/suspend")
     async def suspend_member(
-        user_id: str, body: _SuspendBody,
+        user_id: str,
+        body: dict = Body(...),
         admin: dict = Depends(current_cms_admin),
     ):
+        reason = (body.get("reason") or "").strip()
+        report_id = body.get("report_id") or None
+        duration_hours = int(body.get("duration_hours") or 24)
         u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
         if not u:
             raise HTTPException(404, "Member not found")
-        hours = max(1, int(body.duration_hours or 24))
+        hours = max(1, duration_hours)
         until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
         await db.users.update_one(
             {"id": user_id},
             {"$set": {
                 "restricted": True,
                 "suspended_until": until,
-                "restricted_reason": body.reason or "Suspended by admin",
+                "restricted_reason": reason or "Suspended by admin",
                 "restricted_at": _iso_now(),
             }},
         )
@@ -2027,27 +2026,30 @@ def build_router(db) -> APIRouter:
             "id": str(uuid.uuid4()), "user_id": user_id,
             "type": "moderation_suspension",
             "title": "Your account has been suspended",
-            "body": f"Reason: {body.reason or 'See community guidelines'}. Lifted at {until}.",
+            "body": f"Reason: {reason or 'See community guidelines'}. Lifted at {until}.",
             "read": False, "created_at": _iso_now(),
         })
-        if body.report_id:
+        if report_id:
             await db.reports.update_one(
-                {"id": body.report_id},
+                {"id": report_id},
                 {"$set": {"status": "resolved", "outcome": f"suspended_{hours}h",
-                          "admin_note": body.reason, "updated_at": _iso_now()}},
+                          "admin_note": reason, "updated_at": _iso_now()}},
             )
         await _log_member_action(
-            admin, user_id, "suspend", reason=body.reason,
-            report_id=body.report_id,
+            admin, user_id, "suspend", reason=reason,
+            report_id=report_id,
             extra={"duration_hours": hours, "until": until},
         )
         return {"ok": True, "suspended_until": until}
 
     @router.post("/members/{user_id}/actions/ban")
     async def ban_member(
-        user_id: str, body: _MemberActionBody,
+        user_id: str,
+        body: dict = Body(...),
         admin: dict = Depends(current_cms_admin),
     ):
+        reason = (body.get("reason") or "").strip()
+        report_id = body.get("report_id") or None
         u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
         if not u:
             raise HTTPException(404, "Member not found")
@@ -2055,25 +2057,27 @@ def build_router(db) -> APIRouter:
             {"id": user_id},
             {"$set": {
                 "banned": True, "restricted": True,
-                "restricted_reason": body.reason or "Banned by admin",
+                "restricted_reason": reason or "Banned by admin",
                 "restricted_at": _iso_now(),
             }},
         )
-        if body.report_id:
+        if report_id:
             await db.reports.update_one(
-                {"id": body.report_id},
+                {"id": report_id},
                 {"$set": {"status": "resolved", "outcome": "banned",
-                          "admin_note": body.reason, "updated_at": _iso_now()}},
+                          "admin_note": reason, "updated_at": _iso_now()}},
             )
         await _log_member_action(admin, user_id, "ban",
-                                 reason=body.reason, report_id=body.report_id)
+                                 reason=reason, report_id=report_id)
         return {"ok": True}
 
     @router.post("/members/{user_id}/actions/restore")
     async def restore_member(
-        user_id: str, body: _MemberActionBody,
+        user_id: str,
+        body: dict = Body(...),
         admin: dict = Depends(current_cms_admin),
     ):
+        reason = (body.get("reason") or "").strip()
         u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
         if not u:
             raise HTTPException(404, "Member not found")
@@ -2091,24 +2095,27 @@ def build_router(db) -> APIRouter:
         await db.notices.update_many(
             {"user_id": user_id}, {"$set": {"auto_hidden": False}},
         )
-        await _log_member_action(admin, user_id, "restore", reason=body.reason)
+        await _log_member_action(admin, user_id, "restore", reason=reason)
         return {"ok": True}
 
     @router.post("/members/{user_id}/actions/delete")
     async def delete_member(
-        user_id: str, body: _DeleteBody,
+        user_id: str,
+        body: dict = Body(...),
         admin: dict = Depends(current_cms_admin),
     ):
+        confirm_member_id = (body.get("confirm_member_id") or "").strip()
+        reason = (body.get("reason") or "").strip()
         u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
         if not u:
             raise HTTPException(404, "Member not found")
         # GitHub-style safety gate — admin must have typed the Member ID.
-        if (body.confirm_member_id or "").strip() != user_id:
+        if confirm_member_id != user_id:
             raise HTTPException(400, "Member ID confirmation does not match")
         # Log FIRST so the audit trail survives the delete.
         await _log_member_action(
             admin, user_id, "delete",
-            reason=body.reason or "Hard delete (right-to-erasure)",
+            reason=reason or "Hard delete (right-to-erasure)",
         )
         # Anonymise historical reports so the audit chain survives.
         await db.reports.update_many(
