@@ -1,0 +1,30 @@
+{
+  "summary": "Retest of LaunchCountdownRibbon fix from iter123 — ALL FIVE TESTS PASS. (1) Absolute URL: browser XHR/fetch to launch-status goes to https://george-mcgs-cms.preview.emergentagent.com/api/public/launch-status (from NEXT_PUBLIC_API_URL), NOT to :3001 — returns 200 on every call. (2) Polling: after page load a second fetch fires at ~+57s (single interval, ~60s apart). (3) Live propagation: with the counting ribbon showing on / , PATCH /api/cms/settings/launch {launch_complete:true} caused the ribbon to swap in-place to the 'The doors are open. Welcome to FriendPlace.' + App Store + Google Play state within one poll cycle (~65s) WITHOUT a page reload. Reverting via PATCH {launch_complete:false} restored the counting ribbon (44 Days · 23 Hours · 48 Minutes). (4) Apple glyph fallback on Linux chromium is inconspicuous — the U+F8FF span is fontSize:16 opacity:0.92 so the tofu/blank fallback is small and non-distracting; the 'DOWNLOAD ON THE / App Store' text is the visual anchor and the button visually balances the Google Play ▶ button. (5) No regressions: counting ribbon renders correctly with butterfly + tagline, /admin/launch still redirects to /admin/login (auth guard intact), backend public/launch-status returns expected shape. Settings restored: enabled=true, launch_at≈T+45d, launch_complete=false, appstore & playstore URLs preserved, is_live=false, store URLs hidden in public payload as designed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/tmp/counting_ribbon.png (counting ribbon initial state, 44d 23h 51m)",
+    "/tmp/live_ribbon.png (live ribbon after backend PATCH — no visible tofu box on App Store button)"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "LaunchCountdownRibbon.tsx lines 46-57: fetch now uses `${process.env.NEXT_PUBLIC_API_URL || ''}/api/public/launch-status` with `cache: 'no-store'` and a 60_000ms setInterval — matches the SSR pattern in app/page.tsx:11. Clean unmount via `cancelled` flag + clearInterval.",
+    "Apple glyph U+F8FF preserved at line 110 wrapped in `<span style={{fontSize:16, opacity:0.92}} aria-hidden>` — an aria-hidden span so screen readers ignore the private-use codepoint. Google Play ▶ at line 125 uses matching fontSize:16 for visual balance. Both buttons have parity in weight now.",
+    "Note (minor, non-blocking): during initial load we observed 4 client-side requests to launch-status (React 18 dev StrictMode + hydration double-invokes useEffect and dev overlay may trigger a repaint). Not a bug — production build would show just 1 initial fetch + 60s polls. Confirming: only 1 additional fetch fired during the 65s wait window, so setInterval is not duplicating."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. Only toggled settings/launch.launch_complete during test and restored to false at teardown. Final state verified: {enabled:true, launch_at:'2026-09-13T07:34:48.642375+00:00', is_live:false, appstore_url:'', playstore_url:''}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Ribbon fix is fully verified end-to-end. Reusable pattern for testing this ribbon: (a) load http://localhost:3001/ and confirm ribbon in counting state; (b) PATCH /api/cms/settings/launch {launch_complete:true} with a valid CMS bearer token from POST /api/cms/auth/login; (c) wait 65s for the polling refetch; (d) confirm ribbon swaps to live state without reload; (e) PATCH launch_complete:false to restore. Backend suite from iter123 (/app/backend/tests/test_launch_manager.py, 20 tests) was intentionally NOT rerun since backend was untouched.",
+  "rca_of_issue": "N/A — the two iter123 findings (relative URL fetch + empty Apple glyph span) are fully resolved by the client-side change in LaunchCountdownRibbon.tsx. Live-propagation gap closed via absolute URL + 60s polling. Apple glyph visual regression closed by keeping the U+F8FF codepoint but sizing it small with reduced opacity so the tofu fallback on non-Apple platforms is invisible."
+}

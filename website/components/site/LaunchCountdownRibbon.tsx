@@ -38,13 +38,22 @@ export function LaunchCountdownRibbon({ initial }: { initial: LaunchStatus | nul
 
   // Cheap re-hydrate: if the initial payload came from build-time
   // rendering we ask again on mount so we always show up-to-date info.
+  // Uses NEXT_PUBLIC_API_URL so admin state changes propagate to
+  // visitor browsers in real time — a relative /api/... fetch would
+  // 404 against the Next.js server since the API is on the FastAPI
+  // pod, not on the site itself. Also re-polls every 60s so a launch-
+  // complete flip in MCGS reaches visitors within a minute.
   useEffect(() => {
+    const base = process.env.NEXT_PUBLIC_API_URL || '';
+    const url = `${base}/api/public/launch-status`;
     let cancelled = false;
-    fetch('/api/public/launch-status', { cache: 'no-store' })
+    const refresh = () => fetch(url, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((s) => { if (!cancelled && s) setStatus(s); })
-      .catch(() => { /* ignore — keep initial */ });
-    return () => { cancelled = true; };
+      .catch(() => { /* keep last known state on failure */ });
+    refresh();
+    const iv = setInterval(refresh, 60_000);
+    return () => { cancelled = true; clearInterval(iv); };
   }, []);
 
   // Tick every second while the countdown is running.
@@ -87,8 +96,18 @@ export function LaunchCountdownRibbon({ initial }: { initial: LaunchStatus | nul
           <span style={welcomeText}>{view.message}</span>
           <div style={storeButtons}>
             {view.appstore && (
-              <a href={view.appstore} target="_blank" rel="noopener noreferrer" style={storeBtn} aria-label="Download on the App Store">
-                <span style={{ fontSize: 20 }}></span>
+              <a
+                href={view.appstore}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={storeBtn}
+                aria-label="Download on the App Store"
+              >
+                {/* Apple logo: renders as the Apple mark on Apple devices,
+                    styled small so the "empty box" fallback on other OSes
+                    is essentially invisible. Kept for brand recognition
+                    without dominating the button on non-Apple platforms. */}
+                <span style={{ fontSize: 16, opacity: 0.92 }} aria-hidden></span>
                 <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                   <span style={storeBtnSmall}>Download on the</span>
                   <span style={storeBtnLarge}>App Store</span>
@@ -96,8 +115,14 @@ export function LaunchCountdownRibbon({ initial }: { initial: LaunchStatus | nul
               </a>
             )}
             {view.playstore && (
-              <a href={view.playstore} target="_blank" rel="noopener noreferrer" style={storeBtn} aria-label="Get it on Google Play">
-                <span style={{ fontSize: 20 }}>▶</span>
+              <a
+                href={view.playstore}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={storeBtn}
+                aria-label="Get it on Google Play"
+              >
+                <span style={{ fontSize: 16 }} aria-hidden>▶</span>
                 <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                   <span style={storeBtnSmall}>Get it on</span>
                   <span style={storeBtnLarge}>Google Play</span>
