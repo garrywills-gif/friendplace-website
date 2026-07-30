@@ -1,0 +1,40 @@
+{
+  "summary": "V3 flyer re-verification after user-approved copy + layout changes. 37/40 tests pass (added 8 new pixel-scan tests for V3 layout: last-ink-y numeric targets, compact-ribbon check, teal-checkmark check, navy-intro-line check). All Flyer 2 (download) footer fixes VERIFIED — download-a4=1722 (>=1700 target), download-a4-hires=3444 (>=3400), download-a3-hires=4870 (>=4800), download-social=1057 (>=1030). All V3 founding-flyer copy/layout changes VERIFIED — compact gold ribbon (span 114px at y=683..797), white background at y=860 below ribbon, two teal (#0F766E) vector checkmarks present in benefits panel at ~(357,905), no Unicode-glyph placeholder squares, bold navy 'Join free today...' intro line present at y=831..845+, no butterfly inside ribbon (0 bright-white pixels in updated ribbon-interior slice y=710..780). All 14 file dimensions/PDF magic/content-types intact. /meet /register-interest /admin all 200 HTML. Fixed 1 stale test coordinate (butterfly-absence sample moved from y=800..870 → y=710..780 to track the new shorter ribbon). REMAINING FAILURE: founding-a4.png last-ink-y=1689 (11px short of the review-requested >=1700 target). Same failure surfaces in 3 tests (all one root cause). Root cause: render_founding() stacks the mission line upward from the URL pill (slogan_y+36) rather than anchoring to PAGE_H like render_download() does — when the QR shrank 500→460 and the benefits area was inserted, the pill moved up and the mission line rode along with it. Fix is a 2-line change (see action_items).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/flyer-mockups/founding-a4.png",
+        "issue": "founding-a4.png last-ink-y=1689 vs review target >=1700 (11px short). The mission-line footer in render_founding() is built as `_draw_mission_footer(c, slogan_y + 36)` where slogan_y stacks upward from the URL pill (render_flyer_previews.py:460). Because the V3 layout shrank the QR (500→460) and inserted the benefits area, the pill now sits ~25px higher on the canvas than it did in iter_114 (which measured 1714). The mission line follows the pill upward. Fix: mirror the render_download() pattern — anchor from the bottom, e.g., `mission_y = PAGE_H - 62; slogan_y = mission_y - 36; caption_y = slogan_y - 28; pill_y = caption_y - 8 - pill_h` (invert the current forward-stacking). This propagates to founding-a4-hires (scale=2 master) and founding-a3-hires automatically."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_flyer_v2_deliverables.py",
+    "/app/test_reports/pytest/iter_115_flyer_v3.xml"
+  ],
+  "action_items": [
+    "In /app/backend/scripts/render_flyer_previews.py::render_founding() (around lines 440-460), replace the forward-stacked footer geometry (pill_y → caption_y → slogan_y → mission_y = slogan_y+36) with a bottom-anchored one: set `mission_y = PAGE_H - 62` first (same constant render_download uses), then derive `slogan_y = mission_y - 36`, `caption_y = slogan_y - 28`, and place the URL pill above caption_y with the existing 8-px gap. Target: founding-a4.png last-ink-y >= 1700.",
+    "Re-run `python /app/backend/scripts/render_flyer_previews.py` after edits, then re-run `pytest /app/backend/tests/test_flyer_v2_deliverables.py -v` — expect 40/40 pass.",
+    "OPTIONAL (repeat of iter_114 recommendation): add a post-render assertion inside each renderer that scans for the last non-white row and confirms it >= (PAGE_H - reserved_footer_px). Two full iterations of layout drift on the same footer would have been caught immediately by such a guard."
+  ],
+  "critical_code_review_comments": [
+    "render_flyer_previews.py::render_founding still uses forward-stacked footer positioning while render_download was migrated to bottom-anchored positioning in iter_115. This is the SAME anti-pattern that caused the 4-px-short bug fixed in iter_114 for download. Consistency between the two renderers matters — any time content above the footer resizes (QR, ribbon, benefits area), the founding footer drifts unpredictably.",
+    "The magic number `slogan_y + 36` at line 460 has no linkage to canvas height. Whenever a design tweak lands anywhere above it, the mission line silently moves. Convert to `mission_y = PAGE_H - N` in both renderers."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_flyer_v2_deliverables.py"
+  ],
+  "success_rate": {"backend": "92.5% (37/40) — 3 failures all one root cause: founding-a4 last-ink-y=1689 vs target 1700", "frontend": "N/A (backend-only)"},
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Test file /app/backend/tests/test_flyer_v2_deliverables.py now has 40 tests. Iter_115 additions: (1) parametrized test_last_ink_y_meets_target with 5 numeric targets (founding-a4>=1700, download-a4>=1700, download-a4-hires>=3400, download-a3-hires>=4800, download-social>=1030), (2) test_founding_a4_ribbon_is_compact (y=860 should be white), (3) test_founding_a4_teal_checkmarks_present (teal pixels in y=870..980,x=200..450 >=40), (4) test_founding_a4_intro_navy_text_present (navy rows in y=820..875 >=5). Also updated the founding-a4 butterfly-absence coords from y=800..870 → y=710..780 to track the new compact ribbon. After main-agent fixes render_founding footer anchoring, re-render all 14 assets and re-run — expect 40/40. All V3 copy/layout changes (compact ribbon with headline only, teal vector checkmarks replacing Unicode ✔ that failed to render, navy intro line, urgency italic, reverted sub-headline, preserved URL pill, QR 460px) are visually correct on the rendered PNGs; only the mission-line footer position needs the 11-px nudge downward.",
+  "rca_of_issue": "RCA for the 3 remaining failures (all one root cause): In render_founding() the footer chain is built forward-stacked from the URL pill: `caption_y = pill_y + pill_h + 8; slogan_y = caption_y + 28; _draw_mission_footer(c, slogan_y + 36)`. When the V3 layout inserted the benefits area between the ribbon and the QR (and shrank the QR from 500→460), everything above the pill moved up by ~25px, dragging the pill (and consequently the mission footer) up with it. Iter_114 measured founding-a4 last-ink-y=1714; iter_115 measures 1689 (-25px). Meanwhile render_download() was migrated to a bottom-anchored footer (`mission_y = PAGE_H - 62`) in iter_115 and now hits 1722 comfortably. Fix render_founding to use the same bottom-anchored pattern and the 11-px shortfall disappears. Reproduction: `python3 -c \"from PIL import Image; im=Image.open('/app/website/public/flyer-mockups/founding-a4.png').convert('RGB'); px=im.load(); print(max(y for y in range(1754) for x in range(1240) if any(v<235 for v in px[x,y])))\"` prints 1689."
+}

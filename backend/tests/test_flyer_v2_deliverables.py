@@ -259,7 +259,10 @@ def test_founding_a4_navy_pill_present():
 # ONLY gold fill (~#FBBF24) and dark-gold text (~#7C5300), with essentially
 # no bright-white pixels (0 white in a strict >245 threshold scan).
 BUTTERFLY_ABSENT_TARGETS = [
-    ("founding-a4.png",     470, 770, 800, 870),   # portrait ribbon slice
+    # Ribbon shrunk (RIBBON_H=120) per iter_115 layout change; ribbon interior
+    # now lives at approx y=683..797 on founding-a4.png. Sample its central
+    # gold region.
+    ("founding-a4.png",     470, 770, 710, 780),   # portrait ribbon slice
     ("founding-social.png", 390, 690, 460, 540),   # square ribbon slice
 ]
 
@@ -297,3 +300,102 @@ def test_website_routes_regression(path):
     r = requests.get(f"{BASE_URL}{path}", timeout=30, allow_redirects=True)
     assert r.status_code == 200, f"{path} -> {r.status_code}"
     assert "text/html" in r.headers.get("Content-Type", "")
+
+
+# --------------------- V3 layout pixel-scan (iter_115) ---------------------
+
+def _last_ink_y(img, threshold=235):
+    w, h = img.size
+    px = img.load()
+    step = 3 if w > 2000 else 1
+    for y in range(h - 1, -1, -1):
+        for x in range(0, w, step):
+            r_, g_, b_ = px[x, y]
+            if r_ < threshold or g_ < threshold or b_ < threshold:
+                return y
+    return -1
+
+
+# Review-request minimum last-ink-y targets after V3 layout changes.
+LAST_INK_TARGETS = [
+    ("founding-a4.png",       1700),
+    ("download-a4.png",       1700),
+    ("download-a4-hires.png", 3400),
+    ("download-a3-hires.png", 4800),
+    ("download-social.png",   1030),
+]
+
+
+@pytest.mark.parametrize("filename,min_last_y", LAST_INK_TARGETS)
+def test_last_ink_y_meets_target(filename, min_last_y):
+    url = f"{BASE_URL}{FLYER_PATH}/{filename}"
+    r = _fetch(url)
+    img = Image.open(io.BytesIO(r.content)).convert("RGB")
+    last = _last_ink_y(img)
+    assert last >= min_last_y, (
+        f"{filename} last-ink-y={last} < target {min_last_y} "
+        f"— footer/mission line is drawn too high on the canvas"
+    )
+
+
+def test_founding_a4_ribbon_is_compact():
+    """After V3 layout changes, the gold ribbon is compact (RIBBON_H=120) and
+    a horizontal line at y=860 sits BELOW the ribbon on the WHITE background."""
+    url = f"{BASE_URL}{FLYER_PATH}/founding-a4.png"
+    r = _fetch(url)
+    img = Image.open(io.BytesIO(r.content)).convert("RGB")
+    px = img.load()
+    # y=860 should be mostly white (background) across the width interior
+    white_count = 0
+    total = 0
+    for x in range(200, 1040, 20):
+        r_, g_, b_ = px[x, 860]
+        total += 1
+        if r_ > 240 and g_ > 240 and b_ > 240:
+            white_count += 1
+    assert white_count == total, (
+        f"y=860 is not white — ribbon appears to extend past y=860 "
+        f"({white_count}/{total} sampled pixels were near-white)"
+    )
+
+
+def test_founding_a4_teal_checkmarks_present():
+    """Two teal (#0F766E ~ RGB 15,118,110) vector checkmarks should appear
+    in the benefits panel below the ribbon (roughly y=870..970, x=200..400)."""
+    url = f"{BASE_URL}{FLYER_PATH}/founding-a4.png"
+    r = _fetch(url)
+    img = Image.open(io.BytesIO(r.content)).convert("RGB")
+    px = img.load()
+    teal_pixels = 0
+    for y in range(870, 980):
+        for x in range(200, 450):
+            r_, g_, b_ = px[x, y]
+            # Near-teal: low R, mid G, mid B, with G and B similar
+            if r_ < 60 and 90 <= g_ <= 160 and 80 <= b_ <= 150:
+                teal_pixels += 1
+    assert teal_pixels >= 40, (
+        f"Teal checkmarks not found in benefits region (only {teal_pixels} "
+        f"teal-ish pixels detected — expected two vector-drawn checks)"
+    )
+
+
+def test_founding_a4_intro_navy_text_present():
+    """The bold navy intro line 'Join free today...' should render below the
+    ribbon (roughly y=825..870). Scan for a row-run of navy-dark pixels."""
+    url = f"{BASE_URL}{FLYER_PATH}/founding-a4.png"
+    r = _fetch(url)
+    img = Image.open(io.BytesIO(r.content)).convert("RGB")
+    px = img.load()
+    rows_with_navy = 0
+    for y in range(820, 875):
+        dark = 0
+        for x in range(150, 1090):
+            r_, g_, b_ = px[x, y]
+            if r_ < 80 and g_ < 80 and b_ < 150:
+                dark += 1
+        if dark > 40:
+            rows_with_navy += 1
+    assert rows_with_navy >= 5, (
+        f"Bold navy intro line not detected in y=820..875 "
+        f"(only {rows_with_navy} rows had substantial navy ink)"
+    )

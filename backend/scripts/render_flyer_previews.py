@@ -346,61 +346,96 @@ def render_founding(scale: float = 1.0) -> Image.Image:
         max_w=1240 - 2 * SIDE - 100, line_gap=10,
     )
 
-    # Gold ribbon with new benefit copy
-    RIBBON_Y = sub_y + 100
-    RIBBON_H = 240
+    # ─── Compact gold ribbon: headline only, no bullets inside ────────
+    RIBBON_Y = sub_y + 96
+    RIBBON_H = 120
     c.rounded_rectangle([SIDE - 30, RIBBON_Y, 1240 - SIDE + 30,
                          RIBBON_Y + RIBBON_H],
                         radius=28, fill=GOLD, outline=GOLD_DARK, width=5)
 
-    # Lead line — text-only, no butterfly icon
-    lead_size = 62
+    lead_size = 68
     lead_text = "BECOME A FOUNDING MEMBER"
-    while lead_size > 42:
+    while lead_size > 44:
         lf = c.font(lead_size, bold=True, condensed=True)
         if c.text_w(lead_text, lf) <= c.px(1240 - 260):
             break
         lead_size -= 4
     lf = c.font(lead_size, bold=True, condensed=True)
+    lb_h = c.text_h(lead_text, lf)
     lead_w_px = c.text_w(lead_text, lf)
     start_x_px = (c.W - lead_w_px) / 2
-    lead_y = RIBBON_Y + 24
+    lead_y = RIBBON_Y + (RIBBON_H - lb_h / c.s) / 2 - 6
     c.d.text((start_x_px, c.px(lead_y)),
              lead_text, font=lf, fill=GOLD_DARK)
 
-    # Benefits (revised copy)
+    # ─── Benefits panel on WHITE (breathing room) ─────────────────────
+    #   Intro sentence
+    intro_y = RIBBON_Y + RIBBON_H + 26
+    intro_fnt = c.font(26, bold=True)
+    c.centre("Join free today and help shape FriendPlace before launch.",
+             intro_y, intro_fnt, NAVY_INK)
+
+    #   Two check-mark benefits (checks drawn as vector strokes for
+    #   consistency across systems that lack Unicode heavy check ✔)
+    def _draw_check(cx: int, cy: int, size: int, colour: str) -> None:
+        s = c.s
+        cx_px, cy_px = c.px(cx), c.px(cy)
+        r = c.px(size)
+        w = max(3, int(4 * s))
+        c.d.line([cx_px - r * 6 // 10, cy_px + r * 1 // 10,
+                  cx_px - r * 1 // 10, cy_px + r * 6 // 10],
+                 fill=colour, width=w)
+        c.d.line([cx_px - r * 1 // 10, cy_px + r * 6 // 10,
+                  cx_px + r * 7 // 10, cy_px - r * 5 // 10],
+                 fill=colour, width=w)
+
+    check_fnt = c.font(24, bold=False)
     benefits = [
-        "Help shape FriendPlace before launch",
         "Have your say in new features",
-        "Be recognised as a Founding Member",
+        "Receive your exclusive Founding Member badge",
     ]
-    bul_fnt = c.font(26, bold=True)
-    by = lead_y + lead_size + 26
-    for b_txt in benefits:
-        line = "•  " + b_txt
-        bb = c.d.textbbox((0, 0), line, font=bul_fnt)
-        c.d.text(((c.W - (bb[2] - bb[0])) / 2, c.px(by)),
-                 line, font=bul_fnt, fill=GOLD_DARK)
-        by += (bb[3] - bb[1]) / c.s + 4
+    by = intro_y + 44
+    check_size = 16
+    check_gap = 22   # gap between check and text
+    for line in benefits:
+        bb = c.d.textbbox((0, 0), line, font=check_fnt)
+        text_w = bb[2] - bb[0]
+        text_h = bb[3] - bb[1]
+        # Full block width = check_size*2 + gap + text_w  (scaled to baseline)
+        block_baseline_w = check_size * 2 + check_gap + text_w / c.s
+        block_x = (1240 - block_baseline_w) / 2
+        # Draw check centred on the text's vertical midpoint
+        check_cx = block_x + check_size
+        check_cy = by + text_h / c.s / 2
+        _draw_check(int(check_cx), int(check_cy), check_size, TEAL)
+        c.d.text((c.px(block_x + check_size * 2 + check_gap), c.px(by)),
+                 line, font=check_fnt, fill=INK)
+        by += text_h / c.s + 10
+
+    #   Small urgency line (italic, muted)
+    urgency_fnt = c.font(20, bold=False, italic=True)
+    urgency_y = by + 6
+    c.centre("Free to join \u2014 for a limited number of early members.",
+             urgency_y, urgency_fnt, SLATE)
 
     # QR
-    qr_size = 500
-    qr_y = RIBBON_Y + RIBBON_H + 32
+    qr_size = 460
+    qr_y = urgency_y + 46
     qr_x = (1240 - qr_size) // 2
     _paste_qr(c, "https://www.friendplace.com.au", qr_size, qr_x, qr_y)
 
     # SCAN CTA
-    cta_y = qr_y + qr_size + 20
+    cta_y = qr_y + qr_size + 18
     c.fit_headline("SCAN TO JOIN FREE", cta_y,
                    max_w=1240 - 2 * SIDE,
-                   start_size=60, min_size=46, fill=NAVY_INK)
+                   start_size=58, min_size=44, fill=NAVY_INK)
 
-    # ─── PROMINENT WEBSITE URL PILL (more visible than italic caption) ─
-    pill_y = cta_y + 70
-    pill_h = 58
+    # ─── PROMINENT WEBSITE URL PILL ──────────────────────────────────
+    pill_y = cta_y + 66
+    pill_h = 56
     pill_text = "www.friendplace.com.au"
-    pf = c.font(34, bold=True)
-    pw = c.text_w(pill_text, pf) + c.px(56)
+    pf = c.font(32, bold=True)
+    pw = c.text_w(pill_text, pf) + c.px(52)
     pill_x = (c.W - pw) / 2
     c.d.rounded_rectangle(
         [pill_x, c.px(pill_y), pill_x + pw, c.px(pill_y + pill_h)],
@@ -411,18 +446,18 @@ def render_founding(scale: float = 1.0) -> Image.Image:
               c.px(pill_y) + (c.px(pill_h) - (tb[3] - tb[1])) / 2 - c.px(4)),
              pill_text, font=pf, fill="#FFFFFF")
 
-    # Small caption for those who can't scan
-    caption_y = pill_y + pill_h + 10
+    # Small helper caption
+    caption_y = pill_y + pill_h + 8
     c.centre("Can't scan? Type this address into your phone browser.",
-             caption_y, c.font(18, bold=False), SLATE)
+             caption_y, c.font(17, bold=False), SLATE)
 
     # Slogan (teal italic)
-    slogan_y = caption_y + 30
+    slogan_y = caption_y + 28
     c.centre("Because you belong too.", slogan_y,
-             c.font(26, italic=True), TEAL)
+             c.font(24, italic=True), TEAL)
 
-    # Mission footer (both flyers)
-    _draw_mission_footer(c, slogan_y + 40)
+    # Mission footer
+    _draw_mission_footer(c, slogan_y + 36)
 
     return c.img
 
@@ -476,7 +511,7 @@ def render_download(scale: float = 1.0) -> Image.Image:
     # ─── Bottom-anchored footer (fixed from top instead of stacked
     # so it never falls off the page regardless of scale). ────────────
     PAGE_H = 1754
-    mission_y = PAGE_H - 88      # mission line sits above bottom rule
+    mission_y = PAGE_H - 62      # mission line sits above bottom rule
     slogan_y = mission_y - 46    # "Because you belong too."
     cta_top = slogan_y - 108     # "DOWNLOAD FRIENDPLACE TODAY"
 
@@ -642,13 +677,16 @@ def render_download_social() -> Image.Image:
     _sq_store(row_x + qr_size + gap, row_y, "GOOGLE PLAY", "Android",
               "https://play.google.com/store/apps/details?id=au.com.friendplace")
 
-    c.centre("Because you belong too.", row_y + qr_size + 58,
+    # Bottom-anchored footer (mirrors render_download layout)
+    PAGE_H = 1080
+    mission_y = PAGE_H - 42
+    slogan_y = mission_y - 36
+    c.centre("Because you belong too.", slogan_y,
              c.font(24, italic=True), TEAL)
-    # Mission line
     c.wrap_centre(
-        MISSION_LINE, row_y + qr_size + 96,
-        c.font(18, bold=False, italic=True), SLATE,
-        max_w=W - 120, line_gap=4,
+        MISSION_LINE, mission_y,
+        c.font(17, bold=False, italic=True), SLATE,
+        max_w=W - 100, line_gap=4,
     )
     return c.img
 
