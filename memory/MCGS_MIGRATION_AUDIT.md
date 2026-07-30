@@ -12,7 +12,8 @@
 | Slice | Domain | Status |
 |---|---|---|
 | **0** | Foundation (sidebar refresh · `admin_log` · Ask George component · placeholder routes) | ✅ **Done** |
-| 1 | Member Management | ⚪ Not started |
+| **0.5** | Security foundation (four-tier defence · sessions · security log · Security page) | ✅ **Done** |
+| 1 | Member Management | 🟡 In progress (backend + ConfirmIdentityAction dialog done; list/profile/retire pending) |
 | 2 | Reports & Moderation | ⚪ Not started |
 | 3 | Feedback / Support | ⚪ Not started |
 | 4 | Events (extend controls) | ⚪ Not started |

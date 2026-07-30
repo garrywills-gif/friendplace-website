@@ -65,7 +65,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'System',
     items: [
-      { href: '/admin/admins',           label: 'Admins',           icon: '🛡️', soon: true },
+      { href: '/admin/security',         label: 'Security',         icon: '🛡️' },
+      { href: '/admin/admins',           label: 'Admins',           icon: '👑', soon: true },
       { href: '/admin/settings',         label: 'Settings',         icon: '⚙️', soon: true },
       { href: '/admin/dashboard',        label: 'Dashboard (legacy)', icon: '📊' },
     ],

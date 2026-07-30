@@ -220,6 +220,53 @@ export const cmsApi = {
     req<{ ok: true }>('POST', `/cms/members/${encodeURIComponent(id)}/actions/restore`, body),
   deleteMember: (id: string, body: { confirm_member_id: string; reason: string }) =>
     req<{ ok: true }>('POST', `/cms/members/${encodeURIComponent(id)}/actions/delete`, body),
+
+  // Security (Slice 0.5)
+  securitySummary: () => req<{
+    active_sessions: number; active_lockouts: number;
+    fails_last_24h: number; successes_last_24h: number;
+    thresholds: Record<string, number>;
+  }>('GET', '/cms/security/summary'),
+  securityEvents: (opts?: { outcome?: string; email?: string; limit?: number; skip?: number }) => {
+    const p = new URLSearchParams();
+    if (opts?.outcome) p.set('outcome', opts.outcome);
+    if (opts?.email) p.set('email', opts.email);
+    if (opts?.limit != null) p.set('limit', String(opts.limit));
+    if (opts?.skip != null) p.set('skip', String(opts.skip));
+    const qs = p.toString();
+    return req<{ items: SecurityEvent[]; total: number }>('GET', `/cms/security/events${qs ? `?${qs}` : ''}`);
+  },
+  securitySessions: (activeOnly = true) =>
+    req<{ items: AdminSession[] }>('GET', `/cms/security/sessions?active_only=${activeOnly}`),
+  revokeSession: (jti: string) =>
+    req<{ ok: boolean }>('POST', `/cms/security/sessions/${encodeURIComponent(jti)}/revoke`),
+  securityLockouts: () =>
+    req<{ items: Lockout[] }>('GET', '/cms/security/lockouts'),
+  clearLockout: (body: { scope: 'email' | 'ip'; key: string }) =>
+    req<{ ok: true }>('POST', '/cms/security/lockouts/clear', body),
+};
+
+export type SecurityEvent = {
+  _id?: string; created_at: string;
+  outcome: string; email?: string; ip?: string;
+  user_agent?: string; ua?: { browser?: string; os?: string; raw?: string };
+  geo?: { country?: string; region?: string; city?: string } | null;
+  attempt_count?: number; jti?: string; locked_until?: string;
+  admin_id?: string;
+};
+
+export type AdminSession = {
+  jti: string; admin_id?: string; email?: string;
+  ip?: string; user_agent?: string;
+  geo?: { country?: string; region?: string; city?: string } | null;
+  issued_at: string; expires_at: string;
+  last_seen_at?: string; revoked_at?: string | null;
+};
+
+export type Lockout = {
+  scope: 'email' | 'ip'; key: string;
+  locked_until: string; reason?: string;
+  created_at?: string; updated_at?: string;
 };
 
 export type MemberRow = {

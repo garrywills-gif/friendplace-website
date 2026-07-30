@@ -12,6 +12,7 @@
 
 1. **Defence in depth, kindness at the surface.** Every threshold is soft first (alert only), hard second (lockout). No admin gets locked out on their third typo — they get an alert email and one more chance.
 2. **Additive & feature-flagged.** All new logic sits behind `ADMIN_SECURITY_FEATURES=true`. The existing `/api/cms/auth/login` flow is preserved verbatim when the flag is off, so nothing that already works can break.
+3. **Security should be highly visible to administrators, but almost invisible to legitimate users.** Normal admin work is never impeded; malicious activity is obvious, well-logged, and easy to respond to. Every threshold, error message, and UI decision is measured against this principle.
 
 ## Thresholds (adjustable via env)
 

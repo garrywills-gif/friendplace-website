@@ -130,13 +130,12 @@ def _jwt_secret() -> str:
     return os.environ.get("JWT_SECRET", "")
 
 
-def _make_admin_token(admin_id: str, email: str) -> str:
+def _make_admin_token(admin_id: str, email: str, jti: str | None = None) -> str:
     exp = datetime.now(timezone.utc) + timedelta(hours=CMS_JWT_TTL_HOURS)
-    return jwt.encode(
-        {"sub": admin_id, "email": email, "purpose": "cms_admin", "exp": exp},
-        _jwt_secret(),
-        algorithm=CMS_JWT_ALG,
-    )
+    payload = {"sub": admin_id, "email": email, "purpose": "cms_admin", "exp": exp}
+    if jti:
+        payload["jti"] = jti
+    return jwt.encode(payload, _jwt_secret(), algorithm=CMS_JWT_ALG)
 
 
 def _make_reset_token(admin_id: str, email: str) -> str:
@@ -389,6 +388,15 @@ def build_router(db) -> APIRouter:
         )
         if not admin:
             raise HTTPException(401, "Admin no longer exists")
+        # Slice 0.5 — revocation gate via admin_sessions.jti
+        try:
+            from services import security as _sec
+            if not await _sec.session_is_valid(db, payload.get("jti")):
+                raise HTTPException(401, "Session revoked")
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # never block auth on optional dep failure
         return admin
 
     # ============================================================
@@ -432,15 +440,92 @@ def build_router(db) -> APIRouter:
         }
 
     @router.post("/auth/login")
-    async def login(body: CmsLoginIn):
-        email = str(body.email).lower().strip()
+    async def login(body: CmsLoginIn, request: Request):
+        from services import security as _sec
+        email = _sec.normalise_email(body.email)
+        ip = _sec.client_ip_from_headers(dict(request.headers), fallback=(request.client.host if request.client else "unknown"))
+        ua_raw = request.headers.get("user-agent", "")
+        ua = _sec.parse_user_agent(ua_raw)
+        geo = _sec.geo_lookup(ip)
+
+        # Tier 2 gate — is source currently locked?
+        for scope, key in (("email", email), ("ip", ip)):
+            locked = await _sec.is_locked(db, scope, key)
+            if locked:
+                await _sec.log_event(
+                    db, outcome="lockout_hit", email=email, ip=ip,
+                    user_agent=ua_raw, ua=ua, geo=geo,
+                    locked_until=locked.get("locked_until"),
+                )
+                await _sec.check_mass_attack(db)
+                raise HTTPException(
+                    429, "Too many attempts. Try again shortly.",
+                    headers={"Retry-After": str(_sec.LOCKOUT_MINUTES * 60)},
+                )
+
         admin = await db.cms_admins.find_one({"email": email})
-        if not admin or not pwd_ctx.verify(body.password, admin.get("password_hash", "")):
-            # Same message for both cases → no user-enumeration.
+        ok = bool(admin) and pwd_ctx.verify(body.password, admin.get("password_hash", "") if admin else "")
+
+        if not ok:
+            email_state = await _sec.bump_attempt(db, "email", email)
+            ip_state = await _sec.bump_attempt(db, "ip", ip)
+            count = max(int(email_state.get("fail_count", 1)), int(ip_state.get("fail_count", 1)))
+
+            # Tier 1 — send alert once per window (either counter triggers)
+            already_alerted = email_state.get("alert_sent_at") or ip_state.get("alert_sent_at")
+            if count >= _sec.ALERT_AFTER and not already_alerted:
+                await _sec.send_alert_email(
+                    email=email, ip=ip, ua=ua, geo=geo,
+                    count=count, locked=False, urgent=False,
+                )
+                try:
+                    await db.admin_login_attempts.update_many(
+                        {"scope": {"$in": ["email", "ip"]},
+                         "key": {"$in": [email, ip]}},
+                        {"$set": {"alert_sent_at": _sec._now()}},
+                    )
+                except Exception:
+                    pass
+
+            # Tier 2 — lockout
+            locked_flag = False
+            if count >= _sec.LOCKOUT_AFTER:
+                locked_until = await _sec.create_lockout(db, "email", email, "bruteforce")
+                await _sec.create_lockout(db, "ip", ip, "bruteforce")
+                locked_flag = True
+                await _sec.log_event(
+                    db, outcome="lockout_created", email=email, ip=ip,
+                    user_agent=ua_raw, ua=ua, geo=geo,
+                    attempt_count=count, locked_until=locked_until,
+                )
+                await _sec.check_mass_attack(db)
+                raise HTTPException(
+                    429, "Too many attempts. Try again shortly.",
+                    headers={"Retry-After": str(_sec.LOCKOUT_MINUTES * 60)},
+                )
+
+            await _sec.log_event(
+                db, outcome="fail", email=email, ip=ip,
+                user_agent=ua_raw, ua=ua, geo=geo, attempt_count=count,
+            )
+            await _sec.check_mass_attack(db)
+            # Same generic message → no user enumeration.
             raise HTTPException(401, "Invalid email or password")
-        token = _make_admin_token(admin["id"], admin["email"])
+
+        # ─── Success ────────────────────────────────────────────────
+        await _sec.reset_counters(db, email, ip)
+        jti = await _sec.create_session(
+            db, admin_id=admin["id"], email=admin["email"],
+            ip=ip, user_agent=ua_raw, geo=geo, ttl_hours=8,
+        )
+        token = _make_admin_token(admin["id"], admin["email"], jti=jti)
         await db.cms_admins.update_one(
             {"id": admin["id"]}, {"$set": {"last_login_at": _now_iso()}}
+        )
+        await _sec.log_event(
+            db, outcome="success", email=email, ip=ip,
+            user_agent=ua_raw, ua=ua, geo=geo, jti=jti,
+            admin_id=admin["id"],
         )
         return {
             "ok": True,
@@ -2076,6 +2161,145 @@ def build_router(db) -> APIRouter:
         """Return the catalogue of well-known action strings so the UI
         can build filter dropdowns without hard-coding the list."""
         return {"actions": list(_audit.KNOWN_ACTIONS)}
+
+    # ==================================================================
+    # SECURITY — Slice 0.5
+    # ==================================================================
+    from services import security as _sec
+
+    @router.get("/security/summary")
+    async def security_summary(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        now = _dt.now(_tz.utc)
+        day_ago = now - _td(hours=24)
+        active_sessions = await db.admin_sessions.count_documents(
+            {"revoked_at": None, "expires_at": {"$gt": now}},
+        )
+        active_lockouts = await db.admin_lockouts.count_documents(
+            {"locked_until": {"$gt": now}},
+        )
+        fails_24h = await db.admin_security_log.count_documents(
+            {"created_at": {"$gte": day_ago},
+             "outcome": {"$in": ["fail", "lockout_created", "lockout_hit"]}},
+        )
+        logins_24h = await db.admin_security_log.count_documents(
+            {"created_at": {"$gte": day_ago}, "outcome": "success"},
+        )
+        return {
+            "active_sessions": active_sessions,
+            "active_lockouts": active_lockouts,
+            "fails_last_24h": fails_24h,
+            "successes_last_24h": logins_24h,
+            "thresholds": {
+                "alert_after": _sec.ALERT_AFTER,
+                "lockout_after": _sec.LOCKOUT_AFTER,
+                "lockout_minutes": _sec.LOCKOUT_MINUTES,
+                "mass_attack_fails": _sec.MASS_ATTACK_FAILS,
+                "mass_attack_urgent": _sec.MASS_ATTACK_URGENT,
+                "mass_attack_window_minutes": _sec.MASS_ATTACK_WINDOW_MIN,
+            },
+        }
+
+    @router.get("/security/events")
+    async def security_events(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+        outcome: Optional[str] = None,   # success | fail | lockout_created | lockout_hit
+        email: Optional[str] = None,
+        limit: int = 100,
+        skip: int = 0,
+    ):
+        q: dict = {}
+        if outcome:
+            q["outcome"] = outcome
+        if email:
+            q["email"] = _sec.normalise_email(email)
+        cur = (db.admin_security_log.find(q, {"_id": 0})
+               .sort("created_at", -1)
+               .skip(max(0, int(skip)))
+               .limit(max(1, min(int(limit), 500))))
+        rows = []
+        async for r in cur:
+            r["created_at"] = (r.get("created_at").isoformat()
+                               if hasattr(r.get("created_at"), "isoformat")
+                               else r.get("created_at"))
+            if isinstance(r.get("locked_until"), _sec.datetime):
+                r["locked_until"] = r["locked_until"].isoformat()
+            rows.append(r)
+        total = await db.admin_security_log.count_documents(q)
+        return {"items": rows, "total": total, "limit": limit, "skip": skip}
+
+    @router.get("/security/sessions")
+    async def security_sessions(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+        active_only: bool = True,
+    ):
+        from datetime import datetime as _dt, timezone as _tz
+        q: dict = {}
+        if active_only:
+            q = {"revoked_at": None, "expires_at": {"$gt": _dt.now(_tz.utc)}}
+        cur = db.admin_sessions.find(q, {"_id": 0}).sort("issued_at", -1).limit(200)
+        rows = []
+        async for r in cur:
+            for k in ("issued_at", "expires_at", "revoked_at", "last_seen_at"):
+                v = r.get(k)
+                if hasattr(v, "isoformat"):
+                    r[k] = v.isoformat()
+            rows.append(r)
+        return {"items": rows}
+
+    @router.post("/security/sessions/{jti}/revoke")
+    async def security_revoke_session(
+        jti: str, admin: dict = Depends(current_cms_admin),
+    ):
+        ok = await _sec.revoke_session(db, jti)
+        await _audit.log_admin_action(
+            db, admin=admin, action="admin.session.revoke",
+            target_type="admin_session", target_id=jti,
+        )
+        await _sec.log_event(
+            db, outcome="session_revoked", email=admin.get("email"),
+            ip=None, user_agent=None, ua=None, geo=None,
+            jti=jti, admin_id=admin.get("id"),
+        )
+        return {"ok": ok}
+
+    @router.get("/security/lockouts")
+    async def security_lockouts(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        from datetime import datetime as _dt, timezone as _tz
+        cur = db.admin_lockouts.find(
+            {"locked_until": {"$gt": _dt.now(_tz.utc)}}, {"_id": 0},
+        ).sort("locked_until", -1)
+        rows = []
+        async for r in cur:
+            for k in ("locked_until", "created_at", "updated_at"):
+                v = r.get(k)
+                if hasattr(v, "isoformat"):
+                    r[k] = v.isoformat()
+            rows.append(r)
+        return {"items": rows}
+
+    @router.post("/security/lockouts/clear")
+    async def security_clear_lockout(
+        body: dict, admin: dict = Depends(current_cms_admin),
+    ):
+        scope = body.get("scope")
+        key = body.get("key")
+        if scope not in ("email", "ip") or not key:
+            raise HTTPException(400, "scope and key required")
+        await _sec.clear_lockout(db, scope, key)
+        await db.admin_login_attempts.delete_one({"scope": scope, "key": key})
+        await _audit.log_admin_action(
+            db, admin=admin, action="admin.lockout.clear",
+            target_type=scope, target_id=key,
+        )
+        return {"ok": True}
+
+    # Ensure indexes on startup (idempotent).
+    import asyncio as _asyncio
+    try:
+        _asyncio.get_event_loop().create_task(_sec.ensure_indexes(db))
+    except Exception:
+        pass
 
     return router
 
