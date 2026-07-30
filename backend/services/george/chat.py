@@ -350,6 +350,20 @@ async def grounded_chat_stream(
         roles=admin.get("roles") or ["owner"],
     )
 
+    # ---- 3a. Institutional knowledge (Slice: George KB) ----
+    # Ground substantive answers in the knowledge_base collection.
+    # When no entries match, George is instructed to admit so honestly.
+    try:
+        from services import knowledge as _kb
+        if _kb.needs_kb(user_message):
+            _hits = await _kb.retrieve(db, user_message, k=5)
+            _kb_block = _kb.format_for_prompt(_hits)
+            if _kb_block:
+                system_prompt = system_prompt + _kb_block
+    except Exception as _kb_err:
+        # Never let KB retrieval failure kill a chat turn.
+        log.warning("KB retrieval skipped: %s", _kb_err)
+
     evidence = _format_tool_results_for_synth(results, plan)
     prior_block = ""
     if prior_turns:

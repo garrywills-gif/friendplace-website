@@ -2294,6 +2294,73 @@ def build_router(db) -> APIRouter:
         )
         return {"ok": True}
 
+    # ==================================================================
+    # KNOWLEDGE BASE — George's institutional memory
+    # ==================================================================
+    from services import knowledge as _kb
+
+    @router.get("/knowledge")
+    async def kb_list(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+        type: Optional[str] = None,
+        status: Optional[str] = None,
+        q: Optional[str] = None,
+        limit: int = 100,
+    ):
+        query: dict = {}
+        if type and type in _kb.ALLOWED_TYPES:
+            query["type"] = type
+        if status:
+            query["status"] = status
+        if q:
+            query["$text"] = {"$search": q}
+        cur = db[_kb.COLLECTION].find(query, {"_id": 0, "embedding": 0})\
+                                 .sort("updated_at", -1).limit(max(1, min(int(limit), 500)))
+        rows = []
+        async for r in cur:
+            for k in ("created_at", "updated_at", "effective_from", "effective_to"):
+                v = r.get(k)
+                if hasattr(v, "isoformat"):
+                    r[k] = v.isoformat()
+            rows.append(r)
+        return {"items": rows, "types": list(_kb.ALLOWED_TYPES)}
+
+    @router.get("/knowledge/{entry_id}")
+    async def kb_get(entry_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        r = await db[_kb.COLLECTION].find_one({"id": entry_id}, {"_id": 0, "embedding": 0})
+        if not r:
+            raise HTTPException(404, "Entry not found")
+        for k in ("created_at", "updated_at", "effective_from", "effective_to"):
+            v = r.get(k)
+            if hasattr(v, "isoformat"):
+                r[k] = v.isoformat()
+        return r
+
+    @router.post("/knowledge/retrieve")
+    async def kb_retrieve(
+        body: dict, admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        query = (body.get("query") or "").strip()
+        k = int(body.get("k") or 5)
+        types = body.get("types") or None
+        hits = await _kb.retrieve(db, query, k=k, types=types)
+        # Drop embeddings from response.
+        for h in hits:
+            h.pop("embedding", None)
+            for k2 in ("created_at", "updated_at", "effective_from", "effective_to"):
+                v = h.get(k2)
+                if hasattr(v, "isoformat"):
+                    h[k2] = v.isoformat()
+        return {"hits": hits, "count": len(hits)}
+
+    @router.get("/knowledge-stats")
+    async def kb_stats(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        total = await db[_kb.COLLECTION].count_documents({})
+        by_type = {}
+        for t in _kb.ALLOWED_TYPES:
+            by_type[t] = await db[_kb.COLLECTION].count_documents({"type": t})
+        return {"total": total, "by_type": by_type}
+
     # Ensure indexes on startup (idempotent).
     import asyncio as _asyncio
     try:

@@ -48,13 +48,34 @@ Entry types (`type`):
 
 | Type | What it captures | Example |
 |---|---|---|
+| **story** | The identity, origin, and emotional truth of FriendPlace | *"Why George is a butterfly · Why we don't chase engagement · The meaning behind 'Because you belong too.'"* |
 | **principle** | Foundational values that shape everything | *"Public site is a Visit to a Quiet Host, not a marketing brochure."* |
-| **decision** | ADR — an architectural / product decision + why | *"KB-042 · Coffee Lounge posts don't cross-post to Groups. Reason: preserves the ambient, low-pressure tone Coffee Lounge is meant to have."* |
+| **decision** | ADR — an architectural / product decision + why | *"KB-042 · Coffee Lounge posts don't cross-post to Groups. Reason: preserves the ambient, low-pressure tone."* |
 | **feature** | How a specific feature works today | *"Register Your Interest form fields, endpoint, email flow."* |
 | **roadmap** | Planned / in-progress work | *"Slice 1 Member Management — status: in progress, ETA…"* |
-| **philosophy** | Higher-order guidance for judgement calls | *"Moderation is a conversation, not enforcement — always start with the smallest intervention that could work."* |
+| **philosophy** | Higher-order guidance for judgement calls | *"Moderation is a conversation, not enforcement — start with the smallest intervention that could work."* |
 
-The MCGS UI presents these as one unified library, filterable by type.
+**`story` is distinct from `principle` and `philosophy`.** Principles are the values we act by; philosophy is how to think when the values conflict; story is *why any of this exists at all*. When someone asks "why does FriendPlace exist" or "why is George a butterfly", the answer comes from the story — not the architecture.
+
+## Connections — George synthesises, not just retrieves
+
+The MVP hybrid-retrieval returns entries independently. That's not enough. George should occasionally *connect* the entries into a fuller answer:
+
+> "The moderation philosophy you're asking about comes from the **Community Principles** we wrote in May [KB-018] and was reinforced again during the **Member Management redesign** [KB-072]."
+
+> "This decision **superseded the earlier approach** [KB-011] because we later decided George should behave more like a **companion than an assistant** [KB-034]."
+
+Implementation, layered onto the retrieval step:
+
+1. **Explicit `related_ids: []` field** on every KB entry. Populated when an entry is authored (author picks related entries from a dropdown) OR when an entry supersedes another (auto-link).
+2. **When George retrieves the top-5**, we also pull each hit's `related_ids` and include their titles (not full bodies — just titles + one-line summary) so the LLM has the *shape* of the wider context.
+3. **Supersede chain always surfaces.** If any retrieved hit has `superseded_by`, we also fetch the newer version. George explains both, in that order.
+4. **Instruction in the system prompt:**
+   > *"When multiple entries relate to the question, connect them explicitly. Say things like 'this reinforces…', 'this superseded…', 'this stems from…' when the sources genuinely tie together. Never invent connections that aren't in the entries."*
+
+That last sentence keeps the fourth honesty (*learn, don't invent*) intact.
+
+The MCGS Knowledge page shows a small **"See related"** area on every entry — clicking any related title jumps to that entry. Same data, both audiences.
 
 ## Seeding — start with what already exists
 
@@ -126,6 +147,16 @@ For each, George's reply lands with `[KB-XXX]` citations Garry can click to open
 - **Multi-hop reasoning across many entries.** MVP shows top-5 and lets George summarise; deeper synthesis waits until we see the quality gap.
 - **Public/member-visible KB.** This is strictly for admins.
 - **Automatic 2FA-style write authority.** All KB writes remain confirmed by an admin.
+
+## Known follow-ups from Phase 1 build
+
+- **Embeddings gateway URL.** The current `_embed()` tries `api.emergent-integrations.com/v1` and falls back to direct OpenAI. Emergent LLM keys don't authenticate at OpenAI's endpoint, so embeddings currently fail silently and retrieval falls back to keyword-only (via Mongo text index). This is fine for the seeded 17-entry KB — every canonical question resolves to the correct top hit — but should be fixed before the KB grows to hundreds of entries. Options:
+  1. Use the Emergent embeddings gateway URL (unconfirmed — needs playbook consult).
+  2. Ship a small ONNX embedding model locally (e.g. `sentence-transformers/all-MiniLM-L6-v2`) — no external dependency, ~90 MB.
+  3. Route embedding calls via emergentintegrations' `LlmChat` if it exposes an embeddings method.
+- **Admin UI (`/admin/knowledge`).** Read endpoints exist; browse/author/supersede UI still to build.
+- **Write endpoints.** create / update / supersede / discard-draft still to add.
+- **Draft-from-chat flow.** George detecting new info and proposing a draft entry still to wire.
 
 ## Build plan (2–3 focused steps)
 
