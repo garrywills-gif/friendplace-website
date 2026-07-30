@@ -4,6 +4,7 @@ import './globals.css';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import { CompanionProvider } from '@/lib/companion-context';
+import { ConciergeOverlay } from '@/components/site/ConciergeOverlay';
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.urlProduction),
@@ -81,6 +82,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SiteHeader />
           <main>{children}</main>
           <SiteFooter />
+          {/* Concierge overlay — a global welcome that any surface can
+              summon by dispatching `friendplace:meet-george`. Renders
+              nothing until invited. */}
+          <ConciergeOverlay />
         </CompanionProvider>
       </body>
     </html>
