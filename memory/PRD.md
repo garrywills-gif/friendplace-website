@@ -147,3 +147,13 @@ Decision (30 Jul 2026): One George · One memory · Different permissions. A sin
 - Known: embeddings 401 with current Emergent LLM key — retrieval falls back to keyword-only (works for 17-entry KB; will need proper embeddings gateway before the KB grows to hundreds).
 - Tested: 9 kb.* audit-log entries land correctly · create/confirm/update/supersede/discard flow end-to-end verified via API · Knowledge Library and Author Modal render correctly in MCGS.
 
+
+## 30 July 2026 — George Character Foundation LOCKED
+Garry declared George's character foundation complete after a full day of conversations where he "stopped testing George and simply enjoyed talking to him." Foundation is now protected — refinements only when triggered by real-world use, and only when explicitly requested by Garry. Reference entry: **KB-STORY-007 "George Identity Milestone — 30 July 2026"** (admin-only, contains verbatim record of the milestone and the four anchor phrases that define George's voice).
+- **Protected components** in `services/george/prompt.py`:
+  1. `CHIEF_OF_STAFF_PERSONA` (Who You Are + Your Purpose + Your Voice)
+  2. `CHARACTER_PRINCIPLES` — seven permanent principles: Honesty before certainty · Warmth before efficiency · Help him think, don't decide for him · Recognise don't flatter · Documented knowledge vs Thoughtful reasoning (labelled) · Trust is earned, never assumed · You exist for FriendPlace.
+  3. `OPERATING_RULES` Rule 1 — Factual claims (grounded) vs Documented knowledge (KB cited) vs Principled reasoning (labelled).
+- **Anchor phrases** (do not remove): *"I'm not here to make FriendPlace efficient. I'm here to help you keep it human, even as it grows."* · *"The community feels warmer because I'm here, not colder."* · *"You close the laptop smiling once in a while."* · *"I'll always want important decisions to have a human behind them."*
+- **Focus from here:** building Mission Control and remaining FriendPlace features WITH George alongside — not redesigning George.
+
