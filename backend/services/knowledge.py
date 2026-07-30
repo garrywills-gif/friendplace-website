@@ -288,3 +288,191 @@ async def count_entries(db: Any) -> int:
         return await db[COLLECTION].count_documents({})
     except Exception:
         return 0
+
+
+# ─── CRUD helpers (used by MCGS Knowledge admin routes) ───────────────
+def _new_kb_id(prefix: str = "KB") -> str:
+    return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
+
+
+async def create_entry(db: Any, *, entry: dict, authored_by: str | None = None) -> dict:
+    """Create a new KB entry. Assigns an id if missing. Embeds title+body
+    when possible. Status defaults to `active`; George's chat-proposed
+    entries pass `status="draft"` so an admin must confirm them first.
+    """
+    now = _now()
+    entry = dict(entry)
+    entry_id = entry.get("id") or _new_kb_id()
+    entry["id"] = entry_id
+    entry.setdefault("type", "decision")
+    if entry["type"] not in ALLOWED_TYPES:
+        entry["type"] = "decision"
+    entry.setdefault("status", "active")
+    entry.setdefault("confidence", "canonical")
+    entry.setdefault("tags", [])
+    entry.setdefault("sources", [])
+    entry.setdefault("related_ids", [])
+    entry.setdefault("superseded_by", None)
+    entry["title"] = (entry.get("title") or "").strip() or "Untitled"
+    entry["body_md"] = (entry.get("body_md") or "").strip()
+    entry["created_at"] = now
+    entry["updated_at"] = now
+    if authored_by:
+        entry.setdefault("authored_by", authored_by)
+        entry["updated_by"] = authored_by
+    # Embed on create (best effort).
+    emb = await _embed(f"{entry['title']}\n\n{entry['body_md']}")
+    if emb:
+        entry["embedding"] = emb
+    await db[COLLECTION].insert_one(dict(entry))
+    return entry
+
+
+async def update_entry(
+    db: Any, entry_id: str, *, patch: dict, updated_by: str | None = None,
+) -> Optional[dict]:
+    """Patch an entry. Re-embeds if title or body_md changed."""
+    existing = await db[COLLECTION].find_one({"id": entry_id})
+    if not existing:
+        return None
+    allowed = {
+        "type", "title", "body_md", "tags", "sources", "related_ids",
+        "confidence", "status", "effective_from", "effective_to",
+    }
+    update = {k: v for k, v in (patch or {}).items() if k in allowed}
+    if "type" in update and update["type"] not in ALLOWED_TYPES:
+        update.pop("type")
+    if "title" in update:
+        update["title"] = (update["title"] or "").strip() or existing.get("title", "Untitled")
+    if "body_md" in update:
+        update["body_md"] = (update["body_md"] or "").strip()
+    update["updated_at"] = _now()
+    if updated_by:
+        update["updated_by"] = updated_by
+
+    title_changed = "title" in update and update["title"] != existing.get("title")
+    body_changed = "body_md" in update and update["body_md"] != existing.get("body_md")
+    if title_changed or body_changed:
+        title = update.get("title", existing.get("title", ""))
+        body = update.get("body_md", existing.get("body_md", ""))
+        emb = await _embed(f"{title}\n\n{body}")
+        if emb:
+            update["embedding"] = emb
+
+    await db[COLLECTION].update_one({"id": entry_id}, {"$set": update})
+    return await db[COLLECTION].find_one(
+        {"id": entry_id}, {"_id": 0, "embedding": 0},
+    )
+
+
+async def confirm_draft(db: Any, entry_id: str, *, confirmed_by: str | None = None) -> Optional[dict]:
+    """Promote a `draft` entry to `active` (canonical)."""
+    existing = await db[COLLECTION].find_one({"id": entry_id})
+    if not existing:
+        return None
+    update = {
+        "status": "active",
+        "updated_at": _now(),
+        "confirmed_at": _now(),
+    }
+    if confirmed_by:
+        update["confirmed_by"] = confirmed_by
+        update["updated_by"] = confirmed_by
+    await db[COLLECTION].update_one({"id": entry_id}, {"$set": update})
+    return await db[COLLECTION].find_one(
+        {"id": entry_id}, {"_id": 0, "embedding": 0},
+    )
+
+
+async def discard_entry(db: Any, entry_id: str, *, hard: bool = False) -> bool:
+    """Discard a draft.
+    - For `draft` entries, we hard-delete (they never influenced answers).
+    - For active/superseded entries, we mark `status="discarded"` to
+      preserve the history trail (superseded semantics stay intact).
+    Pass ``hard=True`` to force delete regardless of status.
+    """
+    existing = await db[COLLECTION].find_one({"id": entry_id})
+    if not existing:
+        return False
+    if hard or existing.get("status") == "draft":
+        await db[COLLECTION].delete_one({"id": entry_id})
+        return True
+    await db[COLLECTION].update_one(
+        {"id": entry_id},
+        {"$set": {"status": "discarded", "updated_at": _now()}},
+    )
+    return True
+
+
+async def supersede_entry(
+    db: Any,
+    old_id: str,
+    *,
+    new_entry: dict,
+    updated_by: str | None = None,
+) -> Optional[dict]:
+    """Create a new active entry that supersedes ``old_id``. The old
+    entry is marked ``status='superseded'`` and points to the new id.
+    Related-ids link forward so retrieval always surfaces the newer one.
+    """
+    old = await db[COLLECTION].find_one({"id": old_id})
+    if not old:
+        return None
+    now = _now()
+    new_entry = dict(new_entry)
+    new_entry.setdefault("type", old.get("type", "decision"))
+    new_entry.setdefault("tags", old.get("tags") or [])
+    new_entry.setdefault("sources", old.get("sources") or [])
+    # Related links: keep the old entry's related_ids plus a back-link to itself
+    related = list(new_entry.get("related_ids") or old.get("related_ids") or [])
+    if old_id not in related:
+        related.append(old_id)
+    new_entry["related_ids"] = related
+    new_entry["status"] = "active"
+    created = await create_entry(db, entry=new_entry, authored_by=updated_by)
+    await db[COLLECTION].update_one(
+        {"id": old_id},
+        {"$set": {
+            "status": "superseded",
+            "superseded_by": created["id"],
+            "superseded_at": now,
+            "updated_at": now,
+            "updated_by": updated_by,
+        }},
+    )
+    return created
+
+
+async def list_drafts(db: Any, limit: int = 100) -> list[dict]:
+    cur = db[COLLECTION].find(
+        {"status": "draft"}, {"_id": 0, "embedding": 0}
+    ).sort("created_at", -1).limit(max(1, min(int(limit), 500)))
+    rows = []
+    async for r in cur:
+        for k in ("created_at", "updated_at", "effective_from", "effective_to"):
+            v = r.get(k)
+            if hasattr(v, "isoformat"):
+                r[k] = v.isoformat()
+        rows.append(r)
+    return rows
+
+
+async def backfill_embeddings(db: Any, *, limit: int | None = None) -> dict:
+    """Attempt to embed every row missing an embedding. Returns counts."""
+    q = {"embedding": {"$exists": False}}
+    cur = db[COLLECTION].find(q, {"id": 1, "title": 1, "body_md": 1})
+    if limit:
+        cur = cur.limit(int(limit))
+    ok = failed = 0
+    async for r in cur:
+        text = f"{r.get('title','')}\n\n{r.get('body_md','')}"
+        emb = await _embed(text)
+        if emb:
+            await db[COLLECTION].update_one(
+                {"id": r["id"]},
+                {"$set": {"embedding": emb, "updated_at": _now()}},
+            )
+            ok += 1
+        else:
+            failed += 1
+    return {"embedded": ok, "failed": failed}
