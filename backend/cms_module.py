@@ -2405,6 +2405,16 @@ def build_router(db) -> APIRouter:
             "confidence": body.get("confidence") or "canonical",
             "status": body.get("status") or "active",
         }
+        # Allow the caller to specify an id (used for seeded / imported
+        # entries where we want to preserve the narrative KB-STORY-*
+        # numbering). Fall through to auto-id if the caller doesn't ask
+        # for one or if the requested id is already taken.
+        wanted_id = (body.get("id") or "").strip()
+        if wanted_id:
+            existing = await db[_kb.COLLECTION].find_one({"id": wanted_id})
+            if existing:
+                raise HTTPException(409, f"KB id already in use: {wanted_id}")
+            payload["id"] = wanted_id
         created = await _kb.create_entry(
             db, entry=payload, authored_by=admin.get("email"),
         )
