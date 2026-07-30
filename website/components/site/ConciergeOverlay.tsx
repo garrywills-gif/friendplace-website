@@ -337,7 +337,7 @@ export function ConciergeOverlay() {
         georgiaBtnRef.current,
         secondaryBtnRef.current,
         closeBtnRef.current,
-      ].filter((el): el is HTMLElement => Boolean(el));
+      ].filter((el): el is HTMLButtonElement => Boolean(el));
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];

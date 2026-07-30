@@ -36,7 +36,7 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { brandAssets } from '@/lib/brand-assets';
 import { useCompanion, COMPANIONS, type CompanionId } from '@/lib/companion-context';
 import { getSiteMode, launchedFollowUp, storeLinks } from '@/lib/site-mode';
@@ -87,7 +87,20 @@ type Phase =
   | 'greeting'         // has begun speaking
   | 'complete';        // greeting fully delivered, CTAs visible
 
+// Next.js 14 static-render safety: `useSearchParams()` (used inside
+// MeetPageContent below) requires a Suspense boundary or the build
+// fails on the /meet page. Wrapping keeps this route statically
+// pre-renderable while allowing the concierge handoff to read
+// `?from=concierge` on the client.
 export default function MeetPage() {
+  return (
+    <Suspense fallback={null}>
+      <MeetPageContent />
+    </Suspense>
+  );
+}
+
+function MeetPageContent() {
   const { companion, choose, ready } = useCompanion();
   // "?from=concierge" — the visitor is arriving from the concierge
   // welcome overlay. The overlay has ALREADY brought the butterfly to

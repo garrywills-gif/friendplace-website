@@ -66,7 +66,14 @@ export default function LaunchPage() {
     return { ...settings, ...draft };
   }, [settings, draft]);
 
-  const preview = useMemo(() => {
+  // Discriminated union so `preview.live ? ... : ...` narrows correctly
+  // for the countdown segments below (TS 5.x otherwise widens the
+  // false-branch return to include undefined properties).
+  type LaunchPreview =
+    | { live: true }
+    | { live: false; days: number; hours: number; minutes: number; seconds: number };
+
+  const preview = useMemo<LaunchPreview | null>(() => {
     if (!merged || !merged.enabled || !merged.launch_at) return null;
     const target = new Date(merged.launch_at).getTime();
     if (Number.isNaN(target)) return null;
