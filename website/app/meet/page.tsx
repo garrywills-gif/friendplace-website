@@ -35,6 +35,7 @@
  */
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { brandAssets } from '@/lib/brand-assets';
 import { useCompanion, COMPANIONS, type CompanionId } from '@/lib/companion-context';
@@ -88,10 +89,23 @@ type Phase =
 
 export default function MeetPage() {
   const { companion, choose, ready } = useCompanion();
+  // "?from=concierge" — the visitor is arriving from the concierge
+  // welcome overlay. The overlay has ALREADY brought the butterfly to
+  // the centre of the screen, so /meet must not fly it in again. We
+  // start directly at 'landed', suppress the flight animation, and
+  // begin the greeting a beat later. This is the seamless handoff
+  // Garry described (30 Jul 2026): "one continuous welcome — the
+  // visitor should never feel like they've gone to another page."
+  const searchParams = useSearchParams();
+  const fromConcierge = searchParams?.get('from') === 'concierge';
 
   // Wait for hydration so SSR and first client render match — otherwise
   // React complains and the flight can start against the wrong DOM.
-  const bootPhase: Phase = !ready ? 'idle' : (companion ? 'idle' : 'awaiting-choice');
+  const bootPhase: Phase = !ready
+    ? 'idle'
+    : companion
+      ? (fromConcierge ? 'landed' : 'idle')  // arrived-from-concierge starts at landed
+      : 'awaiting-choice';
   const [phase, setPhase] = useState<Phase>(bootPhase);
   const [textStage, setTextStage] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [runId, setRunId] = useState(0);
@@ -287,16 +301,31 @@ export default function MeetPage() {
   const FLYER_SIZE = 55;
   const measure = useCallback(() => {
     if (typeof window === 'undefined') return;
+    const targetX = window.innerWidth / 2;
+    const targetY = window.innerHeight * 0.42;
+
+    // Arrival-from-concierge: butterfly is ALREADY at the target
+    // position (the concierge overlay just brought it there). Set
+    // origin = target and geom = {0,0} so the flyer renders at centre
+    // with no motion. The flight animation is CSS-driven from
+    // `--dx/--dy` translation, so 0/0 means "no flight."
+    if (fromConcierge) {
+      setOrigin({ x: targetX - FLYER_SIZE / 2, y: targetY - FLYER_SIZE / 2 });
+      setGeom({ dx: 0, dy: 0 });
+      return;
+    }
+
+    // Standard flight origin — the FriendPlace logo butterfly in the
+    // header. The visitor sees the butterfly leave the logo and
+    // travel across the room to meet them.
     const el = document.getElementById('fp-brand-butterfly');
     if (!el) return;
     const r = el.getBoundingClientRect();
     const originX = r.left + r.width / 2;
     const originY = r.top + r.height / 2;
-    const targetX = window.innerWidth / 2;
-    const targetY = window.innerHeight * 0.42;
     setOrigin({ x: originX - FLYER_SIZE / 2, y: originY - FLYER_SIZE / 2 });
     setGeom({ dx: targetX - originX, dy: targetY - originY });
-  }, []);
+  }, [fromConcierge]);
 
   useEffect(() => {
     if (phase === 'awaiting-choice') return;
@@ -316,14 +345,30 @@ export default function MeetPage() {
     if (phase === 'awaiting-choice') return;
     if (!geom) return;
 
-    setPhase('noticing');
+    // Arrival-from-concierge: butterfly is already at target. Skip
+    // NOTICE → FLYING and start the "arrived, looking around, saying
+    // hello" beats immediately, offset so the visitor gets ~1.4s of
+    // stillness (breathing) before the greeting begins.
+    const offset = fromConcierge ? -T.ARRIVED_HOLD : 0;
+
+    if (!fromConcierge) {
+      setPhase('noticing');
+    }
     setTextStage(0);
 
     const timers: number[] = [];
-    const at = (ms: number, fn: () => void) => timers.push(window.setTimeout(fn, ms));
+    const at = (ms: number, fn: () => void) => {
+      const delay = ms + offset;
+      // Don't schedule timers that would fire "in the past" — they'd
+      // fire immediately in a jarring flurry when arriving from concierge.
+      if (delay < 0) return;
+      timers.push(window.setTimeout(fn, delay));
+    };
 
-    at(T.NOTICE_END,     () => setPhase('flying'));
-    at(T.SETTLE_END,     () => setPhase('landed'));
+    if (!fromConcierge) {
+      at(T.NOTICE_END,     () => setPhase('flying'));
+      at(T.SETTLE_END,     () => setPhase('landed'));
+    }
     at(T.LOOK_END,       () => setPhase('looked'));
     at(T.LOOK_END + 100, () => setPhase('eye-contact'));
     at(T.SAY_HELLO, () => {
@@ -347,7 +392,7 @@ export default function MeetPage() {
     at(T.CTAS_APPEAR,    () => setPhase('complete'));
 
     return () => { timers.forEach(clearTimeout); };
-  }, [runId, geom, phase === 'awaiting-choice']);
+  }, [runId, geom, fromConcierge, phase === 'awaiting-choice']);
 
   // Re-run the choreography — used after "meet the other one" so the
   // new companion arrives freshly. Flies from the logo (as always).
@@ -539,6 +584,7 @@ export default function MeetPage() {
             phase === 'landed' || phase === 'looked' || phase === 'eye-contact'
             || phase === 'greeting' || phase === 'complete' ? 'true' : 'false'
           }
+          data-skip-flight={fromConcierge ? 'true' : 'false'}
           style={{
             ...flyerWrap,
             left: origin.x,
@@ -688,6 +734,15 @@ export default function MeetPage() {
         .fp-flyer {
           animation: fpFlightArc 6600ms cubic-bezier(0.38, 0.02, 0.28, 1.0) forwards;
           will-change: transform;
+        }
+        /* Skip-flight: butterfly is already at the target position
+           (arrived from the concierge overlay). No arc, no rotation
+           translation — it simply IS there, breathing. The inner
+           wing element still gets the landed-breath animation via
+           data-landed="true" below. */
+        .fp-flyer[data-skip-flight="true"] {
+          animation: none;
+          transform: translate(0, 0);
         }
         .fp-flyer .fp-flyer-inner {
           animation: fpWingFlutter 210ms ease-in-out infinite;
@@ -855,21 +910,29 @@ const pageBg: React.CSSProperties = {
   // any reasonable screen size.
   minHeight: '100vh',
   paddingBottom: 120,
-  background: '#FEFCF8',
+  // Deep FriendPlace navy — matches the concierge overlay's darkened
+  // backdrop, so a visitor coming from the concierge sees ZERO visible
+  // page change. The homepage fades away underneath the overlay and
+  // this soft blue is what remains for the introduction. Locked with
+  // Garry (30 Jul 2026): "One continuous welcome — the visitor should
+  // never feel like they've gone to another page."
+  background: '#0A2540',
   position: 'relative',
   overflow: 'hidden',
 };
 
-// The soft warm glow behind the greeting. Deliberately huge and blurred
-// so it reads as ambient lighting, not a shape.
+// The soft ambient glow behind the greeting. On the deep-navy stage
+// it reads as a gentle cool-light halo — the atmosphere of the
+// introduction, not a shape. Original warm-amber version was designed
+// for the cream background and clashed with the navy world.
 const ambientGlow: React.CSSProperties = {
   position: 'fixed',
   left: '50%',
   top: '42vh',
-  width: 720,
-  height: 720,
+  width: 780,
+  height: 780,
   transform: 'translate(-50%, -50%)',
-  background: 'radial-gradient(circle at center, rgba(255, 209, 132, 0.18) 0%, rgba(255, 209, 132, 0.08) 40%, rgba(255, 209, 132, 0) 72%)',
+  background: 'radial-gradient(circle at center, rgba(94, 234, 212, 0.14) 0%, rgba(94, 234, 212, 0.06) 40%, rgba(94, 234, 212, 0) 72%)',
   filter: 'blur(6px)',
   pointerEvents: 'none',
   zIndex: 0,
@@ -901,7 +964,11 @@ const greetingStack: React.CSSProperties = {
 
 const speechLine: React.CSSProperties = {
   fontSize: 34, lineHeight: 1.25, fontWeight: 800,
-  color: '#0A2540', letterSpacing: '-0.02em',
+  // On the navy stage the greeting sits in almost-white. A hair of
+  // warmth ("#F5FBFF") keeps it from feeling clinical. Subtle glow
+  // reinforces the "ambient light" feel of the room.
+  color: '#F5FBFF', letterSpacing: '-0.02em',
+  textShadow: '0 2px 20px rgba(94, 234, 212, 0.15)',
   transition: 'opacity 700ms cubic-bezier(0.4, 0, 0.2, 1), transform 700ms cubic-bezier(0.4, 0, 0.2, 1)',
 };
 
@@ -925,10 +992,10 @@ const primaryCta: React.CSSProperties = {
 const secondaryCta: React.CSSProperties = {
   display: 'inline-block',
   padding: '14px 26px',
-  background: '#FFFFFF',
-  color: '#0F766E',
+  background: 'rgba(94, 234, 212, 0.08)',
+  color: '#5EEAD4',
   fontSize: 15, fontWeight: 700, textDecoration: 'none',
-  border: '1.5px solid #99F6E4',
+  border: '1.5px solid rgba(94, 234, 212, 0.4)',
   borderRadius: 12,
 };
 
@@ -941,18 +1008,18 @@ const meetOtherWrap: React.CSSProperties = {
 const meetOtherBtn: React.CSSProperties = {
   background: 'transparent',
   border: 0,
-  color: '#64748B',
+  color: '#94A3B8',
   fontSize: 14,
   fontFamily: 'inherit',
   cursor: 'pointer',
   padding: '4px 8px',
   textDecoration: 'underline',
-  textDecorationColor: 'rgba(100, 116, 139, 0.35)',
+  textDecorationColor: 'rgba(148, 163, 184, 0.35)',
   textUnderlineOffset: 4,
 };
 
 const dotSep: React.CSSProperties = {
-  color: '#94A3B8',
+  color: '#64748B',
   fontSize: 14,
   userSelect: 'none',
 };
@@ -1051,5 +1118,5 @@ const launchedFollowUpWrap: React.CSSProperties = {
 
 const launchedLine1: React.CSSProperties = {
   fontSize: 22, lineHeight: 1.35, fontWeight: 700,
-  color: '#0A2540', letterSpacing: '-0.01em',
+  color: '#F5FBFF', letterSpacing: '-0.01em',
 };
