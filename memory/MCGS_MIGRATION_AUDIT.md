@@ -231,6 +231,171 @@ Not building now. Listed so the parity work anchors toward it:
 
 ---
 
+# Member Identity & Moderation Safeguards — non-negotiable contract
+
+This contract applies to every slice that touches a member record (Slices 1, 2, 3, 5). It's honoured by the existing mobile app and MUST be preserved in Mission Control.
+
+## What the current codebase already does (verified)
+
+**Reports collection (`db.reports`)** persists both parties by unique account id:
+
+| Field | Meaning |
+|---|---|
+| `reporter_id` | Unique account ID of the member who filed the report |
+| `target_user_id` | Unique account ID of the reported member |
+| `target_type` | `notice` \| `message` \| `dm` \| `user` |
+| `target_id` | ID of the specific offending content (notice/message id) |
+| `status` | `new` \| `reviewing` \| `resolved` \| `dismissed` |
+| `urgent` | boolean |
+| `outcome` | `warned` \| `suspended_Nh` \| `banned` \| `dismissed` |
+| `admin_note`, `updated_at` | Resolution metadata |
+
+When a member is hard-deleted for GDPR / right-to-erasure, `target_user_id` is anonymised to `"[deleted]"` — the historical report record survives; the identity is scrubbed.
+
+**Report list endpoint** (`GET /api/admin/reports`) already enriches every row with the full reporter + target user objects looked up by their unique IDs (`first_name`, `username`, `avatar`, `restricted`, `is_admin`).
+
+**Report detail endpoint** (`GET /api/admin/reports/{id}`) already returns `{report, reporter, target_user, related, target_history}` — including every previous report filed against the same `target_user_id`.
+
+**Moderation action endpoints** all key off `user_id` (the unique Member ID), never a name:
+- `POST /api/admin/users/warn`
+- `POST /api/admin/users/suspend`
+- `POST /api/admin/users/ban`
+- `POST /api/admin/users/restore`
+- `POST /api/admin/users/clear-restriction`
+
+Every action writes an entry to the moderation history via `_log_moderation_action()`. If `report_id` is supplied, the report is auto-resolved with the outcome and `admin_note`.
+
+## What MCGS MUST do (Slice 1 & Slice 2)
+
+1. **Never store or act on a name alone.** Every report, member card, list row, action button and confirmation dialog must carry the target's unique `id` in its payload. The `user_id` in the API call is the source of truth; names are display-only.
+
+2. **Report → Member profile in one click.** The report detail page must show a prominent "Open member profile →" link that navigates to `/admin/members/{target_user_id}` (never a search-by-name).
+
+3. **All moderation actions originate from the member profile.** The report page can offer *shortcuts* (Warn / Suspend / Ban / Remove content) but every such shortcut opens the same confirmation dialog described below.
+
+4. **Confirmation dialog — required for every suspend, ban and hard-delete.** Shows:
+   - Member's **avatar** (fall back to initials if none)
+   - **Full name** (as stored) + **display name** if different
+   - **Member ID** (small, monospaced) — the unique account ID
+   - **Email address**
+   - **Join date** and **last active** timestamp
+   - **Any current restriction flags** (banned, suspended-until, flagged-for-review, profile-hidden)
+   - The intended action, in plain English ("You are about to **suspend Jane Doe for 24 hours**")
+   - A **reason** input (required for suspend/ban)
+   - Two-step confirmation: primary button starts disabled until the admin has read the identifiers, then a second click actually fires the API call
+   - Cancel is the default and always available
+
+5. **Warn is single-step but still shows the identity card** — no confirmation gate, but the same identity block renders in the compose panel so the admin can spot the wrong-person case before they hit Send.
+
+6. **Restore is single-step** — the identity block renders but no reason is required beyond an optional note.
+
+7. **Hard-delete requires typed confirmation** — admin must type the member's Member ID into the confirmation input before the delete button enables. This matches GitHub-style safe deletes.
+
+8. **Every action writes to admin_log** (Slice 0 foundation) with `target_type: "member"`, `target_id: <member id>`, and full reason/before/after metadata.
+
+## What the UI must never do
+
+- ❌ Show a member's name without their avatar+ID within reach
+- ❌ Offer "Ban this user" from a search-result row (only from the profile)
+- ❌ Auto-focus or default the confirmation button (opt-in click required)
+- ❌ Persist an admin's action if the JWT admin doesn't match the `admin_id` field in the body (server already enforces this — MCGS just needs to send it correctly)
+- ❌ Show two members with the same name in a list without their Member ID and join-date visible
+
+## Verified backend fields available for the identity card
+
+From `db.users` — every field already stored today:
+
+```
+id, first_name, last_name, display_name, username, email,
+avatar (or profile_image), created_at, last_active,
+restricted, restricted_reason, restricted_at,
+banned, suspended_until, flagged_for_review,
+profile_hidden, is_admin
+```
+
+Nothing extra needs to be added to the User model. The safeguard is 100% a UI-and-workflow guarantee, enforced in the MCGS shell.
+
+---
+
+# Member Moderation History — preserve & enhance
+
+The mobile app already ships a full moderation-history endpoint. Slice 1 MUST wire this into the MCGS member profile so every moderation decision is made with the member's full history visible on one screen.
+
+## What the current backend already returns (verified)
+
+**`GET /api/admin/users/{user_id}/moderation`** returns a single payload:
+
+| Section | Contents |
+|---|---|
+| `user` | Full member object (avatar, name, ID, email, join date, last active, all restriction flags) — password/attempt fields stripped |
+| `reports` | Every report ever filed against this member, newest first (up to 200) with reporter/target/target_content refs |
+| `warnings` | Informal warnings stored on the user record itself (`user.warnings[]`) |
+| `moderation_log` | Complete action timeline (warn / suspend / ban / restore / note / auto-hide / content-removal / clear-restriction) — each entry enriched with the **acting admin's** name and avatar so "who did this" is instant |
+| `counts` | `reports_total`, `reports_open`, `actions_total` |
+
+Each `moderation_log` entry contains:
+
+```
+{
+  id, user_id, by (admin id | "system"),
+  action, reason, target_type, target_id, report_id,
+  created_at,
+  # for suspensions: duration_hours, until
+  by_user: { id, first_name, username, avatar }   # enriched by the endpoint
+}
+```
+
+**`POST /api/admin/users/{user_id}/notes`** — free-form moderator notes are stored *in the same moderation_log collection* with `action: "note"`. That means the "notes" the user asked about are already threaded chronologically alongside warnings/suspensions/bans — one unified timeline. No separate collection to migrate.
+
+## Slice 1 — Member profile MUST include
+
+The MCGS `/admin/members/[id]` page will hit `GET /api/admin/users/{user_id}/moderation` and render the whole payload as a single scannable page:
+
+1. **Identity card** at the top — everything the safeguard contract above requires (avatar, full name, Member ID, email, join date, last active, active restriction flags).
+2. **"If we're here from a report" banner** — when the profile is opened from a report detail, a sticky pill at the top of the page shows *"Reviewing report R-1234 · Open report"* so the admin never loses context.
+3. **Moderation Summary card** — the "headline" that sits above the timeline so an admin can size up the member in one glance, before diving into detail. Four small stat blocks in one row:
+
+   | Reports | Actions | Notes | Last action |
+   |---|---|---|---|
+   | Total: N<br/>Open: N | Warnings: N<br/>Suspensions: N<br/>Bans: N | Moderator notes: N | Last action label<br/>(relative, e.g. "3 days ago") + absolute date on hover |
+
+   All numbers are derived client-side from the same `GET /api/admin/users/{user_id}/moderation` payload — no extra endpoint, no drift possible. Clicking any stat scopes the timeline filter to match. Zero counts render in muted grey so busy members are visually distinct. Serves as the counts strip too — no separate row.
+
+4. **Unified moderation timeline** — reports and moderation_log merged into a single reverse-chronological feed. Each row shows:
+   - date & time (relative + absolute on hover)
+   - action icon + label (Warned / Suspended 24h / Banned / Restored / Note / Report filed / Content removed)
+   - acting admin's avatar + name (or "System" for automated actions)
+   - reason / note text
+   - link to the source (report card / removed content) when applicable
+   - outcome badge for reports (`warned`, `suspended_24h`, `banned`, `dismissed`)
+5. **Filter chips**: All · Reports · Actions · Notes · Auto-actions
+6. **Add note** — inline compose at the top of the timeline. Uses `POST /api/admin/users/{user_id}/notes`. Appears immediately in the feed.
+7. **Action rail** on the right side — Warn / Suspend / Ban / Restore / Delete buttons. Every one opens the confirmation dialog described in the safeguard contract. `report_id` is automatically forwarded when the profile was opened from a report so the report auto-resolves with the outcome.
+8. **"Ask George about this member"** — pre-composed prompts. George helps admins understand and remain consistent; George never decides:
+   - *Summarise this member's moderation history.*
+   - *Compare this member's previous reports and suggest a proportional action.*
+   - *Are there any patterns in the reports against this member?*
+   - *Is there anything unusual about this member's account activity?*
+   - *Have we treated similar cases consistently?* (fairness lens — compares outcomes across members with comparable report profiles so admins can spot drift or over-correction)
+
+## Enhancements while migrating (do not redesign — layer on)
+
+- **Timeline density toggle** (Compact / Comfortable) — desktop can afford richer rows than mobile.
+- **Keyboard shortcuts** on the profile: `w` warn, `s` suspend, `b` ban, `r` restore, `n` add note, `?` show cheatsheet. Every shortcut still opens the confirmation dialog.
+- **Report ↔ Profile stays in the URL** — visiting `/admin/members/{id}?from=report:R-1234` keeps the report ref sticky through page reloads.
+- **Automatic linking** — when a report references a target content id, the timeline entry becomes a clickable card that expands the removed/hidden content inline for context.
+- **Audit-log crosswalk** — every action taken from this screen writes both to `moderation_log` (existing, for the member's timeline) AND `admin_log` (Slice 0, for the cross-cutting admin activity view). Same event, two lenses.
+
+## Verified — nothing to add on the backend
+
+- `_log_moderation_action()` already writes to `moderation_log` on every warn / suspend / ban / restore / note / clear-restriction / auto-action.
+- `moderation_log` entries are enriched with acting-admin details before they're returned to the UI.
+- The `report_id` field on each moderation_log entry lets the UI cross-link a moderator's action back to the originating report and vice-versa.
+
+Slice 1 will faithfully consume this endpoint. No backend changes needed for the profile timeline. Backend work in Slice 1 is limited to adding search + list endpoints (which don't exist as convenient shapes yet) and the `admin_log` writes on top of the existing `moderation_log` writes.
+
+---
+
 # Appendix — Slice 0 (Foundation) delivered
 
 Completed in the same session as Phase 1 sign-off.
