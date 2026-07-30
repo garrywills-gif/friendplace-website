@@ -315,6 +315,22 @@ profile_hidden, is_admin
 
 Nothing extra needs to be added to the User model. The safeguard is 100% a UI-and-workflow guarantee, enforced in the MCGS shell.
 
+## Member profile = single source of truth (SSOT)
+
+Wherever possible, **moderation actions begin from the member's profile**. No matter how an admin arrives at a member — from a report, search result, members list, audit log, notification, or another Mission Control surface — the workflow always routes through `/admin/members/{id}` before any consequential action.
+
+Concretely:
+
+- **Report detail** offers a big "Open member profile →" button. Inline shortcut buttons (Warn / Suspend / Ban) are cosmetic — clicking them navigates to the profile with the intended action pre-selected in the URL (e.g. `?action=suspend`) and the confirmation dialog opens on arrival, already populated.
+- **Search results** never offer inline action buttons. Each row is a link to the profile.
+- **Members list** never offers inline action buttons. Each row is a link to the profile.
+- **Audit log** entries link back to the profile via the `target_id`.
+- **George's suggestions** that reference a member always deep-link to the profile with the suggested action pre-selected.
+
+Rationale: every moderation decision is made with the identity, moderation summary, timeline and full context in view. There is exactly one screen where a warn / suspend / ban / restore / delete is triggered, and that screen always shows the person you're about to affect.
+
+The member profile is the central hub for everything relating to that member — history, notes, current restrictions, Ask George prompts, and every action button.
+
 ---
 
 # Member Moderation History — preserve & enhance

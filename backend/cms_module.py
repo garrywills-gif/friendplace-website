@@ -1661,6 +1661,380 @@ def build_router(db) -> APIRouter:
         return {"ok": True}
 
     # ==================================================================
+    # MEMBER MANAGEMENT — Slice 1
+    # ==================================================================
+    #
+    # Thin wrappers over the existing mobile-admin data model. Both
+    # collections are shared: `users`, `reports`, `moderation_log`,
+    # `notifications`. Every write path also lands an entry in
+    # `admin_log` via services.audit.log_admin_action() so the
+    # cross-cutting audit view (Slice 0) sees everything.
+    #
+    # Auth: `current_cms_admin` from the CMS JWT. We do NOT require the
+    # actor to be flagged as a mobile-admin — anyone with CMS access is
+    # a moderator. All actions key off the target's unique Member ID.
+
+    from services import audit as _audit  # local import
+    from datetime import datetime, timedelta, timezone
+
+    def _iso_now() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _actor_id(admin: dict) -> str:
+        # Prefer the CMS admin id, but log the email so mobile-audit
+        # trails can identify the actor even if CMS admins are separate.
+        return f"cms:{admin.get('id') or admin.get('email')}"
+
+    async def _log_member_action(
+        admin: dict, user_id: str, action: str, reason: str = "",
+        report_id: Optional[str] = None, extra: Optional[dict] = None,
+    ) -> None:
+        # 1. Per-member timeline (existing collection used by mobile).
+        entry = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "by": _actor_id(admin),
+            "action": action,
+            "reason": reason or "",
+            "report_id": report_id,
+            "created_at": _iso_now(),
+            **(extra or {}),
+        }
+        try:
+            await db.moderation_log.insert_one(entry)
+        except Exception:
+            pass
+        # 2. Cross-cutting admin_log (Slice 0).
+        await _audit.log_admin_action(
+            db, admin=admin, action=f"member.{action}",
+            target_type="member", target_id=user_id, reason=reason,
+            metadata={"report_id": report_id, **(extra or {})},
+        )
+
+    def _project_member_row(u: dict) -> dict:
+        """Trim a user doc to fields safe & useful for admin lists."""
+        return {
+            "id": u.get("id"),
+            "first_name": u.get("first_name"),
+            "last_name": u.get("last_name"),
+            "display_name": u.get("display_name"),
+            "username": u.get("username"),
+            "email": u.get("email"),
+            "avatar": u.get("avatar") or u.get("profile_image"),
+            "created_at": u.get("created_at"),
+            "last_active": u.get("last_active"),
+            "restricted": bool(u.get("restricted")),
+            "banned": bool(u.get("banned")),
+            "suspended_until": u.get("suspended_until"),
+            "restricted_reason": u.get("restricted_reason"),
+            "flagged_for_review": bool(u.get("flagged_for_review")),
+            "profile_hidden": bool(u.get("profile_hidden")),
+            "is_admin": bool(u.get("is_admin")),
+            "is_demo": bool(u.get("is_demo")),
+            "is_founding": bool(u.get("is_founding_member") or u.get("founding_member")),
+        }
+
+    @router.get("/members")
+    async def list_members(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+        q: Optional[str] = None,
+        status: Optional[str] = None,  # banned|suspended|restricted|founding|demo|admin
+        limit: int = 50,
+        skip: int = 0,
+    ):
+        """Search + filter list. `q` matches name, email, username or id (case-insensitive)."""
+        mongo_q: dict = {}
+        if status == "banned":
+            mongo_q["banned"] = True
+        elif status == "suspended":
+            mongo_q["suspended_until"] = {"$exists": True, "$ne": None}
+        elif status == "restricted":
+            mongo_q["restricted"] = True
+        elif status == "founding":
+            mongo_q["$or"] = [
+                {"is_founding_member": True},
+                {"founding_member": True},
+            ]
+        elif status == "demo":
+            mongo_q["is_demo"] = True
+        elif status == "admin":
+            mongo_q["is_admin"] = True
+
+        if q:
+            needle = q.strip()
+            if needle:
+                # Escape special regex chars in user input.
+                import re as _re
+                esc = _re.escape(needle)
+                rx = {"$regex": esc, "$options": "i"}
+                or_terms = [
+                    {"first_name": rx}, {"last_name": rx}, {"display_name": rx},
+                    {"username": rx}, {"email": rx}, {"id": needle},
+                ]
+                # Merge with any existing $or from status filter.
+                if "$or" in mongo_q:
+                    mongo_q = {"$and": [mongo_q, {"$or": or_terms}]}
+                else:
+                    mongo_q["$or"] = or_terms
+
+        total = await db.users.count_documents(mongo_q)
+        cursor = (
+            db.users.find(mongo_q, {"_id": 0, "password_hash": 0})
+            .sort("created_at", -1)
+            .skip(max(0, int(skip)))
+            .limit(max(1, min(int(limit), 200)))
+        )
+        rows = [_project_member_row(u) async for u in cursor]
+        return {"items": rows, "total": total, "limit": limit, "skip": skip}
+
+    @router.get("/members/{user_id}")
+    async def get_member(user_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Full profile payload — user + reports + warnings + moderation_log + counts.
+
+        Same shape as the existing mobile endpoint
+        `GET /api/admin/users/{user_id}/moderation` so the desktop UI
+        can consume the exact same data model without duplication.
+        """
+        user = await db.users.find_one(
+            {"id": user_id},
+            {"_id": 0, "password_hash": 0, "failed_login_attempts": 0,
+             "lockout_until": 0, "suburb_lat": 0, "suburb_lng": 0},
+        )
+        if not user:
+            raise HTTPException(404, "Member not found")
+
+        reports = await db.reports.find(
+            {"target_user_id": user_id}, {"_id": 0},
+        ).sort("created_at", -1).to_list(200)
+
+        log_rows = await db.moderation_log.find(
+            {"user_id": user_id}, {"_id": 0},
+        ).sort("created_at", -1).to_list(200)
+
+        # Enrich actions with the acting admin's display info.
+        actor_ids: set[str] = set()
+        for e in log_rows:
+            by = e.get("by")
+            if not by or by == "system":
+                continue
+            actor_ids.add(by[4:] if by.startswith("cms:") else by)
+        actor_map: dict = {}
+        if actor_ids:
+            async for a in db.users.find(
+                {"id": {"$in": list(actor_ids)}},
+                {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1},
+            ):
+                actor_map[a["id"]] = a
+            async for a in db.cms_admins.find(
+                {"$or": [
+                    {"id": {"$in": list(actor_ids)}},
+                    {"email": {"$in": list(actor_ids)}},
+                ]},
+                {"_id": 0, "id": 1, "email": 1, "display_name": 1},
+            ):
+                actor_map[a.get("id") or a.get("email")] = {
+                    "id": a.get("id"),
+                    "display_name": a.get("display_name") or a.get("email"),
+                    "email": a.get("email"),
+                    "avatar": None,
+                }
+        for e in log_rows:
+            by = e.get("by") or ""
+            key = by[4:] if by.startswith("cms:") else by
+            if key and key != "system":
+                e["by_user"] = actor_map.get(key)
+
+        # Denormalised counts for the Moderation Summary card.
+        counts = {
+            "reports_total": len(reports),
+            "reports_open": sum(1 for r in reports if r.get("status") in ("new", "reviewing")),
+            "warnings": sum(1 for e in log_rows if e.get("action") == "warn"),
+            "suspensions": sum(1 for e in log_rows if e.get("action") == "suspend"),
+            "bans": sum(1 for e in log_rows if e.get("action") == "ban"),
+            "notes": sum(1 for e in log_rows if e.get("action") == "note"),
+            "actions_total": len(log_rows),
+            "last_action_at": log_rows[0].get("created_at") if log_rows else None,
+            "last_action": log_rows[0].get("action") if log_rows else None,
+        }
+        return {
+            "user": user,
+            "reports": reports,
+            "warnings": user.get("warnings", []),
+            "moderation_log": log_rows,
+            "counts": counts,
+        }
+
+    # ---- Moderation action bodies ----
+    class _MemberActionBody(BaseModel):
+        reason: str = ""
+        report_id: Optional[str] = None
+
+    class _SuspendBody(_MemberActionBody):
+        duration_hours: int = 24
+
+    class _NoteBody(BaseModel):
+        note: str
+
+    class _DeleteBody(BaseModel):
+        confirm_member_id: str  # must equal path user_id — GitHub-style safe delete
+        reason: str = ""
+
+    @router.post("/members/{user_id}/notes")
+    async def add_member_note(
+        user_id: str, body: _NoteBody,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        note = (body.note or "").strip()
+        if not note:
+            raise HTTPException(400, "Note cannot be empty")
+        await db.users.update_one({"id": user_id}, {"$set": {}})  # touch to error-out on missing
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+        if not u:
+            raise HTTPException(404, "Member not found")
+        await _log_member_action(admin, user_id, "note", reason=note)
+        return {"ok": True}
+
+    @router.post("/members/{user_id}/actions/warn")
+    async def warn_member(
+        user_id: str, body: _MemberActionBody,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+        if not u:
+            raise HTTPException(404, "Member not found")
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()), "user_id": user_id,
+            "type": "moderation_warning",
+            "title": "You have received a warning",
+            "body": body.reason or "Please review our community guidelines.",
+            "read": False, "created_at": _iso_now(),
+        })
+        if body.report_id:
+            await db.reports.update_one(
+                {"id": body.report_id},
+                {"$set": {"status": "resolved", "outcome": "warned",
+                          "admin_note": body.reason, "updated_at": _iso_now()}},
+            )
+        await _log_member_action(admin, user_id, "warn",
+                                 reason=body.reason, report_id=body.report_id)
+        return {"ok": True}
+
+    @router.post("/members/{user_id}/actions/suspend")
+    async def suspend_member(
+        user_id: str, body: _SuspendBody,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+        if not u:
+            raise HTTPException(404, "Member not found")
+        hours = max(1, int(body.duration_hours or 24))
+        until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "restricted": True,
+                "suspended_until": until,
+                "restricted_reason": body.reason or "Suspended by admin",
+                "restricted_at": _iso_now(),
+            }},
+        )
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()), "user_id": user_id,
+            "type": "moderation_suspension",
+            "title": "Your account has been suspended",
+            "body": f"Reason: {body.reason or 'See community guidelines'}. Lifted at {until}.",
+            "read": False, "created_at": _iso_now(),
+        })
+        if body.report_id:
+            await db.reports.update_one(
+                {"id": body.report_id},
+                {"$set": {"status": "resolved", "outcome": f"suspended_{hours}h",
+                          "admin_note": body.reason, "updated_at": _iso_now()}},
+            )
+        await _log_member_action(
+            admin, user_id, "suspend", reason=body.reason,
+            report_id=body.report_id,
+            extra={"duration_hours": hours, "until": until},
+        )
+        return {"ok": True, "suspended_until": until}
+
+    @router.post("/members/{user_id}/actions/ban")
+    async def ban_member(
+        user_id: str, body: _MemberActionBody,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+        if not u:
+            raise HTTPException(404, "Member not found")
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "banned": True, "restricted": True,
+                "restricted_reason": body.reason or "Banned by admin",
+                "restricted_at": _iso_now(),
+            }},
+        )
+        if body.report_id:
+            await db.reports.update_one(
+                {"id": body.report_id},
+                {"$set": {"status": "resolved", "outcome": "banned",
+                          "admin_note": body.reason, "updated_at": _iso_now()}},
+            )
+        await _log_member_action(admin, user_id, "ban",
+                                 reason=body.reason, report_id=body.report_id)
+        return {"ok": True}
+
+    @router.post("/members/{user_id}/actions/restore")
+    async def restore_member(
+        user_id: str, body: _MemberActionBody,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+        if not u:
+            raise HTTPException(404, "Member not found")
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "restricted": False, "banned": False,
+                "suspended_until": None, "restricted_reason": "",
+                "profile_hidden": False, "flagged_for_review": False,
+            },
+             "$unset": {"restricted_at": "", "profile_hidden_at": "",
+                        "profile_hidden_reason": "", "flagged_at": "",
+                        "flagged_reason": ""}},
+        )
+        await db.notices.update_many(
+            {"user_id": user_id}, {"$set": {"auto_hidden": False}},
+        )
+        await _log_member_action(admin, user_id, "restore", reason=body.reason)
+        return {"ok": True}
+
+    @router.post("/members/{user_id}/actions/delete")
+    async def delete_member(
+        user_id: str, body: _DeleteBody,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
+        if not u:
+            raise HTTPException(404, "Member not found")
+        # GitHub-style safety gate — admin must have typed the Member ID.
+        if (body.confirm_member_id or "").strip() != user_id:
+            raise HTTPException(400, "Member ID confirmation does not match")
+        # Log FIRST so the audit trail survives the delete.
+        await _log_member_action(
+            admin, user_id, "delete",
+            reason=body.reason or "Hard delete (right-to-erasure)",
+        )
+        # Anonymise historical reports so the audit chain survives.
+        await db.reports.update_many(
+            {"target_user_id": user_id},
+            {"$set": {"target_user_id": "[deleted]"}},
+        )
+        await db.reports.delete_many({"reporter_id": user_id})
+        await db.users.delete_one({"id": user_id})
+        return {"ok": True}
+
+    # ==================================================================
     # ADMIN AUDIT LOG (Slice 0)
     # ==================================================================
     # Read-only endpoints backing /admin/audit-log. Every consequential

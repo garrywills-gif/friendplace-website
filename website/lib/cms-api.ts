@@ -193,6 +193,102 @@ export const cmsApi = {
   },
   auditLogActions: () =>
     req<{ actions: string[] }>('GET', '/cms/admin-log/actions'),
+
+  // Member management (Slice 1)
+  listMembers: (opts?: { q?: string; status?: string; limit?: number; skip?: number }) => {
+    const p = new URLSearchParams();
+    if (opts?.q) p.set('q', opts.q);
+    if (opts?.status) p.set('status', opts.status);
+    if (opts?.limit != null) p.set('limit', String(opts.limit));
+    if (opts?.skip != null) p.set('skip', String(opts.skip));
+    const qs = p.toString();
+    return req<{ items: MemberRow[]; total: number; limit: number; skip: number }>(
+      'GET', `/cms/members${qs ? `?${qs}` : ''}`,
+    );
+  },
+  getMember: (id: string) =>
+    req<MemberProfile>('GET', `/cms/members/${encodeURIComponent(id)}`),
+  addMemberNote: (id: string, note: string) =>
+    req<{ ok: true }>('POST', `/cms/members/${encodeURIComponent(id)}/notes`, { note }),
+  warnMember: (id: string, body: { reason: string; report_id?: string }) =>
+    req<{ ok: true }>('POST', `/cms/members/${encodeURIComponent(id)}/actions/warn`, body),
+  suspendMember: (id: string, body: { reason: string; duration_hours: number; report_id?: string }) =>
+    req<{ ok: true; suspended_until: string }>('POST', `/cms/members/${encodeURIComponent(id)}/actions/suspend`, body),
+  banMember: (id: string, body: { reason: string; report_id?: string }) =>
+    req<{ ok: true }>('POST', `/cms/members/${encodeURIComponent(id)}/actions/ban`, body),
+  restoreMember: (id: string, body: { reason: string }) =>
+    req<{ ok: true }>('POST', `/cms/members/${encodeURIComponent(id)}/actions/restore`, body),
+  deleteMember: (id: string, body: { confirm_member_id: string; reason: string }) =>
+    req<{ ok: true }>('POST', `/cms/members/${encodeURIComponent(id)}/actions/delete`, body),
+};
+
+export type MemberRow = {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  display_name?: string;
+  username?: string;
+  email?: string;
+  avatar?: string;
+  created_at?: string;
+  last_active?: string;
+  restricted?: boolean;
+  banned?: boolean;
+  suspended_until?: string | null;
+  restricted_reason?: string;
+  flagged_for_review?: boolean;
+  profile_hidden?: boolean;
+  is_admin?: boolean;
+  is_demo?: boolean;
+  is_founding?: boolean;
+};
+
+export type MemberModerationLogEntry = {
+  id: string;
+  user_id: string;
+  by: string;
+  action: string;
+  reason?: string;
+  report_id?: string;
+  created_at: string;
+  duration_hours?: number;
+  until?: string;
+  target_type?: string;
+  target_id?: string;
+  by_user?: { id?: string; display_name?: string; first_name?: string; username?: string; avatar?: string | null; email?: string };
+};
+
+export type MemberReport = {
+  id: string;
+  reporter_id?: string;
+  target_user_id?: string;
+  target_type?: string;
+  target_id?: string;
+  reason?: string;
+  status?: string;
+  urgent?: boolean;
+  outcome?: string;
+  admin_note?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type MemberProfile = {
+  user: MemberRow & Record<string, any>;
+  reports: MemberReport[];
+  warnings: any[];
+  moderation_log: MemberModerationLogEntry[];
+  counts: {
+    reports_total: number;
+    reports_open: number;
+    warnings: number;
+    suspensions: number;
+    bans: number;
+    notes: number;
+    actions_total: number;
+    last_action_at: string | null;
+    last_action: string | null;
+  };
 };
 
 export type AuditLogEntry = {
