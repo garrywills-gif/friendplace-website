@@ -1,13 +1,30 @@
-"""Generate two FriendPlace flyer mockups (V1 designs) for review.
+"""FriendPlace flyer artwork — V2 designs (user-approved).
 
-Flyer 1 — Founding Members (Pre-launch)  → drives people to friendplace.com.au
-Flyer 2 — Download the App (Launch)      → drives App Store + Play Store downloads
+Two campaigns, single-purpose each:
 
-Both are A4 portrait 1240×1754 @ 150 dpi PNGs, saved to
-/app/website/public/flyer-mockups/ so the user can preview them via the
-Next.js dev server at:
-    https://<preview>/flyer-mockups/founding.png
-    https://<preview>/flyer-mockups/download.png
+  Flyer 1 — Founding Members (Pre-launch)  → drives friendplace.com.au sign-ups
+  Flyer 2 — Download the App (Launch)      → drives App Store + Play Store
+
+Both flyers ship as five deliverables each, saved to
+`/app/website/public/flyer-mockups/` for preview:
+
+  <name>-a4.png        1240 × 1754   A4 portrait, 150 dpi   digital preview
+  <name>-a4-hires.png  2480 × 3508   A4 portrait, 300 dpi   print PNG
+  <name>-a3-hires.png  3508 × 4960   A3 portrait, 300 dpi   large-format print
+  <name>-a4.pdf        A4 portrait, 300 dpi                 printable PDF
+  <name>-a3.pdf        A3 portrait, 300 dpi                 printable PDF
+  <name>-social.png    1080 × 1080   square, 72 dpi         Instagram / FB
+
+Design system (single source of truth for both flyers):
+
+  Palette   #0B1F45 header · #7DB1FF "Place" · #0F3D6E navy ink · #0F766E teal
+            #FBBF24 gold ribbon · #7C5300 gold ink · #475569 slate body
+  Type      DejaVu Sans / Liberation Sans (whichever the host has)
+  Slogan    "Because you belong too."           (teal, italic)
+  Mission   "Helping Australians build genuine friendships and
+             stronger local communities."      (slate, small)
+  Grid      All pixel constants scale with `scale` so the same
+            layout can render natively at any DPI.
 
 Run:
     cd /app/backend && python scripts/render_flyer_previews.py
@@ -25,29 +42,25 @@ BUTTERFLY_PATH = ROOT / "assets" / "friendplace-app-icon-v5.png"
 OUT_DIR = Path("/app/website/public/flyer-mockups")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# A4 portrait @ 150 dpi
-W, H = 1240, 1754
+# Brand palette
+NAVY_HEADER = "#0B1F45"
+NAVY_INK = "#0F3D6E"
+TEAL = "#0F766E"
+INK = "#0F172A"
+SLATE = "#475569"
+MUTED = "#B7C7E5"
+SKY = "#7DB1FF"
+GOLD = "#FBBF24"
+GOLD_DARK = "#7C5300"
+CREAM = "#FEFCF8"
 
-# Brand palette (verified against BrandMasthead + PUBLIC_EXPERIENCE_PRINCIPLES)
-NAVY_HEADER = "#0B1F45"      # banner background
-NAVY_INK = "#0F3D6E"         # headlines
-TEAL = "#0F766E"             # slogan
-INK = "#0F172A"              # body copy
-SLATE = "#475569"            # secondary copy
-MUTED = "#B7C7E5"            # header contact strip
-SKY = "#7DB1FF"              # "Place" in wordmark
-GOLD = "#FBBF24"             # Founding Member ribbon
-GOLD_DARK = "#7C5300"        # ribbon text
-CREAM = "#FEFCF8"            # subtle background
-DARK_CTA_BG = "#0A2540"      # download flyer footer
-
-SIDE = 90  # generous side margins — safer than 100 to avoid crop
-BANNER_H = 380  # slightly taller so the logo can grow ~10%
+MISSION_LINE = ("Helping Australians build genuine friendships "
+                "and stronger local communities.")
 
 
-# ─── font resolution (same graceful fallback as server.py) ───────────
-def font(size: int, bold: bool = True, italic: bool = False,
-         condensed: bool = False) -> ImageFont.FreeTypeFont:
+# ─── font resolution ─────────────────────────────────────────────────
+def _font(size: int, bold: bool = True, italic: bool = False,
+          condensed: bool = False) -> ImageFont.FreeTypeFont:
     bases: list[str] = []
     if condensed:
         if bold and italic:
@@ -97,113 +110,98 @@ def font(size: int, bold: bool = True, italic: bool = False,
     return ImageFont.load_default()
 
 
-# ─── drawing helpers ─────────────────────────────────────────────────
-def draw_banner(d: ImageDraw.ImageDraw, img: Image.Image) -> int:
-    """Navy branded banner across the top. Returns text_left for use by
-    the wordmark. Butterfly logo enlarged by ~15% per user request."""
-    d.rectangle([0, 0, W, BANNER_H], fill=NAVY_HEADER)
+class Canvas:
+    """Wrapper around a PIL Image that scales every dimension by `s`.
 
-    text_left = SIDE
-    try:
-        butterfly = Image.open(BUTTERFLY_PATH).convert("RGBA")
-        # Logo occupies ~82% of banner height (was ~72% → ~15% larger)
-        bfy_h = int(BANNER_H * 0.82)
-        bfy_scale = bfy_h / butterfly.height
-        bfy_w = int(butterfly.width * bfy_scale)
-        butterfly = butterfly.resize((bfy_w, bfy_h), Image.LANCZOS)
-        bfy_x = SIDE - 30
-        bfy_y = (BANNER_H - bfy_h) // 2
-        img.paste(butterfly, (bfy_x, bfy_y), butterfly)
-        text_left = bfy_x + bfy_w + 30
-    except Exception:
-        pass
+    Rendering functions declare all sizes in the baseline 1240×1754 units;
+    the canvas multiplies them by `s` at draw time. That way A4-150dpi
+    (s=1) and A4-300dpi (s=2) produce identical layouts, just at
+    different pixel densities."""
 
-    # Wordmark: "Friend" (white) + "Place" (sky) — auto-fit width
-    wm_max_w = W - SIDE - text_left
-    wm_size = 132
-    while wm_size > 80:
-        f_wm = font(wm_size, bold=True)
-        b = d.textbbox((0, 0), "FriendPlace", font=f_wm)
-        if (b[2] - b[0]) <= wm_max_w:
-            break
-        wm_size -= 4
-    f_wm = font(wm_size, bold=True)
-    wm_y = 52
-    friend_bbox = d.textbbox((0, 0), "Friend", font=f_wm)
-    friend_w = friend_bbox[2] - friend_bbox[0]
-    d.text((text_left, wm_y), "Friend", font=f_wm, fill="#FFFFFF")
-    d.text((text_left + friend_w, wm_y), "Place", font=f_wm, fill=SKY)
-    wm_bottom = wm_y + (friend_bbox[3] - friend_bbox[1])
+    def __init__(self, base_w: int, base_h: int, scale: float,
+                 bg: str = "#FFFFFF"):
+        self.s = scale
+        self.base_w = base_w
+        self.base_h = base_h
+        self.W = int(base_w * scale)
+        self.H = int(base_h * scale)
+        self.img = Image.new("RGB", (self.W, self.H), bg)
+        self.d = ImageDraw.Draw(self.img)
 
-    # Tagline under the wordmark
-    f_tag = font(42, bold=True)
-    d.text((text_left, wm_bottom + 14), "Because you belong too.",
-           font=f_tag, fill="#FFFFFF")
+    def px(self, v: float) -> int:
+        return int(v * self.s)
 
-    # Contact strip
-    div_y = BANNER_H - 80
-    d.line([(text_left, div_y), (W - SIDE, div_y)], fill="#22336D", width=2)
-    f_contact = font(28, bold=False)
-    d.text((text_left, div_y + 22), "hello@friendplace.com.au",
-           font=f_contact, fill=MUTED)
-    email_w = d.textbbox((0, 0), "hello@friendplace.com.au", font=f_contact)[2]
-    sep_x = text_left + email_w + 22
-    d.text((sep_x, div_y + 22), "·", font=f_contact, fill=MUTED)
-    d.text((sep_x + 22, div_y + 22), "www.friendplace.com.au",
-           font=f_contact, fill=MUTED)
+    def font(self, size: int, **kwargs) -> ImageFont.FreeTypeFont:
+        return _font(self.px(size), **kwargs)
 
-    return BANNER_H
+    def text_w(self, text: str, fnt: ImageFont.FreeTypeFont) -> int:
+        b = self.d.textbbox((0, 0), text, font=fnt)
+        return b[2] - b[0]
 
+    def text_h(self, text: str, fnt: ImageFont.FreeTypeFont) -> int:
+        b = self.d.textbbox((0, 0), text, font=fnt)
+        return b[3] - b[1]
 
-def fit_headline(d: ImageDraw.ImageDraw, text: str, y: int,
-                 max_w: int, start_size: int, min_size: int,
-                 fill: str, condensed: bool = True) -> int:
-    """Draw a big centred headline that auto-shrinks to fit max_w.
-    Uses a 4-px step for finer resolution. Returns bottom_y."""
-    size = start_size
-    while size > min_size:
-        f = font(size, bold=True, condensed=condensed)
-        b = d.textbbox((0, 0), text, font=f)
-        if (b[2] - b[0]) <= max_w:
-            break
-        size -= 4
-    f = font(size, bold=True, condensed=condensed)
-    b = d.textbbox((0, 0), text, font=f)
-    d.text(((W - (b[2] - b[0])) / 2, y), text, font=f, fill=fill)
-    return y + (b[3] - b[1])
+    def centre(self, text: str, y: int, fnt: ImageFont.FreeTypeFont,
+               fill: str) -> int:
+        b = self.d.textbbox((0, 0), text, font=fnt)
+        self.d.text(((self.W - (b[2] - b[0])) / 2, self.px(y)),
+                    text, font=fnt, fill=fill)
+        return y + (b[3] - b[1]) / self.s
 
+    def fit_headline(self, text: str, y: int, max_w: int,
+                     start_size: int, min_size: int, fill: str,
+                     condensed: bool = True, bold: bool = True) -> int:
+        size = start_size
+        while size > min_size:
+            f = self.font(size, bold=bold, condensed=condensed)
+            if self.text_w(text, f) <= self.px(max_w):
+                break
+            size -= 4
+        f = self.font(size, bold=bold, condensed=condensed)
+        b = self.d.textbbox((0, 0), text, font=f)
+        self.d.text(((self.W - (b[2] - b[0])) / 2, self.px(y)),
+                    text, font=f, fill=fill)
+        return y + (b[3] - b[1]) / self.s
 
-def draw_centre(d: ImageDraw.ImageDraw, text: str, y: int,
-                fnt: ImageFont.FreeTypeFont, fill: str) -> int:
-    b = d.textbbox((0, 0), text, font=fnt)
-    d.text(((W - (b[2] - b[0])) / 2, y), text, font=fnt, fill=fill)
-    return y + (b[3] - b[1])
+    def wrap_centre(self, text: str, y: int, fnt: ImageFont.FreeTypeFont,
+                    fill: str, max_w: int, line_gap: int = 10) -> int:
+        words = text.split()
+        lines: list[str] = []
+        cur = ""
+        for w_ in words:
+            cand = (cur + " " + w_).strip()
+            if self.text_w(cand, fnt) <= self.px(max_w):
+                cur = cand
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = w_
+        if cur:
+            lines.append(cur)
+        cur_y = y
+        for line in lines:
+            b = self.d.textbbox((0, 0), line, font=fnt)
+            self.d.text(((self.W - (b[2] - b[0])) / 2, self.px(cur_y)),
+                        line, font=fnt, fill=fill)
+            cur_y += (b[3] - b[1]) / self.s + line_gap
+        return cur_y
 
+    def rectangle(self, box, **kwargs):
+        b = [self.px(v) for v in box]
+        self.d.rectangle(b, **kwargs)
 
-def wrap_centre(d: ImageDraw.ImageDraw, text: str, y: int,
-                fnt: ImageFont.FreeTypeFont, fill: str,
-                max_w: int, line_gap: int = 10) -> int:
-    words = text.split()
-    lines: list[str] = []
-    cur = ""
-    for w_ in words:
-        cand = (cur + " " + w_).strip()
-        if d.textbbox((0, 0), cand, font=fnt)[2] <= max_w:
-            cur = cand
-        else:
-            if cur:
-                lines.append(cur)
-            cur = w_
-    if cur:
-        lines.append(cur)
-    for line in lines:
-        b = d.textbbox((0, 0), line, font=fnt)
-        d.text(((W - (b[2] - b[0])) / 2, y), line, font=fnt, fill=fill)
-        y += (b[3] - b[1]) + line_gap
-    return y
+    def rounded_rectangle(self, box, radius: int, **kwargs):
+        b = [self.px(v) for v in box]
+        self.d.rounded_rectangle(b, radius=self.px(radius), **kwargs)
+
+    def line(self, pts, **kwargs):
+        p = [self.px(v) for v in pts]
+        w = kwargs.pop("width", 1)
+        self.d.line(p, width=self.px(w), **kwargs)
 
 
-def make_qr(url: str, size: int) -> Image.Image:
+def _make_qr(url: str, size_px: int) -> Image.Image:
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -212,221 +210,521 @@ def make_qr(url: str, size: int) -> Image.Image:
     qr.add_data(url)
     qr.make(fit=True)
     q = qr.make_image(fill_color=INK, back_color="#FFFFFF").convert("RGB")
-    return q.resize((size, size), Image.LANCZOS)
+    return q.resize((size_px, size_px), Image.LANCZOS)
 
 
-def draw_butterfly_glyph(d: ImageDraw.ImageDraw, cx: int, cy: int,
-                         span: int, ink: str, accent: str) -> None:
-    """Hand-drawn butterfly (Liberation Sans has no 🦋 glyph)."""
-    w = span // 2
+def _paste_qr(c: Canvas, url: str, size: int, x: int, y: int,
+              frame_w: int = 4) -> None:
+    q = _make_qr(url, c.px(size))
+    c.img.paste(q, (c.px(x), c.px(y)))
+    c.rectangle([x - 14, y - 14, x + size + 14, y + size + 14],
+                outline=NAVY_INK, width=frame_w)
+
+
+def _draw_butterfly(c: Canvas, cx: int, cy: int, span: int,
+                    ink: str, accent: str) -> None:
+    """Small stylised butterfly rendered with Pillow primitives."""
+    s = c.s
+    d = c.d
+    cx_px, cy_px = c.px(cx), c.px(cy)
+    span_px = c.px(span)
+    w = span_px // 2
     upper_w, upper_h = int(w * 0.95), int(w * 0.85)
-    d.ellipse([cx - upper_w - 2, cy - upper_h, cx - 2, cy + upper_h // 6],
-              fill=ink, outline=accent, width=2)
-    d.ellipse([cx + 2, cy - upper_h, cx + upper_w + 2, cy + upper_h // 6],
-              fill=ink, outline=accent, width=2)
+    d.ellipse([cx_px - upper_w - 2, cy_px - upper_h,
+               cx_px - 2, cy_px + upper_h // 6],
+              fill=ink, outline=accent, width=max(2, int(2 * s)))
+    d.ellipse([cx_px + 2, cy_px - upper_h,
+               cx_px + upper_w + 2, cy_px + upper_h // 6],
+              fill=ink, outline=accent, width=max(2, int(2 * s)))
     lower_w, lower_h = int(w * 0.6), int(w * 0.55)
-    d.ellipse([cx - lower_w - 2, cy - 4, cx - 2, cy + lower_h * 2],
-              fill=ink, outline=accent, width=2)
-    d.ellipse([cx + 2, cy - 4, cx + lower_w + 2, cy + lower_h * 2],
-              fill=ink, outline=accent, width=2)
+    d.ellipse([cx_px - lower_w - 2, cy_px - 4,
+               cx_px - 2, cy_px + lower_h * 2],
+              fill=ink, outline=accent, width=max(2, int(2 * s)))
+    d.ellipse([cx_px + 2, cy_px - 4,
+               cx_px + lower_w + 2, cy_px + lower_h * 2],
+              fill=ink, outline=accent, width=max(2, int(2 * s)))
     body_h = int(w * 1.05)
-    d.rounded_rectangle([cx - 4, cy - body_h // 2, cx + 4, cy + body_h // 2],
-                        radius=4, fill=accent)
-    d.line([cx - 3, cy - body_h // 2, cx - 12, cy - body_h // 2 - 16],
-           fill=accent, width=3)
-    d.line([cx + 3, cy - body_h // 2, cx + 12, cy - body_h // 2 - 16],
-           fill=accent, width=3)
-    d.ellipse([cx - upper_w + 8, cy - upper_h // 2 - 4,
-               cx - upper_w + 22, cy - upper_h // 2 + 10], fill=accent)
-    d.ellipse([cx + upper_w - 22, cy - upper_h // 2 - 4,
-               cx + upper_w - 8, cy - upper_h // 2 + 10], fill=accent)
+    d.rounded_rectangle([cx_px - 4, cy_px - body_h // 2,
+                         cx_px + 4, cy_px + body_h // 2],
+                        radius=max(2, int(4 * s)), fill=accent)
+    d.line([cx_px - 3, cy_px - body_h // 2,
+            cx_px - 12, cy_px - body_h // 2 - 16],
+           fill=accent, width=max(2, int(3 * s)))
+    d.line([cx_px + 3, cy_px - body_h // 2,
+            cx_px + 12, cy_px - body_h // 2 - 16],
+           fill=accent, width=max(2, int(3 * s)))
+    d.ellipse([cx_px - upper_w + 8, cy_px - upper_h // 2 - 4,
+               cx_px - upper_w + 22, cy_px - upper_h // 2 + 10], fill=accent)
+    d.ellipse([cx_px + upper_w - 22, cy_px - upper_h // 2 - 4,
+               cx_px + upper_w - 8, cy_px - upper_h // 2 + 10], fill=accent)
 
 
-# ─── FLYER 1 — Founding Members (Pre-launch) ─────────────────────────
-def render_founding() -> Image.Image:
-    img = Image.new("RGB", (W, H), "#FFFFFF")
-    d = ImageDraw.Draw(img)
+# ─── shared banner drawn on both flyers ──────────────────────────────
+BANNER_H = 380
+SIDE = 90
 
-    # 1. Banner
-    banner_bottom = draw_banner(d, img)
 
-    # 2. Headline — SAFE margins, capped size to prevent overflow.
-    # "FIND YOUR PEOPLE" at 168pt condensed fits ~980px; we allow 1060px.
-    head_y = banner_bottom + 40
-    fit_headline(d, "FIND YOUR PEOPLE", head_y,
-                 max_w=W - 2 * SIDE, start_size=168, min_size=110,
-                 fill=NAVY_INK)
+def _draw_banner(c: Canvas) -> int:
+    c.rectangle([0, 0, c.base_w, BANNER_H], fill=NAVY_HEADER)
 
-    # 3. Sub-headline
+    text_left = SIDE
+    try:
+        butterfly = Image.open(BUTTERFLY_PATH).convert("RGBA")
+        bfy_h = c.px(int(BANNER_H * 0.82))
+        bfy_scale = bfy_h / butterfly.height
+        bfy_w = int(butterfly.width * bfy_scale)
+        butterfly = butterfly.resize((bfy_w, bfy_h), Image.LANCZOS)
+        bfy_x = c.px(SIDE - 30)
+        bfy_y = c.px(BANNER_H) // 2 - bfy_h // 2
+        c.img.paste(butterfly, (bfy_x, bfy_y), butterfly)
+        text_left = (bfy_x + bfy_w) / c.s + 30
+    except Exception:
+        pass
+
+    wm_max_w = c.base_w - SIDE - text_left
+    wm_size = 132
+    while wm_size > 80:
+        f_wm = c.font(wm_size, bold=True)
+        if c.text_w("FriendPlace", f_wm) <= c.px(wm_max_w):
+            break
+        wm_size -= 4
+    f_wm = c.font(wm_size, bold=True)
+    wm_y = 52
+    friend_bbox = c.d.textbbox((0, 0), "Friend", font=f_wm)
+    friend_w = friend_bbox[2] - friend_bbox[0]
+    c.d.text((c.px(text_left), c.px(wm_y)), "Friend",
+             font=f_wm, fill="#FFFFFF")
+    c.d.text((c.px(text_left) + friend_w, c.px(wm_y)), "Place",
+             font=f_wm, fill=SKY)
+    wm_bottom = wm_y + (friend_bbox[3] - friend_bbox[1]) / c.s
+
+    f_tag = c.font(42, bold=True)
+    c.d.text((c.px(text_left), c.px(wm_bottom + 14)),
+             "Because you belong too.", font=f_tag, fill="#FFFFFF")
+
+    div_y = BANNER_H - 80
+    c.line([text_left, div_y, c.base_w - SIDE, div_y],
+           fill="#22336D", width=2)
+    f_contact = c.font(28, bold=False)
+    c.d.text((c.px(text_left), c.px(div_y + 22)),
+             "hello@friendplace.com.au", font=f_contact, fill=MUTED)
+    email_w = c.text_w("hello@friendplace.com.au", f_contact)
+    sep_x = text_left + email_w / c.s + 22
+    c.d.text((c.px(sep_x), c.px(div_y + 22)), "·",
+             font=f_contact, fill=MUTED)
+    c.d.text((c.px(sep_x + 22), c.px(div_y + 22)),
+             "www.friendplace.com.au", font=f_contact, fill=MUTED)
+
+    return BANNER_H
+
+
+def _draw_mission_footer(c: Canvas, y: int) -> None:
+    """Small italic mission line + bottom rule. Used on both flyers."""
+    c.line([SIDE + 60, y - 14, c.base_w - SIDE - 60, y - 14],
+           fill="#E2E8F0", width=2)
+    fnt = c.font(22, bold=False, italic=True)
+    c.wrap_centre(MISSION_LINE, y + 6, fnt, SLATE,
+                  max_w=c.base_w - 2 * SIDE - 60, line_gap=6)
+
+
+# ─── FLYER 1 — Founding Members ──────────────────────────────────────
+def render_founding(scale: float = 1.0) -> Image.Image:
+    c = Canvas(1240, 1754, scale)
+    _draw_banner(c)
+
+    # Headline
+    head_y = BANNER_H + 34
+    c.fit_headline("FIND YOUR PEOPLE", head_y,
+                   max_w=1240 - 2 * SIDE,
+                   start_size=168, min_size=110, fill=NAVY_INK)
+
+    # Sub-headline
     sub_y = head_y + 170
-    wrap_centre(d, "Meet new friends, discover local events, join community groups.",
-                sub_y, font(34, bold=False), SLATE,
-                max_w=W - 2 * SIDE - 100, line_gap=10)
+    c.wrap_centre(
+        "Meet new friends, discover local events, join community groups.",
+        sub_y, c.font(32, bold=False), SLATE,
+        max_w=1240 - 2 * SIDE - 100, line_gap=10,
+    )
 
-    # 4. Gold ribbon — "BECOME A FOUNDING MEMBER"
-    RIBBON_Y = sub_y + 105
+    # Gold ribbon with new benefit copy
+    RIBBON_Y = sub_y + 100
     RIBBON_H = 240
-    d.rounded_rectangle([SIDE - 30, RIBBON_Y, W - SIDE + 30,
+    c.rounded_rectangle([SIDE - 30, RIBBON_Y, 1240 - SIDE + 30,
                          RIBBON_Y + RIBBON_H],
-                        radius=28, fill=GOLD,
-                        outline=GOLD_DARK, width=5)
+                        radius=28, fill=GOLD, outline=GOLD_DARK, width=5)
 
-    # Butterfly + lead line
+    # Lead line + butterfly
     ICON_SPAN = 78
     ICON_GAP = 20
     lead_size = 60
     lead_text = "BECOME A FOUNDING MEMBER"
     while lead_size > 42:
-        lf = font(lead_size, bold=True, condensed=True)
-        lb = d.textbbox((0, 0), lead_text, font=lf)
-        if (lb[2] - lb[0]) <= W - 260 - (ICON_SPAN + ICON_GAP):
+        lf = c.font(lead_size, bold=True, condensed=True)
+        if c.text_w(lead_text, lf) <= c.px(1240 - 260 - (ICON_SPAN + ICON_GAP)):
             break
         lead_size -= 4
-    lf = font(lead_size, bold=True, condensed=True)
-    lb = d.textbbox((0, 0), lead_text, font=lf)
-    lead_w = lb[2] - lb[0]
-    block_w = ICON_SPAN + ICON_GAP + lead_w
-    start_x = (W - block_w) / 2
+    lf = c.font(lead_size, bold=True, condensed=True)
+    lead_w_px = c.text_w(lead_text, lf)
+    block_w_px = c.px(ICON_SPAN + ICON_GAP) + lead_w_px
+    start_x_px = (c.W - block_w_px) / 2
     lead_y = RIBBON_Y + 24
-    draw_butterfly_glyph(d, int(start_x + ICON_SPAN / 2),
-                         lead_y + lead_size // 2 + 2, ICON_SPAN,
-                         "#FFFFFF", GOLD_DARK)
-    d.text((start_x + ICON_SPAN + ICON_GAP, lead_y),
-           lead_text, font=lf, fill=GOLD_DARK)
+    butterfly_cx = start_x_px / c.s + ICON_SPAN / 2
+    _draw_butterfly(c, int(butterfly_cx),
+                    int(lead_y + lead_size / 2 + 2),
+                    ICON_SPAN, "#FFFFFF", GOLD_DARK)
+    c.d.text((start_x_px + c.px(ICON_SPAN + ICON_GAP), c.px(lead_y)),
+             lead_text, font=lf, fill=GOLD_DARK)
 
-    # Benefit bullets (3 lines) inside the ribbon
-    bul_fnt = font(26, bold=False)
-    bul_bold = font(26, bold=True)
+    # Benefits (revised copy)
     benefits = [
-        "Founding Member badge",
-        "Early access to new features",
-        "Help build Australia's friendliest community",
+        "Help shape FriendPlace before launch",
+        "Have your say in new features",
+        "Be recognised as a Founding Member",
     ]
+    bul_fnt = c.font(26, bold=True)
     by = lead_y + lead_size + 26
     for b_txt in benefits:
-        bullet = "•  " + b_txt
-        bb = d.textbbox((0, 0), bullet, font=bul_bold)
-        d.text(((W - (bb[2] - bb[0])) / 2, by), bullet,
-               font=bul_bold, fill=GOLD_DARK)
-        by += (bb[3] - bb[1]) + 4
+        line = "•  " + b_txt
+        bb = c.d.textbbox((0, 0), line, font=bul_fnt)
+        c.d.text(((c.W - (bb[2] - bb[0])) / 2, c.px(by)),
+                 line, font=bul_fnt, fill=GOLD_DARK)
+        by += (bb[3] - bb[1]) / c.s + 4
 
-    # 5. QR code — LARGER (560px instead of 520)
-    qr_size = 560
-    qr_y = RIBBON_Y + RIBBON_H + 34
-    qr_x = (W - qr_size) // 2
-    qr_img = make_qr("https://www.friendplace.com.au", qr_size)
-    img.paste(qr_img, (qr_x, qr_y))
-    d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14,
-                 qr_y + qr_size + 14], outline=NAVY_INK, width=4)
+    # QR
+    qr_size = 500
+    qr_y = RIBBON_Y + RIBBON_H + 32
+    qr_x = (1240 - qr_size) // 2
+    _paste_qr(c, "https://www.friendplace.com.au", qr_size, qr_x, qr_y)
 
-    # 6. Scan CTA + fallback URL for manual typing
-    cta_y = qr_y + qr_size + 26
-    fit_headline(d, "SCAN TO JOIN FREE", cta_y,
-                 max_w=W - 2 * SIDE, start_size=68, min_size=52,
-                 fill=NAVY_INK)
-    draw_centre(d, "Can't scan? Visit www.friendplace.com.au",
-                cta_y + 74, font(24, bold=False), SLATE)
+    # SCAN CTA
+    cta_y = qr_y + qr_size + 20
+    c.fit_headline("SCAN TO JOIN FREE", cta_y,
+                   max_w=1240 - 2 * SIDE,
+                   start_size=60, min_size=46, fill=NAVY_INK)
 
-    # 7. Slogan foot
-    draw_centre(d, "Because you belong too.",
-                cta_y + 116, font(28, italic=True), TEAL)
+    # ─── PROMINENT WEBSITE URL PILL (more visible than italic caption) ─
+    pill_y = cta_y + 70
+    pill_h = 58
+    pill_text = "www.friendplace.com.au"
+    pf = c.font(34, bold=True)
+    pw = c.text_w(pill_text, pf) + c.px(56)
+    pill_x = (c.W - pw) / 2
+    c.d.rounded_rectangle(
+        [pill_x, c.px(pill_y), pill_x + pw, c.px(pill_y + pill_h)],
+        radius=c.px(pill_h // 2), fill=NAVY_INK,
+    )
+    tb = c.d.textbbox((0, 0), pill_text, font=pf)
+    c.d.text((pill_x + (pw - (tb[2] - tb[0])) / 2,
+              c.px(pill_y) + (c.px(pill_h) - (tb[3] - tb[1])) / 2 - c.px(4)),
+             pill_text, font=pf, fill="#FFFFFF")
 
-    return img
+    # Small caption for those who can't scan
+    caption_y = pill_y + pill_h + 10
+    c.centre("Can't scan? Type this address into your phone browser.",
+             caption_y, c.font(18, bold=False), SLATE)
+
+    # Slogan (teal italic)
+    slogan_y = caption_y + 30
+    c.centre("Because you belong too.", slogan_y,
+             c.font(26, italic=True), TEAL)
+
+    # Mission footer (both flyers)
+    _draw_mission_footer(c, slogan_y + 40)
+
+    return c.img
 
 
-# ─── FLYER 2 — Download the App (Launch) ─────────────────────────────
-def render_download() -> Image.Image:
-    img = Image.new("RGB", (W, H), "#FFFFFF")
-    d = ImageDraw.Draw(img)
+# ─── FLYER 2 — Download the App ──────────────────────────────────────
+def render_download(scale: float = 1.0) -> Image.Image:
+    c = Canvas(1240, 1754, scale)
+    _draw_banner(c)
 
-    # 1. Banner (identical branding)
-    banner_bottom = draw_banner(d, img)
+    head_y = BANNER_H + 34
+    l1_bottom = c.fit_headline("FRIENDPLACE", head_y,
+                               max_w=1240 - 2 * SIDE,
+                               start_size=178, min_size=120, fill=NAVY_INK)
+    l2_bottom = c.fit_headline("IS NOW LIVE!", l1_bottom + 6,
+                               max_w=1240 - 2 * SIDE,
+                               start_size=178, min_size=120, fill=TEAL)
 
-    # 2. Launch headline — celebratory, uses accent teal for LIVE
-    head_y = banner_bottom + 40
-    # Split into two lines so we get a bold, poster-y feel
-    line1 = "FRIENDPLACE"
-    line2 = "IS NOW LIVE!"
-    l1_bottom = fit_headline(d, line1, head_y, max_w=W - 2 * SIDE,
-                             start_size=178, min_size=120, fill=NAVY_INK)
-    l2_bottom = fit_headline(d, line2, l1_bottom + 6,
-                             max_w=W - 2 * SIDE,
-                             start_size=178, min_size=120, fill=TEAL)
-
-    # 3. Sub-headline
-    sub_y = l2_bottom + 40
-    end_y = wrap_centre(
-        d,
+    sub_y = l2_bottom + 34
+    end_y = c.wrap_centre(
         "Meet new friends, join community groups, discover local events "
         "and chat in FP Café.",
-        sub_y, font(30, bold=False), SLATE,
-        max_w=W - 2 * SIDE - 80, line_gap=8,
+        sub_y, c.font(30, bold=False), SLATE,
+        max_w=1240 - 2 * SIDE - 80, line_gap=8,
     )
 
-    # 4. Two QR blocks side-by-side (App Store | Google Play)
-    qr_size = 380
-    gap_between = 120
+    # Two QR blocks
+    qr_size = 400
+    gap_between = 100
     total_w = qr_size * 2 + gap_between
-    qr_row_x = (W - total_w) // 2
-    qr_row_y = end_y + 40
+    qr_row_x = (1240 - total_w) // 2
+    qr_row_y = end_y + 46
 
-    def store_block(x: int, y: int, title: str, sub: str,
-                    qr_target: str) -> None:
-        # Store label above
-        f_lbl = font(30, bold=True)
-        lb = d.textbbox((0, 0), title, font=f_lbl)
-        d.text((x + (qr_size - (lb[2] - lb[0])) / 2, y - 46),
-               title, font=f_lbl, fill=NAVY_INK)
-        # QR
-        qi = make_qr(qr_target, qr_size)
-        img.paste(qi, (x, y))
-        d.rectangle([x - 10, y - 10, x + qr_size + 10, y + qr_size + 10],
-                    outline=NAVY_INK, width=3)
-        # Store sub-label below
-        f_sub = font(22, bold=False)
-        sb = d.textbbox((0, 0), sub, font=f_sub)
-        d.text((x + (qr_size - (sb[2] - sb[0])) / 2, y + qr_size + 20),
-               sub, font=f_sub, fill=SLATE)
+    def _store_block(x: int, y: int, title: str, sub: str,
+                     qr_target: str) -> None:
+        f_lbl = c.font(30, bold=True)
+        lb = c.d.textbbox((0, 0), title, font=f_lbl)
+        c.d.text((c.px(x) + (c.px(qr_size) - (lb[2] - lb[0])) / 2,
+                  c.px(y - 46)), title, font=f_lbl, fill=NAVY_INK)
+        _paste_qr(c, qr_target, qr_size, x, y, frame_w=3)
+        f_sub = c.font(22, bold=False)
+        sb = c.d.textbbox((0, 0), sub, font=f_sub)
+        c.d.text((c.px(x) + (c.px(qr_size) - (sb[2] - sb[0])) / 2,
+                  c.px(y + qr_size + 20)), sub, font=f_sub, fill=SLATE)
 
-    # Placeholder store URLs (user replaces with real store links post-launch)
-    store_block(qr_row_x, qr_row_y, "APP STORE",
-                "Scan on iPhone",
-                "https://apps.apple.com/app/friendplace")
-    store_block(qr_row_x + qr_size + gap_between, qr_row_y,
-                "GOOGLE PLAY", "Scan on Android",
-                "https://play.google.com/store/apps/details?id=au.com.friendplace")
+    _store_block(qr_row_x, qr_row_y, "APP STORE", "Scan on iPhone",
+                 "https://apps.apple.com/app/friendplace")
+    _store_block(qr_row_x + qr_size + gap_between, qr_row_y,
+                 "GOOGLE PLAY", "Scan on Android",
+                 "https://play.google.com/store/apps/details?id=au.com.friendplace")
 
-    # 5. CTA block below the QRs
-    cta_top = qr_row_y + qr_size + 90
-    fit_headline(d, "DOWNLOAD FRIENDPLACE TODAY", cta_top,
-                 max_w=W - 2 * SIDE, start_size=76, min_size=48,
-                 fill=NAVY_INK)
+    cta_top = qr_row_y + qr_size + 88
+    c.fit_headline("DOWNLOAD FRIENDPLACE TODAY", cta_top,
+                   max_w=1240 - 2 * SIDE,
+                   start_size=68, min_size=44, fill=NAVY_INK)
 
-    # 6. Slogan foot
-    draw_centre(d, "Because you belong too.",
-                cta_top + 90, font(30, italic=True), TEAL)
+    slogan_y = cta_top + 82
+    c.centre("Because you belong too.", slogan_y,
+             c.font(28, italic=True), TEAL)
 
-    return img
+    _draw_mission_footer(c, slogan_y + 46)
+
+    return c.img
 
 
-# ─── entry point ─────────────────────────────────────────────────────
+# ─── social square (1080 × 1080) — designed natively square ──────────
+def render_founding_social() -> Image.Image:
+    """Instagram / Facebook square version of the founding flyer."""
+    c = Canvas(1080, 1080, 1.0)
+    W = c.base_w
+
+    # Header strip — condensed (fewer contact details, no divider rule)
+    HDR_H = 200
+    c.rectangle([0, 0, W, HDR_H], fill=NAVY_HEADER)
+    try:
+        butterfly = Image.open(BUTTERFLY_PATH).convert("RGBA")
+        bfy_h = int(HDR_H * 0.72)
+        bfy_scale = bfy_h / butterfly.height
+        bfy_w = int(butterfly.width * bfy_scale)
+        butterfly = butterfly.resize((bfy_w, bfy_h), Image.LANCZOS)
+        c.img.paste(butterfly, (48, (HDR_H - bfy_h) // 2), butterfly)
+        text_left = 48 + bfy_w + 20
+    except Exception:
+        text_left = 60
+    f_wm = c.font(72, bold=True)
+    friend_bbox = c.d.textbbox((0, 0), "Friend", font=f_wm)
+    c.d.text((text_left, 46), "Friend", font=f_wm, fill="#FFFFFF")
+    c.d.text((text_left + (friend_bbox[2] - friend_bbox[0]), 46),
+             "Place", font=f_wm, fill=SKY)
+    c.d.text((text_left, 46 + (friend_bbox[3] - friend_bbox[1]) + 6),
+             "Because you belong too.",
+             font=c.font(26, bold=True), fill="#FFFFFF")
+
+    # Big headline
+    head_y = HDR_H + 34
+    c.fit_headline("FIND YOUR PEOPLE", head_y, max_w=W - 100,
+                   start_size=130, min_size=90, fill=NAVY_INK)
+
+    c.wrap_centre(
+        "Meet new friends. Join local events. Feel connected.",
+        head_y + 130, c.font(28, bold=False), SLATE,
+        max_w=W - 120, line_gap=8,
+    )
+
+    # Gold ribbon (single line, compact)
+    RIBBON_Y = head_y + 216
+    RIBBON_H = 100
+    c.rounded_rectangle([50, RIBBON_Y, W - 50, RIBBON_Y + RIBBON_H],
+                        radius=22, fill=GOLD, outline=GOLD_DARK, width=4)
+    lead_txt = "BECOME A FOUNDING MEMBER"
+    lf = c.font(40, bold=True, condensed=True)
+    while c.text_w(lead_txt, lf) > W - 200 - 60:
+        lf = c.font(int(lf.size / c.s) - 2, bold=True, condensed=True)
+    lb = c.d.textbbox((0, 0), lead_txt, font=lf)
+    lead_w = lb[2] - lb[0]
+    ICON_SPAN = 52
+    ICON_GAP = 14
+    block_w = ICON_SPAN + ICON_GAP + lead_w
+    start_x = (W - block_w) / 2
+    lead_y = RIBBON_Y + (RIBBON_H - (lb[3] - lb[1])) / 2 - 4
+    _draw_butterfly(c, int(start_x + ICON_SPAN / 2),
+                    int(lead_y + (lb[3] - lb[1]) / 2), ICON_SPAN,
+                    "#FFFFFF", GOLD_DARK)
+    c.d.text((start_x + ICON_SPAN + ICON_GAP, lead_y),
+             lead_txt, font=lf, fill=GOLD_DARK)
+
+    # QR
+    qr_size = 320
+    qr_y = RIBBON_Y + RIBBON_H + 22
+    qr_x = (W - qr_size) // 2
+    _paste_qr(c, "https://www.friendplace.com.au", qr_size, qr_x, qr_y)
+
+    # URL pill
+    pill_y = qr_y + qr_size + 22
+    pill_h = 52
+    pill_text = "www.friendplace.com.au"
+    pf = c.font(28, bold=True)
+    pw = c.text_w(pill_text, pf) + 52
+    pill_x = (W - pw) / 2
+    c.d.rounded_rectangle(
+        [pill_x, pill_y, pill_x + pw, pill_y + pill_h],
+        radius=pill_h // 2, fill=NAVY_INK,
+    )
+    tb = c.d.textbbox((0, 0), pill_text, font=pf)
+    c.d.text((pill_x + (pw - (tb[2] - tb[0])) / 2,
+              pill_y + (pill_h - (tb[3] - tb[1])) / 2 - 4),
+             pill_text, font=pf, fill="#FFFFFF")
+
+    c.centre("Because you belong too.", pill_y + pill_h + 14,
+             c.font(22, italic=True), TEAL)
+    # Mission line
+    c.wrap_centre(
+        MISSION_LINE, pill_y + pill_h + 50,
+        c.font(17, bold=False, italic=True), SLATE,
+        max_w=W - 100, line_gap=4,
+    )
+    return c.img
+
+
+def render_download_social() -> Image.Image:
+    c = Canvas(1080, 1080, 1.0)
+    W = c.base_w
+
+    # Header (same as founding square)
+    HDR_H = 200
+    c.rectangle([0, 0, W, HDR_H], fill=NAVY_HEADER)
+    try:
+        butterfly = Image.open(BUTTERFLY_PATH).convert("RGBA")
+        bfy_h = int(HDR_H * 0.72)
+        bfy_scale = bfy_h / butterfly.height
+        bfy_w = int(butterfly.width * bfy_scale)
+        butterfly = butterfly.resize((bfy_w, bfy_h), Image.LANCZOS)
+        c.img.paste(butterfly, (48, (HDR_H - bfy_h) // 2), butterfly)
+        text_left = 48 + bfy_w + 20
+    except Exception:
+        text_left = 60
+    f_wm = c.font(72, bold=True)
+    friend_bbox = c.d.textbbox((0, 0), "Friend", font=f_wm)
+    c.d.text((text_left, 46), "Friend", font=f_wm, fill="#FFFFFF")
+    c.d.text((text_left + (friend_bbox[2] - friend_bbox[0]), 46),
+             "Place", font=f_wm, fill=SKY)
+    c.d.text((text_left, 46 + (friend_bbox[3] - friend_bbox[1]) + 6),
+             "Because you belong too.",
+             font=c.font(26, bold=True), fill="#FFFFFF")
+
+    # Big two-line headline
+    head_y = HDR_H + 34
+    l1_b = c.fit_headline("FRIENDPLACE", head_y, max_w=W - 100,
+                          start_size=130, min_size=90, fill=NAVY_INK)
+    l2_b = c.fit_headline("IS NOW LIVE!", l1_b + 4, max_w=W - 100,
+                          start_size=130, min_size=90, fill=TEAL)
+
+    c.wrap_centre(
+        "Meet friends, join groups, chat in FP Café.",
+        l2_b + 46, c.font(26, bold=False), SLATE,
+        max_w=W - 120, line_gap=8,
+    )
+
+    # Two QR side-by-side
+    qr_size = 300
+    gap = 60
+    total = qr_size * 2 + gap
+    row_x = (W - total) // 2
+    row_y = l2_b + 130
+
+    def _sq_store(x, y, title, sub, url):
+        f_lbl = c.font(24, bold=True)
+        lb = c.d.textbbox((0, 0), title, font=f_lbl)
+        c.d.text((x + (qr_size - (lb[2] - lb[0])) / 2, y - 38),
+                 title, font=f_lbl, fill=NAVY_INK)
+        _paste_qr(c, url, qr_size, x, y, frame_w=3)
+        f_sub = c.font(18, bold=False)
+        sb = c.d.textbbox((0, 0), sub, font=f_sub)
+        c.d.text((x + (qr_size - (sb[2] - sb[0])) / 2, y + qr_size + 12),
+                 sub, font=f_sub, fill=SLATE)
+
+    _sq_store(row_x, row_y, "APP STORE", "iPhone",
+              "https://apps.apple.com/app/friendplace")
+    _sq_store(row_x + qr_size + gap, row_y, "GOOGLE PLAY", "Android",
+              "https://play.google.com/store/apps/details?id=au.com.friendplace")
+
+    c.centre("Because you belong too.", row_y + qr_size + 58,
+             c.font(24, italic=True), TEAL)
+    # Mission line
+    c.wrap_centre(
+        MISSION_LINE, row_y + qr_size + 96,
+        c.font(18, bold=False, italic=True), SLATE,
+        max_w=W - 120, line_gap=4,
+    )
+    return c.img
+
+
+# ─── deliverable pipeline ────────────────────────────────────────────
+def _save_pdf(im: Image.Image, path: Path, dpi: int) -> None:
+    im.convert("RGB").save(str(path), format="PDF", resolution=float(dpi))
+
+
+def _write_deliverables(name: str, portrait_scale2: Image.Image,
+                        social: Image.Image) -> None:
+    """
+    portrait_scale2 is the master A4 rendered at scale=2 → 2480×3508 (300 dpi)
+    We derive from it:
+        <name>-a4.png         1240 × 1754    downscaled (preview)
+        <name>-a4-hires.png   2480 × 3508    native 300 dpi
+        <name>-a3-hires.png   3508 × 4960    scaled up 1.414×
+        <name>-a4.pdf         A4 print       resolution=300
+        <name>-a3.pdf         A3 print       resolution=300
+        <name>-social.png     1080 × 1080    native
+    """
+    # A4 lo-res preview
+    a4_lo = portrait_scale2.copy()
+    a4_lo.thumbnail((1240, 1754), Image.LANCZOS)
+    a4_lo.save(OUT_DIR / f"{name}-a4.png", format="PNG", optimize=True)
+
+    # A4 hi-res PNG (master)
+    portrait_scale2.save(OUT_DIR / f"{name}-a4-hires.png",
+                         format="PNG", optimize=True)
+
+    # A4 PDF (300 dpi print)
+    _save_pdf(portrait_scale2, OUT_DIR / f"{name}-a4.pdf", dpi=300)
+
+    # A3 hi-res PNG — upscale 2480×3508 → 3508×4960 (scale 1.414)
+    a3_w, a3_h = 3508, 4960
+    a3 = portrait_scale2.resize((a3_w, a3_h), Image.LANCZOS)
+    a3.save(OUT_DIR / f"{name}-a3-hires.png",
+            format="PNG", optimize=True)
+    _save_pdf(a3, OUT_DIR / f"{name}-a3.pdf", dpi=300)
+
+    # Social square
+    social.save(OUT_DIR / f"{name}-social.png",
+                format="PNG", optimize=True)
+
+    # Small thumb for chat inline (max 620 wide)
+    thumb = portrait_scale2.copy()
+    thumb.thumbnail((620, 1400), Image.LANCZOS)
+    thumb.save(OUT_DIR / f"{name}-thumb.png",
+               format="PNG", optimize=True)
+
+
 def main() -> None:
     print(f"Rendering to {OUT_DIR} …")
-    f1 = render_founding()
-    f1.save(OUT_DIR / "founding.png", format="PNG", optimize=True)
-    print("  ✓ founding.png")
 
-    f2 = render_download()
-    f2.save(OUT_DIR / "download.png", format="PNG", optimize=True)
-    print("  ✓ download.png")
+    # Master renders at scale=2 (native 300 dpi for A4)
+    print("  • Flyer 1 master @ 300 dpi …")
+    f1 = render_founding(scale=2.0)
+    print("  • Flyer 1 social 1080² …")
+    f1_sq = render_founding_social()
+    _write_deliverables("founding", f1, f1_sq)
+    print("    ✓ founding — a4, a4-hires, a3-hires, a4.pdf, a3.pdf, social, thumb")
 
-    # Also save small preview thumbnails (max width 620) for chat inline use
-    for name in ("founding", "download"):
-        src = OUT_DIR / f"{name}.png"
-        thumb = Image.open(src)
-        thumb.thumbnail((620, 900), Image.LANCZOS)
-        thumb.save(OUT_DIR / f"{name}-thumb.png", format="PNG", optimize=True)
-        print(f"  ✓ {name}-thumb.png")
+    print("  • Flyer 2 master @ 300 dpi …")
+    f2 = render_download(scale=2.0)
+    print("  • Flyer 2 social 1080² …")
+    f2_sq = render_download_social()
+    _write_deliverables("download", f2, f2_sq)
+    print("    ✓ download — a4, a4-hires, a3-hires, a4.pdf, a3.pdf, social, thumb")
 
     print("Done.")
 

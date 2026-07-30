@@ -1,0 +1,42 @@
+{
+  "summary": "Verified V2 flyer artwork deliverables served via preview URL under /flyer-mockups/. 25 of 30 tests pass (83%). All 14 files (2 flyers × 7 variants) are HTTP-200 with correct Content-Type (image/png or application/pdf), correct PNG/PDF magic bytes, exact spec pixel dimensions (a4 1240×1754, a4-hires 2480×3508, a3-hires 3508×4960, social 1080×1080, thumb width 620), and >100KB PDFs. Founding flyer content spot-checks pass (gold ribbon in y=800 band, navy pill visible in y~1600, headline ink in interior). Regression on /meet, /register-interest, /admin all still 200. CRITICAL BUG FOUND: the mission line + slogan footer is completely missing / rendered off-canvas on ALL 4 download-* PNG variants — download-a4.png last ink y=1460 of 1754 (~294px blank), download-a4-hires.png last ink y=2928 of 3508 (~580px blank), download-a3-hires.png last ink y=4141 of 4960 (~819px blank), download-social.png last ink y=966 of 1080 (~114px blank). Founding equivalents render footer correctly (founding-a4.png ink extends to y=1710). Not fixed per review request — reporting for main agent.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/flyer-mockups/download-a4.png (+ -a4-hires.png, -a3-hires.png, -social.png)",
+        "issue": "Mission line 'Helping Australians build genuine friendships and stronger local communities.' and slogan 'Because you belong too.' are MISSING from all 4 download flyer variants — content is either clipped off the bottom of the canvas or rendered off-canvas by the Pillow renderer. download-a4.png has ~294px of blank white space at the bottom (last ink pixel at y=1460 of 1754). download-a4-hires.png has ~580px blank at the bottom, download-a3-hires.png has ~819px blank, download-social.png has ~114px blank. Founding equivalents render fine, so the bug is isolated to render_download()/render_download_social() in /app/backend/scripts/render_flyer_previews.py.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_flyer_v2_deliverables.py",
+    "/app/test_reports/pytest/iter_113_flyer_v2.xml"
+  ],
+  "action_items": [
+    "Fix render_download() in /app/backend/scripts/render_flyer_previews.py: the QR-row + 'DOWNLOAD FRIENDPLACE TODAY' headline block leaves insufficient vertical room, pushing slogan_y and _draw_mission_footer beyond the 1754px A4 canvas bottom. Move the download-CTA block up (reduce the '88' gap after qr_size on line 483 and/or the '82' gap on line 488) or reserve a fixed footer region at the bottom of the canvas the same way founding does. Re-render and re-run the test suite to confirm bottom-band ink appears on all 4 download variants.",
+    "Investigate render_download_social() similarly — its mission line is also missing (last ink y=966 of 1080).",
+    "After renderer fix, regenerate all 4 download-* PNGs and both download PDFs (they may share the same missing footer content).",
+    "Optional: refactor renderer to compute footer_y from the bottom of the canvas (h - reserved) instead of stacking from top, so this class of clipping cannot recur."
+  ],
+  "critical_code_review_comments": [
+    "render_flyer_previews.py stacks the download-flyer footer from the top of the page via cumulative offsets (qr_row_y + qr_size + 88 → +82 → +46). Any change to the QR block height silently pushes the mission line off-canvas with no visible error. Consider anchoring the footer to the canvas bottom to make clipping impossible.",
+    "The renderer has no post-render sanity check that all content fits inside the canvas. A single assert on the bottom band being non-empty inside the script itself would have caught this before shipping the 14 files."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_flyer_v2_deliverables.py"
+  ],
+  "success_rate": {"backend": "83% (25/30 pass — 5 failures all trace to one root-cause bug)", "frontend": "N/A (backend-only task)"},
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Test file: /app/backend/tests/test_flyer_v2_deliverables.py. It fetches every deliverable from https://george-mcgs-cms.preview.emergentagent.com/flyer-mockups/<file> and verifies MIME type, magic bytes, exact pixel dimensions, minimum file size, and that the last N-px band of every PNG variant contains ink (proxy for footer/mission line not clipped). Regression covers /meet, /register-interest, /admin. Rerun with `pytest /app/backend/tests/test_flyer_v2_deliverables.py -v` after main agent regenerates the download flyer assets.",
+  "rca_of_issue": "RCA: In /app/backend/scripts/render_flyer_previews.py::render_download() the vertical layout is computed by additive offsets starting from the QR-row y-coordinate: cta_top = qr_row_y + qr_size + 88 (line 483); slogan_y = cta_top + 82 (line 488); _draw_mission_footer(c, slogan_y + 46) (line 492). With the current QR-row placement, the 'DOWNLOAD FRIENDPLACE TODAY' headline lands around y≈1400-1460 (confirmed by pixel scan of download-a4.png), which pushes the slogan (~y=1542) and mission footer (~y=1588) either near or beyond the 1754-pixel canvas bottom — and since fit_headline() may auto-scale the headline block to occupy more space, the drift is worsened at higher scale factors (which is why download-a4-hires.png shows 580px of blank bottom vs 294px for the a4 preview: proportionally the same clip amount when render_download(scale=2.0) is used). Reproduction: `python3 -c \"from PIL import Image; im=Image.open('/app/website/public/flyer-mockups/download-a4.png').convert('RGB'); px=im.load(); print('last row with ink:', max(y for y in range(1754) for x in range(0,1240,4) if any(v<235 for v in px[x,y])))\"` prints 1460 (or similar). Mitigation: anchor the download-flyer footer to `canvas_height - reserved_footer_height` instead of building it up from the QR row; alternatively shrink the '88' and '82' offsets and/or lower the QR row's y-origin so the CTA block fits above a fixed bottom-anchored footer region. Founding flyer already renders footer inside canvas (last ink y=1710), so its layout can be used as a reference."
+}
