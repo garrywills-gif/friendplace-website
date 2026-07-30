@@ -1,0 +1,31 @@
+{
+  "summary": "V3 flyer re-verification after bottom-anchored footer refactor of render_founding(). 40/40 tests PASS (up from 37/40 in iter_115). The 3 previously-failing founding-a4 last-ink-y tests now pass — founding-a4.png last-ink-y=1722 (target >=1700), matching download-a4 at 1722. All regression targets hold: download-a4=1722, download-a4-hires=3444, download-a3-hires=4870, download-social=1057. All 14 PNG/PDF file dimensions, magic bytes, content-types, and sizes verified. Nginx /flyer-mockups/ routing intact. /meet /register-interest /admin all return 200 HTML. V3 layout composition preserved: compact gold ribbon (span y=684..798), two teal (#0F766E) vector checkmarks in benefits panel, bold navy 'Join free today...' intro line, urgency line, QR frame, SCAN TO JOIN FREE caption, navy URL pill, mission line — all in correct vertical order. Butterfly-absence test on founding-a4.png (ribbon slice y=710..780) still returns 0 bright-white pixels; ribbon did NOT shift with the footer refactor (as expected — the footer change only affected content below the QR). No ribbon coord nudge needed. No code changes required; test file unchanged from iter_115.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_flyer_v2_deliverables.py",
+    "/app/test_reports/pytest/iter_116_flyer_v3.xml"
+  ],
+  "action_items": [
+    "None — all 40 tests pass. Feature ready for sign-off.",
+    "OPTIONAL (carried over from iter_115): consider adding an in-renderer post-render assertion that scans last-non-white-row >= (PAGE_H - reserved_footer_px). This would catch future footer-drift bugs immediately at render time instead of at test time."
+  ],
+  "critical_code_review_comments": [
+    "render_founding() now uses the same bottom-anchored footer pattern as render_download() — the 'magic number' anti-pattern flagged in iter_115 has been resolved. Both renderers now anchor from PAGE_H, so future content additions above the footer will not silently push the mission line off-canvas."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (40/40)", "frontend": "N/A (backend-only)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All V3 flyer deliverables now verified 40/40. founding-a4.png last-ink-y jumped from 1689 → 1722 after render_founding() was migrated to bottom-anchored footer (mirroring render_download). Test file /app/backend/tests/test_flyer_v2_deliverables.py is stable with 40 tests — no coord adjustments needed. Butterfly-absence coord (y=710..780) still valid; ribbon still spans y=684..798 on founding-a4.png. If future iterations touch either renderer, re-run: `pytest /app/backend/tests/test_flyer_v2_deliverables.py -v` and verify all 5 last-ink-y numeric targets (founding-a4>=1700, download-a4>=1700, download-a4-hires>=3400, download-a3-hires>=4800, download-social>=1030). Actual measured values with 22px headroom on both A4 previews.",
+  "rca_of_issue": "N/A — no failures this iteration. Iter_115 root cause (forward-stacked footer in render_founding) has been correctly addressed by main agent via the bottom-anchored refactor described in the review request. Verification: `python3 -c 'from PIL import Image; im=Image.open(\"/app/website/public/flyer-mockups/founding-a4.png\").convert(\"RGB\"); px=im.load(); print(max(y for y in range(1754) for x in range(0,1240,3) if any(v<235 for v in px[x,y])))'` prints 1722 (was 1689 in iter_115, target >=1700)."
+}

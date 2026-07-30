@@ -418,21 +418,21 @@ def render_founding(scale: float = 1.0) -> Image.Image:
     c.centre("Free to join \u2014 for a limited number of early members.",
              urgency_y, urgency_fnt, SLATE)
 
-    # QR
-    qr_size = 460
-    qr_y = urgency_y + 46
-    qr_x = (1240 - qr_size) // 2
-    _paste_qr(c, "https://www.friendplace.com.au", qr_size, qr_x, qr_y)
+    # ─── Bottom-anchored footer stack (mirrors render_download()) ────
+    PAGE_H = 1754
+    mission_y = PAGE_H - 62
+    slogan_y = mission_y - 40
+    caption_y = slogan_y - 30
+    pill_h = 56
+    pill_y = caption_y - pill_h - 10
+    cta_y = pill_y - 68
 
     # SCAN CTA
-    cta_y = qr_y + qr_size + 18
     c.fit_headline("SCAN TO JOIN FREE", cta_y,
                    max_w=1240 - 2 * SIDE,
                    start_size=58, min_size=44, fill=NAVY_INK)
 
-    # ─── PROMINENT WEBSITE URL PILL ──────────────────────────────────
-    pill_y = cta_y + 66
-    pill_h = 56
+    # PROMINENT WEBSITE URL PILL
     pill_text = "www.friendplace.com.au"
     pf = c.font(32, bold=True)
     pw = c.text_w(pill_text, pf) + c.px(52)
@@ -447,17 +447,23 @@ def render_founding(scale: float = 1.0) -> Image.Image:
              pill_text, font=pf, fill="#FFFFFF")
 
     # Small helper caption
-    caption_y = pill_y + pill_h + 8
     c.centre("Can't scan? Type this address into your phone browser.",
              caption_y, c.font(17, bold=False), SLATE)
 
-    # Slogan (teal italic)
-    slogan_y = caption_y + 28
+    # Slogan
     c.centre("Because you belong too.", slogan_y,
              c.font(24, italic=True), TEAL)
 
     # Mission footer
-    _draw_mission_footer(c, slogan_y + 36)
+    _draw_mission_footer(c, mission_y)
+
+    # QR — placed between the benefits panel and the CTA using the
+    # remaining vertical space. Anchoring the QR relative to the CTA
+    # keeps the whole page composition tight regardless of scale.
+    qr_size = 460
+    qr_y = cta_y - qr_size - 18
+    qr_x = (1240 - qr_size) // 2
+    _paste_qr(c, "https://www.friendplace.com.au", qr_size, qr_x, qr_y)
 
     return c.img
 
