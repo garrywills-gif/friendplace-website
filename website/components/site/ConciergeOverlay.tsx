@@ -5,52 +5,43 @@
  *
  * When a visitor clicks "Meet George or Georgia" anywhere on the site,
  * the current page GENTLY dims + blurs into the background (never
- * navigates away), and the FriendPlace butterfly appears in the
- * foreground as a welcoming host. Two paths:
+ * navigates away first), and the FriendPlace butterfly appears in the
+ * foreground as a warm host. The overlay:
  *
- *   • "Say hello"        → begins the full arrival scene (routes to
- *                           /meet, where George or Georgia flies to
- *                           the visitor and speaks).
- *   • "Look around first" → butterfly gently lifts back off, the
- *                           overlay fades away, and the visitor is
- *                           exactly where they left off on the page
- *                           (scroll position preserved).
- *
- * Design contract locked with Garry (30 Jul 2026):
- *   • George is a *host*, not a gatekeeper — nobody is forced into
- *     onboarding.
- *   • The current page never disappears — it dims + blurs behind.
- *   • The dismiss path is warm, not hidden. Escape / backdrop / ×
- *     all close politely.
- *   • The concierge NEVER steals George's arrival line at /meet.
- *     That first "Hello. I'm George. I'm really pleased you found
- *     us." belongs to the /meet scene. Here we only welcome them
- *     and offer a choice.
- *   • Focus is trapped inside the overlay while open (accessibility).
- *   • Reduced-motion visitors get a fade-only version — no float,
- *     no transform on the card, no sway on the butterfly.
+ *   1. Fulfils the promise of the button — the visitor really does
+ *      get to pick GEORGE or GEORGIA. Two side-by-side choice pills.
+ *   2. Preserves visual continuity when a choice is made. The overlay
+ *      does NOT unmount on click. Instead:
+ *        a. The chosen companion is persisted via CompanionContext.
+ *        b. The overlay enters a soft "handoff" phase — buttons dim,
+ *           the butterfly leans forward, and the aura brightens as if
+ *           the companion is stepping toward the visitor.
+ *        c. In parallel, we `router.push('/meet?from=concierge')`. The
+ *           destination is prefetched on overlay open, so it is
+ *           already warm in memory — the browser does NOT paint a
+ *           blank/loading state.
+ *        d. Because the overlay lives at the root layout (outside the
+ *           route boundary), it stays visible OVER /meet while /meet
+ *           mounts underneath. We then cross-fade the overlay out
+ *           after ~650 ms so the visitor never sees a gap.
+ *   3. Respects a dismissive visitor. "Look around first", Escape,
+ *      backdrop click, and the × button all close politely with focus
+ *      restored — no navigation, no scroll jump.
  *
  * The overlay is triggered by dispatching a `friendplace:meet-george`
  * custom event so ANY surface can invite the visitor in without
- * prop-drilling.
+ * prop-drilling. See components/site/HeroInvitation.tsx.
  *
  *   window.dispatchEvent(new CustomEvent('friendplace:meet-george'))
- *
- * If the visitor has already chosen a companion previously (e.g. they
- * returned tomorrow), the CTA reads "Say hello to {George|Georgia}"
- * so it feels like the same host greeting them again.
  */
 
 import Image from 'next/image';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { brandAssets } from '@/lib/brand-assets';
-import { useCompanion } from '@/lib/companion-context';
+import { useCompanion, COMPANIONS, type CompanionId } from '@/lib/companion-context';
 
 // ─── Reduced-motion hook ───────────────────────────────────────────────
-// Reads (and reacts to) the OS-level "reduce motion" preference. We
-// use this to STRIP transforms + float animation for people who need
-// stillness. Fade + opacity are always allowed.
 function useReducedMotion(): boolean {
   const [prefersReduced, setPrefersReduced] = useState(false);
   useEffect(() => {
@@ -64,80 +55,106 @@ function useReducedMotion(): boolean {
   return prefersReduced;
 }
 
+// ─── Handoff timing ───────────────────────────────────────────────────
+// The whole point of the handoff is that /meet is READY UNDERNEATH the
+// overlay before we cross-fade. HANDOFF_HOLD_MS is the delay between
+// pushing the route and starting the overlay fade — long enough for
+// Next.js to hydrate the prefetched destination, short enough that the
+// visitor doesn't feel a stall. HANDOFF_FADE_MS is the fade itself.
+const HANDOFF_HOLD_MS = 650;
+const HANDOFF_FADE_MS = 380;
+
 export function ConciergeOverlay() {
   const [open, setOpen] = useState(false);
-  const [phase, setPhase] = useState<'entering' | 'ready' | 'leaving'>('entering');
+  const [phase, setPhase] = useState<'entering' | 'ready' | 'handoff' | 'leaving'>('entering');
+  const [pending, setPending] = useState<CompanionId | null>(null);
   const router = useRouter();
   const reduced = useReducedMotion();
-  const { meta } = useCompanion(); // null on first visit, or George/Georgia
+  const { companion, choose } = useCompanion();
+  // Snapshot the previously-chosen companion at the moment the overlay
+  // OPENS, so labels like "Say hello again to George" stay stable
+  // through the handoff. Without this, the moment we call `choose()`
+  // during handoff, the context updates and BOTH buttons would flip
+  // their labels — visually jarring during the transition. We store
+  // the latest `companion` in a ref so the openConcierge listener
+  // (registered once in a []-deps effect) always sees the CURRENT
+  // value, not the stale one from mount.
+  const [snapshotCompanion, setSnapshotCompanion] = useState<CompanionId | null>(null);
+  const companionRef = useRef<CompanionId | null>(companion);
+  useEffect(() => { companionRef.current = companion; }, [companion]);
   const previouslyFocused = useRef<HTMLElement | null>(null);
-  const primaryBtnRef = useRef<HTMLButtonElement | null>(null);
+  const georgeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const georgiaBtnRef = useRef<HTMLButtonElement | null>(null);
   const secondaryBtnRef = useRef<HTMLButtonElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
 
-  // Companion-aware copy. On return visits we address the visitor as
-  // if the same host is greeting them again. On first visits we stay
-  // ambiguous — the George/Georgia choice happens over at /meet.
-  const primaryLabel = useMemo(
-    () => (meta ? `Say hello to ${meta.name}` : 'Say hello'),
-    [meta],
-  );
+  // We pre-select the previously-chosen companion (if any) so a
+  // returning visitor's default focus lands on their host. First-time
+  // visitors get George on the left simply by DOM order — either
+  // choice is equally valid.
+  const defaultFocusRef = snapshotCompanion === 'georgia' ? georgiaBtnRef : georgeBtnRef;
 
-  // ── Event listener: opens the overlay from any surface ──────────
+  // ── Open handler: listens on the window for the summons event ──
   useEffect(() => {
     const openConcierge = () => {
       previouslyFocused.current = document.activeElement as HTMLElement | null;
       setOpen(true);
       setPhase('entering');
+      setPending(null);
+      // Snapshot the previously-chosen companion when the overlay opens
+      // so button labels stay stable through the handoff. Read from a
+      // ref so we always see the CURRENT context value, not the stale
+      // one captured at first mount.
+      setSnapshotCompanion(companionRef.current);
     };
     window.addEventListener('friendplace:meet-george', openConcierge);
     return () => window.removeEventListener('friendplace:meet-george', openConcierge);
   }, []);
 
-  // ── Close the overlay — fades, restores focus, unmounts. ────────
+  // ── Prefetch /meet as soon as the overlay opens so the handoff
+  //    lands on a warm route — no blank/loading paint. ─────────────
+  useEffect(() => {
+    if (!open) return;
+    try { router.prefetch('/meet?from=concierge'); } catch { /* prefetch is best-effort */ }
+  }, [open, router]);
+
+  // ── Close politely — fade, restore focus, unmount. ─────────────
   const close = useCallback(() => {
     setPhase('leaving');
-    // Match the CSS transition duration (see .concierge-* keyframes).
     setTimeout(
       () => {
         setOpen(false);
         setPhase('entering');
-        // Return focus to the element that opened the overlay so the
-        // visitor lands back where they came from.
+        setPending(null);
         previouslyFocused.current?.focus?.({ preventScroll: true });
       },
       reduced ? 160 : 300,
     );
   }, [reduced]);
 
-  // ── When open, focus the primary CTA, trap focus, lock scroll ──
+  // ── Focus, focus-trap, escape, scroll-lock ─────────────────────
   useEffect(() => {
     if (!open) return;
-    // 1) advance from "entering" to "ready" on the next tick so CSS
-    //    transitions can play.
     const raf = requestAnimationFrame(() => setPhase('ready'));
 
-    // 2) lock body scroll so the page doesn't move behind the overlay.
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    // 3) focus the FIRST button (Say hello) but keep it non-
-    //    aggressive: use preventScroll so we don't jerk the page.
     const focusTimer = setTimeout(() => {
-      primaryBtnRef.current?.focus({ preventScroll: true });
+      defaultFocusRef.current?.focus({ preventScroll: true });
     }, 220);
 
-    // 4) simple focus trap — Tab cycles through the three focusable
-    //    elements (primary, secondary, close ×).
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); close(); return; }
       if (e.key !== 'Tab') return;
+      // Focus trap across all interactive elements in the card.
       const focusable = [
-        primaryBtnRef.current,
+        georgeBtnRef.current,
+        georgiaBtnRef.current,
         secondaryBtnRef.current,
         closeBtnRef.current,
-      ].filter(Boolean) as HTMLElement[];
+      ].filter((el): el is HTMLElement => Boolean(el));
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -153,37 +170,68 @@ export function ConciergeOverlay() {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = previousOverflow;
     };
-  }, [open, close]);
+  }, [open, close, defaultFocusRef]);
 
-  const sayHello = useCallback(() => {
-    // Close first, then route — feels more natural than routing under
-    // a still-visible overlay.
-    setPhase('leaving');
-    setTimeout(
-      () => {
-        setOpen(false);
-        setPhase('entering');
-        router.push('/meet?from=concierge');
-      },
-      reduced ? 140 : 240,
-    );
-  }, [router, reduced]);
+  // ── Choice handler: persist companion, keep the overlay visible
+  //    THROUGH the route change, then cross-fade to /meet. This is
+  //    the seamless "he/she is coming over" moment. ────────────────
+  const pickCompanion = useCallback((id: CompanionId) => {
+    if (phase !== 'ready') return; // ignore double-clicks during handoff
+    setPending(id);
+    setPhase('handoff');
+    choose(id);
+    // Kick off the navigation immediately. The overlay stays mounted
+    // over /meet because it lives at the root layout, so the visitor
+    // does NOT see a blank page while Next.js swaps the route.
+    router.push('/meet?from=concierge');
+    // After /meet has had a chance to hydrate + paint its opening
+    // frame underneath, fade the overlay out. The visitor experiences
+    // one continuous moment: overlay softens, butterfly steps forward,
+    // /meet is already there behind the fade.
+    setTimeout(() => {
+      setPhase('leaving');
+      setTimeout(
+        () => {
+          setOpen(false);
+          setPhase('entering');
+          setPending(null);
+        },
+        HANDOFF_FADE_MS + 20,
+      );
+    }, reduced ? 200 : HANDOFF_HOLD_MS);
+  }, [phase, router, choose, reduced]);
 
   if (!open) return null;
 
-  // Transform amounts respect reduced-motion. Everything falls back to
-  // opacity-only so the arrival still feels intentional without motion.
+  const isHandoff = phase === 'handoff' || phase === 'leaving';
+  const showAsReady = phase === 'ready' || phase === 'handoff';
+
+  // Card + butterfly transforms respect reduced-motion + phase.
   const cardTransform = reduced
     ? 'none'
-    : phase === 'ready'
-      ? 'translateY(0) scale(1)'
-      : 'translateY(14px) scale(0.985)';
+    : phase === 'entering'  ? 'translateY(14px) scale(0.985)'
+    : phase === 'handoff'   ? 'translateY(-3px) scale(1.005)'  // subtle lean-in
+    : phase === 'leaving'   ? 'translateY(-3px) scale(1.01)'
+    :                          'translateY(0) scale(1)';
 
   const butterflyTransform = reduced
     ? 'none'
-    : phase === 'ready'
-      ? 'translateY(0) rotate(0deg)'
-      : 'translateY(-28px) rotate(-8deg)';
+    : phase === 'entering'  ? 'translateY(-28px) rotate(-8deg)'
+    : phase === 'handoff'   ? 'translateY(-6px) scale(1.1)'   // steps forward
+    : phase === 'leaving'   ? 'translateY(-10px) scale(1.15)'
+    :                          'translateY(0) rotate(0deg)';
+
+  const cardOpacity =
+    phase === 'ready'    ? 1 :
+    phase === 'handoff'  ? 1 :
+    phase === 'leaving'  ? 0 :
+    0;
+
+  const backdropOpacity =
+    phase === 'ready'    ? 1 :
+    phase === 'handoff'  ? 0.75 : // begin softening the backdrop early
+    phase === 'leaving'  ? 0 :
+    0;
 
   return (
     <div
@@ -194,40 +242,52 @@ export function ConciergeOverlay() {
       aria-describedby="concierge-welcome"
       style={{
         ...backdropBase,
-        opacity: phase === 'ready' ? 1 : 0,
-        backdropFilter: phase === 'ready' ? 'blur(14px) saturate(1.05)' : 'blur(0px)',
-        WebkitBackdropFilter: phase === 'ready' ? 'blur(14px) saturate(1.05)' : 'blur(0px)',
+        opacity: backdropOpacity,
+        backdropFilter: showAsReady ? 'blur(14px) saturate(1.05)' : 'blur(0px)',
+        WebkitBackdropFilter: showAsReady ? 'blur(14px) saturate(1.05)' : 'blur(0px)',
+        transition: `opacity ${isHandoff ? HANDOFF_FADE_MS : 300}ms ease, backdrop-filter 300ms ease`,
       }}
-      // Clicks on the backdrop (not the card) close politely — same
-      // semantics as "Look around first".
-      onClick={(e) => { if (e.target === overlayRef.current) close(); }}
+      onClick={(e) => {
+        // Backdrop dismiss is disabled during handoff — we don't want
+        // an accidental click to interrupt the transition.
+        if (phase !== 'ready') return;
+        if (e.target === overlayRef.current) close();
+      }}
     >
       <div
         style={{
           ...card,
           transform: cardTransform,
-          opacity: phase === 'ready' ? 1 : 0,
+          opacity: cardOpacity,
+          transition: `transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${isHandoff ? HANDOFF_FADE_MS : 300}ms ease`,
         }}
       >
-        {/* Discreet close (×) — muted, top-right. Present for
-            discoverability; Escape and the secondary CTA still work. */}
-        <button
-          ref={closeBtnRef}
-          type="button"
-          onClick={close}
-          aria-label="Close welcome"
-          style={closeBtn}
-          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#05192C'; }}
-          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#94A3B8'; }}
-        >
-          ×
-        </button>
+        {/* Discreet close (×). Hidden during handoff. */}
+        {phase === 'ready' && (
+          <button
+            ref={closeBtnRef}
+            type="button"
+            onClick={close}
+            aria-label="Close welcome"
+            style={closeBtn}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#05192C'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#94A3B8'; }}
+          >
+            ×
+          </button>
+        )}
 
-        {/* Butterfly — the FriendPlace brand mark, arriving. It floats
-            in from just above the card and settles. A soft aqua aura
-            sits behind it for warmth. */}
+        {/* Brand butterfly — arrives from above, settles, then leans
+            forward during handoff. Soft aqua aura for warmth. */}
         <div style={butterflyBox} aria-hidden>
-          <div style={butterflyAura} />
+          <div
+            style={{
+              ...butterflyAura,
+              opacity: phase === 'handoff' || phase === 'leaving' ? 1 : 0.7,
+              transform: phase === 'handoff' || phase === 'leaving' ? 'scale(1.15)' : 'scale(1)',
+              transition: 'opacity 500ms ease, transform 500ms ease',
+            }}
+          />
           <div
             data-concierge-butterfly
             style={{
@@ -241,7 +301,7 @@ export function ConciergeOverlay() {
               animation: phase === 'ready' && !reduced
                 ? 'concierge-breath 5.2s ease-in-out 620ms infinite'
                 : 'none',
-              filter: 'drop-shadow(0 8px 18px rgba(56, 189, 248, 0.35))',
+              filter: `drop-shadow(0 8px 18px rgba(56, 189, 248, ${isHandoff ? 0.55 : 0.35}))`,
             }}
           >
             <Image
@@ -260,49 +320,46 @@ export function ConciergeOverlay() {
         </h2>
 
         <p id="concierge-welcome" style={welcome}>
-          If you&apos;d like, I can come over and say hello properly.
-          Or take a look around first — I&apos;ll be here whenever
-          you&apos;re ready.
+          {phase === 'handoff' || phase === 'leaving'
+            ? <>{pending ? COMPANIONS[pending].name : 'Someone'} is coming over…</>
+            : <>Two of us can show you around. Choose whoever feels
+              right — you can switch anytime.</>
+          }
         </p>
 
-        <div style={buttonRow}>
-          <button
-            ref={primaryBtnRef}
-            type="button"
-            onClick={sayHello}
-            style={primaryBtn}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = '#0B2A4A';
-              (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-1px)';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = '#05192C';
-              (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)';
-            }}
-          >
-            {primaryLabel}
-          </button>
+        <div style={choiceRow}>
+          <CompanionChoice
+            ref={georgeBtnRef}
+            companion="george"
+            disabled={phase !== 'ready'}
+            isPending={pending === 'george'}
+            wasChosenBefore={snapshotCompanion === 'george'}
+            onPick={pickCompanion}
+          />
+          <CompanionChoice
+            ref={georgiaBtnRef}
+            companion="georgia"
+            disabled={phase !== 'ready'}
+            isPending={pending === 'georgia'}
+            wasChosenBefore={snapshotCompanion === 'georgia'}
+            onPick={pickCompanion}
+          />
+        </div>
+
+        {phase === 'ready' && (
           <button
             ref={secondaryBtnRef}
             type="button"
             onClick={close}
-            style={secondaryBtn}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor = '#94A3B8';
-              (e.currentTarget as HTMLButtonElement).style.background = '#F8FAFC';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor = '#CBD5E1';
-              (e.currentTarget as HTMLButtonElement).style.background = '#FFFFFF';
-            }}
+            style={dismissLink}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#0F172A'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#64748B'; }}
           >
             Look around first
           </button>
-        </div>
+        )}
       </div>
 
-      {/* Butterfly "breath" (subtle rise/fall) + reduced-motion opt-out.
-          Inlined so the overlay stays a single-file, portable component. */}
       <style>{`
         @keyframes concierge-breath {
           0%, 100% { transform: translateY(0) rotate(-1deg); }
@@ -316,9 +373,60 @@ export function ConciergeOverlay() {
   );
 }
 
-// ─── styles ────────────────────────────────────────────────────────────
-// Backdrop: soft navy tint. The blur (applied inline so we can toggle
-// it per-phase) does the heavy lifting for depth.
+// ─── CompanionChoice: one of the two picker pills ─────────────────────
+// A ref-forwarded pill so the parent can trap focus on it. Shows a warm
+// hover, a "pending" state while the handoff runs, and a subtle mark on
+// the companion the visitor picked previously (so returning feels like
+// coming home).
+
+interface CompanionChoiceProps {
+  companion: CompanionId;
+  disabled: boolean;
+  isPending: boolean;
+  wasChosenBefore: boolean;
+  onPick: (id: CompanionId) => void;
+}
+
+const CompanionChoice = forwardRef<HTMLButtonElement, CompanionChoiceProps>(
+  function CompanionChoice({ companion, disabled, isPending, wasChosenBefore, onPick }, ref) {
+    const meta = COMPANIONS[companion];
+    return (
+      <button
+        ref={ref}
+        type="button"
+        onClick={() => onPick(companion)}
+        disabled={disabled}
+        style={{
+          ...choiceBtn,
+          background: isPending ? '#0B2A4A' : '#05192C',
+          borderColor: wasChosenBefore ? '#5EEAD4' : 'transparent',
+          transform: isPending ? 'translateY(-1px) scale(1.01)' : 'translateY(0) scale(1)',
+          opacity: disabled && !isPending ? 0.55 : 1,
+          cursor: disabled ? 'default' : 'pointer',
+        }}
+        onMouseEnter={(e) => {
+          if (disabled) return;
+          (e.currentTarget as HTMLButtonElement).style.background = '#0B2A4A';
+          (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-1px)';
+        }}
+        onMouseLeave={(e) => {
+          if (disabled || isPending) return;
+          (e.currentTarget as HTMLButtonElement).style.background = '#05192C';
+          (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)';
+        }}
+      >
+        <span style={{ display: 'block', fontSize: 12.5, opacity: 0.7, letterSpacing: '0.04em', fontWeight: 600 }}>
+          {wasChosenBefore ? 'Say hello again to' : 'Say hello to'}
+        </span>
+        <span style={{ display: 'block', fontSize: 17, fontWeight: 800, marginTop: 2 }}>
+          {meta.name}
+        </span>
+      </button>
+    );
+  },
+);
+
+// ═══ styles ═══════════════════════════════════════════════════════════
 const backdropBase: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
@@ -329,22 +437,17 @@ const backdropBase: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
   padding: 20,
-  transition: 'opacity 300ms ease, backdrop-filter 300ms ease',
 };
 
-// The card. Slightly warmer top gradient so it doesn't read as a
-// clinical "modal" — this is George arriving, not a form popup.
 const card: React.CSSProperties = {
   position: 'relative',
   background: 'linear-gradient(180deg, #FFFFFF 0%, #F6FBFF 100%)',
   borderRadius: 24,
-  padding: '32px 30px 28px',
+  padding: '32px 30px 22px',
   maxWidth: 520,
   width: '100%',
   boxShadow:
     '0 32px 80px rgba(5, 25, 44, 0.32), 0 4px 12px rgba(5, 25, 44, 0.08), 0 0 0 1px rgba(94, 234, 212, 0.22)',
-  transition:
-    'transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity 300ms ease',
   textAlign: 'center',
 };
 
@@ -367,9 +470,6 @@ const closeBtn: React.CSSProperties = {
   transition: 'color 160ms ease, background 160ms ease',
 };
 
-// A soft aqua "aura" behind the butterfly — a resting halo, not a
-// spotlight. Position: absolute inside butterflyBox (which is
-// position: relative).
 const butterflyAura: React.CSSProperties = {
   position: 'absolute',
   width: 150,
@@ -400,44 +500,45 @@ const heading: React.CSSProperties = {
 };
 
 const welcome: React.CSSProperties = {
-  fontSize: 15.5,
+  fontSize: 15,
   color: '#334155',
   lineHeight: 1.6,
-  margin: '0 0 24px',
+  margin: '0 0 22px',
   maxWidth: 440,
   marginInline: 'auto',
+  minHeight: 48, // reserve space so the copy swap during handoff doesn't jump the layout
 };
 
-const buttonRow: React.CSSProperties = {
-  display: 'flex',
+const choiceRow: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
   gap: 10,
-  flexWrap: 'wrap',
-  justifyContent: 'center',
+  marginBottom: 14,
 };
 
-const primaryBtn: React.CSSProperties = {
-  padding: '13px 24px',
-  background: '#05192C',
+const choiceBtn: React.CSSProperties = {
+  padding: '14px 18px',
   color: '#FFFFFF',
-  border: 0,
-  borderRadius: 999,
+  border: '1.5px solid transparent',
+  borderRadius: 16,
   fontSize: 15,
   fontWeight: 700,
-  cursor: 'pointer',
-  minWidth: 172,
-  transition: 'transform 160ms ease, background 160ms ease',
+  transition:
+    'transform 200ms cubic-bezier(0.22, 1, 0.36, 1), background 160ms ease, border-color 160ms ease, opacity 200ms ease',
   boxShadow: '0 6px 18px rgba(5, 25, 44, 0.18)',
 };
 
-const secondaryBtn: React.CSSProperties = {
-  padding: '13px 24px',
-  background: '#FFFFFF',
-  color: '#05192C',
-  border: '1px solid #CBD5E1',
-  borderRadius: 999,
-  fontSize: 15,
+const dismissLink: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '10px 14px',
+  background: 'transparent',
+  color: '#64748B',
+  border: 0,
+  fontSize: 14,
   fontWeight: 600,
   cursor: 'pointer',
-  minWidth: 172,
-  transition: 'border-color 160ms ease, background 160ms ease',
+  textDecoration: 'underline',
+  textDecorationColor: 'rgba(100,116,139,0.35)',
+  textUnderlineOffset: 4,
+  transition: 'color 160ms ease',
 };
