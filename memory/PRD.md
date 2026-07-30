@@ -136,3 +136,14 @@ On first startup the backend seeds 8 demo users, 7 tables (with starter messages
 - Support note drafted (NOT sent): /app/memory/support_note_preview_edge_404.md
 - Tested: iteration_106.json — 7/8 pass; voice fake-mic scenario skipped (harness limitation). Cosmetic wording fix applied after test.
 - STILL PENDING ON EMERGENT SUPPORT: production Mongo empty / data migration before any URL cutover; preview edge routing stability.
+
+## July 2026 — Knowledge Phase 2: institutional memory with permission-gated retrieval
+Decision (30 Jul 2026): One George · One memory · Different permissions. A single `knowledge_base` collection with per-entry `visibility` ("public" | "admin") and optional `admin_context` field. Member-side George sees only public entries; admin-side George sees everything plus the admin_context layer on public entries. All new entries and George's chat-drafts default to `visibility="admin"` — public is a deliberate promotion.
+- Backend: `services/knowledge.py` extended with visibility filtering, create_entry, update_entry, confirm_draft, discard_entry, supersede_entry (auto-fills evolution_note), backfill_embeddings. Admin_context and evolution_note fields carry the extra layers.
+- Draft-from-chat: `services/george/chat.py` post-turn detector (Haiku classifier) creates a `status="draft"` entry when the admin shares new institutional info, streams a `kb_proposal` SSE event to the client. Prefiltered via regex hints so the vast majority of turns skip the classifier entirely.
+- CMS routes: `POST /api/cms/knowledge`, `PATCH /api/cms/knowledge/{id}`, `POST /api/cms/knowledge/{id}/confirm | discard | supersede`, `GET /api/cms/knowledge-drafts`, `POST /api/cms/knowledge/reseed`. All actions dual-write to admin_log with `kb.entry.*` action namespace.
+- MCGS UI: `/admin/knowledge` — Library with search + type/visibility/status filters, drafts strip at top, add-entry modal with visibility toggle and conditional admin_context textarea, per-row Edit/Supersede/Discard with confirmation. Sidebar entry added under System.
+- Seeding: 17 canonical entries classified (10 public: stories/principles/RYI/moderation philosophy; 7 admin: decisions/roadmap/security philosophy/MCGS Bridge). KB-STORY-002 "Why George is a butterfly" carries an admin_context layer as the reference implementation.
+- Known: embeddings 401 with current Emergent LLM key — retrieval falls back to keyword-only (works for 17-entry KB; will need proper embeddings gateway before the KB grows to hundreds).
+- Tested: 9 kb.* audit-log entries land correctly · create/confirm/update/supersede/discard flow end-to-end verified via API · Knowledge Library and Author Modal render correctly in MCGS.
+

@@ -2304,6 +2304,7 @@ def build_router(db) -> APIRouter:
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
         type: Optional[str] = None,
         status: Optional[str] = None,
+        visibility: Optional[str] = None,
         q: Optional[str] = None,
         limit: int = 100,
     ):
@@ -2312,6 +2313,8 @@ def build_router(db) -> APIRouter:
             query["type"] = type
         if status:
             query["status"] = status
+        if visibility and visibility in _kb.ALLOWED_VISIBILITY:
+            query["visibility"] = visibility
         if q:
             query["$text"] = {"$search": q}
         cur = db[_kb.COLLECTION].find(query, {"_id": 0, "embedding": 0})\
@@ -2359,12 +2362,185 @@ def build_router(db) -> APIRouter:
         by_type = {}
         for t in _kb.ALLOWED_TYPES:
             by_type[t] = await db[_kb.COLLECTION].count_documents({"type": t})
-        return {"total": total, "by_type": by_type}
+        drafts = await db[_kb.COLLECTION].count_documents({"status": "draft"})
+        public = await db[_kb.COLLECTION].count_documents({"visibility": "public"})
+        admin_only = await db[_kb.COLLECTION].count_documents({"visibility": "admin"})
+        superseded = await db[_kb.COLLECTION].count_documents({"status": "superseded"})
+        return {
+            "total": total,
+            "by_type": by_type,
+            "drafts": drafts,
+            "public": public,
+            "admin_only": admin_only,
+            "superseded": superseded,
+        }
+
+    @router.get("/knowledge-drafts")
+    async def kb_drafts(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        rows = await _kb.list_drafts(db)
+        return {"items": rows}
+
+    @router.post("/knowledge")
+    async def kb_create(body: dict, admin: dict = Depends(current_cms_admin)):
+        title = (body.get("title") or "").strip()
+        body_md = (body.get("body_md") or "").strip()
+        if not title or not body_md:
+            raise HTTPException(400, "title and body_md are required")
+        entry_type = body.get("type") or "decision"
+        if entry_type not in _kb.ALLOWED_TYPES:
+            raise HTTPException(400, f"type must be one of: {_kb.ALLOWED_TYPES}")
+        visibility = body.get("visibility") or _kb.DEFAULT_VISIBILITY
+        if visibility not in _kb.ALLOWED_VISIBILITY:
+            raise HTTPException(400, f"visibility must be one of: {_kb.ALLOWED_VISIBILITY}")
+        payload = {
+            "type": entry_type,
+            "title": title,
+            "body_md": body_md,
+            "tags": body.get("tags") or [],
+            "sources": body.get("sources") or [],
+            "related_ids": body.get("related_ids") or [],
+            "visibility": visibility,
+            "admin_context": body.get("admin_context"),
+            "evolution_note": body.get("evolution_note"),
+            "confidence": body.get("confidence") or "canonical",
+            "status": body.get("status") or "active",
+        }
+        created = await _kb.create_entry(
+            db, entry=payload, authored_by=admin.get("email"),
+        )
+        await _audit.log_admin_action(
+            db, admin=admin, action="kb.entry.create",
+            target_type="knowledge", target_id=created["id"],
+            metadata={"title": created["title"], "visibility": created["visibility"]},
+        )
+        created.pop("embedding", None)
+        return created
+
+    @router.patch("/knowledge/{entry_id}")
+    async def kb_update(entry_id: str, body: dict, admin: dict = Depends(current_cms_admin)):
+        updated = await _kb.update_entry(
+            db, entry_id, patch=body, updated_by=admin.get("email"),
+        )
+        if not updated:
+            raise HTTPException(404, "Entry not found")
+        await _audit.log_admin_action(
+            db, admin=admin, action="kb.entry.update",
+            target_type="knowledge", target_id=entry_id,
+            metadata={k: v for k, v in body.items() if k in ("title", "visibility", "status")},
+        )
+        return updated
+
+    @router.post("/knowledge/{entry_id}/confirm")
+    async def kb_confirm(entry_id: str, admin: dict = Depends(current_cms_admin)):
+        updated = await _kb.confirm_draft(
+            db, entry_id, confirmed_by=admin.get("email"),
+        )
+        if not updated:
+            raise HTTPException(404, "Entry not found")
+        await _audit.log_admin_action(
+            db, admin=admin, action="kb.entry.confirm",
+            target_type="knowledge", target_id=entry_id,
+            metadata={"title": updated.get("title")},
+        )
+        return updated
+
+    @router.post("/knowledge/{entry_id}/discard")
+    async def kb_discard(entry_id: str, admin: dict = Depends(current_cms_admin)):
+        existing = await db[_kb.COLLECTION].find_one({"id": entry_id})
+        if not existing:
+            raise HTTPException(404, "Entry not found")
+        ok = await _kb.discard_entry(db, entry_id)
+        if not ok:
+            raise HTTPException(500, "Failed to discard")
+        await _audit.log_admin_action(
+            db, admin=admin, action="kb.entry.discard",
+            target_type="knowledge", target_id=entry_id,
+            metadata={
+                "title": existing.get("title"),
+                "was_status": existing.get("status"),
+            },
+        )
+        return {"ok": True}
+
+    @router.post("/knowledge/{entry_id}/supersede")
+    async def kb_supersede(entry_id: str, body: dict, admin: dict = Depends(current_cms_admin)):
+        title = (body.get("title") or "").strip()
+        body_md = (body.get("body_md") or "").strip()
+        if not title or not body_md:
+            raise HTTPException(400, "title and body_md are required for the new entry")
+        new_payload = {
+            "type": body.get("type"),
+            "title": title,
+            "body_md": body_md,
+            "tags": body.get("tags"),
+            "sources": body.get("sources"),
+            "visibility": body.get("visibility"),
+            "admin_context": body.get("admin_context"),
+            "evolution_note": body.get("evolution_note"),
+        }
+        # Strip Nones so create_entry's defaults win where not provided.
+        new_payload = {k: v for k, v in new_payload.items() if v is not None}
+        created = await _kb.supersede_entry(
+            db, entry_id, new_entry=new_payload, updated_by=admin.get("email"),
+        )
+        if not created:
+            raise HTTPException(404, "Entry not found")
+        await _audit.log_admin_action(
+            db, admin=admin, action="kb.entry.supersede",
+            target_type="knowledge", target_id=entry_id,
+            metadata={"new_id": created["id"], "title": created["title"]},
+        )
+        created.pop("embedding", None)
+        return created
+
+    @router.post("/knowledge/reseed")
+    async def kb_reseed(admin: dict = Depends(current_cms_admin)):
+        """Re-run the seed script to refresh the canonical entries from
+        FriendPlace's own documentation. Non-destructive — updates
+        existing entries in place, doesn't touch drafts."""
+        try:
+            from scripts import seed_george_kb as _seed  # type: ignore
+        except Exception:
+            # Fallback: import via file path when 'scripts' package isn't on
+            # the module search path in this deployment layout.
+            import importlib.util as _iu, pathlib as _pl
+            spec = _iu.spec_from_file_location(
+                "seed_george_kb",
+                str(_pl.Path(__file__).parent / "scripts" / "seed_george_kb.py"),
+            )
+            _seed = _iu.module_from_spec(spec)  # type: ignore
+            spec.loader.exec_module(_seed)  # type: ignore
+        created = updated = 0
+        for entry in _seed.SEED:
+            existing = await db[_kb.COLLECTION].find_one(
+                {"id": entry["id"]}, {"title": 1, "body_md": 1, "admin_context": 1},
+            )
+            await _kb.upsert_entry(db, dict(entry))
+            if existing:
+                updated += 1
+            else:
+                created += 1
+        total = await _kb.count_entries(db)
+        await _audit.log_admin_action(
+            db, admin=admin, action="kb.reseed",
+            metadata={"created": created, "updated": updated, "total": total},
+        )
+        return {"ok": True, "created": created, "updated": updated, "total": total}
+
+    @router.post("/knowledge/backfill-embeddings")
+    async def kb_backfill_embeddings(admin: dict = Depends(current_cms_admin)):
+        result = await _kb.backfill_embeddings(db)
+        await _audit.log_admin_action(
+            db, admin=admin, action="kb.embeddings.backfill",
+            metadata=result,
+        )
+        return {"ok": True, **result}
 
     # Ensure indexes on startup (idempotent).
     import asyncio as _asyncio
     try:
         _asyncio.get_event_loop().create_task(_sec.ensure_indexes(db))
+        _asyncio.get_event_loop().create_task(_kb.ensure_indexes(db))
     except Exception:
         pass
 

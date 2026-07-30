@@ -1463,6 +1463,13 @@ def build_router(db) -> APIRouter:
                         # so the sheet can render an inline preview card.
                         preview = ev.get("preview") or {}
                         yield f"event: action_preview\ndata: {json.dumps(preview, default=str)}\n\n"
+                    elif kind == "kb_proposal":
+                        # Knowledge Phase 2 — George detected a possible
+                        # new institutional knowledge item and created a
+                        # draft. Client shows the "confirm / edit / discard"
+                        # affordance inline in the chat.
+                        proposal = ev.get("proposal") or {}
+                        yield f"event: kb_proposal\ndata: {json.dumps(proposal, default=str)}\n\n"
                     elif kind == "done":
                         usage = {"error": ev.get("error")} if ev.get("error") else {}
                         yield f"event: done\ndata: {json.dumps({'reply_length': len(ev.get('reply') or '')})}\n\n"

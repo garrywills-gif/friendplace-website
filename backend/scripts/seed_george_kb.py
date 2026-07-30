@@ -54,6 +54,21 @@ SEED: list[dict] = [
         "tags": ["george", "identity", "brand"],
         "sources": [{"label": "Meet page choreography", "url": "/app/website/app/meet/page.tsx"}],
         "related_ids": ["KB-STORY-001", "KB-STORY-005"],
+        # Public entry with an admin-only layer. Members see the warm
+        # story; admins see the design origin behind it.
+        "admin_context": (
+            "The butterfly choice grew directly out of the Quiet Host model "
+            "(KB-STORY-005). We considered a house sparrow, a lighthouse, and "
+            "an abstract 'presence' before settling on the butterfly for "
+            "three reasons:\n\n"
+            "1. It reads as a *visitor* rather than a *resident* — reinforces "
+            "   that George is with you, not watching you.\n"
+            "2. It has cultural resonance for older Australians (transformation, "
+            "   gentleness, gardens) without being twee.\n"
+            "3. It is impossible to make aggressive. A butterfly cannot upsell, "
+            "   cannot demand, cannot dominate a screen. The form factor "
+            "   *encodes* the behaviour we want."
+        ),
     },
     {
         "id": "KB-STORY-003", "type": "story",
@@ -179,6 +194,7 @@ SEED: list[dict] = [
         ),
         "tags": ["george", "moderation"],
         "related_ids": ["KB-PHIL-001"],
+        "visibility": "admin",  # admin-specific — about how MCGS uses George
     },
     {
         "id": "KB-PHIL-003", "type": "philosophy",
@@ -193,6 +209,7 @@ SEED: list[dict] = [
         ),
         "tags": ["security", "admin-experience"],
         "sources": [{"label": "MCGS_SECURITY_MODEL.md"}],
+        "visibility": "admin",  # admin-specific — security details stay internal
     },
 
     # ── DECISIONS ────────────────────────────────────────────────
@@ -252,6 +269,7 @@ SEED: list[dict] = [
         "tags": ["ryi", "public-site", "onboarding"],
         "sources": [{"label": "PUBLIC_EXPERIENCE_PRINCIPLES.md"}, {"label": "/app/website/app/register-interest/page.tsx"}],
         "related_ids": ["KB-STORY-005"],
+        "visibility": "public",  # RYI is a member-facing feature
     },
     {
         "id": "KB-FEAT-002", "type": "feature",
@@ -321,12 +339,30 @@ async def main() -> None:
     print(f"Seeding George's institutional knowledge base into `{db_name}.knowledge_base`")
     await kb.ensure_indexes(db)
 
+    # Default visibility per type. Stories, principles, and philosophy
+    # are member-safe by default; decisions, roadmap and feature-detail
+    # entries are admin-only. Individual entries in SEED can override by
+    # setting their own `visibility` field.
+    TYPE_TO_VISIBILITY = {
+        "story":      "public",
+        "principle":  "public",
+        "philosophy": "public",
+        "feature":    "admin",
+        "decision":   "admin",
+        "roadmap":    "admin",
+    }
+
     created = updated = 0
     for entry in SEED:
-        existing = await db[kb.COLLECTION].find_one(
-            {"id": entry["id"]}, {"title": 1, "body_md": 1},
+        payload = dict(entry)  # avoid mutating SEED
+        payload.setdefault(
+            "visibility",
+            TYPE_TO_VISIBILITY.get(payload.get("type") or "", "admin"),
         )
-        await kb.upsert_entry(db, dict(entry))  # copy — avoid mutating SEED
+        existing = await db[kb.COLLECTION].find_one(
+            {"id": payload["id"]}, {"title": 1, "body_md": 1},
+        )
+        await kb.upsert_entry(db, payload)
         if existing:
             updated += 1
         else:

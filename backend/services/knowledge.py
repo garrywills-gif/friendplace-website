@@ -29,6 +29,8 @@ EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIM = 1536
 
 ALLOWED_TYPES = ("story", "principle", "decision", "feature", "roadmap", "philosophy")
+ALLOWED_VISIBILITY = ("public", "admin")
+DEFAULT_VISIBILITY = "admin"  # deliberate — public is an intentional decision
 
 
 def _now() -> datetime:
@@ -46,8 +48,15 @@ async def ensure_indexes(db: Any) -> None:
         )
         await db[COLLECTION].create_index("type")
         await db[COLLECTION].create_index("status")
+        await db[COLLECTION].create_index("visibility")
         await db[COLLECTION].create_index("superseded_by")
         await db[COLLECTION].create_index("updated_at")
+        # Backfill: any pre-existing entry without a visibility field is
+        # treated as admin-only (safer default). One-shot, idempotent.
+        await db[COLLECTION].update_many(
+            {"visibility": {"$exists": False}},
+            {"$set": {"visibility": DEFAULT_VISIBILITY}},
+        )
     except Exception as e:
         logger.warning("KB ensure_indexes: %s", e)
 
@@ -114,14 +123,22 @@ def needs_kb(user_message: str) -> bool:
 async def retrieve(
     db: Any, query: str, *, k: int = 5,
     types: Optional[list[str]] = None,
+    is_admin: bool = False,
 ) -> list[dict]:
     """Hybrid BM25 + cosine, RRF-fused, top k. Each hit includes its
-    supersede-chain latest and 1-line summaries of related entries."""
+    supersede-chain latest and 1-line summaries of related entries.
+
+    ``is_admin`` gates visibility: non-admin callers only see entries
+    marked ``visibility='public'``. This is the single choke point that
+    keeps member-facing George from ever quoting admin-only knowledge.
+    """
     q = (query or "").strip()
     if not q:
         return []
 
     base_filter: dict = {"status": {"$in": ["active", "superseded"]}}
+    if not is_admin:
+        base_filter["visibility"] = "public"
     if types:
         base_filter["type"] = {"$in": [t for t in types if t in ALLOWED_TYPES]}
 
@@ -215,9 +232,14 @@ async def retrieve(
     return out
 
 
-def format_for_prompt(hits: list[dict]) -> str:
+def format_for_prompt(hits: list[dict], *, is_admin: bool = False) -> str:
     """Turn retrieved hits into a prompt block. Kept concise so the
-    LLM budget stays healthy even with 5 hits."""
+    LLM budget stays healthy even with 5 hits.
+
+    Admin callers receive the ``admin_context`` layer (extra history /
+    decision notes) and any ``evolution_note`` narrating supersede
+    transitions. Member callers see only the clean public body.
+    """
     if not hits:
         return ""
     parts = ["\n\n## Institutional knowledge from FriendPlace's own memory"]
@@ -229,27 +251,45 @@ def format_for_prompt(hits: list[dict]) -> str:
                 f"\n(NOTE: this entry was superseded by [{lv['id']}] "
                 f"'{lv.get('title', '')}' — mention both if relevant.)"
             )
+            if is_admin and lv.get("evolution_note"):
+                supersede_note += f"\nEvolution: {lv['evolution_note']}"
         related_line = ""
         if h.get("related"):
             titles = ", ".join(f"[{r['id']}] {r.get('title', '')}" for r in h["related"])
             related_line = f"\nRelated: {titles}"
+        admin_layer = ""
+        if is_admin and h.get("admin_context"):
+            admin_layer = (
+                "\n\n[Admin-only context — DO NOT surface to members verbatim]\n"
+                f"{h['admin_context']}"
+            )
         parts.append(
             f"\n### [{h['id']}] {h.get('title', '')} · type: {h.get('type')}"
+            f" · visibility: {h.get('visibility', 'admin')}"
             f"\nUpdated: {h.get('updated_at')}"
             f"{related_line}"
             f"{supersede_note}"
-            f"\n---\n{h.get('body_md', '')}\n---"
+            f"\n---\n{h.get('body_md', '')}"
+            f"{admin_layer}\n---"
         )
+    audience = "administrator" if is_admin else "community member"
     parts.append(
-        "\n\nRules when answering from these entries:\n"
+        f"\n\nRules when answering from these entries (audience: {audience}):\n"
         "- Ground every substantive claim in one of the entries above.\n"
         "- Cite entries using the form [KB-XXXX] where KB-XXXX is the id shown.\n"
         "- If NONE of the entries answer the question, say so explicitly: "
         "  'I don't have a documented decision on that yet — do you want to record one?'\n"
         "- When multiple entries relate, connect them naturally: 'this stems from…', "
         "  'this reinforces…', 'this superseded…'. Never invent connections that aren't there.\n"
+        "- When something has evolved (an entry was superseded), narrate the arc: "
+        "  what it used to be, what it is now, and why it changed.\n"
         "- If a retrieved entry is older than 90 days and might be stale, note that.\n"
     )
+    if is_admin:
+        parts.append(
+            "- Admin-only context (marked above) may inform your answer but should "
+            "  never be quoted verbatim — paraphrase it into your reply.\n"
+        )
     return "\n".join(parts)
 
 
@@ -265,12 +305,26 @@ async def upsert_entry(db: Any, entry: dict) -> dict:
     entry.setdefault("sources", [])
     entry.setdefault("related_ids", [])
     entry.setdefault("superseded_by", None)
+    entry.setdefault("visibility", DEFAULT_VISIBILITY)
+    if entry["visibility"] not in ALLOWED_VISIBILITY:
+        entry["visibility"] = DEFAULT_VISIBILITY
+    entry.setdefault("admin_context", None)
     entry["updated_at"] = now
-    # Embed the concatenated title + body for retrieval quality.
-    embed_text = f"{entry.get('title','')}\n\n{entry.get('body_md','')}"
-    old = await db[COLLECTION].find_one({"id": entry_id}, {"body_md": 1, "title": 1})
+    # Embed the concatenated title + body (+ admin_context) for retrieval quality.
+    embed_text = (
+        f"{entry.get('title','')}\n\n{entry.get('body_md','')}"
+        + (f"\n\n{entry['admin_context']}" if entry.get("admin_context") else "")
+    )
+    old = await db[COLLECTION].find_one(
+        {"id": entry_id}, {"body_md": 1, "title": 1, "admin_context": 1},
+    )
     needs_embed = True
-    if old and old.get("body_md") == entry.get("body_md") and old.get("title") == entry.get("title"):
+    if (
+        old
+        and old.get("body_md") == entry.get("body_md")
+        and old.get("title") == entry.get("title")
+        and old.get("admin_context") == entry.get("admin_context")
+    ):
         needs_embed = False
     if needs_embed:
         emb = await _embed(embed_text)
@@ -299,6 +353,7 @@ async def create_entry(db: Any, *, entry: dict, authored_by: str | None = None) 
     """Create a new KB entry. Assigns an id if missing. Embeds title+body
     when possible. Status defaults to `active`; George's chat-proposed
     entries pass `status="draft"` so an admin must confirm them first.
+    Visibility defaults to ``admin`` — public is an intentional decision.
     """
     now = _now()
     entry = dict(entry)
@@ -313,15 +368,28 @@ async def create_entry(db: Any, *, entry: dict, authored_by: str | None = None) 
     entry.setdefault("sources", [])
     entry.setdefault("related_ids", [])
     entry.setdefault("superseded_by", None)
+    entry.setdefault("visibility", DEFAULT_VISIBILITY)
+    if entry["visibility"] not in ALLOWED_VISIBILITY:
+        entry["visibility"] = DEFAULT_VISIBILITY
     entry["title"] = (entry.get("title") or "").strip() or "Untitled"
     entry["body_md"] = (entry.get("body_md") or "").strip()
+    if entry.get("admin_context"):
+        entry["admin_context"] = str(entry["admin_context"]).strip() or None
+    else:
+        entry["admin_context"] = None
+    if entry.get("evolution_note"):
+        entry["evolution_note"] = str(entry["evolution_note"]).strip() or None
     entry["created_at"] = now
     entry["updated_at"] = now
     if authored_by:
         entry.setdefault("authored_by", authored_by)
         entry["updated_by"] = authored_by
     # Embed on create (best effort).
-    emb = await _embed(f"{entry['title']}\n\n{entry['body_md']}")
+    embed_text = (
+        f"{entry['title']}\n\n{entry['body_md']}"
+        + (f"\n\n{entry['admin_context']}" if entry.get("admin_context") else "")
+    )
+    emb = await _embed(embed_text)
     if emb:
         entry["embedding"] = emb
     await db[COLLECTION].insert_one(dict(entry))
@@ -331,31 +399,40 @@ async def create_entry(db: Any, *, entry: dict, authored_by: str | None = None) 
 async def update_entry(
     db: Any, entry_id: str, *, patch: dict, updated_by: str | None = None,
 ) -> Optional[dict]:
-    """Patch an entry. Re-embeds if title or body_md changed."""
+    """Patch an entry. Re-embeds if title, body_md or admin_context changed."""
     existing = await db[COLLECTION].find_one({"id": entry_id})
     if not existing:
         return None
     allowed = {
         "type", "title", "body_md", "tags", "sources", "related_ids",
         "confidence", "status", "effective_from", "effective_to",
+        "visibility", "admin_context", "evolution_note",
     }
     update = {k: v for k, v in (patch or {}).items() if k in allowed}
     if "type" in update and update["type"] not in ALLOWED_TYPES:
         update.pop("type")
+    if "visibility" in update and update["visibility"] not in ALLOWED_VISIBILITY:
+        update.pop("visibility")
     if "title" in update:
         update["title"] = (update["title"] or "").strip() or existing.get("title", "Untitled")
     if "body_md" in update:
         update["body_md"] = (update["body_md"] or "").strip()
+    if "admin_context" in update:
+        val = update["admin_context"]
+        update["admin_context"] = (val or "").strip() or None if isinstance(val, str) else None
     update["updated_at"] = _now()
     if updated_by:
         update["updated_by"] = updated_by
 
     title_changed = "title" in update and update["title"] != existing.get("title")
     body_changed = "body_md" in update and update["body_md"] != existing.get("body_md")
-    if title_changed or body_changed:
+    ac_changed = "admin_context" in update and update["admin_context"] != existing.get("admin_context")
+    if title_changed or body_changed or ac_changed:
         title = update.get("title", existing.get("title", ""))
         body = update.get("body_md", existing.get("body_md", ""))
-        emb = await _embed(f"{title}\n\n{body}")
+        ac = update.get("admin_context", existing.get("admin_context"))
+        text = f"{title}\n\n{body}" + (f"\n\n{ac}" if ac else "")
+        emb = await _embed(text)
         if emb:
             update["embedding"] = emb
 
@@ -414,6 +491,12 @@ async def supersede_entry(
     """Create a new active entry that supersedes ``old_id``. The old
     entry is marked ``status='superseded'`` and points to the new id.
     Related-ids link forward so retrieval always surfaces the newer one.
+
+    The new entry inherits visibility, type and tags from the old one
+    unless the caller overrides them. The ``evolution_note`` on the new
+    entry narrates *why* the change happened — this is what makes George
+    feel continuous rather than forgetful. If no note is supplied we
+    still record the transition so the chain is auditable.
     """
     old = await db[COLLECTION].find_one({"id": old_id})
     if not old:
@@ -423,6 +506,11 @@ async def supersede_entry(
     new_entry.setdefault("type", old.get("type", "decision"))
     new_entry.setdefault("tags", old.get("tags") or [])
     new_entry.setdefault("sources", old.get("sources") or [])
+    new_entry.setdefault("visibility", old.get("visibility") or DEFAULT_VISIBILITY)
+    if not new_entry.get("evolution_note"):
+        new_entry["evolution_note"] = (
+            f"Superseded [{old_id}] '{old.get('title', '')}'."
+        )
     # Related links: keep the old entry's related_ids plus a back-link to itself
     related = list(new_entry.get("related_ids") or old.get("related_ids") or [])
     if old_id not in related:

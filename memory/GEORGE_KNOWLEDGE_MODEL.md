@@ -1,16 +1,26 @@
 # George's Institutional Knowledge — Design Contract
 
-**Status:** designed, not yet built. Awaiting sign-off.
+**Status:** Phase 1 (retrieval + seed) shipped · Phase 2 (permission model, draft workflow, MCGS UI) shipped 30 Jul 2026 · Phase 3 (member-side integration) not started.
 **Aspiration (Garry):** *"George should become the living knowledge base for FriendPlace. Not because he's pretending to be me, but because he understands the platform and shares the same goal: helping FriendPlace succeed."*
+
+## One George · One memory · Different permissions
+
+The definitive architectural decision (30 Jul 2026): there is **one Institutional Knowledge repository** used by every surface George lives in. What differs is **who can see which entries**, not what George knows. Every entry carries:
+
+- `visibility: "public" | "admin"` — who can see it at all. Default is `admin`; public is a deliberate promotion.
+- `admin_context: string | null` — an optional extra layer shown ONLY to admins on a `public` entry. Lets a single "Why is George a butterfly?" entry carry a public story and a hidden admin-only design origin without splitting into two rows.
+- `evolution_note: string | null` — set when the entry supersedes an older one. Narrates what changed and why so George can explain the arc rather than the state alone.
+
+Retrieval is the choke point: `knowledge.retrieve(db, query, is_admin=…)` filters `visibility` and `format_for_prompt(hits, is_admin=…)` includes or omits the `admin_context` layer. Member-side George (future) simply passes `is_admin=False` and inherits the correct slice.
 
 ## The four honesties George must maintain
 
 Non-negotiable behaviours that keep the system trustworthy:
 
 1. **Cite or admit.** Every substantive answer either grounds itself in a knowledge-base entry (with the source shown) or explicitly says: *"I don't have a documented decision on this yet."* No confident guesses.
-2. **Superseded over deleted.** When a decision changes, we *supersede* the old entry (kept for history) rather than overwriting it. George can then explain "we used to do X; we changed to Y in March because Z."
+2. **Superseded over deleted.** When a decision changes, we *supersede* the old entry (kept for history) rather than overwriting it. George can then explain "we used to do X; we changed to Y in March because Z." The `evolution_note` on the newer entry captures the *why*.
 3. **Currency awareness.** Every entry has `updated_at` and George notes when he's drawing on something older than 90 days without recent confirmation.
-4. **Learn, don't invent.** When a user tells George new information ("we decided last week that Coffee Lounge posts auto-expire"), George offers to record it as a fresh KB entry — but only after human confirmation. He never silently absorbs new state.
+4. **Learn, don't invent.** When a user tells George new information ("we decided last week that Coffee Lounge posts auto-expire"), George offers to record it as a fresh KB entry — but only after human confirmation. He never silently absorbs new state. **All** George-authored entries land as `status="draft"` with `visibility="admin"` and appear on the "Awaiting your confirmation" strip in `/admin/knowledge` until Garry confirms, edits or discards them.
 
 ## Architecture — hybrid, not just embeddings
 

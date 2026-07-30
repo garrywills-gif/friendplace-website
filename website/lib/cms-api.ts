@@ -244,6 +244,54 @@ export const cmsApi = {
     req<{ items: Lockout[] }>('GET', '/cms/security/lockouts'),
   clearLockout: (body: { scope: 'email' | 'ip'; key: string }) =>
     req<{ ok: true }>('POST', '/cms/security/lockouts/clear', body),
+
+  // ── Institutional Knowledge (George's memory) ──────────────────
+  listKnowledge: (opts?: {
+    type?: string; status?: string; visibility?: string; q?: string; limit?: number;
+  }) => {
+    const p = new URLSearchParams();
+    if (opts?.type) p.set('type', opts.type);
+    if (opts?.status) p.set('status', opts.status);
+    if (opts?.visibility) p.set('visibility', opts.visibility);
+    if (opts?.q) p.set('q', opts.q);
+    if (opts?.limit != null) p.set('limit', String(opts.limit));
+    const qs = p.toString();
+    return req<{ items: KnowledgeEntry[]; types: string[] }>(
+      'GET', `/cms/knowledge${qs ? `?${qs}` : ''}`,
+    );
+  },
+  getKnowledge: (id: string) =>
+    req<KnowledgeEntry>('GET', `/cms/knowledge/${encodeURIComponent(id)}`),
+  knowledgeStats: () =>
+    req<{
+      total: number;
+      by_type: Record<string, number>;
+      drafts: number;
+      public: number;
+      admin_only: number;
+      superseded: number;
+    }>('GET', '/cms/knowledge-stats'),
+  knowledgeDrafts: () =>
+    req<{ items: KnowledgeEntry[] }>('GET', '/cms/knowledge-drafts'),
+  createKnowledge: (body: Partial<KnowledgeEntry>) =>
+    req<KnowledgeEntry>('POST', '/cms/knowledge', body),
+  updateKnowledge: (id: string, patch: Partial<KnowledgeEntry>) =>
+    req<KnowledgeEntry>('PATCH', `/cms/knowledge/${encodeURIComponent(id)}`, patch),
+  confirmKnowledgeDraft: (id: string) =>
+    req<KnowledgeEntry>('POST', `/cms/knowledge/${encodeURIComponent(id)}/confirm`, {}),
+  discardKnowledge: (id: string) =>
+    req<{ ok: true }>('POST', `/cms/knowledge/${encodeURIComponent(id)}/discard`, {}),
+  supersedeKnowledge: (id: string, newEntry: Partial<KnowledgeEntry>) =>
+    req<KnowledgeEntry>('POST', `/cms/knowledge/${encodeURIComponent(id)}/supersede`, newEntry),
+  reseedKnowledge: () =>
+    req<{ ok: true; created: number; updated: number; total: number }>('POST', '/cms/knowledge/reseed', {}),
+  backfillKnowledgeEmbeddings: () =>
+    req<{ ok: true; embedded: number; failed: number }>('POST', '/cms/knowledge/backfill-embeddings', {}),
+  retrieveKnowledge: (query: string, k = 5, types?: string[]) =>
+    req<{ hits: KnowledgeEntry[]; count: number }>(
+      'POST', '/cms/knowledge/retrieve',
+      { query, k, types },
+    ),
 };
 
 export type SecurityEvent = {
@@ -350,6 +398,39 @@ export type AuditLogEntry = {
   reason?: string;
   metadata?: Record<string, any>;
   ip?: string;
+};
+
+export type KnowledgeSource = {
+  label?: string;
+  url?: string;
+  path?: string;
+  chat_session_id?: string;
+};
+
+export type KnowledgeEntry = {
+  id: string;
+  type: 'story' | 'principle' | 'decision' | 'feature' | 'roadmap' | 'philosophy';
+  title: string;
+  body_md: string;
+  tags?: string[];
+  sources?: KnowledgeSource[];
+  related_ids?: string[];
+  status: 'active' | 'superseded' | 'draft' | 'discarded';
+  visibility: 'public' | 'admin';
+  admin_context?: string | null;
+  evolution_note?: string | null;
+  confidence?: 'canonical' | 'working' | 'provisional';
+  superseded_by?: string | null;
+  superseded_at?: string;
+  authored_by?: string;
+  updated_by?: string;
+  confirmed_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  effective_from?: string;
+  effective_to?: string;
+  latest_version?: KnowledgeEntry | null;
+  related?: Pick<KnowledgeEntry, 'id' | 'title' | 'type'>[];
 };
 
 export type SuccessStory = {
