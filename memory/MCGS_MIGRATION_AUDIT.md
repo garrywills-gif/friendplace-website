@@ -3,7 +3,7 @@
 **Author:** Neo (agent)  
 **Purpose:** Establish exact feature parity between the mobile-app admin tools and MCGS (the Next.js Mission Control) before adding new functionality.
 
-**Live status:** Slice 0 ✅ complete · Slice 1 (Member Management) — up next
+**Live status:** Slice 0 ✅ complete · Slice 0.5 ✅ complete · Slice 1 (Member Management) ✅ complete (30 July 2026) · Slice 2 (Reports) — up next
 
 ---
 

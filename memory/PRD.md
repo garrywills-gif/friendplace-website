@@ -157,3 +157,15 @@ Garry declared George's character foundation complete after a full day of conver
 - **Anchor phrases** (do not remove): *"I'm not here to make FriendPlace efficient. I'm here to help you keep it human, even as it grows."* · *"The community feels warmer because I'm here, not colder."* · *"You close the laptop smiling once in a while."* · *"I'll always want important decisions to have a human behind them."*
 - **Focus from here:** building Mission Control and remaining FriendPlace features WITH George alongside — not redesigning George.
 
+
+
+## 30 July 2026 — MCGS Slice 1 (Member Management) shipped
+Migrated all member management from the mobile admin screen to the Next.js MCGS desktop surface, behind the identity-confirmation safeguard contract.
+- **Pages:** `/admin/members` (search + status filter + paginated list) and `/admin/members/{id}` (identity header · Moderation Summary card · action bar · note composer · Ask George fairness prompts · unified timeline of reports + moderation_log).
+- **Safeguards proven end-to-end** (Playwright): every consequential action (warn/suspend/ban/restore/delete) opens the `ConfirmIdentityAction` dialog first. The primary button is locked until (a) reason ≥3 chars and (b) "I have checked these details" checkbox ticked. Delete requires typing the Member ID (GitHub-style). Cancel is default focus. Escape closes without submitting.
+- **Backend:** switched member-action endpoints from closure-scoped Pydantic body models to `body: dict = Body(...)` because Pydantic v2 wasn't binding the closure-scoped models as request bodies (they were being read as query params, silently failing). All six actions now land correctly with dual-writes to `moderation_log` and `admin_log`.
+- **Timeline:** reverse-chronological interleaving of reports + moderation_log with Density (Compact/Comfortable) and Filter (All/Actions/Reports) toggles. Open reports carry inline quick-action buttons ("Warn from this", "Suspend", "Ban") that pre-seed the confirm dialog with the report id.
+- **Ask George (5 fairness prompts on the profile):** summarise history · compare prior reports · spot patterns · unusual activity · **have we treated similar cases consistently?**
+- **Retired mobile screen:** `/app/frontend/app/admin/user/[id].tsx` now shows a "Moved to Mission Control" screen with a rocket icon, the requested Member ID for reference, and a back-to-admin-home button. No moderation actions can be taken from mobile any more.
+- **Tests:** `/app/backend/tests/test_mcgs_member_management.py` — 15/15 pytest cases pass in 0.4s. Retained as regression suite.
+- **Next:** Slice 2 (Reports) — `/admin/reports` list + detail view + auto-link into member profile from any report row.

@@ -206,7 +206,6 @@ export function ConfirmIdentityAction({
                 ? 'Reason for permanent deletion (e.g. right-to-erasure request from member)…'
                 : 'A short reason the member will see in their notification…'}
               style={textarea}
-              autoFocus={!meta.requiresTypedId}
             />
           </label>
         )}
