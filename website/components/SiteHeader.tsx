@@ -39,8 +39,11 @@ export default function SiteHeader() {
   // The Mini-CMS admin section has its own shell (sidebar layout, no
   // marketing header/footer). Bail out before rendering anything so the
   // /admin/* pages look like a proper app, not a marketing page with an
-  // embedded editor.
+  // embedded editor. The `/preview/*` mockup routes also render their
+  // own mock header for side-by-side comparison, so we hide the real
+  // sticky one there too.
   if (pathname?.startsWith('/admin')) return null;
+  if (pathname?.startsWith('/preview')) return null;
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';

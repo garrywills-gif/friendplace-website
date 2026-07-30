@@ -19,8 +19,10 @@ import SecretAdminTrigger from './SecretAdminTrigger';
  */
 export default function SiteFooter() {
   const pathname = usePathname();
-  // Hide on Mini-CMS admin routes (which have their own shell).
+  // Hide on Mini-CMS admin routes (which have their own shell) and on
+  // /preview/* mockup routes (which render their own mock chrome).
   if (pathname?.startsWith('/admin')) return null;
+  if (pathname?.startsWith('/preview')) return null;
   return (
     <footer style={{ background: '#0A2540', color: '#CBD5E1', marginTop: 96 }}>
       <div className="container" style={{ padding: '72px 24px 32px' }}>
