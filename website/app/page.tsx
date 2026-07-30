@@ -4,6 +4,7 @@ import { cms } from '@/lib/api';
 import { brandAssets } from '@/lib/brand-assets';
 import BrandMasthead from '@/components/BrandMasthead';
 import { LaunchCountdownRibbon, type LaunchStatus } from '@/components/site/LaunchCountdownRibbon';
+import HeroInvitation from '@/components/site/HeroInvitation';
 
 async function getLaunchStatus(): Promise<LaunchStatus | null> {
   try {
@@ -106,6 +107,13 @@ export default async function HomePage() {
                   See how it works
                 </Link>
               </div>
+
+              {/* Hero-level invitation to meet George / Georgia. Sits ONE
+                  visual level below the primary CTAs and fades in ~1.3s
+                  after paint, so visitors get a moment to read the hero
+                  before George politely steps forward. Not another
+                  navigation item — an intentional invitation. */}
+              <HeroInvitation />
             </div>
             <div style={{ display: 'flex', justifyContent: 'center' }}>
               <div className="butterfly-float" style={{ position: 'relative' }}>

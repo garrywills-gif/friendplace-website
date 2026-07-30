@@ -18,32 +18,22 @@ import { brandAssets } from '@/lib/brand-assets';
  *     15% opacity — visible only if you look for them).
  *   • Teal underline on the active page, drawn with a ::after pseudo
  *     so it never affects layout, only visual state.
+ *
+ * "Meet George or Georgia" used to live here as a persistent nav CTA.
+ * That was moved into the hero (see components/site/HeroInvitation.tsx)
+ * because George is part of the FriendPlace experience, not another
+ * navigation item. This keeps the top bar quieter and lets the
+ * invitation land at the right moment in the visitor's journey.
  */
 export default function SiteHeader() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
-  // "Meet George or Georgia" opens the concierge overlay instead of
-  // navigating away. The `<Link href="/meet">` acts as a JS-off
-  // fallback so keyboard-noscript / crawler navigation still works,
-  // but for the vast majority of visitors the current page just dims
-  // and George appears as a host in the foreground.
-  const openConcierge = (e: React.MouseEvent) => {
-    // Allow modified clicks (Cmd/Ctrl/middle) to open /meet directly.
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || (e as any).button === 1) return;
-    e.preventDefault();
-    setOpen(false); // close mobile drawer if it was open
-    window.dispatchEvent(new CustomEvent('friendplace:meet-george'));
-  };
-
   // The Mini-CMS admin section has its own shell (sidebar layout, no
   // marketing header/footer). Bail out before rendering anything so the
   // /admin/* pages look like a proper app, not a marketing page with an
-  // embedded editor. The `/preview/*` mockup routes also render their
-  // own mock header for side-by-side comparison, so we hide the real
-  // sticky one there too.
+  // embedded editor.
   if (pathname?.startsWith('/admin')) return null;
-  if (pathname?.startsWith('/preview')) return null;
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -84,7 +74,9 @@ export default function SiteHeader() {
         </Link>
 
         {/* Desktop nav — gap:0 because separators are drawn between
-            items via ::before pseudo-elements. */}
+            items via ::before pseudo-elements. The "Meet George or
+            Georgia" CTA is intentionally NOT here — it lives inside
+            the hero as an invitation, not a nav item. */}
         <nav className="nav-desktop" style={{ display: 'flex', alignItems: 'center' }}>
           {NAV.map((n, i) => (
             <Link
@@ -96,9 +88,6 @@ export default function SiteHeader() {
               {n.label}
             </Link>
           ))}
-          <Link href="/meet" onClick={openConcierge} className="btn btn-primary" style={{ padding: '10px 20px', fontSize: 14, marginLeft: 20 }}>
-            Meet George or Georgia
-          </Link>
         </nav>
 
         {/* Mobile burger */}
@@ -160,9 +149,6 @@ export default function SiteHeader() {
               ↳ {n.label}
             </Link>
           ))}
-          <Link href="/meet" onClick={openConcierge} className="btn btn-primary" style={{ marginTop: 16, width: '100%' }}>
-            Meet George or Georgia
-          </Link>
         </div>
       )}
 
