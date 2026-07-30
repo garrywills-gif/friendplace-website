@@ -3,35 +3,39 @@
 /**
  * ConciergeOverlay — the FriendPlace "concierge" welcome experience.
  *
- * When a visitor clicks "Meet George or Georgia" anywhere on the site,
- * the current page GENTLY dims + blurs into the background (never
- * navigates away first), and the FriendPlace butterfly appears in the
- * foreground as a warm host. The overlay:
+ * DESIGN NOTE (30 Jul 2026, locked with Garry): The butterfly that
+ * arrives in the concierge overlay IS the FriendPlace logo butterfly.
+ * When the visitor invites George or Georgia, the real logo butterfly
+ * quietly disappears and a "flying" butterfly begins at that exact
+ * position, gracefully drifts to the centre of the card, and grows to
+ * its full presence. The overlay card materialises AROUND the arriving
+ * butterfly, so the composition reads as one continuous moment:
  *
- *   1. Fulfils the promise of the button — the visitor really does
- *      get to pick GEORGE or GEORGIA. Two side-by-side choice pills.
- *   2. Preserves visual continuity when a choice is made. The overlay
- *      does NOT unmount on click. Instead:
- *        a. The chosen companion is persisted via CompanionContext.
- *        b. The overlay enters a soft "handoff" phase — buttons dim,
- *           the butterfly leans forward, and the aura brightens as if
- *           the companion is stepping toward the visitor.
- *        c. In parallel, we `router.push('/meet?from=concierge')`. The
- *           destination is prefetched on overlay open, so it is
- *           already warm in memory — the browser does NOT paint a
- *           blank/loading state.
- *        d. Because the overlay lives at the root layout (outside the
- *           route boundary), it stays visible OVER /meet while /meet
- *           mounts underneath. We then cross-fade the overlay out
- *           after ~650 ms so the visitor never sees a gap.
- *   3. Respects a dismissive visitor. "Look around first", Escape,
- *      backdrop click, and the × button all close politely with focus
- *      restored — no navigation, no scroll jump.
+ *   "The butterfly you've been looking at all along noticed you were
+ *    here… and came over to say hello."
  *
- * The overlay is triggered by dispatching a `friendplace:meet-george`
- * custom event so ANY surface can invite the visitor in without
- * prop-drilling. See components/site/HeroInvitation.tsx.
+ * On dismissal ("Look around first" / Escape / backdrop / ×) the
+ * butterfly flies back to the logo and the logo butterfly is restored.
+ * The visitor never sees a "poof-in / poof-out" of a separate mascot —
+ * the FriendPlace butterfly IS the host, and it behaves that way.
  *
+ * IMPLEMENTATION
+ * ──────────────
+ *   • We read the DOM position of `#fp-brand-butterfly` (rendered by
+ *     SiteHeader) on open and use it as the flight origin. If it isn't
+ *     available (e.g. tests, headless SSR), we skip the flight and
+ *     fall back to the previous fade-in overlay.
+ *   • The real logo butterfly is faded to opacity 0 by adding the
+ *     class `fp-butterfly-away` to <html>. The complementary CSS lives
+ *     in app/globals.css or is injected inline (see below).
+ *   • The flying butterfly is `position: fixed` and transitions its
+ *     `top`, `left`, and `width` between logo state and centre state.
+ *     A gentle rotation adds character; the transition curve gives the
+ *     flight a purposeful, unhurried feel.
+ *   • Reduced-motion visitors skip the flight entirely — the overlay
+ *     fades in with the butterfly already at centre, no logo swap.
+ *
+ * The overlay is triggered from anywhere via:
  *   window.dispatchEvent(new CustomEvent('friendplace:meet-george'))
  */
 
@@ -55,33 +59,59 @@ function useReducedMotion(): boolean {
   return prefersReduced;
 }
 
-// ─── Handoff timing ───────────────────────────────────────────────────
-// The whole point of the handoff is that /meet is READY UNDERNEATH the
-// overlay before we cross-fade. HANDOFF_HOLD_MS is the delay between
-// pushing the route and starting the overlay fade — long enough for
-// Next.js to hydrate the prefetched destination, short enough that the
-// visitor doesn't feel a stall. HANDOFF_FADE_MS is the fade itself.
+// ─── Timing ───────────────────────────────────────────────────────────
+const STIR_MS         = 420;   // "did the butterfly just move?" pause
+const FLIGHT_MS       = 950;   // stirred → centre
+const FLIGHT_BACK_MS  = 780;   // centre → logo (slightly quicker — "goodbye")
+const CARD_APPEAR_MS  = 320;   // card fades in around the arriving butterfly
+const CARD_APPEAR_AT  = STIR_MS + 620; // ms into open when card starts appearing
 const HANDOFF_HOLD_MS = 650;
 const HANDOFF_FADE_MS = 380;
 
+// Target dimensions inside the overlay card.
+const TARGET_BUTTERFLY_W = 76;
+
+// How far the butterfly rises off the logo during the stir moment.
+// Small enough that a distracted visitor might miss it — which is
+// exactly the point. "Did it just move?"
+const STIR_LIFT_PX = 12;
+
+// A single flight snapshot — the position/size the butterfly is animating TO.
+interface FlightState {
+  top: number;
+  left: number;
+  width: number;
+  rotation: number;
+  opacity: number;
+}
+
 export function ConciergeOverlay() {
   const [open, setOpen] = useState(false);
-  const [phase, setPhase] = useState<'entering' | 'ready' | 'handoff' | 'leaving'>('entering');
+  // Extended phase machine. Notably:
+  //   • 'flying-in'   — real logo butterfly hidden; flying butterfly is
+  //                     mid-flight from logo to centre. Card not yet
+  //                     interactive.
+  //   • 'ready'       — landed, card interactive.
+  //   • 'handoff'     — visitor picked a companion; route in progress;
+  //                     card fading, butterfly still visible for
+  //                     continuity into /meet.
+  //   • 'flying-back' — dismissed; card gone, butterfly on the return
+  //                     trip to the logo.
+  //   • 'leaving'     — final fade / unmount step.
+  const [phase, setPhase] = useState<
+    'entering' | 'stirring' | 'flying-in' | 'ready' | 'handoff' | 'flying-back' | 'leaving'
+  >('entering');
   const [pending, setPending] = useState<CompanionId | null>(null);
+  const [flight, setFlight] = useState<FlightState | null>(null);
+  const [flightSupported, setFlightSupported] = useState(true);
+
   const router = useRouter();
   const reduced = useReducedMotion();
   const { companion, choose } = useCompanion();
-  // Snapshot the previously-chosen companion at the moment the overlay
-  // OPENS, so labels like "Say hello again to George" stay stable
-  // through the handoff. Without this, the moment we call `choose()`
-  // during handoff, the context updates and BOTH buttons would flip
-  // their labels — visually jarring during the transition. We store
-  // the latest `companion` in a ref so the openConcierge listener
-  // (registered once in a []-deps effect) always sees the CURRENT
-  // value, not the stale one from mount.
-  const [snapshotCompanion, setSnapshotCompanion] = useState<CompanionId | null>(null);
   const companionRef = useRef<CompanionId | null>(companion);
   useEffect(() => { companionRef.current = companion; }, [companion]);
+  const [snapshotCompanion, setSnapshotCompanion] = useState<CompanionId | null>(null);
+
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const georgeBtnRef = useRef<HTMLButtonElement | null>(null);
   const georgiaBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -89,66 +119,219 @@ export function ConciergeOverlay() {
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
 
-  // We pre-select the previously-chosen companion (if any) so a
-  // returning visitor's default focus lands on their host. First-time
-  // visitors get George on the left simply by DOM order — either
-  // choice is equally valid.
   const defaultFocusRef = snapshotCompanion === 'georgia' ? georgiaBtnRef : georgeBtnRef;
 
-  // ── Open handler: listens on the window for the summons event ──
+  // ── Position calculators ──────────────────────────────────────
+  // Where the logo butterfly currently is (viewport coords).
+  const readLogo = useCallback((): FlightState | null => {
+    if (typeof window === 'undefined') return null;
+    const el = document.getElementById('fp-brand-butterfly');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      top: r.top,
+      left: r.left,
+      width: r.width,
+      rotation: 0,
+      opacity: 1,
+    };
+  }, []);
+
+  // Where the butterfly should LAND — top-centre of the overlay card
+  // slot. Card is flex-centred and max-width 520, padding 32px top,
+  // butterflyBox height 90px, butterfly height 74. So butterfly top
+  // ≈ (viewport centre) - 130 (rough card top offset) + 32 + 8.
+  const readTarget = useCallback((): FlightState => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // Butterfly is inside a card that flex-centres vertically. Its
+    // top edge sits roughly (card top + 32 padding + 8 aura offset).
+    // We can approximate by treating the target centre as being ~40 px
+    // above viewport centre — this keeps the butterfly nicely at the
+    // top of the card regardless of card height (which grows/shrinks
+    // slightly with responsive font wrap on mobile).
+    const targetCentreY = vh / 2 - 88;
+    const targetCentreX = vw / 2;
+    return {
+      top: targetCentreY - TARGET_BUTTERFLY_W / 2,
+      left: targetCentreX - TARGET_BUTTERFLY_W / 2,
+      width: TARGET_BUTTERFLY_W,
+      rotation: 0,
+      opacity: 1,
+    };
+  }, []);
+
+  // ── Body class to hide/show the real logo butterfly ────────────
+  // Injects a one-shot <style> tag the first time the overlay opens
+  // (idempotent). We only apply the class while a flight is in
+  // progress OR the overlay is fully open — the logo comes back the
+  // moment the butterfly lands on the logo again after dismiss.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const id = 'fp-concierge-butterfly-away-style';
+    if (document.getElementById(id)) return;
+    const style = document.createElement('style');
+    style.id = id;
+    style.textContent = `
+      html.fp-butterfly-away #fp-brand-butterfly {
+        opacity: 0;
+        transition: opacity 160ms ease;
+      }
+      #fp-brand-butterfly { transition: opacity 260ms ease; }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  const setLogoHidden = useCallback((hidden: boolean) => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.classList.toggle('fp-butterfly-away', hidden);
+  }, []);
+
+  // ── Open the overlay ─────────────────────────────────────────
   useEffect(() => {
     const openConcierge = () => {
       previouslyFocused.current = document.activeElement as HTMLElement | null;
-      setOpen(true);
-      setPhase('entering');
-      setPending(null);
-      // Snapshot the previously-chosen companion when the overlay opens
-      // so button labels stay stable through the handoff. Read from a
-      // ref so we always see the CURRENT context value, not the stale
-      // one captured at first mount.
       setSnapshotCompanion(companionRef.current);
+      setPending(null);
+
+      const logo = readLogo();
+      if (reduced || !logo) {
+        // Reduced-motion or logo not measurable: skip the flight,
+        // land the butterfly straight at the target position and
+        // fade the overlay in.
+        setFlightSupported(false);
+        setFlight(readTarget());
+        setLogoHidden(false); // no need to hide the logo in fallback
+        setOpen(true);
+        setPhase('entering');
+        return;
+      }
+
+      // Normal path: butterfly starts at the logo, STIRS for a beat
+      // (lifts a hair off the logo), then flies to the target. That
+      // pause is what makes the visitor almost do a double-take —
+      // "did the butterfly just move?" — before it commits to
+      // coming over.
+      setFlightSupported(true);
+      setFlight(logo);
+      setLogoHidden(true); // fade the real logo butterfly out
+      setOpen(true);
+      setPhase('stirring');
     };
     window.addEventListener('friendplace:meet-george', openConcierge);
     return () => window.removeEventListener('friendplace:meet-george', openConcierge);
-  }, []);
+  }, [readLogo, readTarget, reduced, setLogoHidden]);
 
-  // ── Prefetch /meet as soon as the overlay opens so the handoff
-  //    lands on a warm route — no blank/loading paint. ─────────────
+  // ── Prefetch /meet as soon as we open, so the handoff lands
+  //    on a warm route (no visible loading state). ──────────────
   useEffect(() => {
     if (!open) return;
-    try { router.prefetch('/meet?from=concierge'); } catch { /* prefetch is best-effort */ }
+    try { router.prefetch('/meet?from=concierge'); } catch { /* best-effort */ }
   }, [open, router]);
 
-  // ── Close politely — fade, restore focus, unmount. ─────────────
-  const close = useCallback(() => {
-    setPhase('leaving');
-    setTimeout(
-      () => {
-        setOpen(false);
-        setPhase('entering');
-        setPending(null);
-        previouslyFocused.current?.focus?.({ preventScroll: true });
-      },
-      reduced ? 160 : 300,
-    );
-  }, [reduced]);
+  // ── Flight advancement: stir → fly → ready ─────────────────
+  //
+  //   1. 'stirring' (STIR_MS): the butterfly lifts a hair off the
+  //      logo. Almost imperceptible, but enough to catch the eye.
+  //   2. 'flying-in' (FLIGHT_MS): the butterfly gracefully travels
+  //      to the centre of the screen, growing to full presence.
+  //   3. 'ready': landed, breath animation begins, card is
+  //      interactive.
+  useEffect(() => {
+    if (phase !== 'stirring') return;
+    const raf = requestAnimationFrame(() => {
+      // Rise off the logo with a whisper of scale. The whole card is
+      // still invisible at this point, so nothing else moves — the
+      // eye lands on this tiny motion.
+      setFlight((prev) => prev ? {
+        ...prev,
+        top: prev.top - STIR_LIFT_PX,
+        // A gentle 1.06x during the stir so the butterfly feels alive,
+        // not lifting like a floating png.
+        width: prev.width * 1.06,
+        rotation: -3,
+      } : prev);
+    });
+    // After the stir, begin the flight to centre.
+    const t = setTimeout(() => setPhase('flying-in'), STIR_MS);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+  }, [phase]);
 
-  // ── Focus, focus-trap, escape, scroll-lock ─────────────────────
+  useEffect(() => {
+    if (phase !== 'flying-in') return;
+    // Butterfly is currently in the "stirred" pose — commit the flight
+    // to the target on the next frame so CSS can transition.
+    const raf = requestAnimationFrame(() => setFlight(readTarget()));
+    // Promote to 'ready' shortly after landing so the card's final
+    // interactive state kicks in.
+    const t = setTimeout(() => setPhase('ready'), FLIGHT_MS + 30);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t); };
+  }, [phase, readTarget]);
+
+  // ── Reduced-motion / fallback path: 'entering' → 'ready' via a
+  //    single RAF so CSS transitions run. ─────────────────────
+  useEffect(() => {
+    if (phase !== 'entering') return;
+    const raf = requestAnimationFrame(() => setPhase('ready'));
+    return () => cancelAnimationFrame(raf);
+  }, [phase]);
+
+  // ── Close politely — the butterfly flies BACK to the logo, then
+  //    everything unmounts. ─────────────────────────────────────
+  const close = useCallback(() => {
+    if (flightSupported && flight) {
+      // Card fades out first (fast), then butterfly flies home.
+      setPhase('flying-back');
+      const logo = readLogo();
+      if (logo) setFlight(logo);
+      setTimeout(() => setPhase('leaving'), FLIGHT_BACK_MS);
+      setTimeout(() => {
+        // Restore the real logo butterfly right as the flying one
+        // reaches home — creates a visual "settle" with no swap.
+        setLogoHidden(false);
+      }, FLIGHT_BACK_MS - 60);
+      setTimeout(
+        () => {
+          setOpen(false);
+          setPhase('entering');
+          setPending(null);
+          setFlight(null);
+          previouslyFocused.current?.focus?.({ preventScroll: true });
+        },
+        FLIGHT_BACK_MS + 260,
+      );
+    } else {
+      // Fallback: just fade the overlay out.
+      setPhase('leaving');
+      setTimeout(
+        () => {
+          setOpen(false);
+          setPhase('entering');
+          setPending(null);
+          setFlight(null);
+          previouslyFocused.current?.focus?.({ preventScroll: true });
+        },
+        reduced ? 160 : 300,
+      );
+    }
+  }, [flight, flightSupported, readLogo, reduced, setLogoHidden]);
+
+  // ── Focus, focus-trap, escape, scroll-lock ────────────────────
   useEffect(() => {
     if (!open) return;
-    const raf = requestAnimationFrame(() => setPhase('ready'));
-
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
+    // Focus the default button only AFTER the flight has landed —
+    // hitting a button before that would break the illusion.
+    const focusDelay = flightSupported ? STIR_MS + FLIGHT_MS + 60 : 260;
     const focusTimer = setTimeout(() => {
       defaultFocusRef.current?.focus({ preventScroll: true });
-    }, 220);
+    }, focusDelay);
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); close(); return; }
       if (e.key !== 'Tab') return;
-      // Focus trap across all interactive elements in the card.
       const focusable = [
         georgeBtnRef.current,
         georgiaBtnRef.current,
@@ -165,29 +348,21 @@ export function ConciergeOverlay() {
     document.addEventListener('keydown', onKey);
 
     return () => {
-      cancelAnimationFrame(raf);
       clearTimeout(focusTimer);
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = previousOverflow;
     };
-  }, [open, close, defaultFocusRef]);
+  }, [open, close, defaultFocusRef, flightSupported]);
 
-  // ── Choice handler: persist companion, keep the overlay visible
-  //    THROUGH the route change, then cross-fade to /meet. This is
-  //    the seamless "he/she is coming over" moment. ────────────────
+  // ── Companion pick — persist choice, keep the butterfly visible
+  //    through the route change, fade the card. The flying butterfly
+  //    lingers briefly then dissolves as /meet mounts underneath. ──
   const pickCompanion = useCallback((id: CompanionId) => {
-    if (phase !== 'ready') return; // ignore double-clicks during handoff
+    if (phase !== 'ready') return;
     setPending(id);
     setPhase('handoff');
     choose(id);
-    // Kick off the navigation immediately. The overlay stays mounted
-    // over /meet because it lives at the root layout, so the visitor
-    // does NOT see a blank page while Next.js swaps the route.
     router.push('/meet?from=concierge');
-    // After /meet has had a chance to hydrate + paint its opening
-    // frame underneath, fade the overlay out. The visitor experiences
-    // one continuous moment: overlay softens, butterfly steps forward,
-    // /meet is already there behind the fade.
     setTimeout(() => {
       setPhase('leaving');
       setTimeout(
@@ -195,42 +370,53 @@ export function ConciergeOverlay() {
           setOpen(false);
           setPhase('entering');
           setPending(null);
+          setFlight(null);
+          // Restore the logo — /meet has its OWN header and its own
+          // choreography will use #fp-brand-butterfly again.
+          setLogoHidden(false);
         },
-        HANDOFF_FADE_MS + 20,
+        HANDOFF_FADE_MS + 60,
       );
     }, reduced ? 200 : HANDOFF_HOLD_MS);
-  }, [phase, router, choose, reduced]);
+  }, [phase, router, choose, reduced, setLogoHidden]);
 
   if (!open) return null;
 
-  const isHandoff = phase === 'handoff' || phase === 'leaving';
-  const showAsReady = phase === 'ready' || phase === 'handoff';
+  const cardVisible = phase === 'ready' || phase === 'handoff';
+  const isHandoffOrLeaving = phase === 'handoff' || phase === 'leaving';
 
-  // Card + butterfly transforms respect reduced-motion + phase.
-  const cardTransform = reduced
-    ? 'none'
-    : phase === 'entering'  ? 'translateY(14px) scale(0.985)'
-    : phase === 'handoff'   ? 'translateY(-3px) scale(1.005)'  // subtle lean-in
-    : phase === 'leaving'   ? 'translateY(-3px) scale(1.01)'
-    :                          'translateY(0) scale(1)';
-
-  const butterflyTransform = reduced
-    ? 'none'
-    : phase === 'entering'  ? 'translateY(-28px) rotate(-8deg)'
-    : phase === 'handoff'   ? 'translateY(-6px) scale(1.1)'   // steps forward
-    : phase === 'leaving'   ? 'translateY(-10px) scale(1.15)'
-    :                          'translateY(0) rotate(0deg)';
-
+  // Card fade-in timing: begins as the flight is nearing its
+  // landing so it materialises AROUND the arriving butterfly.
   const cardOpacity =
-    phase === 'ready'    ? 1 :
-    phase === 'handoff'  ? 1 :
-    phase === 'leaving'  ? 0 :
+    phase === 'flying-back' ? 0 :
+    phase === 'leaving'     ? 0 :
+    phase === 'handoff'     ? 1 :
+    phase === 'ready'       ? 1 :
+    // Start the card fade-in DURING the flight (with a delay via
+    // transitionDelay below), so the card materialises AROUND the
+    // arriving butterfly rather than popping in after it lands.
+    phase === 'flying-in'   ? 1 :
+    phase === 'stirring'    ? 0 :
     0;
 
+  const cardTransform =
+    reduced
+      ? 'none'
+      : phase === 'ready'
+        ? 'translateY(0) scale(1)'
+        : phase === 'handoff'
+          ? 'translateY(-3px) scale(1.005)'
+          : phase === 'leaving'
+            ? 'translateY(-3px) scale(1.01)'
+            : 'translateY(10px) scale(0.985)';
+
   const backdropOpacity =
-    phase === 'ready'    ? 1 :
-    phase === 'handoff'  ? 0.75 : // begin softening the backdrop early
-    phase === 'leaving'  ? 0 :
+    phase === 'ready'       ? 1    :
+    phase === 'handoff'     ? 0.75 :
+    phase === 'flying-back' ? 0.15 :
+    phase === 'leaving'     ? 0    :
+    phase === 'stirring'    ? 0.15 : // barely dim during the stir — visitors still see the site
+    phase === 'flying-in'   ? 0.5  : // dim rises as butterfly commits
     0;
 
   return (
@@ -243,26 +429,82 @@ export function ConciergeOverlay() {
       style={{
         ...backdropBase,
         opacity: backdropOpacity,
-        backdropFilter: showAsReady ? 'blur(14px) saturate(1.05)' : 'blur(0px)',
-        WebkitBackdropFilter: showAsReady ? 'blur(14px) saturate(1.05)' : 'blur(0px)',
-        transition: `opacity ${isHandoff ? HANDOFF_FADE_MS : 300}ms ease, backdrop-filter 300ms ease`,
+        backdropFilter: phase === 'ready' || phase === 'handoff' ? 'blur(14px) saturate(1.05)' : 'blur(4px)',
+        WebkitBackdropFilter: phase === 'ready' || phase === 'handoff' ? 'blur(14px) saturate(1.05)' : 'blur(4px)',
+        transition: `opacity ${isHandoffOrLeaving ? HANDOFF_FADE_MS : 500}ms ease, backdrop-filter 500ms ease`,
       }}
       onClick={(e) => {
-        // Backdrop dismiss is disabled during handoff — we don't want
-        // an accidental click to interrupt the transition.
-        if (phase !== 'ready') return;
+        if (phase !== 'ready') return; // guard during flights + handoff
         if (e.target === overlayRef.current) close();
       }}
     >
+      {/* ── Flying butterfly ─────────────────────────────────────
+          Rendered outside the card so it can travel from the logo to
+          the card's butterfly slot independently. `position: fixed`
+          so it sits in viewport coordinates regardless of scroll. */}
+      {flight && (
+        <div
+          data-concierge-flyer
+          aria-hidden
+          style={{
+            position: 'fixed',
+            top: flight.top,
+            left: flight.left,
+            width: flight.width,
+            height: 'auto',
+            zIndex: 1002,
+            pointerEvents: 'none',
+            transform: `rotate(${flight.rotation}deg)`,
+            transition: reduced
+              ? 'opacity 240ms ease'
+              : phase === 'stirring'
+                ? `top ${STIR_MS}ms cubic-bezier(0.22, 1, 0.36, 1), width ${STIR_MS}ms ease, transform ${STIR_MS}ms ease`
+                : phase === 'flying-in'
+                  ? `top ${FLIGHT_MS}ms cubic-bezier(0.34, 1.15, 0.36, 1), left ${FLIGHT_MS}ms cubic-bezier(0.34, 1.15, 0.36, 1), width ${FLIGHT_MS}ms cubic-bezier(0.34, 1.15, 0.36, 1), transform ${FLIGHT_MS}ms cubic-bezier(0.34, 1.15, 0.36, 1), opacity 220ms ease`
+                  : phase === 'flying-back'
+                    ? `top ${FLIGHT_BACK_MS}ms cubic-bezier(0.55, 0, 0.65, 1), left ${FLIGHT_BACK_MS}ms cubic-bezier(0.55, 0, 0.65, 1), width ${FLIGHT_BACK_MS}ms cubic-bezier(0.55, 0, 0.65, 1), transform ${FLIGHT_BACK_MS}ms ease, opacity 220ms ease`
+                    : phase === 'leaving'
+                      ? `opacity ${HANDOFF_FADE_MS}ms ease, transform ${HANDOFF_FADE_MS}ms ease`
+                      : `top 500ms ease, left 500ms ease, width 500ms ease`,
+            opacity:
+              phase === 'leaving' ? 0 :
+              phase === 'flying-back' ? 0.9 :
+              1,
+            // Soft glow that intensifies once landed.
+            filter: `drop-shadow(0 8px 22px rgba(56, 189, 248, ${
+              phase === 'ready' || phase === 'handoff' ? 0.5 : 0.28
+            }))`,
+            // Gentle breath animation once landed, so the butterfly
+            // doesn't sit statically like a clip-art image.
+            animation: phase === 'ready' && !reduced
+              ? 'concierge-breath 5.2s ease-in-out 200ms infinite'
+              : 'none',
+          }}
+        >
+          <Image
+            src={brandAssets.butterfly.src}
+            alt=""
+            width={TARGET_BUTTERFLY_W}
+            height={TARGET_BUTTERFLY_W}
+            priority
+            style={{ width: '100%', height: 'auto', display: 'block' }}
+          />
+        </div>
+      )}
+
+      {/* ── The card materialises AROUND the arriving butterfly ─ */}
       <div
         style={{
           ...card,
           transform: cardTransform,
           opacity: cardOpacity,
-          transition: `transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${isHandoff ? HANDOFF_FADE_MS : 300}ms ease`,
+          transitionDelay: phase === 'flying-in' ? `${CARD_APPEAR_AT - STIR_MS}ms` : '0ms',
+          transition: `transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${
+            isHandoffOrLeaving ? HANDOFF_FADE_MS : CARD_APPEAR_MS
+          }ms ease`,
         }}
       >
-        {/* Discreet close (×). Hidden during handoff. */}
+        {/* Discreet close (×) — only shown once we're ready. */}
         {phase === 'ready' && (
           <button
             ref={closeBtnRef}
@@ -277,42 +519,19 @@ export function ConciergeOverlay() {
           </button>
         )}
 
-        {/* Brand butterfly — arrives from above, settles, then leans
-            forward during handoff. Soft aqua aura for warmth. */}
+        {/* Aura + spacer for the butterfly slot. The flying butterfly
+            visually occupies this space; the spacer reserves layout
+            so the card composition looks the same whether or not the
+            flight is in progress. */}
         <div style={butterflyBox} aria-hidden>
           <div
             style={{
               ...butterflyAura,
-              opacity: phase === 'handoff' || phase === 'leaving' ? 1 : 0.7,
-              transform: phase === 'handoff' || phase === 'leaving' ? 'scale(1.15)' : 'scale(1)',
+              opacity: cardVisible ? (phase === 'handoff' ? 1 : 0.85) : 0,
+              transform: phase === 'handoff' ? 'scale(1.15)' : 'scale(1)',
               transition: 'opacity 500ms ease, transform 500ms ease',
             }}
           />
-          <div
-            data-concierge-butterfly
-            style={{
-              width: 76,
-              height: 74,
-              position: 'relative',
-              transform: butterflyTransform,
-              transition: reduced
-                ? 'none'
-                : 'transform 620ms cubic-bezier(0.22, 1.2, 0.36, 1)',
-              animation: phase === 'ready' && !reduced
-                ? 'concierge-breath 5.2s ease-in-out 620ms infinite'
-                : 'none',
-              filter: `drop-shadow(0 8px 18px rgba(56, 189, 248, ${isHandoff ? 0.55 : 0.35}))`,
-            }}
-          >
-            <Image
-              src={brandAssets.butterfly.src}
-              alt=""
-              width={76}
-              height={74}
-              priority
-              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-            />
-          </div>
         </div>
 
         <h2 id="concierge-heading" style={heading}>
@@ -362,11 +581,11 @@ export function ConciergeOverlay() {
 
       <style>{`
         @keyframes concierge-breath {
-          0%, 100% { transform: translateY(0) rotate(-1deg); }
-          50%      { transform: translateY(-4px) rotate(1.5deg); }
+          0%, 100% { transform: rotate(-1deg) translateY(0); }
+          50%      { transform: rotate(1.5deg) translateY(-4px); }
         }
         @media (prefers-reduced-motion: reduce) {
-          [data-concierge-butterfly] { animation: none !important; transform: none !important; }
+          [data-concierge-flyer] { animation: none !important; }
         }
       `}</style>
     </div>
@@ -374,11 +593,6 @@ export function ConciergeOverlay() {
 }
 
 // ─── CompanionChoice: one of the two picker pills ─────────────────────
-// A ref-forwarded pill so the parent can trap focus on it. Shows a warm
-// hover, a "pending" state while the handoff runs, and a subtle mark on
-// the companion the visitor picked previously (so returning feels like
-// coming home).
-
 interface CompanionChoiceProps {
   companion: CompanionId;
   disabled: boolean;
@@ -506,7 +720,7 @@ const welcome: React.CSSProperties = {
   margin: '0 0 22px',
   maxWidth: 440,
   marginInline: 'auto',
-  minHeight: 48, // reserve space so the copy swap during handoff doesn't jump the layout
+  minHeight: 48,
 };
 
 const choiceRow: React.CSSProperties = {
