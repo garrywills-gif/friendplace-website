@@ -1,0 +1,51 @@
+{
+  "summary": "Re-verified V2 flyer artwork after butterfly-ribbon-removal and download-flyer-footer fixes. 29 of 32 tests pass (was 25/30). Added 2 new butterfly-absence tests (both PASS). Butterfly icon successfully removed from gold ribbon on BOTH founding-a4.png (portrait) and founding-social.png (square) — ribbon central 300-px slice contains 0 bright-white pixels; only gold fill and dark-gold text (BECOME A FOUNDING MEMBER / benefits). Download-flyer footer critical bug PARTIALLY fixed: content is now visible on all 4 download variants (was completely clipped off-canvas before), BUT last-ink-y is a few pixels below the review-requested targets and render_download_social() footer is 64 pixels short of target. All 14 file dimensions, PDF magic bytes, Content-Type headers, and /meet /register-interest /admin regression routes still pass. Last-ink-y measurements: download-a4.png=1696 (target >=1700, 4px short), download-a4-hires.png=3392 (target >=3400, 8px short), download-a3-hires.png=4797 (target >=4800, 3px short), download-social.png=966 (target >=1030, 64px short — render_download_social() was NOT updated with the PAGE_H-anchored footer pattern that render_download() received). Founding-a4 regression stable at last-ink-y=1714.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/flyer-mockups/download-social.png",
+        "issue": "render_download_social() in /app/backend/scripts/render_flyer_previews.py (lines 583-653) was NOT updated with the bottom-anchored footer pattern applied to render_download() portrait. Mission line + slogan are drawn using top-stacked offsets (row_y + qr_size + 58 for slogan, row_y + qr_size + 96 for mission), landing at ~y=908 and ~y=946-967 respectively. Result: content IS visible but ends at y=966 out of 1080, leaving 113 px of empty white at the bottom of the square. The user's review target was last-ink-y >= 1030 — actual is 966. Same layout logic as render_download() should be applied: fix mission_y = PAGE_H - 88 = 992 and stack slogan/CTA upward from there.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "/flyer-mockups/download-a4.png",
+        "issue": "Mission line renders correctly but ends at y=1696 (target >= 1700), leaving 58 px of bottom margin. Only 2 rows of ink land in the last-60-px band so test_mission_line_present_in_a4_bottom[download] and test_bottom_band_has_ink_all_variants[download-a4.png-60-0.002] both fail by a ~4-px margin. In render_download() the mission line uses `_draw_mission_footer(c, mission_y)` where mission_y = PAGE_H - 88 = 1666 and wrap_centre draws at y+6=1672 with a 22-pt italic font — the text baseline sits ~y=1690, top of glyph rectangle at ~y=1672, bottom at ~y=1696. To land last-ink at y>=1700, reduce the bottom margin: change `mission_y = PAGE_H - 88` to `mission_y = PAGE_H - 62` (or similar) so the mission line drops ~26 px closer to the canvas bottom. Same adjustment carries to hires (rendered from scale=2 master, expected last-ink 3392+16=3408) and a3-hires (upscaled 1.414×, expected 4797+~23=4820)."
+      },
+      {
+        "endpoint": "/flyer-mockups/download-a4-hires.png / download-a3-hires.png",
+        "issue": "Last-ink-y = 3392 / 4797 vs review targets 3400 / 4800 — 8 / 3 px short. These derive from the same render_download(scale=2.0) master, so they will be fixed automatically when the download-a4 mission_y is nudged 20-30 px lower per the item above. Bottom-band-has-ink tests currently PASS for these two (band is 200/280 px, captures the mission line at 3392/4797 which is inside the band)."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_flyer_v2_deliverables.py",
+    "/app/test_reports/pytest/iter_114_flyer_v2.xml"
+  ],
+  "action_items": [
+    "Update render_download_social() in /app/backend/scripts/render_flyer_previews.py to use the same PAGE_H-anchored footer pattern render_download() now uses: set mission_y = 1080 - 50 (or similar), slogan_y = mission_y - 40, and shift the QR block up if needed. Do NOT depend on `row_y + qr_size + N` — anchor from the bottom. Target: download-social.png last-ink-y >= 1030.",
+    "Nudge render_download() portrait mission_y from PAGE_H - 88 down to ~PAGE_H - 62 (or reduce the 88 offset) so last-ink-y lands at >=1700 on download-a4.png. This automatically propagates to download-a4-hires and download-a3-hires (both are downstream of the scale=2 master).",
+    "Re-run `python /app/backend/scripts/render_flyer_previews.py` after edits, then re-run `pytest /app/backend/tests/test_flyer_v2_deliverables.py -v` — expect 32/32 pass.",
+    "OPTIONAL: consider adding an in-script assertion inside render_download_social() and render_download() that scans the returned image and confirms the last non-white row >= (PAGE_H - reserved_footer_px) so this class of layout drift can never ship again."
+  ],
+  "critical_code_review_comments": [
+    "render_flyer_previews.py: the bottom-anchored footer pattern was applied only to render_download() but not to render_download_social(). Two renderers, one paired bug fix — always audit both variants of a related pair together.",
+    "The `88 px` bottom-reserve in render_download() (line 479: mission_y = PAGE_H - 88) was tuned without measuring the actual rendered glyph height of the 22-pt italic wrap_centre output. The mission line lands ~30 px above the intended baseline, leaving avoidable whitespace. Compute the footer y from font ascent+descent+padding rather than a magic constant."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_flyer_v2_deliverables.py"
+  ],
+  "success_rate": {"backend": "91% (29/32) — 3 failures: download-a4 bottom-band (4px short), download-social bottom-band (64px short — render_download_social not fixed), download-a4 mission_line_present (same 4px issue)", "frontend": "N/A (backend-only)"},
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Test file: /app/backend/tests/test_flyer_v2_deliverables.py now has 32 tests (added test_no_butterfly_inside_gold_ribbon parametrized on founding-a4.png and founding-social.png — both PASS). Butterfly removal is confirmed complete. Remaining 3 failures all trace to footer y-placement in the download flyer: render_download_social() needs the same bottom-anchored footer treatment render_download() got, and render_download() itself needs ~26 px more downward shift to hit last-ink-y >= 1700 on the a4 preview. After main agent's fixes, re-render all 14 assets and re-run: `pytest /app/backend/tests/test_flyer_v2_deliverables.py -v` — expect 32/32.",
+  "rca_of_issue": "RCA for the 3 remaining failures: (a) render_download() sets `mission_y = PAGE_H - 88 = 1666` then _draw_mission_footer calls wrap_centre at `mission_y + 6 = 1672`. The 22-pt italic font renders a glyph rectangle ~24 px tall, so the last row of ink sits at ~y=1696. The 60-px bottom-band test expects >0.2% ink between y=1694 and y=1754; only rows 1694-1696 have ink → 3 rows × 1240 wide = 3720 pixels total, but the mission text is ~800 px wide so only ~2400 ink pixels land inside the band → 2400 / (60*1240) = 0.32% *should* pass but the sampling stride and 235-threshold reduces the effective count to 0.10%. Fix: shift mission_y from PAGE_H-88 to PAGE_H-62. (b) render_download_social() uses top-stacked offsets (row_y + qr_size + 96) which lands the mission at y=946-967 — 113 px above the intended bottom. Same pattern should be replaced with `mission_y = 1080 - 50`. Neither issue is a clipping bug now — content is fully visible — but the review-request last-ink-y targets are missed. Reproduction: `python3 -c \"from PIL import Image; im=Image.open('/app/website/public/flyer-mockups/download-social.png').convert('RGB'); px=im.load(); print(max(y for y in range(1080) for x in range(0,1080,2) if any(v<250 for v in px[x,y])))\"` prints 966."
+}

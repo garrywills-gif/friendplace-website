@@ -353,26 +353,19 @@ def render_founding(scale: float = 1.0) -> Image.Image:
                          RIBBON_Y + RIBBON_H],
                         radius=28, fill=GOLD, outline=GOLD_DARK, width=5)
 
-    # Lead line + butterfly
-    ICON_SPAN = 78
-    ICON_GAP = 20
-    lead_size = 60
+    # Lead line — text-only, no butterfly icon
+    lead_size = 62
     lead_text = "BECOME A FOUNDING MEMBER"
     while lead_size > 42:
         lf = c.font(lead_size, bold=True, condensed=True)
-        if c.text_w(lead_text, lf) <= c.px(1240 - 260 - (ICON_SPAN + ICON_GAP)):
+        if c.text_w(lead_text, lf) <= c.px(1240 - 260):
             break
         lead_size -= 4
     lf = c.font(lead_size, bold=True, condensed=True)
     lead_w_px = c.text_w(lead_text, lf)
-    block_w_px = c.px(ICON_SPAN + ICON_GAP) + lead_w_px
-    start_x_px = (c.W - block_w_px) / 2
+    start_x_px = (c.W - lead_w_px) / 2
     lead_y = RIBBON_Y + 24
-    butterfly_cx = start_x_px / c.s + ICON_SPAN / 2
-    _draw_butterfly(c, int(butterfly_cx),
-                    int(lead_y + lead_size / 2 + 2),
-                    ICON_SPAN, "#FFFFFF", GOLD_DARK)
-    c.d.text((start_x_px + c.px(ICON_SPAN + ICON_GAP), c.px(lead_y)),
+    c.d.text((start_x_px, c.px(lead_y)),
              lead_text, font=lf, fill=GOLD_DARK)
 
     # Benefits (revised copy)
@@ -456,11 +449,11 @@ def render_download(scale: float = 1.0) -> Image.Image:
     )
 
     # Two QR blocks
-    qr_size = 400
+    qr_size = 380
     gap_between = 100
     total_w = qr_size * 2 + gap_between
     qr_row_x = (1240 - total_w) // 2
-    qr_row_y = end_y + 46
+    qr_row_y = end_y + 100
 
     def _store_block(x: int, y: int, title: str, sub: str,
                      qr_target: str) -> None:
@@ -480,16 +473,21 @@ def render_download(scale: float = 1.0) -> Image.Image:
                  "GOOGLE PLAY", "Scan on Android",
                  "https://play.google.com/store/apps/details?id=au.com.friendplace")
 
-    cta_top = qr_row_y + qr_size + 88
+    # ─── Bottom-anchored footer (fixed from top instead of stacked
+    # so it never falls off the page regardless of scale). ────────────
+    PAGE_H = 1754
+    mission_y = PAGE_H - 88      # mission line sits above bottom rule
+    slogan_y = mission_y - 46    # "Because you belong too."
+    cta_top = slogan_y - 108     # "DOWNLOAD FRIENDPLACE TODAY"
+
     c.fit_headline("DOWNLOAD FRIENDPLACE TODAY", cta_top,
                    max_w=1240 - 2 * SIDE,
-                   start_size=68, min_size=44, fill=NAVY_INK)
+                   start_size=64, min_size=44, fill=NAVY_INK)
 
-    slogan_y = cta_top + 82
     c.centre("Because you belong too.", slogan_y,
              c.font(28, italic=True), TEAL)
 
-    _draw_mission_footer(c, slogan_y + 46)
+    _draw_mission_footer(c, mission_y)
 
     return c.img
 
@@ -540,19 +538,13 @@ def render_founding_social() -> Image.Image:
                         radius=22, fill=GOLD, outline=GOLD_DARK, width=4)
     lead_txt = "BECOME A FOUNDING MEMBER"
     lf = c.font(40, bold=True, condensed=True)
-    while c.text_w(lead_txt, lf) > W - 200 - 60:
+    while c.text_w(lead_txt, lf) > W - 100:
         lf = c.font(int(lf.size / c.s) - 2, bold=True, condensed=True)
     lb = c.d.textbbox((0, 0), lead_txt, font=lf)
     lead_w = lb[2] - lb[0]
-    ICON_SPAN = 52
-    ICON_GAP = 14
-    block_w = ICON_SPAN + ICON_GAP + lead_w
-    start_x = (W - block_w) / 2
+    start_x = (W - lead_w) / 2
     lead_y = RIBBON_Y + (RIBBON_H - (lb[3] - lb[1])) / 2 - 4
-    _draw_butterfly(c, int(start_x + ICON_SPAN / 2),
-                    int(lead_y + (lb[3] - lb[1]) / 2), ICON_SPAN,
-                    "#FFFFFF", GOLD_DARK)
-    c.d.text((start_x + ICON_SPAN + ICON_GAP, lead_y),
+    c.d.text((start_x, lead_y),
              lead_txt, font=lf, fill=GOLD_DARK)
 
     # QR

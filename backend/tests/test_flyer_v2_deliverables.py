@@ -250,6 +250,46 @@ def test_founding_a4_navy_pill_present():
     )
 
 
+# ---------- Butterfly removed from gold ribbon (iter_114 request) ----------
+
+# (filename, ribbon central slice x_lo, x_hi, y_lo, y_hi)
+# The ribbon interior is scanned for bright-white pixels; the butterfly wing
+# icon on FriendPlace assets is predominantly bright white (#FFFFFF). If the
+# butterfly was removed, the ribbon's central 300-px slice should contain
+# ONLY gold fill (~#FBBF24) and dark-gold text (~#7C5300), with essentially
+# no bright-white pixels (0 white in a strict >245 threshold scan).
+BUTTERFLY_ABSENT_TARGETS = [
+    ("founding-a4.png",     470, 770, 800, 870),   # portrait ribbon slice
+    ("founding-social.png", 390, 690, 460, 540),   # square ribbon slice
+]
+
+
+@pytest.mark.parametrize("filename,x_lo,x_hi,y_lo,y_hi", BUTTERFLY_ABSENT_TARGETS)
+def test_no_butterfly_inside_gold_ribbon(filename, x_lo, x_hi, y_lo, y_hi):
+    """The butterfly icon must NOT appear inside the gold ribbon on either
+    founding variant. Verify by scanning the ribbon's central 300-px-wide
+    slice for bright-white pixels — a butterfly wing would produce many
+    (thousands of) near-white pixels; a text-only ribbon produces zero."""
+    url = f"{BASE_URL}{FLYER_PATH}/{filename}"
+    r = _fetch(url)
+    img = Image.open(io.BytesIO(r.content)).convert("RGB")
+    px = img.load()
+    bright_white = 0
+    for y in range(y_lo, y_hi):
+        for x in range(x_lo, x_hi):
+            r_, g_, b_ = px[x, y]
+            if r_ > 245 and g_ > 245 and b_ > 245:
+                bright_white += 1
+    # Text-only ribbon should have ~0 bright-white pixels.
+    # A butterfly icon would produce thousands.
+    assert bright_white < 50, (
+        f"{filename} ribbon central slice contains {bright_white} "
+        f"bright-white pixels — butterfly icon may still be present"
+    )
+
+
+
+
 # --------------------- Regression: existing routes ---------------------
 
 @pytest.mark.parametrize("path", ["/meet", "/register-interest", "/admin"])
