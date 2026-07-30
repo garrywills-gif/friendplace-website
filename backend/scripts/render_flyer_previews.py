@@ -481,7 +481,7 @@ def render_download(scale: float = 1.0) -> Image.Image:
                                max_w=1240 - 2 * SIDE,
                                start_size=178, min_size=120, fill=TEAL)
 
-    sub_y = l2_bottom + 34
+    sub_y = l2_bottom + 80
     end_y = c.wrap_centre(
         "Meet new friends, join community groups, discover local events "
         "and chat in FP Café.",

@@ -399,3 +399,36 @@ def test_founding_a4_intro_navy_text_present():
         f"Bold navy intro line not detected in y=820..875 "
         f"(only {rows_with_navy} rows had substantial navy ink)"
     )
+
+
+# --------------------- iter_117: spacing bump between IS NOW LIVE! and sub-heading ---------------------
+
+def test_download_a4_headline_subheading_breathing_room():
+    """After the +46 px spacing bump (sub_y = l2_bottom + 34 -> +80), there
+    must be a clear white band between the descender of 'LIVE!' and the top
+    of the 'Meet new friends...' sub-heading. Require at least a 30-row
+    run of essentially-white interior pixels somewhere in y=680..770."""
+    url = f"{BASE_URL}{FLYER_PATH}/download-a4.png"
+    r = _fetch(url)
+    img = Image.open(io.BytesIO(r.content)).convert("RGB")
+    px = img.load()
+
+    def row_ink(y, x_lo=100, x_hi=1140, thresh=200):
+        return sum(
+            1 for x in range(x_lo, x_hi)
+            if px[x, y][0] < thresh or px[x, y][1] < thresh or px[x, y][2] < thresh
+        )
+
+    # Find the longest run of near-white rows in the window y=680..770.
+    best = cur = 0
+    for y in range(680, 771):
+        if row_ink(y) <= 5:
+            cur += 1
+            best = max(best, cur)
+        else:
+            cur = 0
+    assert best >= 30, (
+        f"download-a4.png: white gap between 'IS NOW LIVE!' and "
+        f"'Meet new friends...' is only {best} rows; expected >= 30 "
+        f"after the +46 px spacing bump."
+    )
