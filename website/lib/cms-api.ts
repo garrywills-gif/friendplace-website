@@ -292,6 +292,16 @@ export const cmsApi = {
       'POST', '/cms/knowledge/retrieve',
       { query, k, types },
     ),
+
+  // ── Launch Manager ─────────────────────────────────────────────
+  getLaunchSettings: () =>
+    req<{ settings: LaunchSettings; readiness: LaunchReadiness }>(
+      'GET', '/cms/settings/launch',
+    ),
+  updateLaunchSettings: (patch: Partial<LaunchSettings>) =>
+    req<{ settings: LaunchSettings; readiness: LaunchReadiness }>(
+      'PATCH', '/cms/settings/launch', patch,
+    ),
 };
 
 export type SecurityEvent = {
@@ -405,6 +415,37 @@ export type KnowledgeSource = {
   url?: string;
   path?: string;
   chat_session_id?: string;
+};
+
+export type LaunchSettings = {
+  enabled: boolean;
+  launch_at: string | null;         // ISO UTC
+  timezone_hint: string;
+  appstore_url: string;
+  playstore_url: string;
+  press_kit_ready: boolean;
+  launch_complete: boolean;
+  founding_target: number;
+  welcome_message: string;
+  updated_at?: string;
+  updated_by?: string;
+};
+
+export type LaunchReadinessTone = 'ready' | 'wait' | 'warn' | 'live';
+
+export type LaunchReadiness = {
+  text: string;
+  tone: LaunchReadinessTone;
+  checklist: {
+    launch_date_set: boolean;
+    countdown_enabled: boolean;
+    appstore_link: boolean;
+    playstore_link: boolean;
+    founding_target_met: boolean;
+    press_kit_ready: boolean;
+    launch_complete: boolean;
+  };
+  founding: { current: number; target: number };
 };
 
 export type KnowledgeEntry = {

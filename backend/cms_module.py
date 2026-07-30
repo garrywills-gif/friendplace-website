@@ -2553,6 +2553,38 @@ def build_router(db) -> APIRouter:
         )
         return {"ok": True, **result}
 
+    # ── Launch Manager ───────────────────────────────────────────────
+    from services import launch as _launch
+
+    @router.get("/settings/launch")
+    async def get_launch_settings(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        settings = await _launch.get_settings(db)
+        readiness = await _launch.readiness_observation(db, settings)
+        return {"settings": settings, "readiness": readiness}
+
+    @router.patch("/settings/launch")
+    async def update_launch_settings(
+        body: dict = Body(...),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        try:
+            saved = await _launch.save_settings(
+                db, patch=body, updated_by=admin.get("email"),
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        readiness = await _launch.readiness_observation(db, saved)
+        # Track only the boolean/date fields in the audit — never the raw URLs
+        # (they're not sensitive but the audit stays tidy).
+        await _audit.log_admin_action(
+            db, admin=admin, action="launch.settings.update",
+            metadata={
+                k: (body[k] if k in ("enabled", "launch_complete", "press_kit_ready", "launch_at") else "set")
+                for k in body.keys() if k in _launch.DEFAULTS
+            },
+        )
+        return {"settings": saved, "readiness": readiness}
+
     # Ensure indexes on startup (idempotent).
     import asyncio as _asyncio
     try:

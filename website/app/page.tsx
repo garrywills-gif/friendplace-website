@@ -3,6 +3,18 @@ import { site } from '@/lib/brand';
 import { cms } from '@/lib/api';
 import { brandAssets } from '@/lib/brand-assets';
 import BrandMasthead from '@/components/BrandMasthead';
+import { LaunchCountdownRibbon, type LaunchStatus } from '@/components/site/LaunchCountdownRibbon';
+
+async function getLaunchStatus(): Promise<LaunchStatus | null> {
+  try {
+    const base = process.env.NEXT_PUBLIC_API_URL || '';
+    const r = await fetch(`${base}/api/public/launch-status`, { next: { revalidate: 30 } });
+    if (!r.ok) return null;
+    return (await r.json()) as LaunchStatus;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * FriendPlace Home page.
@@ -25,10 +37,11 @@ import BrandMasthead from '@/components/BrandMasthead';
  * Falls back gracefully if the backend is unreachable.
  */
 export default async function HomePage() {
-  const [features, founders, stories] = await Promise.all([
+  const [features, founders, stories, launchStatus] = await Promise.all([
     cms.features(),
     cms.founders(),
     cms.stories(),
+    getLaunchStatus(),
   ]);
 
   const featureCards = features?.features && features.features.length > 0
@@ -41,6 +54,10 @@ export default async function HomePage() {
 
   return (
     <>
+      {/* ---------- 0a. LAUNCH COUNTDOWN RIBBON ---------- */}
+      {/* Sits above everything else. Renders nothing when disabled. */}
+      <LaunchCountdownRibbon initial={launchStatus} />
+
       {/* ---------- 0. NAVY BRANDING STRIP ---------- */}
       {/* Real HTML/CSS masthead, NOT the flyer image. Slim 80 px band
           that scales gracefully on mobile — contact rail hides below

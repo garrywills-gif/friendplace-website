@@ -9676,6 +9676,31 @@ async def public_founders_count():
     return {"count": int(n)}
 
 
+@api.get("/public/launch-status")
+async def public_launch_status():
+    """Public launch countdown status.
+
+    Powers the ribbon on the marketing site. Deliberately narrow:
+    - Returns ``enabled`` and ``launch_at`` (ISO UTC) unconditionally.
+    - Returns ``is_live`` derived from ``launch_at`` and any manual
+      ``launch_complete`` override.
+    - Exposes App Store / Google Play links ONLY when ``is_live`` — this
+      is a deliberate anti-premature-click safeguard so a leaked App
+      Store URL can't be hit before the app is approved and available.
+    """
+    from services import launch as _launch
+    try:
+        settings = await _launch.get_settings(db)
+        return _launch.public_status(settings)
+    except Exception:
+        # Fail-safe: absent settings → hidden countdown, no crash.
+        return {
+            "enabled": False, "launch_at": None, "is_live": False,
+            "welcome_message": _launch.DEFAULTS["welcome_message"],
+            "appstore_url": "", "playstore_url": "",
+        }
+
+
 @api.post("/public/contact")
 async def public_contact(payload: dict, request: Request):
     """Public contact form submission (no auth).
