@@ -169,3 +169,11 @@ Migrated all member management from the mobile admin screen to the Next.js MCGS 
 - **Retired mobile screen:** `/app/frontend/app/admin/user/[id].tsx` now shows a "Moved to Mission Control" screen with a rocket icon, the requested Member ID for reference, and a back-to-admin-home button. No moderation actions can be taken from mobile any more.
 - **Tests:** `/app/backend/tests/test_mcgs_member_management.py` — 15/15 pytest cases pass in 0.4s. Retained as regression suite.
 - **Next:** Slice 2 (Reports) — `/admin/reports` list + detail view + auto-link into member profile from any report row.
+
+
+## 30 July 2026 — Two pre-launch product decisions recorded
+Captured against KB entries so they don't get lost between now and launch.
+- **KB-DEC-003 · Recipes belong within Share a Moment, not as top-level navigation.** Philosophy: *"Recipes aren't a destination — they're a way of sharing a moment with other people."* Removes Recipes from the primary nav; absorbs it into the Share a Moment composer (which reads *"A photo, a story or something that made you smile today"*).
+- **KB-DEC-004 · Home screen becomes the welcoming centre of FriendPlace (V1 redesign).** Home is the room a member enters, not a dashboard. Reference mockup: `/app/memory/assets/home-screen-mockup-2026-07-30.png`. Tile layout: FP Café hero card at top · Find Friends / Local Events · Share a Moment / Community Groups · Notice Board / Games · My Profile card. Bottom nav = Home · Chats · FP Café · Friends · Profile (no Recipes tab).
+- **KB-ROAD-002** updated to link both entries under a new "Pre-launch product decisions" section.
+- Decisions are **admin-only** so George uses them when reasoning about scope with the admin, but doesn't leak the redesign to members before it ships.
