@@ -44,6 +44,22 @@ export interface AskGeorgeAboutThisProps {
   contextId?: string;
   /** Optional context type used for analytics later. */
   contextType?: string;
+  /**
+   * Structured surface context sent to George on THIS turn only, so
+   * prompts like "summarise this member's history" can be answered
+   * immediately without George having to ask "which member?".
+   *
+   * Accepted shape:
+   *   {
+   *     surface: 'member_profile' | 'report' | ...
+   *     member?: { id, display_name, email, username, created_at,
+   *                status, restricted_reason }
+   *     counts?: { reports_open, warnings, suspensions, bans, ... }
+   *     recent_actions?: [{ action, at, by, reason, duration_hours }]
+   *     recent_reports?:  [{ id, status, reason, at, urgent }]
+   *   }
+   */
+  context?: Record<string, unknown>;
 }
 
 export function AskGeorgeAboutThis({
@@ -52,17 +68,18 @@ export function AskGeorgeAboutThis({
   compact = false,
   contextId,
   contextType,
+  context,
 }: AskGeorgeAboutThisProps) {
   const ask = useCallback(
     (prompt: string) => {
       if (typeof window === 'undefined') return;
       window.dispatchEvent(
         new CustomEvent('mcgs:ask-george', {
-          detail: { message: prompt, contextId, contextType },
+          detail: { message: prompt, contextId, contextType, context },
         }),
       );
     },
-    [contextId, contextType],
+    [contextId, contextType, context],
   );
 
   if (!prompts || prompts.length === 0) return null;
@@ -122,14 +139,22 @@ export function AskGeorgeAboutThis({
  * an inline "explain this" link in body copy.
  */
 export function useAskGeorge() {
-  return useCallback((prompt: string, ctx?: { id?: string; type?: string }) => {
-    if (typeof window === 'undefined') return;
-    window.dispatchEvent(
-      new CustomEvent('mcgs:ask-george', {
-        detail: { message: prompt, contextId: ctx?.id, contextType: ctx?.type },
-      }),
-    );
-  }, []);
+  return useCallback(
+    (prompt: string, ctx?: { id?: string; type?: string; context?: Record<string, unknown> }) => {
+      if (typeof window === 'undefined') return;
+      window.dispatchEvent(
+        new CustomEvent('mcgs:ask-george', {
+          detail: {
+            message: prompt,
+            contextId: ctx?.id,
+            contextType: ctx?.type,
+            context: ctx?.context,
+          },
+        }),
+      );
+    },
+    [],
+  );
 }
 
 // ─── styles ────────────────────────────────────────────────────────────

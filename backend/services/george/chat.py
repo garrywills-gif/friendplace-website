@@ -315,6 +315,127 @@ def _format_tool_results_for_synth(results: list[dict], plan: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Surface-context formatter
+# ---------------------------------------------------------------------------
+
+_SURFACE_MAX_CHARS = 4000  # hard cap so a runaway payload can't blow the prompt
+
+def _format_surface_context(ctx: dict | None) -> str:
+    """Render the client-supplied ``surface_context`` payload as a
+    prompt block. Safe against runaway sizes and unknown surfaces.
+
+    The block is intentionally clear about what it means: this is the
+    admin's *current viewing context*, not authoritative data. George
+    is told to use it as grounding for the current turn but to fall
+    back on the KB and tools for anything not covered here.
+
+    Accepted shapes (all fields optional):
+
+        {
+          "surface": "member_profile" | "report" | "moderation_queue" | ...,
+          "member": {"id","display_name","email","username","created_at",
+                     "status","restricted_reason"},
+          "counts": {"reports_open","reports_total","warnings","suspensions",
+                     "bans","notes","actions_total","last_action",
+                     "last_action_at"},
+          "recent_actions": [{"action","at","by","reason","duration_hours"}],
+          "recent_reports":  [{"id","status","reason","at","urgent"}],
+        }
+    """
+    if not isinstance(ctx, dict) or not ctx:
+        return ""
+    surface = str(ctx.get("surface") or "").strip() or "unknown"
+    lines: list[str] = [
+        "\n\n## What the administrator is viewing right now",
+        f"Surface: **{surface}**",
+    ]
+
+    member = ctx.get("member")
+    if isinstance(member, dict):
+        name  = (member.get("display_name") or "").strip() or "(no name)"
+        mid   = (member.get("id") or "").strip() or "(no id)"
+        email = (member.get("email") or "").strip() or "(no email)"
+        uname = (member.get("username") or "").strip()
+        status = (member.get("status") or "").strip() or "good_standing"
+        created = (member.get("created_at") or "").strip()
+        rreason = (member.get("restricted_reason") or "").strip()
+        lines += [
+            f"\n### Member",
+            f"- Name: **{name}**"
+            + (f" (@{uname})" if uname else ""),
+            f"- ID: `{mid}`",
+            f"- Email: {email}",
+            f"- Standing: **{status}**"
+            + (f" — {rreason}" if rreason and status != "good_standing" else ""),
+        ]
+        if created:
+            lines.append(f"- Joined: {created}")
+
+    counts = ctx.get("counts")
+    if isinstance(counts, dict):
+        c = counts
+        lines += [
+            f"\n### Moderation summary",
+            f"- Reports: {c.get('reports_open', 0)} open · {c.get('reports_total', 0)} total",
+            f"- Warnings: {c.get('warnings', 0)}",
+            f"- Suspensions: {c.get('suspensions', 0)}",
+            f"- Bans: {c.get('bans', 0)}",
+            f"- Notes: {c.get('notes', 0)}",
+            f"- Total moderation actions: {c.get('actions_total', 0)}"
+            + (f" (last: {c.get('last_action')} at {c.get('last_action_at')})"
+               if c.get('last_action_at') else ""),
+        ]
+
+    recent = ctx.get("recent_actions")
+    if isinstance(recent, list) and recent:
+        lines.append("\n### Recent moderation actions (newest first)")
+        for r in recent[:6]:
+            if not isinstance(r, dict): continue
+            action = str(r.get("action", "?"))
+            at     = str(r.get("at", ""))
+            by     = str(r.get("by", "?"))
+            dur    = r.get("duration_hours")
+            reason = (str(r.get("reason", "")) or "").strip()
+            head = f"- **{action}**"
+            if dur: head += f" for {dur}h"
+            head += f" · by {by} · {at}"
+            if reason:
+                # Cap reason to keep the block small; George can query
+                # the full moderation_log via tools if he needs more.
+                r_short = reason[:180] + ("…" if len(reason) > 180 else "")
+                head += f"\n  Reason: _{r_short}_"
+            lines.append(head)
+
+    recent_reports = ctx.get("recent_reports")
+    if isinstance(recent_reports, list) and recent_reports:
+        lines.append("\n### Recent reports (newest first)")
+        for r in recent_reports[:6]:
+            if not isinstance(r, dict): continue
+            rid    = str(r.get("id", "?"))
+            status = str(r.get("status", "?"))
+            urgent = bool(r.get("urgent"))
+            at     = str(r.get("at", ""))
+            reason = (str(r.get("reason", "")) or "").strip()
+            head = f"- `{rid}` · **{status}**" + (" · **URGENT**" if urgent else "") + f" · {at}"
+            if reason:
+                r_short = reason[:180] + ("…" if len(reason) > 180 else "")
+                head += f"\n  {r_short}"
+            lines.append(head)
+
+    lines += [
+        "\n### How to use this",
+        "- This is context, not authorisation. Ground factual claims in tool_results as usual.",
+        "- When the admin says \"this member\" / \"this report\" / \"here\", they mean the one above.",
+        "- Answer immediately from this context when you can. Only ask a clarifying question if the context is genuinely ambiguous — never ask them to identify what the page already shows.",
+    ]
+
+    block = "\n".join(lines)
+    if len(block) > _SURFACE_MAX_CHARS:
+        block = block[:_SURFACE_MAX_CHARS] + "\n… (surface context truncated for length)"
+    return block
+
+
+# ---------------------------------------------------------------------------
 # Synthesizer (streams to caller)
 # ---------------------------------------------------------------------------
 
@@ -325,8 +446,17 @@ async def grounded_chat_stream(
     user_message: str,
     session_id: str,
     prior_turns: list[dict] | None = None,
+    surface_context: dict | None = None,
 ) -> AsyncIterator[dict]:
     """Full grounded chat turn. Yields events the API layer converts to SSE.
+
+    Args:
+        surface_context: optional structured payload describing what the
+            admin is currently looking at (e.g. a member profile). Piped
+            into the system prompt for THIS turn only so George can
+            answer "summarise this member's history" without having to
+            ask "which member?". See ``_format_surface_context()`` for
+            the accepted shapes.
 
     Yields:
         {"kind": "plan",   "plan": {...}}
@@ -350,6 +480,14 @@ async def grounded_chat_stream(
         admin_email=admin.get("email") or "",
         roles=admin.get("roles") or ["owner"],
     )
+
+    # ---- 3ai. Surface context (what the admin is looking at right now) ----
+    # Piped from the client so prompts like "summarise this member's
+    # history" or "have similar cases been handled consistently" can be
+    # answered immediately without George having to ask "which member?".
+    surface_block = _format_surface_context(surface_context)
+    if surface_block:
+        system_prompt = system_prompt + surface_block
 
     # ---- 3a. Institutional knowledge (Slice: George KB) ----
     # Ground substantive answers in the knowledge_base collection.

@@ -132,6 +132,12 @@ class GeorgeChatIn(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     chat_id: Optional[str] = None
     scope: str = Field("mcgs")
+    # Optional structured payload describing what the admin is currently
+    # looking at (e.g. a member profile, a report, a moderation queue).
+    # Piped into George's system prompt for THIS turn only so he can
+    # answer "summarise this member's history" without having to ask
+    # "which member?". Never used for authorisation — just for grounding.
+    surface_context: Optional[dict] = None
 
 
 class TicketReplyProposalIn(BaseModel):
@@ -1447,6 +1453,7 @@ def build_router(db) -> APIRouter:
                 async for ev in grounded_chat_stream(
                     db=db, admin=admin, user_message=body.message,
                     session_id=session_id, prior_turns=prior_turns,
+                    surface_context=body.surface_context,
                 ):
                     kind = ev.get("kind")
                     if kind == "delta":

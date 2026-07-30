@@ -17,6 +17,7 @@ export function AskGeorgeBar() {
   const [input, setInput] = useState('');
   const [open, setOpen] = useState(false);
   const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined);
+  const [initialContext, setInitialContext] = useState<Record<string, unknown> | undefined>(undefined);
   const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -44,18 +45,22 @@ export function AskGeorgeBar() {
   // Keeps George available system-wide without prop-drilling.
   useEffect(() => {
     const onAsk = (e: Event) => {
-      const detail = (e as CustomEvent<{ message?: string }>).detail;
-      submit(detail?.message);
+      const detail = (e as CustomEvent<{
+        message?: string;
+        context?: Record<string, unknown>;
+      }>).detail;
+      submit(detail?.message, detail?.context);
     };
     window.addEventListener('mcgs:ask-george', onAsk as EventListener);
     return () => window.removeEventListener('mcgs:ask-george', onAsk as EventListener);
      
   }, []);
 
-  function submit(msg?: string) {
+  function submit(msg?: string, ctx?: Record<string, unknown>) {
     const message = (msg ?? input).trim();
     if (!message) return;
     setInitialMessage(message);
+    setInitialContext(ctx);
     setInput('');
     setOpen(true);
   }
@@ -235,7 +240,8 @@ export function AskGeorgeBar() {
       <AskGeorgeSheet
         open={open}
         initialMessage={initialMessage}
-        onClose={() => { setOpen(false); setInitialMessage(undefined); }}
+        initialContext={initialContext}
+        onClose={() => { setOpen(false); setInitialMessage(undefined); setInitialContext(undefined); }}
       />
     </>
   );

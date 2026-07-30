@@ -98,6 +98,60 @@ export default function MemberProfilePage() {
     };
   }, [profile]);
 
+  // Structured surface context piped to George on THIS profile page.
+  // Rebuilt whenever the profile refreshes so a warn/note that just
+  // landed shows up on the next Ask George turn. Trimmed hard so the
+  // prompt block stays small — George can pull the full history via
+  // tools if he needs more than the top 6 actions/reports.
+  const surfaceContext = useMemo(() => {
+    if (!profile || !memberRow) return undefined;
+    const suspendedActive = !!(profile.user.suspended_until && new Date(profile.user.suspended_until) > new Date());
+    const status = profile.user.banned
+      ? 'banned'
+      : suspendedActive
+      ? 'suspended'
+      : profile.user.restricted
+      ? 'restricted'
+      : 'good_standing';
+    return {
+      surface: 'member_profile',
+      member: {
+        id: memberRow.id,
+        display_name: displayNameFor(memberRow),
+        email: memberRow.email || '',
+        username: memberRow.username || '',
+        created_at: memberRow.created_at || '',
+        status,
+        restricted_reason: memberRow.restricted_reason || '',
+      },
+      counts: {
+        reports_open: profile.counts.reports_open,
+        reports_total: profile.counts.reports_total,
+        warnings: profile.counts.warnings,
+        suspensions: profile.counts.suspensions,
+        bans: profile.counts.bans,
+        notes: profile.counts.notes,
+        actions_total: profile.counts.actions_total,
+        last_action: profile.counts.last_action,
+        last_action_at: profile.counts.last_action_at,
+      },
+      recent_actions: profile.moderation_log.slice(0, 6).map((e) => ({
+        action: e.action,
+        at: e.created_at,
+        by: e.by_user?.display_name || e.by_user?.first_name || e.by_user?.email || e.by || 'system',
+        reason: e.reason || '',
+        duration_hours: e.duration_hours || undefined,
+      })),
+      recent_reports: profile.reports.slice(0, 6).map((r) => ({
+        id: r.id,
+        status: r.status,
+        reason: r.reason || '',
+        at: r.created_at,
+        urgent: !!r.urgent,
+      })),
+    };
+  }, [profile, memberRow]);
+
   async function handleActionConfirm(
     payload: { reason: string; durationHours?: number; confirmMemberId?: string }
   ) {
@@ -264,10 +318,13 @@ export default function MemberProfilePage() {
           <div style={{ marginTop: 20, display: 'flex', gap: 10, alignItems: 'center' }}>
             <AskGeorgeAboutThis
               label="Ask George about this member"
+              contextId={memberRow.id}
+              contextType="member_profile"
+              context={surfaceContext}
               prompts={[
-                `Summarise ${displayNameFor(memberRow)}'s moderation history in plain words.`,
+                `Summarise this member's moderation history in plain words.`,
                 `Compare this member's prior reports — are they variations of the same issue?`,
-                `Spot patterns across ${displayNameFor(memberRow)}'s reports and moderation actions.`,
+                `Spot patterns across this member's reports and moderation actions.`,
                 `Is there anything unusual about this member's recent activity?`,
                 `Have we treated similar cases consistently, or is there a fairness concern here?`,
               ]}

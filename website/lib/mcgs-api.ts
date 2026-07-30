@@ -385,6 +385,7 @@ export function askGeorge(
   message: string,
   onEvent: (ev: GeorgeStreamEvent) => void,
   chatId?: string | null,
+  surfaceContext?: Record<string, unknown> | null,
 ): { abort: () => void } {
   const controller = new AbortController();
   const token = getToken();
@@ -412,7 +413,12 @@ export function askGeorge(
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token || ''}`,
         },
-        body: JSON.stringify({ message, chat_id: chatId || undefined, scope: 'mcgs' }),
+        body: JSON.stringify({
+          message,
+          chat_id: chatId || undefined,
+          scope: 'mcgs',
+          surface_context: surfaceContext || undefined,
+        }),
         signal: controller.signal,
       });
       if (!res.ok || !res.body) {

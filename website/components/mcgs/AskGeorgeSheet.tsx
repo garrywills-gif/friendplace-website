@@ -17,6 +17,14 @@ import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
 interface AskGeorgeSheetProps {
   open: boolean;
   initialMessage?: string;
+  /**
+   * Structured surface context to attach to the first turn triggered
+   * by ``initialMessage`` — piped through to the backend so George can
+   * answer "summarise this member's history" without asking which
+   * member. Consumed exactly once; subsequent user-typed turns don't
+   * inherit it (fresh context should be supplied by the surface).
+   */
+  initialContext?: Record<string, unknown>;
   onClose: () => void;
 }
 
@@ -26,7 +34,7 @@ type Turn = GeorgeTurn & {
   previews?: ActionPreviewPayload[];
 };
 
-export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheetProps) {
+export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }: AskGeorgeSheetProps) {
   // Persistent conversation — survives Close / page nav within the
   // current admin session. Cleared on logout or explicit "New chat".
   const {
@@ -78,7 +86,10 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
     // if a new initialMessage arrives while a stream is in flight.
     if (open && initialMessage && !busy && initialSentRef.current !== initialMessage) {
       initialSentRef.current = initialMessage;
-      send(initialMessage);
+      // Attach the one-shot surface_context to this turn only. Subsequent
+      // user-typed turns don't inherit it — surfaces re-supply context on
+      // re-entry, which keeps George grounded on the *current* page.
+      send(initialMessage, initialContext);
     }
     if (!open) initialSentRef.current = null;
      
@@ -132,7 +143,7 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
-  function send(message: string) {
+  function send(message: string, surfaceContext?: Record<string, unknown> | null) {
     const trimmed = message.trim();
     if (!trimmed || busy) return;
     setBusy(true);
@@ -215,6 +226,7 @@ export function AskGeorgeSheet({ open, initialMessage, onClose }: AskGeorgeSheet
         }
       },
       chatIdRef.current,
+      surfaceContext ?? undefined,
     );
   }
 
