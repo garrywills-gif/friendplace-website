@@ -169,6 +169,44 @@ export const cmsApi = {
   addRsvp: (eventId: string, data: Partial<EventRsvp>) => req<EventRsvp>('POST', `/cms/events/${eventId}/rsvps`, data),
   updateRsvp: (eventId: string, rsvpId: string, patch: Partial<EventRsvp>) => req<EventRsvp>('PATCH', `/cms/events/${eventId}/rsvps/${rsvpId}`, patch),
   deleteRsvp: (eventId: string, rsvpId: string) => req<{ ok: true }>('DELETE', `/cms/events/${eventId}/rsvps/${rsvpId}`),
+
+  // Admin audit log (Slice 0 foundation)
+  listAuditLog: (opts?: {
+    action_prefix?: string;
+    target_type?: string;
+    target_id?: string;
+    admin_id?: string;
+    limit?: number;
+    skip?: number;
+  }) => {
+    const p = new URLSearchParams();
+    if (opts?.action_prefix) p.set('action_prefix', opts.action_prefix);
+    if (opts?.target_type) p.set('target_type', opts.target_type);
+    if (opts?.target_id) p.set('target_id', opts.target_id);
+    if (opts?.admin_id) p.set('admin_id', opts.admin_id);
+    if (opts?.limit != null) p.set('limit', String(opts.limit));
+    if (opts?.skip != null) p.set('skip', String(opts.skip));
+    const qs = p.toString();
+    return req<{ items: AuditLogEntry[]; total: number; limit: number; skip: number }>(
+      'GET', `/cms/admin-log${qs ? `?${qs}` : ''}`,
+    );
+  },
+  auditLogActions: () =>
+    req<{ actions: string[] }>('GET', '/cms/admin-log/actions'),
+};
+
+export type AuditLogEntry = {
+  _id: string;
+  ts: string;
+  admin_id?: string;
+  admin_email?: string;
+  admin_name?: string;
+  action: string;
+  target_type?: string;
+  target_id?: string;
+  reason?: string;
+  metadata?: Record<string, any>;
+  ip?: string;
 };
 
 export type SuccessStory = {

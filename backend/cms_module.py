@@ -1660,6 +1660,49 @@ def build_router(db) -> APIRouter:
             _logging.getLogger("friendplace.events").exception("rejection email failed")
         return {"ok": True}
 
+    # ==================================================================
+    # ADMIN AUDIT LOG (Slice 0)
+    # ==================================================================
+    # Read-only endpoints backing /admin/audit-log. Every consequential
+    # admin action across MCGS should write to this log via
+    # `services.audit.log_admin_action()`. See services/audit.py for the
+    # helper and the KNOWN_ACTIONS catalogue.
+
+    from services import audit as _audit  # local import — module boundary
+
+    @router.get("/admin-log")
+    async def list_audit_log(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+        action_prefix: Optional[str] = None,
+        target_type: Optional[str] = None,
+        target_id: Optional[str] = None,
+        admin_id: Optional[str] = None,
+        limit: int = 50,
+        skip: int = 0,
+    ):
+        rows = await _audit.list_admin_log(
+            db,
+            admin_id=admin_id,
+            action_prefix=action_prefix,
+            target_type=target_type,
+            target_id=target_id,
+            limit=limit,
+            skip=skip,
+        )
+        total = await _audit.count_admin_log(
+            db,
+            admin_id=admin_id,
+            action_prefix=action_prefix,
+            target_type=target_type,
+        )
+        return {"items": rows, "total": total, "limit": limit, "skip": skip}
+
+    @router.get("/admin-log/actions")
+    async def known_actions(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Return the catalogue of well-known action strings so the UI
+        can build filter dropdowns without hard-coding the list."""
+        return {"actions": list(_audit.KNOWN_ACTIONS)}
+
     return router
 
 

@@ -8,19 +8,72 @@ import { cmsApi } from '@/lib/cms-api';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
 
-const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions'; group?: string }[] = [
-  { href: '/admin/bridge',           label: 'The Bridge',        icon: '🌉' },
-  { href: '/admin/george',           label: "George's Workspace", icon: '🦋' },
-  { href: '/admin/home',             label: 'Home page',         icon: '🏠' },
-  { href: '/admin/about',            label: 'About page',        icon: 'ℹ️' },
-  { href: '/admin/faqs',             label: 'FAQs',              icon: '❓' },
-  { href: '/admin/success-stories',  label: 'Success Stories',   icon: '📖' },
-  { href: '/admin/founding-members', label: 'Founding Members',  icon: '👥' },
-  { href: '/admin/events',           label: 'Events',            icon: '📅' },
-  { href: '/admin/event-submissions',label: 'Event Submissions', icon: '📝', badgeKey: 'submissions' },
-  { href: '/admin/media',            label: 'Media library',     icon: '🖼️' },
-  { href: '/admin/dashboard',        label: 'Dashboard (legacy)', icon: '📊' },
+/**
+ * Sidebar structure — grouped by domain. Items marked `soon: true`
+ * light up a small "Soon" pill so admins can see the migration
+ * roadmap without needing to open the audit doc. Each of those routes
+ * points at a real placeholder page that explains what's coming.
+ */
+type NavItem = {
+  href: string;
+  label: string;
+  icon: string;
+  badgeKey?: 'submissions';
+  soon?: boolean;
+};
+
+type NavGroup = { label: string; items: NavItem[] };
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Mission Control',
+    items: [
+      { href: '/admin/bridge',    label: 'The Bridge',           icon: '🌉' },
+      { href: '/admin/george',    label: "George's Workspace",   icon: '🦋' },
+    ],
+  },
+  {
+    label: 'Community',
+    items: [
+      { href: '/admin/members',          label: 'Members',          icon: '👤', soon: true },
+      { href: '/admin/reports',          label: 'Reports',          icon: '🚩', soon: true },
+      { href: '/admin/support',          label: 'Support',          icon: '💬', soon: true },
+      { href: '/admin/groups/pending',   label: 'Pending groups',   icon: '👥', soon: true },
+      { href: '/admin/events',           label: 'Events',           icon: '📅' },
+      { href: '/admin/event-submissions',label: 'Event submissions',icon: '📝', badgeKey: 'submissions' },
+      { href: '/admin/announcements',    label: 'Announcements',    icon: '📣', soon: true },
+    ],
+  },
+  {
+    label: 'Website',
+    items: [
+      { href: '/admin/home',             label: 'Home page',        icon: '🏠' },
+      { href: '/admin/about',            label: 'About page',       icon: 'ℹ️' },
+      { href: '/admin/faqs',             label: 'FAQs',             icon: '❓' },
+      { href: '/admin/success-stories',  label: 'Success stories',  icon: '📖' },
+      { href: '/admin/founding-members', label: 'Founding members', icon: '🌱' },
+      { href: '/admin/media',            label: 'Media library',    icon: '🖼️' },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { href: '/admin/analytics',        label: 'Analytics',        icon: '📈', soon: true },
+      { href: '/admin/audit-log',        label: 'Audit log',        icon: '🧾' },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { href: '/admin/admins',           label: 'Admins',           icon: '🛡️', soon: true },
+      { href: '/admin/settings',         label: 'Settings',         icon: '⚙️', soon: true },
+      { href: '/admin/dashboard',        label: 'Dashboard (legacy)', icon: '📊' },
+    ],
+  },
 ];
+
+// Flat view retained for the pending-submissions badge lookup below.
+const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /**
  * Sidebar-shell layout used by every protected /admin page.
@@ -90,35 +143,39 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
           </div>
         </Link>
 
-        <nav style={{ flex: 1, marginTop: 32 }}>
-          {NAV.map(item => {
-            // Exact match OR next char is "/" so /admin/events doesn't also
-            // light up when visiting /admin/event-submissions.
-            const active =
-              pathname === item.href ||
-              (pathname?.startsWith(item.href + '/') ?? false);
-            const badgeCount = item.badgeKey === 'submissions' ? pendingSubmissions : 0;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`cms-nav-link${active ? ' cms-nav-link-active' : ''}`}
-                style={navLink}
-                data-active={active ? '1' : '0'}
-              >
-                <span style={{ fontSize: 18 }}>{item.icon}</span>
-                <span style={{ flex: 1 }}>{item.label}</span>
-                {badgeCount > 0 && (
-                  <span
-                    aria-label={`${badgeCount} pending`}
-                    style={navBadge}
+        <nav style={{ flex: 1, marginTop: 24, paddingBottom: 12, overflowY: 'auto' }}>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} style={{ marginBottom: 14 }}>
+              <div style={navGroupHeading}>{group.label}</div>
+              {group.items.map((item) => {
+                const active =
+                  pathname === item.href ||
+                  (pathname?.startsWith(item.href + '/') ?? false);
+                const badgeCount = item.badgeKey === 'submissions' ? pendingSubmissions : 0;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`cms-nav-link${active ? ' cms-nav-link-active' : ''}`}
+                    style={navLink}
+                    data-active={active ? '1' : '0'}
                   >
-                    {badgeCount > 99 ? '99+' : badgeCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+                    <span style={{ fontSize: 18 }}>{item.icon}</span>
+                    <span style={{ flex: 1 }}>{item.label}</span>
+                    {item.soon && !active && <span style={soonPill}>Soon</span>}
+                    {badgeCount > 0 && (
+                      <span
+                        aria-label={`${badgeCount} pending`}
+                        style={navBadge}
+                      >
+                        {badgeCount > 99 ? '99+' : badgeCount}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '16px 20px' }}>
@@ -179,7 +236,26 @@ const sidebar: React.CSSProperties = {
   height: '100vh',
 };
 const sidebarBrand: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '0 20px', color: '#FFFFFF', textDecoration: 'none' };
-const navLink: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '12px 20px', fontSize: 15, fontWeight: 700, textDecoration: 'none' };
+const navLink: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '10px 20px', fontSize: 14, fontWeight: 700, textDecoration: 'none' };
+const navGroupHeading: React.CSSProperties = {
+  padding: '6px 20px 6px',
+  fontSize: 10,
+  letterSpacing: '0.12em',
+  color: '#5EEAD4',
+  textTransform: 'uppercase',
+  fontWeight: 800,
+  opacity: 0.75,
+};
+const soonPill: React.CSSProperties = {
+  padding: '2px 7px',
+  fontSize: 9,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: '#0F172A',
+  background: '#FBBF24',
+  borderRadius: 999,
+  fontWeight: 900,
+};
 const navBadge: React.CSSProperties = {
   minWidth: 22,
   height: 22,

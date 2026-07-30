@@ -3,6 +3,26 @@
 **Author:** Neo (agent)  
 **Purpose:** Establish exact feature parity between the mobile-app admin tools and MCGS (the Next.js Mission Control) before adding new functionality.
 
+**Live status:** Slice 0 ✅ complete · Slice 1 (Member Management) — up next
+
+---
+
+## 🚦 Slice status board
+
+| Slice | Domain | Status |
+|---|---|---|
+| **0** | Foundation (sidebar refresh · `admin_log` · Ask George component · placeholder routes) | ✅ **Done** |
+| 1 | Member Management | ⚪ Not started |
+| 2 | Reports & Moderation | ⚪ Not started |
+| 3 | Feedback / Support | ⚪ Not started |
+| 4 | Events (extend controls) | ⚪ Not started |
+| 5 | Groups (pending queue) | ⚪ Not started |
+| 6 | Announcements | ⚪ Not started |
+| 7 | Website Content polish | ⚪ Not started |
+| 8 | Administration | ⚪ Not started |
+| 9 | Settings | ⚪ Not started |
+| 10 | Analytics | ⚪ Not started |
+
 ---
 
 ## Legend
@@ -208,3 +228,25 @@ Not building now. Listed so the parity work anchors toward it:
 ---
 
 **Sign-off requested**: is this the audit + order you want? Once confirmed I'll open **Slice 1 (Member Management)** and start building.
+
+---
+
+# Appendix — Slice 0 (Foundation) delivered
+
+Completed in the same session as Phase 1 sign-off.
+
+### Backend
+- `services/audit.py` — `log_admin_action()`, `list_admin_log()`, `count_admin_log()`, `KNOWN_ACTIONS` catalogue. Writes to Mongo collection `admin_log` (append-only, never mutated). All write failures swallowed so audit-log outages can never break a moderator's action.
+- `cms_module.py` — `GET /api/cms/admin-log` (paginated, filter by `action_prefix` / `target_type` / `target_id` / `admin_id`) and `GET /api/cms/admin-log/actions` (returns the well-known action catalogue for filter dropdowns).
+
+### Frontend (Next.js)
+- `components/admin/AdminShell.tsx` — sidebar refreshed into 5 grouped sections (Mission Control / Community / Website / Insights / System). Placeholder routes marked with a small "Soon" pill so admins can see the roadmap without leaving the app.
+- `components/admin/ComingSoon.tsx` — reusable Slice-preview page. Every unfinished slice ships as a real route explaining what's coming, so the sidebar never 404s and Garry can see progress at a glance.
+- `components/mcgs/AskGeorgeAboutThis.tsx` — reusable "Ask George about this" button + `useAskGeorge()` hook. Dispatches `mcgs:ask-george` custom event picked up by the existing AskGeorgeBar. Supports single-prompt (immediate) and multi-prompt (disclosure menu). Never renders without meaningful context.
+- Placeholder routes: `/admin/members`, `/admin/reports`, `/admin/support`, `/admin/groups/pending`, `/admin/announcements`, `/admin/admins`, `/admin/settings`, `/admin/analytics`.
+- `/admin/audit-log` — first fully-functional Slice 0 page. Filter by action namespace or target type, ask George to summarise the log. Serves as the reference implementation for future list pages.
+
+### Verified
+- All 17 admin routes return 200 locally.
+- `GET /api/cms/admin-log` returns 401 when unauthenticated (JWT guard working) and 200 with paginated results when authenticated.
+
