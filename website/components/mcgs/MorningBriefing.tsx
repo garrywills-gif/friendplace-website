@@ -289,7 +289,7 @@ const cardBase: React.CSSProperties = {
   boxShadow: '0 4px 16px rgba(20,184,166,0.08)',
 };
 const briefingCard: React.CSSProperties = { ...cardBase };
-const skeletonCard: React.CSSProperties = { ...cardBase, background: '#F8FAFC', borderColor: '#E2E8F0' };
+const skeletonCard: React.CSSProperties = { ...cardBase, background: '#F8FAFC', border: '1px solid #E2E8F0' };
 const emptyCard: React.CSSProperties = { ...cardBase, background: '#FFFFFF' };
 const collapsedCard: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,

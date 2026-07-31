@@ -9943,7 +9943,7 @@ async def public_register_interest(payload: dict, request: Request):
         "state_country": state_country,
         "heard_from": heard_from,
         "companion_choice": companion,     # 'george' | 'georgia' | None
-        "status": "new",                    # new | reviewed | contacted | archived — set by admin
+        "status": "registered",             # CRM ladder: registered → invited → joined → opted_out
         "source": "website",                # future: 'app_prelaunch', 'referral', etc.
         "ip": ip,
         "is_test": False,                   # tools.py filters this out of George's counts

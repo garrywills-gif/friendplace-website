@@ -397,15 +397,18 @@ async def _count_organisations(db: Any, args: dict) -> int:
 
 @register(
     "count_interest_registrations",
-    "Count website visitors who registered their interest on /register-interest. "
-    "Optionally filter by status (new/reviewed/contacted/archived), companion_choice "
-    "(george/georgia), or since_days for a rolling window. Test-flagged rows are "
-    "excluded by default; pass include_test_data=true to include them.",
+    "Count website visitors who Registered their Interest (a.k.a. Founding Members). "
+    "Filter by status (registered/invited/joined/opted_out — 'registered' also matches "
+    "the legacy 'new' status i.e. anyone awaiting contact), companion_choice (george/georgia), "
+    "state_country (case-insensitive substring, e.g. 'Sydney', 'NSW', 'Melbourne'), or "
+    "since_days for a rolling window (use since_days=1 for 'today', 7 for 'this week'). "
+    "Test-flagged rows are excluded by default.",
     args={
         "status": {"type": "str", "required": False,
-                   "enum": {"new", "reviewed", "contacted", "archived"}},
+                   "enum": {"registered", "invited", "joined", "opted_out"}},
         "companion_choice": {"type": "str", "required": False,
                              "enum": {"george", "georgia"}},
+        "state_country": {"type": "str", "required": False},
         "since_days": {"type": "int", "required": False},
         "include_test_data": {"type": "bool", "required": False},
     },
@@ -413,9 +416,19 @@ async def _count_organisations(db: Any, args: dict) -> int:
 async def _count_interest_registrations(db: Any, args: dict) -> int:
     q: dict = {}
     if "status" in args:
-        q["status"] = args["status"]
+        if args["status"] == "registered":
+            q["$or"] = [
+                {"status": {"$exists": False}},
+                {"status": None},
+                {"status": {"$in": ["registered", "new"]}},
+            ]
+        else:
+            q["status"] = args["status"]
     if "companion_choice" in args:
         q["companion_choice"] = args["companion_choice"]
+    if "state_country" in args:
+        rx = re.compile(re.escape(args["state_country"]), re.IGNORECASE)
+        q["state_country"] = rx
     if "since_days" in args:
         cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
         q["created_at"] = {"$gte": cutoff.isoformat()}
@@ -426,15 +439,17 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
 
 @register(
     "list_interest_registrations",
-    "List website visitors who registered their interest, newest first. Returns "
-    "a small list with first_name, email, state_country, heard_from, companion_choice, "
-    "status and created_at. Capped at 50 rows. Same filters as count_interest_registrations. "
+    "List website visitors who Registered their Interest (a.k.a. Founding Members), "
+    "newest first. Returns a small list with first_name, email, state_country, heard_from, "
+    "companion_choice, status and created_at. Capped at 50 rows. Same filters as "
+    "count_interest_registrations. Use limit=1 to fetch just the most recent registration. "
     "Test-flagged rows are excluded by default.",
     args={
         "status": {"type": "str", "required": False,
-                   "enum": {"new", "reviewed", "contacted", "archived"}},
+                   "enum": {"registered", "invited", "joined", "opted_out"}},
         "companion_choice": {"type": "str", "required": False,
                              "enum": {"george", "georgia"}},
+        "state_country": {"type": "str", "required": False},
         "since_days": {"type": "int", "required": False},
         "limit": {"type": "int", "required": False},
         "include_test_data": {"type": "bool", "required": False},
@@ -443,9 +458,19 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
 async def _list_interest_registrations(db: Any, args: dict) -> list:
     q: dict = {}
     if "status" in args:
-        q["status"] = args["status"]
+        if args["status"] == "registered":
+            q["$or"] = [
+                {"status": {"$exists": False}},
+                {"status": None},
+                {"status": {"$in": ["registered", "new"]}},
+            ]
+        else:
+            q["status"] = args["status"]
     if "companion_choice" in args:
         q["companion_choice"] = args["companion_choice"]
+    if "state_country" in args:
+        rx = re.compile(re.escape(args["state_country"]), re.IGNORECASE)
+        q["state_country"] = rx
     if "since_days" in args:
         cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
         q["created_at"] = {"$gte": cutoff.isoformat()}
@@ -459,7 +484,55 @@ async def _list_interest_registrations(db: Any, args: dict) -> list:
         "state_country": 1, "heard_from": 1,
         "companion_choice": 1, "status": 1, "created_at": 1,
     }
-    return await db.interest_registrations.find(q, projection).sort("created_at", -1).to_list(limit)
+    rows = await db.interest_registrations.find(q, projection).sort("created_at", -1).to_list(limit)
+    # Normalise legacy "new" status for clarity in George's answers.
+    for r in rows:
+        if r.get("status") in (None, "", "new"):
+            r["status"] = "registered"
+    return rows
+
+
+@register(
+    "founding_members_summary",
+    "One-shot dashboard summary of the Founding Members CRM: total registered, new today, "
+    "awaiting contact, invited, joined, opted out, plus the most-recent registration. "
+    "Use this when the admin asks for a general overview (e.g. 'how are Founding Members "
+    "doing?') rather than a specific slice. Test-flagged rows are excluded.",
+    args={},
+)
+async def _founding_members_summary(db: Any, args: dict) -> dict:
+    base = {"is_test": {"$ne": True}}
+    total = await db.interest_registrations.count_documents(base)
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    new_today = await db.interest_registrations.count_documents({
+        **base, "created_at": {"$gte": today_start.isoformat()},
+    })
+    awaiting = await db.interest_registrations.count_documents({
+        **base,
+        "$or": [
+            {"status": {"$exists": False}},
+            {"status": None},
+            {"status": {"$in": ["registered", "new"]}},
+        ],
+    })
+    invited = await db.interest_registrations.count_documents({**base, "status": "invited"})
+    joined  = await db.interest_registrations.count_documents({**base, "status": "joined"})
+    opted   = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
+    latest = await db.interest_registrations.find_one(
+        base,
+        {"_id": 0, "first_name": 1, "email": 1, "state_country": 1, "created_at": 1},
+        sort=[("created_at", -1)],
+    )
+    return {
+        "total":            total,
+        "new_today":        new_today,
+        "awaiting_contact": awaiting,
+        "invited":          invited,
+        "joined":           joined,
+        "opted_out":        opted,
+        "latest":           latest,
+    }
+
 
 
 

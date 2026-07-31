@@ -196,7 +196,9 @@ _STATE_QUESTION_RE = re.compile(
     r"any change|still|recount|recheck|refresh|update(?:d)?|again please|"
     r"any left|still open|still active|open right now|any resolved|"
     r"what about now|any new|any updates|check again|check.*now|"
-    r"any (tickets|signals|cases|events|reports|submissions)"
+    r"who (?:is|was) the (?:latest|last|most recent|newest)|"
+    r"show me (?:everyone|all|the)|awaiting contact|from (?:sydney|melbourne|brisbane|perth|adelaide|hobart|canberra|darwin)|"
+    r"any (tickets|signals|cases|events|reports|submissions|registrations|founding members)"
     r")\b",
     re.IGNORECASE,
 )
@@ -215,6 +217,17 @@ _TOPIC_TO_TOOL = [
     ("member",       {"name": "count_members",         "args": {}}),
     ("organisation", {"name": "count_organisations",   "args": {}}),
     ("org",          {"name": "count_organisations",   "args": {}}),
+    # Founding Members CRM — Phase 1
+    ("founding member",  {"name": "founding_members_summary", "args": {}}),
+    ("founding members", {"name": "founding_members_summary", "args": {}}),
+    ("register interest",   {"name": "count_interest_registrations", "args": {}}),
+    ("registered interest", {"name": "count_interest_registrations", "args": {}}),
+    ("registration",  {"name": "count_interest_registrations", "args": {}}),
+    ("registrations", {"name": "count_interest_registrations", "args": {}}),
+    ("awaiting contact", {"name": "count_interest_registrations", "args": {"status": "registered"}}),
+    ("who is the latest", {"name": "list_interest_registrations", "args": {"limit": 1}}),
+    ("latest registration", {"name": "list_interest_registrations", "args": {"limit": 1}}),
+    ("latest founder",      {"name": "list_interest_registrations", "args": {"limit": 1}}),
 ]
 
 

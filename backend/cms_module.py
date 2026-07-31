@@ -780,6 +780,160 @@ def build_router(db) -> APIRouter:
     # variant is needed because iframes and plain link clicks can't
     # attach headers. Same-origin admins are still guarded.
 
+    # ============================================================
+    # FOUNDING MEMBERS CRM  (Phase 1 — the DB is the source of truth)
+    # ============================================================
+    # Every Register Interest submission (interest_registrations) is a
+    # Founding Member. This surface lets admins manage each record
+    # through the status ladder Registered → Invited → Joined → Opted
+    # out and record admin_notes + tags. The public website form label
+    # stays "Register Interest" — this is admin-side terminology only.
+    #
+    # Locked with Garry (1 Aug 2026): "the database must be the source
+    # of truth" and "email notifications are useful, but the database
+    # must be the source of truth". Phase 2 (bulk campaigns) will
+    # build on top of this — but only after Phase 1 is validated.
+
+    _FM_STATUSES = {"registered", "invited", "joined", "opted_out"}
+    # Legacy "new" status (from the original RYI form) is treated as
+    # equivalent to "registered" in the CRM — both mean "awaiting contact".
+    _AWAITING_STATUSES = ["registered", "new"]
+
+    def _normalise_fm_row(r: Dict[str, Any]) -> Dict[str, Any]:
+        """Backfill CRM defaults + map legacy 'new' status to 'registered'."""
+        s = r.get("status")
+        if s in (None, "", "new"):
+            r["status"] = "registered"
+        r.setdefault("admin_notes", "")
+        r.setdefault("tags", [])
+        return r
+
+    @router.get("/crm/founding-members")
+    async def crm_founding_members_list(
+        status: Optional[str] = None,
+        q: Optional[str] = None,
+        limit: int = 500,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """List Founding Members with optional status filter + free-text search."""
+        lim = max(1, min(int(limit or 500), 1000))
+        query: Dict[str, Any] = {"is_test": {"$ne": True}}
+        if status and status in _FM_STATUSES:
+            if status == "registered":
+                # Include legacy "new" and missing-status rows too.
+                query["$or"] = [
+                    {"status": {"$exists": False}},
+                    {"status": None},
+                    {"status": {"$in": _AWAITING_STATUSES}},
+                ]
+            else:
+                query["status"] = status
+        if q:
+            import re as _re
+            rx = _re.compile(_re.escape(q), _re.IGNORECASE)
+            search_or = [
+                {"first_name": rx}, {"last_name": rx}, {"email": rx},
+                {"state_country": rx}, {"suburb": rx}, {"state": rx},
+                {"admin_notes": rx}, {"heard_from": rx},
+                {"tags": rx},
+            ]
+            if "$or" in query:
+                # Combine the two $or clauses via $and
+                existing_or = query.pop("$or")
+                query["$and"] = [{"$or": existing_or}, {"$or": search_or}]
+            else:
+                query["$or"] = search_or
+        rows = await db.interest_registrations.find(query, {"_id": 0}).sort("created_at", -1).to_list(lim)
+        rows = [_normalise_fm_row(r) for r in rows]
+        return {"count": len(rows), "rows": rows}
+
+    @router.get("/crm/founding-members/stats")
+    async def crm_founding_members_stats(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Aggregate counts for the Bridge dashboard card + CRM header."""
+        from datetime import datetime, timezone
+        base = {"is_test": {"$ne": True}}
+        total = await db.interest_registrations.count_documents(base)
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        new_today = await db.interest_registrations.count_documents({
+            **base, "created_at": {"$gte": today_start.isoformat()},
+        })
+        awaiting = await db.interest_registrations.count_documents({
+            **base,
+            "$or": [
+                {"status": {"$exists": False}},
+                {"status": None},
+                {"status": {"$in": _AWAITING_STATUSES}},
+            ],
+        })
+        invited = await db.interest_registrations.count_documents({**base, "status": "invited"})
+        joined  = await db.interest_registrations.count_documents({**base, "status": "joined"})
+        opted   = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
+        latest = await db.interest_registrations.find_one(
+            base, {"_id": 0}, sort=[("created_at", -1)],
+        )
+        latest_summary = None
+        if latest:
+            latest_summary = {
+                "name":          (latest.get("first_name") or latest.get("name")),
+                "email":         latest.get("email"),
+                "state_country": latest.get("state_country"),
+                "created_at":    latest.get("created_at"),
+                "id":            latest.get("id"),
+            }
+        return {
+            "total":            total,
+            "new_today":        new_today,
+            "awaiting_contact": awaiting,
+            "invited":          invited,
+            "joined":           joined,
+            "opted_out":        opted,
+            "latest":           latest_summary,
+        }
+
+    @router.patch("/crm/founding-members/{member_id}")
+    async def crm_founding_members_update(
+        member_id: str,
+        payload: Dict[str, Any],
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Update a Founding Member's status, notes, or tags. All fields
+        optional — only supplied ones are set. Every change is appended
+        to `history[]` so we have a full audit trail."""
+        from datetime import datetime, timezone
+        updates: Dict[str, Any] = {}
+        history_entry: Dict[str, Any] = {
+            "at":       datetime.now(timezone.utc).isoformat(),
+            "admin_id": admin.get("id"),
+        }
+        if "status" in payload:
+            s = str(payload["status"]).lower()
+            if s not in _FM_STATUSES:
+                raise HTTPException(400, f"status must be one of: {sorted(_FM_STATUSES)}")
+            updates["status"] = s
+            history_entry["status"] = s
+        if "admin_notes" in payload:
+            updates["admin_notes"] = str(payload["admin_notes"])[:5000]
+            history_entry["notes_updated"] = True
+        if "tags" in payload:
+            tags_in = payload["tags"] or []
+            if not isinstance(tags_in, list):
+                raise HTTPException(400, "tags must be a list of strings")
+            updates["tags"] = [str(t)[:40] for t in tags_in][:20]
+            history_entry["tags"] = updates["tags"]
+        if not updates:
+            raise HTTPException(400, "Nothing to update — provide status, admin_notes, or tags")
+        updates["updated_at"] = history_entry["at"]
+        res = await db.interest_registrations.update_one(
+            {"id": member_id},
+            {"$set": updates, "$push": {"history": history_entry}},
+        )
+        if res.matched_count == 0:
+            raise HTTPException(404, "Founding member not found")
+        row = await db.interest_registrations.find_one({"id": member_id}, {"_id": 0})
+        return _normalise_fm_row(row) if row else row
+
+
+
     from fastapi.responses import HTMLResponse as _HTMLResponse  # noqa: WPS433
 
     _EMAIL_PREVIEW_TEMPLATES = [
@@ -927,9 +1081,15 @@ def build_router(db) -> APIRouter:
         request: Request,
         token: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Same guarantees as `current_cms_admin`, but also accepts the
-        JWT via `?token=<jwt>` so an admin can paste a link into a new
-        browser tab (or embed an iframe) and view the rendered HTML."""
+        """Same guarantees as `current_cms_admin`, but also accepts either
+        a JWT or a short-lived *preview token* (issued by
+        `/email-previews/preview-token`) via `?token=<value>` — so an
+        admin can iframe the rendered HTML without leaking their long-
+        lived JWT into query strings / browser history / referer headers.
+
+        Preview tokens are opaque random strings, single-purpose (preview
+        rendering only), scoped to one admin, and expire after 10 minutes.
+        """
         tok = token or ""
         if not tok:
             auth = request.headers.get("authorization", "")
@@ -937,6 +1097,30 @@ def build_router(db) -> APIRouter:
                 tok = auth.split(" ", 1)[1].strip()
         if not tok:
             raise HTTPException(401, "Not authenticated")
+
+        # First, try the preview-token path — cheaper, and the common
+        # case for iframe hits from the Emails Studio.
+        if len(tok) == 64 and all(c in "0123456789abcdef" for c in tok):
+            from datetime import datetime, timezone
+            row = await db.cms_preview_tokens.find_one({"token": tok}, {"_id": 0})
+            if row:
+                exp = row.get("expires_at") or ""
+                try:
+                    expired = datetime.fromisoformat(exp) < datetime.now(timezone.utc)
+                except Exception:
+                    expired = True
+                if expired:
+                    raise HTTPException(401, "Preview token expired — please refresh the page")
+                admin = await db.cms_admins.find_one(
+                    {"id": row["admin_id"]}, {"_id": 0, "password_hash": 0}
+                )
+                if not admin:
+                    raise HTTPException(401, "Admin no longer exists")
+                return admin
+            # Fall through — the token might still be a legacy short JWT.
+
+        # Fallback: treat as a JWT (kept for backwards compatibility with
+        # any deep-links that already used the old scheme).
         payload = _decode(tok, "cms_admin")
         admin = await db.cms_admins.find_one(
             {"id": payload["sub"]}, {"_id": 0, "password_hash": 0}
@@ -944,6 +1128,44 @@ def build_router(db) -> APIRouter:
         if not admin:
             raise HTTPException(401, "Admin no longer exists")
         return admin
+
+    @router.post("/email-previews/preview-token")
+    async def email_preview_token(admin: dict = Depends(current_cms_admin)):
+        """Mint a short-lived opaque token for the Emails Studio iframe.
+
+        The Studio calls this once per session (or when the previous
+        token nears expiry), then uses the returned token in the iframe
+        `?token=…` query. This keeps the admin's long-lived JWT out of
+        browser history, referrer headers, and any accidental screenshots
+        of the URL bar.
+
+        Tokens auto-expire after 10 minutes and are single-purpose —
+        they only grant read of the email preview endpoints.
+        """
+        import secrets
+        from datetime import datetime, timezone, timedelta
+        token = secrets.token_hex(32)  # 64 hex chars
+        now = datetime.now(timezone.utc)
+        expires = now + timedelta(minutes=10)
+        await db.cms_preview_tokens.insert_one({
+            "token":      token,
+            "admin_id":   admin["id"],
+            "created_at": now.isoformat(),
+            "expires_at": expires.isoformat(),
+            "purpose":    "email_preview",
+        })
+        # Opportunistic sweep of stale tokens — keeps the collection tiny.
+        try:
+            await db.cms_preview_tokens.delete_many(
+                {"expires_at": {"$lt": now.isoformat()}}
+            )
+        except Exception:
+            pass
+        return {
+            "token":      token,
+            "expires_at": expires.isoformat(),
+            "ttl_seconds": 600,
+        }
 
     @router.get("/email-previews")
     async def list_email_previews(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001

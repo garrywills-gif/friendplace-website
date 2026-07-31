@@ -29,7 +29,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
-import { getToken } from '@/lib/cms-auth';
 import { API_BASE } from '@/lib/api-base';
 import {
   emailPreviewsApi,
@@ -85,6 +84,31 @@ function EmailsPanel() {
         subject?: string;
       }
   >({ kind: 'idle' });
+
+  // ── Preview token — short-lived opaque token for the iframe ──
+  // We never put the admin JWT in the query string (it would leak into
+  // browser history / referer). Instead we mint a 10-minute preview
+  // token on mount and refresh it every 8 minutes.
+  const [previewToken, setPreviewToken] = useState<string>('');
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const mint = async () => {
+      try {
+        const r = await emailPreviewsApi.previewToken();
+        if (!cancelled) setPreviewToken(r.token || '');
+      } catch {
+        // Non-fatal — if minting fails the iframe just won't render.
+        // getToken() fallback stays out of the URL by design.
+      }
+    };
+    void mint();
+    timer = setInterval(mint, 8 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, []);
 
   // Sending health — polled once on mount + refreshed after every send
   const [health, setHealth] = useState<EmailSendingHealth | null>(null);
@@ -298,18 +322,21 @@ function EmailsPanel() {
     }
   }, [selected, subject, preheader, companion, validation.hasError]);
 
-  // ── Iframe URL — server-rendered HTML, gated by JWT via query ──
+  // ── Iframe URL — server-rendered HTML, gated by a short-lived
+  // preview token (NOT the admin JWT — that would leak into browser
+  // history + referrer headers). Token is refreshed every 8 minutes
+  // by the effect above.
   const iframeSrc = useMemo(() => {
     if (!selected) return '';
-    const token = getToken() || '';
+    if (!previewToken) return '';   // wait until the token has been minted
     const qs = new URLSearchParams({
-      token,
+      token: previewToken,
       subject,
       preheader,
     });
     if (selected.category === 'personal') qs.set('companion', companion);
     return `${API_BASE}/api/cms/email-previews/${selected.name}.html?${qs.toString()}`;
-  }, [selected, subject, preheader, companion]);
+  }, [selected, subject, preheader, companion, previewToken]);
 
   // ── Renders ─────────────────────────────────────────────────────
   if (loadError) {

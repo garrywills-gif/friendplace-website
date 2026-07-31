@@ -696,6 +696,60 @@ export type Enquiry = {
   meta?: Record<string, any>;
 };
 
+// ─── Founding Members CRM (Phase 1) ─────────────────────────────
+export type CRMFoundingMemberStatus = 'registered' | 'invited' | 'joined' | 'opted_out';
+
+export type CRMFoundingMember = {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  state_country?: string;
+  suburb?: string;
+  state?: string;
+  heard_from?: string;
+  companion_choice?: 'george' | 'georgia' | null;
+  status: CRMFoundingMemberStatus;
+  admin_notes?: string;
+  tags?: string[];
+  source?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CRMFoundingMembersStats = {
+  total: number;
+  new_today: number;
+  awaiting_contact: number;
+  invited: number;
+  joined: number;
+  opted_out: number;
+  latest: {
+    id?: string;
+    name?: string;
+    email?: string;
+    state_country?: string;
+    created_at?: string;
+  } | null;
+};
+
+export const foundingMembersCrmApi = {
+  list: (opts: { status?: string; q?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.status) p.set('status', opts.status);
+    if (opts.q) p.set('q', opts.q);
+    p.set('limit', String(opts.limit || 500));
+    return req<{ count: number; rows: CRMFoundingMember[] }>(
+      'GET', `/cms/crm/founding-members?${p.toString()}`,
+    );
+  },
+  stats: () => req<CRMFoundingMembersStats>('GET', '/cms/crm/founding-members/stats'),
+  update: (
+    id: string,
+    patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
+  ) => req<CRMFoundingMember>('PATCH', `/cms/crm/founding-members/${id}`, patch),
+};
+
 export const enquiriesApi = {
   list: (kind?: string, limit = 200) => {
     const params = new URLSearchParams();
@@ -727,6 +781,10 @@ export type EmailSendingHealth = {
 
 export const emailPreviewsApi = {
   list: () => req<EmailPreviewList>('GET', '/cms/email-previews'),
+  previewToken: () =>
+    req<{ token: string; expires_at: string; ttl_seconds: number }>(
+      'POST', '/cms/email-previews/preview-token',
+    ),
   render: (name: string, body: EmailRenderRequest) =>
     req<EmailRenderResponse>('POST', `/cms/email-previews/${name}/render`, body),
   send: (name: string, body: EmailRenderRequest) =>
