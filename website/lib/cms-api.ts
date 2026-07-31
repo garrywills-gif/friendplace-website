@@ -649,9 +649,14 @@ export type EmailRenderResponse = {
 export type EmailSendResponse = {
   ok: boolean;
   sent: boolean;
-  reason?: string;
+  reason?: string | null;
   recipient: string;
   subject: string;
+  sender?: string;
+  message_id?: string | null;
+  http_status?: number | null;
+  error_code?: string | null;
+  delivery_note?: string | null;
 };
 
 export const emailPreviewsApi = {

@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from dataclasses import dataclass, asdict
 from typing import Optional
 
 try:
@@ -36,6 +37,45 @@ except ImportError:  # pragma: no cover — resend is in requirements.txt
     resend = None  # type: ignore[assignment]
 
 logger = logging.getLogger("friendplace.email")
+
+
+@dataclass
+class SendResult:
+    """Rich outcome of a single Resend send attempt.
+
+    The old boolean return type answered "did we not crash?" — which
+    is *not* the same as "Resend actually accepted the message." This
+    result distinguishes:
+
+      • `ok`           — Resend accepted the payload AND returned a
+                         message ID. Anything else is a fail.
+      • `message_id`   — Resend's UUID for the accepted message. This
+                         is what an operator quotes when checking the
+                         Resend dashboard for delivery status.
+      • `http_status`  — HTTP status Resend returned. `None` when the
+                         SDK swallowed it; we infer it from
+                         `ResendError.code` where possible.
+      • `error`        — Human-readable error text on failure.
+      • `error_code`   — Machine-readable code from Resend (e.g.
+                         `validation_error`, `invalid_api_key`).
+      • `provider`     — Always `resend` for now.
+
+    Note on delivery semantics: even a successful send only means
+    Resend *accepted* the message. Delivery status (Sent → Queued →
+    Delivered → Bounced → Rejected) lives in the Resend dashboard.
+    Our current backend API key is send-only so we cannot poll
+    delivery events. Operators should quote `message_id` in the
+    Resend dashboard to confirm final state.
+    """
+    ok: bool
+    message_id: Optional[str] = None
+    http_status: Optional[int] = None
+    error: Optional[str] = None
+    error_code: Optional[str] = None
+    provider: str = "resend"
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 def _config() -> tuple[Optional[str], str, str, Optional[str]]:
@@ -57,7 +97,7 @@ def is_configured() -> bool:
     return bool(api_key) and resend is not None
 
 
-async def send_email(
+async def send_email_detailed(
     *,
     to: str,
     subject: str,
@@ -65,34 +105,37 @@ async def send_email(
     text: Optional[str] = None,
     reply_to: Optional[str] = None,
     attachments: Optional[list] = None,
-) -> bool:
-    """Send a transactional email via Resend.
+) -> SendResult:
+    """Send a transactional email via Resend and return a rich result.
 
-    Returns:
-        True   — Resend accepted the message (HTTP 200).
-        False  — Not configured, resend SDK missing, or the API rejected
-                 the request. Always logs the cause; never raises.
+    Returns a `SendResult` describing exactly what happened:
+      • On success  → ok=True, message_id set, http_status=200.
+      • On rejection or SDK failure → ok=False, error + error_code set,
+        http_status inferred where possible.
 
-    Notes:
-        - `to` is a single recipient. If you need bulk-send, extend to
-          accept a list.
-        - `html` is the primary body. `text` is optional; Resend will
-          auto-generate a plaintext version if omitted.
-        - `attachments` accepts Resend's shape: a list of dicts with
-          `filename` + either `content` (base64 str) or `path` (URL).
-          Used e.g. for ICS calendar attachments on event RSVPs.
+    This is the primary implementation. `send_email()` remains for
+    callers that only want a boolean.
     """
     api_key, from_email, from_name, env_reply_to = _config()
-    if not api_key or resend is None:
+
+    if resend is None:
+        return SendResult(
+            ok=False,
+            error="Resend SDK not installed on backend",
+            error_code="sdk_missing",
+        )
+    if not api_key:
         logger.warning(
             "email.send skipped: RESEND_API_KEY not set (to=%s subject=%r)",
             _redact_email(to), subject,
         )
-        return False
+        return SendResult(
+            ok=False,
+            error="RESEND_API_KEY not configured on backend",
+            error_code="api_key_missing",
+        )
 
     from_field = f"{from_name} <{from_email}>" if from_name else from_email
-    # Per-call `reply_to` wins over the env default so specific flows
-    # (e.g. a support ticket reply) can still override for that message.
     effective_reply_to = reply_to or env_reply_to
 
     def _send_sync() -> dict:
@@ -114,23 +157,95 @@ async def send_email(
         return resend.Emails.send(params)  # type: ignore[no-any-return]
 
     try:
-        result = await asyncio.to_thread(_send_sync)
-        msg_id = (result or {}).get("id") if isinstance(result, dict) else None
-        logger.info(
-            "email.send ok: to=%s subject=%r id=%s",
-            _redact_email(to), subject, msg_id,
-        )
-        return True
+        raw = await asyncio.to_thread(_send_sync)
     except Exception as e:
-        # Resend raises `resend.exceptions.ResendError` (a subclass of
-        # `Exception`) for API-side failures — invalid key, unverified
-        # sender, rate limit, etc. Log the specific message so operators
-        # can act on it, but never leak the error text to the caller.
+        # Resend SDK raises `resend.exceptions.ResendError` subclasses
+        # for API-side failures (invalid key, unverified sender,
+        # validation, rate limit). They expose `.code` (HTTP status)
+        # and `.message` (human-readable text). We surface both so
+        # the CMS panel can show the operator the real reason.
+        code = getattr(e, "code", None)
+        message = getattr(e, "message", None) or str(e)
+        error_code = getattr(e, "error_type", None) or e.__class__.__name__
+        try:
+            http_status = int(code) if code is not None else None
+        except (TypeError, ValueError):
+            http_status = None
         logger.warning(
-            "email.send failed: to=%s subject=%r err=%s",
-            _redact_email(to), subject, e,
+            "email.send failed: to=%s subject=%r err=%s http=%s code=%s",
+            _redact_email(to), subject, message, http_status, error_code,
         )
-        return False
+        return SendResult(
+            ok=False,
+            error=message,
+            error_code=error_code,
+            http_status=http_status,
+        )
+
+    # Resend returns a dict-like `SendResponse` with an `id` field on
+    # success. Anything without an id is a fail even if the SDK
+    # didn't raise (defensive — has happened historically when the
+    # SDK swallowed error payloads).
+    message_id = None
+    if isinstance(raw, dict):
+        message_id = raw.get("id")
+    else:
+        # SendResponse behaves like a dict but isn't one
+        try:
+            message_id = raw["id"]  # type: ignore[index]
+        except Exception:
+            try:
+                message_id = getattr(raw, "id", None)
+            except Exception:
+                message_id = None
+
+    if not message_id:
+        logger.warning(
+            "email.send returned no message id: to=%s subject=%r raw=%r",
+            _redact_email(to), subject, raw,
+        )
+        return SendResult(
+            ok=False,
+            error="Resend accepted the request but returned no message id",
+            error_code="no_message_id",
+            http_status=None,
+        )
+
+    logger.info(
+        "email.send ok: to=%s subject=%r id=%s",
+        _redact_email(to), subject, message_id,
+    )
+    return SendResult(
+        ok=True,
+        message_id=message_id,
+        http_status=200,
+    )
+
+
+async def send_email(
+    *,
+    to: str,
+    subject: str,
+    html: str,
+    text: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    attachments: Optional[list] = None,
+) -> bool:
+    """Thin bool wrapper around `send_email_detailed` for legacy callers.
+
+    Returns True iff Resend accepted the message AND returned a
+    message ID. Prefer `send_email_detailed` when you need to
+    surface the message ID or error to a UI (e.g. the CMS panel).
+    """
+    result = await send_email_detailed(
+        to=to,
+        subject=subject,
+        html=html,
+        text=text,
+        reply_to=reply_to,
+        attachments=attachments,
+    )
+    return result.ok
 
 
 def _redact_email(addr: str) -> str:

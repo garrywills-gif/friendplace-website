@@ -62,8 +62,23 @@ function EmailsPanel() {
   const [sending, setSending] = useState(false);
   const [sendStatus, setSendStatus] = useState<
     | { kind: 'idle' }
-    | { kind: 'success'; recipient: string; subject: string }
-    | { kind: 'error'; message: string }
+    | {
+        kind: 'success';
+        recipient: string;
+        subject: string;
+        sender?: string;
+        messageId?: string | null;
+        httpStatus?: number | null;
+        deliveryNote?: string | null;
+      }
+    | {
+        kind: 'error';
+        message: string;
+        httpStatus?: number | null;
+        errorCode?: string | null;
+        recipient?: string;
+        subject?: string;
+      }
   >({ kind: 'idle' });
 
   // ── Initial load ───────────────────────────────────────────────
@@ -172,10 +187,30 @@ function EmailsPanel() {
         subject,
         preheader,
       });
-      if (r.ok) {
-        setSendStatus({ kind: 'success', recipient: r.recipient, subject: r.subject });
+      // Honest success guard: only report "Sent" when the backend
+      // both flagged ok=true AND Resend returned a message ID. A
+      // missing message ID means the API refused the request
+      // (network hiccup, sender validation, etc.) — never claim
+      // success in that case.
+      if (r.ok && r.message_id) {
+        setSendStatus({
+          kind: 'success',
+          recipient: r.recipient,
+          subject: r.subject,
+          sender: r.sender,
+          messageId: r.message_id,
+          httpStatus: r.http_status ?? null,
+          deliveryNote: r.delivery_note ?? null,
+        });
       } else {
-        setSendStatus({ kind: 'error', message: r.reason || 'Send failed.' });
+        setSendStatus({
+          kind: 'error',
+          message: r.reason || 'Resend did not return a message ID.',
+          httpStatus: r.http_status ?? null,
+          errorCode: r.error_code ?? null,
+          recipient: r.recipient,
+          subject: r.subject,
+        });
       }
     } catch (e: any) {
       setSendStatus({ kind: 'error', message: e?.message || 'Send failed.' });
@@ -403,16 +438,70 @@ function EmailsPanel() {
 
           {sendStatus.kind === 'success' && (
             <div style={{ ...card, background: '#F0FDFA', borderColor: '#99F6E4' }}>
-              <p style={{ margin: 0, color: '#0F766E', fontWeight: 700 }}>Sent ✓</p>
-              <p style={{ margin: '4px 0 0 0', color: '#0F766E', fontSize: 13 }}>
-                <code style={inlineCode}>{sendStatus.subject}</code> delivered to <strong>{sendStatus.recipient}</strong>.
+              <p style={{ margin: 0, color: '#0F766E', fontWeight: 800, fontSize: 15 }}>
+                Resend accepted the message ✓
               </p>
+              <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '140px 1fr', gap: '6px 14px', fontSize: 13, color: '#0F766E' }}>
+                <div style={{ fontWeight: 700 }}>Subject</div>
+                <div><code style={inlineCode}>{sendStatus.subject}</code></div>
+                <div style={{ fontWeight: 700 }}>To</div>
+                <div><strong>{sendStatus.recipient}</strong></div>
+                {sendStatus.sender && <>
+                  <div style={{ fontWeight: 700 }}>From</div>
+                  <div>{sendStatus.sender}</div>
+                </>}
+                <div style={{ fontWeight: 700 }}>HTTP status</div>
+                <div>{sendStatus.httpStatus ?? '—'}</div>
+                <div style={{ fontWeight: 700 }}>Message ID</div>
+                <div><code style={{ ...inlineCode, fontSize: 11 }}>{sendStatus.messageId}</code></div>
+              </div>
+              {sendStatus.deliveryNote && (
+                <p style={{
+                  margin: '14px 0 0 0',
+                  padding: '10px 12px',
+                  background: '#FEFCE8',
+                  border: '1px solid #FDE68A',
+                  borderRadius: 8,
+                  color: '#78350F',
+                  fontSize: 12,
+                  lineHeight: 1.55,
+                }}>
+                  <strong>Note:</strong> {sendStatus.deliveryNote} If the
+                  email does not appear in the inbox, check the Resend
+                  dashboard for <code style={{ ...inlineCode, fontSize: 11 }}>{sendStatus.messageId}</code> — status will be
+                  one of <em>Sent · Queued · Delivered · Bounced · Rejected</em>.
+                  Common causes of a Sent-but-not-received: spam/junk
+                  folder, DMARC/SPF misalignment, or the mailbox filtering
+                  same-domain sends.
+                </p>
+              )}
             </div>
           )}
           {sendStatus.kind === 'error' && (
             <div style={{ ...card, background: '#FEF2F2', borderColor: '#FCA5A5' }}>
-              <p style={{ margin: 0, color: '#991B1B', fontWeight: 700 }}>Couldn&rsquo;t send</p>
-              <p style={{ margin: '4px 0 0 0', color: '#7F1D1D', fontSize: 13 }}>{sendStatus.message}</p>
+              <p style={{ margin: 0, color: '#991B1B', fontWeight: 800, fontSize: 15 }}>
+                Send failed
+              </p>
+              <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '140px 1fr', gap: '6px 14px', fontSize: 13, color: '#7F1D1D' }}>
+                <div style={{ fontWeight: 700 }}>Error</div>
+                <div>{sendStatus.message}</div>
+                {sendStatus.errorCode && <>
+                  <div style={{ fontWeight: 700 }}>Error code</div>
+                  <div><code style={inlineCode}>{sendStatus.errorCode}</code></div>
+                </>}
+                {typeof sendStatus.httpStatus === 'number' && <>
+                  <div style={{ fontWeight: 700 }}>HTTP status</div>
+                  <div>{sendStatus.httpStatus}</div>
+                </>}
+                {sendStatus.recipient && <>
+                  <div style={{ fontWeight: 700 }}>Attempted to</div>
+                  <div>{sendStatus.recipient}</div>
+                </>}
+                {sendStatus.subject && <>
+                  <div style={{ fontWeight: 700 }}>Subject</div>
+                  <div><code style={inlineCode}>{sendStatus.subject}</code></div>
+                </>}
+              </div>
             </div>
           )}
         </div>

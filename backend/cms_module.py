@@ -925,13 +925,16 @@ def build_router(db) -> APIRouter:
         message is prefixed with `[TEST]` in the subject so nobody
         confuses it with the real thing landing in the same inbox.
 
-        Response is diagnostic — never raises. If Resend isn't
-        configured we return {ok:false, reason:"..."} so the CMS
-        panel can surface a helpful message instead of a stack trace.
+        The response includes the Resend message ID on success and
+        the actual error text on failure — that way the CMS panel
+        can display honest status (never "Sent" when the API refused
+        the request) and operators have an ID to trace in the Resend
+        dashboard for delivery status.
         """
         from email_service import (  # noqa: WPS433
             is_configured as _resend_ready,
-            send_email,
+            send_email_detailed,
+            _config as _email_config,
         )
         p = payload or {}
         companion = str(p.get("companion") or "george")
@@ -944,25 +947,47 @@ def build_router(db) -> APIRouter:
             preheader_override=(preheader_override.strip() if isinstance(preheader_override, str) and preheader_override.strip() else None),
         )
         to_addr = _preview_recipient()
+        final_subject = f"[TEST] {subject}"
+        _api_key, from_email, from_name, _reply_to = _email_config()
+        from_field = f"{from_name} <{from_email}>" if from_name else from_email
+
         if not _resend_ready():
             return {
-                "ok":         False,
-                "sent":       False,
-                "reason":     "RESEND_API_KEY not configured on backend",
-                "recipient":  to_addr,
-                "subject":    f"[TEST] {subject}",
+                "ok":            False,
+                "sent":          False,
+                "reason":        "RESEND_API_KEY not configured on backend",
+                "error_code":    "api_key_missing",
+                "recipient":     to_addr,
+                "subject":       final_subject,
+                "sender":        from_field,
             }
-        ok = await send_email(
+
+        result = await send_email_detailed(
             to=to_addr,
-            subject=f"[TEST] {subject}",
+            subject=final_subject,
             html=html,
             text=text,
         )
         return {
-            "ok":         ok,
-            "sent":       ok,
-            "recipient":  to_addr,
-            "subject":    f"[TEST] {subject}",
+            "ok":            result.ok,
+            "sent":          result.ok,
+            "recipient":     to_addr,
+            "subject":       final_subject,
+            "sender":        from_field,
+            "message_id":    result.message_id,
+            "http_status":   result.http_status,
+            "reason":        result.error,
+            "error_code":    result.error_code,
+            # Honest disclosure to the panel: this is delivery *acceptance*
+            # by Resend, not proof of inbox delivery. Operators must
+            # confirm final state (Sent / Queued / Delivered / Bounced
+            # / Rejected) in the Resend dashboard using message_id.
+            "delivery_note": (
+                "Resend accepted the message. Delivery status (Delivered / "
+                "Bounced / Rejected) can be confirmed in the Resend "
+                "dashboard using the message_id above."
+                if result.ok else None
+            ),
         }
 
     @router.post("/email-previews/send-all")
@@ -972,7 +997,7 @@ def build_router(db) -> APIRouter:
         review after a design change."""
         from email_service import (  # noqa: WPS433
             is_configured as _resend_ready,
-            send_email,
+            send_email_detailed,
         )
         to_addr = _preview_recipient()
         if not _resend_ready():
@@ -985,13 +1010,22 @@ def build_router(db) -> APIRouter:
         results: list[dict] = []
         for tpl in _EMAIL_PREVIEW_TEMPLATES:
             subject, html, text = _preview_render(tpl["name"])
-            ok = await send_email(
+            final_subject = f"[TEST] {subject}"
+            r = await send_email_detailed(
                 to=to_addr,
-                subject=f"[TEST] {subject}",
+                subject=final_subject,
                 html=html,
                 text=text,
             )
-            results.append({"name": tpl["name"], "sent": ok, "subject": subject})
+            results.append({
+                "name":        tpl["name"],
+                "sent":        r.ok,
+                "subject":     final_subject,
+                "message_id":  r.message_id,
+                "http_status": r.http_status,
+                "reason":      r.error,
+                "error_code":  r.error_code,
+            })
         return {
             "ok":        all(r["sent"] for r in results),
             "sent":      sum(1 for r in results if r["sent"]),
