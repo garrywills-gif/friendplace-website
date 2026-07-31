@@ -546,19 +546,9 @@ async def grounded_chat_stream(
         if rendered:
             prior_block = "PRIOR TURNS (most recent last):\n" + "\n".join(rendered) + "\n\n"
 
-    # Every factual claim must be grounded in one of two sources:
-    #   1. tool_results (evidence from live queries — members, events, …)
-    #   2. Institutional Knowledge entries (the KB block appended above,
-    #      if any). Those entries are labelled "## Institutional knowledge
-    #      from FriendPlace's own memory" — they ARE the documented
-    #      answers.
-    #
-    # George MUST answer from the KB when a KB entry matches — even if
-    # tool_results is empty. Only when NEITHER source covers the question
-    # is "I don't have enough information to answer that yet" acceptable.
-    # This closes the failure mode where a matching KB entry was
-    # retrieved but George still said "I don't know" because he was
-    # anchored to tool_results alone.
+    # Also update the user block instruction so the LLM doesn't put
+    # inline `[KB-XXX]` tags into user-facing text. The KB block above
+    # explicitly forbids them, but LLMs sometimes drift. Repeat here.
     user_block = (
         f"{prior_block}"
         f"GARRY'S CURRENT MESSAGE:\n"
@@ -568,11 +558,14 @@ async def grounded_chat_stream(
         "  (a) the tool_results above, OR\n"
         "  (b) the Institutional Knowledge entries in your system prompt "
         "(look for the '## Institutional knowledge from FriendPlace's own "
-        "memory' block — those [KB-XXXX] entries ARE the documented "
-        "answers).\n\n"
-        "If a matching KB entry is available, you MUST answer from it and "
-        "cite the [KB-XXXX] id inline. Do NOT say 'I don't know' when a "
-        "KB entry above covers the question.\n\n"
+        "memory' block — those entries ARE the documented answers).\n\n"
+        "If a matching KB entry is available, you MUST answer from it. Do NOT "
+        "say 'I don't know' when a KB entry above covers the question.\n\n"
+        "IMPORTANT: Write your reply as natural, warm English. Do NOT include "
+        "internal citation tags like [KB-XXX] in your reply — those are "
+        "internal identifiers, not something the reader wants to see. The "
+        "system records which entries you used behind the scenes for "
+        "auditing.\n\n"
         "Only if NEITHER tool_results NOR the KB block covers what he "
         "asked, say: 'I don't have enough information to answer that yet.'\n\n"
         "Keep it warm, short, and useful. Do not restate the tool call "
@@ -589,13 +582,27 @@ async def grounded_chat_stream(
     )
 
     reply_parts: list[str] = []
+    # Belt-and-braces: even with the prompt forbidding [KB-XXX] tags,
+    # LLMs occasionally slip one in. We scrub them from user-facing
+    # deltas before yielding. Set env `GEORGE_SHOW_KB_CITATIONS=1` to
+    # keep the tags visible for debugging / development.
+    _show_kb = os.environ.get("GEORGE_SHOW_KB_CITATIONS", "").lower() in {"1", "true", "yes"}
+    import re as _re
+    _KB_TAG_RE = _re.compile(r"\s*\[KB-[A-Z0-9-]+\]\s*")
+    _stream_buf = ""
+    def _scrub_kb(text: str) -> str:
+        if _show_kb or not text:
+            return text
+        # Collapse trailing double-spaces we might have introduced.
+        cleaned = _KB_TAG_RE.sub(" ", text)
+        return _re.sub(r"[ \t]{2,}", " ", cleaned)
     try:
         async for event in chat.stream_message(UserMessage(text=user_block)):
             if isinstance(event, TextDelta):
                 text = event.content or ""
                 if text:
                     reply_parts.append(text)
-                    yield {"kind": "delta", "text": text}
+                    yield {"kind": "delta", "text": _scrub_kb(text)}
             elif isinstance(event, StreamDone):
                 break
     except Exception as exc:
