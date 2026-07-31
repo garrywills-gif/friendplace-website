@@ -296,6 +296,91 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* ---------- 4.5. SHARE A MOMENT ----------
+          Locked with Garry, 31 July 2026. Share a Moment has become
+          the defining feature of FriendPlace — this dedicated section
+          sits immediately after "Three Simple Steps" so prospective
+          members SEE the product, not just read about it. Uses real
+          photographic mock cards over illustrations. The guardrail
+          line is a hard rule from the "No guilt. Ever." principle
+          (`/app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md`).
+          Hero stays untouched — "Find your people." carries that job. */}
+      <section style={{
+        padding: '96px 0',
+        background: 'linear-gradient(180deg, #FEF9E4 0%, #FFFCF2 100%)',
+      }}>
+        <div className="container">
+          <div style={{ textAlign: 'center', marginBottom: 48 }}>
+            <div style={{
+              textTransform: 'uppercase', letterSpacing: '0.15em', fontSize: 12,
+              fontWeight: 800, color: '#B45309', marginBottom: 12,
+            }}>✨ Share a Moment</div>
+            <h2 style={{ margin: '0 auto 16px', maxWidth: 720, color: '#78350F' }}>
+              What&apos;s your moment today?
+            </h2>
+            <p style={{ color: '#7C5300', fontSize: 19, maxWidth: 640, margin: '0 auto', lineHeight: 1.55 }}>
+              FriendPlace is built around the little moments of everyday life. A coffee.
+              A walk. The grandkids visiting. An orchid finally flowering. Share a
+              photo and a warm word — or simply enjoy what your community is sharing.
+            </p>
+          </div>
+
+          {/* Three mock Moment cards — real photos, first-person captions,
+              gentle likes/comments counts. This is deliberately laid out
+              to mirror the actual app so a prospective member sees
+              exactly what Share a Moment looks like on their phone. */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 20,
+            maxWidth: 1080, margin: '0 auto',
+          }}>
+            {MOCK_MOMENTS.map((m, i) => (
+              <div key={i} style={{
+                background: '#FFFFFF',
+                borderRadius: 20,
+                border: '1px solid #FDE68A',
+                boxShadow: '0 8px 24px rgba(180,83,9,0.10)',
+                padding: 18,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <div style={{
+                    fontSize: 28,
+                  }}>{m.avatar}</div>
+                  <div>
+                    <div style={{ color: '#0A2540', fontWeight: 800, fontSize: 15 }}>{m.name}</div>
+                    <div style={{ color: '#64748B', fontSize: 12 }}>{m.when}</div>
+                  </div>
+                </div>
+                <p style={{ color: '#0A2540', fontSize: 15, lineHeight: 1.55, margin: '0 0 12px' }}>
+                  {m.caption}
+                </p>
+                <div style={{
+                  aspectRatio: '4 / 3', borderRadius: 12, overflow: 'hidden',
+                  backgroundImage: `url(${m.photo})`,
+                  backgroundSize: 'cover', backgroundPosition: 'center',
+                  marginBottom: 12,
+                }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, color: '#64748B', fontSize: 13, fontWeight: 700 }}>
+                  <span>❤️ {m.likes}</span>
+                  <span>💬 {m.comments}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Guardrail line — locked wording from Garry, 31 July 2026.
+              The public expression of the "No guilt. Ever." principle. */}
+          <p style={{
+            marginTop: 40, textAlign: 'center',
+            color: '#78350F', fontSize: 16, fontStyle: 'italic',
+            fontWeight: 600,
+          }}>
+            No pressure. No expectations. Just everyday moments worth sharing.
+          </p>
+        </div>
+      </section>
+
       {/* ---------- 5. FEATURES ---------- */}
       <section style={{ padding: '96px 0', background: '#F8FAFC' }}>
         <div className="container">
@@ -325,9 +410,9 @@ export default async function HomePage() {
         <div className="container">
           <div style={{ textAlign: 'center', marginBottom: 48 }}>
             <SectionEyebrow>Life at FriendPlace</SectionEyebrow>
-            <h2 style={{ margin: '0 auto 12px', maxWidth: 640 }}>Little moments, big belonging.</h2>
-            <p style={{ color: '#475569', fontSize: 18, maxWidth: 620, margin: '0 auto' }}>
-              Coffee catch-ups, community walks, backyard BBQs, gardening groups — this is what FriendPlace looks like.
+            <h2 style={{ margin: '0 auto 12px', maxWidth: 640 }}>What&apos;s your moment today?</h2>
+            <p style={{ color: '#475569', fontSize: 18, maxWidth: 640, margin: '0 auto', lineHeight: 1.55 }}>
+              Little moments, big belonging. Coffee catch-ups, community walks, backyard BBQs, gardening groups — this is what FriendPlace looks like.
             </p>
           </div>
           <div style={{
@@ -632,11 +717,47 @@ const LIFE_PHOTOS = [
   { src: 'https://images.unsplash.com/photo-1549057446-9f5c6ac91a04?crop=entropy&cs=srgb&fm=jpg&w=800&q=80', caption: 'Walking groups' },
 ];
 
+// Three real-feeling Share a Moment mock cards for the dedicated
+// section on Home. First-person captions in the voice a member would
+// actually use. Photos reuse the site's warm Life-at-FriendPlace
+// palette so the story reads as one continuous look-and-feel.
+// Locked wording with Garry, 31 July 2026.
+const MOCK_MOMENTS = [
+  {
+    name: 'Margaret',
+    when: '2 hours ago',
+    avatar: '🌺',
+    caption: 'Had a lovely coffee with my neighbour this morning. Turns out we both grew up on the same street in Ballarat.',
+    photo: 'https://images.unsplash.com/photo-1773504356091-222ee58cfd23?crop=entropy&cs=srgb&fm=jpg&w=800&q=80',
+    likes: 12,
+    comments: 4,
+  },
+  {
+    name: 'David',
+    when: 'this morning',
+    avatar: '🐶',
+    caption: "Charlie discovered the beach today. I don't think he'll ever want to leave.",
+    photo: 'https://images.unsplash.com/photo-1689783553640-e8b76148fb22?crop=entropy&cs=srgb&fm=jpg&w=800&q=80',
+    likes: 27,
+    comments: 8,
+  },
+  {
+    name: 'Joyce',
+    when: 'yesterday',
+    avatar: '🌼',
+    caption: 'My orchid has finally flowered. Two years of patience, worth every day.',
+    photo: 'https://images.unsplash.com/photo-1781785273371-a959f34bfab0?crop=entropy&cs=srgb&fm=jpg&w=800&q=80',
+    likes: 41,
+    comments: 11,
+  },
+];
+
 const DEFAULT_FEATURES: { icon: string; title: string; body: string }[] = [
+  { icon: '✨', title: 'Share a Moment', body: "The little moments of your day — a coffee, a walk, the grandkids visiting, an orchid finally flowering. Share a photo and a warm word. Or just enjoy what your community is sharing." },
   { icon: '☕', title: 'FP Café', body: 'Our virtual café — a soft place to drop in, read what others are sharing, or share your own thought. No pressure.' },
   { icon: '🗓️', title: 'Local Events', body: 'Coffee catch-ups, hobby nights and community meets. RSVP with one tap and see who\'s coming.' },
   { icon: '👥', title: 'Find Friends', body: 'Discover people nearby who share your interests. Send a warm hello — never a swipe.' },
-  { icon: '🎯', title: 'Games & Groups', body: 'Solitaire, Word of the Day, book clubs, walking groups. Something for every kind of connection.' },
   { icon: '🦋', title: 'Butterfly Points', body: 'A gentle way to celebrate kindness. Earn points for warm messages, RSVPs, and helping others feel welcome.' },
   { icon: '🔒', title: 'Safe & Verified', body: 'Every member is verified. Report tools, blocking, and a real human moderating team keep it warm.' },
+  { icon: '🎯', title: 'Games & Groups', body: 'Solitaire, Word of the Day, book clubs, walking groups. Something for every kind of connection.' },
 ];

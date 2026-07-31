@@ -68,6 +68,10 @@ const STEPS = [
     body: "Add a photo, a first name, and a few interests. We ask a couple of gentle questions so we can suggest people you'd genuinely enjoy meeting. No personality quizzes, no oversharing.",
   },
   {
+    title: 'Share a moment from your day',
+    body: "Share a Moment is FriendPlace's most-loved feature. Add a photo, a story, or something that made you smile today. Or scroll and enjoy what your community is sharing. No pressure. No expectations. Just everyday moments worth sharing.",
+  },
+  {
     title: 'Discover the FP Café',
     body: "The FP Café is our virtual café — a relaxed place to drop in, read what others are sharing today, or simply enjoy the company. Join a conversation, share a thought, or sit quietly with a coffee. Come and go as you like. There's no pressure to participate.",
   },
