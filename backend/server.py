@@ -9960,25 +9960,71 @@ async def public_register_interest(payload: dict, request: Request):
         logger.exception("failed to persist interest_registration")
         raise HTTPException(500, "We couldn't save your details just now — please try again in a moment.")
 
-    # Fire the confirmation email. Chosen companion signs it. Failures
-    # are logged but never fail the request — the DB record is the
-    # source of truth, and the admin portal can resend if needed.
+    # Fire the confirmation email. Uses the same letter-style
+    # `waitlist_template()` as the Email Studio "Waitlist thanks"
+    # entry — this is the single source of truth for what a new
+    # Founding Member receives. If we ever tweak that template in
+    # `email_service.py`, both the Studio preview AND the live
+    # acknowledgement change together. Failures are logged but
+    # never fail the request — the DB record is the source of
+    # truth, and the admin portal can resend if needed.
     try:
-        from email_service import send_email
+        from email_service import (
+            send_email_detailed,
+            waitlist_template,
+        )
         effective_companion = companion or "george"
         meta = _RYI_COMPANION_META[effective_companion]
-        subject = f"Thank you for finding us, {first_name}"
-        html_body = _render_ryi_confirmation_html(first_name, effective_companion)
-        text_body = _render_ryi_confirmation_text(first_name, effective_companion)
+        subject, html_body, text_body = waitlist_template(
+            first_name=first_name,
+            companion=effective_companion,
+        )
         # Reply-To goes to hello@friendplace.com.au (env default) so
         # replies land in the shared inbox the whole team watches — a
         # visitor writing back to "George" reaches a real human.
-        await send_email(
+        ack_result = await send_email_detailed(
             to=email,
             subject=subject,
             html=html_body,
             text=text_body,
         )
+        # Log every acknowledgement in `email_test_log` so it shows up
+        # on the Sending Health "Most recent send" strip and can be
+        # audited alongside the CRM row. `mode='ack'` distinguishes it
+        # from operator-initiated real/test sends.
+        if ack_result.ok and ack_result.message_id:
+            try:
+                await db.email_test_log.insert_one({
+                    "message_id": ack_result.message_id,
+                    "template":   "waitlist",
+                    "companion":  effective_companion,
+                    "recipient":  email,
+                    "subject":    subject,
+                    "created_at": now_iso(),
+                    "mode":       "ack",           # automatic acknowledgement
+                    "founder_id": doc["id"],
+                })
+            except Exception:
+                logger.exception("email_test_log insert failed (ack)")
+            # Persist the fact that the ack was sent on the founder row
+            # itself, so the CRM can display it and Phase 2 campaigns
+            # can avoid re-sending the same thing.
+            try:
+                await db.interest_registrations.update_one(
+                    {"id": doc["id"]},
+                    {"$set": {
+                        "ack_sent_at":   now_iso(),
+                        "ack_message_id": ack_result.message_id,
+                    }},
+                )
+            except Exception:
+                logger.exception("interest_registrations ack_sent_at update failed")
+        else:
+            logger.warning(
+                "RYI acknowledgement send failed for %s: %s",
+                email, ack_result.error,
+            )
+
         # Also nudge the internal inbox so the team knows a new visitor
         # arrived. Deliberately separate from the confirmation email so
         # neither can leak the other's recipient list.
@@ -9989,6 +10035,7 @@ async def public_register_interest(payload: dict, request: Request):
             f"<p><b>How did they hear about us:</b> {html_module.escape(heard_from or '—')}</p>"
             f"<p><b>Chose to meet:</b> {meta['name']}</p>"
         )
+        from email_service import send_email
         await send_email(
             to="hello@friendplace.com.au",
             subject=f"[FriendPlace RYI] {first_name} ({email})",

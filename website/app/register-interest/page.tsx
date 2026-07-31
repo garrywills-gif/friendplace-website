@@ -108,11 +108,13 @@ export default function RegisterInterestPage() {
               I&rsquo;m really glad you stopped by.
             </p>
             <p style={{ ...leadCopy, marginTop: 12 }}>
-              You&rsquo;re on the list now, and I&rsquo;ll make sure you&rsquo;re
+              You&rsquo;re now one of our{' '}
+              <span style={{ fontWeight: 700, color: '#0F766E' }}>Founding Members</span>
+              &nbsp;&mdash; and I&rsquo;ll make sure you&rsquo;re
               one of the first to hear when FriendPlace is ready.
             </p>
             <p style={{ ...leadCopy, marginTop: 12 }}>
-              Until then, take care.
+              I&rsquo;ve just popped a little note into your inbox to say hello. Until then, take care.
             </p>
             <p style={{ ...leadCopy, marginTop: 24, fontStyle: 'italic', color: '#0F766E' }}>
               <span aria-hidden style={{ fontSize: 22, verticalAlign: '-3px', marginRight: 6 }}>&#129419;</span>
@@ -144,6 +146,22 @@ export default function RegisterInterestPage() {
               Garry (Dec 2026): "This should be the natural conclusion
               after they've explored the story." */}
           <h1 style={openingLine}>Whenever you&rsquo;re ready.</h1>
+          {/* One gentle line of context. Locked with Garry (Jul 2026):
+              "Everyone who registers before launch becomes one of our
+              Founding Members." Anyone who takes this step is signing
+              on to be part of the founding community — this line makes
+              that explicit without turning the moment into marketing. */}
+          <p style={{
+            ...leadCopy,
+            marginTop: 14,
+            marginBottom: 10,
+            color: '#475569',
+            fontSize: 16,
+          }}>
+            Everyone who registers before we launch becomes one of our{' '}
+            <span style={{ fontWeight: 700, color: '#0F766E' }}>Founding Members</span>{' '}
+            &mdash; the first friends of FriendPlace.
+          </p>
 
           <form onSubmit={onSubmit} style={{ marginTop: 8 }} noValidate>
             <Field label="First name" required>

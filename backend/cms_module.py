@@ -1275,14 +1275,28 @@ def build_router(db) -> APIRouter:
         companion = str(p.get("companion") or "george")
         subject_override = p.get("subject")
         preheader_override = p.get("preheader")
+        # Optional per-recipient override — used by the Founding Members
+        # CRM "Email {name}" button. When present, the mail is sent to
+        # that address (NOT prefixed with [TEST], since it's a real send)
+        # and, if it maps to a Founding Member awaiting contact, the
+        # CRM status is automatically advanced to "invited" with the
+        # send captured in history. This is the mechanism that keeps
+        # the CRM reflecting reality rather than intent.
+        to_override_raw = p.get("to")
+        to_override = (
+            to_override_raw.strip().lower()
+            if isinstance(to_override_raw, str) and "@" in to_override_raw
+            else None
+        )
+        is_test_mode = to_override is None
         subject, html, text = _preview_render(
             name,
             companion=companion,
             subject_override=(subject_override.strip() if isinstance(subject_override, str) and subject_override.strip() else None),
             preheader_override=(preheader_override.strip() if isinstance(preheader_override, str) and preheader_override.strip() else None),
         )
-        to_addr = _preview_recipient()
-        final_subject = f"[TEST] {subject}"
+        to_addr = to_override or _preview_recipient()
+        final_subject = f"[TEST] {subject}" if is_test_mode else subject
         _api_key, from_email, from_name, _reply_to = _email_config()
         from_field = f"{from_name} <{from_email}>" if from_name else from_email
 
@@ -1303,10 +1317,11 @@ def build_router(db) -> APIRouter:
             html=html,
             text=text,
         )
-        # Record every test send in a small append-only log so the
+        # Record every send in a small append-only log so the
         # "Most recent test send" strip on the Sending Health panel
         # can show the truest ground-truth status without having to
         # scan the entire Resend history.
+        founder_status_change: Optional[Dict[str, Any]] = None
         if result.ok and result.message_id:
             try:
                 await db.email_test_log.insert_one({
@@ -1318,10 +1333,80 @@ def build_router(db) -> APIRouter:
                     "sender":      from_field,
                     "created_at":  now_iso() if callable(globals().get("now_iso")) else __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
                     "sent_by":     admin.get("id") if isinstance(admin, dict) else None,
+                    "mode":        "test" if is_test_mode else "real",
                 })
             except Exception:
                 # Logging failure must never break the actual send flow.
                 pass
+            # Auto-advance Founding Member status when we successfully
+            # emailed them a real (non-[TEST]) message. This is the
+            # workflow-of-record that keeps the CRM honest: "Invited"
+            # means an invitation was actually sent, not just intended.
+            if not is_test_mode and to_override:
+                try:
+                    from datetime import datetime, timezone
+                    now = datetime.now(timezone.utc).isoformat()
+                    founder = await db.interest_registrations.find_one(
+                        {"email": to_override},
+                        {"_id": 0, "id": 1, "status": 1, "history": 1},
+                    )
+                    if founder:
+                        current_status = (founder.get("status") or "registered").lower()
+                        # Only auto-transition from registered/new. Never
+                        # regress from joined or opted_out.
+                        if current_status in ("registered", "new", ""):
+                            history = list(founder.get("history") or [])
+                            history.append({
+                                "at":         now,
+                                "from":       current_status or "registered",
+                                "to":         "invited",
+                                "actor_id":   admin.get("id") if isinstance(admin, dict) else None,
+                                "actor_email": admin.get("email") if isinstance(admin, dict) else None,
+                                "reason":     "email_sent",
+                                "template":   name,
+                                "subject":    final_subject,
+                                "message_id": result.message_id,
+                            })
+                            await db.interest_registrations.update_one(
+                                {"id": founder["id"]},
+                                {"$set": {
+                                    "status":     "invited",
+                                    "invited_at": now,
+                                    "history":    history,
+                                    "updated_at": now,
+                                }},
+                            )
+                            founder_status_change = {
+                                "founder_id":  founder["id"],
+                                "from_status": current_status or "registered",
+                                "to_status":   "invited",
+                                "at":          now,
+                            }
+                        else:
+                            # Still record the send in history without
+                            # changing the status, so campaigns log
+                            # every touchpoint.
+                            history = list(founder.get("history") or [])
+                            history.append({
+                                "at":         now,
+                                "from":       current_status,
+                                "to":         current_status,   # no status change
+                                "actor_id":   admin.get("id") if isinstance(admin, dict) else None,
+                                "actor_email": admin.get("email") if isinstance(admin, dict) else None,
+                                "reason":     "email_sent_no_status_change",
+                                "template":   name,
+                                "subject":    final_subject,
+                                "message_id": result.message_id,
+                            })
+                            await db.interest_registrations.update_one(
+                                {"id": founder["id"]},
+                                {"$set": {"history": history, "updated_at": now}},
+                            )
+                except Exception:
+                    # Never let the CRM auto-update break the actual
+                    # send response — operators still need to know
+                    # the mail went out.
+                    log.exception("Founder auto-status advance failed")
         return {
             "ok":            result.ok,
             "sent":          result.ok,
@@ -1332,6 +1417,8 @@ def build_router(db) -> APIRouter:
             "http_status":   result.http_status,
             "reason":        result.error,
             "error_code":    result.error_code,
+            "mode":          "test" if is_test_mode else "real",
+            "founder_status_change": founder_status_change,
             "dashboard_url": (
                 f"https://resend.com/emails/{result.message_id}"
                 if result.message_id else None

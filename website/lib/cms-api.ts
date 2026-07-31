@@ -637,6 +637,15 @@ export type EmailRenderRequest = {
   preheader?: string;
 };
 
+export type EmailSendRequest = EmailRenderRequest & {
+  /** Optional real recipient. When set, the mail is sent to this
+   *  address (subject NOT prefixed with [TEST]) and, if it matches
+   *  a Founding Member awaiting contact, that founder's status is
+   *  auto-advanced to "invited". Leave undefined to fall back to
+   *  the configured EMAIL_PREVIEW_RECIPIENT test address. */
+  to?: string;
+};
+
 export type EmailRenderResponse = {
   name: string;
   subject: string;
@@ -658,6 +667,13 @@ export type EmailSendResponse = {
   error_code?: string | null;
   delivery_note?: string | null;
   dashboard_url?: string | null;
+  mode?: 'test' | 'real';
+  founder_status_change?: {
+    founder_id: string;
+    from_status: string;
+    to_status: string;
+    at: string;
+  } | null;
 };
 
 export type EmailMessageStatus = {
@@ -787,7 +803,7 @@ export const emailPreviewsApi = {
     ),
   render: (name: string, body: EmailRenderRequest) =>
     req<EmailRenderResponse>('POST', `/cms/email-previews/${name}/render`, body),
-  send: (name: string, body: EmailRenderRequest) =>
+  send: (name: string, body: EmailSendRequest) =>
     req<EmailSendResponse>('POST', `/cms/email-previews/${name}/send`, body),
   sendAll: () => req<{
     ok: boolean;

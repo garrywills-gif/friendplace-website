@@ -27,7 +27,8 @@
  * the iframe. There's no separate "preview renderer" that can drift.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { API_BASE } from '@/lib/api-base';
 import {
@@ -45,15 +46,28 @@ type Mode = 'light' | 'dark';
 export default function AdminEmailsPage() {
   return (
     <AdminShell title="Email templates">
-      <EmailsPanel />
+      <Suspense fallback={<div style={{ padding: 20, color: '#64748B' }}>Loading…</div>}>
+        <EmailsPanel />
+      </Suspense>
     </AdminShell>
   );
 }
 
 function EmailsPanel() {
+  // ── Query-string handoff from other admin surfaces ─────────────
+  // e.g. Founding Members CRM "Email {name}" button opens:
+  //   /admin/emails?to=<email>&name=<firstname>&template=invite
+  // We use those params to pre-select the template and target a real
+  // recipient (as opposed to the default [TEST] send). The banner
+  // "Composing an email to {name}" makes the mode obvious to the admin.
+  const searchParams = useSearchParams();
+  const toParam       = searchParams?.get('to') || '';
+  const nameParam     = searchParams?.get('name') || '';
+  const templateParam = searchParams?.get('template') || '';
+
   const [list, setList] = useState<EmailPreviewList | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selectedName, setSelectedName] = useState<string>('welcome');
+  const [selectedName, setSelectedName] = useState<string>(templateParam || 'welcome');
   const [subject, setSubject] = useState('');
   const [preheader, setPreheader] = useState('');
   const [companion, setCompanion] = useState<Companion>('george');
@@ -281,6 +295,7 @@ function EmailsPanel() {
         companion: selected.category === 'personal' ? companion : undefined,
         subject,
         preheader,
+        to: toParam || undefined,
       });
       // Honest success guard: only report "Sent" when the backend
       // both flagged ok=true AND Resend returned a message ID. A
@@ -320,7 +335,7 @@ function EmailsPanel() {
     } finally {
       setSending(false);
     }
-  }, [selected, subject, preheader, companion, validation.hasError]);
+  }, [selected, subject, preheader, companion, validation.hasError, toParam]);
 
   // ── Iframe URL — server-rendered HTML, gated by a short-lived
   // preview token (NOT the admin JWT — that would leak into browser
@@ -389,8 +404,22 @@ function EmailsPanel() {
           );
         })}
         <div style={{ padding: '14px 16px 8px', borderTop: '1px solid #E2E8F0', marginTop: 6, fontSize: 12, color: '#64748B' }}>
-          Test recipient
-          <div style={{ marginTop: 4, color: '#0A2540', fontWeight: 700 }}>{list.recipient}</div>
+          {toParam ? (
+            <>
+              Recipient
+              <div style={{ marginTop: 4, color: '#0F766E', fontWeight: 800 }}>
+                {nameParam ? `${nameParam} · ` : ''}{toParam}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 11, color: '#94A3B8' }}>
+                Real send — auto-advances Founding Member status.
+              </div>
+            </>
+          ) : (
+            <>
+              Test recipient
+              <div style={{ marginTop: 4, color: '#0A2540', fontWeight: 700 }}>{list.recipient}</div>
+            </>
+          )}
         </div>
       </aside>
 
@@ -401,7 +430,36 @@ function EmailsPanel() {
           {/* Sending Health — at-a-glance email system indicator */}
           <SendingHealthPanel health={health} onRefresh={refreshHealth} />
 
-          {/* Header + description */}
+          {/* Compose-mode banner — visible only when the studio was
+              opened with ?to=<email>. Signals "you're sending to a
+              real person, not the [TEST] address". */}
+          {toParam && (
+            <div style={{
+              padding: '14px 18px',
+              borderRadius: 16,
+              border: '1.5px solid #14B8A6',
+              background: 'linear-gradient(135deg, #F0FDFA 0%, #ECFEFF 100%)',
+              display: 'flex', alignItems: 'flex-start', gap: 12,
+              boxShadow: '0 4px 16px rgba(20,184,166,0.08)',
+            }}>
+              <div style={{ fontSize: 22, lineHeight: 1 }}>✉️</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 800, color: '#0F766E' }}>
+                  Composing from Mission Control
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#0A2540', marginTop: 3 }}>
+                  Sending to {nameParam || toParam.split('@')[0]}{' '}
+                  <span style={{ fontWeight: 500, color: '#64748B' }}>&lt;{toParam}&gt;</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#475569', marginTop: 4, lineHeight: 1.5 }}>
+                  This is a <strong>real send</strong>, not a [TEST] preview. If the recipient is a
+                  Founding Member currently &ldquo;Registered&rdquo;, their status will automatically
+                  advance to <strong>Invited</strong> once the send succeeds.
+                </div>
+              </div>
+            </div>
+          )}
+
           <div style={card}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <h2 style={{ margin: 0, fontSize: 22, color: '#0A2540', fontWeight: 900 }}>{selected.label}</h2>
@@ -525,8 +583,19 @@ function EmailsPanel() {
             justifyContent: 'space-between',
           }}>
             <div style={{ fontSize: 14, color: '#475569', maxWidth: 520 }}>
-              This will send a <code style={inlineCode}>[TEST]</code>-prefixed copy of the current preview
-              to <strong style={{ color: '#0A2540' }}>{list.recipient}</strong> via Resend. Nothing else is affected.
+              {toParam ? (
+                <>
+                  This will send the current preview <strong style={{ color: '#0A2540' }}>as a real email</strong> to{' '}
+                  <strong style={{ color: '#0A2540' }}>{nameParam ? `${nameParam} <${toParam}>` : toParam}</strong> via Resend.
+                  If this person is a Founding Member currently &ldquo;Registered&rdquo;, their status will
+                  auto-advance to <strong>Invited</strong>.
+                </>
+              ) : (
+                <>
+                  This will send a <code style={inlineCode}>[TEST]</code>-prefixed copy of the current preview
+                  to <strong style={{ color: '#0A2540' }}>{list.recipient}</strong> via Resend. Nothing else is affected.
+                </>
+              )}
             </div>
             <button
               type="button"
@@ -538,7 +607,11 @@ function EmailsPanel() {
                 cursor: (sending || validation.hasError || !list.resend_configured) ? 'not-allowed' : 'pointer',
               }}
             >
-              {sending ? 'Sending…' : `Send test to ${list.recipient}`}
+              {sending
+                ? 'Sending…'
+                : toParam
+                  ? `Send to ${nameParam || toParam}`
+                  : `Send test to ${list.recipient}`}
             </button>
           </div>
 

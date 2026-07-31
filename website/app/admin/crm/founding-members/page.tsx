@@ -350,13 +350,7 @@ function MemberRow({
         <div style={{ ...cellBody, flex: '1.4 1 0' }}>
           <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>{displayName}</div>
           <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
-            <a
-              href={`mailto:${row.email}`}
-              onClick={e => e.stopPropagation()}
-              style={{ color: '#0EA5A0', textDecoration: 'none' }}
-            >
-              {row.email}
-            </a>
+            {row.email || <span style={{ opacity: 0.5 }}>—</span>}
           </div>
         </div>
         <div style={{ ...cellBody, flex: '1 1 0', color: '#475569', fontSize: 13 }}>
@@ -371,22 +365,19 @@ function MemberRow({
           <div>{fmtDate(row.created_at)}</div>
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>{relTime(row.created_at)}</div>
         </div>
-        <div style={{ ...cellBody, flex: '0.9 1 0' }} onClick={e => e.stopPropagation()}>
-          <select
-            className="cms-input"
-            value={status}
-            onChange={e => onUpdate(row.id, { status: e.target.value as CRMFoundingMemberStatus }, { status: e.target.value as CRMFoundingMemberStatus })}
-            style={{
-              ...s.input,
-              padding: '7px 10px', fontSize: 12, fontWeight: 800,
-              background: meta.bg, color: meta.fg, borderColor: 'transparent',
-              maxWidth: 160,
-            }}
-          >
-            {STATUS_ORDER.map(sv => (
-              <option key={sv} value={sv}>{STATUS_META[sv].label}</option>
-            ))}
-          </select>
+        <div style={{ ...cellBody, flex: '0.9 1 0' }}>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '5px 10px', borderRadius: 999,
+            background: meta.bg, color: meta.fg,
+            fontSize: 12, fontWeight: 800, letterSpacing: '0.02em',
+          }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: meta.fg, opacity: 0.7,
+            }} />
+            {meta.label}
+          </span>
         </div>
         <div style={{ ...cellBody, flex: '1.2 1 0', overflow: 'hidden' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -476,36 +467,145 @@ function MemberRow({
                 </div>
               </div>
 
-              <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <a
-                  href={`mailto:${row.email}`}
-                  className="cms-btn-ghost"
-                  style={{ ...s.ghostBtn, textDecoration: 'none' }}
-                >
-                  ✉️ Email {row.first_name || 'them'}
-                </a>
-                {status !== 'invited' && (
-                  <button
-                    type="button"
+              <div style={{ marginTop: 20 }}>
+                <label style={s.label}>Actions</label>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Link
+                    href={{
+                      pathname: '/admin/emails',
+                      query: {
+                        to: row.email || '',
+                        name: row.first_name || '',
+                        template: 'invitation',
+                      },
+                    }}
                     className="cms-btn-primary"
-                    style={s.primaryBtn}
-                    onClick={() => onUpdate(row.id, { status: 'invited' }, { status: 'invited' })}
+                    style={{ ...s.primaryBtn, textDecoration: 'none' }}
                   >
-                    Mark as Invited
-                  </button>
-                )}
-                {status !== 'joined' && status !== 'opted_out' && (
-                  <button
-                    type="button"
-                    className="cms-btn-ghost"
-                    style={s.ghostBtn}
-                    onClick={() => onUpdate(row.id, { status: 'joined' }, { status: 'joined' })}
-                  >
-                    Mark as Joined
-                  </button>
-                )}
+                    ✉️ Compose invitation
+                  </Link>
+                </div>
+                <div style={{ ...s.helper, marginTop: 6 }}>
+                  Opens the Email Studio with {row.first_name || 'this person'} pre-populated as the
+                  recipient. When you send, status will auto-advance to <strong>Invited</strong>.
+                </div>
               </div>
+
+              <AdminOverridePanel
+                currentStatus={status}
+                onOverride={(newStatus) =>
+                  onUpdate(row.id, { status: newStatus }, { status: newStatus })
+                }
+              />
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Admin Override ─────────────────────────────────────────────
+// Deliberately gated behind a click so it never becomes the default
+// workflow. Copy explains that status will normally advance
+// automatically as real actions happen (invitation sent, account
+// created, unsubscribe clicked).
+function AdminOverridePanel({
+  currentStatus,
+  onOverride,
+}: {
+  currentStatus: CRMFoundingMemberStatus;
+  onOverride: (s: CRMFoundingMemberStatus) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<CRMFoundingMemberStatus | null>(null);
+
+  return (
+    <div style={{
+      marginTop: 22, paddingTop: 16,
+      borderTop: '1px dashed #E2E8F0',
+    }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: '#64748B',
+          fontSize: 12,
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          padding: 0,
+          cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}
+      >
+        <span style={{ fontSize: 10 }}>{open ? '▼' : '▶'}</span>
+        Advanced · Admin override
+      </button>
+
+      {open && (
+        <div style={{
+          marginTop: 12,
+          padding: 14,
+          background: '#FFF7ED',
+          border: '1px solid #FDE68A',
+          borderRadius: 12,
+        }}>
+          <p style={{ margin: 0, fontSize: 13, color: '#92400E', lineHeight: 1.55 }}>
+            <strong>Only use this if you know what you&rsquo;re doing.</strong> Status normally
+            advances automatically:
+            <br />
+            <span style={{ fontSize: 12 }}>
+              • Registered — set when they submit the interest form.<br />
+              • Invited — set when you send an invitation from Mission Control.<br />
+              • Joined — set when they create their FriendPlace account.<br />
+              • Opted out — set when they click Unsubscribe.
+            </span>
+          </p>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12, alignItems: 'center' }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: '#0A2540' }}>Change status to:</label>
+            <select
+              value={pending || ''}
+              onChange={e => setPending(e.target.value as CRMFoundingMemberStatus)}
+              style={{
+                ...s.input,
+                padding: '6px 10px', fontSize: 12, fontWeight: 700, maxWidth: 200,
+              }}
+            >
+              <option value="" disabled>Choose a status…</option>
+              {STATUS_ORDER.filter(sv => sv !== currentStatus).map(sv => (
+                <option key={sv} value={sv}>{STATUS_META[sv].label}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!pending}
+              onClick={() => {
+                if (!pending) return;
+                if (window.confirm(
+                  `Override status to "${STATUS_META[pending].label}" without the corresponding real action?\n\n`
+                  + `This bypasses the normal workflow (invitations, account signup, unsubscribes) `
+                  + `and should only be used for genuine exceptions.`
+                )) {
+                  onOverride(pending);
+                  setPending(null);
+                  setOpen(false);
+                }
+              }}
+              style={{
+                ...s.dangerBtn,
+                padding: '7px 14px',
+                fontSize: 12,
+                opacity: pending ? 1 : 0.5,
+                cursor: pending ? 'pointer' : 'not-allowed',
+              }}
+            >
+              Apply override
+            </button>
           </div>
         </div>
       )}
