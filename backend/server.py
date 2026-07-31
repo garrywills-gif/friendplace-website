@@ -32,6 +32,9 @@ from email_service import (
     send_email as _email_send,
     password_reset_template as _email_password_reset_template,
     support_acknowledgement_template as _email_support_ack_template,
+    welcome_template as _email_welcome_template,
+    waitlist_template as _email_waitlist_template,
+    invitation_template as _email_invitation_template,
 )
 from crossword_puzzles import (
     levels_summary as _xword_levels,
@@ -1905,6 +1908,7 @@ async def admin_mark_invited(entry_id: str, me: dict = Depends(current_admin)):
     if res.matched_count == 0:
         raise HTTPException(404, "Waitlist entry not found")
     return {"ok": True}
+
 
 
 @api.post("/auth/forgot-password")

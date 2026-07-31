@@ -652,6 +652,200 @@ def build_router(db) -> APIRouter:
         # Rotate the token so the client stays signed in seamlessly.
         token = _make_admin_token(admin["id"], admin["email"])
         return {"ok": True, "token": token}
+    # ============================================================
+    # EMAIL TEMPLATE PREVIEW
+    # ============================================================
+    # Lets a signed-in CMS admin render each transactional email in a
+    # normal browser tab (so we can iterate on copy without spamming a
+    # real inbox), and one-click send them to `EMAIL_PREVIEW_RECIPIENT`
+    # (default: hello@friendplace.com.au) for a final QA in a real
+    # mail client. The HTML endpoint accepts the CMS admin JWT via
+    # either the Authorization header OR a `?token=<jwt>` query param
+    # — the query variant is needed because browsers can't attach
+    # headers to plain link clicks.
+
+    from fastapi.responses import HTMLResponse as _HTMLResponse  # noqa: WPS433
+
+    _EMAIL_PREVIEW_TEMPLATES = [
+        {"name": "welcome",        "label": "Welcome",         "signer": "George"},
+        {"name": "waitlist",       "label": "Waitlist thanks", "signer": "George"},
+        {"name": "invitation",     "label": "Invitation",      "signer": "George"},
+        {"name": "password_reset", "label": "Password reset",  "signer": "FriendPlace Team"},
+        {"name": "support_ack",    "label": "Support ack",     "signer": "FriendPlace Team"},
+    ]
+
+    def _preview_recipient() -> str:
+        """Where 'send test' previews go. Env-overridable so we can
+        redirect QA emails to a staging inbox later without a redeploy."""
+        return (os.getenv("EMAIL_PREVIEW_RECIPIENT") or "hello@friendplace.com.au").strip()
+
+    def _preview_sample(name: str) -> dict:
+        """Sample data used for every preview render. Kept in ONE place
+        so the list, HTML view, and 'send test' all produce identical
+        content — makes the review loop deterministic."""
+        if name == "welcome":
+            return dict(first_name="Sarah", action_url="https://www.friendplace.com.au")
+        if name == "waitlist":
+            return dict(first_name="Sarah", position=42)
+        if name == "invitation":
+            return dict(
+                first_name="Sarah",
+                inviter_name="Michael Chen",
+                accept_url="https://www.friendplace.com.au/invite/preview-abc123",
+                expiry_days=14,
+            )
+        if name == "password_reset":
+            return dict(first_name="Sarah", code="493721", ttl_minutes=15)
+        if name == "support_ack":
+            return dict(
+                first_name="Sarah",
+                ticket_ref="FP-8A2C91",
+                category="Contact Support",
+                subject_snippet="Trouble adding a friend from the events page",
+            )
+        raise HTTPException(404, f"Unknown email template: {name}")
+
+    def _preview_render(name: str) -> tuple[str, str, str]:
+        """Return (subject, html, text) for the named template with sample data."""
+        from email_service import (  # noqa: WPS433
+            welcome_template,
+            waitlist_template,
+            invitation_template,
+            password_reset_template,
+            support_acknowledgement_template,
+        )
+        kwargs = _preview_sample(name)
+        if name == "welcome":
+            return welcome_template(**kwargs)
+        if name == "waitlist":
+            return waitlist_template(**kwargs)
+        if name == "invitation":
+            return invitation_template(**kwargs)
+        if name == "password_reset":
+            return password_reset_template(**kwargs)
+        if name == "support_ack":
+            return support_acknowledgement_template(**kwargs)
+        raise HTTPException(404, f"Unknown email template: {name}")
+
+    async def _admin_from_query_or_header(
+        request: Request,
+        token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Same guarantees as `current_cms_admin`, but also accepts the
+        JWT via `?token=<jwt>` so an admin can paste a link into a new
+        browser tab and view the rendered HTML directly."""
+        tok = token or ""
+        if not tok:
+            auth = request.headers.get("authorization", "")
+            if auth.lower().startswith("bearer "):
+                tok = auth.split(" ", 1)[1].strip()
+        if not tok:
+            raise HTTPException(401, "Not authenticated")
+        payload = _decode(tok, "cms_admin")
+        admin = await db.cms_admins.find_one(
+            {"id": payload["sub"]}, {"_id": 0, "password_hash": 0}
+        )
+        if not admin:
+            raise HTTPException(401, "Admin no longer exists")
+        return admin
+
+    @router.get("/email-previews")
+    async def list_email_previews(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """List the transactional email templates available for preview.
+        Response is enough for the /admin UI to render a preview panel."""
+        from email_service import is_configured as _resend_ready  # noqa: WPS433
+        return {
+            "recipient": _preview_recipient(),
+            "resend_configured": _resend_ready(),
+            "templates": [
+                {
+                    **t,
+                    "html_url": f"/api/cms/email-previews/{t['name']}.html",
+                    "send_url": f"/api/cms/email-previews/{t['name']}/send",
+                }
+                for t in _EMAIL_PREVIEW_TEMPLATES
+            ],
+        }
+
+    @router.get("/email-previews/{name}.html", response_class=_HTMLResponse)
+    async def email_preview_html(
+        name: str,
+        request: Request,
+        token: Optional[str] = None,
+    ):
+        """Render one template as a full HTML page (browser-viewable).
+        Auth via `?token=<jwt>` or `Authorization: Bearer <jwt>`."""
+        await _admin_from_query_or_header(request, token)
+        _subject, html, _text = _preview_render(name)
+        return _HTMLResponse(content=html, status_code=200)
+
+    @router.post("/email-previews/{name}/send")
+    async def email_preview_send(
+        name: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Send one rendered template to `EMAIL_PREVIEW_RECIPIENT`
+        via Resend. Response is diagnostic (never raises)."""
+        from email_service import (  # noqa: WPS433
+            is_configured as _resend_ready,
+            send_email,
+        )
+        subject, html, text = _preview_render(name)
+        to_addr = _preview_recipient()
+        if not _resend_ready():
+            return {
+                "ok": False,
+                "sent": False,
+                "reason": "RESEND_API_KEY not configured on backend",
+                "recipient": to_addr,
+            }
+        ok = await send_email(
+            to=to_addr,
+            subject=f"[PREVIEW] {subject}",
+            html=html,
+            text=text,
+        )
+        return {
+            "ok": ok,
+            "sent": ok,
+            "recipient": to_addr,
+            "subject": subject,
+        }
+
+    @router.post("/email-previews/send-all")
+    async def email_preview_send_all(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """One-click: send every preview template to the configured
+        recipient in a single request. Handy for full-suite review."""
+        from email_service import (  # noqa: WPS433
+            is_configured as _resend_ready,
+            send_email,
+        )
+        to_addr = _preview_recipient()
+        if not _resend_ready():
+            return {
+                "ok": False,
+                "sent": 0,
+                "reason": "RESEND_API_KEY not configured on backend",
+                "recipient": to_addr,
+            }
+        results: list[dict] = []
+        for tpl in _EMAIL_PREVIEW_TEMPLATES:
+            subject, html, text = _preview_render(tpl["name"])
+            ok = await send_email(
+                to=to_addr,
+                subject=f"[PREVIEW] {subject}",
+                html=html,
+                text=text,
+            )
+            results.append({"name": tpl["name"], "sent": ok, "subject": subject})
+        return {
+            "ok": all(r["sent"] for r in results),
+            "sent": sum(1 for r in results if r["sent"]),
+            "recipient": to_addr,
+            "results": results,
+        }
+
+
 
     @router.get("/admins")
     async def list_admins(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
