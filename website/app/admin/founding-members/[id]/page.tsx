@@ -163,7 +163,7 @@ export default function FoundingMemberEditorPage() {
                   style={s.input}
                   value={member.role || ''}
                   onChange={e => update({ role: e.target.value })}
-                  placeholder="Coffee Lounge Regular"
+                  placeholder="FP Café Regular"
                 />
               </div>
               <div>

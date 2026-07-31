@@ -633,7 +633,7 @@ const LIFE_PHOTOS = [
 ];
 
 const DEFAULT_FEATURES: { icon: string; title: string; body: string }[] = [
-  { icon: '☕', title: 'Coffee Lounge', body: 'A soft place to think out loud. Reply to a thought, share your own, or just read — no pressure.' },
+  { icon: '☕', title: 'FP Café', body: 'Our virtual café — a soft place to drop in, read what others are sharing, or share your own thought. No pressure.' },
   { icon: '🗓️', title: 'Local Events', body: 'Coffee catch-ups, hobby nights and community meets. RSVP with one tap and see who\'s coming.' },
   { icon: '👥', title: 'Find Friends', body: 'Discover people nearby who share your interests. Send a warm hello — never a swipe.' },
   { icon: '🎯', title: 'Games & Groups', body: 'Solitaire, Word of the Day, book clubs, walking groups. Something for every kind of connection.' },

@@ -150,7 +150,7 @@ export default function SuccessStoryEditorPage() {
               style={{ ...s.input, fontSize: 17, fontWeight: 700 }}
               value={story.title}
               onChange={e => update({ title: e.target.value })}
-              placeholder="How Margaret found her people at the Coffee Lounge"
+              placeholder="How Margaret found her people at the FP Café"
             />
           </div>
 

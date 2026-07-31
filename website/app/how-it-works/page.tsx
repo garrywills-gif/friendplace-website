@@ -68,8 +68,8 @@ const STEPS = [
     body: "Add a photo, a first name, and a few interests. We ask a couple of gentle questions so we can suggest people you'd genuinely enjoy meeting. No personality quizzes, no oversharing.",
   },
   {
-    title: 'Say hello in the Lounge',
-    body: 'Your Coffee Lounge is a soft place to think out loud. Read what other members are sharing today, reply to a thought that resonates, or share your own. The Lounge is our version of the local café counter.',
+    title: 'Discover the FP Café',
+    body: "The FP Café is our virtual café — a relaxed place to drop in, read what others are sharing today, or simply enjoy the company. Join a conversation, share a thought, or sit quietly with a coffee. Come and go as you like. There's no pressure to participate.",
   },
   {
     title: 'Meet people nearby',
