@@ -1024,12 +1024,24 @@ def build_router(db) -> APIRouter:
         companion: str = "george",
         subject_override: Optional[str] = None,
         preheader_override: Optional[str] = None,
+        data_overrides: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, str, str]:
-        """Return (subject, html, text) for the named template with sample
-        data + optional overrides (subject, preheader, companion). All
-        overrides thread through the same `*_override` kwargs the
-        templates accept, so the rendered output is byte-identical to
-        what a real send would produce."""
+        """Return (subject, html, text) for the named template.
+
+        For **previews** in the Email Studio iframe we pass no
+        `data_overrides` and the deterministic sample data ("Sarah",
+        "Michael Chen", …) fills in — kept identical across the list,
+        HTML view and 'Send test' preview so the review loop is
+        predictable.
+
+        For **real sends** (the CRM "Compose invitation" flow → the
+        Studio's Send button with a live recipient in ?to=), the caller
+        passes a `data_overrides` dict carrying that recipient's actual
+        first_name, companion choice, invitation accept_url, etc. Those
+        values replace the sample data, so the email is genuinely
+        personalised. This is the mechanism that makes both send paths
+        share the SAME template code and letter design.
+        """
         from email_service import (  # noqa: WPS433
             welcome_template,
             waitlist_template,
@@ -1038,6 +1050,13 @@ def build_router(db) -> APIRouter:
             support_acknowledgement_template,
         )
         kwargs = _preview_sample(name, companion=companion)
+        # Merge live recipient data over the sample defaults. Only keys
+        # the template actually accepts should be forwarded — the samples
+        # already enumerate the whole valid set.
+        if data_overrides:
+            for k, v in data_overrides.items():
+                if k in kwargs and v not in (None, ""):
+                    kwargs[k] = v
         # Only pass overrides that are actually set — passing None
         # explicitly would fight the templates' internal defaults.
         if subject_override is not None:
@@ -1289,11 +1308,53 @@ def build_router(db) -> APIRouter:
             else None
         )
         is_test_mode = to_override is None
+
+        # Look up the founder BEFORE rendering, so their real first_name,
+        # companion choice, etc. can replace the "Sarah" sample data
+        # baked into the preview. This is the fix that makes real
+        # invitations say "Dear Steven" instead of "Dear Sarah".
+        founder_row: Optional[Dict[str, Any]] = None
+        if to_override:
+            try:
+                founder_row = await db.interest_registrations.find_one(
+                    {"email": to_override},
+                    {"_id": 0, "id": 1, "first_name": 1,
+                     "companion_choice": 1, "status": 1, "history": 1},
+                )
+            except Exception:
+                founder_row = None
+
+        # Build live-data overrides for the template render. Empty when
+        # sending a [TEST] preview — that path keeps the sample data
+        # so admins can review the design deterministically.
+        data_overrides: Dict[str, Any] = {}
+        if founder_row and not is_test_mode:
+            fname = founder_row.get("first_name")
+            if fname:
+                data_overrides["first_name"] = fname
+            # If the founder chose Georgia, honour that in personal
+            # letters — otherwise keep whatever companion the admin
+            # picked in the Studio dropdown.
+            if founder_row.get("companion_choice"):
+                companion = founder_row["companion_choice"]
+                data_overrides["companion"] = companion
+            # Personal accept URL — Phase-2 will replace this with a
+            # signed one-time invite token. For now the founder's ID
+            # is enough to disambiguate and the URL is unguessable.
+            if name == "invitation":
+                base_url = (os.getenv("PUBLIC_WEBSITE_URL") or "https://www.friendplace.com.au").rstrip("/")
+                data_overrides["accept_url"] = f"{base_url}/invite/{founder_row['id']}"
+                # Personal invitations aren't from "Michael Chen" — drop
+                # the sample inviter so the letter reads "someone at
+                # FriendPlace" (or, later, a real inviter name).
+                data_overrides["inviter_name"] = ""
+
         subject, html, text = _preview_render(
             name,
             companion=companion,
             subject_override=(subject_override.strip() if isinstance(subject_override, str) and subject_override.strip() else None),
             preheader_override=(preheader_override.strip() if isinstance(preheader_override, str) and preheader_override.strip() else None),
+            data_overrides=data_overrides or None,
         )
         to_addr = to_override or _preview_recipient()
         final_subject = f"[TEST] {subject}" if is_test_mode else subject
@@ -1346,6 +1407,9 @@ def build_router(db) -> APIRouter:
                 try:
                     from datetime import datetime, timezone
                     now = datetime.now(timezone.utc).isoformat()
+                    # Re-fetch to grab the freshest status + history —
+                    # `founder_row` from earlier only projected the
+                    # fields needed for template rendering.
                     founder = await db.interest_registrations.find_one(
                         {"email": to_override},
                         {"_id": 0, "id": 1, "status": 1, "history": 1},
