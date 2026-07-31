@@ -77,7 +77,12 @@ export default function Notifications() {
     // notification was a dead end.
     if (n.type === "new_member" && n.ref_user_id) return router.push(`/user/${n.ref_user_id}` as any);
     if (n.type === "notice_comment") return router.push("/notices");
-    if (n.type === "recipe_comment" && n.ref_id) return router.push(`/recipes/${n.ref_id}` as any);
+    // Legacy: recipe_comment notifications may still exist from before
+    // Recipes was retired. Any stray ones now redirect to /moments so
+    // nothing dead-ends (the recipes route also redirects there).
+    if (n.type === "recipe_comment") return router.push("/moments" as any);
+    // Moment comments — take the member straight to that moment.
+    if (n.type === "moment_comment" && n.ref_id) return router.push(`/moments/${n.ref_id}` as any);
   };
 
   const dismissOne = async (n: any) => {

@@ -8262,6 +8262,432 @@ async def toggle_recipe_like(recipe_id: str, body: dict):
     return {"liked": True, "count": len(likes) + 1}
 
 
+# ------------- Share a Moment (community moments) -------------
+# Replaces Recipes as the everyday-sharing feature. Members post
+# small moments from their day — a coffee, a walk, the grandkids
+# visiting — with an optional photo (or a few) and a short caption.
+# Others can like, leave supportive comments, and moderators can
+# feature a "Moment of the Week" on the Home screen.
+class MomentBody(BaseModel):
+    user_id: str
+    caption: str = ""
+    photos: List[str] = []          # base64 data URIs (or empty)
+    privacy: str = "everyone"       # "everyone" | "friends"
+
+
+class MomentPatch(BaseModel):
+    user_id: str
+    caption: Optional[str] = None
+    photos: Optional[List[str]] = None
+    privacy: Optional[str] = None
+
+
+class MomentCommentBody(BaseModel):
+    user_id: str
+    body: str
+
+
+class MomentReportBody(BaseModel):
+    user_id: str
+    reason: str          # "inappropriate" | "spam" | "not_respectful" | "other"
+    details: str = ""
+
+
+_MOMENT_REPORT_REASONS = {"inappropriate", "spam", "not_respectful", "other"}
+_MOMENT_PRIVACY_VALUES = {"everyone", "friends"}
+_MOMENT_MAX_PHOTOS = 6
+_MOMENT_CAPTION_LIMIT = 500
+
+
+def _moment_shape(m: dict, viewer_id: Optional[str] = None) -> dict:
+    """Trim a moment document to what the client needs."""
+    out = {
+        "id": m.get("id"),
+        "caption": m.get("caption", ""),
+        "photos": list(m.get("photos") or []),
+        "privacy": m.get("privacy", "everyone"),
+        "author_id": m.get("author_id", ""),
+        "author_name": m.get("author_name", ""),
+        "author_avatar": m.get("author_avatar", "👤"),
+        "created_at": m.get("created_at"),
+        "featured": bool(m.get("featured")),
+        "hidden": bool(m.get("hidden")),
+    }
+    likes = list(m.get("likes") or [])
+    out["likes_count"] = len(likes)
+    out["liked_by_me"] = bool(viewer_id and viewer_id in likes)
+    out["comments_count"] = len(m.get("comments") or [])
+    return out
+
+
+async def _viewer_can_see_moment(m: dict, viewer_id: Optional[str]) -> bool:
+    """Privacy gate: 'everyone' is visible to all; 'friends' only to
+    the author, their mutual friends, and admins."""
+    if m.get("hidden"):
+        # Hidden moments are only visible to the author + admins.
+        if not viewer_id:
+            return False
+        if m.get("author_id") == viewer_id:
+            return True
+        actor = await db.users.find_one({"id": viewer_id}, {"_id": 0, "is_admin": 1})
+        return bool(actor and actor.get("is_admin"))
+    if (m.get("privacy") or "everyone") == "everyone":
+        return True
+    # Friends-only
+    if not viewer_id:
+        return False
+    if m.get("author_id") == viewer_id:
+        return True
+    author = await db.users.find_one({"id": m.get("author_id")}, {"_id": 0, "friends": 1})
+    if not author:
+        return False
+    if viewer_id in (author.get("friends") or []):
+        return True
+    actor = await db.users.find_one({"id": viewer_id}, {"_id": 0, "is_admin": 1})
+    return bool(actor and actor.get("is_admin"))
+
+
+@api.get("/moments")
+async def list_moments(
+    viewer_id: Optional[str] = None,
+    scope: str = "everyone",   # "everyone" | "friends"
+    q: str = "",
+    limit: int = 60,
+):
+    """Newest-first list of visible moments. When scope='friends' and
+    the viewer is logged in, we return only moments authored by the
+    viewer or one of their friends. Hidden moments are always excluded
+    from public feeds; the admin moments dashboard uses a separate
+    endpoint."""
+    limit = max(1, min(int(limit or 60), 200))
+    query: dict = {"hidden": {"$ne": True}}
+
+    if scope == "friends" and viewer_id:
+        me = await db.users.find_one({"id": viewer_id}, {"_id": 0, "friends": 1})
+        friend_ids = list((me or {}).get("friends") or [])
+        query["author_id"] = {"$in": friend_ids + [viewer_id]}
+    else:
+        # "everyone" default — but we still hide friends-only moments
+        # from strangers below in the post-filter pass.
+        pass
+
+    if q:
+        safe = re.escape(q.strip())
+        if safe:
+            rx = {"$regex": safe, "$options": "i"}
+            query["$or"] = [{"caption": rx}, {"author_name": rx}]
+
+    rows = await db.moments.find(query, {"_id": 0, "comments": 0}).sort("created_at", -1).limit(limit * 2).to_list(limit * 2)
+    out = []
+    for m in rows:
+        # Post-filter: enforce per-moment privacy for the "everyone" scope.
+        if (m.get("privacy") or "everyone") == "friends" and scope != "friends":
+            if not await _viewer_can_see_moment(m, viewer_id):
+                continue
+        out.append(_moment_shape(m, viewer_id))
+        if len(out) >= limit:
+            break
+    return {"moments": out}
+
+
+@api.get("/moments/featured")
+async def get_featured_moment(viewer_id: Optional[str] = None):
+    """Return the currently featured 'Moment of the Week', if any.
+    Home surfaces this as a banner above the tile grid."""
+    m = await db.moments.find_one(
+        {"featured": True, "hidden": {"$ne": True}},
+        {"_id": 0, "comments": 0},
+        sort=[("featured_at", -1)],
+    )
+    if not m:
+        return {"moment": None}
+    # Respect privacy — a friends-only moment never becomes "featured"
+    # for non-friends. In practice admins only feature public moments,
+    # but this is a defensive gate.
+    if not await _viewer_can_see_moment(m, viewer_id):
+        return {"moment": None}
+    return {"moment": _moment_shape(m, viewer_id)}
+
+
+@api.get("/moments/{moment_id}")
+async def get_moment(moment_id: str, viewer_id: Optional[str] = None):
+    m = await db.moments.find_one({"id": moment_id}, {"_id": 0})
+    if not m:
+        raise HTTPException(404, "Moment not found")
+    if not await _viewer_can_see_moment(m, viewer_id):
+        raise HTTPException(403, "This moment isn't visible to you")
+    out = _moment_shape(m, viewer_id)
+    out["comments"] = list(m.get("comments") or [])
+    return out
+
+
+@api.post("/moments")
+async def create_moment(body: MomentBody):
+    author = await db.users.find_one(
+        {"id": body.user_id},
+        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1, "banned": 1},
+    )
+    if not author:
+        raise HTTPException(404, "User not found")
+    if author.get("banned"):
+        raise HTTPException(403, "This account cannot post moments")
+
+    caption = (body.caption or "").strip()
+    photos = [p for p in (body.photos or []) if isinstance(p, str) and p][:_MOMENT_MAX_PHOTOS]
+    if not caption and not photos:
+        raise HTTPException(400, "Share a photo or a few words about your moment")
+    if len(caption) > _MOMENT_CAPTION_LIMIT:
+        raise HTTPException(400, f"Caption is too long (max {_MOMENT_CAPTION_LIMIT} characters)")
+
+    privacy = (body.privacy or "everyone").lower()
+    if privacy not in _MOMENT_PRIVACY_VALUES:
+        privacy = "everyone"
+
+    doc = {
+        "id": nid(),
+        "author_id": body.user_id,
+        "author_name": author.get("first_name") or author.get("username") or "Someone",
+        "author_avatar": author.get("avatar") or "👤",
+        "caption": caption,
+        "photos": photos,
+        "privacy": privacy,
+        "likes": [],
+        "comments": [],
+        "reports": [],
+        "featured": False,
+        "hidden": False,
+        "created_at": now_iso(),
+    }
+    await db.moments.insert_one(doc)
+    # Same reward scale as recipes — a small nudge for sharing.
+    try:
+        await award_points(body.user_id, 8, reason="moment_shared")
+    except Exception:
+        pass
+    return _moment_shape(doc, body.user_id)
+
+
+@api.patch("/moments/{moment_id}")
+async def update_moment(moment_id: str, body: MomentPatch):
+    m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "author_id": 1})
+    if not m:
+        raise HTTPException(404, "Moment not found")
+    actor = await db.users.find_one({"id": body.user_id}, {"_id": 0, "id": 1, "is_admin": 1})
+    if not actor or (m.get("author_id") != body.user_id and not actor.get("is_admin")):
+        raise HTTPException(403, "Only the author or an admin can edit this moment")
+
+    set_ops: dict = {}
+    if body.caption is not None:
+        text = body.caption.strip()
+        if len(text) > _MOMENT_CAPTION_LIMIT:
+            raise HTTPException(400, f"Caption is too long (max {_MOMENT_CAPTION_LIMIT} characters)")
+        set_ops["caption"] = text
+    if body.photos is not None:
+        set_ops["photos"] = [p for p in body.photos if isinstance(p, str) and p][:_MOMENT_MAX_PHOTOS]
+    if body.privacy is not None:
+        pv = body.privacy.lower()
+        if pv not in _MOMENT_PRIVACY_VALUES:
+            raise HTTPException(400, "Invalid privacy value")
+        set_ops["privacy"] = pv
+    if not set_ops:
+        return {"ok": True}
+    set_ops["updated_at"] = now_iso()
+    await db.moments.update_one({"id": moment_id}, {"$set": set_ops})
+    return {"ok": True}
+
+
+@api.delete("/moments/{moment_id}")
+async def delete_moment(moment_id: str, user_id: str):
+    m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "author_id": 1})
+    if not m:
+        raise HTTPException(404, "Moment not found")
+    actor = await db.users.find_one({"id": user_id}, {"_id": 0, "is_admin": 1})
+    if not actor or (m.get("author_id") != user_id and not actor.get("is_admin")):
+        raise HTTPException(403, "Only the author or an admin can delete this moment")
+    await db.moments.delete_one({"id": moment_id})
+    return {"ok": True}
+
+
+@api.post("/moments/{moment_id}/like")
+async def toggle_moment_like(moment_id: str, body: dict):
+    user_id = body.get("user_id")
+    if not user_id:
+        raise HTTPException(400, "user_id required")
+    m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "likes": 1, "author_id": 1, "hidden": 1, "privacy": 1})
+    if not m or m.get("hidden"):
+        raise HTTPException(404, "Moment not found")
+    if not await _viewer_can_see_moment(m, user_id):
+        raise HTTPException(403, "Not allowed")
+    likes = m.get("likes") or []
+    if user_id in likes:
+        await db.moments.update_one({"id": moment_id}, {"$pull": {"likes": user_id}})
+        return {"liked": False, "count": len(likes) - 1}
+    await db.moments.update_one({"id": moment_id}, {"$addToSet": {"likes": user_id}})
+    return {"liked": True, "count": len(likes) + 1}
+
+
+@api.post("/moments/{moment_id}/comments")
+async def add_moment_comment(moment_id: str, body: MomentCommentBody):
+    m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "id": 1, "author_id": 1, "hidden": 1, "privacy": 1})
+    if not m or m.get("hidden"):
+        raise HTTPException(404, "Moment not found")
+    author = await db.users.find_one({"id": body.user_id}, {"_id": 0, "first_name": 1, "username": 1, "avatar": 1, "banned": 1})
+    if not author:
+        raise HTTPException(404, "User not found")
+    if author.get("banned"):
+        raise HTTPException(403, "This account cannot comment")
+    if not await _viewer_can_see_moment(m, body.user_id):
+        raise HTTPException(403, "Not allowed")
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(400, "Comment is empty")
+    comment = {
+        "id": nid(),
+        "user_id": body.user_id,
+        "user_name": author.get("first_name") or author.get("username") or "Someone",
+        "user_avatar": author.get("avatar") or "👤",
+        "body": text[:1500],
+        "created_at": now_iso(),
+    }
+    await db.moments.update_one({"id": moment_id}, {"$push": {"comments": comment}})
+    # Notify the moment's author (if not self-comment).
+    if m.get("author_id") and m["author_id"] != body.user_id:
+        await db.notifications.insert_one({
+            "id": nid(),
+            "user_id": m["author_id"],
+            "type": "moment_comment",
+            "title": f"{comment['user_name']} commented on your moment",
+            "body": text[:140],
+            "ref_id": moment_id,
+            "read": False,
+            "created_at": now_iso(),
+        })
+    return comment
+
+
+@api.delete("/moments/{moment_id}/comments/{comment_id}")
+async def delete_moment_comment(moment_id: str, comment_id: str, user_id: str):
+    m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "comments": 1, "author_id": 1})
+    if not m:
+        raise HTTPException(404, "Moment not found")
+    actor = await db.users.find_one({"id": user_id}, {"_id": 0, "is_admin": 1})
+    if not actor:
+        raise HTTPException(404, "User not found")
+    target = next((c for c in (m.get("comments") or []) if c.get("id") == comment_id), None)
+    if not target:
+        raise HTTPException(404, "Comment not found")
+    if target.get("user_id") != user_id and m.get("author_id") != user_id and not actor.get("is_admin"):
+        raise HTTPException(403, "Not allowed")
+    await db.moments.update_one({"id": moment_id}, {"$pull": {"comments": {"id": comment_id}}})
+    return {"ok": True}
+
+
+@api.post("/moments/{moment_id}/report")
+async def report_moment(moment_id: str, body: MomentReportBody):
+    m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "id": 1, "author_id": 1, "reports": 1})
+    if not m:
+        raise HTTPException(404, "Moment not found")
+    reason = (body.reason or "").lower().strip()
+    if reason not in _MOMENT_REPORT_REASONS:
+        raise HTTPException(400, "Invalid report reason")
+    reporter = await db.users.find_one({"id": body.user_id}, {"_id": 0, "id": 1, "first_name": 1, "username": 1})
+    if not reporter:
+        raise HTTPException(404, "User not found")
+    # De-dup: one active report per user per moment.
+    existing = [r for r in (m.get("reports") or []) if r.get("user_id") == body.user_id]
+    if existing:
+        return {"ok": True, "already_reported": True}
+    report = {
+        "id": nid(),
+        "user_id": body.user_id,
+        "user_name": reporter.get("first_name") or reporter.get("username") or "Someone",
+        "reason": reason,
+        "details": (body.details or "")[:500],
+        "created_at": now_iso(),
+    }
+    await db.moments.update_one({"id": moment_id}, {"$push": {"reports": report}})
+    return {"ok": True, "already_reported": False}
+
+
+# --- Admin (Mission Control) moment endpoints -----------------------------
+# These live in the same file for convenience but they mirror the pattern
+# used by the CRM: admin-only, JSON, and thin. Mission Control drives the
+# heavy UI. The moderation dashboard needs to see hidden moments and
+# aggregated report counts, which the public list intentionally hides.
+
+
+class MomentAdminAction(BaseModel):
+    user_id: str
+    action: str          # "feature" | "unfeature" | "hide" | "restore"
+
+
+def _moment_admin_shape(m: dict) -> dict:
+    out = _moment_shape(m, None)
+    out["reports_count"] = len(m.get("reports") or [])
+    out["reports"] = list(m.get("reports") or [])
+    out["hidden"] = bool(m.get("hidden"))
+    return out
+
+
+@api.get("/admin/moments")
+async def admin_list_moments(
+    user_id: str,
+    q: str = "",
+    filter: str = "all",   # "all" | "featured" | "hidden" | "reported"
+    limit: int = 100,
+):
+    actor = await db.users.find_one({"id": user_id}, {"_id": 0, "is_admin": 1})
+    if not actor or not actor.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    query: dict = {}
+    if filter == "featured":
+        query["featured"] = True
+    elif filter == "hidden":
+        query["hidden"] = True
+    elif filter == "reported":
+        query["reports.0"] = {"$exists": True}
+    if q:
+        safe = re.escape(q.strip())
+        if safe:
+            rx = {"$regex": safe, "$options": "i"}
+            query["$or"] = [{"caption": rx}, {"author_name": rx}]
+    rows = await db.moments.find(query, {"_id": 0}).sort("created_at", -1).limit(max(1, min(int(limit or 100), 500))).to_list(500)
+    return {"moments": [_moment_admin_shape(r) for r in rows]}
+
+
+@api.post("/admin/moments/{moment_id}/action")
+async def admin_moment_action(moment_id: str, body: MomentAdminAction):
+    actor = await db.users.find_one({"id": body.user_id}, {"_id": 0, "is_admin": 1})
+    if not actor or not actor.get("is_admin"):
+        raise HTTPException(403, "Admin only")
+    m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "id": 1})
+    if not m:
+        raise HTTPException(404, "Moment not found")
+    action = (body.action or "").lower()
+    if action == "feature":
+        # Only one Moment of the Week at a time — clear any existing feature.
+        await db.moments.update_many({"featured": True}, {"$set": {"featured": False}})
+        await db.moments.update_one(
+            {"id": moment_id},
+            {"$set": {"featured": True, "hidden": False, "featured_at": now_iso()}},
+        )
+    elif action == "unfeature":
+        await db.moments.update_one({"id": moment_id}, {"$set": {"featured": False}})
+    elif action == "hide":
+        # Hiding auto-clears any Featured status.
+        await db.moments.update_one(
+            {"id": moment_id},
+            {"$set": {"hidden": True, "featured": False, "hidden_at": now_iso()}},
+        )
+    elif action == "restore":
+        await db.moments.update_one({"id": moment_id}, {"$set": {"hidden": False}})
+    else:
+        raise HTTPException(400, "Unknown action")
+    return {"ok": True}
+
+
+
+
 # ------------- Flutter (online ping) -------------
 class FlutterDoc(BaseModel):
     id: str = Field(default_factory=nid)

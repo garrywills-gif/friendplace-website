@@ -23,7 +23,7 @@ export type GeorgeNavKey =
   | 'groups'
   | 'notices'
   | 'events'
-  | 'recipes'
+  | 'moments'
   | 'founders'
   | 'help'
   | 'notifications'
@@ -47,7 +47,7 @@ export const GEORGE_NAV_MAP: Record<GeorgeNavKey, GeorgeNavTarget> = {
   groups:        { key: 'groups',        href: '/groups',         fallbackLabel: 'Open Groups' },
   notices:       { key: 'notices',       href: '/notices',        fallbackLabel: 'Open the Notice Board' },
   events:        { key: 'events',        href: '/events',         fallbackLabel: 'See Events' },
-  recipes:       { key: 'recipes',       href: '/recipes',        fallbackLabel: 'Open Recipes' },
+  moments:       { key: 'moments',       href: '/moments',        fallbackLabel: 'Open Share a Moment' },
   founders:      { key: 'founders',      href: '/founders',       fallbackLabel: 'Meet the Founders' },
   help:          { key: 'help',          href: '/help',           fallbackLabel: 'Open Help' },
   notifications: { key: 'notifications', href: '/notifications',  fallbackLabel: 'Open Notifications' },

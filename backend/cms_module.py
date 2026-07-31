@@ -2158,6 +2158,137 @@ def build_router(db) -> APIRouter:
         return {"count": len(events), "events": events}
 
 
+    # ─── Share a Moment — Mission Control moderation ────────────────
+    # These endpoints power `/admin/moments`. They mirror the raw
+    # /api/admin/moments routes in server.py but use the CMS admin
+    # JWT so the frontend admin only carries one credential. Kept in
+    # this module (not in server.py) because the CMS shell drives the
+    # UI — same pattern as the CRM & Campaigns endpoints above.
+    _MOMENT_ADMIN_FILTERS = {"all", "featured", "hidden", "reported"}
+
+    def _moment_row(m: dict) -> dict:
+        """Shape a moment doc for the Mission Control moments table.
+        Includes fields the public /api/moments never returns
+        (reports list, hidden flag) so moderators can act with full
+        context."""
+        return {
+            "id":              m.get("id"),
+            "caption":         m.get("caption", ""),
+            "photos":          list(m.get("photos") or []),
+            "privacy":         m.get("privacy", "everyone"),
+            "author_id":       m.get("author_id", ""),
+            "author_name":     m.get("author_name", ""),
+            "author_avatar":   m.get("author_avatar", "👤"),
+            "created_at":      m.get("created_at"),
+            "featured":        bool(m.get("featured")),
+            "featured_at":     m.get("featured_at"),
+            "hidden":          bool(m.get("hidden")),
+            "hidden_at":       m.get("hidden_at"),
+            "likes_count":     len(m.get("likes") or []),
+            "comments_count":  len(m.get("comments") or []),
+            "reports_count":   len(m.get("reports") or []),
+            "reports":         list(m.get("reports") or []),
+        }
+
+    @router.get("/moments")
+    async def cms_moments_list(
+        q: Optional[str] = None,
+        filter: str = "all",
+        limit: int = 100,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        query: Dict[str, Any] = {}
+        f = (filter or "all").lower()
+        if f not in _MOMENT_ADMIN_FILTERS:
+            f = "all"
+        if f == "featured":
+            query["featured"] = True
+        elif f == "hidden":
+            query["hidden"] = True
+        elif f == "reported":
+            query["reports.0"] = {"$exists": True}
+        if q and q.strip():
+            import re as _re
+            safe = _re.escape(q.strip())
+            rx = {"$regex": safe, "$options": "i"}
+            query["$or"] = [{"caption": rx}, {"author_name": rx}]
+        limit = max(1, min(int(limit or 100), 500))
+        rows = await db.moments.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+        featured = await db.moments.find_one({"featured": True}, {"_id": 0, "id": 1})
+        # Aggregate quick counters so the header can show
+        # "3 featured · 12 reported · 148 total".
+        total = await db.moments.count_documents({})
+        reported = await db.moments.count_documents({"reports.0": {"$exists": True}})
+        hidden = await db.moments.count_documents({"hidden": True})
+        return {
+            "count":    len(rows),
+            "total":    total,
+            "reported": reported,
+            "hidden":   hidden,
+            "featured_id": (featured or {}).get("id"),
+            "rows":     [_moment_row(r) for r in rows],
+        }
+
+    @router.get("/moments/{moment_id}")
+    async def cms_moments_get(
+        moment_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        m = await db.moments.find_one({"id": moment_id}, {"_id": 0})
+        if not m:
+            raise HTTPException(404, "Moment not found")
+        out = _moment_row(m)
+        out["comments"] = list(m.get("comments") or [])
+        return out
+
+    @router.post("/moments/{moment_id}/action")
+    async def cms_moments_action(
+        moment_id: str,
+        payload: Dict[str, Any],
+        admin: dict = Depends(current_cms_admin),
+    ):
+        from datetime import datetime, timezone
+        action = str(payload.get("action") or "").lower()
+        m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "id": 1})
+        if not m:
+            raise HTTPException(404, "Moment not found")
+        now = datetime.now(timezone.utc).isoformat()
+        if action == "feature":
+            # One Moment of the Week at a time — unfeature others.
+            await db.moments.update_many({"featured": True}, {"$set": {"featured": False}})
+            await db.moments.update_one(
+                {"id": moment_id},
+                {"$set": {"featured": True, "hidden": False, "featured_at": now,
+                          "featured_by": admin.get("email")}},
+            )
+        elif action == "unfeature":
+            await db.moments.update_one({"id": moment_id}, {"$set": {"featured": False}})
+        elif action == "hide":
+            await db.moments.update_one(
+                {"id": moment_id},
+                {"$set": {"hidden": True, "featured": False, "hidden_at": now,
+                          "hidden_by": admin.get("email")}},
+            )
+        elif action == "restore":
+            await db.moments.update_one({"id": moment_id}, {"$set": {"hidden": False}})
+        elif action == "clear_reports":
+            await db.moments.update_one({"id": moment_id}, {"$set": {"reports": []}})
+        else:
+            raise HTTPException(400, "Unknown action")
+        return {"ok": True, "action": action}
+
+    @router.delete("/moments/{moment_id}")
+    async def cms_moments_delete(
+        moment_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "id": 1})
+        if not m:
+            raise HTTPException(404, "Moment not found")
+        await db.moments.delete_one({"id": moment_id})
+        return {"ok": True}
+
+
     # ─── CRM CSV export (2D) ────────────────────────────────────────
     @router.get("/crm/founding-members.csv")
     async def crm_founding_members_csv(

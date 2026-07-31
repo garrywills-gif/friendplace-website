@@ -590,6 +590,38 @@ export const api = {
     req(`/recipes/${id}/comments/${cid}?user_id=${user_id}`, { method: "DELETE" }),
   toggleRecipeLike: (id: string, user_id: string) =>
     req(`/recipes/${id}/like`, { method: "POST", body: JSON.stringify({ user_id }) }),
+
+  // Share a Moment — replaces Recipes as the everyday-sharing feature.
+  // The public feed supports two scopes ("everyone" and "friends") and
+  // an optional keyword filter. Featured is a small dedicated endpoint
+  // so Home can render the Moment of the Week banner in one round trip.
+  listMoments: (opts: { viewer_id?: string; scope?: "everyone" | "friends"; q?: string; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.viewer_id) params.set("viewer_id", opts.viewer_id);
+    if (opts.scope) params.set("scope", opts.scope);
+    if (opts.q) params.set("q", opts.q);
+    if (opts.limit) params.set("limit", String(opts.limit));
+    const qs = params.toString();
+    return req(`/moments${qs ? `?${qs}` : ""}`);
+  },
+  getFeaturedMoment: (viewer_id?: string) =>
+    req(`/moments/featured${viewer_id ? `?viewer_id=${viewer_id}` : ""}`),
+  getMoment: (id: string, viewer_id?: string) =>
+    req(`/moments/${id}${viewer_id ? `?viewer_id=${viewer_id}` : ""}`),
+  createMoment: (body: { user_id: string; caption?: string; photos?: string[]; privacy?: "everyone" | "friends" }) =>
+    req(`/moments`, { method: "POST", body: JSON.stringify(body) }),
+  updateMoment: (id: string, body: { user_id: string; caption?: string; photos?: string[]; privacy?: "everyone" | "friends" }) =>
+    req(`/moments/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteMoment: (id: string, user_id: string) =>
+    req(`/moments/${id}?user_id=${user_id}`, { method: "DELETE" }),
+  toggleMomentLike: (id: string, user_id: string) =>
+    req(`/moments/${id}/like`, { method: "POST", body: JSON.stringify({ user_id }) }),
+  addMomentComment: (id: string, user_id: string, body: string) =>
+    req(`/moments/${id}/comments`, { method: "POST", body: JSON.stringify({ user_id, body }) }),
+  deleteMomentComment: (id: string, cid: string, user_id: string) =>
+    req(`/moments/${id}/comments/${cid}?user_id=${user_id}`, { method: "DELETE" }),
+  reportMoment: (id: string, body: { user_id: string; reason: "inappropriate" | "spam" | "not_respectful" | "other"; details?: string }) =>
+    req(`/moments/${id}/report`, { method: "POST", body: JSON.stringify(body) }),
 };
 
 export function wsUrl(path: string): string {

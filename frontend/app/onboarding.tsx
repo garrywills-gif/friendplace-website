@@ -9,8 +9,8 @@
  * card on the /profile tab.
  *
  * Steps:
- *   0  Welcome — full feature showcase (FP Café, Find Friends,
- *      Groups, Events, Recipes, Games, Notice Board, Founders Wall).
+ *   0  Welcome — full feature showcase (Share a Moment, FP Café,
+ *      Find Friends, Groups, Events, Games, Notice Board, Founders Wall).
  *      Uses the teal butterfly logo, older-audience-friendly type.
  *   1  Accessibility — Large text, Speak Instead of Type, and Listen
  *      Instead of Read (all three shipped and available today).
@@ -56,14 +56,14 @@ const BUTTERFLY_LOGO = require("../assets/brand/friendplace-app-icon-v5.png");
 // rendered any more; the George-narrated tour below replaces it.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const FEATURES: { emoji: string; title: string; body: string }[] = [
-  { emoji: "☕", title: "FP Café",         body: "Drop into live conversations and chat with friendly faces anytime." },
-  { emoji: "🤝", title: "Find Friends",          body: "Browse member profiles and connect with people who share your interests." },
-  { emoji: "👥", title: "Friendship Groups",     body: "Join groups based on your interests and meet like-minded people." },
-  { emoji: "📅", title: "Local Events",          body: "Discover walks, lunches, meet-ups and community events near you." },
-  { emoji: "🍲", title: "Recipes",               body: "Share your favourite recipes and discover new ones from other members." },
-  { emoji: "🧩", title: "Games Hub",             body: "Enjoy bingo, crosswords, solitaire, puzzles and more." },
+  { emoji: "✨", title: "Share a Moment",       body: "Share a photo or a short story about something that made you smile today." },
+  { emoji: "☕", title: "FP Café",              body: "Drop into live conversations and chat with friendly faces anytime." },
+  { emoji: "🤝", title: "Find Friends",         body: "Browse member profiles and connect with people who share your interests." },
+  { emoji: "👥", title: "Friendship Groups",    body: "Join groups based on your interests and meet like-minded people." },
+  { emoji: "📅", title: "Local Events",         body: "Discover walks, lunches, meet-ups and community events near you." },
+  { emoji: "🧩", title: "Games Hub",            body: "Enjoy bingo, crosswords, solitaire, puzzles and more." },
   { emoji: "📌", title: "Community Notice Board", body: "Buy, sell, give away items, ask for help or share community news." },
-  { emoji: "🦋", title: "Founders Wall",         body: "Celebrate our founding members — and become one while places remain." },
+  { emoji: "🦋", title: "Founders Wall",        body: "Celebrate our founding members — and become one while places remain." },
 ];
 
 // George-narrated feature tour (Garry, 23 July 2026). Six pages,

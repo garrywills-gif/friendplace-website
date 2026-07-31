@@ -10,7 +10,7 @@
  *      any screen restores this exact session.
  *   2. `currentScreen`   — a short canonical key ("home", "lounge",
  *      "friends", "events", "groups", "notices", "games", "profile",
- *      "chats", "recipes", "help", "settings", "notifications",
+ *      "chats", "moments", "help", "settings", "notifications",
  *      "founders", "onboarding", "auth", "landing") derived from the
  *      current expo-router pathname. Sent to the backend on every turn
  *      so George quietly knows where the member is.
@@ -37,7 +37,7 @@ import { usePathname } from 'expo-router';
  * `services/george/event_creation/service.py`. */
 export type GeorgeScreenKey =
   | 'home' | 'chats' | 'friends' | 'lounge' | 'profile'
-  | 'games' | 'groups' | 'notices' | 'events' | 'recipes'
+  | 'games' | 'groups' | 'notices' | 'events' | 'moments'
   | 'founders' | 'help' | 'notifications' | 'settings'
   | 'onboarding' | 'auth' | 'landing' | 'unknown';
 
@@ -61,12 +61,17 @@ export function pathnameToScreenKey(pathname: string | null | undefined): George
     home: 'home', chats: 'chats', friends: 'friends',
     lounge: 'lounge', profile: 'profile', games: 'games',
     groups: 'groups', notices: 'notices', events: 'events',
-    recipes: 'recipes', founders: 'founders', help: 'help',
+    moments: 'moments', founders: 'founders', help: 'help',
     notifications: 'notifications', settings: 'settings',
     onboarding: 'onboarding', auth: 'auth', waitlist: 'landing',
     messages: 'chats', 'edit-profile': 'profile',
     group: 'groups', event: 'events', notice: 'notices',
     user: 'friends',
+    // Recipes has been retired for members (superseded by Share a
+    // Moment). If someone lands on /recipes via a deep link we still
+    // want George to appear as if they're on Moments — the redirect
+    // in app/recipes/index.tsx sends them there anyway.
+    recipes: 'moments',
   };
   return known[first] ?? 'unknown';
 }

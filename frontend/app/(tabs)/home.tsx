@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions, Image } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,7 +18,16 @@ import { GeorgeRemembersBanner } from "@/src/components/george/GeorgeRemembersBa
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-type Tile = { key: string; title: string; icon: keyof typeof Ionicons.glyphMap; route: string; bg: string; full?: boolean };
+type Tile = {
+  key: string;
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  route: string;
+  bg: string;
+  ink: string;
+  sub?: string;      // secondary line under the title (2x3 tiles only)
+  full?: boolean;    // hero tile (FP Café) — spans full width
+};
 
 export default function Home() {
   const router = useRouter();
@@ -38,6 +47,10 @@ export default function Home() {
   // status fetch returns so the card stays hidden during the brief boot
   // window rather than flickering empty state.
   const [founderStatus, setFounderStatus] = useState<{ taken: number; cap: number; remaining: number; open: boolean } | null>(null);
+  // Moment of the Week — populated from /api/moments/featured. Home
+  // celebrates that member's moment with a small banner just above the
+  // tile grid; the feed itself still shows a "Featured" badge in place.
+  const [featuredMoment, setFeaturedMoment] = useState<any>(null);
   // Butterfly Points details modal — previously the whole tile did a hard
   // navigation to /profile, which made the Home screen "close" behind the
   // user with no context. Now the tile opens an inline modal that shows
@@ -202,6 +215,12 @@ export default function Home() {
       setInvitedCount(Number(s?.count) || 0);
     } catch {}
     try { setFounderStatus(await api.founderStatus()); } catch {}
+    // Moment of the Week — silent fetch. Absence returns `moment: null`,
+    // in which case the banner just doesn't render (no error state).
+    try {
+      const r: any = await api.getFeaturedMoment(user?.id);
+      setFeaturedMoment(r?.moment || null);
+    } catch {}
   };
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
 
@@ -265,14 +284,19 @@ export default function Home() {
   };
 
   const tiles: Tile[] = [
-    { key: "lounge", title: "FP Café", icon: "cafe", route: "/lounge", bg: "#0F766E", full: true },
-    { key: "friends", title: "Find Friends", icon: "people", route: "/friends", bg: "#0369A1" },
-    { key: "events", title: "Local Events", icon: "calendar", route: "/events", bg: "#0EA5E9" },
-    { key: "recipes", title: "Post Your Recipe", icon: "restaurant", route: "/recipes", bg: "#B45309" },
-    { key: "groups", title: "Community Groups", icon: "earth", route: "/groups", bg: "#14B8A6" },
-    { key: "notices", title: "Notice Board", icon: "newspaper", route: "/notices", bg: "#0891B2" },
-    { key: "games", title: "Games", icon: "game-controller", route: "/games", bg: "#0284C7" },
-    { key: "profile", title: "My Profile", icon: "person-circle", route: "/profile", bg: "#475569" },
+    // Standard 2×3 grid — pastel backgrounds, dark ink text, short
+    // taglines. FP Café now sits at the top of the grid (still important
+    // — just no longer the hero, since it depends on members being
+    // online at the same time). Locked with Garry 31 July 2026.
+    { key: "lounge",  title: "FP Café",           icon: "cafe",            route: "/lounge",   bg: "#DFF2ED", ink: "#0F766E", sub: "Pull up a chair & join a chat" },
+    { key: "friends", title: "Find Friends",       icon: "people",          route: "/friends",  bg: "#E0EAFB", ink: "#1E3A8A", sub: "Connect with people like you" },
+    { key: "events",  title: "Local Events",       icon: "calendar",        route: "/events",   bg: "#EDE4FA", ink: "#5B21B6", sub: "See what's happening near you" },
+    { key: "notices", title: "Notice Board",       icon: "newspaper",       route: "/notices",  bg: "#DBEEF3", ink: "#0E7490", sub: "Community updates and helpful info" },
+    { key: "games",   title: "Games",              icon: "game-controller", route: "/games",    bg: "#DBE7FB", ink: "#1D4ED8", sub: "Fun games to enjoy on your own or with friends" },
+    { key: "groups",  title: "Community Groups",   icon: "earth",           route: "/groups",   bg: "#D8F1E8", ink: "#065F46", sub: "Join groups that match your interests" },
+
+    // Profile row card (last item — full width, slimmer).
+    { key: "profile", title: "My Profile",         icon: "person-circle",   route: "/profile",  bg: "#EEF1F6", ink: "#334155", sub: "Your profile, settings and preferences", full: true },
   ];
 
   return (
@@ -569,22 +593,165 @@ export default function Home() {
           </View>
         ) : null}
 
-        <View style={styles.grid}>
-          {tiles.map((t) => (
+        {/* --- HERO: Share a Moment -------------------------------------
+            Locked with Garry 31 July 2026 as the primary feature of
+            the Home screen. "What's your moment today?" is a signature
+            FriendPlace phrase — every member has moments worth sharing
+            (a coffee, a walk, a flowering orchid, the grandkids),
+            and this hero makes the ask feel warm and everyday, not
+            performative. The whole card taps through to the feed; the
+            inline CTA jumps straight into the composer. */}
+        <View style={styles.momentHero}>
+          <View style={styles.momentHeroInner}>
+            <View style={styles.momentHeroHead}>
+              <Text style={styles.momentHeroBadge}>✨ SHARE A MOMENT</Text>
+              <Ionicons name="camera" size={22} color="#78350F" />
+            </View>
             <Pressable
-              key={t.key}
-              testID={`tile-${t.key}`}
-              onPress={() => goTo(t.route)}
-              style={({ pressed }) => [
-                styles.tile,
-                { backgroundColor: t.bg, width: t.full ? "100%" : "48%", minHeight: t.full ? 130 : 150, opacity: pressed ? 0.85 : 1 },
-              ]}
+              testID="home-moment-hero-feed"
+              onPress={() => goTo("/moments")}
+              accessibilityLabel="Open Share a Moment"
+              style={{ marginTop: 8 }}
             >
-              <Ionicons name={t.icon} size={t.full ? 48 : 40} color="#FFFFFF" />
-              <Text style={[styles.tileTitle, { fontSize: (t.full ? 24 : 20) * scale }]}>{t.title}</Text>
-              {t.full && <Text style={[styles.tileSub, { fontSize: 14 * scale }]}>Pull up a chair & join a chat</Text>}
+              <Text style={[styles.momentHeroTitle, { fontSize: 26 * scale }]}>
+                What&apos;s your moment today?
+              </Text>
+              <Text style={[styles.momentHeroSub, { fontSize: 14 * scale }]}>
+                Share a photo or story about something that made you smile today.
+              </Text>
             </Pressable>
-          ))}
+
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 14, alignItems: "center" }}>
+              <Pressable
+                testID="home-moment-hero-share"
+                onPress={() => goTo("/moments/new")}
+                accessibilityLabel="Share a Moment"
+                style={({ pressed }) => [
+                  styles.momentHeroCta,
+                  { opacity: pressed ? 0.9 : 1 },
+                ]}
+              >
+                <Ionicons name="add" size={18} color="#FFFFFF" />
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 * scale, marginLeft: 6 }}>
+                  Share a Moment
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="home-moment-hero-see-all"
+                onPress={() => goTo("/moments")}
+                accessibilityLabel="See all moments"
+                style={styles.momentHeroSecondary}
+              >
+                <Text style={{ color: "#78350F", fontWeight: "800", fontSize: 14 * scale }}>See moments</Text>
+                <Ionicons name="chevron-forward" size={16} color="#78350F" />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+
+        {/* Moment of the Week — sits right under the hero as social proof
+            and inspiration: "look what one of your neighbours shared this
+            week". Hidden when no moment is currently featured. */}
+        {featuredMoment ? (
+          <Pressable
+            testID="home-moment-of-the-week"
+            onPress={() => router.push(`/moments/${featuredMoment.id}` as any)}
+            accessibilityLabel={`Moment of the Week by ${featuredMoment.author_name}`}
+            style={({ pressed }) => [
+              styles.momentBanner,
+              { opacity: pressed ? 0.9 : 1 },
+            ]}
+          >
+            <View style={styles.momentBannerHead}>
+              <Text style={styles.momentBannerBadge}>✨ MOMENT OF THE WEEK</Text>
+              <Ionicons name="chevron-forward" size={18} color="#92400E" />
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginTop: 10 }}>
+              {featuredMoment.photos && featuredMoment.photos[0] ? (
+                <View style={{ width: 72, height: 72, borderRadius: 14, overflow: "hidden", backgroundColor: "#FEF3C7" }}>
+                  <Image source={{ uri: featuredMoment.photos[0] }} style={{ width: 72, height: 72 }} />
+                </View>
+              ) : (
+                <View style={{ alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: 14, backgroundColor: "#FEF3C7" }}>
+                  <Text style={{ fontSize: 28 }}>🦋</Text>
+                </View>
+              )}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text numberOfLines={1} style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale }}>
+                  {featuredMoment.author_name}
+                </Text>
+                <Text numberOfLines={3} style={{ color: "#3C2A06", fontWeight: "600", fontSize: 14 * scale, marginTop: 3, lineHeight: 19 }}>
+                  {featuredMoment.caption || "Shared a moment"}
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 6 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Ionicons name="heart" size={14} color="#B45309" />
+                    <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale }}>{featuredMoment.likes_count || 0}</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Ionicons name="chatbubble-ellipses" size={14} color="#B45309" />
+                    <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale }}>{featuredMoment.comments_count || 0}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        ) : null}
+
+        <View style={styles.grid}>
+          {tiles.map((t) => {
+            const isProfileRow = t.full && t.key === "profile";
+            const width = t.full ? "100%" : "48%";
+            const minHeight = isProfileRow ? 76 : 160;
+            const iconSize = isProfileRow ? 30 : 32;
+            return (
+              <Pressable
+                key={t.key}
+                testID={`tile-${t.key}`}
+                onPress={() => goTo(t.route)}
+                accessibilityLabel={t.title}
+                style={({ pressed }) => [
+                  styles.tile,
+                  {
+                    backgroundColor: t.bg,
+                    width,
+                    minHeight,
+                    opacity: pressed ? 0.88 : 1,
+                    flexDirection: isProfileRow ? "row" : "column",
+                    alignItems: isProfileRow ? "center" : "flex-start",
+                    justifyContent: isProfileRow ? "flex-start" : "space-between",
+                    gap: isProfileRow ? 12 : 8,
+                    padding: isProfileRow ? 16 : 18,
+                  },
+                ]}
+              >
+                <Ionicons name={t.icon} size={iconSize} color={t.ink} />
+                <View style={{ flex: isProfileRow ? 1 : undefined, minWidth: 0 }}>
+                  <Text
+                    style={[
+                      styles.tileTitle,
+                      { color: t.ink, fontSize: (isProfileRow ? 17 : 20) * scale },
+                    ]}
+                  >
+                    {t.title}
+                  </Text>
+                  {t.sub ? (
+                    <Text
+                      style={[
+                        styles.tileSub,
+                        { color: t.ink, opacity: 0.78, fontSize: 13 * scale, marginTop: 4 },
+                      ]}
+                    >
+                      {t.sub}
+                    </Text>
+                  ) : null}
+                </View>
+                {isProfileRow ? (
+                  <Ionicons name="chevron-forward" size={20} color={t.ink} />
+                ) : null}
+              </Pressable>
+            );
+          })}
         </View>
       </ScrollView>
 
@@ -736,9 +903,78 @@ const styles = StyleSheet.create({
   commRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   commEmoji: { fontSize: 22 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 4 },
-  tile: { borderRadius: 22, padding: 18, justifyContent: "space-between", gap: 8 },
-  tileTitle: { color: "#FFFFFF", fontWeight: "800", marginTop: "auto" },
-  tileSub: { color: "rgba(255,255,255,0.85)", fontWeight: "600" },
+  tile: { borderRadius: 22 },
+  tileTitle: { fontWeight: "900", letterSpacing: 0.2 },
+  tileSub: { fontWeight: "600", lineHeight: 18 },
+  // --- Share a Moment hero (Home primary feature) ------------------------
+  // Warm amber card with a slightly deeper amber panel inside. Kept
+  // graphic-free on purpose so the copy carries the emotion. Locked
+  // with Garry 31 July 2026.
+  momentHero: {
+    borderRadius: 26,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1.5,
+    borderColor: "#F59E0B",
+    padding: 4,
+    marginTop: 6,
+  },
+  momentHeroInner: {
+    borderRadius: 22,
+    backgroundColor: "#FEF9E4",
+    padding: 20,
+  },
+  momentHeroHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  momentHeroBadge: {
+    color: "#78350F",
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    fontSize: 12,
+  },
+  momentHeroTitle: {
+    color: "#78350F",
+    fontWeight: "900",
+    letterSpacing: 0.2,
+    lineHeight: 32,
+  },
+  momentHeroSub: {
+    color: "#92400E",
+    fontWeight: "600",
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  momentHeroCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#B45309",
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 999,
+  },
+  momentHeroSecondary: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  // Moment of the Week banner — celebratory amber card mirroring the
+  // Founders Wall card treatment, so both "look up on Home" pieces feel
+  // like one family.
+  momentBanner: {
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#F59E0B",
+    backgroundColor: "#FEF9E4",
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginTop: 4,
+  },
+  momentBannerHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  momentBannerBadge: { color: "#92400E", fontWeight: "900", letterSpacing: 0.8, fontSize: 12 },
+  momentThumbWrap: {},
   thoughtCard: { borderRadius: 20, padding: 16, borderWidth: 1.5, gap: 10, marginTop: 6 },
   thoughtHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   thoughtChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },

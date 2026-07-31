@@ -931,6 +931,79 @@ export const campaignsApi = {
     req<Campaign>('POST', `/cms/campaigns/${id}/unschedule`),
 };
 
+// ---------------------------------------------------------------------------
+// Share a Moment — Mission Control moderation
+// ---------------------------------------------------------------------------
+// The moments admin UI is intentionally lightweight: list, filter, feature
+// Moment of the Week, hide, restore, delete, view reports. Everything else
+// (edit caption, edit photos) is deliberately not exposed — moderators only
+// remove or promote, never rewrite what a member said.
+
+export type MomentReport = {
+  id: string;
+  user_id: string;
+  user_name: string;
+  reason: 'inappropriate' | 'spam' | 'not_respectful' | 'other';
+  details?: string;
+  created_at: string;
+};
+
+export type MomentComment = {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_avatar: string;
+  body: string;
+  created_at: string;
+};
+
+export type MomentRow = {
+  id: string;
+  caption: string;
+  photos: string[];
+  privacy: 'everyone' | 'friends';
+  author_id: string;
+  author_name: string;
+  author_avatar: string;
+  created_at: string;
+  featured: boolean;
+  featured_at?: string;
+  hidden: boolean;
+  hidden_at?: string;
+  likes_count: number;
+  comments_count: number;
+  reports_count: number;
+  reports: MomentReport[];
+};
+
+export type MomentDetail = MomentRow & { comments: MomentComment[] };
+
+export type MomentsListResponse = {
+  count: number;
+  total: number;
+  reported: number;
+  hidden: number;
+  featured_id?: string | null;
+  rows: MomentRow[];
+};
+
+export type MomentAdminAction = 'feature' | 'unfeature' | 'hide' | 'restore' | 'clear_reports';
+
+export const momentsApi = {
+  list: (opts: { q?: string; filter?: 'all' | 'featured' | 'hidden' | 'reported'; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q) p.set('q', opts.q);
+    if (opts.filter) p.set('filter', opts.filter);
+    if (opts.limit) p.set('limit', String(opts.limit));
+    const qs = p.toString();
+    return req<MomentsListResponse>('GET', `/cms/moments${qs ? `?${qs}` : ''}`);
+  },
+  get: (id: string) => req<MomentDetail>('GET', `/cms/moments/${id}`),
+  action: (id: string, action: MomentAdminAction) =>
+    req<{ ok: boolean; action: MomentAdminAction }>('POST', `/cms/moments/${id}/action`, { action }),
+  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/moments/${id}`),
+};
+
 // CSV export lives on the CRM URL for symmetry — this is a browser
 // download so we just build the URL and let the browser fetch it
 // with the standard auth header via a hidden fetch + blob dance.
