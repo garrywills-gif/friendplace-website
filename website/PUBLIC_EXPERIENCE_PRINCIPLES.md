@@ -45,6 +45,68 @@ this one wins.
 
 ---
 
+## No guilt. Ever.
+
+_Locked with Garry, 31 July 2026 — the day Share a Moment shipped._
+
+> **FriendPlace should always feel like walking into your favourite
+> local café. Whether you were here yesterday or three weeks ago,
+> the experience should simply say, "Lovely to see you."**
+
+This is a hard rule. It applies to every screen, every notification,
+every string of copy, every product decision, on both the app and
+the website.
+
+### What this rules OUT — never, anywhere, at any time
+
+- **No streaks.** Not for posting, not for logging in, not for
+  anything. Streaks weaponise inconsistency.
+- **No absence-shaming.** No "You haven't posted in 3 days." No
+  "It's been 2 weeks since your last visit." No "Your community
+  wonders where you are." No "You're falling behind."
+- **No re-engagement guilt-trips.** No push notifications that
+  mention how long it's been. No emails that say "we miss you"
+  as pressure — only ever as warmth without ask.
+- **No comparison to their own past behaviour.** We never remind
+  a member of their previous cadence. Their pace is theirs.
+- **No red decay dots on features they haven't used lately.**
+- **No "keep your profile up to date" prompts** unless a piece of
+  data is genuinely broken. Nudges toward completeness are guilt
+  in a suit.
+- **No progress bars that go backwards.** No "your kindness score
+  is dropping." Butterfly Points celebrate — they never punish.
+- **No "you'd get more out of FriendPlace if you posted more"**
+  copy anywhere. Ever.
+
+### What this rules IN
+
+- **Warm hellos regardless of absence.** Yesterday and three weeks
+  ago earn the same "Lovely to see you."
+- **Silent catch-up.** If they were away, the app fills them in
+  quietly — new moments to enjoy, birthdays coming up — never
+  framed as "look what you missed."
+- **Presence celebrated, absence invisible.** We notice when
+  members show up. We never notice when they don't.
+- **Every empty state is an invitation, never a scoreboard.**
+  ("Be the first to leave a warm word" — yes. "You haven't
+  commented in 5 days" — never.)
+- **George's tone is unconditional.** He is as pleased to see a
+  member on their tenth visit as on their tenth month. He never
+  compares.
+
+### The test
+
+Before shipping any copy, notification, banner, streak, badge,
+progress indicator or re-engagement mechanism, ask:
+
+> **Would this feel welcoming to someone who's been away for a
+> month and just walked back in the door?**
+
+If the honest answer is "not quite" — or if the mechanism only
+makes sense when the member is present regularly — cut it.
+
+---
+
 ## The North Star
 
 Before every feature, every page and every design decision, ask:
