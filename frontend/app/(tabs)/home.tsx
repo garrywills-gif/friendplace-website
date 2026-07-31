@@ -666,6 +666,12 @@ export default function Home() {
               <Text style={styles.momentBannerBadge}>✨ MOMENT OF THE WEEK</Text>
               <Ionicons name="chevron-forward" size={18} color="#92400E" />
             </View>
+            {/* MotW subtitle — never "most liked" or "trending" (locked
+                with Garry 31 July 2026). This is a hand-picked
+                celebration, not an algorithmic feed. */}
+            <Text style={{ color: "#78350F", fontSize: 12 * scale, fontWeight: "700", marginTop: 4, opacity: 0.85, fontStyle: "italic" }}>
+              🌟 Chosen by the FriendPlace team because it made us smile.
+            </Text>
             <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginTop: 10 }}>
               {featuredMoment.photos && featuredMoment.photos[0] ? (
                 <View style={{ width: 72, height: 72, borderRadius: 14, overflow: "hidden", backgroundColor: "#FEF3C7" }}>
@@ -677,8 +683,11 @@ export default function Home() {
                 </View>
               )}
               <View style={{ flex: 1, minWidth: 0 }}>
+                {/* Author line: their avatar emoji then their display
+                    name — warm, no "Author" label (Garry 31 Jul 2026).
+                    "🌺 Margaret" rather than "Author\nMargaret". */}
                 <Text numberOfLines={1} style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale }}>
-                  {featuredMoment.author_name}
+                  {featuredMoment.author_avatar || "🦋"}  {featuredMoment.author_name || "A member"}
                 </Text>
                 <Text numberOfLines={3} style={{ color: "#3C2A06", fontWeight: "600", fontSize: 14 * scale, marginTop: 3, lineHeight: 19 }}>
                   {featuredMoment.caption || "Shared a moment"}

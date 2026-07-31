@@ -639,19 +639,23 @@ const styles = StyleSheet.create({
     width: Math.min(280, SCREEN_W - 100),
   },
   bubble: {
-    backgroundColor: '#CCFBF1',
+    // Matched to the website's George bubble (Garry, 31 July 2026) —
+    // white card, subtle teal border, soft teal-tinted shadow. The
+    // app was previously a saturated `#CCFBF1` wash which felt
+    // heavier than the website's warm, quiet treatment.
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#5EEAD4',
+    borderColor: '#CCFBF1',
     borderRadius: 16,
     padding: 12,
     ...Platform.select({
       ios: {
-        shadowColor: '#0F172A',
-        shadowOpacity: 0.12,
-        shadowRadius: 8,
-        shadowOffset: { width: 0, height: 4 },
+        shadowColor: '#14B8A6',
+        shadowOpacity: 0.18,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 8 },
       },
-      android: { elevation: 3 },
+      android: { elevation: 4 },
     }),
   },
   bubbleTail: {
@@ -659,9 +663,10 @@ const styles = StyleSheet.create({
     right: -6,
     bottom: 14,
     width: 12, height: 12,
-    backgroundColor: '#CCFBF1',
-    borderTopWidth: 1, borderTopColor: '#5EEAD4',
-    borderRightWidth: 1, borderRightColor: '#5EEAD4',
+    // White tail with a light-teal outline to match the bubble edge.
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1, borderTopColor: '#CCFBF1',
+    borderRightWidth: 1, borderRightColor: '#CCFBF1',
     transform: [{ rotate: '45deg' }],
   },
   bubbleText: {

@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import random
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
@@ -1129,6 +1130,10 @@ OUTPUT FORMAT (strict JSON, no code fences):
     "key": "home | chats | friends | lounge | profile | games | groups | notices | events | moments | founders | help | notifications | settings",
     "label": "the button label, e.g. 'Take me to Games'"
   },
+  "share_moment_suggestion": {
+    "text": "the caption you would suggest, in the member's voice, ready to post to Share a Moment (max 500 chars, no quotes)",
+    "label": "the button label, always something like '🦋 Share this as a Moment'"
+  },
   "accept_defaults": [
     { "field": "time", "value": "10:00", "source": "your previous events usually run at 10am" }
   ],
@@ -1171,6 +1176,31 @@ would genuinely help. Rules:
   is X?", skip navigate_to — they're asking a question, not asking
   for a route.
 - Omit `navigate_to` entirely if none of the above applies.
+
+SHARE_MOMENT_SUGGESTION USAGE (locked with Garry, 31 July 2026).
+When a member describes something worth sharing in the flow of a
+casual conversation — restoring their Holden, their orchid flowering,
+the grandkids visiting, a beautiful sunset — you MAY offer a
+one-tap "Share this as a Moment" button. Behaviour:
+- Include a `share_moment_suggestion` object ONLY when you've just
+  acknowledged something warm they've done or seen. Congratulate
+  or affirm first (in `message`), then offer the chip.
+- `text` MUST be a warm, first-person caption the MEMBER would
+  actually post — 1 to 3 sentences, 500 chars max, plain text, no
+  hashtags, no quotation marks. Example: "Finished restoring my
+  Holden today. She's a beauty."
+- The `label` is always "🦋 Share this as a Moment" (or a very
+  close variant).
+- NEVER on sensitive-topic, bereavement, or emergency turns.
+- NEVER when the member is upset, tired or clearly not in a sharing
+  mood. Sit with them instead.
+- NEVER more than once per conversation. If they decline or move
+  on, DROP it — do not re-offer.
+- NEVER combine with `navigate_to: moments` in the same turn — this
+  chip already opens the composer. Choose one or the other.
+- The `message` must still include the warm acknowledgement in
+  plain English. The chip is a helper, not a replacement for words.
+- Omit the field entirely when it doesn't apply.
 """
 
 
@@ -1352,6 +1382,14 @@ async def start_event_conversation(
 
     suggestion = _clean_suggestion(composed.get("suggestion"))
     navigate_to = _clean_navigate_to(composed.get("navigate_to"))
+    # George may offer a one-tap "🦋 Share this as a Moment" chip
+    # when a member describes something worth sharing (Garry, 31 Jul
+    # 2026). Sanitize and defensively drop it if he also proposed
+    # a `navigate_to: moments` — the share chip already opens the
+    # composer.
+    share_moment = _clean_share_moment_suggestion(composed.get("share_moment_suggestion"))
+    if share_moment and navigate_to and navigate_to.get("key") == "moments":
+        navigate_to = None
 
     turns.append({
         "role": "george",
@@ -1364,6 +1402,7 @@ async def start_event_conversation(
         "suggestion": suggestion,
         "description_written": bool(composed.get("description_written")),
         "navigate_to": navigate_to,
+        "share_moment_suggestion": share_moment,
     })
 
     doc = {
@@ -1490,6 +1529,43 @@ def _clean_navigate_to(raw: Any) -> Optional[dict]:
     if len(label) > 40:
         label = _NAVIGATE_DEFAULT_LABELS[key]
     return {"key": key, "label": label}
+
+
+def _clean_share_moment_suggestion(raw: Any) -> Optional[dict]:
+    """Return a canonicalised `share_moment_suggestion` hint or None.
+
+    George can attach a one-tap "🦋 Share this as a Moment" chip to
+    a turn where he's just acknowledged something a member did or
+    saw that would make a lovely Moment (Garry, 31 Jul 2026).
+
+    We enforce:
+      • `text` present, non-empty, ≤ 500 chars (server-side clamp
+        matches the client-side caption limit).
+      • strip surrounding quotes the model sometimes wraps around
+        the caption (LLM tic).
+      • drop hashtags — Share a Moment is not social media.
+      • `label` defaults to "🦋 Share this as a Moment" if missing
+        or too long.
+    """
+    if not isinstance(raw, dict):
+        return None
+    text = str(raw.get("text") or "").strip()
+    if not text:
+        return None
+    # Strip wrapping quotes ("…" or '…') that the model tends to add.
+    if len(text) >= 2 and text[0] in {'"', "'", "“", "‘"} and text[-1] in {'"', "'", "”", "’"}:
+        text = text[1:-1].strip()
+    # Strip hashtags — FriendPlace culture, not Instagram.
+    text = re.sub(r"#\S+", "", text).strip()
+    if not text:
+        return None
+    if len(text) > 500:
+        text = text[:497].rstrip() + "…"
+    default_label = "🦋 Share this as a Moment"
+    label = str(raw.get("label") or "").strip() or default_label
+    if len(label) > 40:
+        label = default_label
+    return {"text": text, "label": label}
 
 
 # Words / patterns that reveal the member is only opening the door — not
@@ -1842,6 +1918,9 @@ async def take_conversation_turn(
     if not already_offered:
         new_suggestion = _clean_suggestion(composed.get("suggestion"))
     navigate_to = _clean_navigate_to(composed.get("navigate_to"))
+    share_moment = _clean_share_moment_suggestion(composed.get("share_moment_suggestion"))
+    if share_moment and navigate_to and navigate_to.get("key") == "moments":
+        navigate_to = None
 
     turns.append({
         "role": "george",
@@ -1854,6 +1933,7 @@ async def take_conversation_turn(
         "suggestion": new_suggestion,
         "description_written": bool(composed.get("description_written")),
         "navigate_to": navigate_to,
+        "share_moment_suggestion": share_moment,
     })
 
     status = "drafted" if composed.get("state") == "ready_to_draft" else "in_progress"

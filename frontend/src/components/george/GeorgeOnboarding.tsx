@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
-  ActivityIndicator,
+  ActivityIndicator, Platform,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -381,9 +381,20 @@ const styles = StyleSheet.create({
   bubbleRowRight: { justifyContent: 'flex-end' },
   avatarSlot: { width: 32, height: 32, marginRight: 8, marginBottom: 4, alignItems: 'center', justifyContent: 'center' },
   bubble: {
-    maxWidth: 300, backgroundColor: '#CCFBF1',
-    borderColor: '#5EEAD4', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
+    // Matched to the website's George bubble (Garry, 31 July 2026):
+    // white + subtle teal border + soft teal glow.
+    maxWidth: 300, backgroundColor: '#FFFFFF',
+    borderColor: '#CCFBF1', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#14B8A6',
+        shadowOpacity: 0.14,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 6 },
+      },
+      android: { elevation: 3 },
+    }),
   },
   bubbleText: { fontSize: 15, color: '#0F172A', lineHeight: 22 },
   userBubble: {

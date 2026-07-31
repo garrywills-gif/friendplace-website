@@ -91,6 +91,11 @@ export interface EventTurn {
   welcome_back?: boolean;
   /** C1 Slice 2 — Deep-link chip. See `/app/frontend/src/lib/george-nav-map.ts`. */
   navigate_to?: { key: string; label: string } | null;
+  /** Locked with Garry 31 July 2026 — George's one-tap
+   *  "🦋 Share this as a Moment" chip. When present, the client
+   *  renders a special chip that opens `/moments/new?draft=<text>`
+   *  with the caption George suggested pre-filled. */
+  share_moment_suggestion?: { text: string; label: string } | null;
   /** B6 Session 2 — Conversational event editing. When present, this
    * George turn was produced by the edit flow and the UI should render
    * an EventChangeSummaryCard beneath the bubble. */

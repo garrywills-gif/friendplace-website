@@ -17,6 +17,7 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { useToast } from "@/src/lib/toast";
 import SpeakButton from "@/src/components/SpeakButton";
+import ButterflyFlutter from "@/src/components/ButterflyFlutter";
 
 /**
  * Share a Moment — feed screen.
@@ -41,6 +42,10 @@ export default function MomentsScreen() {
   const [featured, setFeatured] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // Per-card flutter key — bumped when the user likes a specific card.
+  // Keyed by moment.id so a like on one card doesn't fire the animation
+  // on all the others.
+  const [flutter, setFlutter] = useState<Record<string, number>>({});
 
   const load = useCallback(
     async (silent = false) => {
@@ -75,6 +80,7 @@ export default function MomentsScreen() {
 
   const toggleLike = async (m: any) => {
     if (!user) return;
+    const wasLiked = !!m.liked_by_me;
     try {
       const r: any = await api.toggleMomentLike(m.id, user.id);
       setMoments((arr) =>
@@ -84,6 +90,9 @@ export default function MomentsScreen() {
             : x,
         ),
       );
+      if (!wasLiked && r.liked) {
+        setFlutter((prev) => ({ ...prev, [m.id]: (prev[m.id] || 0) + 1 }));
+      }
     } catch (e: any) {
       show(e?.message || "Couldn't update like.");
     }
@@ -292,16 +301,17 @@ export default function MomentsScreen() {
 
                 {/* Row 3: small photo preview (story-first, not photo-
                     first). A single ~90px thumb on the left; if there
-                    are more, a small "+N" chip nudges the reader to
-                    open the moment for the full gallery. */}
+                    are more, a small "📷 +N" chip nudges the reader
+                    to open the moment for the full gallery. Locked
+                    wording with Garry 31 July 2026. */}
                 {firstPhoto ? (
                   <View style={styles.thumbRow}>
                     <Image source={{ uri: firstPhoto }} style={styles.thumb} />
                     {extraPhotos > 0 ? (
                       <View style={styles.thumbMore}>
-                        <Ionicons name="images" size={12} color={c.muted} />
+                        <Ionicons name="camera" size={13} color={c.muted} />
                         <Text style={{ color: c.muted, fontWeight: "800", fontSize: 12 * scale, marginLeft: 4 }}>
-                          +{extraPhotos} more
+                          +{extraPhotos}
                         </Text>
                       </View>
                     ) : null}
@@ -318,11 +328,18 @@ export default function MomentsScreen() {
                     hitSlop={8}
                     style={styles.actionBtn}
                   >
-                    <Ionicons
-                      name={m.liked_by_me ? "heart" : "heart-outline"}
-                      size={20}
-                      color={m.liked_by_me ? "#EF4444" : c.muted}
-                    />
+                    <View style={{ position: "relative" }}>
+                      <Ionicons
+                        name={m.liked_by_me ? "heart" : "heart-outline"}
+                        size={20}
+                        color={m.liked_by_me ? "#EF4444" : c.muted}
+                      />
+                      <ButterflyFlutter
+                        trigger={flutter[m.id] || null}
+                        size={13}
+                        style={{ top: -2, left: 3, right: 0 }}
+                      />
+                    </View>
                     <Text style={{ color: c.muted, fontWeight: "700", marginLeft: 6, fontSize: 13 * scale }}>
                       {m.likes_count || 0}
                     </Text>

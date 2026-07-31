@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -10,8 +10,9 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from "react-native";
-import { useRouter, Stack } from "expo-router";
+import { useRouter, useLocalSearchParams, Stack } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -34,16 +35,42 @@ const MAX_PHOTOS = 6;
  */
 export default function NewMoment() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ draft?: string }>();
   const { c, scale } = useTheme();
   const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
 
-  const [caption, setCaption] = useState("");
+  // `?draft=` — pre-fills the composer with text George suggested (or
+  // any other pathway that wants to hand a caption to the composer).
+  // Locked with Garry 31 July 2026 as part of the George one-tap
+  // "Share this as a Moment" flow.
+  const initialDraft = useMemo(() => {
+    const raw = typeof params?.draft === "string" ? params.draft : "";
+    return raw ? raw.slice(0, CAPTION_LIMIT) : "";
+  }, [params?.draft]);
+
+  const [caption, setCaption] = useState(initialDraft);
   const [photos, setPhotos] = useState<string[]>([]);
   const [privacy, setPrivacy] = useState<"everyone" | "friends">("everyone");
   const [picking, setPicking] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Celebrate the member's FIRST-EVER Share a Moment. Once. Never again.
+  const [celebrateFirst, setCelebrateFirst] = useState<{ id: string } | null>(null);
+  // Gentle inspiration nudge if the caption has been empty for a
+  // little while and no photos yet (Garry, 31 Jul 2026 — "one tap to
+  // dismiss, no pressure").
+  const [showInspiration, setShowInspiration] = useState(false);
+  const [inspirationDismissed, setInspirationDismissed] = useState(false);
+
+  // 45-second nudge — only fires if the caption is still empty and
+  // no photos have been added, and only ONCE per composer visit.
+  useEffect(() => {
+    if (inspirationDismissed) return;
+    if (caption.trim().length > 0 || photos.length > 0) return;
+    const t = setTimeout(() => setShowInspiration(true), 45_000);
+    return () => clearTimeout(t);
+  }, [caption, photos.length, inspirationDismissed]);
 
   const remaining = CAPTION_LIMIT - caption.length;
   const canShare = (caption.trim().length > 0 || photos.length > 0) && !saving;
@@ -92,9 +119,15 @@ export default function NewMoment() {
         photos,
         privacy,
       });
-      show("Moment shared 🦋");
-      // Replace so back doesn't bounce them back into the composer.
-      router.replace(`/moments/${r.id}` as any);
+      // First-Moment celebration modal (Garry, 31 Jul 2026). Only when
+      // the server tells us this is the member's first-ever moment.
+      // From now on they see the usual "Moment shared" toast.
+      if (r?.first_moment) {
+        setCelebrateFirst({ id: r.id });
+      } else {
+        show("Moment shared 🦋");
+        router.replace(`/moments/${r.id}` as any);
+      }
     } catch (e: any) {
       show(e?.message || "Couldn't share your moment — please try again.");
     } finally {
@@ -268,6 +301,113 @@ export default function NewMoment() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* --- Gentle inspiration nudge (Garry, 31 Jul 2026) -------------
+          Appears if the composer has been open for 45s with no
+          caption and no photos yet. One tap to dismiss. Never nags
+          twice in the same visit. */}
+      {showInspiration && !inspirationDismissed ? (
+        <Pressable
+          onPress={() => { setShowInspiration(false); setInspirationDismissed(true); }}
+          style={styles.inspirationBackdrop}
+        >
+          <Pressable
+            onPress={(e: any) => e.stopPropagation && e.stopPropagation()}
+            style={[styles.inspirationCard, { backgroundColor: c.surface, borderColor: c.border }]}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <Text style={{ fontSize: 26 }}>🦋</Text>
+              <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>
+                Need some inspiration?
+              </Text>
+            </View>
+            <Text style={{ color: c.muted, fontSize: 14 * scale, lineHeight: 20 }}>
+              Your moment doesn&apos;t have to be anything big.
+            </Text>
+            <View style={{ marginTop: 10, gap: 6 }}>
+              {[
+                "🚶 A nice walk",
+                "☕ Coffee with a friend",
+                "🌺 A beautiful flower",
+                "🐶 Your pet",
+                "🍰 Something you cooked",
+                "🌅 A beautiful sunset",
+              ].map((t) => (
+                <Text key={t} style={{ color: c.onSurface, fontSize: 14 * scale, lineHeight: 22 }}>
+                  {t}
+                </Text>
+              ))}
+            </View>
+            <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 10, fontStyle: "italic", lineHeight: 18 }}>
+              Every little moment helps make FriendPlace feel like home.
+            </Text>
+            <Pressable
+              testID="inspiration-dismiss"
+              onPress={() => { setShowInspiration(false); setInspirationDismissed(true); }}
+              style={{ alignSelf: "center", marginTop: 14, paddingHorizontal: 20, paddingVertical: 8 }}
+            >
+              <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>Got it</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      ) : null}
+
+      {/* --- First-Moment celebration modal (Garry, 31 Jul 2026) -----
+          Only fires when this is the member's first-ever moment (the
+          server tells us via `first_moment: true`). Never again for
+          that member. Big warm George bubble, one button to open. */}
+      <Modal
+        visible={!!celebrateFirst}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (celebrateFirst) {
+            const id = celebrateFirst.id;
+            setCelebrateFirst(null);
+            router.replace(`/moments/${id}` as any);
+          }
+        }}
+      >
+        <View style={styles.inspirationBackdrop}>
+          <View style={[styles.celebrateCard, { backgroundColor: c.surface, borderColor: c.brand }]}>
+            <Text style={{ fontSize: 48, textAlign: "center" }}>🦋</Text>
+            <Text style={{
+              color: c.onSurface, fontWeight: "900", fontSize: 20 * scale,
+              textAlign: "center", marginTop: 8, letterSpacing: 0.2,
+            }}>
+              George says…
+            </Text>
+            <Text style={{
+              color: c.onSurface, fontSize: 16 * scale, lineHeight: 24,
+              textAlign: "center", marginTop: 14,
+            }}>
+              That&apos;s a wonderful first Share a Moment. Thanks for sharing a little piece of your day with the FriendPlace community.
+            </Text>
+            <Pressable
+              testID="celebrate-first-open"
+              onPress={() => {
+                if (celebrateFirst) {
+                  const id = celebrateFirst.id;
+                  setCelebrateFirst(null);
+                  router.replace(`/moments/${id}` as any);
+                }
+              }}
+              style={{
+                backgroundColor: c.brand,
+                paddingHorizontal: 22,
+                paddingVertical: 12,
+                borderRadius: 999,
+                alignSelf: "center",
+                marginTop: 22,
+              }}
+            >
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 * scale }}>
+                See my moment
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -368,5 +508,28 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 14,
     borderWidth: 1.5,
+  },
+  // Inspiration nudge + first-post celebration share the same
+  // scrim-style backdrop.
+  inspirationBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+  },
+  inspirationCard: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    padding: 20,
+  },
+  celebrateCard: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 26,
+    borderWidth: 2,
+    padding: 24,
   },
 });

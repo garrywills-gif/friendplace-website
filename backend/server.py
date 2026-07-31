@@ -8483,6 +8483,14 @@ async def create_moment(body: MomentBody):
     if privacy not in _MOMENT_PRIVACY_VALUES:
         privacy = "everyone"
 
+    # First-Moment detection — locked with Garry 31 July 2026. When
+    # this is the member's very first Share a Moment we return
+    # `first_moment: true` in the response so the client can show a
+    # one-off celebration from George ("That's a wonderful first
+    # Share a Moment…") — never again for the same member.
+    prior_count = await db.moments.count_documents({"author_id": body.user_id})
+    is_first_moment = prior_count == 0
+
     doc = {
         "id": nid(),
         "author_id": body.user_id,
@@ -8504,7 +8512,9 @@ async def create_moment(body: MomentBody):
         await award_points(body.user_id, 8, reason="moment_shared")
     except Exception:
         pass
-    return _moment_shape(doc, body.user_id)
+    out = _moment_shape(doc, body.user_id)
+    out["first_moment"] = is_first_moment
+    return out
 
 
 @api.patch("/moments/{moment_id}")
@@ -8568,7 +8578,10 @@ async def toggle_moment_like(moment_id: str, body: dict):
 
 @api.post("/moments/{moment_id}/comments")
 async def add_moment_comment(moment_id: str, body: MomentCommentBody):
-    m = await db.moments.find_one({"id": moment_id}, {"_id": 0, "id": 1, "author_id": 1, "hidden": 1, "privacy": 1})
+    m = await db.moments.find_one(
+        {"id": moment_id},
+        {"_id": 0, "id": 1, "author_id": 1, "hidden": 1, "privacy": 1, "comments": 1},
+    )
     if not m or m.get("hidden"):
         raise HTTPException(404, "Moment not found")
     author = await db.users.find_one({"id": body.user_id}, {"_id": 0, "first_name": 1, "username": 1, "avatar": 1, "banned": 1})
@@ -8581,6 +8594,11 @@ async def add_moment_comment(moment_id: str, body: MomentCommentBody):
     text = (body.body or "").strip()
     if not text:
         raise HTTPException(400, "Comment is empty")
+    # First-comment-on-this-moment detection (Garry, 31 Jul 2026). If
+    # the comments array was empty before we push, the caller is the
+    # one who's "leaving the first warm word" — the client shows a
+    # tiny thank-you toast to reinforce the culture.
+    is_first_comment = len(m.get("comments") or []) == 0
     comment = {
         "id": nid(),
         "user_id": body.user_id,
@@ -8602,7 +8620,7 @@ async def add_moment_comment(moment_id: str, body: MomentCommentBody):
             "read": False,
             "created_at": now_iso(),
         })
-    return comment
+    return {**comment, "first_comment_on_moment": is_first_comment}
 
 
 @api.delete("/moments/{moment_id}/comments/{comment_id}")

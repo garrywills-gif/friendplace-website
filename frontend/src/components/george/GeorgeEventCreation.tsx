@@ -753,6 +753,28 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     }, 60);
   }, [navigateChip, onLeave, markGeorgeLedNavigation]);
 
+  // Share-a-Moment chip. Same "close then navigate" flow, but we
+  // pass the suggested caption to the composer via `?draft=`.
+  const shareMomentChip = useMemo(() => {
+    if (busy || showPreview) return null;
+    const s = lastGeorgeTurn?.share_moment_suggestion;
+    if (!s || !s.text) return null;
+    return {
+      text: s.text,
+      label: s.label || "🦋 Share this as a Moment",
+    };
+  }, [busy, showPreview, lastGeorgeTurn]);
+
+  const goShareMoment = useCallback(() => {
+    if (!shareMomentChip) return;
+    try { markGeorgeLedNavigation("moments" as any); } catch { /* ignore */ }
+    try { onLeave?.(); } catch { /* ignore */ }
+    const draft = encodeURIComponent(shareMomentChip.text || "");
+    setTimeout(() => {
+      try { router.push(`/moments/new?draft=${draft}` as any); } catch { /* ignore */ }
+    }, 60);
+  }, [shareMomentChip, onLeave, markGeorgeLedNavigation]);
+
   const carryOn = useCallback(() => {
     // The member just wants to continue where they left off. We nudge
     // George forward with a warm, natural continuation prompt so he
@@ -881,6 +903,27 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
               accessibilityLabel={navigateChip.label}
             >
               <Text style={styles.chipPrimaryText}>{navigateChip.label}</Text>
+            </Pressable>
+          </View>
+        )}
+
+        {/* --- Share this as a Moment chip -----------------------------
+            Locked with Garry 31 July 2026. When George's most recent
+            turn includes `share_moment_suggestion`, we render a warm
+            one-tap chip: "🦋 Share this as a Moment". Tapping opens
+            the composer pre-filled with the caption George suggested.
+            Same "close-then-navigate" pattern as `goNavigate` above so
+            the chat modal dismisses cleanly first. */}
+        {shareMomentChip && (
+          <View style={styles.chipsRow}>
+            <Pressable
+              onPress={goShareMoment}
+              style={({ pressed }) => [styles.chipPrimary, pressed && styles.pressed, styles.chipShareMoment]}
+              accessibilityRole="button"
+              accessibilityLabel={shareMomentChip.label}
+              testID="george-share-moment-chip"
+            >
+              <Text style={styles.chipPrimaryText}>{shareMomentChip.label}</Text>
             </Pressable>
           </View>
         )}
@@ -1449,9 +1492,21 @@ const styles = StyleSheet.create({
   bubbleRowRight: { justifyContent: 'flex-end' },
   avatarSlot: { width: 32, height: 32, marginRight: 8, marginBottom: 4, alignItems: 'center', justifyContent: 'center' },
   bubble: {
-    maxWidth: 300, backgroundColor: '#CCFBF1',
-    borderColor: '#5EEAD4', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
+    // Matched to the website's George bubble (Garry, 31 July 2026).
+    // White with a light-teal outline is quieter, more elegant, and
+    // reads better as "George talking" rather than "big teal panel".
+    maxWidth: 300, backgroundColor: '#FFFFFF',
+    borderColor: '#CCFBF1', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#14B8A6',
+        shadowOpacity: 0.14,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 6 },
+      },
+      android: { elevation: 3 },
+    }),
   },
   typingBubble: { paddingVertical: 12, paddingHorizontal: 16 },
   typingWrap: { flexDirection: 'row', gap: 5, alignItems: 'center' },
@@ -1482,6 +1537,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8, paddingHorizontal: 14,
   },
   chipPrimaryText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+  // Warm amber gradient-esque chip for the "🦋 Share this as a Moment"
+  // one-tap (Garry, 31 Jul 2026). Sits on top of chipPrimary so it
+  // inherits shape + text; only the background swaps.
+  chipShareMoment: {
+    backgroundColor: '#B45309',
+  },
   chipSecondary: {
     backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', borderWidth: 1, borderRadius: 20,
     paddingVertical: 8, paddingHorizontal: 14,

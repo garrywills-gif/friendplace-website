@@ -22,6 +22,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
+import ButterflyFlutter from "@/src/components/ButterflyFlutter";
 
 type Comment = {
   id: string;
@@ -69,6 +70,11 @@ export default function MomentDetail() {
   const [sendingComment, setSendingComment] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reporting, setReporting] = useState(false);
+  // Fires the tiny butterfly flutter animation over the heart when a
+  // member goes from unliked → liked. Locked with Garry 31 July 2026:
+  // "Don't make it pop. Make the butterfly flutter once. Tiny.
+  //  Elegant. Almost unnoticed."
+  const [flutterKey, setFlutterKey] = useState(0);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -90,9 +96,14 @@ export default function MomentDetail() {
 
   const toggleLike = async () => {
     if (!moment || !user) return;
+    const wasLiked = moment.liked_by_me;
     try {
       const r: any = await api.toggleMomentLike(moment.id, user.id);
       setMoment({ ...moment, liked_by_me: !!r.liked, likes_count: r.count ?? moment.likes_count });
+      // Only flutter on the UNLIKE → LIKE transition — quiet on un-like.
+      if (!wasLiked && r.liked) {
+        setFlutterKey((k) => k + 1);
+      }
     } catch (e: any) {
       show(e?.message || "Couldn't update like.");
     }
@@ -111,6 +122,12 @@ export default function MomentDetail() {
         comments_count: (moment.comments_count || 0) + 1,
       });
       setComment("");
+      // Culture-reinforcing toast (Garry, 31 Jul 2026): tiny thanks
+      // when THIS is the first warm word left on the moment. Never
+      // when it's the second, third, etc — that would nag.
+      if (cm?.first_comment_on_moment) {
+        show("🦋 Thanks for leaving a warm word.");
+      }
     } catch (e: any) {
       show(e?.message || "Couldn't send comment.");
     } finally {
@@ -291,6 +308,26 @@ export default function MomentDetail() {
             ) : null}
           </View>
 
+          {moment.featured ? (
+            <View style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              backgroundColor: "#FEF9E4",
+              borderColor: "#F59E0B",
+              borderWidth: 1,
+              borderRadius: 12,
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              marginTop: 2,
+            }}>
+              <Text style={{ fontSize: 16 }}>🌟</Text>
+              <Text style={{ color: "#78350F", fontSize: 13 * scale, fontWeight: "700", flex: 1, lineHeight: 18, fontStyle: "italic" }}>
+                Chosen by the FriendPlace team because it made us smile.
+              </Text>
+            </View>
+          ) : null}
+
           {moment.caption ? (
             <Text style={{ color: c.onSurface, fontSize: 16 * scale, lineHeight: 24 }}>{moment.caption}</Text>
           ) : null}
@@ -308,7 +345,9 @@ export default function MomentDetail() {
           ) : null}
 
           {/* Story-first summary — spelled-out counts (Garry, 31 Jul 2026):
-              "❤️ 3 Likes  ·  💬 2 Comments". Warm, not counter-heavy. */}
+              "❤️ 3 Likes  ·  💬 2 Comments". When counts are 0 we
+              swap in a warm invitation instead of "0" — reinforces
+              the culture, encourages the first tap. */}
           <View style={[styles.likeRow, { borderColor: c.border }]}>
             <Pressable
               testID="moment-detail-like"
@@ -316,19 +355,34 @@ export default function MomentDetail() {
               hitSlop={8}
               style={styles.likeBtn}
             >
-              <Ionicons
-                name={moment.liked_by_me ? "heart" : "heart-outline"}
-                size={22}
-                color={moment.liked_by_me ? "#EF4444" : c.onSurface}
-              />
+              <View style={{ position: "relative" }}>
+                <Ionicons
+                  name={moment.liked_by_me ? "heart" : "heart-outline"}
+                  size={22}
+                  color={moment.liked_by_me ? "#EF4444" : c.onSurface}
+                />
+                {/* Butterfly flutter — quiet, plays once per like tap. */}
+                <ButterflyFlutter
+                  trigger={flutterKey || null}
+                  size={16}
+                  style={{ top: -4, left: 4, right: 0 }}
+                />
+              </View>
               <Text style={{ color: c.onSurface, fontWeight: "800", marginLeft: 8, fontSize: 15 * scale }}>
-                {moment.likes_count || 0} {(moment.likes_count || 0) === 1 ? "Like" : "Likes"}
+                {(moment.likes_count || 0) === 0
+                  ? "Be the first to like this"
+                  : `${moment.likes_count} ${moment.likes_count === 1 ? "Like" : "Likes"}`}
               </Text>
             </Pressable>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", flexShrink: 1 }}>
               <Ionicons name="chatbubble-ellipses-outline" size={20} color={c.onSurface} />
-              <Text style={{ color: c.onSurface, fontWeight: "800", marginLeft: 8, fontSize: 15 * scale }}>
-                {moment.comments_count || 0} {(moment.comments_count || 0) === 1 ? "Comment" : "Comments"}
+              <Text
+                numberOfLines={1}
+                style={{ color: c.onSurface, fontWeight: "800", marginLeft: 8, fontSize: 15 * scale }}
+              >
+                {(moment.comments_count || 0) === 0
+                  ? "Be the first to leave a warm word"
+                  : `${moment.comments_count} ${moment.comments_count === 1 ? "Comment" : "Comments"}`}
               </Text>
             </View>
           </View>
