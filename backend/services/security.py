@@ -308,7 +308,12 @@ def _resend_client() -> Any:
 
 
 def _alert_recipients() -> list[str]:
-    to = os.environ.get("SECURITY_ALERT_TO") or "hello@friendplace.com.au"
+    # Mission Control security alerts (failed-login spikes, lockouts,
+    # etc.) route to the operational support inbox by default so
+    # they land alongside other incident-response mail rather than
+    # in the general hello@ community inbox. Overridable via the
+    # SECURITY_ALERT_TO env var (comma-separated for multiple).
+    to = os.environ.get("SECURITY_ALERT_TO") or "support@friendplace.com.au"
     return [x.strip() for x in to.split(",") if x.strip()]
 
 
