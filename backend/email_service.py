@@ -184,6 +184,221 @@ def _load_butterfly_icon_b64() -> str:
 _BUTTERFLY_ICON_B64 = _load_butterfly_icon_b64()
 
 
+def _load_brand_butterfly_b64() -> str:
+    """Load the pre-computed base64 brand butterfly for letter emails.
+
+    This is the *full-colour, transparent-background* butterfly at
+    ~200×196 (~52 KB base64) — the master brand mark shared with the
+    website header. Rendered at 96px in email so it looks crisp on
+    both retina and standard displays without ballooning message size.
+    """
+    import os
+    path = os.path.join(os.path.dirname(__file__), "_brand_butterfly_b64.txt")
+    try:
+        with open(path, "r") as fh:
+            return fh.read().strip()
+    except Exception:
+        return ""
+
+
+_BRAND_BUTTERFLY_B64 = _load_brand_butterfly_b64()
+
+
+# ---------------------------------------------------------------------------
+# LETTER-STYLE EMAIL SYSTEM  (v2 — clean white, personal letter aesthetic)
+# ---------------------------------------------------------------------------
+# Everything below is the unified template used by welcome, waitlist,
+# support, invitation and password-reset emails. Design goals per the
+# brand brief:
+#   • Clean white background — no dark cards, no coloured borders.
+#   • Full logo (butterfly + wordmark) centred at the top.
+#   • Generous whitespace on every side; feels like a personal letter,
+#     not a marketing email.
+#   • Consistent typography (Georgia serif for body, sans-serif for the
+#     wordmark + buttons) so every email is unmistakably FriendPlace.
+#   • Mobile-friendly by using `<table>` layout with max-width 600 px
+#     and side padding that shrinks proportionally on narrow screens.
+#
+# All five current templates share this shell so the layout, spacing
+# and brand feel are identical — only the content changes.
+
+
+def _brand_lockup_html() -> str:
+    """Full-logo lockup (butterfly + FriendPlace wordmark), centred.
+
+    The butterfly is embedded as a data-URI PNG so no third-party CDN
+    is involved — no domain-verification delay, no image blocking by
+    corporate mail policies, no "click to load images" prompt on
+    Outlook. The wordmark below it is HTML text so it stays crisp at
+    any size and matches the website header exactly.
+    """
+    img_src = (
+        f"data:image/png;base64,{_BRAND_BUTTERFLY_B64}"
+        if _BRAND_BUTTERFLY_B64 else ""
+    )
+    img_tag = (
+        f'<img src="{img_src}" alt="FriendPlace" width="96" height="94" '
+        f'style="display:block;margin:0 auto;border:0;outline:none;" />'
+        if img_src else ""
+    )
+    return f"""\
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;">
+  <tr>
+    <td align="center" style="background:#FFFFFF;padding:56px 24px 8px 24px;">
+      {img_tag}
+      <div style="margin-top:18px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:-0.5px;line-height:1;">
+        <span style="color:#0A2540;">Friend</span><span style="color:#14B8A6;">Place</span>
+      </div>
+    </td>
+  </tr>
+</table>
+"""
+
+
+def _letter_footer_html() -> str:
+    """Minimal, quiet footer for letter-style emails.
+
+    No colour, no logos, no marketing — just a thin divider, the two
+    contact links, and one small line of legal/context text. This keeps
+    the email feeling like a personal note right down to the last line.
+    """
+    return """\
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;">
+  <tr>
+    <td align="center" style="background:#FFFFFF;padding:8px 24px 48px 24px;">
+      <div style="height:1px;background:#E5E9EF;max-width:120px;margin:0 auto 24px auto;line-height:1px;font-size:1px;">&nbsp;</div>
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;color:#64748B;line-height:20px;">
+        <a href="mailto:hello@friendplace.com.au" style="color:#0F766E;text-decoration:none;font-weight:600;">hello@friendplace.com.au</a>
+        &nbsp;&middot;&nbsp;
+        <a href="https://www.friendplace.com.au" style="color:#0F766E;text-decoration:none;font-weight:600;">friendplace.com.au</a>
+      </div>
+      <div style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:13px;color:#94A3B8;font-style:italic;line-height:20px;margin-top:14px;">
+        Because you belong too.
+      </div>
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#B4BFCD;line-height:16px;margin-top:22px;max-width:420px;">
+        You&rsquo;re receiving this email because you have a FriendPlace account or expressed interest in joining our community.
+      </div>
+    </td>
+  </tr>
+</table>
+"""
+
+
+def _letter_body_open() -> str:
+    """Open the letter-body table (serif body copy on white)."""
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="background:#FFFFFF;">'
+        '<tr><td style="background:#FFFFFF;padding:24px 48px 8px 48px;'
+        'font-family:Georgia,\'Iowan Old Style\',\'Palatino Linotype\','
+        '\'Book Antiqua\',Palatino,\'Times New Roman\',serif;'
+        'font-size:17px;line-height:28px;color:#0A2540;">'
+    )
+
+
+def _letter_body_close() -> str:
+    return '</td></tr></table>'
+
+
+def _letter_button_html(*, label: str, url: str) -> str:
+    """Primary CTA button — teal pill, white text, sans-serif for legibility."""
+    from html import escape as _esc
+    return f"""\
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:32px auto 8px auto;">
+  <tr>
+    <td align="center" style="border-radius:999px;background:#14B8A6;">
+      <a href="{_esc(url)}" style="display:inline-block;padding:14px 34px;color:#FFFFFF;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-weight:700;font-size:15px;text-decoration:none;letter-spacing:0.2px;border-radius:999px;">
+        {_esc(label)}
+      </a>
+    </td>
+  </tr>
+</table>
+"""
+
+
+def _letter_signature_html(*, signer: str = "george") -> str:
+    """Signature block. Warm sign-off for personal/community emails,
+    a plain team signature for operational/security emails.
+
+    `signer` values:
+      • "george"  — personal emails (welcome, waitlist, invitation).
+                    In future this can flip to "georgia" per the
+                    user's persona preference.
+      • "team"    — operational (support, password reset).
+    """
+    if signer == "team":
+        return """\
+<p style="margin:36px 0 0 0;">
+  Warmly,<br>
+  <span style="font-weight:700;color:#0A2540;">The FriendPlace Team</span>
+</p>
+"""
+    return """\
+<p style="margin:36px 0 0 0;">
+  Warmly,<br>
+  <span style="font-weight:700;color:#0A2540;">George</span><br>
+  <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:#64748B;font-style:italic;">Your friend at FriendPlace</span>
+</p>
+"""
+
+
+def _letter_shell(*, preheader: str, body_html: str) -> str:
+    """Wrap letter content in the master email template.
+
+    Args:
+        preheader: The tiny line that appears in the inbox preview next
+                   to the subject. Never visible in the body. Keep it
+                   under about 100 characters — some clients truncate
+                   at 90.
+        body_html: Pre-rendered letter content (already table-wrapped
+                   with `_letter_body_open()` / `_letter_body_close()`
+                   or manually formed).
+    """
+    from html import escape as _esc
+    safe_pre = _esc(preheader or "")
+    return f"""\
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light only">
+  <meta name="supported-color-schemes" content="light">
+  <title>FriendPlace</title>
+</head>
+<body style="margin:0;padding:0;background:#FFFFFF;">
+  <!-- Preheader: hidden visually, shown in inbox preview after subject -->
+  <div style="display:none;font-size:1px;color:#FFFFFF;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+    {safe_pre}
+  </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;">
+    <tr>
+      <td align="center" style="background:#FFFFFF;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#FFFFFF;">
+          <tr><td style="background:#FFFFFF;">{_brand_lockup_html()}</td></tr>
+          <tr><td style="background:#FFFFFF;">{body_html}</td></tr>
+          <tr><td style="background:#FFFFFF;">{_letter_footer_html()}</td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+"""
+
+
+def _letter_footer_text() -> str:
+    """Plain-text counterpart to `_letter_footer_html`."""
+    return (
+        "\n\n"
+        "— — —\n\n"
+        "hello@friendplace.com.au  ·  friendplace.com.au\n"
+        "Because you belong too.\n\n"
+        "You're receiving this email because you have a FriendPlace "
+        "account or expressed interest in joining our community."
+    )
+
+
 def _branded_footer_html() -> str:
     """The shared "FriendPlace" branded footer.
 
@@ -263,107 +478,46 @@ def _branded_footer_text() -> str:
 
 
 def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: int) -> tuple[str, str, str]:
-    """Build the password-reset email content — full-bleed dark navy
-    theme, one continuous canvas from top to bottom (no white body, no
-    "picture dropped in").
+    """Password-reset email — clean white letter design.
+
+    Operational/security email, signed by "The FriendPlace Team".
+    The reset code sits in a soft teal chip that's still legible on
+    white without shouting. Body copy is warm but appropriately calm
+    for a security context.
     """
+    from html import escape as _esc
     name = (first_name or "there").strip()
-    subject = "🦋 Reset your FriendPlace password"
-    html = f"""\
-<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
-    <!-- Outer navy canvas — no white anywhere. -->
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
-      <tr>
-        <td align="center">
-          <!-- Content column — 560px wide, almost full-bleed on mobile
-               with just a little side padding on the outer canvas. -->
-          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
-            <!-- Header: wordmark + subline. Blends into the body. -->
-            <tr>
-              <td align="center" style="padding:8px 22px 6px 22px;">
-                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
-                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
-                </div>
-                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
-                  RESET YOUR PASSWORD
-                </div>
-              </td>
-            </tr>
+    subject = "Reset your FriendPlace password"
+    preheader = f"Your secure reset code, valid for {ttl_minutes} minutes."
 
-            <!-- Greeting + body copy on the same navy — no card, no border. -->
-            <tr>
-              <td style="padding:24px 22px 6px 22px;">
-                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-                  Hi {name},<br><br>
-                  We received a request to reset your FriendPlace password.<br><br>
-                  Use the secure code below to reset your password. For your security, this code will expire in <strong style="color:#FFFFFF;">{ttl_minutes} minutes</strong>.
-                </div>
-              </td>
-            </tr>
+    body = (
+        _letter_body_open()
+        + f"<p style=\"margin:0 0 20px 0;\">Hi {_esc(name)},</p>"
+        + "<p style=\"margin:0 0 20px 0;\">We received a request to reset the password on your FriendPlace account. If that was you, use the secure code below to finish resetting it.</p>"
+        + f"<p style=\"margin:0 0 12px 0;color:#64748B;font-size:14px;letter-spacing:1.4px;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:600;text-align:center;\">YOUR RESET CODE</p>"
+        + f'<div style="text-align:center;margin:0 0 24px 0;">'
+        + f'  <div style="display:inline-block;padding:20px 32px;border-radius:14px;background:#F0FDFA;border:1px solid #99F6E4;font-family:-apple-system,\'SF Mono\',Menlo,Consolas,monospace;font-size:40px;font-weight:800;letter-spacing:12px;color:#0F766E;">{_esc(code)}</div>'
+        + f'</div>'
+        + f"<p style=\"margin:0 0 20px 0;\">For your security, this code will expire in <strong>{ttl_minutes} minutes</strong>.</p>"
+        + "<p style=\"margin:0 0 20px 0;color:#64748B;font-size:15px;\">If you didn&rsquo;t request a password reset, you can safely ignore this email. Your account will remain secure and no changes will be made.</p>"
+        + _letter_signature_html(signer="team")
+        + _letter_body_close()
+    )
+    html = _letter_shell(preheader=preheader, body_html=body)
 
-            <!-- Reset code — bumped ~12% larger (font 40→46, letter-
-                 spacing 12→14, padding 20/26 → 24/32) so it's even
-                 easier to spot at a glance. Glowing teal on navy,
-                 still reads as an inline highlight rather than a
-                 separate card. -->
-            <tr>
-              <td align="center" style="padding:22px 22px 4px 22px;">
-                <div style="font-size:46px;font-weight:900;letter-spacing:14px;color:#5EEAD4;padding:24px 32px;border-radius:18px;background:rgba(20,184,166,0.12);display:inline-block;border:1px solid rgba(94,234,212,0.35);">
-                  {code}
-                </div>
-              </td>
-            </tr>
-
-            <!-- Safety note -->
-            <tr>
-              <td style="padding:24px 22px 4px 22px;">
-                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
-                  If you didn&rsquo;t request a password reset, you can safely ignore this email. Your account will remain secure and no changes will be made.
-                </div>
-              </td>
-            </tr>
-
-            <!-- Community-close — "family" reads warmer than the
-                 previous "community" wording. The "Finding your
-                 people…" line is deliberately removed here so
-                 "Because you belong too." (spoken elsewhere in the
-                 brand voice) stays the primary tagline in body copy. -->
-            <tr>
-              <td style="padding:24px 22px 4px 22px;">
-                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-                  Thank you for being part of the FriendPlace community.
-                </div>
-              </td>
-            </tr>
-
-            <!-- Spacer before the footer -->
-            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
-
-            <!-- Branded footer — same navy, seamless -->
-            <tr>
-              <td style="padding:0 12px;">
-                {_branded_footer_html()}
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
     text = (
         f"Hi {name},\n\n"
-        f"We received a request to reset your FriendPlace password.\n\n"
-        f"Use the secure code below to reset your password. For your security, "
-        f"this code will expire in {ttl_minutes} minutes.\n\n"
+        f"We received a request to reset the password on your FriendPlace "
+        f"account. If that was you, use the secure code below to finish "
+        f"resetting it.\n\n"
+        f"    YOUR RESET CODE\n\n"
         f"    {code}\n\n"
+        f"For your security, this code will expire in {ttl_minutes} minutes.\n\n"
         f"If you didn't request a password reset, you can safely ignore this "
         f"email. Your account will remain secure and no changes will be made.\n\n"
-        f"Thank you for being part of the FriendPlace community."
-        f"{_branded_footer_text()}"
+        f"Warmly,\n"
+        f"The FriendPlace Team"
+        + _letter_footer_text()
     )
     return subject, html, text
 
@@ -376,194 +530,92 @@ def support_acknowledgement_template(
     category: str,
     subject_snippet: str,
 ) -> tuple[str, str, str]:
-    """Build the branded "we received your message" email sent to the
-    user who submitted a Contact Support or Report a Problem request.
+    """Support "we've received your message" acknowledgement.
 
-    Uses the same full-bleed navy canvas as the password-reset email so
-    the two feel like siblings. Includes:
-      - a short human ticket ref (e.g. FP-13EF62) they can quote in
-        follow-ups,
-      - the category + one-line subject echo so they can visually
-        confirm we received the right thing,
-      - a soft nudge to the FAQ / George in case an answer is already
-        available.
-
-    Args:
-        first_name:      recipient's first name, if we know it.
-        ticket_ref:      display ID to quote (e.g. "FP-13EF62").
-        category:        category the user picked (e.g. "Report a Problem").
-        subject_snippet: user-supplied subject; will be truncated for
-                         email safety.
+    Operational email signed by "The FriendPlace Team". Warm, calm, and
+    reassuring — echoes the user's subject line back so they visually
+    confirm we received the right thing, and displays their ticket
+    reference in a soft teal chip for easy quoting later.
     """
     from html import escape as _esc
     name = (first_name or "there").strip()
     snippet = (subject_snippet or "").strip()
-    # Keep the echoed subject small — protects against runaway lines
-    # in the email body while still being useful for reassurance.
     if len(snippet) > 120:
         snippet = snippet[:117] + "…"
 
-    email_subject = "We’ve received your message 💜"
+    _cat_lower = (category or "").lower()
+    is_report = ("report" in _cat_lower or "bug" in _cat_lower or "technical" in _cat_lower)
+
+    if is_report:
+        email_subject = f"We've received your report — {ticket_ref}"
+        preheader = "Thanks for taking the time to report this. We're on it."
+        opening = (
+            "Thanks for taking the time to report this. We&rsquo;ve logged it "
+            "and one of our team will look into it and get back to you as soon "
+            "as we can — usually within <strong>24 hours</strong>, often much "
+            "sooner."
+        )
+        opening_text = (
+            "Thanks for taking the time to report this. We've logged it and "
+            "one of our team will look into it and get back to you as soon "
+            "as we can — usually within 24 hours, often much sooner."
+        )
+    else:
+        email_subject = f"We've received your message — {ticket_ref}"
+        preheader = "Thanks for reaching out. We'll get back to you soon."
+        opening = (
+            "Thanks for reaching out to FriendPlace. We&rsquo;ve received your "
+            "message and one of our team will get back to you as soon as we "
+            "can — usually within <strong>24 hours</strong>, often much sooner."
+        )
+        opening_text = (
+            "Thanks for reaching out to FriendPlace. We've received your "
+            "message and one of our team will get back to you as soon as we "
+            "can — usually within 24 hours, often much sooner."
+        )
+
     safe_ref = _esc(ticket_ref)
     safe_category = _esc(category or "Support")
     safe_snippet = _esc(snippet) if snippet else ""
 
-    # ── Variant copy so Report-a-Problem feels a touch more urgent
-    # than a generic Contact-Support message. Also disambiguates the
-    # subject line so mailbox providers (looking at you, Yahoo) don't
-    # thread/collapse two acknowledgements sent within seconds of
-    # each other. The ticket ref is appended for the same reason —
-    # every acknowledgement now has a globally unique subject.
-    _cat_lower = (category or "").lower()
-    if "report" in _cat_lower or "bug" in _cat_lower or "technical" in _cat_lower:
-        email_subject = f"We’ve received your report 💜  ·  {ticket_ref}"
-        opening_line = (
-            "Thanks for taking the time to report this to the FriendPlace "
-            "Support Team."
-        )
-        promise_line = (
-            "We&rsquo;ve logged your report and one of our team members will "
-            "look into it and get back to you as soon as possible. We aim to "
-            'respond within <strong style="color:#FFFFFF;">24 hours</strong> '
-            "(often much sooner)."
-        )
-        promise_text = (
-            "We've logged your report and one of our team members will look "
-            "into it and get back to you as soon as possible. We aim to "
-            "respond within 24 hours (often much sooner)."
-        )
-    else:
-        email_subject = f"We’ve received your message 💜  ·  {ticket_ref}"
-        opening_line = "Thanks for contacting the FriendPlace Support Team."
-        promise_line = (
-            "We&rsquo;ve received your message and one of our team members "
-            "will get back to you as soon as possible. We aim to respond "
-            'within <strong style="color:#FFFFFF;">24 hours</strong> '
-            "(often much sooner)."
-        )
-        promise_text = (
-            "We've received your message and one of our team members will "
-            "get back to you as soon as possible. We aim to respond within "
-            "24 hours (often much sooner)."
-        )
-
-    subject_echo_html = (
-        f'<div style="color:#94A3B8;font-size:13px;line-height:20px;margin-top:6px;">'
-        f'"{safe_snippet}"</div>'
+    snippet_html = (
+        f'<p style="margin:8px 0 0 0;color:#64748B;font-size:14px;font-style:italic;">&ldquo;{safe_snippet}&rdquo;</p>'
         if safe_snippet else ""
     )
 
-    html = f"""\
-<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
-            <!-- Header -->
-            <tr>
-              <td align="center" style="padding:8px 22px 6px 22px;">
-                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
-                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
-                </div>
-                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
-                  SUPPORT · MESSAGE RECEIVED
-                </div>
-              </td>
-            </tr>
-
-            <!-- Greeting -->
-            <tr>
-              <td style="padding:24px 22px 6px 22px;">
-                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-                  Hi {_esc(name)},<br><br>
-                  {opening_line}<br><br>
-                  {promise_line}
-                </div>
-              </td>
-            </tr>
-
-            <!-- Ticket reference chip + subject echo -->
-            <tr>
-              <td align="center" style="padding:22px 22px 4px 22px;">
-                <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
-                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR SUPPORT TICKET</div>
-                  <div style="color:#5EEAD4;font-size:26px;font-weight:900;letter-spacing:3px;line-height:1;margin-top:6px;">
-                    {safe_ref}
-                  </div>
-                  <div style="color:#CBD5E1;font-size:12px;margin-top:8px;">
-                    {safe_category}
-                  </div>
-                  {subject_echo_html}
-                </div>
-              </td>
-            </tr>
-
-            <!-- Meanwhile nudge -->
-            <tr>
-              <td style="padding:24px 22px 4px 22px;">
-                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
-                  In the meantime, you might find an answer in our
-                  <a href="https://www.friendplace.com.au/faq" style="color:#93C5FD;text-decoration:none;font-weight:600;">FAQs</a>,
-                  or <strong style="color:#E2E8F0;">George</strong> may be able to help with general questions.
-                </div>
-              </td>
-            </tr>
-
-            <!-- Reply-to-add note -->
-            <tr>
-              <td style="padding:18px 22px 4px 22px;">
-                <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
-                  If your issue is urgent or you have any extra information to add, simply reply to this email and it&rsquo;ll be added to your support ticket.
-                </div>
-              </td>
-            </tr>
-
-            <!-- Community close -->
-            <tr>
-              <td style="padding:24px 22px 4px 22px;">
-                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-                  Thank you for being part of the FriendPlace community.<br><br>
-                  💜 The FriendPlace Support Team
-                </div>
-              </td>
-            </tr>
-
-            <!-- Spacer before the footer -->
-            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
-
-            <!-- Branded footer -->
-            <tr>
-              <td style="padding:0 12px;">
-                {_branded_footer_html()}
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
+    body = (
+        _letter_body_open()
+        + f"<p style=\"margin:0 0 20px 0;\">Hi {_esc(name)},</p>"
+        + f"<p style=\"margin:0 0 20px 0;\">{opening}</p>"
+        # Ticket reference chip — quiet teal on white
+        + '<div style="text-align:center;margin:28px 0 12px 0;">'
+        + '  <div style="display:inline-block;padding:18px 26px;border-radius:14px;background:#F0FDFA;border:1px solid #99F6E4;text-align:left;min-width:220px;">'
+        + '    <div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:11px;letter-spacing:1.6px;font-weight:700;color:#0F766E;">YOUR SUPPORT TICKET</div>'
+        + f'    <div style="font-family:-apple-system,\'SF Mono\',Menlo,Consolas,monospace;font-size:22px;font-weight:800;letter-spacing:2px;color:#0A2540;margin-top:6px;">{safe_ref}</div>'
+        + f'    <div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:13px;color:#64748B;margin-top:8px;">{safe_category}</div>'
+        + f'    {snippet_html}'
+        + '  </div>'
+        + '</div>'
+        + "<p style=\"margin:20px 0 0 0;color:#475569;font-size:15px;\">In the meantime, you might find an answer in our <a href=\"https://www.friendplace.com.au/faqs\" style=\"color:#0F766E;text-decoration:none;font-weight:600;\">FAQs</a> — and if your question is urgent or you have anything to add, simply reply to this email and it&rsquo;ll be added straight to your ticket.</p>"
+        + _letter_signature_html(signer="team")
+        + _letter_body_close()
+    )
+    html = _letter_shell(preheader=preheader, body_html=body)
 
     text = (
         f"Hi {name},\n\n"
-        f"{opening_line}\n\n"
-        f"{promise_text}\n\n"
+        f"{opening_text}\n\n"
         f"    Your support ticket: {ticket_ref}\n"
         f"    Category: {category}\n"
         + (f'    Subject: "{snippet}"\n' if snippet else "")
         + "\n"
         f"In the meantime, you might find an answer in our FAQs "
-        f"(https://www.friendplace.com.au/faq), or George may be able to "
-        f"help with general questions.\n\n"
-        f"If your issue is urgent or you have any extra information to add, "
-        f"simply reply to this email and it'll be added to your support "
-        f"ticket.\n\n"
-        f"Thank you for being part of the FriendPlace community.\n\n"
-        f"💜 The FriendPlace Support Team"
-        f"{_branded_footer_text()}"
+        f"(https://www.friendplace.com.au/faqs) — and if your question is "
+        f"urgent or you have anything to add, simply reply to this email "
+        f"and it'll be added straight to your ticket.\n\n"
+        f"Warmly,\n"
+        f"The FriendPlace Team"
+        + _letter_footer_text()
     )
     return email_subject, html, text
 
@@ -1116,4 +1168,220 @@ def event_submission_ack_template(
         f"{_branded_footer_text()}"
     )
     return email_subject, html, text
+
+
+
+# ---------------------------------------------------------------------------
+# LETTER-STYLE TEMPLATES  (Welcome · Waitlist · Invitation)
+# ---------------------------------------------------------------------------
+# Personal, community-focused emails signed by George. These three share
+# the exact same shell, spacing and typography as the password-reset
+# and support-acknowledgement emails above — so every touchpoint feels
+# like the same family of letters.
+
+
+def welcome_template(
+    *,
+    first_name: str | None,
+    action_url: str | None = None,
+) -> tuple[str, str, str]:
+    """Sent the first time an account is created and confirmed.
+
+    Personal letter from George — warm, welcoming, and gently pointing
+    at the next thing to explore. Deliberately short: this is a
+    handshake, not an onboarding manual.
+
+    Args:
+        first_name: Recipient's first name (falls back to "there").
+        action_url: Optional CTA target (usually the app home / their
+                    new profile). If omitted, no button is rendered
+                    and the letter simply closes on the signature.
+    """
+    from html import escape as _esc
+    name = (first_name or "there").strip()
+    subject = "Welcome to FriendPlace"
+    preheader = "A little note from George — glad you found us."
+
+    cta_html = (
+        _letter_button_html(label="Step inside FriendPlace", url=action_url)
+        if action_url else ""
+    )
+    cta_text = f"\n    {action_url}\n" if action_url else ""
+
+    body = (
+        _letter_body_open()
+        + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
+        + "<p style=\"margin:0 0 20px 0;\">Welcome to FriendPlace — and thank you for finding us.</p>"
+        + "<p style=\"margin:0 0 20px 0;\">I&rsquo;m George. My job here is to help you feel at home from the very first moment. Whether you&rsquo;re looking for someone to share a walk with, an event to go to on a quiet weekend, or simply a place where a warm hello isn&rsquo;t rare — you&rsquo;re in the right place.</p>"
+        + "<p style=\"margin:0 0 20px 0;\">Take your time. Have a wander. There&rsquo;s no rush, no pressure, and no obligation to be anything other than yourself.</p>"
+        + "<p style=\"margin:0 0 20px 0;\">If you get stuck, or just fancy a chat, I&rsquo;m never far away. Reply to this email or find me inside the app — I read every message.</p>"
+        + cta_html
+        + "<p style=\"margin:24px 0 0 0;\">It&rsquo;s lovely to have you with us.</p>"
+        + _letter_signature_html(signer="george")
+        + _letter_body_close()
+    )
+    html = _letter_shell(preheader=preheader, body_html=body)
+
+    text = (
+        f"Dear {name},\n\n"
+        "Welcome to FriendPlace — and thank you for finding us.\n\n"
+        "I'm George. My job here is to help you feel at home from the "
+        "very first moment. Whether you're looking for someone to share "
+        "a walk with, an event to go to on a quiet weekend, or simply a "
+        "place where a warm hello isn't rare — you're in the right place.\n\n"
+        "Take your time. Have a wander. There's no rush, no pressure, "
+        "and no obligation to be anything other than yourself.\n\n"
+        "If you get stuck, or just fancy a chat, I'm never far away. "
+        "Reply to this email or find me inside the app — I read every "
+        "message."
+        + cta_text
+        + "\nIt's lovely to have you with us.\n\n"
+        "Warmly,\n"
+        "George\n"
+        "Your friend at FriendPlace"
+        + _letter_footer_text()
+    )
+    return subject, html, text
+
+
+def waitlist_template(
+    *,
+    first_name: str | None,
+    position: int | None = None,
+) -> tuple[str, str, str]:
+    """Sent when someone joins the pre-launch waitlist.
+
+    Signed by George — this is a personal thank-you, not a marketing
+    "you're in!" email. Optionally includes their queue position for a
+    small human touch ("you're #42 in line"), but never as the star of
+    the message.
+    """
+    from html import escape as _esc
+    name = (first_name or "there").strip()
+    subject = "Thank you for finding us"
+    preheader = "A quick note from George while we get everything ready."
+
+    position_html = (
+        f"<p style=\"margin:0 0 20px 0;color:#64748B;font-size:15px;font-style:italic;\">You&rsquo;re currently number <strong style=\"color:#0A2540;font-style:normal;\">{int(position)}</strong> on our list — thank you for the trust.</p>"
+        if position and position > 0 else ""
+    )
+    position_text = (
+        f"\nYou're currently number {int(position)} on our list — thank you "
+        f"for the trust.\n"
+        if position and position > 0 else ""
+    )
+
+    body = (
+        _letter_body_open()
+        + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
+        + "<p style=\"margin:0 0 20px 0;\">Thank you for finding us — and for saying &ldquo;yes, I&rsquo;d like to be part of this.&rdquo;</p>"
+        + "<p style=\"margin:0 0 20px 0;\">FriendPlace is being built quietly and carefully, because places where people belong don&rsquo;t happen by accident. We&rsquo;re inviting friends in a small group at a time so that every new arrival is met with warmth, not silence.</p>"
+        + position_html
+        + "<p style=\"margin:0 0 20px 0;\">You&rsquo;ll hear from me the moment your invitation is ready. In the meantime, if you know someone who might feel at home here, forward this email their way. Belonging tends to grow best when someone opens the door.</p>"
+        + "<p style=\"margin:24px 0 0 0;\">Thank you, again, for being here from the start.</p>"
+        + _letter_signature_html(signer="george")
+        + _letter_body_close()
+    )
+    html = _letter_shell(preheader=preheader, body_html=body)
+
+    text = (
+        f"Dear {name},\n\n"
+        "Thank you for finding us — and for saying \"yes, I'd like to be "
+        "part of this.\"\n\n"
+        "FriendPlace is being built quietly and carefully, because places "
+        "where people belong don't happen by accident. We're inviting "
+        "friends in a small group at a time so that every new arrival is "
+        "met with warmth, not silence.\n"
+        + position_text
+        + "\nYou'll hear from me the moment your invitation is ready. In "
+        "the meantime, if you know someone who might feel at home here, "
+        "forward this email their way. Belonging tends to grow best when "
+        "someone opens the door.\n\n"
+        "Thank you, again, for being here from the start.\n\n"
+        "Warmly,\n"
+        "George\n"
+        "Your friend at FriendPlace"
+        + _letter_footer_text()
+    )
+    return subject, html, text
+
+
+def invitation_template(
+    *,
+    first_name: str | None,
+    inviter_name: str | None,
+    accept_url: str,
+    expiry_days: int = 14,
+) -> tuple[str, str, str]:
+    """Sent when someone is personally invited to join FriendPlace.
+
+    Signed by George — the tone is a personal introduction, not a
+    marketing recruitment. Names the person who invited them (if known)
+    so the invitee sees a familiar name before they see a brand.
+
+    Args:
+        first_name:   Recipient's first name.
+        inviter_name: Who invited them. If omitted, the letter falls
+                      back to a generic "a member of FriendPlace".
+        accept_url:   Signed link that opens their invitation flow.
+        expiry_days:  How long the link stays valid. Displayed to the
+                      recipient so there's no urgency panic.
+    """
+    from html import escape as _esc
+    name = (first_name or "there").strip()
+    inviter = (inviter_name or "").strip()
+    subject = f"An invitation to FriendPlace"
+    preheader = (
+        f"{inviter} would like you to join them at FriendPlace."
+        if inviter else
+        "Someone would like you to join them at FriendPlace."
+    )
+
+    inviter_line = (
+        f"<p style=\"margin:0 0 20px 0;\"><strong style=\"color:#0A2540;\">{_esc(inviter)}</strong> thought you&rsquo;d feel at home here — and asked me to send you a personal invitation to join us at FriendPlace.</p>"
+        if inviter else
+        "<p style=\"margin:0 0 20px 0;\">A member of FriendPlace thought you&rsquo;d feel at home here, and asked me to send you a personal invitation to join us.</p>"
+    )
+    inviter_line_text = (
+        f"{inviter} thought you'd feel at home here — and asked me to "
+        f"send you a personal invitation to join us at FriendPlace."
+        if inviter else
+        "A member of FriendPlace thought you'd feel at home here, and "
+        "asked me to send you a personal invitation to join us."
+    )
+
+    body = (
+        _letter_body_open()
+        + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
+        + inviter_line
+        + "<p style=\"margin:0 0 20px 0;\">FriendPlace is a quiet, kind space for finding people to share the small and lovely bits of life with — a coffee, a walk, an event that would be nicer with someone next to you. There&rsquo;s no algorithm chasing your attention, no pressure to perform. Just people, being neighbourly.</p>"
+        + "<p style=\"margin:0 0 8px 0;\">Whenever you&rsquo;re ready, your invitation is waiting:</p>"
+        + _letter_button_html(label="Accept your invitation", url=accept_url)
+        + f"<p style=\"margin:20px 0 20px 0;color:#64748B;font-size:14px;\">This invitation is personal to you and stays open for <strong>{int(expiry_days)} days</strong>. If it expires, simply reply to this email and I&rsquo;ll send you a fresh one.</p>"
+        + "<p style=\"margin:24px 0 0 0;\">I hope to see you inside.</p>"
+        + _letter_signature_html(signer="george")
+        + _letter_body_close()
+    )
+    html = _letter_shell(preheader=preheader, body_html=body)
+
+    text = (
+        f"Dear {name},\n\n"
+        f"{inviter_line_text}\n\n"
+        "FriendPlace is a quiet, kind space for finding people to share "
+        "the small and lovely bits of life with — a coffee, a walk, an "
+        "event that would be nicer with someone next to you. There's no "
+        "algorithm chasing your attention, no pressure to perform. Just "
+        "people, being neighbourly.\n\n"
+        "Whenever you're ready, your invitation is waiting:\n"
+        f"    {accept_url}\n\n"
+        f"This invitation is personal to you and stays open for "
+        f"{int(expiry_days)} days. If it expires, simply reply to this "
+        "email and I'll send you a fresh one.\n\n"
+        "I hope to see you inside.\n\n"
+        "Warmly,\n"
+        "George\n"
+        "Your friend at FriendPlace"
+        + _letter_footer_text()
+    )
+    return subject, html, text
 
