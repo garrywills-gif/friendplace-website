@@ -197,7 +197,11 @@ _STATE_QUESTION_RE = re.compile(
     r"any left|still open|still active|open right now|any resolved|"
     r"what about now|any new|any updates|check again|check.*now|"
     r"who (?:is|was) the (?:latest|last|most recent|newest)|"
-    r"show me (?:everyone|all|the)|awaiting contact|from (?:sydney|melbourne|brisbane|perth|adelaide|hobart|canberra|darwin)|"
+    r"show me (?:everyone|all|the)|"
+    r"conversion|funnel|how are we tracking|"
+    r"awaiting contact|hasn(?:'|�)?t been contacted|haven(?:'|�)?t been contacted|not (?:yet )?contacted|"
+    r"joined (?:today|this week|this month)|invited (?:today|this week|this month)|"
+    r"from (?:sydney|melbourne|brisbane|perth|adelaide|hobart|canberra|darwin)|"
     r"any (tickets|signals|cases|events|reports|submissions|registrations|founding members)"
     r")\b",
     re.IGNORECASE,
@@ -208,6 +212,40 @@ _STATE_QUESTION_RE = re.compile(
 # "count" queries. If the topic is ambiguous, we leave the safety net
 # alone so the synthesizer can honestly say it doesn't have the data.
 _TOPIC_TO_TOOL = [
+    # Founding Members CRM — Phase 1 (put FIRST so specific matches win
+    # before the generic "member"/"registration" fallbacks below).
+    ("who is the latest",   {"name": "list_interest_registrations", "args": {"limit": 1}}),
+    ("who was the latest",  {"name": "list_interest_registrations", "args": {"limit": 1}}),
+    ("latest registration", {"name": "list_interest_registrations", "args": {"limit": 1}}),
+    ("latest founder",      {"name": "list_interest_registrations", "args": {"limit": 1}}),
+    ("founding member",  {"name": "founding_members_summary", "args": {}}),
+    ("founding members", {"name": "founding_members_summary", "args": {}}),
+    ("hasn't been contacted",  {"name": "list_interest_registrations", "args": {"status": "registered"}}),
+    ("haven't been contacted", {"name": "list_interest_registrations", "args": {"status": "registered"}}),
+    ("not been contacted",     {"name": "list_interest_registrations", "args": {"status": "registered"}}),
+    ("not contacted yet",      {"name": "list_interest_registrations", "args": {"status": "registered"}}),
+    ("everyone who hasn't",    {"name": "list_interest_registrations", "args": {"status": "registered"}}),
+    ("still registered",  {"name": "count_interest_registrations", "args": {"status": "registered"}}),
+    ("awaiting contact",  {"name": "count_interest_registrations", "args": {"status": "registered"}}),
+    ("joined this week",  {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 7}}),
+    ("joined today",      {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 1}}),
+    ("invited this week", {"name": "count_interest_registrations", "args": {"status": "invited", "since_days": 7}}),
+    ("been invited",      {"name": "count_interest_registrations", "args": {"status": "invited"}}),
+    ("have been invited", {"name": "count_interest_registrations", "args": {"status": "invited"}}),
+    ("who was invited",   {"name": "list_interest_registrations",  "args": {"status": "invited"}}),
+    ("have joined",       {"name": "count_interest_registrations", "args": {"status": "joined"}}),
+    ("who joined",        {"name": "list_interest_registrations",  "args": {"status": "joined"}}),
+    ("joined friendplace",{"name": "count_interest_registrations", "args": {"status": "joined"}}),
+    ("conversion rate",      {"name": "founding_members_conversion", "args": {}}),
+    ("conversion",           {"name": "founding_members_conversion", "args": {}}),
+    ("funnel",               {"name": "founding_members_conversion", "args": {}}),
+    ("registered to joined", {"name": "founding_members_conversion", "args": {}}),
+    ("how are we tracking",  {"name": "founding_members_conversion", "args": {}}),
+    ("register interest",   {"name": "count_interest_registrations", "args": {}}),
+    ("registered interest", {"name": "count_interest_registrations", "args": {}}),
+    ("registrations", {"name": "count_interest_registrations", "args": {}}),
+    ("registration",  {"name": "count_interest_registrations", "args": {}}),
+    # Generic fallbacks
     ("ticket",       {"name": "count_support_tickets", "args": {"status": "open"}}),
     ("support",      {"name": "count_support_tickets", "args": {"status": "open"}}),
     ("signal",       {"name": "count_signals",         "args": {"status": ["NEW"]}}),
@@ -217,17 +255,6 @@ _TOPIC_TO_TOOL = [
     ("member",       {"name": "count_members",         "args": {}}),
     ("organisation", {"name": "count_organisations",   "args": {}}),
     ("org",          {"name": "count_organisations",   "args": {}}),
-    # Founding Members CRM — Phase 1
-    ("founding member",  {"name": "founding_members_summary", "args": {}}),
-    ("founding members", {"name": "founding_members_summary", "args": {}}),
-    ("register interest",   {"name": "count_interest_registrations", "args": {}}),
-    ("registered interest", {"name": "count_interest_registrations", "args": {}}),
-    ("registration",  {"name": "count_interest_registrations", "args": {}}),
-    ("registrations", {"name": "count_interest_registrations", "args": {}}),
-    ("awaiting contact", {"name": "count_interest_registrations", "args": {"status": "registered"}}),
-    ("who is the latest", {"name": "list_interest_registrations", "args": {"limit": 1}}),
-    ("latest registration", {"name": "list_interest_registrations", "args": {"limit": 1}}),
-    ("latest founder",      {"name": "list_interest_registrations", "args": {"limit": 1}}),
 ]
 
 

@@ -534,6 +534,56 @@ async def _founding_members_summary(db: Any, args: dict) -> dict:
     }
 
 
+@register(
+    "founding_members_conversion",
+    "Funnel + conversion metrics for the Founding Members CRM. Returns counts at every "
+    "stage (registered, invited, joined, opted_out), plus derived rates: "
+    "invite_rate (invited / (total - opted_out)), join_rate (joined / (total - opted_out)), "
+    "invited_to_joined (joined / invited). Use this when the admin asks about conversion, "
+    "funnel, ratios, or 'how are we tracking'. Test-flagged rows are excluded.",
+    args={
+        "since_days": {"type": "int", "required": False},
+    },
+)
+async def _founding_members_conversion(db: Any, args: dict) -> dict:
+    base: dict = {"is_test": {"$ne": True}}
+    if "since_days" in args:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
+        base["created_at"] = {"$gte": cutoff.isoformat()}
+    total = await db.interest_registrations.count_documents(base)
+    awaiting = await db.interest_registrations.count_documents({
+        **base,
+        "$or": [
+            {"status": {"$exists": False}},
+            {"status": None},
+            {"status": {"$in": ["registered", "new"]}},
+        ],
+    })
+    invited   = await db.interest_registrations.count_documents({**base, "status": "invited"})
+    joined    = await db.interest_registrations.count_documents({**base, "status": "joined"})
+    opted_out = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
+
+    def pct(numer: int, denom: int) -> Optional[float]:
+        return round((numer / denom) * 100, 1) if denom > 0 else None
+
+    active = max(total - opted_out, 0)  # exclude opt-outs from the denominator
+    # Invited count is conservative — anyone who has been invited OR later
+    # joined counts as "reached invite stage".
+    reached_invite = invited + joined
+    return {
+        "window_days":       int(args["since_days"]) if "since_days" in args else None,
+        "total":             total,
+        "registered":        awaiting,
+        "invited":           invited,
+        "joined":            joined,
+        "opted_out":         opted_out,
+        "active_pool":       active,
+        "invite_rate_pct":   pct(reached_invite, active),
+        "join_rate_pct":     pct(joined, active),
+        "invited_to_joined_pct": pct(joined, reached_invite),
+    }
+
+
 
 
 
