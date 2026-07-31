@@ -653,6 +653,119 @@ def build_router(db) -> APIRouter:
         token = _make_admin_token(admin["id"], admin["email"])
         return {"ok": True, "token": token}
     # ============================================================
+    # ============================================================
+    # ENQUIRIES  ·  unified view across every public submission form
+    # ============================================================
+    # Guarantees Garry's launch requirement: "no customer enquiry can
+    # ever be lost because of an email delivery issue." Every public
+    # submission form (Contact, Register Interest, Support ticket,
+    # Report, Waitlist) already persists to the DB *before* any email
+    # is sent — this endpoint gives admins a single at-a-glance view.
+    # If an outbound confirmation email ever fails to deliver, the
+    # underlying record is still here.
+
+    @router.get("/enquiries")
+    async def list_enquiries(
+        kind: Optional[str] = None,      # filter to one type: contact|interest|support|report|waitlist
+        limit: int = 200,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Unified list of every public enquiry / registration.
+
+        Returns rows from five collections in a normalised shape so the
+        UI can render them side-by-side. Excludes test fixtures. Newest
+        first. Capped at `limit` per collection so a spike can't hurt
+        the browser."""
+        lim = max(1, min(int(limit or 200), 500))
+
+        async def _read(coll: str, mapper) -> list[dict]:
+            docs = await db[coll].find(
+                {"is_test": {"$ne": True}}, {"_id": 0}
+            ).sort("created_at", -1).to_list(lim)
+            return [mapper(d) for d in docs]
+
+        rows: list[dict] = []
+        if not kind or kind == "contact":
+            rows += await _read("contact_submissions", lambda d: {
+                "kind":       "contact",
+                "kind_label": "Contact",
+                "id":         d.get("id"),
+                "name":       d.get("name"),
+                "email":      d.get("email"),
+                "subject":    d.get("subject"),
+                "message":    d.get("message"),
+                "status":     d.get("status") or "new",
+                "created_at": d.get("created_at"),
+                "meta":       {"category": d.get("category")},
+            })
+        if not kind or kind == "interest":
+            rows += await _read("interest_registrations", lambda d: {
+                "kind":       "interest",
+                "kind_label": "Register Interest",
+                "id":         d.get("id"),
+                "name":       d.get("first_name") or d.get("name"),
+                "email":      d.get("email"),
+                "subject":    None,
+                "message":    d.get("notes") or "",
+                "status":     d.get("status") or "new",
+                "created_at": d.get("created_at"),
+                "meta":       {"suburb": d.get("suburb"), "state": d.get("state"), "companion": d.get("companion")},
+            })
+        if not kind or kind == "support":
+            rows += await _read("support_tickets", lambda d: {
+                "kind":       "support",
+                "kind_label": "Support ticket",
+                "id":         d.get("ref") or d.get("id"),
+                "name":       d.get("name"),
+                "email":      d.get("email"),
+                "subject":    d.get("subject"),
+                "message":    d.get("message"),
+                "status":     d.get("status") or "open",
+                "created_at": d.get("created_at"),
+                "meta":       {"category": d.get("category"), "ref": d.get("ref")},
+            })
+        if not kind or kind == "report":
+            rows += await _read("reports", lambda d: {
+                "kind":       "report",
+                "kind_label": "Report",
+                "id":         d.get("id"),
+                "name":       d.get("reporter_name"),
+                "email":      d.get("reporter_email"),
+                "subject":    d.get("reason") or d.get("category"),
+                "message":    d.get("details") or d.get("notes"),
+                "status":     d.get("status") or "open",
+                "created_at": d.get("created_at"),
+                "meta":       {"target_type": d.get("target_type"), "target_id": d.get("target_id")},
+            })
+        if not kind or kind == "waitlist":
+            rows += await _read("waitlist", lambda d: {
+                "kind":       "waitlist",
+                "kind_label": "Waitlist",
+                "id":         d.get("id"),
+                "name":       d.get("first_name") or d.get("name"),
+                "email":      d.get("email"),
+                "subject":    None,
+                "message":    "",
+                "status":     "invited" if d.get("invited") else "waiting",
+                "created_at": d.get("created_at"),
+                "meta":       {"referral": d.get("referral_source")},
+            })
+
+        # Sort ALL rows across kinds by created_at DESC.
+        rows.sort(key=lambda r: r.get("created_at") or "", reverse=True)
+        return {
+            "count": len(rows),
+            "rows":  rows[:lim],
+            "kinds": [
+                {"key": "contact",  "label": "Contact",           "count": sum(1 for r in rows if r["kind"] == "contact")},
+                {"key": "interest", "label": "Register Interest", "count": sum(1 for r in rows if r["kind"] == "interest")},
+                {"key": "support",  "label": "Support",           "count": sum(1 for r in rows if r["kind"] == "support")},
+                {"key": "report",   "label": "Report",            "count": sum(1 for r in rows if r["kind"] == "report")},
+                {"key": "waitlist", "label": "Waitlist",          "count": sum(1 for r in rows if r["kind"] == "waitlist")},
+            ],
+        }
+
+
     # EMAIL TEMPLATE PREVIEW
     # ============================================================
     # Lets a signed-in CMS admin render each transactional email in a

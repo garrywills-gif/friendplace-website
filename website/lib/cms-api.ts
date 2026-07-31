@@ -676,6 +676,39 @@ export type EmailMessageStatus = {
   dashboard_url: string;
 };
 
+// ─────────────────────────────────────────────────────────────────────────
+// Enquiries — unified list of every public submission (Contact, Register
+// Interest, Support, Report, Waitlist). Every row persists to the DB
+// *before* any email is sent, so this view is the guaranteed source of
+// truth even if outbound email delivery ever fails.
+// ─────────────────────────────────────────────────────────────────────────
+
+export type Enquiry = {
+  kind: 'contact' | 'interest' | 'support' | 'report' | 'waitlist';
+  kind_label: string;
+  id?: string | null;
+  name?: string | null;
+  email?: string | null;
+  subject?: string | null;
+  message?: string | null;
+  status: string;
+  created_at?: string | null;
+  meta?: Record<string, any>;
+};
+
+export const enquiriesApi = {
+  list: (kind?: string, limit = 200) => {
+    const params = new URLSearchParams();
+    if (kind) params.set('kind', kind);
+    params.set('limit', String(limit));
+    return req<{
+      count: number;
+      rows: Enquiry[];
+      kinds: Array<{ key: string; label: string; count: number }>;
+    }>('GET', `/cms/enquiries?${params.toString()}`);
+  },
+};
+
 export type EmailSendingHealthCheck = {
   label: string;
   state: 'healthy' | 'needs_attention' | 'broken';
