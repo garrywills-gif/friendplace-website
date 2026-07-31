@@ -104,20 +104,109 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 # ─── retrieval ────────────────────────────────────────────────────────
+#
+# `needs_kb()` decides whether to spend a Mongo round-trip on retrieval.
+# It has to be permissive: silently skipping retrieval on a real
+# question is one of the ways George becomes an unreliable guide.
+#
+# It fires when the message matches ANY of:
+#   • Interrogative words:  who, what, where, when, why, how, which
+#   • Modal admin verbs:    can, could, should, do we, does, is/are there,
+#                           can I, how do I, tell me, find, show me,
+#                           point me, remind me, list, explain, describe
+#   • Question mark anywhere in the message
+#   • Curiosity anchors:    outstanding, philosophy, decision, reason,
+#                           purpose, origin, history, story, current
+#                           state, principle
+#   • Short bare-noun queries (< 8 words with no verb) — admins often
+#     type "email templates" or "morning briefing" as a direct lookup.
+#
+# The old regex missed all four of the natural phrasings Garry
+# actually asked ("Where are the email templates?", "Can I change the
+# Welcome email?", "email templates", "where's the emails page"). Any
+# time we err, we err toward retrieving one extra time, not toward
+# leaving George stranded.
 _NEEDS_KB_HINTS = re.compile(
-    r"\b(why|how|when did|what('?s| is)|explain|current state|remind me|"
-    r"outstanding|philosophy|decision|reason|purpose|origin|history|story)\b",
+    r"("
+    # Interrogative words at any position, word-bounded
+    r"\b(who|what|where|when|why|how|which|whose|whom)\b"
+    # Modal + admin verbs
+    r"|\b(can|could|should|would|may|might)\s+(i|we|you|it)\b"
+    r"|\b(do|does|did|is|are|was|were)\s+(we|there|it|that|this)\b"
+    r"|\bdo\s+i\b"
+    r"|\btell\s+me\b|\bshow\s+me\b|\bpoint\s+me\b|\bremind\s+me\b"
+    r"|\bfind\b|\blist\b|\blook\s+up\b"
+    # Curiosity anchors (the old list, kept)
+    r"|\bexplain\b|\bdescribe\b|\bdefine\b|\bcurrent state\b|\bstate of\b"
+    r"|\boutstanding\b|\bphilosophy\b|\bprinciple\b|\bdecision\b"
+    r"|\breason\b|\bpurpose\b|\borigin\b|\bhistory\b|\bstory\b"
+    # Trailing question mark — always worth retrieving on
+    r"|\?"
+    r")",
     re.IGNORECASE,
 )
+
+# A few nouns/phrases so common in admin queries we want to trigger
+# retrieval even in a bare-noun form ("email templates", "the bridge",
+# "morning briefing"). Add here whenever a new admin surface ships.
+_BARE_NOUN_TRIGGERS = re.compile(
+    r"\b("
+    r"email\s+template|email\s+preview|welcome\s+email|password\s+reset|"
+    r"invitation\s+email|waitlist|support\s+ack|resend|"
+    r"the\s+bridge|mission\s+control|morning\s+briefing|"
+    r"mcgs|signal\s+feed|george'?s\s+workspace|"
+    r"knowledge\s+base|kb\s+entry|kb-[a-z]+-\d+|"
+    r"ryi|register\s+your\s+interest|"
+    r"admin\s+panel|admin\s+shell|admin\s+dashboard"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+# Pure conversational fillers — never trigger retrieval on these
+# alone. Kept explicit and short so the intent stays obvious. Any of
+# these joined with more words (e.g. "hi, where are the templates?")
+# will still trigger via the interrogative-word rule.
+_CONVERSATIONAL_STOPWORDS = {
+    "hi", "hello", "hey", "howdy", "yo",
+    "thanks", "thank you", "thankyou", "ta", "cheers",
+    "ok", "okay", "kk", "sure", "cool", "great", "nice",
+    "yes", "yep", "yeah", "no", "nope",
+    "got it", "understood", "gotcha", "roger", "copy",
+    "morning", "afternoon", "evening", "goodnight",
+    "george", "hi george", "hey george", "hello george",
+    "lol", "haha", "wow", "oh",
+}
 
 
 def needs_kb(user_message: str) -> bool:
     """Cheap classifier — trigger KB retrieval when the question is
     likely to benefit. Errs on the side of retrieving; George falls
-    back to 'unknown' if no entries match."""
-    if not user_message or len(user_message.strip()) < 4:
+    back to 'unknown' if no entries match, so an extra retrieval is
+    always safe and a missed retrieval is not.
+
+    Also honours a low word-count "bare-noun lookup" pattern like
+    ``email templates`` or ``morning briefing`` — admins type these
+    as-is when they're trying to find something.
+    """
+    q = (user_message or "").strip()
+    if len(q) < 3:
         return False
-    return bool(_NEEDS_KB_HINTS.search(user_message))
+    # Bail out on pure conversational fillers — they're not questions
+    # and don't benefit from KB grounding.
+    q_lower = q.lower().rstrip("!.?,;: ")
+    if q_lower in _CONVERSATIONAL_STOPWORDS:
+        return False
+    if _NEEDS_KB_HINTS.search(q):
+        return True
+    if _BARE_NOUN_TRIGGERS.search(q):
+        return True
+    # Short bare-noun form: <= 7 words, no verb-ish tokens.
+    # If it looks like a lookup, retrieve.
+    words = q.split()
+    if len(words) <= 7 and not re.search(r"\b(is|are|was|were|do|does|did|has|have|will|would|should|can|could|may|might)\b", q, re.IGNORECASE):
+        return True
+    return False
 
 
 async def retrieve(
@@ -274,16 +363,21 @@ def format_for_prompt(hits: list[dict], *, is_admin: bool = False) -> str:
         )
     audience = "administrator" if is_admin else "community member"
     parts.append(
-        f"\n\nRules when answering from these entries (audience: {audience}):\n"
-        "- Ground every substantive claim in one of the entries above.\n"
-        "- Cite entries using the form [KB-XXXX] where KB-XXXX is the id shown.\n"
-        "- If NONE of the entries answer the question, say so explicitly: "
-        "  'I don't have a documented decision on that yet — do you want to record one?'\n"
-        "- When multiple entries relate, connect them naturally: 'this stems from…', "
-        "  'this reinforces…', 'this superseded…'. Never invent connections that aren't there.\n"
-        "- When something has evolved (an entry was superseded), narrate the arc: "
-        "  what it used to be, what it is now, and why it changed.\n"
-        "- If a retrieved entry is older than 90 days and might be stale, note that.\n"
+        f"\n\n**RULES FOR ANSWERING FROM THESE ENTRIES (audience: {audience}):**\n"
+        "1. If ANY entry above matches Garry's question, you MUST answer from it. "
+        "Do NOT say 'I don't know' or 'I don't have that documented' when a "
+        "matching entry is above — the entry IS the documentation.\n"
+        "2. Cite entries using the form [KB-XXXX] where KB-XXXX is the id shown. "
+        "Include the citation inline the first time you use an entry.\n"
+        "3. Ground every substantive claim in one of the entries above.\n"
+        "4. Only if NONE of the entries even partially covers the question, say "
+        "'I don't have a documented decision on that yet — do you want to record one?'\n"
+        "5. When multiple entries relate, connect them naturally: 'this stems from…', "
+        "'this reinforces…', 'this superseded…'. Never invent connections that "
+        "aren't there.\n"
+        "6. When something has evolved (an entry was superseded), narrate the arc: "
+        "what it used to be, what it is now, and why it changed.\n"
+        "7. If a retrieved entry is older than 90 days and might be stale, note that.\n"
     )
     if is_admin:
         parts.append(

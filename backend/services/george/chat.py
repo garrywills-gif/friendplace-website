@@ -495,13 +495,40 @@ async def grounded_chat_stream(
     # MCGS is admin-only, so we pass is_admin=True — George sees the
     # full library including admin_context layers on public entries and
     # any admin-visibility entries (roadmap, security, ops).
+    #
+    # Every attempt is logged with hit IDs + fused RRF scores so we can
+    # later answer "did George see the KB for that question?" — the
+    # answer to the failure-mode Garry called out on 1 Aug 2026 where
+    # KB-FEAT-003 existed but "where are the email templates?" never
+    # even triggered retrieval.
+    _kb_hit = False
+    _kb_hit_ids: list[str] = []
     try:
         from services import knowledge as _kb
-        if _kb.needs_kb(user_message):
+        _kb_gate = _kb.needs_kb(user_message)
+        if _kb_gate:
             _hits = await _kb.retrieve(db, user_message, k=5, is_admin=True)
             _kb_block = _kb.format_for_prompt(_hits, is_admin=True)
             if _kb_block:
                 system_prompt = system_prompt + _kb_block
+                _kb_hit = True
+                _kb_hit_ids = [str(h.get("id")) for h in _hits if h.get("id")]
+            _hit_summary = [
+                f"{h.get('id')}={round(h.get('_score', 0.0), 3)}"
+                for h in _hits
+            ]
+            log.info(
+                "george.kb query=%r  gate=True  hits=%s  injected=%s",
+                (user_message or "")[:120],
+                _hit_summary,
+                _kb_hit,
+            )
+        else:
+            log.info(
+                "george.kb query=%r  gate=False  (skipped — needs_kb() "
+                "regex + bare-noun heuristics didn't match)",
+                (user_message or "")[:120],
+            )
     except Exception as _kb_err:
         # Never let KB retrieval failure kill a chat turn.
         log.warning("KB retrieval skipped: %s", _kb_err)
@@ -519,14 +546,37 @@ async def grounded_chat_stream(
         if rendered:
             prior_block = "PRIOR TURNS (most recent last):\n" + "\n".join(rendered) + "\n\n"
 
+    # Every factual claim must be grounded in one of two sources:
+    #   1. tool_results (evidence from live queries — members, events, …)
+    #   2. Institutional Knowledge entries (the KB block appended above,
+    #      if any). Those entries are labelled "## Institutional knowledge
+    #      from FriendPlace's own memory" — they ARE the documented
+    #      answers.
+    #
+    # George MUST answer from the KB when a KB entry matches — even if
+    # tool_results is empty. Only when NEITHER source covers the question
+    # is "I don't have enough information to answer that yet" acceptable.
+    # This closes the failure mode where a matching KB entry was
+    # retrieved but George still said "I don't know" because he was
+    # anchored to tool_results alone.
     user_block = (
         f"{prior_block}"
         f"GARRY'S CURRENT MESSAGE:\n"
         f'{wrap_untrusted(label="admin_message", origin="admin", content=user_message)}\n\n'
         f"{evidence}\n\n"
-        "Answer Garry directly. Ground every factual claim in the tool_results above. "
-        "If tool_results is empty or doesn't cover what he asked, say 'I don't have enough information to answer that yet.' "
-        "Keep it warm, short, and useful. Do not restate the tool call names or JSON \u2014 speak in plain English."
+        "Answer Garry directly. Ground every factual claim in EITHER:\n"
+        "  (a) the tool_results above, OR\n"
+        "  (b) the Institutional Knowledge entries in your system prompt "
+        "(look for the '## Institutional knowledge from FriendPlace's own "
+        "memory' block — those [KB-XXXX] entries ARE the documented "
+        "answers).\n\n"
+        "If a matching KB entry is available, you MUST answer from it and "
+        "cite the [KB-XXXX] id inline. Do NOT say 'I don't know' when a "
+        "KB entry above covers the question.\n\n"
+        "Only if NEITHER tool_results NOR the KB block covers what he "
+        "asked, say: 'I don't have enough information to answer that yet.'\n\n"
+        "Keep it warm, short, and useful. Do not restate the tool call "
+        "names or JSON — speak in plain English."
     )
 
     chat = (
