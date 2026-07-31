@@ -401,18 +401,33 @@ export default function MomentDetail() {
                     key={cm.id}
                     style={[styles.commentRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
                   >
-                    <Text style={{ fontSize: 22 }}>{cm.user_avatar || "👤"}</Text>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>
-                          {cm.user_name || "Someone"}
+                    {/* Commenter avatar + name are their own Pressable so
+                        tapping either opens their profile. Enables the
+                        "I want to say hi to the person who left this
+                        warm word" moment. (Garry, 26 June 2026.) */}
+                    <Pressable
+                      testID={`comment-author-${cm.id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open ${cm.user_name || "member"}'s profile`}
+                      onPress={() => cm.user_id && router.push(`/user/${cm.user_id}` as any)}
+                      hitSlop={6}
+                      style={({ pressed }) => [
+                        { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0, opacity: pressed ? 0.6 : 1 },
+                      ]}
+                    >
+                      <Text style={{ fontSize: 22 }}>{cm.user_avatar || "👤"}</Text>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>
+                            {cm.user_name || "Someone"}
+                          </Text>
+                          <Text style={{ color: c.muted, fontSize: 11 * scale }}>{formatWhen(cm.created_at)}</Text>
+                        </View>
+                        <Text style={{ color: c.onSurface, fontSize: 14 * scale, marginTop: 2, lineHeight: 20 }}>
+                          {cm.body}
                         </Text>
-                        <Text style={{ color: c.muted, fontSize: 11 * scale }}>{formatWhen(cm.created_at)}</Text>
                       </View>
-                      <Text style={{ color: c.onSurface, fontSize: 14 * scale, marginTop: 2, lineHeight: 20 }}>
-                        {cm.body}
-                      </Text>
-                    </View>
+                    </Pressable>
                     {canDelete ? (
                       <Pressable onPress={() => deleteComment(cm)} hitSlop={8}>
                         <Ionicons name="close" size={18} color={c.muted} />

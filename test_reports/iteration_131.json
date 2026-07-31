@@ -1,0 +1,36 @@
+{
+  "summary": "Full-stack regression for session changes (profile gentle-invite card, moments feed nested author Pressable, moment-detail comment author tappable, website ❤/💬 removal, Apple SIWA bundle-id rotation). Backend: 17/17 SIWA tests + 43/43 moments regression tests PASS (60/60 = 100%). Frontend: all 3 UI flows verified end-to-end via demo-login (Margaret) — gentle invite card renders exact copy 'Add a profile photo whenever you\\'re ready.', dismisses to 0 after 2 taps (survives reload via AsyncStorage under key profile_gentle_invite_dismisses_v1:{uid}); tapping moment-card author row navigates to /user/{author_id}; tapping card body navigates to /moments/{id}; tapping comment author row navigates to /user/{commenter_id}. Website marketing showcase cards no longer render like/comment counts (grep confirms no likes/comments substrings in /app/website/app/page.tsx).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter61_siwa_rotation.py",
+    "/app/backend/tests/test_moments.py",
+    "/app/backend/tests/test_moments_comments_count_fix.py",
+    "/app/test_reports/pytest/iter131_siwa.xml",
+    "/app/test_reports/pytest/iter131_moments.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py still exceeds 700 lines (~11k). Pre-existing; not introduced this session.",
+    "iter45_appstore_readiness.py contains 3 pre-existing stale tests (SIWA-unconfigured-in-dev, removed_ios_permission_strings, removed_android_permissions) that assert env is empty and voice permission is removed — both are wrong post-rotation. Per E1 instruction NOT to modify them, they were skipped from this run.",
+    "Apple SIWA client_secret helper correctly signs ES256 JWTs with rotated kid=9DAMF5JRK8 and iss=6XRMF8PK98; audience whitelist accepts both au.com.friendplace.app (iOS) and au.com.friendplace.app.web."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (60/60 tests — 17 SIWA + 43 moments regression)",
+    "frontend": "100% (5/5 UI flows: profile gentle-invite render + dismiss + AsyncStorage persistence; moments feed author tap→/user/; moments feed body tap→/moments/{id}; moment detail comment author tap→/user/)"
+  },
+  "seed_data_creation": "None — reused existing demo account maggie (Margaret) and existing TEST_* moments seeded by earlier suites.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Apple Sign-In native flow cannot be exercised on Expo web preview (requires real iOS device + native build with bundleIdentifier=au.com.friendplace.app); backend endpoint verified via forged-JWT probes only. Marketing website ❤/💬 removal was verified by static grep on /app/website/app/page.tsx (no live playwright pass on the Next.js site this iteration). Profile gentle-invite AsyncStorage key = `profile_gentle_invite_dismisses_v1:{user.id}` — clear it if you need to re-see the card during future testing. Moments feed uses two nested Pressables: outer card = testID `moment-card-{id}` → /moments/{id}; inner author = testID `moment-author-{id}` → /user/{author_id}. Comment author = testID `comment-author-{cm.id}` → /user/{commenter_id}. All three verified live.",
+  "rca_of_issue": "N/A — no failures."
+}

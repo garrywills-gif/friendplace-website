@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.youbelong.community",
+      "bundleIdentifier": "au.com.friendplace.app",
       "buildNumber": "119",
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -54,7 +54,7 @@
       }
     },
     "android": {
-      "package": "com.youbelong.community",
+      "package": "au.com.friendplace.app",
       "versionCode": 119,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",

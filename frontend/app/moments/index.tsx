@@ -247,18 +247,36 @@ export default function MomentsScreen() {
               >
                 {/* Row 1: author + timestamp + featured badge + read-aloud.
                     Kept compact so the STORY is what the eye lands on
-                    first — story-first, not photo-first. */}
+                    first — story-first, not photo-first.
+
+                    Author row is a NESTED Pressable so tapping the
+                    avatar or the name opens the poster's profile
+                    directly (Garry, 26 June 2026 — "it feels like the
+                    natural next step after enjoying someone's story").
+                    Tapping the body / photo of the card still opens
+                    the moment detail as before. */}
                 <View style={styles.cardHead}>
-                  <Text style={{ fontSize: 28 }}>{m.author_avatar || "👤"}</Text>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text numberOfLines={1} style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
-                      {m.author_name || "Someone"}
-                    </Text>
-                    <Text style={{ color: c.muted, fontSize: 12 * scale }}>
-                      {formatWhen(m.created_at)}
-                      {m.privacy === "friends" ? " · Friends only" : ""}
-                    </Text>
-                  </View>
+                  <Pressable
+                    testID={`moment-author-${m.id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${m.author_name || "member"}'s profile`}
+                    onPress={() => m.author_id && router.push(`/user/${m.author_id}` as any)}
+                    hitSlop={6}
+                    style={({ pressed }) => [
+                      { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0, opacity: pressed ? 0.6 : 1 },
+                    ]}
+                  >
+                    <Text style={{ fontSize: 28 }}>{m.author_avatar || "👤"}</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text numberOfLines={1} style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
+                        {m.author_name || "Someone"}
+                      </Text>
+                      <Text style={{ color: c.muted, fontSize: 12 * scale }}>
+                        {formatWhen(m.created_at)}
+                        {m.privacy === "friends" ? " · Friends only" : ""}
+                      </Text>
+                    </View>
+                  </Pressable>
                   {isFeatured ? (
                     <View style={styles.featureBadge}>
                       <Ionicons name="sparkles" size={12} color="#92400E" />
