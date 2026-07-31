@@ -5,6 +5,7 @@ import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
 import { CompanionProvider } from '@/lib/companion-context';
 import { ConciergeOverlay } from '@/components/site/ConciergeOverlay';
+import { LeadingButterfly } from '@/components/site/LeadingButterfly';
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.urlProduction),
@@ -86,6 +87,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               summon by dispatching `friendplace:meet-george`. Renders
               nothing until invited. */}
           <ConciergeOverlay />
+          <LeadingButterfly />
         </CompanionProvider>
       </body>
     </html>

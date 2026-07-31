@@ -85,7 +85,8 @@ type Phase =
   | 'looked'           // has looked around
   | 'eye-contact'      // holding the visitor's gaze
   | 'greeting'         // has begun speaking
-  | 'complete';        // greeting fully delivered, CTAs visible
+  | 'complete'         // greeting fully delivered, CTAs visible
+  | 'leading';         // visitor has accepted — butterfly is leading them into the site
 
 // Next.js 14 static-render safety: `useSearchParams()` (used inside
 // MeetPageContent below) requires a Suspense boundary or the build
@@ -509,12 +510,19 @@ function MeetPageContent() {
           Beat 4 has no audio clip \u2014 the silence between it and
           beat 3 is the invitation. See PUBLIC_EXPERIENCE_PRINCIPLES.md
           \u2192 "The One Principle". */}
-      <div style={greetingWrap} aria-live="polite">
+      <div
+        style={{
+          ...greetingWrap,
+          opacity: phase === 'leading' ? 0 : 1,
+          transition: 'opacity 500ms ease',
+        }}
+        aria-live="polite"
+      >
         <div style={greetingStack}>
-          <LineOfSpeech text={speechLines.hello}   visible={textStage >= 1} />
-          <LineOfSpeech text={speechLines.name}    visible={textStage >= 2} />
-          <LineOfSpeech text={speechLines.closing} visible={textStage >= 3} />
-          <LineOfSpeech text={speechLines.invite}  visible={textStage >= 4} />
+          <LineOfSpeech text={speechLines.hello}   visible={textStage >= 1 && phase !== 'leading'} />
+          <LineOfSpeech text={speechLines.name}    visible={textStage >= 2 && phase !== 'leading'} />
+          <LineOfSpeech text={speechLines.closing} visible={textStage >= 3 && phase !== 'leading'} />
+          <LineOfSpeech text={speechLines.invite}  visible={textStage >= 4 && phase !== 'leading'} />
         </div>
 
         {/* CTAs — fade in only after the greeting is fully delivered
@@ -522,7 +530,19 @@ function MeetPageContent() {
             switch so the launch transition is a one-line config flip,
             never a rewrite. The choreography above is IDENTICAL in
             both modes. */}
-        <NextSteps phase={phase} />
+        <NextSteps phase={phase} onLead={() => {
+          // The visitor said "yes, show me around." The butterfly
+          // stops being the greeter and becomes the guide — it lifts
+          // off, flies to the top of the screen, and lands in the
+          // FriendPlace logo of the destination page. See
+          // components/site/LeadingButterfly.tsx. Meanwhile /meet
+          // itself fades everything except the flyer, so the visitor
+          // only sees the butterfly leading them onward.
+          setPhase('leading');
+          window.dispatchEvent(new CustomEvent('friendplace:lead-to-tour', {
+            detail: { destination: '/about' },
+          }));
+        }} />
 
         {/* Two small secondary options on the SAME row \u2014 kept
             visually quiet, always fitting on shorter viewports, and
@@ -604,6 +624,11 @@ function MeetPageContent() {
             top:  origin.y,
             ['--dx' as any]: `${geom.dx}px`,
             ['--dy' as any]: `${geom.dy}px`,
+            // In the 'leading' phase, LeadingButterfly takes over from
+            // the same position with the same butterfly. Fading this
+            // one out ensures the visitor never sees two butterflies.
+            opacity: phase === 'leading' ? 0 : 1,
+            transition: 'opacity 200ms ease',
           }}
           aria-hidden
         >
@@ -794,14 +819,15 @@ function MeetPageContent() {
 // Read `/app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md#the-permanent-front-door`
 // before changing anything here.
 
-function NextSteps({ phase }: { phase: Phase }) {
+function NextSteps({ phase, onLead }: { phase: Phase; onLead: () => void }) {
   const mode = getSiteMode();
   const visible = phase === 'complete';
   const baseWrap: React.CSSProperties = {
     ...ctasWrap,
-    opacity: visible ? 1 : 0,
+    opacity: phase === 'leading' ? 0 : visible ? 1 : 0,
     transform: visible ? 'translateY(0)' : 'translateY(6px)',
     pointerEvents: visible ? 'auto' : 'none',
+    transition: 'opacity 500ms ease, transform 500ms ease',
   };
 
   if (mode === 'launched') {
@@ -844,11 +870,24 @@ function NextSteps({ phase }: { phase: Phase }) {
   // a question" button — that role belongs to the small "Tap me if
   // you'd like to chat." butterfly on the tour pages. Locked with
   // Garry (Dec 2026): "one invitation, not a menu."
+  //
+  // The CTA is a button (not a Link) because tapping it doesn't just
+  // navigate — it triggers the leading-butterfly flight which handles
+  // the route change itself. See LeadingButterfly.tsx. Cmd/Ctrl-click
+  // still opens /about in a new tab via the underlying anchor.
   return (
     <div style={baseWrap}>
-      <Link href="/about" style={primaryCta}>
+      <a
+        href="/about"
+        style={primaryCta}
+        onClick={(e) => {
+          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+          e.preventDefault();
+          onLead();
+        }}
+      >
         Come on, let me show you around.
-      </Link>
+      </a>
     </div>
   );
 }
