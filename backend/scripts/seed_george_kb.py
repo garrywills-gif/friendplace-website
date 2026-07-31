@@ -421,6 +421,32 @@ SEED: list[dict] = [
         ),
     },
 
+    # ── OPERATIONAL TROUBLESHOOTING ──────────────────────────────
+    {
+        "id": "KB-OPS-001", "type": "operational",
+        "title": "Troubleshooting: Resend reports 'Delivered' but the message is not visible in the recipient inbox",
+        "body_md": (
+            "See the running KB entry KB-OPS-001 for the full evidence-first "
+            "troubleshooting guide. Summary: gather the receiving mail "
+            "system's Message Trace verdict first; only recommend "
+            "tenant-side allowlisting (Spoof Intelligence, anti-phishing, "
+            "anti-spam) if the trace confirms that is the cause. Do not "
+            "assume a Microsoft-365-specific fix without a trace."
+        ),
+        "tags": [
+            "email", "deliverability", "resend", "troubleshooting",
+            "message-trace", "quarantine",
+        ],
+        "sources": [
+            {"label": "/app/backend/email_service.py — send_email_detailed"},
+            {"label": "Email Templates Studio: /admin/emails"},
+        ],
+        "related_ids": ["KB-FEAT-003", "KB-PRIN-003"],
+        "visibility": "admin",
+    },
+
+
+
     # ── ROADMAP ──────────────────────────────────────────────────
     {
         "id": "KB-ROAD-001", "type": "roadmap",
