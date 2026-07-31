@@ -9910,30 +9910,52 @@ async def public_register_interest(payload: dict, request: Request):
     else:
         ip = (request.client.host if request and request.client else "unknown") or "unknown"
 
-    # 5 registrations per IP per hour — same envelope as the contact form.
+    # 20 registrations per IP per hour — a gentle abuse guard while
+    # still allowing offices/families on the same NAT'd IP to sign on
+    # together, and admins to retest without tripping the limiter.
     hour_ago = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     try:
         recent = await db.interest_registrations.count_documents({"ip": ip, "created_at": {"$gt": hour_ago}})
     except Exception:
         recent = 0
-    if recent >= 5:
-        raise HTTPException(429, "Too many registrations from this address — please try again later.")
+    if recent >= 20:
+        raise HTTPException(429, "Too many registrations from this address — please try again in an hour.")
 
-    # Idempotency: if this email already registered in the last 24h, we
-    # quietly return the existing record and skip the second email. The
-    # visitor still gets the warm success page — they don't need to know
-    # we've de-duplicated. Longer windows would risk missing a genuine
-    # "please add me again" case; 24h feels like the right threshold.
-    day_ago = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    # Idempotency: if this email already registered in the last 10 minutes,
+    # treat it as the same submission (double-click, refresh-and-resubmit,
+    # etc.) — we return the existing record AND resend the acknowledgement
+    # so the visitor still gets their receipt. Deliberately short (10 min,
+    # not 24h): people should never be stranded because they registered
+    # months ago and now can't get back on the list.
+    dedup_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
     existing = None
     try:
         existing = await db.interest_registrations.find_one(
-            {"email": email, "created_at": {"$gt": day_ago}},
-            {"_id": 0, "id": 1, "email": 1, "created_at": 1},
+            {"email": email, "created_at": {"$gt": dedup_cutoff}},
+            {"_id": 0, "id": 1, "email": 1, "created_at": 1, "first_name": 1, "companion_choice": 1},
         )
     except Exception:
         existing = None
     if existing:
+        logger.info(
+            "RYI dedup: email=%s existing_id=%s created_at=%s ip=%s",
+            email, existing.get("id"), existing.get("created_at"), ip,
+        )
+        # Best-effort resend of the acknowledgement — if it originally
+        # failed (Resend hiccup, wrong domain, etc.) the visitor still
+        # gets a receipt on retry. Never fail the request.
+        try:
+            from email_service import send_email_detailed, waitlist_template
+            effective_companion = (existing.get("companion_choice") or "george")
+            subj, html_body, text_body = waitlist_template(
+                first_name=existing.get("first_name") or first_name,
+                companion=effective_companion,
+            )
+            await send_email_detailed(
+                to=email, subject=subj, html=html_body, text=text_body,
+            )
+        except Exception:
+            logger.exception("RYI dedup resend failed for %s", email)
         return {"ok": True, "id": existing.get("id"), "deduplicated": True}
 
     doc = {
@@ -9952,6 +9974,10 @@ async def public_register_interest(payload: dict, request: Request):
 
     try:
         await db.interest_registrations.insert_one(dict(doc))
+        logger.info(
+            "RYI new: id=%s email=%s first_name=%s companion=%s ip=%s",
+            doc["id"], email, first_name, companion, ip,
+        )
     except Exception:
         # If the DB write itself fails, we DO fail the request — silently
         # persisting nowhere would be worse than telling the visitor to
