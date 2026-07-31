@@ -188,3 +188,11 @@ asyncio.run(main())
 - George event creation prompt logic — DO NOT alter.
 - Nearby Opt-In checkbox behaviour — unchanged from TestFlight
   round-7 fix #18.
+- **Share a Moment (locked 31 July 2026)** — Home hero copy
+  ("What's your moment today?" + tagline), the amber hero card,
+  the empty-state phrase *"Be the first to leave a warm word."*
+  and the composer placeholder ("Say something kind"). Signature
+  phrasings — do NOT reword.
+- **Recipes** — retired for members but backend and stored recipe
+  data preserved. `/recipes` redirects to `/moments` in-app.
+  Do not delete the recipes backend routes without user sign-off.
