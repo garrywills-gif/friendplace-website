@@ -161,6 +161,52 @@ SEED: list[dict] = [
         ),
         "tags": ["design", "engineering", "voice"],
     },
+    {
+        "id": "KB-PRIN-003", "type": "principle",
+        "title": "Every new admin feature reaches George's knowledge before it ships",
+        "body_md": (
+            "George is the guide to FriendPlace and Mission Control. If a new "
+            "admin feature is added, George should immediately know about it — "
+            "not \"eventually,\" not \"once someone documents it,\" but by the "
+            "same commit that ships the feature.\n\n"
+            "**Concretely, every new admin-facing feature MUST:**\n\n"
+            "  1. Appear in the Mission Control sidebar (`AdminShell.NAV_GROUPS`) "
+            "with a clear, unambiguous label. The label should read the way an "
+            "admin would ask for it (\"Email templates,\" not \"Emails\").\n"
+            "  2. Ship with a `knowledge_base` entry (usually `type: feature`) "
+            "that answers three questions concisely: *what does it do*, "
+            "*where do I find it*, and *what are the common questions an "
+            "admin will ask about it*.\n"
+            "  3. Get seeded into the KB by rerunning "
+            "`python scripts/seed_george_kb.py` — or, for urgent ships, be "
+            "upserted directly via `knowledge.upsert_entry`. The retrieval "
+            "layer picks up new entries on the very next George turn; no "
+            "restart needed.\n\n"
+            "**Why this matters:** an admin asking George \"where are the "
+            "email templates?\" is trusting that George is a real guide to "
+            "the platform. Every time George has to answer \"I don't have "
+            "that documented yet,\" the trust in George as a guide erodes. "
+            "The KB is not optional documentation — it is the knowledge "
+            "surface George uses to *be* useful."
+        ),
+        "tags": ["principle", "george", "discoverability", "process"],
+        "sources": [
+            {"label": "GEORGE_KNOWLEDGE_MODEL.md"},
+            {"label": "/app/website/components/admin/AdminShell.tsx"},
+            {"label": "/app/backend/scripts/seed_george_kb.py"},
+        ],
+        "visibility": "public",
+        "admin_context": (
+            "Codified 1 Aug 2026 after an admin asked George where the "
+            "Email Templates page was and George couldn't answer. The "
+            "underlying feature (KB-FEAT-003) existed and worked, but it "
+            "wasn't in the KB — so George couldn't be a guide to it. "
+            "This principle is the fix at the process level, not just "
+            "the one-off backfill."
+        ),
+    },
+
+
 
     # ── PHILOSOPHIES ─────────────────────────────────────────────
     {
@@ -284,6 +330,95 @@ SEED: list[dict] = [
             "the Morning Briefing rhythm."
         ),
         "tags": ["mcgs", "bridge", "signals"],
+    },
+    {
+        "id": "KB-FEAT-003", "type": "feature",
+        "title": "Email Templates Studio (Mission Control ▸ Website ▸ Email templates)",
+        "body_md": (
+            "Where every FriendPlace transactional email is reviewed, edited "
+            "and test-sent before it ever reaches a real inbox.\n\n"
+            "**Where to find it:** Mission Control sidebar → **Website** "
+            "group → **Email templates** (route: `/admin/emails`).\n\n"
+            "**What lives there:** all five transactional emails, each built "
+            "from the same letter-style shell (clean white background, full "
+            "logo centred, personal-letter typography):\n\n"
+            "  • **Welcome** — sent when a new account is confirmed. "
+            "Personal letter from the visitor's chosen companion.\n"
+            "  • **Waitlist thanks** — sent when someone joins the "
+            "pre-launch waitlist. Signed by the companion.\n"
+            "  • **Invitation** — sent when a member personally invites "
+            "someone. Signed by the companion. Names the inviter.\n"
+            "  • **Password reset** — six-digit code. Signed by *The "
+            "FriendPlace Team* (operational, not personal).\n"
+            "  • **Support acknowledgement** — ticket receipt. Signed by "
+            "*The FriendPlace Team*.\n\n"
+            "**What the studio lets an admin do:**\n\n"
+            "  1. Pick a template from the left rail.\n"
+            "  2. Edit the **subject** and **preheader** (preview text) "
+            "inline; both fields re-render both previews after a ~250ms "
+            "debounce.\n"
+            "  3. On personal emails, flip between **George** and "
+            "**Georgia** so both companion voices land in the same shell.\n"
+            "  4. Watch a **desktop (720w)** and **mobile (375w)** preview "
+            "side-by-side. Both are rendered server-side by the exact same "
+            "code path that Resend uses, so nothing about the preview can "
+            "drift from what a real send would look like.\n"
+            "  5. Flip a **Light / Dark** surround to eyeball how the "
+            "letter looks in Gmail-dark-theme clients (the letter itself "
+            "stays white — email clients preserve that — but the chrome "
+            "around it flips so contrast can be judged).\n"
+            "  6. Read the **responsive validation** strip: subject length, "
+            "preheader length, and (for personal emails) confirmation that "
+            "the chosen companion actually appears in the rendered signature. "
+            "The Send button stays disabled until every check is at least a "
+            "warning-or-better.\n"
+            "  7. Press **Send test to hello@friendplace.com.au** (the "
+            "recipient is env-configurable via `EMAIL_PREVIEW_RECIPIENT`). "
+            "Every preview send is prefixed with `[TEST]` in the subject "
+            "so it can never be confused with a real production email.\n\n"
+            "**How the honest status banner reads:**\n\n"
+            "  • Green banner = **Resend accepted the message** (HTTP 200, "
+            "message ID present). This is NOT the same as 'delivered' — "
+            "acceptance is Resend's contract, delivery is the recipient "
+            "mailbox's contract. The banner explicitly names this and "
+            "surfaces the **message ID** so the admin can quote it in the "
+            "Resend dashboard to confirm final state (Sent · Queued · "
+            "Delivered · Bounced · Rejected).\n"
+            "  • Red banner = **Send failed**. Surfaces the actual Resend "
+            "error text, error code, HTTP status. Never claims success "
+            "when the API refused.\n\n"
+            "**Common admin questions this feature answers:**\n"
+            "  - 'Where are the email templates?' → *Mission Control "
+            "sidebar → Website → Email templates.*\n"
+            "  - 'How do I send a test email?' → *Open the studio, pick a "
+            "template, press Send test to hello@friendplace.com.au.*\n"
+            "  - 'Can I change the Welcome email?' → *Yes — subject and "
+            "preview text edit inline; body copy edits live in "
+            "`email_service.welcome_template` and take effect the moment "
+            "the backend restarts.*\n"
+            "  - 'Why didn't my test email arrive?' → *Check the Resend "
+            "dashboard using the message ID from the success banner. "
+            "Common causes: spam/junk folder, DMARC/SPF misalignment, or "
+            "the mailbox filtering same-domain sends. The current API "
+            "key is send-only, so the backend can't poll delivery status.*"
+        ),
+        "tags": [
+            "emails", "email-templates", "resend", "welcome", "waitlist",
+            "invitation", "password-reset", "support", "admin-panel",
+        ],
+        "sources": [
+            {"label": "/app/website/app/admin/emails/page.tsx"},
+            {"label": "/app/backend/email_service.py"},
+            {"label": "/app/backend/cms_module.py — /email-previews endpoints"},
+        ],
+        "related_ids": ["KB-PRIN-003"],
+        "visibility": "admin",
+        "admin_context": (
+            "The studio is the ONLY place transactional email copy should "
+            "be reviewed pre-send. Any new template must be added here "
+            "(otherwise it's invisible to admins) AND registered in "
+            "`_EMAIL_PREVIEW_TEMPLATES` in `cms_module.py`."
+        ),
     },
 
     # ── ROADMAP ──────────────────────────────────────────────────

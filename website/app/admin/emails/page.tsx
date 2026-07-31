@@ -43,7 +43,7 @@ type Mode = 'light' | 'dark';
 
 export default function AdminEmailsPage() {
   return (
-    <AdminShell title="Emails">
+    <AdminShell title="Email templates">
       <EmailsPanel />
     </AdminShell>
   );
