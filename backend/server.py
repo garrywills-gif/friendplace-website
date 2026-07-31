@@ -10441,7 +10441,22 @@ app.include_router(push_router, prefix="/api")
 #   * public/*   — granular per-section reads used by lib/api.ts
 # Both mount under /api/ to match the ingress prefix.
 from cms_module import build_router as _build_cms_router, build_public_router as _build_public_router  # noqa: E402
-app.include_router(_build_cms_router(db), prefix="/api")
+_cms_router = _build_cms_router(db)
+app.include_router(_cms_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def _start_campaign_scheduler():
+    """Kick off the scheduled-campaign poller in the background.
+
+    The poller is a long-lived coroutine attached to the CMS router
+    by build_router(); we just fire-and-forget it here. It handles its
+    own errors and never crashes the app.
+    """
+    import asyncio
+    poller = getattr(_cms_router, "start_scheduled_poller", None)
+    if poller:
+        asyncio.create_task(poller())
 app.include_router(_build_public_router(db), prefix="/api")
 
 # Mission Control George System (MCGS) — see /app/memory/mcgs-architecture.md

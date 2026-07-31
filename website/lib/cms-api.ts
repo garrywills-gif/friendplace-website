@@ -753,6 +753,28 @@ export type CRMFoundingMembersStats = {
   } | null;
 };
 
+export type CRMTimelineEvent = {
+  at?: string;
+  kind:
+    | 'registered'
+    | 'ack_sent'
+    | 'email_sent'
+    | 'status_change'
+    | 'campaign_received'
+    | 'campaign_failed';
+  title: string;
+  detail?: string;
+  status_from?: string;
+  status_to?: string;
+  template?: string;
+  subject?: string;
+  message_id?: string;
+  campaign_id?: string;
+  campaign_name?: string;
+  founder_number?: number;
+  actor_email?: string;
+};
+
 export const foundingMembersCrmApi = {
   list: (opts: { status?: string; q?: string; limit?: number } = {}) => {
     const p = new URLSearchParams();
@@ -768,6 +790,10 @@ export const foundingMembersCrmApi = {
     id: string,
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
   ) => req<CRMFoundingMember>('PATCH', `/cms/crm/founding-members/${id}`, patch),
+  timeline: (id: string) =>
+    req<{ count: number; events: CRMTimelineEvent[] }>(
+      'GET', `/cms/crm/founding-members/${id}/timeline`,
+    ),
 };
 
 export const enquiriesApi = {
@@ -824,7 +850,7 @@ export const emailPreviewsApi = {
 
 
 // ─── Campaigns (Phase 2A) ─────────────────────────────────────────
-export type CampaignStatus = 'draft' | 'sending' | 'sent' | 'failed';
+export type CampaignStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed';
 
 export type CampaignAudienceFilter = {
   statuses?: Array<'registered' | 'invited' | 'joined' | 'opted_out'>;
@@ -860,6 +886,7 @@ export type Campaign = {
   stats: CampaignStats;
   created_at?: string;
   created_by?: string;
+  scheduled_at?: string;
   sent_at?: string;
   finished_at?: string;
   sample_html?: string;
@@ -898,6 +925,10 @@ export const campaignsApi = {
     req<{ ok: boolean; targeted: number; status: CampaignStatus; message: string }>(
       'POST', `/cms/campaigns/${id}/send`,
     ),
+  schedule: (id: string, scheduledAtIso: string) =>
+    req<Campaign>('POST', `/cms/campaigns/${id}/schedule`, { scheduled_at: scheduledAtIso }),
+  unschedule: (id: string) =>
+    req<Campaign>('POST', `/cms/campaigns/${id}/unschedule`),
 };
 
 // CSV export lives on the CRM URL for symmetry — this is a browser

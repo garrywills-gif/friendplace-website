@@ -15,10 +15,11 @@ import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { campaignsApi, type Campaign, type CampaignStatus } from '@/lib/cms-api';
 
 const STATUS_META: Record<CampaignStatus, { label: string; bg: string; fg: string }> = {
-  draft:   { label: 'Draft',   bg: '#F1F5F9', fg: '#475569' },
-  sending: { label: 'Sending', bg: '#FEF3C7', fg: '#92400E' },
-  sent:    { label: 'Sent',    bg: '#DCFCE7', fg: '#166534' },
-  failed:  { label: 'Failed',  bg: '#FEE2E2', fg: '#991B1B' },
+  draft:     { label: 'Draft',     bg: '#F1F5F9', fg: '#475569' },
+  scheduled: { label: 'Scheduled', bg: '#EEF2FF', fg: '#3730A3' },
+  sending:   { label: 'Sending',   bg: '#FEF3C7', fg: '#92400E' },
+  sent:      { label: 'Sent',      bg: '#DCFCE7', fg: '#166534' },
+  failed:    { label: 'Failed',    bg: '#FEE2E2', fg: '#991B1B' },
 };
 
 export default function CampaignsListPage() {
@@ -125,10 +126,21 @@ export default function CampaignsListPage() {
                   )}
                 </div>
                 <div style={{ flex: '1 1 0', fontSize: 12, color: '#64748B' }}>
-                  {c.sent_at ? new Date(c.sent_at).toLocaleString('en-AU', {
-                    day: '2-digit', month: 'short', year: 'numeric',
-                    hour: '2-digit', minute: '2-digit',
-                  }) : <span style={{ color: '#94A3B8' }}>Draft</span>}
+                  {c.status === 'scheduled' && c.scheduled_at ? (
+                    <span style={{ color: '#3730A3', fontWeight: 700 }}>
+                      ⏰ {new Date(c.scheduled_at).toLocaleString('en-AU', {
+                        day: '2-digit', month: 'short', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit',
+                      })}
+                    </span>
+                  ) : c.sent_at ? (
+                    new Date(c.sent_at).toLocaleString('en-AU', {
+                      day: '2-digit', month: 'short', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit',
+                    })
+                  ) : (
+                    <span style={{ color: '#94A3B8' }}>Draft</span>
+                  )}
                 </div>
               </Link>
             );

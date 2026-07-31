@@ -1670,6 +1670,7 @@ def build_router(db) -> APIRouter:
             },
             "created_at":      c.get("created_at"),
             "created_by":      c.get("created_by"),
+            "scheduled_at":    c.get("scheduled_at"),
             "sent_at":         c.get("sent_at"),
             "finished_at":     c.get("finished_at"),
             "sample_html":     c.get("sample_html"),
@@ -1754,7 +1755,7 @@ def build_router(db) -> APIRouter:
         c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
         if not c:
             raise HTTPException(404, "Campaign not found")
-        if c.get("status") != "draft":
+        if c.get("status") not in ("draft", "scheduled"):
             raise HTTPException(400, "Sent campaigns are permanent — they can't be deleted")
         await db.campaigns.delete_one({"id": campaign_id})
         return {"ok": True}
@@ -1941,6 +1942,221 @@ def build_router(db) -> APIRouter:
         return {"ok": True, "targeted": len(recipients), "status": "sending",
                 "message": f"Campaign sending to {len(recipients)} Founding Member(s). "
                            f"Refresh to see live progress."}
+
+    # ─── CRM CSV export (2D) ────────────────────────────────────────
+    @router.post("/campaigns/{campaign_id}/schedule")
+    async def campaigns_schedule(
+        campaign_id: str,
+        payload: Dict[str, Any],
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Move a draft into a scheduled state to send at `scheduled_at`.
+
+        We keep it simple: the campaign stays in status 'scheduled' until
+        the poller (see server.py startup) picks it up. Admin can cancel
+        by hitting DELETE on the campaign (only allowed while draft OR
+        scheduled), or edit the schedule by PATCHing scheduled_at.
+        """
+        from datetime import datetime, timezone
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("status") not in ("draft", "scheduled"):
+            raise HTTPException(400, f"Cannot schedule a campaign that is already {c.get('status')}")
+        raw = str(payload.get("scheduled_at") or "").strip()
+        if not raw:
+            raise HTTPException(400, "scheduled_at (ISO 8601) is required")
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                # Interpret naive input as UTC — the compose UI always
+                # sends an explicit timezone offset, but be safe.
+                dt = dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            raise HTTPException(400, "scheduled_at must be a valid ISO 8601 timestamp")
+        if dt <= datetime.now(timezone.utc):
+            raise HTTPException(400, "scheduled_at must be in the future")
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$set": {
+                "status":        "scheduled",
+                "scheduled_at":  dt.isoformat(),
+                "scheduled_by":  admin.get("id"),
+                "updated_at":    datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        c2 = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        return _campaign_summary(c2)
+
+    @router.post("/campaigns/{campaign_id}/unschedule")
+    async def campaigns_unschedule(
+        campaign_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Return a scheduled campaign to draft status. Useful when
+        the send date arrives too soon and the admin wants to hold."""
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("status") != "scheduled":
+            raise HTTPException(400, "Only scheduled campaigns can be unscheduled")
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$set": {"status": "draft"}, "$unset": {"scheduled_at": ""}},
+        )
+        c2 = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        return _campaign_summary(c2)
+
+    @router.get("/crm/founding-members/{member_id}/timeline")
+    async def crm_founding_members_timeline(
+        member_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Chronological event feed for one Founding Member.
+
+        Aggregates from four sources so the CRM can render a single
+        timeline without the caller stitching things together:
+
+          1. The registration itself (`created_at` + founder_number).
+          2. The automatic acknowledgement (`ack_sent_at` /
+             `ack_message_id`).
+          3. Every `history[]` entry on the founder — status
+             transitions, admin overrides, individual invitation sends.
+          4. Every `campaign_recipients` row where this founder was
+             a recipient — cross-referenced with the campaign name.
+
+        Events are returned newest-first (which matches how humans
+        scan a "what happened" feed) but the frontend can flip that
+        if it wants a chronological unfolding.
+        """
+        row = await db.interest_registrations.find_one(
+            {"id": member_id}, {"_id": 0},
+        )
+        if not row:
+            raise HTTPException(404, "Founding member not found")
+        events: list[dict] = []
+
+        # 1) Registration.
+        fn = row.get("founder_number")
+        fn_display = f"#{fn:04d}" if fn else ""
+        events.append({
+            "at":     row.get("created_at"),
+            "kind":   "registered",
+            "title":  f"Registered as Founding Member {fn_display}".strip(),
+            "detail": (
+                f"{row.get('first_name') or '(unnamed)'} joined the register "
+                f"from {row.get('state_country') or 'somewhere in the world'}. "
+                f"Heard about us via: {row.get('heard_from') or '—'}."
+            ),
+            "founder_number": fn,
+        })
+
+        # 2) Acknowledgement email.
+        if row.get("ack_sent_at"):
+            events.append({
+                "at":         row["ack_sent_at"],
+                "kind":       "ack_sent",
+                "title":      "Acknowledgement email sent",
+                "detail":     (
+                    f"Sent the welcome letter — signed by "
+                    f"{'Georgia' if (row.get('companion_choice') == 'georgia') else 'George'}."
+                ),
+                "message_id": row.get("ack_message_id"),
+                "template":   "waitlist",
+            })
+
+        # 3) history[] entries — status transitions + email sends.
+        for h in (row.get("history") or []):
+            reason = (h.get("reason") or "").lower()
+            from_s = h.get("from"); to_s = h.get("to")
+            template = h.get("template")
+            subject = h.get("subject")
+            actor = h.get("actor_email") or h.get("actor_id")
+            campaign_id = h.get("campaign_id")
+            if reason == "email_sent":
+                title = "Invitation sent from Mission Control" if template == "invitation" else "Email sent"
+                detail = (
+                    f"Subject: “{subject}”" if subject
+                    else "A message was sent from Mission Control."
+                )
+            elif reason == "email_sent_no_status_change":
+                title = "Email sent"
+                detail = (
+                    f"Subject: “{subject}”" if subject else "Follow-up email sent."
+                )
+            elif reason == "campaign_sent":
+                title = "Received campaign invitation"
+                detail = f"Subject: “{subject}”" if subject else "Received a campaign."
+            elif reason == "admin_override":
+                title = "Admin override"
+                detail = f"Admin moved status from {from_s} to {to_s}"
+                if actor:
+                    detail += f" ({actor})"
+            elif from_s and to_s and from_s != to_s:
+                title = f"Status changed: {from_s} → {to_s}"
+                detail = f"Reason: {reason or 'not recorded'}"
+                if actor:
+                    detail += f" ({actor})"
+            else:
+                continue    # nothing interesting to render
+            events.append({
+                "at":           h.get("at"),
+                "kind":         "status_change" if (from_s and to_s and from_s != to_s) else "email_sent",
+                "title":        title,
+                "detail":       detail,
+                "status_from":  from_s,
+                "status_to":    to_s,
+                "template":     template,
+                "subject":      subject,
+                "message_id":   h.get("message_id"),
+                "campaign_id":  campaign_id,
+                "actor_email":  h.get("actor_email"),
+            })
+
+        # 4) Campaign receipts — join campaign_recipients with campaigns.
+        recip_rows = await db.campaign_recipients.find(
+            {"founder_id": member_id}, {"_id": 0},
+        ).to_list(500)
+        if recip_rows:
+            campaign_ids = list({r.get("campaign_id") for r in recip_rows if r.get("campaign_id")})
+            campaigns_by_id: Dict[str, Dict[str, Any]] = {}
+            if campaign_ids:
+                async for c in db.campaigns.find(
+                    {"id": {"$in": campaign_ids}},
+                    {"_id": 0, "id": 1, "name": 1, "template": 1, "companion": 1},
+                ):
+                    campaigns_by_id[c["id"]] = c
+            for r in recip_rows:
+                c = campaigns_by_id.get(r.get("campaign_id") or "", {})
+                cname = c.get("name") or "(untitled campaign)"
+                template = c.get("template") or "campaign"
+                kind = "campaign_received"
+                if r.get("status") == "failed":
+                    title = f"Campaign delivery failed: {cname}"
+                    kind = "campaign_failed"
+                elif template == "invitation":
+                    title = f"Invitation sent via campaign: {cname}"
+                else:
+                    title = f"Received campaign: {cname}"
+                events.append({
+                    "at":           r.get("sent_at"),
+                    "kind":         kind,
+                    "title":        title,
+                    "detail":       (
+                        f"Subject: “{r.get('subject') or ''}”"
+                        + (f" — {r.get('error')}" if r.get("status") == "failed" else "")
+                    ),
+                    "campaign_id":  r.get("campaign_id"),
+                    "campaign_name": cname,
+                    "template":     template,
+                    "subject":      r.get("subject"),
+                    "message_id":   r.get("message_id"),
+                })
+
+        # Sort newest first; missing `at` sinks to the bottom.
+        events.sort(key=lambda e: e.get("at") or "", reverse=True)
+        return {"count": len(events), "events": events}
+
 
     # ─── CRM CSV export (2D) ────────────────────────────────────────
     @router.get("/crm/founding-members.csv")
@@ -4755,5 +4971,39 @@ def build_public_router(db) -> APIRouter:
             "submission_ref": submission_ref,
             "message": "Thanks — your event has been submitted for review.",
         }
+
+    # ── Scheduled campaign poller ───────────────────────────────────
+    # Attach a small idempotent coroutine to the router so `server.py`
+    # can spawn it at startup. Every 30 s it looks for scheduled
+    # campaigns whose time has come and hands them off to the send
+    # worker. Cancelling a scheduled campaign (DELETE) or bumping it
+    # back to a draft (unschedule) removes it from the query.
+    async def start_scheduled_poller() -> None:
+        import asyncio as _asyncio
+        from datetime import datetime, timezone
+        while True:
+            try:
+                now_iso_val = datetime.now(timezone.utc).isoformat()
+                async for c in db.campaigns.find(
+                    {"status": "scheduled", "scheduled_at": {"$lte": now_iso_val}},
+                    {"_id": 0, "id": 1},
+                ):
+                    # Atomically claim the campaign so a duplicate
+                    # poller loop (rare, but possible during restarts)
+                    # can't send twice.
+                    claim = await db.campaigns.update_one(
+                        {"id": c["id"], "status": "scheduled"},
+                        {"$set": {"status": "sending"}},
+                    )
+                    if claim.modified_count:
+                        _asyncio.create_task(_campaign_send_worker(c["id"]))
+            except Exception:
+                import logging as _logging
+                _logging.getLogger("friendplace.email").exception(
+                    "Scheduled campaign poller iteration failed",
+                )
+            await _asyncio.sleep(30)
+
+    router.start_scheduled_poller = start_scheduled_poller  # type: ignore[attr-defined]
 
     return router

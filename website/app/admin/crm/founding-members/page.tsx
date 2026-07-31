@@ -23,6 +23,7 @@ import {
   type CRMFoundingMember,
   type CRMFoundingMembersStats,
   type CRMFoundingMemberStatus,
+  type CRMTimelineEvent,
 } from '@/lib/cms-api';
 
 const STATUS_ORDER: CRMFoundingMemberStatus[] = ['registered', 'invited', 'joined', 'opted_out'];
@@ -450,6 +451,7 @@ function MemberRow({
 
       {expanded && (
         <div style={expandPanel} onClick={e => e.stopPropagation()}>
+          <FoundingMemberTimeline memberId={row.id} />
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 20 }}>
             <div>
               <label style={s.label}>Admin notes</label>
@@ -652,6 +654,115 @@ function AdminOverridePanel({
       )}
     </div>
   );
+}
+
+function FoundingMemberTimeline({ memberId }: { memberId: string }) {
+  const [events, setEvents] = useState<CRMTimelineEvent[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await foundingMembersCrmApi.timeline(memberId);
+        if (!cancelled) setEvents(r.events || []);
+      } catch (e: any) {
+        if (!cancelled) setErr(e?.message || 'Could not load timeline');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [memberId]);
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <div style={{
+          fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase',
+          fontWeight: 800, color: '#0F766E',
+        }}>Timeline</div>
+        <div style={{ flex: 1, height: 1, background: '#E2E8F0' }} />
+      </div>
+      {err ? (
+        <div style={{ color: '#B91C1C', fontSize: 13 }}>{err}</div>
+      ) : !events ? (
+        <div style={{ color: '#94A3B8', fontSize: 13 }}>Loading history…</div>
+      ) : events.length === 0 ? (
+        <div style={{ color: '#94A3B8', fontSize: 13, fontStyle: 'italic' }}>
+          No recorded events yet.
+        </div>
+      ) : (
+        <ul style={{
+          listStyle: 'none', padding: 0, margin: 0,
+          position: 'relative',
+        }}>
+          {/* vertical rail behind the dots */}
+          <div style={{
+            position: 'absolute', left: 11, top: 6, bottom: 6,
+            width: 2, background: '#E2E8F0', borderRadius: 2,
+          }} />
+          {events.map((ev, idx) => {
+            const meta = TIMELINE_META[ev.kind] || TIMELINE_META.email_sent;
+            return (
+              <li key={idx} style={{
+                display: 'flex', gap: 12, paddingLeft: 4,
+                paddingBottom: 12, position: 'relative',
+              }}>
+                <div style={{
+                  width: 20, height: 20, borderRadius: '50%',
+                  background: meta.bg, color: meta.fg,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 900, flex: '0 0 20px',
+                  border: `2px solid ${meta.rim}`, boxShadow: '0 0 0 3px #F8FAFC',
+                  marginTop: 2,
+                }}>{meta.glyph}</div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#0A2540' }}>
+                    {ev.title}
+                  </div>
+                  {ev.detail && (
+                    <div style={{ fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 1.5 }}>
+                      {ev.detail}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 3 }}>
+                    {ev.at ? formatTimelineDate(ev.at) : '—'}
+                    {ev.campaign_id && (
+                      <>
+                        {' · '}
+                        <Link href={`/admin/campaigns/${ev.campaign_id}`}
+                          style={{ color: '#0F766E', textDecoration: 'none', fontWeight: 700 }}>
+                          view campaign
+                        </Link>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const TIMELINE_META: Record<CRMTimelineEvent['kind'], { glyph: string; bg: string; fg: string; rim: string }> = {
+  registered:        { glyph: '✓', bg: '#DCFCE7', fg: '#166534', rim: '#86EFAC' },
+  ack_sent:          { glyph: '✉', bg: '#F0FDFA', fg: '#0F766E', rim: '#99F6E4' },
+  email_sent:        { glyph: '✉', bg: '#F0FDFA', fg: '#0F766E', rim: '#99F6E4' },
+  campaign_received: { glyph: '📮', bg: '#EEF2FF', fg: '#3730A3', rim: '#C7D2FE' },
+  campaign_failed:   { glyph: '⚠', bg: '#FEE2E2', fg: '#B91C1C', rim: '#FCA5A5' },
+  status_change:     { glyph: '↻', bg: '#FEF3C7', fg: '#92400E', rim: '#FDE68A' },
+};
+
+function formatTimelineDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString('en-AU', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return iso; }
 }
 
 function TagPill({ label, onRemove }: { label: string; onRemove?: () => void }) {

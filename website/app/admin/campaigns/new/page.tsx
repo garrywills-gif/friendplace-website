@@ -77,6 +77,7 @@ function ComposePanel() {
   const [audienceCount, setAudienceCount] = useState<number | null>(null);
   const [previewHtml, setPreviewHtml] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const showToast = (m: string, ms = 2400) => { setToast(m); setTimeout(() => setToast(null), ms); };
@@ -168,6 +169,33 @@ function ComposePanel() {
       setTimeout(() => router.push(`/admin/campaigns/${campaignId}`), 1200);
     } catch (e: any) {
       showToast(e?.message || 'Send failed');
+    } finally { setSending(false); }
+  };
+
+  const doSchedule = async (localValue: string) => {
+    if (!campaignId) {
+      const id = await saveDraft(true);
+      if (!id) return;
+    }
+    if (!localValue) { showToast('Pick a date and time'); return; }
+    // datetime-local returns YYYY-MM-DDTHH:MM in the user's local
+    // timezone. Convert to a proper ISO string so the backend can
+    // parse it unambiguously.
+    let iso: string;
+    try {
+      iso = new Date(localValue).toISOString();
+    } catch {
+      showToast('That date/time is not valid');
+      return;
+    }
+    setSending(true);
+    try {
+      await campaignsApi.schedule(campaignId!, iso);
+      showToast('Campaign scheduled');
+      setScheduleOpen(false);
+      setTimeout(() => router.push('/admin/campaigns'), 800);
+    } catch (e: any) {
+      showToast(e?.message || 'Schedule failed');
     } finally { setSending(false); }
   };
 
@@ -309,10 +337,19 @@ function ComposePanel() {
           </div>
         </SectionCard>
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 20, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 20, alignItems: 'center', flexWrap: 'wrap' }}>
           <button type="button" onClick={() => void saveDraft()} disabled={saving}
             style={{ ...s.ghostBtn, opacity: saving ? 0.6 : 1 }}>
             {saving ? 'Saving…' : 'Save draft'}
+          </button>
+          <button type="button" onClick={() => setScheduleOpen(true)}
+            disabled={!campaignId || !audienceCount || audienceCount === 0}
+            style={{
+              ...s.ghostBtn,
+              opacity: (!campaignId || !audienceCount || audienceCount === 0) ? 0.5 : 1,
+              cursor:  (!campaignId || !audienceCount || audienceCount === 0) ? 'not-allowed' : 'pointer',
+            }}>
+            ⏰ Schedule…
           </button>
           <button type="button" onClick={() => setConfirmOpen(true)}
             disabled={!campaignId || !audienceCount || audienceCount === 0}
@@ -361,6 +398,16 @@ function ComposePanel() {
           sending={sending}
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => void doSend()}
+        />
+      )}
+
+      {scheduleOpen && (
+        <ScheduleModal
+          name={name || 'Untitled campaign'}
+          audienceCount={audienceCount ?? 0}
+          sending={sending}
+          onCancel={() => setScheduleOpen(false)}
+          onConfirm={doSchedule}
         />
       )}
 
@@ -444,6 +491,67 @@ function ConfirmModal({
           <button type="button" onClick={onConfirm} disabled={sending}
             style={{ ...s.primaryBtn, opacity: sending ? 0.6 : 1 }}>
             {sending ? 'Sending…' : 'Send campaign'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleModal({
+  name, audienceCount, sending, onCancel, onConfirm,
+}: {
+  name: string; audienceCount: number; sending: boolean;
+  onCancel: () => void;
+  onConfirm: (localValue: string) => void;
+}) {
+  // Default to "one hour from now", rounded to the next 15 minutes.
+  const [value, setValue] = useState(() => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    d.setMinutes(Math.ceil(d.getMinutes() / 15) * 15, 0, 0);
+    // datetime-local wants local time in YYYY-MM-DDTHH:MM (no tz)
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 999, padding: 20,
+    }}>
+      <div style={{
+        background: '#FFFFFF', borderRadius: 22, padding: 30,
+        maxWidth: 480, width: '100%',
+        boxShadow: '0 40px 80px rgba(15,23,42,0.35)',
+      }}>
+        <div style={{
+          fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase',
+          fontWeight: 800, color: '#3730A3',
+        }}>Schedule campaign</div>
+        <h2 style={{ margin: '6px 0 20px 0', fontSize: 22, color: '#0A2540' }}>{name}</h2>
+
+        <div style={{ ...s.label, marginBottom: 6 }}>Send on</div>
+        <input type="datetime-local" value={value}
+          onChange={e => setValue(e.target.value)}
+          style={{ ...s.input, width: '100%' }} />
+        <div style={s.helper}>
+          Times are in your local timezone. The campaign will wait quietly in the list
+          until then, and can be edited or cancelled anytime beforehand.
+        </div>
+
+        <div style={{
+          marginTop: 18, padding: 12,
+          background: '#EEF2FF', borderRadius: 12,
+          fontSize: 13, color: '#3730A3', fontWeight: 700,
+        }}>
+          When the time arrives, this will send to {audienceCount} {audienceCount === 1 ? 'Founding Member' : 'Founding Members'}.
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onCancel} disabled={sending} style={s.ghostBtn}>Cancel</button>
+          <button type="button" onClick={() => onConfirm(value)} disabled={sending}
+            style={{ ...s.primaryBtn, opacity: sending ? 0.6 : 1 }}>
+            {sending ? 'Scheduling…' : '⏰ Schedule'}
           </button>
         </div>
       </div>
