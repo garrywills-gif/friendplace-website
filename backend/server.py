@@ -8377,14 +8377,37 @@ async def list_moments(
             rx = {"$regex": safe, "$options": "i"}
             query["$or"] = [{"caption": rx}, {"author_name": rx}]
 
-    rows = await db.moments.find(query, {"_id": 0, "comments": 0}).sort("created_at", -1).limit(limit * 2).to_list(limit * 2)
+    # We use `$size` on the `comments` array so the feed can show
+    # accurate comment counts without shipping every comment body down
+    # the wire — the projection excluded the comments array which
+    # made `_moment_shape` see it as empty (comment-count bug reported
+    # 31 July 2026). Aggregation is the smallest correct fix.
+    pipeline: list = [
+        {"$match": query},
+        {"$sort": {"created_at": -1}},
+        {"$limit": limit * 2},
+        {"$project": {
+            "_id": 0,
+            "id": 1, "caption": 1, "photos": 1, "privacy": 1,
+            "author_id": 1, "author_name": 1, "author_avatar": 1,
+            "created_at": 1, "featured": 1, "hidden": 1,
+            "likes": 1,
+            "comments_count": {"$size": {"$ifNull": ["$comments", []]}},
+        }},
+    ]
+    rows = await db.moments.aggregate(pipeline).to_list(limit * 2)
     out = []
     for m in rows:
         # Post-filter: enforce per-moment privacy for the "everyone" scope.
         if (m.get("privacy") or "everyone") == "friends" and scope != "friends":
             if not await _viewer_can_see_moment(m, viewer_id):
                 continue
-        out.append(_moment_shape(m, viewer_id))
+        shaped = _moment_shape(m, viewer_id)
+        # `_moment_shape` counts `comments` array length; we've replaced
+        # that with an aggregated `comments_count`, so prefer it.
+        if "comments_count" in m:
+            shaped["comments_count"] = int(m["comments_count"] or 0)
+        out.append(shaped)
         if len(out) >= limit:
             break
     return {"moments": out}
@@ -8396,7 +8419,7 @@ async def get_featured_moment(viewer_id: Optional[str] = None):
     Home surfaces this as a banner above the tile grid."""
     m = await db.moments.find_one(
         {"featured": True, "hidden": {"$ne": True}},
-        {"_id": 0, "comments": 0},
+        {"_id": 0},
         sort=[("featured_at", -1)],
     )
     if not m:

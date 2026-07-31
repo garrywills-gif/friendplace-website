@@ -16,6 +16,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { useToast } from "@/src/lib/toast";
+import SpeakButton from "@/src/components/SpeakButton";
 
 /**
  * Share a Moment — feed screen.
@@ -216,6 +217,8 @@ export default function MomentsScreen() {
         ) : (
           moments.map((m) => {
             const isFeatured = featured?.id === m.id;
+            const firstPhoto = Array.isArray(m.photos) && m.photos.length > 0 ? m.photos[0] : null;
+            const extraPhotos = Math.max(0, (m.photos?.length || 0) - 1);
             return (
               <Pressable
                 key={m.id}
@@ -233,6 +236,9 @@ export default function MomentsScreen() {
                   },
                 ]}
               >
+                {/* Row 1: author + timestamp + featured badge + read-aloud.
+                    Kept compact so the STORY is what the eye lands on
+                    first — story-first, not photo-first. */}
                 <View style={styles.cardHead}>
                   <Text style={{ fontSize: 28 }}>{m.author_avatar || "👤"}</Text>
                   <View style={{ flex: 1, minWidth: 0 }}>
@@ -252,18 +258,59 @@ export default function MomentsScreen() {
                       </Text>
                     </View>
                   ) : null}
+                  {/* SpeakButton reads the caption aloud in George's voice.
+                      Wrapped in a stopPropagation-y View so tapping it
+                      doesn't also open the moment. */}
+                  {m.caption ? (
+                    <View onStartShouldSetResponder={() => true}>
+                      <SpeakButton
+                        text={`${m.author_name || "Someone"} says. ${m.caption}`}
+                        size={20}
+                        color={c.muted}
+                        testID={`moment-speak-${m.id}`}
+                      />
+                    </View>
+                  ) : null}
                 </View>
 
+                {/* Row 2: the story itself. Larger type, no truncation
+                    (up to 6 lines) so members can read enough to decide
+                    whether to open. */}
                 {m.caption ? (
-                  <Text style={{ color: c.onSurface, fontSize: 15 * scale, lineHeight: 22, marginTop: 8 }}>
+                  <Text
+                    numberOfLines={6}
+                    style={{
+                      color: c.onSurface,
+                      fontSize: 16 * scale,
+                      lineHeight: 24,
+                      marginTop: 10,
+                    }}
+                  >
                     {m.caption}
                   </Text>
                 ) : null}
 
-                {Array.isArray(m.photos) && m.photos.length > 0 ? (
-                  <MomentPhotos photos={m.photos} />
+                {/* Row 3: small photo preview (story-first, not photo-
+                    first). A single ~90px thumb on the left; if there
+                    are more, a small "+N" chip nudges the reader to
+                    open the moment for the full gallery. */}
+                {firstPhoto ? (
+                  <View style={styles.thumbRow}>
+                    <Image source={{ uri: firstPhoto }} style={styles.thumb} />
+                    {extraPhotos > 0 ? (
+                      <View style={styles.thumbMore}>
+                        <Ionicons name="images" size={12} color={c.muted} />
+                        <Text style={{ color: c.muted, fontWeight: "800", fontSize: 12 * scale, marginLeft: 4 }}>
+                          +{extraPhotos} more
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                 ) : null}
 
+                {/* Row 4: engagement — quiet, spelled-out counts. Not
+                    social-media-y counters, just gentle indicators of
+                    the conversation waiting inside. */}
                 <View style={styles.cardActions}>
                   <Pressable
                     testID={`moment-like-${m.id}`}
@@ -276,13 +323,13 @@ export default function MomentsScreen() {
                       size={20}
                       color={m.liked_by_me ? "#EF4444" : c.muted}
                     />
-                    <Text style={{ color: c.muted, fontWeight: "700", marginLeft: 5, fontSize: 13 * scale }}>
+                    <Text style={{ color: c.muted, fontWeight: "700", marginLeft: 6, fontSize: 13 * scale }}>
                       {m.likes_count || 0}
                     </Text>
                   </Pressable>
                   <View style={styles.actionBtn}>
                     <Ionicons name="chatbubble-ellipses-outline" size={19} color={c.muted} />
-                    <Text style={{ color: c.muted, fontWeight: "700", marginLeft: 5, fontSize: 13 * scale }}>
+                    <Text style={{ color: c.muted, fontWeight: "700", marginLeft: 6, fontSize: 13 * scale }}>
                       {m.comments_count || 0}
                     </Text>
                   </View>
@@ -296,8 +343,9 @@ export default function MomentsScreen() {
   );
 }
 
-/** Small photo strip. 1 photo = full-width square-ish; 2+ = 2-col grid,
- *  6 max (server also caps). */
+/** Small photo strip used in some list-only contexts. The feed
+ *  itself now uses a compact thumbnail (story-first). Kept here for
+ *  future reuse. */
 function MomentPhotos({ photos }: { photos: string[] }) {
   const safe = photos.slice(0, 6);
   if (safe.length === 1) {
@@ -320,6 +368,8 @@ function MomentPhotos({ photos }: { photos: string[] }) {
     </View>
   );
 }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _keep_MomentPhotos = MomentPhotos;
 
 function formatWhen(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -387,8 +437,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 999,
   },
-  cardActions: { flexDirection: "row", alignItems: "center", gap: 18, marginTop: 12 },
+  cardActions: { flexDirection: "row", alignItems: "center", gap: 20, marginTop: 12 },
   actionBtn: { flexDirection: "row", alignItems: "center" },
+  // Story-first: small photo preview under the caption, not a hero.
+  // Locked with Garry 31 July 2026 — "the photo supports the story
+  // rather than dominating it".
+  thumbRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+  },
+  thumb: {
+    width: 92,
+    height: 92,
+    borderRadius: 12,
+    backgroundColor: "#F3F4F6",
+  },
+  thumbMore: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#F1F5F9",
+  },
   empty: {
     borderRadius: 20,
     borderWidth: 1,

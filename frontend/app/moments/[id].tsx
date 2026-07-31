@@ -20,6 +20,8 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import SpeakButton from "@/src/components/SpeakButton";
+import VoiceInputButton from "@/src/components/VoiceInputButton";
 
 type Comment = {
   id: string;
@@ -276,6 +278,17 @@ export default function MomentDetail() {
                 </Text>
               </View>
             ) : null}
+            {/* Read-aloud in George's voice — locked with Garry 31 July
+                2026 as an accessibility win for members with poorer
+                eyesight (and for anyone who just prefers listening). */}
+            {moment.caption ? (
+              <SpeakButton
+                text={`${moment.author_name || "Someone"} says. ${moment.caption}`}
+                size={22}
+                color={c.muted}
+                testID="moment-detail-speak"
+              />
+            ) : null}
           </View>
 
           {moment.caption ? (
@@ -294,7 +307,8 @@ export default function MomentDetail() {
             </View>
           ) : null}
 
-          {/* Like row */}
+          {/* Story-first summary — spelled-out counts (Garry, 31 Jul 2026):
+              "❤️ 3 Likes  ·  💬 2 Comments". Warm, not counter-heavy. */}
           <View style={[styles.likeRow, { borderColor: c.border }]}>
             <Pressable
               testID="moment-detail-like"
@@ -307,13 +321,16 @@ export default function MomentDetail() {
                 size={22}
                 color={moment.liked_by_me ? "#EF4444" : c.onSurface}
               />
-              <Text style={{ color: c.onSurface, fontWeight: "800", marginLeft: 6, fontSize: 14 * scale }}>
-                {moment.likes_count || 0} {(moment.likes_count || 0) === 1 ? "like" : "likes"}
+              <Text style={{ color: c.onSurface, fontWeight: "800", marginLeft: 8, fontSize: 15 * scale }}>
+                {moment.likes_count || 0} {(moment.likes_count || 0) === 1 ? "Like" : "Likes"}
               </Text>
             </Pressable>
-            <Text style={{ color: c.muted, fontWeight: "700", fontSize: 13 * scale }}>
-              {moment.comments_count || 0} {(moment.comments_count || 0) === 1 ? "comment" : "comments"}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Ionicons name="chatbubble-ellipses-outline" size={20} color={c.onSurface} />
+              <Text style={{ color: c.onSurface, fontWeight: "800", marginLeft: 8, fontSize: 15 * scale }}>
+                {moment.comments_count || 0} {(moment.comments_count || 0) === 1 ? "Comment" : "Comments"}
+              </Text>
+            </View>
           </View>
 
           {/* Comments */}
@@ -354,7 +371,11 @@ export default function MomentDetail() {
           )}
         </ScrollView>
 
-        {/* Composer */}
+        {/* Composer — text OR voice. FriendPlace members find dictating
+            far easier than typing on a phone keyboard, so a mic button
+            sits inline with the input; tap → speak → transcribed text
+            drops into the field → tap Send. Reuses the app-wide
+            VoiceInputButton (whisper-1). */}
         <View style={[styles.composer, { backgroundColor: c.surface, borderTopColor: c.border, paddingBottom: Math.max(insets.bottom, 8) }]}>
           <TextInput
             testID="moment-comment-input"
@@ -375,6 +396,14 @@ export default function MomentDetail() {
               maxHeight: 100,
             }}
             multiline
+          />
+          <VoiceInputButton
+            value={comment}
+            onChangeText={setComment}
+            userId={user?.id}
+            appendMode="append"
+            size={42}
+            testID="moment-comment-mic"
           />
           <Pressable
             testID="moment-comment-send"

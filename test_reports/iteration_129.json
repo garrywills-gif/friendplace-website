@@ -1,0 +1,38 @@
+{
+  "summary": "Backend-only regression + fix verification for Share a Moment (comments_count bug). Both fixed endpoints (`GET /api/moments` list feed via aggregate with $size/$ifNull, and `GET /api/moments/featured` via full-doc projection) now return correct comments_count. All 5 new fix-verification tests + all 38 pre-existing regression tests pass (43/43 = 100%). Response time spot-check: /api/moments?limit=100 completed in ~151 ms (well under the 500 ms target). Docs missing the `comments` field are handled correctly (count = 0, no 500). Privacy gates, featured exclusivity, admin filter/list, and recipes routes all still pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_moments_comments_count_fix.py",
+    "/app/backend/tests/test_moments.py",
+    "/app/test_reports/pytest/moments_fix_results.xml",
+    "/app/test_reports/pytest/moments_regression_results.xml"
+  ],
+  "fix_verification": {
+    "list_feed_comments_count_correct": true,
+    "detail_endpoint_comments_count_and_array_correct": true,
+    "featured_endpoint_comments_count_correct": true,
+    "no_comments_field_docs_return_zero_not_error": true,
+    "list_response_time_ms_limit_100": 151
+  },
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fix is minimally-invasive and correct: aggregate `$size: {$ifNull: [\"$comments\", []]}` on list feed, and switching the featured projection to `{_id: 0}` (dropping the `comments: 0` exclusion). `_moment_shape` still counts len(m.get('comments') or []) but list handler now overrides that with the aggregated value.",
+    "Minor note (not blocking): `_moment_shape` on the featured path now ships the entire `comments` array in the response. That's fine for a single featured item, but if the featured moment ever grows a large comment thread, consider slicing (`comments[-50:]`) before returning — same optimisation the list handler already gets via aggregation."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (43/43)", "frontend": "not tested (per request)"},
+  "seed_data_creation": "Each test run creates fresh throwaway members prefixed `TESTfix_` / `TESTmom_` and moments prefixed `TEST_`. No persistent seed changes.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The comments_count bug on the moments list + featured endpoints is verified fixed. Both use different mechanisms now: list uses `db.moments.aggregate([...])` with `$size` for count, featured uses a full-document `find_one` with `{_id: 0}`. When testing new moments changes, keep `test_moments.py` (38 tests) as the baseline regression suite and `test_moments_comments_count_fix.py` (5 tests) to guard the specific bug from returning.",
+  "rca_of_issue": "Original bug: `db.moments.find(query, {\"_id\": 0, \"comments\": 0})` in both list and featured endpoints stripped the comments array server-side. `_moment_shape` then computed `comments_count = len(m.get('comments') or [])` which was always 0 because the projection had removed the field. Fix: list endpoint now uses an aggregate with `$project` including `comments_count: {$size: {$ifNull: [\"$comments\", []]}}`, and the list handler overrides `_moment_shape`'s (still 0) value with the aggregate result. Featured endpoint now uses `{_id: 0}` projection (retaining `comments`), so `_moment_shape` computes the correct length. Verified end-to-end: create moment → 3 comments → list scope=everyone shows comments_count=3; detail shows count=3 and 3 comment bodies; feature via CMS admin → /moments/featured returns moment with comments_count=3."
+}

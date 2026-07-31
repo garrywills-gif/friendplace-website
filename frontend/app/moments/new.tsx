@@ -19,6 +19,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import VoiceInputButton from "@/src/components/VoiceInputButton";
 
 const CAPTION_LIMIT = 500;
 const MAX_PHOTOS = 6;
@@ -164,17 +165,33 @@ export default function NewMoment() {
                 textAlignVertical: "top",
               }}
             />
-            <Text
-              style={{
-                textAlign: "right",
-                marginTop: 6,
-                color: remaining < 40 ? "#B45309" : c.muted,
-                fontSize: 12 * scale,
-                fontWeight: "700",
-              }}
-            >
-              {remaining} / {CAPTION_LIMIT}
-            </Text>
+            {/* Row: char count + dictate-your-moment mic. Speaking is
+                far easier than typing on a phone keyboard, especially
+                for older members. Locked with Garry 31 July 2026. */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <VoiceInputButton
+                  value={caption}
+                  onChangeText={(t) => setCaption(t.slice(0, CAPTION_LIMIT))}
+                  userId={user?.id}
+                  appendMode="append"
+                  size={44}
+                  testID="moment-caption-mic"
+                />
+                <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "600" }}>
+                  Tap to dictate
+                </Text>
+              </View>
+              <Text
+                style={{
+                  color: remaining < 40 ? "#B45309" : c.muted,
+                  fontSize: 12 * scale,
+                  fontWeight: "700",
+                }}
+              >
+                {remaining} / {CAPTION_LIMIT}
+              </Text>
+            </View>
           </View>
 
           {/* Photo strip */}
