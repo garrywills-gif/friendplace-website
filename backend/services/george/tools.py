@@ -483,6 +483,7 @@ async def _list_interest_registrations(db: Any, args: dict) -> list:
         "id": 1, "first_name": 1, "email": 1,
         "state_country": 1, "heard_from": 1,
         "companion_choice": 1, "status": 1, "created_at": 1,
+        "founder_number": 1, "is_reserved": 1,
     }
     rows = await db.interest_registrations.find(q, projection).sort("created_at", -1).to_list(limit)
     # Normalise legacy "new" status for clarity in George's answers.

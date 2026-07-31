@@ -849,36 +849,44 @@ def build_router(db) -> APIRouter:
 
     @router.get("/crm/founding-members/stats")
     async def crm_founding_members_stats(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
-        """Aggregate counts for the Bridge dashboard card + CRM header."""
+        """Aggregate counts for the Bridge dashboard card + CRM header.
+
+        Reserved slots (#0001 Garry, #0002 George) are counted in
+        `total` — they are Founding Members — but excluded from
+        `new_today` and `awaiting_contact` because they don't need
+        an invite. Their status is always `joined`.
+        """
         from datetime import datetime, timezone
         base = {"is_test": {"$ne": True}}
+        base_public = {**base, "is_reserved": {"$ne": True}}
         total = await db.interest_registrations.count_documents(base)
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         new_today = await db.interest_registrations.count_documents({
-            **base, "created_at": {"$gte": today_start.isoformat()},
+            **base_public, "created_at": {"$gte": today_start.isoformat()},
         })
         awaiting = await db.interest_registrations.count_documents({
-            **base,
+            **base_public,
             "$or": [
                 {"status": {"$exists": False}},
                 {"status": None},
                 {"status": {"$in": _AWAITING_STATUSES}},
             ],
         })
-        invited = await db.interest_registrations.count_documents({**base, "status": "invited"})
+        invited = await db.interest_registrations.count_documents({**base_public, "status": "invited"})
         joined  = await db.interest_registrations.count_documents({**base, "status": "joined"})
-        opted   = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
+        opted   = await db.interest_registrations.count_documents({**base_public, "status": "opted_out"})
         latest = await db.interest_registrations.find_one(
-            base, {"_id": 0}, sort=[("created_at", -1)],
+            base_public, {"_id": 0}, sort=[("created_at", -1)],
         )
         latest_summary = None
         if latest:
             latest_summary = {
-                "name":          (latest.get("first_name") or latest.get("name")),
-                "email":         latest.get("email"),
-                "state_country": latest.get("state_country"),
-                "created_at":    latest.get("created_at"),
-                "id":            latest.get("id"),
+                "name":            (latest.get("first_name") or latest.get("name")),
+                "email":           latest.get("email"),
+                "state_country":   latest.get("state_country"),
+                "created_at":      latest.get("created_at"),
+                "id":              latest.get("id"),
+                "founder_number":  latest.get("founder_number"),
             }
         return {
             "total":            total,
@@ -998,7 +1006,7 @@ def build_router(db) -> APIRouter:
                 companion=companion,
             )
         if name == "waitlist":
-            return dict(first_name="Sarah", position=42, companion=companion)
+            return dict(first_name="Sarah", position=42, founder_number=42, companion=companion)
         if name == "invitation":
             return dict(
                 first_name="Sarah",
@@ -1319,7 +1327,8 @@ def build_router(db) -> APIRouter:
                 founder_row = await db.interest_registrations.find_one(
                     {"email": to_override},
                     {"_id": 0, "id": 1, "first_name": 1,
-                     "companion_choice": 1, "status": 1, "history": 1},
+                     "companion_choice": 1, "status": 1, "history": 1,
+                     "founder_number": 1},
                 )
             except Exception:
                 founder_row = None
@@ -1338,6 +1347,12 @@ def build_router(db) -> APIRouter:
             if founder_row.get("companion_choice"):
                 companion = founder_row["companion_choice"]
                 data_overrides["companion"] = companion
+            # Founding Member Number — permanent, shown proudly in
+            # the acknowledgement (waitlist) template. Invitations
+            # don't include it in the body; the CRM already carries
+            # that identity beside their name.
+            if founder_row.get("founder_number"):
+                data_overrides["founder_number"] = founder_row["founder_number"]
             # Personal accept URL — Phase-2 will replace this with a
             # signed one-time invite token. For now the founder's ID
             # is enough to disambiguate and the URL is unguessable.

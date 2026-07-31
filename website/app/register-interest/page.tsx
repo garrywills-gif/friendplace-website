@@ -36,6 +36,7 @@ export default function RegisterInterestPage() {
   const [heardFrom, setHeardFrom]     = useState('');
   const [submitting, setSubmitting]   = useState(false);
   const [done, setDone]               = useState(false);
+  const [founderNumber, setFounderNumber] = useState<number | null>(null);
   const [error, setError]             = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
@@ -86,6 +87,16 @@ export default function RegisterInterestPage() {
         }
         return;
       }
+      // Success: the response now carries the visitor's permanent
+      // Founding Member Number (#0003, #0004, …). We surface it
+      // proudly on the thank-you page — mirrors the celebratory
+      // hero in the acknowledgement email.
+      try {
+        const body = await res.json();
+        if (typeof body?.founder_number === 'number' && body.founder_number > 0) {
+          setFounderNumber(body.founder_number);
+        }
+      } catch { /* non-fatal; page still renders without the number */ }
       setDone(true);
     } catch (err) {
       console.error('[ryi] submit failed', err);
@@ -107,11 +118,40 @@ export default function RegisterInterestPage() {
             <p style={leadCopy}>
               I&rsquo;m really glad you stopped by.
             </p>
-            <p style={{ ...leadCopy, marginTop: 12 }}>
+
+            {founderNumber && founderNumber > 0 && (
+              <div style={{
+                marginTop: 22,
+                marginBottom: 6,
+                padding: '22px 24px',
+                background: 'linear-gradient(135deg, #0F766E 0%, #14B8A6 100%)',
+                borderRadius: 22,
+                color: '#FFFFFF',
+                boxShadow: '0 16px 40px rgba(20,184,166,0.28)',
+                textAlign: 'center',
+              }}>
+                <div style={{
+                  fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase',
+                  fontWeight: 800, opacity: 0.9,
+                }}>Your Founding Member Number</div>
+                <div style={{
+                  fontSize: 56, fontWeight: 900, lineHeight: 1, marginTop: 8,
+                  letterSpacing: '-0.02em',
+                  fontVariantNumeric: 'tabular-nums',
+                }}>
+                  #{String(founderNumber).padStart(4, '0')}
+                </div>
+                <div style={{ fontSize: 13, marginTop: 10, opacity: 0.92 }}>
+                  Permanent · Yours forever · Never reassigned
+                </div>
+              </div>
+            )}
+
+            <p style={{ ...leadCopy, marginTop: 20 }}>
               You&rsquo;re now one of our{' '}
               <span style={{ fontWeight: 700, color: '#0F766E' }}>Founding Members</span>
-              &nbsp;&mdash; and I&rsquo;ll make sure you&rsquo;re
-              one of the first to hear when FriendPlace is ready.
+              {founderNumber ? ' — number and all — ' : ' — '}
+              and I&rsquo;ll make sure you&rsquo;re one of the first to hear when FriendPlace is ready.
             </p>
             <p style={{ ...leadCopy, marginTop: 12 }}>
               I&rsquo;ve just popped a little note into your inbox to say hello. Until then, take care.

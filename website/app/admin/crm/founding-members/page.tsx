@@ -348,7 +348,29 @@ function MemberRow({
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
       >
         <div style={{ ...cellBody, flex: '1.4 1 0' }}>
-          <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>{displayName}</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            {row.founder_number && (
+              <span
+                title={row.is_reserved ? 'Reserved Founding Member — permanent, locked' : 'Permanent Founding Member Number'}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  padding: '2px 8px',
+                  borderRadius: 6,
+                  background: row.is_reserved ? '#FEF3C7' : '#F0FDFA',
+                  color: row.is_reserved ? '#92400E' : '#0F766E',
+                  border: `1px solid ${row.is_reserved ? '#FDE68A' : '#99F6E4'}`,
+                  fontSize: 11,
+                  fontWeight: 900,
+                  fontVariantNumeric: 'tabular-nums',
+                  letterSpacing: '0.02em',
+                }}
+              >
+                {row.is_reserved && <span style={{ fontSize: 9 }}>🔒</span>}
+                #{String(row.founder_number).padStart(4, '0')}
+              </span>
+            )}
+            <span style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>{displayName}</span>
+          </div>
           <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
             {row.email || <span style={{ opacity: 0.5 }}>—</span>}
           </div>

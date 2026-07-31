@@ -1603,6 +1603,7 @@ def waitlist_template(
     *,
     first_name: str | None,
     position: int | None = None,
+    founder_number: int | None = None,
     companion: str = "george",
     subject_override: str | None = None,
     preheader_override: str | None = None,
@@ -1610,32 +1611,74 @@ def waitlist_template(
     """Sent when someone joins the pre-launch waitlist.
 
     Signed by the visitor's chosen companion. A personal thank-you,
-    not a marketing "you're in!" email. Optionally includes their
-    queue position for a small human touch.
+    not a marketing "you're in!" email. When a `founder_number` is
+    provided (every real registration gets one), it's rendered as
+    the celebratory hero of the letter — because permanent
+    recognition beats a queue position every time.
     """
     from html import escape as _esc
     name = (first_name or "there").strip()
     display = "Georgia" if str(companion).lower() == "georgia" else "George"
-    subject = subject_override or "Thank you for finding us"
+    subject = subject_override or "Welcome, Founding Member"
     preheader = (
         preheader_override
-        or f"A quick note from {display} while we get everything ready."
+        or f"Your permanent Founding Member Number is inside — from {display}."
     )
 
+    # Founding Member Number hero card — treated as a proud milestone.
+    # Wrapped in a table so it holds up in the Outlook/Windows email
+    # renderers that ignore modern flex/border-radius on divs.
+    founder_hero_html = ""
+    founder_hero_text = ""
+    if founder_number and founder_number > 0:
+        fno = f"#{int(founder_number):04d}"
+        founder_hero_html = (
+            "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" "
+            "style=\"margin:24px 0 28px 0;border-collapse:separate;\">"
+            "  <tr><td align=\"center\" style=\""
+            "padding:22px 20px;"
+            "background:linear-gradient(135deg,#0F766E 0%,#14B8A6 100%);"
+            "border-radius:18px;"
+            "color:#FFFFFF;"
+            "font-family:'Georgia','Times New Roman',serif;"
+            "box-shadow:0 8px 24px rgba(20,184,166,0.24);"
+            "\">"
+            "    <div style=\"font-size:11px;letter-spacing:0.16em;text-transform:uppercase;font-weight:800;opacity:0.9;\">Founding Member Number</div>"
+            f"    <div style=\"font-size:44px;font-weight:900;line-height:1;margin-top:6px;letter-spacing:-0.01em;\">{fno}</div>"
+            "    <div style=\"font-size:13px;margin-top:8px;opacity:0.92;\">Permanent · Yours forever · Never reassigned</div>"
+            "  </td></tr>"
+            "</table>"
+        )
+        founder_hero_text = (
+            f"\n══════════════════════════════════════\n"
+            f"    FOUNDING MEMBER NUMBER  {fno}\n"
+            f"    Permanent · Yours forever · Never reassigned\n"
+            f"══════════════════════════════════════\n\n"
+        )
+
+    # If founder_number is set we lead with that; the older queue
+    # `position` remains supported for backwards compatibility but
+    # deliberately never appears alongside the founder number
+    # (they'd fight for the same "you're this-number" spotlight).
     position_html = (
         f"<p style=\"margin:0 0 20px 0;color:#64748B;font-size:15px;font-style:italic;\">You&rsquo;re currently number <strong style=\"color:#0A2540;font-style:normal;\">{int(position)}</strong> on our list &mdash; thank you for the trust.</p>"
-        if position and position > 0 else ""
+        if position and position > 0 and not founder_number else ""
     )
     position_text = (
         f"\nYou're currently number {int(position)} on our list — thank you "
         f"for the trust.\n"
-        if position and position > 0 else ""
+        if position and position > 0 and not founder_number else ""
     )
 
     body = (
         _letter_body_open()
         + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
         + "<p style=\"margin:0 0 20px 0;\">Thank you for finding us &mdash; and for saying &ldquo;yes, I&rsquo;d like to be part of this.&rdquo;</p>"
+        + founder_hero_html
+        + (
+            "<p style=\"margin:0 0 20px 0;\">That number is yours forever. When FriendPlace opens its doors and grows into the community we&rsquo;re building, your Founding Member Number goes with you &mdash; on your profile, on your badge inside the app, and quietly, as our thank-you for being here first.</p>"
+            if founder_number else ""
+        )
         + "<p style=\"margin:0 0 20px 0;\">FriendPlace is being built quietly and carefully, because places where people belong don&rsquo;t happen by accident. We&rsquo;re inviting friends in a small group at a time so that every new arrival is met with warmth, not silence.</p>"
         + position_html
         + "<p style=\"margin:0 0 20px 0;\">You&rsquo;ll hear from me the moment your invitation is ready. In the meantime, if you know someone who might feel at home here, forward this email their way. Belonging tends to grow best when someone opens the door.</p>"
@@ -1649,7 +1692,16 @@ def waitlist_template(
         f"Dear {name},\n\n"
         "Thank you for finding us — and for saying \"yes, I'd like to be "
         "part of this.\"\n\n"
-        "FriendPlace is being built quietly and carefully, because places "
+        + founder_hero_text
+        + (
+            "That number is yours forever. When FriendPlace opens its "
+            "doors and grows into the community we're building, your "
+            "Founding Member Number goes with you — on your profile, on "
+            "your badge inside the app, and quietly, as our thank-you "
+            "for being here first.\n\n"
+            if founder_number else ""
+        )
+        + "FriendPlace is being built quietly and carefully, because places "
         "where people belong don't happen by accident. We're inviting "
         "friends in a small group at a time so that every new arrival is "
         "met with warmth, not silence.\n"

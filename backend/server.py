@@ -9932,7 +9932,8 @@ async def public_register_interest(payload: dict, request: Request):
     try:
         existing = await db.interest_registrations.find_one(
             {"email": email, "created_at": {"$gt": dedup_cutoff}},
-            {"_id": 0, "id": 1, "email": 1, "created_at": 1, "first_name": 1, "companion_choice": 1},
+            {"_id": 0, "id": 1, "email": 1, "created_at": 1, "first_name": 1,
+             "companion_choice": 1, "founder_number": 1},
         )
     except Exception:
         existing = None
@@ -9949,6 +9950,7 @@ async def public_register_interest(payload: dict, request: Request):
             effective_companion = (existing.get("companion_choice") or "george")
             subj, html_body, text_body = waitlist_template(
                 first_name=existing.get("first_name") or first_name,
+                founder_number=existing.get("founder_number"),
                 companion=effective_companion,
             )
             await send_email_detailed(
@@ -9956,10 +9958,26 @@ async def public_register_interest(payload: dict, request: Request):
             )
         except Exception:
             logger.exception("RYI dedup resend failed for %s", email)
-        return {"ok": True, "id": existing.get("id"), "deduplicated": True}
+        return {
+            "ok":             True,
+            "id":             existing.get("id"),
+            "deduplicated":   True,
+            "founder_number": existing.get("founder_number"),
+            "founder_number_display": _fmt_founder_no(existing.get("founder_number")),
+        }
+
+    # Assign the permanent Founding Member Number BEFORE inserting.
+    # Atomic under concurrent bursts (find_one_and_update with $inc).
+    # Numbers 1 and 2 are reserved for Garry / George — the counter
+    # was rebased on startup so this returns 3+ for the first public
+    # registration.
+    founder_number = await _next_founder_number()
 
     doc = {
         "id": str(uuid.uuid4()),
+        "founder_number":        founder_number,
+        "founder_number_locked": True,   # never regenerated / reused
+        "is_reserved":           False,
         "first_name": first_name,
         "email": email,
         "state_country": state_country,
@@ -10003,6 +10021,7 @@ async def public_register_interest(payload: dict, request: Request):
         meta = _RYI_COMPANION_META[effective_companion]
         subject, html_body, text_body = waitlist_template(
             first_name=first_name,
+            founder_number=founder_number,
             companion=effective_companion,
         )
         # Reply-To goes to hello@friendplace.com.au (env default) so
@@ -10077,7 +10096,12 @@ async def public_register_interest(payload: dict, request: Request):
     except Exception:
         logger.exception("failed to send RYI confirmation email")
 
-    return {"ok": True, "id": doc["id"]}
+    return {
+        "ok":                     True,
+        "id":                     doc["id"],
+        "founder_number":         doc["founder_number"],
+        "founder_number_display": _fmt_founder_no(doc["founder_number"]),
+    }
 
 
 # ── Admin: interest-registrations ────────────────────────────────────
@@ -10430,6 +10454,181 @@ app.include_router(_build_mcgs_router(db), prefix="/api")
 from services.status.router import build_status_router as _build_status_router  # noqa: E402
 from services.status.service import ensure_indexes as _ensure_status_indexes  # noqa: E402
 app.include_router(_build_status_router(db, current_user), prefix="/api")
+
+
+# ───────────────────────────────────────────────────────────────
+# Founding Member Numbers
+# ───────────────────────────────────────────────────────────────
+# Every registered interest gets a permanent, sequential Founding
+# Member Number (#0001, #0002, …). Numbers are assigned once, never
+# change, never reused — think of them as a birth certificate for
+# each Founding Member. They appear on the thank-you page, in the
+# acknowledgement email, beside the person's name in Mission
+# Control, and (later) as an in-app Founding Member badge.
+#
+# Reserved slots (locked forever):
+#   #0001 — Garry (garry@friendplace.com.au)
+#   #0002 — George (george@friendplace.com.au)
+# All public registrations start from #0003.
+#
+# The counter document (`counters/founder_number`) is atomically
+# incremented via `find_one_and_update` with `$inc: 1` and
+# `upsert=True`, which is concurrency-safe under high traffic.
+
+_FOUNDER_NUMBER_COUNTER_ID = "founder_number"
+
+_RESERVED_FOUNDERS: list[dict] = [
+    {
+        "founder_number": 1,
+        "first_name":     "Garry",
+        "email":          "garry@friendplace.com.au",
+        "state_country":  "Sydney, NSW",
+        "heard_from":     "Founder",
+        "companion_choice": None,
+        "status":         "joined",
+        "source":         "reserved",
+        "is_reserved":    True,
+        "admin_notes":    "Founding Member #0001 — permanent reserved slot. Number locked; row editable.",
+    },
+    {
+        "founder_number": 2,
+        "first_name":     "George",
+        "email":          "george@friendplace.com.au",
+        "state_country":  "Sydney, NSW",
+        "heard_from":     "AI Companion",
+        "companion_choice": "george",
+        "status":         "joined",
+        "source":         "reserved",
+        "is_reserved":    True,
+        "admin_notes":    "Founding Member #0002 — permanent reserved slot for the George AI companion. Number locked; row editable.",
+    },
+]
+
+def _fmt_founder_no(n: Optional[int]) -> str:
+    """Pretty-print a founder number as #0001."""
+    if not isinstance(n, int) or n <= 0:
+        return ""
+    return f"#{n:04d}"
+
+async def _next_founder_number() -> int:
+    """Atomically get the next Founding Member Number.
+
+    Uses find_one_and_update with $inc + upsert=True so it's safe
+    under concurrent registration bursts. The counter is initialised
+    to 2 (after the reserved seeds) so the first public registration
+    receives #0003 as requested.
+    """
+    from pymongo import ReturnDocument
+    doc = await db.counters.find_one_and_update(
+        {"id": _FOUNDER_NUMBER_COUNTER_ID},
+        {"$inc": {"value": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    return int(doc.get("value") or 3)
+
+@app.on_event("startup")
+async def _seed_founder_numbers():  # noqa: D401
+    """Seed reserved Founding Member slots + backfill numbers.
+
+    Runs on every boot but is fully idempotent:
+    1. Upserts #0001 Garry and #0002 George. If the rows already
+       exist, we preserve any admin-added notes/tags and only patch
+       the founder_number + reserved flag.
+    2. Backfills numbers for any pre-existing public rows that were
+       created before this feature landed, in created_at order.
+    3. Rebases the counter to the current max so the NEXT $inc
+       returns max+1.
+    """
+    try:
+        # 1) Seed reserved rows.
+        for seed in _RESERVED_FOUNDERS:
+            now = now_iso()
+            reserved_update = {
+                "founder_number":        seed["founder_number"],
+                "founder_number_locked": True,
+                "is_reserved":           True,
+                "first_name":            seed["first_name"],
+                "email":                 seed["email"],
+                "state_country":         seed["state_country"],
+                "heard_from":            seed["heard_from"],
+                "companion_choice":      seed["companion_choice"],
+                "status":                seed["status"],
+                "source":                seed["source"],
+                "is_test":               False,
+                "updated_at":            now,
+            }
+            existing = await db.interest_registrations.find_one(
+                {"founder_number": seed["founder_number"]},
+                {"_id": 0, "id": 1},
+            )
+            if existing:
+                # Preserve editable fields (notes, tags) — the whole
+                # point of "editable in MCGS" is that Garry/George
+                # can update their notes anytime.
+                await db.interest_registrations.update_one(
+                    {"founder_number": seed["founder_number"]},
+                    {"$set": reserved_update},
+                )
+            else:
+                doc = {
+                    "id":          str(uuid.uuid4()),
+                    "admin_notes": seed["admin_notes"],
+                    "tags":        ["reserved"],
+                    "created_at":  now,
+                    **reserved_update,
+                }
+                await db.interest_registrations.insert_one(doc)
+                logging.getLogger("friendplace").info(
+                    "Seeded reserved Founding Member %s (%s / %s)",
+                    _fmt_founder_no(seed["founder_number"]),
+                    seed["first_name"], seed["email"],
+                )
+
+        # 2) Backfill numbers for any pre-existing public rows that
+        # lack one, honouring creation order.
+        cur = db.interest_registrations.find(
+            {"founder_number": {"$exists": False}, "is_reserved": {"$ne": True}},
+            {"_id": 0, "id": 1, "created_at": 1},
+        ).sort("created_at", 1)
+        pending = await cur.to_list(None)
+        if pending:
+            highest = await db.interest_registrations.find_one(
+                {"founder_number": {"$exists": True}},
+                {"_id": 0, "founder_number": 1},
+                sort=[("founder_number", -1)],
+            )
+            next_no = max(int((highest or {}).get("founder_number") or 2) + 1, 3)
+            for row in pending:
+                await db.interest_registrations.update_one(
+                    {"id": row["id"]},
+                    {"$set": {"founder_number": next_no, "updated_at": now_iso()}},
+                )
+                logging.getLogger("friendplace").info(
+                    "Backfilled Founding Member %s → row %s",
+                    _fmt_founder_no(next_no), row["id"],
+                )
+                next_no += 1
+
+        # 3) Rebase the counter to the current max so the next $inc
+        # returns max+1. Never regress — a concurrent live
+        # registration could already have advanced it further.
+        current_max_doc = await db.interest_registrations.find_one(
+            {"founder_number": {"$exists": True}},
+            {"_id": 0, "founder_number": 1},
+            sort=[("founder_number", -1)],
+        )
+        current_max = max(int((current_max_doc or {}).get("founder_number") or 2), 2)
+        existing_counter = await db.counters.find_one({"id": _FOUNDER_NUMBER_COUNTER_ID})
+        if not existing_counter:
+            await db.counters.insert_one({"id": _FOUNDER_NUMBER_COUNTER_ID, "value": current_max})
+        elif int(existing_counter.get("value") or 0) < current_max:
+            await db.counters.update_one(
+                {"id": _FOUNDER_NUMBER_COUNTER_ID},
+                {"$set": {"value": current_max}},
+            )
+    except Exception:
+        logging.exception("Founder number seeding failed — will retry on next boot")
 
 
 @app.on_event("startup")

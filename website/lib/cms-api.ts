@@ -717,6 +717,9 @@ export type CRMFoundingMemberStatus = 'registered' | 'invited' | 'joined' | 'opt
 
 export type CRMFoundingMember = {
   id: string;
+  founder_number?: number | null;
+  founder_number_locked?: boolean;
+  is_reserved?: boolean;
   first_name?: string;
   last_name?: string;
   email?: string;
@@ -746,6 +749,7 @@ export type CRMFoundingMembersStats = {
     email?: string;
     state_country?: string;
     created_at?: string;
+    founder_number?: number | null;
   } | null;
 };
 

@@ -78,8 +78,19 @@ export function FoundingMembersCard() {
           <div style={latestRow}>
             <div style={{ minWidth: 0 }}>
               <div style={latestLabel}>Latest registration</div>
-              <div style={latestName}>
-                {latestDisplayName || <span style={{ color: '#94A3B8', fontWeight: 500 }}>None yet</span>}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                {latest?.founder_number ? (
+                  <span style={{
+                    fontSize: 11, fontWeight: 900,
+                    padding: '1px 6px', borderRadius: 5,
+                    background: '#F0FDFA', color: '#0F766E',
+                    border: '1px solid #99F6E4',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>#{String(latest.founder_number).padStart(4, '0')}</span>
+                ) : null}
+                <span style={latestName}>
+                  {latestDisplayName || <span style={{ color: '#94A3B8', fontWeight: 500 }}>None yet</span>}
+                </span>
               </div>
               {latest?.state_country && (
                 <div style={latestMeta}>{latest.state_country}</div>
