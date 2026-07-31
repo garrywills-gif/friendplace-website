@@ -71,6 +71,14 @@ const T = {
   // considered pause before the invitation lands." ~2.6s reads as a
   // real host thinking, then adding the welcome.
   SAY_INVITE:    13000,   // "Come in\u2026 let me show you around." (audio + text)
+  // Flight #2 (Welcome \u2192 Tour). The butterfly is choreographed to
+  // respond to George/Georgia's spoken invitation. It waits for the
+  // full line to finish (~2.5s of audio), holds a natural beat
+  // (300\u2013500ms) so the invitation lands, and then quietly lifts
+  // off to lead the visitor into the tour. The exact value below is
+  // audio duration (~2500ms) + reflective pause (~400ms). Reduced
+  // motion visitors don't auto-fly \u2014 they use the CTA below.
+  LEAD_LIFTOFF:  15900,
   CTAS_APPEAR:   15700,   // comfortable pause AFTER the invite audio ends
 } as const;
 
@@ -404,6 +412,34 @@ function MeetPageContent() {
       playSafely(inviteAudioRef.current);
     });
     at(T.CTAS_APPEAR,    () => setPhase('complete'));
+
+    // Flight #2 \u2014 Welcome \u2192 Tour.
+    //
+    // Locked with Garry (1 Aug 2026): "There is one butterfly. It
+    // lives in the logo. It greets you. It waits. George welcomes
+    // you. Then it quietly leads you into FriendPlace."
+    //
+    // The butterfly is choreographed to respond to George/Georgia's
+    // invitation, not to a button click. Once the invite line has
+    // finished (~2.5s of audio) and a natural pause has settled
+    // (~400ms), we auto-dispatch the same event the CTA fires. The
+    // LeadingButterfly (mounted globally in the layout) carries the
+    // butterfly from its landed position at the Welcome screen up
+    // into the FriendPlace logo on the tour page.
+    //
+    // Reduced-motion visitors don't auto-lead \u2014 they still see
+    // the CTA and can progress on their own terms.
+    at(T.LEAD_LIFTOFF, () => {
+      // Respect prefers-reduced-motion by not auto-flying \u2014 those
+      // visitors still see the CTA and can progress deliberately.
+      const prefersReduced = typeof window !== 'undefined'
+        && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      if (prefersReduced) return;
+      setPhase('leading');
+      window.dispatchEvent(new CustomEvent('friendplace:lead-to-tour', {
+        detail: { destination: '/about' },
+      }));
+    });
 
     return () => { timers.forEach(clearTimeout); };
   }, [runId, geom, fromConcierge, phase === 'awaiting-choice']);

@@ -188,39 +188,33 @@ export function ConciergeOverlay() {
   }, []);
 
   // ── Open the overlay ─────────────────────────────────────────
+  //
+  // NEW FLOW (1 Aug 2026, locked with Garry): there is only ONE
+  // butterfly in the FriendPlace experience. It lives nestled in the
+  // header logo. It STAYS in the logo while the visitor picks George
+  // or Georgia in this overlay. On pick, the overlay dismisses and
+  // /meet takes over — its own choreography flies the (same) butterfly
+  // from the logo straight to the Welcome screen. The butterfly never
+  // lands on this modal. That preserves the illusion of a single
+  // real companion accompanying the visitor throughout.
   useEffect(() => {
     const openConcierge = () => {
       previouslyFocused.current = document.activeElement as HTMLElement | null;
       setSnapshotCompanion(companionRef.current);
       setPending(null);
 
-      const logo = readLogo();
-      if (reduced || !logo) {
-        // Reduced-motion or logo not measurable: skip the flight,
-        // land the butterfly straight at the target position and
-        // fade the overlay in.
-        setFlightSupported(false);
-        setFlight(readTarget());
-        setLogoHidden(false); // no need to hide the logo in fallback
-        setOpen(true);
-        setPhase('entering');
-        return;
-      }
-
-      // Normal path: butterfly starts at the logo, STIRS for a beat
-      // (lifts a hair off the logo), then flies to the target. That
-      // pause is what makes the visitor almost do a double-take —
-      // "did the butterfly just move?" — before it commits to
-      // coming over.
-      setFlightSupported(true);
-      setFlight(logo);
-      setLogoHidden(true); // fade the real logo butterfly out
+      // No flight — no flying butterfly, no logo swap. The overlay is
+      // just the picker. The card fades in on its own beat; the
+      // butterfly in the header stays exactly where it was.
+      setFlightSupported(false);
+      setFlight(null);
+      setLogoHidden(false);
       setOpen(true);
-      setPhase('stirring');
+      setPhase('entering');
     };
     window.addEventListener('friendplace:meet-george', openConcierge);
     return () => window.removeEventListener('friendplace:meet-george', openConcierge);
-  }, [readLogo, readTarget, reduced, setLogoHidden]);
+  }, [setLogoHidden]);
 
   // ── Prefetch /meet as soon as we open, so the handoff lands
   //    on a warm route (no visible loading state). ──────────────
@@ -354,15 +348,19 @@ export function ConciergeOverlay() {
     };
   }, [open, close, defaultFocusRef, flightSupported]);
 
-  // ── Companion pick — persist choice, keep the butterfly visible
-  //    through the route change, fade the card. The flying butterfly
-  //    lingers briefly then dissolves as /meet mounts underneath. ──
+  // ── Companion pick — persist choice, dismiss the modal, hand off
+  //    to /meet. The butterfly stays in the header logo throughout;
+  //    /meet's own choreography flies it from the logo straight to
+  //    the Welcome screen. No `?from=concierge` — that flag used to
+  //    make /meet skip the flight (because the overlay had already
+  //    brought the butterfly to centre). Now the butterfly hasn't
+  //    moved yet, so /meet MUST run its full flight. ──
   const pickCompanion = useCallback((id: CompanionId) => {
     if (phase !== 'ready') return;
     setPending(id);
     setPhase('handoff');
     choose(id);
-    router.push('/meet?from=concierge');
+    router.push('/meet');
     setTimeout(() => {
       setPhase('leaving');
       setTimeout(
@@ -371,8 +369,6 @@ export function ConciergeOverlay() {
           setPhase('entering');
           setPending(null);
           setFlight(null);
-          // Restore the logo — /meet has its OWN header and its own
-          // choreography will use #fp-brand-butterfly again.
           setLogoHidden(false);
         },
         HANDOFF_FADE_MS + 60,
@@ -519,20 +515,13 @@ export function ConciergeOverlay() {
           </button>
         )}
 
-        {/* Aura + spacer for the butterfly slot. The flying butterfly
-            visually occupies this space; the spacer reserves layout
-            so the card composition looks the same whether or not the
-            flight is in progress. */}
-        <div style={butterflyBox} aria-hidden>
-          <div
-            style={{
-              ...butterflyAura,
-              opacity: cardVisible ? (phase === 'handoff' ? 1 : 0.85) : 0,
-              transform: phase === 'handoff' ? 'scale(1.15)' : 'scale(1)',
-              transition: 'opacity 500ms ease, transform 500ms ease',
-            }}
-          />
-        </div>
+        {/* No butterfly slot on this card — there is only ONE butterfly
+            in the whole experience and it lives in the header logo.
+            The visitor never sees a second one here or anywhere else.
+            Locked with Garry (1 Aug 2026):
+              "One butterfly. It lives in the logo. It greets you. It
+              waits. George welcomes you. Then it quietly leads you
+              into FriendPlace." */}
 
         <h2 id="concierge-heading" style={heading}>
           Hello. Welcome to FriendPlace.
