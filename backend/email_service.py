@@ -1796,3 +1796,112 @@ def invitation_template(
     )
     return subject, html, text
 
+
+def announcement_template(
+    *,
+    first_name: str | None,
+    title: str,
+    body_md: str,
+    founder_number: int | None = None,
+    cta_label: str | None = None,
+    cta_url: str | None = None,
+    companion: str = "george",
+    subject_override: str | None = None,
+    preheader_override: str | None = None,
+) -> tuple[str, str, str]:
+    """The Founding Member Update template — used by campaigns.
+
+    A general-purpose letter-style template for keeping Founding
+    Members in the loop as FriendPlace comes together. Follows the
+    same letter shell as `waitlist_template` (subhead, greeting,
+    body paragraphs, optional CTA, companion signature) so all
+    campaign emails feel like part of the same family.
+
+    Args:
+        first_name:  Recipient's name for the greeting.
+        title:       The update's headline (rendered as a serif h1
+                     inside the letter, above the body).
+        body_md:     The letter body. Blank lines split paragraphs.
+                     Very light markdown-ish handling: nothing fancy,
+                     just paragraph breaks and HTML-escape.
+        founder_number: If provided, rendered as a small pill under
+                        the greeting so recipients remember their
+                        permanent number every time we write.
+        cta_label / cta_url:
+                     Optional call-to-action button — omit both for
+                     an update that closes on the signature.
+        companion:   Which companion is writing.
+    """
+    from html import escape as _esc
+    name = (first_name or "there").strip()
+    display = "Georgia" if str(companion).lower() == "georgia" else "George"
+    heading = (title or "").strip() or "A note from FriendPlace"
+    subject = subject_override or heading
+    preheader = (
+        preheader_override
+        or f"An update from {display} at FriendPlace."
+    )
+
+    # Founder number pill — smaller than the waitlist hero, just a
+    # gentle reminder of their permanent identity.
+    founder_pill_html = ""
+    founder_pill_text = ""
+    if founder_number and founder_number > 0:
+        fno = f"#{int(founder_number):04d}"
+        founder_pill_html = (
+            f"<p style=\"margin:0 0 20px 0;\">"
+            f"<span style=\"display:inline-block;padding:2px 10px;"
+            f"border-radius:6px;background:#F0FDFA;color:#0F766E;"
+            f"border:1px solid #99F6E4;font-size:12px;font-weight:800;"
+            f"font-variant-numeric:tabular-nums;letter-spacing:0.02em;\">"
+            f"Founding Member {fno}</span></p>"
+        )
+        founder_pill_text = f"[Founding Member {fno}]\n\n"
+
+    # Paragraph split on blank lines, escaping each and wrapping in <p>.
+    paragraphs = [p.strip() for p in (body_md or "").split("\n\n") if p.strip()]
+    body_html_parts = [
+        f"<p style=\"margin:0 0 20px 0;\">{_esc(p).replace(chr(10), '<br>')}</p>"
+        for p in paragraphs
+    ] or [
+        f"<p style=\"margin:0 0 20px 0;color:#94A3B8;font-style:italic;\">"
+        f"(No body content yet.)</p>"
+    ]
+    body_html_joined = "".join(body_html_parts)
+
+    cta_html = (
+        _letter_button_html(label=cta_label, url=cta_url)
+        if cta_label and cta_url else ""
+    )
+    cta_text = (
+        f"\n{cta_label}: {cta_url}\n" if cta_label and cta_url else ""
+    )
+
+    body = (
+        _letter_body_open()
+        + f"<h1 style=\"margin:0 0 20px 0;font-family:'Georgia','Times New Roman',serif;color:#0A2540;font-size:26px;line-height:1.3;font-weight:700;\">{_esc(heading)}</h1>"
+        + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
+        + founder_pill_html
+        + body_html_joined
+        + cta_html
+        + "<p style=\"margin:24px 0 0 0;\">Thank you, as always, for being here from the start.</p>"
+        + _letter_signature_html(signer=companion)
+        + _letter_body_close()
+    )
+    html = _letter_shell(preheader=preheader, body_html=body)
+
+    text_paragraphs = "\n\n".join(paragraphs) if paragraphs else "(No body content yet.)"
+    text = (
+        f"{heading}\n"
+        + ("=" * min(len(heading), 60)) + "\n\n"
+        + f"Dear {name},\n\n"
+        + founder_pill_text
+        + text_paragraphs + "\n"
+        + cta_text
+        + "\nThank you, as always, for being here from the start.\n\n"
+        "Warmly,\n"
+        f"{display}\n"
+        "Your friend at FriendPlace"
+        + _letter_footer_text()
+    )
+    return subject, html, text

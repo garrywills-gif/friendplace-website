@@ -37,6 +37,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Body,
     Depends,
     File,
@@ -837,8 +838,16 @@ def build_router(db) -> APIRouter:
                 {"admin_notes": rx}, {"heard_from": rx},
                 {"tags": rx},
             ]
+            # Founder-number search: strip a leading "#" and any zero
+            # padding, then match founder_number as an int. So "#0003",
+            # "0003" and "3" all find the same row.
+            digits = _re.sub(r"[^0-9]", "", q or "")
+            if digits:
+                try:
+                    search_or.append({"founder_number": int(digits)})
+                except ValueError:
+                    pass
             if "$or" in query:
-                # Combine the two $or clauses via $and
                 existing_or = query.pop("$or")
                 query["$and"] = [{"$or": existing_or}, {"$or": search_or}]
             else:
@@ -973,6 +982,13 @@ def build_router(db) -> APIRouter:
             "description": "Sent when someone is personally invited to FriendPlace.",
         },
         {
+            "name":        "announcement",
+            "label":       "Founding Member update",
+            "category":    "personal",
+            "signer":      "companion",
+            "description": "The Founding Member Update template — used by campaigns to keep Founding Members in the loop as FriendPlace comes together.",
+        },
+        {
             "name":        "password_reset",
             "label":       "Password reset",
             "category":    "operational",
@@ -1021,6 +1037,25 @@ def build_router(db) -> APIRouter:
                 expiry_days=14,
                 companion=companion,
             )
+        if name == "announcement":
+            return dict(
+                first_name="Sarah",
+                title="A quiet update from FriendPlace",
+                body_md=(
+                    "It's been a busy month. We've been quietly welcoming the "
+                    "first Founding Members and putting the finishing touches "
+                    "on the things you'll see first — a home page that feels "
+                    "like a doormat, gentle nudges from a friend rather than "
+                    "notifications, and a small Events board that reads like "
+                    "an invitation, not a listing.\n\nYou're #{founder_number} "
+                    "on the wall — and you'll see that number again once "
+                    "we open the doors, quietly, in a few weeks."
+                ),
+                founder_number=42,
+                cta_label=None,
+                cta_url=None,
+                companion=companion,
+            )
         if name == "password_reset":
             return dict(first_name="Sarah", code="493721", ttl_minutes=15)
         if name == "support_ack":
@@ -1060,6 +1095,7 @@ def build_router(db) -> APIRouter:
             welcome_template,
             waitlist_template,
             invitation_template,
+            announcement_template,
             password_reset_template,
             support_acknowledgement_template,
         )
@@ -1083,6 +1119,8 @@ def build_router(db) -> APIRouter:
             return waitlist_template(**kwargs)
         if name == "invitation":
             return invitation_template(**kwargs)
+        if name == "announcement":
+            return announcement_template(**kwargs)
         if name == "password_reset":
             # Operational template — companion doesn't apply.
             kwargs.pop("companion", None)
@@ -1491,7 +1529,8 @@ def build_router(db) -> APIRouter:
                     # Never let the CRM auto-update break the actual
                     # send response — operators still need to know
                     # the mail went out.
-                    log.exception("Founder auto-status advance failed")
+                    import logging as _logging
+                    _logging.getLogger("friendplace.email").exception("Founder auto-status advance failed")
         return {
             "ok":            result.ok,
             "sent":          result.ok,
@@ -1561,6 +1600,403 @@ def build_router(db) -> APIRouter:
             "recipient": to_addr,
             "results":   results,
         }
+
+    # ─── Campaigns (Phase 2A) ───────────────────────────────────────
+    #
+    # A campaign is a one-shot bulk send targeted at a slice of the
+    # Founding Members CRM. Every send reuses the same letter-style
+    # templates already wired for individual sends — same look, same
+    # personalisation (first_name, founder_number, companion) — so a
+    # campaign email is byte-identical to what a founder would receive
+    # as an individual message.
+    #
+    # Two collections:
+    #   • campaigns             – one doc per campaign (draft or sent)
+    #   • campaign_recipients   – one doc per recipient (audit trail)
+    #
+    # Sending is throttled to ~8 emails/second (5 in parallel, 500 ms
+    # between batches), well under Resend's 10 req/s cap.
+
+    _CAMPAIGN_TEMPLATES = {"announcement", "invitation", "welcome"}
+
+    def _build_audience_query(f: Dict[str, Any]) -> Dict[str, Any]:
+        """Turn a campaign's audience filter into a Mongo query."""
+        q: Dict[str, Any] = {"is_test": {"$ne": True}}
+        if f.get("exclude_reserved", True):
+            q["is_reserved"] = {"$ne": True}
+        statuses = [s for s in (f.get("statuses") or []) if s in _FM_STATUSES]
+        or_clauses: list[dict] = []
+        if statuses:
+            if "registered" in statuses:
+                other = [s for s in statuses if s != "registered"]
+                clause: dict = {"$or": [
+                    {"status": {"$exists": False}},
+                    {"status": None},
+                    {"status": {"$in": ["registered", "new"] + other}},
+                ]}
+                or_clauses.append(clause)
+            else:
+                q["status"] = {"$in": statuses}
+        elif f.get("exclude_opted_out", True):
+            q["status"] = {"$ne": "opted_out"}
+        tags_any = [str(t) for t in (f.get("tags_any") or []) if str(t).strip()]
+        tags_all = [str(t) for t in (f.get("tags_all") or []) if str(t).strip()]
+        if tags_any:
+            q["tags"] = {"$in": tags_any}
+        if tags_all:
+            q["tags"] = {"$all": tags_all}
+        if or_clauses:
+            existing_and = q.pop("$and", [])
+            q["$and"] = existing_and + or_clauses
+        return q
+
+    def _campaign_summary(c: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id":              c.get("id"),
+            "name":            c.get("name"),
+            "template":        c.get("template"),
+            "subject":         c.get("subject"),
+            "preheader":       c.get("preheader"),
+            "companion":       c.get("companion"),
+            "title":           c.get("title"),
+            "body_md":         c.get("body_md"),
+            "cta_label":       c.get("cta_label"),
+            "cta_url":         c.get("cta_url"),
+            "audience_filter": c.get("audience_filter") or {},
+            "status":          c.get("status") or "draft",
+            "stats":           c.get("stats") or {
+                "targeted": 0, "accepted": 0, "failed": 0,
+                "delivered": 0, "opened": 0, "clicked": 0, "bounced": 0,
+            },
+            "created_at":      c.get("created_at"),
+            "created_by":      c.get("created_by"),
+            "sent_at":         c.get("sent_at"),
+            "finished_at":     c.get("finished_at"),
+            "sample_html":     c.get("sample_html"),
+        }
+
+    async def _resolve_audience(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
+        q = _build_audience_query(f)
+        return await db.interest_registrations.find(
+            q,
+            {"_id": 0, "id": 1, "first_name": 1, "email": 1,
+             "companion_choice": 1, "founder_number": 1, "status": 1, "tags": 1},
+        ).sort([("founder_number", 1)]).to_list(limit)
+
+    @router.get("/campaigns")
+    async def campaigns_list(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        rows = await db.campaigns.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+        return {"count": len(rows), "rows": [_campaign_summary(r) for r in rows]}
+
+    @router.post("/campaigns")
+    async def campaigns_create(payload: Dict[str, Any], admin: dict = Depends(current_cms_admin)):
+        from datetime import datetime, timezone
+        template = str(payload.get("template") or "announcement").lower()
+        if template not in _CAMPAIGN_TEMPLATES:
+            raise HTTPException(400, f"template must be one of {sorted(_CAMPAIGN_TEMPLATES)}")
+        name = (str(payload.get("name") or "").strip() or "Untitled campaign")[:200]
+        now = datetime.now(timezone.utc).isoformat()
+        campaign = {
+            "id":              str(uuid.uuid4()),
+            "name":            name,
+            "template":        template,
+            "subject":         str(payload.get("subject") or "")[:200],
+            "preheader":       str(payload.get("preheader") or "")[:200],
+            "companion":       str(payload.get("companion") or "george"),
+            "title":           str(payload.get("title") or "")[:200],
+            "body_md":         str(payload.get("body_md") or "")[:20000],
+            "cta_label":       str(payload.get("cta_label") or "")[:60],
+            "cta_url":         str(payload.get("cta_url") or "")[:500],
+            "audience_filter": payload.get("audience_filter") or {},
+            "status":          "draft",
+            "stats":           {"targeted": 0, "accepted": 0, "failed": 0,
+                                "delivered": 0, "opened": 0, "clicked": 0, "bounced": 0},
+            "created_at":      now,
+            "created_by":      admin.get("id"),
+            "created_by_email": admin.get("email"),
+        }
+        await db.campaigns.insert_one(dict(campaign))
+        return _campaign_summary(campaign)
+
+    @router.get("/campaigns/{campaign_id}")
+    async def campaigns_get(campaign_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        recipients = await db.campaign_recipients.find(
+            {"campaign_id": campaign_id}, {"_id": 0}
+        ).sort([("founder_number", 1)]).to_list(1000)
+        return {**_campaign_summary(c), "recipients": recipients}
+
+    @router.patch("/campaigns/{campaign_id}")
+    async def campaigns_update(campaign_id: str, payload: Dict[str, Any],
+                               admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("status") != "draft":
+            raise HTTPException(400, "Only drafts can be edited")
+        updates: Dict[str, Any] = {}
+        for key in ("name", "template", "subject", "preheader", "companion",
+                    "title", "body_md", "cta_label", "cta_url", "audience_filter"):
+            if key in payload:
+                updates[key] = payload[key]
+        if "template" in updates and updates["template"] not in _CAMPAIGN_TEMPLATES:
+            raise HTTPException(400, "Unknown template")
+        from datetime import datetime, timezone
+        updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.campaigns.update_one({"id": campaign_id}, {"$set": updates})
+        c2 = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        return _campaign_summary(c2)
+
+    @router.delete("/campaigns/{campaign_id}")
+    async def campaigns_delete(campaign_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("status") != "draft":
+            raise HTTPException(400, "Sent campaigns are permanent — they can't be deleted")
+        await db.campaigns.delete_one({"id": campaign_id})
+        return {"ok": True}
+
+    @router.post("/campaigns/{campaign_id}/preview-audience")
+    async def campaigns_preview_audience(campaign_id: str,
+                                         admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=1000)
+        return {"count": len(recipients), "sample": recipients[:10]}
+
+    @router.post("/campaigns/{campaign_id}/render-preview")
+    async def campaigns_render_preview(campaign_id: str,
+                                        admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=1)
+        recipient = recipients[0] if recipients else None
+        overrides: Dict[str, Any] = {}
+        if recipient:
+            if recipient.get("first_name"):
+                overrides["first_name"] = recipient["first_name"]
+            if recipient.get("founder_number"):
+                overrides["founder_number"] = recipient["founder_number"]
+        if c.get("template") == "announcement":
+            overrides["title"]     = c.get("title") or "A note from FriendPlace"
+            overrides["body_md"]   = c.get("body_md") or ""
+            overrides["cta_label"] = c.get("cta_label") or None
+            overrides["cta_url"]   = c.get("cta_url")   or None
+        subject, html, text = _preview_render(
+            c["template"],
+            companion=c.get("companion") or "george",
+            subject_override=(c.get("subject") or None),
+            preheader_override=(c.get("preheader") or None),
+            data_overrides=overrides or None,
+        )
+        return {"subject": subject, "html": html, "text": text, "recipient": recipient}
+
+    async def _campaign_send_worker(campaign_id: str):
+        """Background — send the campaign in batches of 5 with 500ms delay."""
+        import asyncio
+        from datetime import datetime, timezone
+        from email_service import send_email_detailed  # noqa: WPS433
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c or c.get("status") not in ("draft", "sending"):
+            return
+        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
+        stats = {"targeted": len(recipients), "accepted": 0, "failed": 0,
+                 "delivered": 0, "opened": 0, "clicked": 0, "bounced": 0}
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$set": {"status": "sending", "stats": stats,
+                      "sent_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        sample_html_saved = False
+        BATCH_SIZE, BATCH_DELAY = 5, 0.5
+        for i in range(0, len(recipients), BATCH_SIZE):
+            batch = recipients[i:i + BATCH_SIZE]
+            async def _one(r: dict):
+                nonlocal sample_html_saved
+                overrides: Dict[str, Any] = {}
+                if r.get("first_name"):
+                    overrides["first_name"] = r["first_name"]
+                if r.get("founder_number"):
+                    overrides["founder_number"] = r["founder_number"]
+                companion = c.get("companion") or "george"
+                if r.get("companion_choice"):
+                    companion = r["companion_choice"]
+                    overrides["companion"] = companion
+                if c.get("template") == "announcement":
+                    overrides["title"]     = c.get("title") or "A note from FriendPlace"
+                    overrides["body_md"]   = c.get("body_md") or ""
+                    overrides["cta_label"] = c.get("cta_label") or None
+                    overrides["cta_url"]   = c.get("cta_url")   or None
+                subject, html, text = _preview_render(
+                    c["template"], companion=companion,
+                    subject_override=(c.get("subject") or None),
+                    preheader_override=(c.get("preheader") or None),
+                    data_overrides=overrides,
+                )
+                if not sample_html_saved:
+                    await db.campaigns.update_one(
+                        {"id": campaign_id},
+                        {"$set": {"sample_html": html, "sample_subject": subject}},
+                    )
+                    sample_html_saved = True
+                result = await send_email_detailed(
+                    to=r["email"], subject=subject, html=html, text=text,
+                )
+                now = datetime.now(timezone.utc).isoformat()
+                await db.campaign_recipients.insert_one({
+                    "id":              str(uuid.uuid4()),
+                    "campaign_id":     campaign_id,
+                    "founder_id":      r["id"],
+                    "founder_number":  r.get("founder_number"),
+                    "first_name":      r.get("first_name"),
+                    "email":           r["email"],
+                    "status":          "sent" if result.ok else "failed",
+                    "message_id":      result.message_id,
+                    "sent_at":         now,
+                    "error":           result.error if not result.ok else None,
+                    "http_status":     result.http_status,
+                    "subject":         subject,
+                })
+                await db.campaigns.update_one(
+                    {"id": campaign_id},
+                    {"$inc": {("stats.accepted" if result.ok else "stats.failed"): 1}},
+                )
+                if result.ok and result.message_id:
+                    try:
+                        await db.email_test_log.insert_one({
+                            "message_id":  result.message_id,
+                            "template":    c["template"],
+                            "companion":   companion,
+                            "recipient":   r["email"],
+                            "subject":     subject,
+                            "created_at":  now,
+                            "mode":        "campaign",
+                            "campaign_id": campaign_id,
+                        })
+                    except Exception:
+                        pass
+                # Auto-advance status for invitation campaigns.
+                if result.ok and c["template"] == "invitation":
+                    current = (r.get("status") or "registered").lower()
+                    if current in ("registered", "new", ""):
+                        try:
+                            hist = {
+                                "at": now, "from": current or "registered", "to": "invited",
+                                "actor_id": c.get("created_by"),
+                                "actor_email": c.get("created_by_email"),
+                                "reason": "campaign_sent",
+                                "campaign_id": campaign_id,
+                                "template": c["template"],
+                                "subject": subject, "message_id": result.message_id,
+                            }
+                            await db.interest_registrations.update_one(
+                                {"id": r["id"]},
+                                {"$set": {"status": "invited", "invited_at": now,
+                                          "updated_at": now},
+                                 "$push": {"history": hist}},
+                            )
+                        except Exception:
+                            import logging as _logging
+                            _logging.getLogger("friendplace.email").exception("Campaign founder advance failed")
+            await asyncio.gather(*[_one(r) for r in batch], return_exceptions=True)
+            if i + BATCH_SIZE < len(recipients):
+                await asyncio.sleep(BATCH_DELAY)
+        finished = datetime.now(timezone.utc).isoformat()
+        final = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0, "stats": 1})
+        s = (final or {}).get("stats") or {}
+        final_status = "failed" if (s.get("accepted", 0) == 0 and s.get("targeted", 0) > 0) else "sent"
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$set": {"status": final_status, "finished_at": finished}},
+        )
+
+    @router.post("/campaigns/{campaign_id}/send")
+    async def campaigns_send(campaign_id: str, background_tasks: BackgroundTasks,
+                             admin: dict = Depends(current_cms_admin)):
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("status") not in ("draft",):
+            raise HTTPException(400, f"Campaign is already {c.get('status')} — cannot send twice")
+        from email_service import is_configured as _resend_ready  # noqa: WPS433
+        if not _resend_ready():
+            raise HTTPException(400, "RESEND_API_KEY not configured on backend")
+        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
+        if not recipients:
+            raise HTTPException(400, "No recipients match this audience. Adjust filters and try again.")
+        from datetime import datetime, timezone
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$set": {"status": "sending",
+                      "sent_at": datetime.now(timezone.utc).isoformat(),
+                      "sent_by": admin.get("id"),
+                      "stats.targeted": len(recipients)}},
+        )
+        background_tasks.add_task(_campaign_send_worker, campaign_id)
+        return {"ok": True, "targeted": len(recipients), "status": "sending",
+                "message": f"Campaign sending to {len(recipients)} Founding Member(s). "
+                           f"Refresh to see live progress."}
+
+    # ─── CRM CSV export (2D) ────────────────────────────────────────
+    @router.get("/crm/founding-members.csv")
+    async def crm_founding_members_csv(
+        status: Optional[str] = None, q: Optional[str] = None,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        from fastapi.responses import Response
+        import csv, io
+        query: Dict[str, Any] = {"is_test": {"$ne": True}}
+        if status and status in _FM_STATUSES:
+            if status == "registered":
+                query["$or"] = [
+                    {"status": {"$exists": False}},
+                    {"status": None},
+                    {"status": {"$in": _AWAITING_STATUSES}},
+                ]
+            else:
+                query["status"] = status
+        if q:
+            import re as _re
+            rx = _re.compile(_re.escape(q), _re.IGNORECASE)
+            query["$or"] = [
+                {"first_name": rx}, {"last_name": rx}, {"email": rx},
+                {"state_country": rx}, {"admin_notes": rx},
+                {"heard_from": rx}, {"tags": rx},
+            ]
+        rows = await db.interest_registrations.find(query, {"_id": 0}).sort(
+            [("founder_number", 1), ("created_at", 1)],
+        ).to_list(10000)
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["founder_number", "first_name", "email", "state_country",
+                    "status", "companion_choice", "tags", "heard_from",
+                    "admin_notes", "created_at"])
+        for r in rows:
+            fn = r.get("founder_number")
+            w.writerow([
+                f"#{fn:04d}" if fn else "",
+                r.get("first_name") or "",
+                r.get("email") or "",
+                r.get("state_country") or "",
+                r.get("status") or "registered",
+                r.get("companion_choice") or "",
+                "; ".join(r.get("tags") or []),
+                r.get("heard_from") or "",
+                (r.get("admin_notes") or "").replace("\n", " ")[:500],
+                r.get("created_at") or "",
+            ])
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=founding-members.csv"},
+        )
+
+
 
     # ─── Live delivery status + sending health ──────────────────────
     #

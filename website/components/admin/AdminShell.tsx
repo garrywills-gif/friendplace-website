@@ -38,6 +38,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/members',          label: 'Members',          icon: '👤', soon: true },
       { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥' },
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
+      { href: '/admin/campaigns',        label: 'Campaigns',        icon: '📮' },
       { href: '/admin/reports',          label: 'Reports',          icon: '🚩', soon: true },
       { href: '/admin/support',          label: 'Support',          icon: '💬', soon: true },
       { href: '/admin/groups/pending',   label: 'Pending groups',   icon: '👥', soon: true },

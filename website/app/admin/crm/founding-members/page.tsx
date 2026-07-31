@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import {
   foundingMembersCrmApi,
+  downloadFoundingMembersCsv,
   type CRMFoundingMember,
   type CRMFoundingMembersStats,
   type CRMFoundingMemberStatus,
@@ -167,9 +168,27 @@ export default function FoundingMembersCRMPage() {
           className="cms-input"
           value={q}
           onChange={e => setQ(e.target.value)}
-          placeholder="Search name, email, location, tags…"
+          placeholder="Search name, email, location, tags, #0003…"
           style={{ ...s.input, maxWidth: 320 }}
         />
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await downloadFoundingMembersCsv({
+                status: filter === 'all' ? undefined : filter,
+                q: q || undefined,
+              });
+              showToast('CSV downloaded');
+            } catch (e: any) {
+              showToast(e?.message || 'CSV export failed');
+            }
+          }}
+          style={{ ...s.ghostBtn, padding: '8px 14px', fontSize: 12 }}
+          title="Download the current filtered list as a spreadsheet"
+        >
+          ⤓ Export CSV
+        </button>
       </div>
 
       {/* Table */}

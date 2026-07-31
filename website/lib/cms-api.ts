@@ -821,3 +821,117 @@ export const emailPreviewsApi = {
   sendingHealth: () =>
     req<EmailSendingHealth>('GET', '/cms/email-previews/sending-health'),
 };
+
+
+// ─── Campaigns (Phase 2A) ─────────────────────────────────────────
+export type CampaignStatus = 'draft' | 'sending' | 'sent' | 'failed';
+
+export type CampaignAudienceFilter = {
+  statuses?: Array<'registered' | 'invited' | 'joined' | 'opted_out'>;
+  tags_any?: string[];
+  tags_all?: string[];
+  exclude_reserved?: boolean;
+  exclude_opted_out?: boolean;
+};
+
+export type CampaignStats = {
+  targeted: number;
+  accepted: number;
+  failed: number;
+  delivered: number;
+  opened: number;
+  clicked: number;
+  bounced: number;
+};
+
+export type Campaign = {
+  id: string;
+  name: string;
+  template: 'announcement' | 'invitation' | 'welcome';
+  subject?: string;
+  preheader?: string;
+  companion?: 'george' | 'georgia';
+  title?: string;
+  body_md?: string;
+  cta_label?: string;
+  cta_url?: string;
+  audience_filter: CampaignAudienceFilter;
+  status: CampaignStatus;
+  stats: CampaignStats;
+  created_at?: string;
+  created_by?: string;
+  sent_at?: string;
+  finished_at?: string;
+  sample_html?: string;
+};
+
+export type CampaignRecipient = {
+  id: string;
+  campaign_id: string;
+  founder_id: string;
+  founder_number?: number;
+  first_name?: string;
+  email: string;
+  status: 'pending' | 'sent' | 'failed' | 'delivered' | 'opened' | 'clicked' | 'bounced';
+  message_id?: string;
+  sent_at?: string;
+  error?: string;
+  subject?: string;
+};
+
+export const campaignsApi = {
+  list: () => req<{ count: number; rows: Campaign[] }>('GET', '/cms/campaigns'),
+  get:  (id: string) => req<Campaign & { recipients: CampaignRecipient[] }>('GET', `/cms/campaigns/${id}`),
+  create: (body: Partial<Campaign>) => req<Campaign>('POST', '/cms/campaigns', body),
+  update: (id: string, patch: Partial<Campaign>) =>
+    req<Campaign>('PATCH', `/cms/campaigns/${id}`, patch),
+  remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/campaigns/${id}`),
+  previewAudience: (id: string) =>
+    req<{ count: number; sample: Array<{ id: string; first_name?: string; email: string; founder_number?: number; status?: string; tags?: string[] }> }>(
+      'POST', `/cms/campaigns/${id}/preview-audience`,
+    ),
+  renderPreview: (id: string) =>
+    req<{ subject: string; html: string; text: string; recipient?: { first_name?: string; email: string; founder_number?: number } | null }>(
+      'POST', `/cms/campaigns/${id}/render-preview`,
+    ),
+  send: (id: string) =>
+    req<{ ok: boolean; targeted: number; status: CampaignStatus; message: string }>(
+      'POST', `/cms/campaigns/${id}/send`,
+    ),
+};
+
+// CSV export lives on the CRM URL for symmetry — this is a browser
+// download so we just build the URL and let the browser fetch it
+// with the standard auth header via a hidden fetch + blob dance.
+export function csvExportUrl(opts: { status?: string; q?: string } = {}) {
+  const p = new URLSearchParams();
+  if (opts.status) p.set('status', opts.status);
+  if (opts.q) p.set('q', opts.q);
+  return `/cms/crm/founding-members.csv?${p.toString()}`;
+}
+
+/** Trigger a browser download of the Founding Members CSV using the
+ *  admin's bearer token — can't use a plain <a href> because the
+ *  endpoint is JWT-gated. Streams to a Blob, then simulates a click. */
+export async function downloadFoundingMembersCsv(opts: { status?: string; q?: string } = {}): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${BASE}/api${csvExportUrl(opts)}`, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `CSV export failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = new Date().toISOString().slice(0, 10);
+  a.download = `founding-members-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
