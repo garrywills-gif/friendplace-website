@@ -33,12 +33,12 @@ const STATUS_META: Record<CRMFoundingMemberStatus, { label: string; tone: string
   opted_out:  { label: 'Opted out',  tone: 'Asked to be removed',     bg: '#F1F5F9', fg: '#475569' },
 };
 
-const FILTERS: Array<{ key: 'all' | CRMFoundingMemberStatus; label: string }> = [
-  { key: 'all',        label: 'All' },
-  { key: 'registered', label: 'Awaiting contact' },
-  { key: 'invited',    label: 'Invited' },
-  { key: 'joined',     label: 'Joined' },
-  { key: 'opted_out',  label: 'Opted out' },
+const FILTERS: Array<{ key: 'all' | CRMFoundingMemberStatus; label: string; emptyLabel: string }> = [
+  { key: 'all',        label: 'All',              emptyLabel: 'No Founding Members yet.' },
+  { key: 'registered', label: 'Awaiting Contact', emptyLabel: 'No Founding Members are awaiting contact.' },
+  { key: 'invited',    label: 'Invited',          emptyLabel: 'No Founding Members have been invited yet.' },
+  { key: 'joined',     label: 'Joined',           emptyLabel: 'No Founding Members have joined FriendPlace yet.' },
+  { key: 'opted_out',  label: 'Opted Out',        emptyLabel: 'No Founding Members have opted out.' },
 ];
 
 export default function FoundingMembersCRMPage() {
@@ -96,13 +96,27 @@ export default function FoundingMembersCRMPage() {
     }
   };
 
+  const activeFilterMeta = FILTERS.find(f => f.key === filter);
+  const emptyMessage = activeFilterMeta?.emptyLabel || 'No Founding Members yet.';
+  const emptySubline = filter === 'all'
+    ? 'Once people submit the Register Interest form, they\u2019ll appear here.'
+    : (q ? 'Try clearing the search box to see more results.' : 'Try a different filter to see other Founding Members.');
+
   return (
     <AdminShell title="Founding Members">
-      <p style={{ color: '#475569', fontSize: 16, marginTop: -8, marginBottom: 20, maxWidth: 760 }}>
-        Every visitor who Registered Their Interest lives here. Walk each one through the status
-        ladder as you talk to them — the database is the source of truth. Bulk email campaigns land
-        in Phase 2, once this workflow is happy.
-      </p>
+      {/* Total-headline strip — the number that matters most, always in view. */}
+      <div style={totalHeadline}>
+        <div>
+          <div style={totalEyebrow}>Total Founding Members</div>
+          <div style={totalNumber}>
+            {stats ? stats.total : <span style={{ opacity: 0.4 }}>…</span>}
+          </div>
+        </div>
+        <p style={introCopy}>
+          Everyone who registers their interest becomes a Founding Member. This page is the source of
+          truth for managing invitations, notes, status and future email campaigns.
+        </p>
+      </div>
 
       {/* Dashboard cards */}
       <StatsRow stats={stats} loading={loading && !stats} />
@@ -123,20 +137,26 @@ export default function FoundingMembersCRMPage() {
                 key={f.key}
                 type="button"
                 onClick={() => setFilter(f.key)}
+                aria-pressed={active}
                 style={{
                   ...s.ghostBtn,
-                  padding: '8px 14px',
-                  borderColor: active ? '#14B8A6' : '#CBD5E1',
+                  padding: '9px 16px',
+                  borderColor: active ? '#0F766E' : '#CBD5E1',
                   background: active ? 'linear-gradient(135deg, #14B8A6, #0EA5A0)' : '#FFFFFF',
                   color: active ? '#FFFFFF' : '#0A2540',
-                  boxShadow: active ? '0 8px 20px rgba(20,184,166,0.25)' : 'none',
+                  boxShadow: active ? '0 6px 16px rgba(20,184,166,0.28)' : 'none',
+                  fontWeight: 700,
                 }}
               >
                 {f.label}
                 {typeof count === 'number' && (
                   <span style={{
-                    marginLeft: 8, fontWeight: 900, fontSize: 12,
-                    opacity: 0.85,
+                    marginLeft: 8,
+                    padding: '1px 8px',
+                    borderRadius: 999,
+                    fontWeight: 900, fontSize: 11,
+                    background: active ? 'rgba(255,255,255,0.22)' : '#F1F5F9',
+                    color: active ? '#FFFFFF' : '#475569',
                   }}>{count}</span>
                 )}
               </button>
@@ -160,7 +180,7 @@ export default function FoundingMembersCRMPage() {
           <div style={{ ...cellHead, flex: '0.9 1 0' }}>Registered</div>
           <div style={{ ...cellHead, flex: '0.9 1 0' }}>Status</div>
           <div style={{ ...cellHead, flex: '1.2 1 0' }}>Tags</div>
-          <div style={{ ...cellHead, flex: '0.6 1 0', textAlign: 'right' }}>&nbsp;</div>
+          <div style={{ ...cellHead, flex: '0.6 1 0', textAlign: 'right' }}>Details</div>
         </div>
 
         {loading ? (
@@ -168,9 +188,9 @@ export default function FoundingMembersCRMPage() {
         ) : rows.length === 0 ? (
           <div style={emptyState}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>🌱</div>
-            <p style={{ color: '#0A2540', fontSize: 16, fontWeight: 700, margin: 0 }}>No Founding Members yet</p>
+            <p style={{ color: '#0A2540', fontSize: 16, fontWeight: 700, margin: 0 }}>{emptyMessage}</p>
             <p style={{ color: '#64748B', fontSize: 13, marginTop: 6, marginBottom: 0 }}>
-              Once people submit the Register Interest form, they&rsquo;ll appear here.
+              {emptySubline}
             </p>
           </div>
         ) : (
@@ -279,6 +299,8 @@ function MemberRow({
     notesInitial.current = row.admin_notes || '';
   }, [row.admin_notes]);
 
+  const [hovered, setHovered] = useState(false);
+
   const displayName = [row.first_name, row.last_name].filter(Boolean).join(' ')
     || (row.email?.split('@')[0]) || 'Unnamed';
   const status = (row.status || 'registered') as CRMFoundingMemberStatus;
@@ -311,11 +333,20 @@ function MemberRow({
   return (
     <div style={{
       borderTop: '1px solid #F1F5F9',
-      background: expanded ? '#F8FAFC' : '#FFFFFF',
+      background: expanded ? '#F0FDFA' : (hovered ? '#F8FAFC' : '#FFFFFF'),
       transition: 'background 0.15s',
     }}>
-      <div style={rowLine} onClick={onToggle} role="button" tabIndex={0}
-           onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
+      <div
+        style={rowLine}
+        onClick={onToggle}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Collapse' : 'Expand'} details for ${displayName}`}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+      >
         <div style={{ ...cellBody, flex: '1.4 1 0' }}>
           <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>{displayName}</div>
           <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
@@ -370,7 +401,18 @@ function MemberRow({
           </div>
         </div>
         <div style={{ ...cellBody, flex: '0.6 1 0', textAlign: 'right' }}>
-          <span style={{ color: '#94A3B8', fontSize: 18 }}>{expanded ? '▾' : '▸'}</span>
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            padding: '4px 10px',
+            borderRadius: 999,
+            background: expanded ? '#0F766E' : '#F1F5F9',
+            color: expanded ? '#FFFFFF' : '#0F766E',
+            fontSize: 11, fontWeight: 800, letterSpacing: '0.04em',
+            transition: 'background 0.15s, color 0.15s',
+          }}>
+            <span style={{ fontSize: 10, lineHeight: 1 }}>{expanded ? '▼' : '▶'}</span>
+            {expanded ? 'Hide' : 'Details'}
+          </span>
         </div>
       </div>
 
@@ -522,6 +564,43 @@ function fmtDate(iso?: string): string {
 }
 
 // ─── Styles ──────────────────────────────────────────────────
+const totalHeadline: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'space-between',
+  gap: 24,
+  padding: '18px 22px',
+  marginTop: -8,
+  marginBottom: 22,
+  background: 'linear-gradient(135deg, #0F766E 0%, #14B8A6 100%)',
+  borderRadius: 20,
+  color: '#FFFFFF',
+  boxShadow: '0 12px 32px rgba(20,184,166,0.22)',
+  flexWrap: 'wrap',
+};
+const totalEyebrow: React.CSSProperties = {
+  fontSize: 11,
+  letterSpacing: '0.14em',
+  textTransform: 'uppercase',
+  fontWeight: 800,
+  color: 'rgba(255,255,255,0.85)',
+};
+const totalNumber: React.CSSProperties = {
+  fontSize: 48,
+  fontWeight: 900,
+  lineHeight: 1,
+  marginTop: 4,
+  letterSpacing: '-0.02em',
+};
+const introCopy: React.CSSProperties = {
+  color: 'rgba(255,255,255,0.92)',
+  fontSize: 15,
+  lineHeight: 1.5,
+  margin: 0,
+  maxWidth: 520,
+  flex: '1 1 320px',
+};
+
 const statsGrid: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
