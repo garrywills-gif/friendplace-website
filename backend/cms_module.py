@@ -968,6 +968,25 @@ def build_router(db) -> APIRouter:
             html=html,
             text=text,
         )
+        # Record every test send in a small append-only log so the
+        # "Most recent test send" strip on the Sending Health panel
+        # can show the truest ground-truth status without having to
+        # scan the entire Resend history.
+        if result.ok and result.message_id:
+            try:
+                await db.email_test_log.insert_one({
+                    "message_id":  result.message_id,
+                    "template":    name,
+                    "companion":   companion if _preview_meta(name).get("category") == "personal" else None,
+                    "recipient":   to_addr,
+                    "subject":     final_subject,
+                    "sender":      from_field,
+                    "created_at":  now_iso() if callable(globals().get("now_iso")) else __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+                    "sent_by":     admin.get("id") if isinstance(admin, dict) else None,
+                })
+            except Exception:
+                # Logging failure must never break the actual send flow.
+                pass
         return {
             "ok":            result.ok,
             "sent":          result.ok,
@@ -978,14 +997,17 @@ def build_router(db) -> APIRouter:
             "http_status":   result.http_status,
             "reason":        result.error,
             "error_code":    result.error_code,
+            "dashboard_url": (
+                f"https://resend.com/emails/{result.message_id}"
+                if result.message_id else None
+            ),
             # Honest disclosure to the panel: this is delivery *acceptance*
             # by Resend, not proof of inbox delivery. Operators must
             # confirm final state (Sent / Queued / Delivered / Bounced
             # / Rejected) in the Resend dashboard using message_id.
             "delivery_note": (
-                "Resend accepted the message. Delivery status (Delivered / "
-                "Bounced / Rejected) can be confirmed in the Resend "
-                "dashboard using the message_id above."
+                "Resend accepted the message. Live delivery status will "
+                "appear here as it progresses through the pipeline."
                 if result.ok else None
             ),
         }
@@ -1032,6 +1054,157 @@ def build_router(db) -> APIRouter:
             "recipient": to_addr,
             "results":   results,
         }
+
+    # ─── Live delivery status + sending health ──────────────────────
+    #
+    # Now that the backend has a full-access Resend key, Mission Control
+    # can show the truth end-to-end: from "Resend accepted the message"
+    # through to "Delivered to hello@friendplace.com.au" (or the actual
+    # bounce/rejection reason). These three endpoints back the live
+    # status ladder and the sidebar "Sending health" indicator on
+    # `/admin/emails`.
+
+    @router.get("/email-previews/message/{message_id}/status")
+    async def email_message_status(
+        message_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Live delivery status for a specific message.
+
+        Called by the CMS panel every 2s after a Send Test until the
+        message reaches a terminal state (delivered / bounced /
+        rejected / complained) or ~30s elapses.
+        """
+        from email_service import fetch_message_status  # noqa: WPS433
+        return await fetch_message_status(message_id)
+
+    @router.get("/email-previews/domains")
+    async def email_domains(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Verified sending domains + per-record DKIM/SPF/DMARC state."""
+        from email_service import fetch_domains_health  # noqa: WPS433
+        return await fetch_domains_health()
+
+    @router.get("/email-previews/sending-health")
+    async def email_sending_health(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Aggregated at-a-glance "email system healthy?" indicator.
+
+        Combines: Resend configured, ANY sending domain verified with
+        DKIM+SPF+DMARC green, and the last outbound send's status.
+        Returns one of three overall states:
+          • healthy       — green light. Everything is green.
+          • needs_attention — orange. Sending works but something's not
+                             green (DKIM warning, DMARC missing,
+                             recent bounce, etc.).
+          • broken        — red. Sending isn't working right now.
+        """
+        from email_service import (  # noqa: WPS433
+            is_configured as _resend_ready,
+            fetch_domains_health,
+        )
+        checks: list[dict] = []
+        tone_worst = "healthy"
+
+        def _worse(current: str, incoming: str) -> str:
+            order = {"healthy": 0, "needs_attention": 1, "broken": 2}
+            return incoming if order.get(incoming, 0) > order.get(current, 0) else current
+
+        # Check 1 — Resend configured at all
+        if not _resend_ready():
+            checks.append({"label": "Resend API key configured", "state": "broken"})
+            tone_worst = _worse(tone_worst, "broken")
+        else:
+            checks.append({"label": "Resend API key configured", "state": "healthy"})
+
+        # Check 2 — Sending domain verified
+        domains_result = await fetch_domains_health()
+        if not domains_result.get("ok"):
+            checks.append({
+                "label": "Sending domain verified",
+                "state": "needs_attention",
+                "detail": domains_result.get("error") or "Couldn't read domain list.",
+            })
+            tone_worst = _worse(tone_worst, "needs_attention")
+        else:
+            verified = [d for d in domains_result["domains"] if d.get("status") == "verified" and d.get("sending_enabled")]
+            if not verified:
+                checks.append({
+                    "label": "Sending domain verified",
+                    "state": "broken",
+                    "detail": "No verified sending domain — messages will not send.",
+                })
+                tone_worst = _worse(tone_worst, "broken")
+            else:
+                domain_names = ", ".join(d["name"] for d in verified)
+                checks.append({
+                    "label": "Sending domain verified",
+                    "state": "healthy",
+                    "detail": domain_names,
+                })
+                # Per-mechanism checks — check strictest interpretation
+                # across all verified domains (worst mechanism wins).
+                for mech in ("dkim", "spf", "dmarc"):
+                    worst = "healthy"
+                    for d in verified:
+                        state = d.get(mech)
+                        if state == "verified":
+                            continue
+                        if state in ("missing", "failed"):
+                            worst = "needs_attention" if mech == "dmarc" else "broken"
+                        elif state == "pending":
+                            worst = _worse(worst, "needs_attention")
+                        else:
+                            worst = _worse(worst, "needs_attention")
+                    checks.append({
+                        "label": {"dkim": "DKIM", "spf": "SPF", "dmarc": "DMARC"}[mech],
+                        "state": worst,
+                    })
+                    tone_worst = _worse(tone_worst, worst)
+
+        # Check 3 — Last outbound test status. We record every test
+        # send in `email_test_log` so we can surface the freshest
+        # ground-truth state right in the sidebar.
+        last = await db.email_test_log.find_one(
+            {}, sort=[("created_at", -1)], projection={"_id": 0},
+        )
+        if last:
+            from email_service import fetch_message_status  # noqa: WPS433
+            live = await fetch_message_status(last.get("message_id") or "")
+            state_map = {
+                "delivered": "healthy",
+                "opened": "healthy",
+                "clicked": "healthy",
+                "sent": "needs_attention",
+                "queued": "needs_attention",
+                "delivery_delayed": "needs_attention",
+                "bounced": "broken",
+                "rejected": "broken",
+                "complained": "broken",
+                None: "needs_attention",
+            }
+            last_state = state_map.get(live.get("last_event"), "needs_attention")
+            checks.append({
+                "label": "Most recent test send",
+                "state": last_state,
+                "detail": live.get("status_label"),
+                "message_id": live.get("message_id"),
+                "dashboard_url": live.get("dashboard_url"),
+                "sent_at": last.get("created_at"),
+            })
+            tone_worst = _worse(tone_worst, last_state)
+        else:
+            checks.append({
+                "label": "Most recent test send",
+                "state": "healthy",
+                "detail": "No test sends recorded yet.",
+            })
+
+        return {
+            "overall": tone_worst,
+            "checks": checks,
+            "recipient": _preview_recipient(),
+            "resend_configured": _resend_ready(),
+        }
+
 
 
 

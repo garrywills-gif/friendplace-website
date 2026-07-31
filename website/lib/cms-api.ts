@@ -657,6 +657,39 @@ export type EmailSendResponse = {
   http_status?: number | null;
   error_code?: string | null;
   delivery_note?: string | null;
+  dashboard_url?: string | null;
+};
+
+export type EmailMessageStatus = {
+  ok: boolean;
+  message_id: string;
+  last_event: string | null;
+  status_label: string;
+  status_tone: 'success' | 'pending' | 'error' | 'unknown';
+  created_at?: string | null;
+  to?: string[] | null;
+  from?: string | null;
+  subject?: string | null;
+  ses_message_id?: string | null;
+  http_status: number;
+  error?: string | null;
+  dashboard_url: string;
+};
+
+export type EmailSendingHealthCheck = {
+  label: string;
+  state: 'healthy' | 'needs_attention' | 'broken';
+  detail?: string;
+  message_id?: string;
+  dashboard_url?: string;
+  sent_at?: string;
+};
+
+export type EmailSendingHealth = {
+  overall: 'healthy' | 'needs_attention' | 'broken';
+  checks: EmailSendingHealthCheck[];
+  recipient: string;
+  resend_configured: boolean;
 };
 
 export const emailPreviewsApi = {
@@ -672,4 +705,8 @@ export const emailPreviewsApi = {
     reason?: string;
     results: Array<{ name: string; sent: boolean; subject: string }>;
   }>('POST', '/cms/email-previews/send-all'),
+  status: (messageId: string) =>
+    req<EmailMessageStatus>('GET', `/cms/email-previews/message/${messageId}/status`),
+  sendingHealth: () =>
+    req<EmailSendingHealth>('GET', '/cms/email-previews/sending-health'),
 };

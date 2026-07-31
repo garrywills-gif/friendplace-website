@@ -36,6 +36,8 @@ import {
   type EmailPreviewList,
   type EmailTemplateMeta,
   type EmailRenderResponse,
+  type EmailMessageStatus,
+  type EmailSendingHealth,
 } from '@/lib/cms-api';
 
 type Companion = 'george' | 'georgia';
@@ -70,6 +72,9 @@ function EmailsPanel() {
         messageId?: string | null;
         httpStatus?: number | null;
         deliveryNote?: string | null;
+        dashboardUrl?: string | null;
+        live?: EmailMessageStatus | null;
+        timeline: Array<{ label: string; tone: 'success' | 'pending' | 'error' | 'unknown'; at: string }>;
       }
     | {
         kind: 'error';
@@ -80,6 +85,72 @@ function EmailsPanel() {
         subject?: string;
       }
   >({ kind: 'idle' });
+
+  // Sending health — polled once on mount + refreshed after every send
+  const [health, setHealth] = useState<EmailSendingHealth | null>(null);
+  const refreshHealth = useCallback(async () => {
+    try {
+      const h = await emailPreviewsApi.sendingHealth();
+      setHealth(h);
+    } catch {
+      // Non-fatal — the sidebar just shows "unavailable" in that case.
+    }
+  }, []);
+  useEffect(() => { void refreshHealth(); }, [refreshHealth]);
+
+  // Live status polling — after a Send Test succeeds, we poll every
+  // 2s for up to 30s (or until the message reaches a terminal state).
+  // Each poll appends to a small in-memory timeline so operators can
+  // see how long each hop took (Accepted → Sent → Delivered / etc.).
+  const pollAbort = useRef<{ cancelled: boolean } | null>(null);
+  useEffect(() => () => {
+    if (pollAbort.current) pollAbort.current.cancelled = true;
+  }, []);
+
+  const beginStatusPoll = useCallback((messageId: string) => {
+    if (pollAbort.current) pollAbort.current.cancelled = true;
+    const token = { cancelled: false };
+    pollAbort.current = token;
+    const started = Date.now();
+    const MAX_MS = 30_000;
+    const INTERVAL_MS = 2_000;
+    const terminal = new Set(['delivered', 'bounced', 'rejected', 'complained', 'opened', 'clicked']);
+
+    let seenLabels = new Set<string>();
+    const tick = async () => {
+      if (token.cancelled) return;
+      try {
+        const live = await emailPreviewsApi.status(messageId);
+        setSendStatus((prev) => {
+          if (prev.kind !== 'success' || prev.messageId !== messageId) return prev;
+          const nextTimeline = [...prev.timeline];
+          if (live.status_label && !seenLabels.has(live.status_label)) {
+            seenLabels.add(live.status_label);
+            nextTimeline.push({
+              label: live.status_label,
+              tone: live.status_tone,
+              at: new Date().toISOString(),
+            });
+          }
+          return { ...prev, live, timeline: nextTimeline };
+        });
+        if (live.last_event && terminal.has(live.last_event)) {
+          void refreshHealth();
+          return;
+        }
+      } catch {
+        // swallow; keep polling
+      }
+      if (Date.now() - started >= MAX_MS) {
+        void refreshHealth();
+        return;
+      }
+      setTimeout(() => { void tick(); }, INTERVAL_MS);
+    };
+    // First poll immediately (no wait) so operators see "Accepted"
+    // land instantly, then hand off to the ticker.
+    void tick();
+  }, [refreshHealth]);
 
   // ── Initial load ───────────────────────────────────────────────
   useEffect(() => {
@@ -193,15 +264,23 @@ function EmailsPanel() {
       // (network hiccup, sender validation, etc.) — never claim
       // success in that case.
       if (r.ok && r.message_id) {
-        setSendStatus({
-          kind: 'success',
+        const seed = {
+          kind: 'success' as const,
           recipient: r.recipient,
           subject: r.subject,
           sender: r.sender,
           messageId: r.message_id,
           httpStatus: r.http_status ?? null,
           deliveryNote: r.delivery_note ?? null,
-        });
+          dashboardUrl: r.dashboard_url ?? `https://resend.com/emails/${r.message_id}`,
+          live: null,
+          timeline: [
+            { label: 'Accepted', tone: 'pending' as const, at: new Date().toISOString() },
+          ],
+        };
+        setSendStatus(seed);
+        // Kick off the live poll immediately.
+        beginStatusPoll(r.message_id);
       } else {
         setSendStatus({
           kind: 'error',
@@ -285,15 +364,15 @@ function EmailsPanel() {
         <div style={{ padding: '14px 16px 8px', borderTop: '1px solid #E2E8F0', marginTop: 6, fontSize: 12, color: '#64748B' }}>
           Test recipient
           <div style={{ marginTop: 4, color: '#0A2540', fontWeight: 700 }}>{list.recipient}</div>
-          <div style={{ marginTop: 8, fontSize: 11, color: list.resend_configured ? '#0F766E' : '#B45309' }}>
-            {list.resend_configured ? '● Resend configured' : '⚠ Resend not configured'}
-          </div>
         </div>
       </aside>
 
       {/* ── Right pane: controls + previews ───────────────────── */}
       {selected && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* Sending Health — at-a-glance email system indicator */}
+          <SendingHealthPanel health={health} onRefresh={refreshHealth} />
 
           {/* Header + description */}
           <div style={card}>
@@ -438,10 +517,41 @@ function EmailsPanel() {
 
           {sendStatus.kind === 'success' && (
             <div style={{ ...card, background: '#F0FDFA', borderColor: '#99F6E4' }}>
-              <p style={{ margin: 0, color: '#0F766E', fontWeight: 800, fontSize: 15 }}>
-                Resend accepted the message ✓
-              </p>
-              <div style={{ marginTop: 10, display: 'grid', gridTemplateColumns: '140px 1fr', gap: '6px 14px', fontSize: 13, color: '#0F766E' }}>
+              {(() => {
+                const live = sendStatus.live;
+                const isDelivered = live?.last_event === 'delivered' || live?.last_event === 'opened' || live?.last_event === 'clicked';
+                const isFailed = live?.last_event === 'bounced' || live?.last_event === 'rejected' || live?.last_event === 'complained';
+                const heading = isDelivered ? 'Delivered ✓' : isFailed ? (live?.status_label || 'Failed') : 'Sending…';
+                const headingColor = isDelivered ? '#0F766E' : isFailed ? '#991B1B' : '#0F766E';
+                return <p style={{ margin: 0, color: headingColor, fontWeight: 800, fontSize: 15 }}>{heading}</p>;
+              })()}
+
+              {/* Timeline of status transitions */}
+              {sendStatus.timeline.length > 0 && (
+                <div style={{ marginTop: 12, marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  {sendStatus.timeline.map((step, idx) => {
+                    const t = new Date(step.at);
+                    const timeStr = t.toLocaleTimeString([], { hour12: false });
+                    const toneColor = step.tone === 'success' ? '#0F766E' : step.tone === 'error' ? '#991B1B' : step.tone === 'pending' ? '#B45309' : '#64748B';
+                    const toneBg = step.tone === 'success' ? '#F0FDFA' : step.tone === 'error' ? '#FEF2F2' : step.tone === 'pending' ? '#FEFCE8' : '#F1F5F9';
+                    return (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {idx > 0 && <span style={{ color: '#94A3B8', fontSize: 13 }}>→</span>}
+                        <span style={{
+                          padding: '4px 10px', borderRadius: 999, background: toneBg,
+                          color: toneColor, fontSize: 12, fontWeight: 700,
+                          border: `1px solid ${toneColor}22`,
+                        }}>
+                          {step.label}
+                          <span style={{ marginLeft: 6, opacity: 0.6, fontWeight: 500 }}>{timeStr}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '6px 14px', fontSize: 13, color: '#0F766E' }}>
                 <div style={{ fontWeight: 700 }}>Subject</div>
                 <div><code style={inlineCode}>{sendStatus.subject}</code></div>
                 <div style={{ fontWeight: 700 }}>To</div>
@@ -453,26 +563,53 @@ function EmailsPanel() {
                 <div style={{ fontWeight: 700 }}>HTTP status</div>
                 <div>{sendStatus.httpStatus ?? '—'}</div>
                 <div style={{ fontWeight: 700 }}>Message ID</div>
-                <div><code style={{ ...inlineCode, fontSize: 11 }}>{sendStatus.messageId}</code></div>
+                <div>
+                  <code style={{ ...inlineCode, fontSize: 11 }}>{sendStatus.messageId}</code>
+                  {sendStatus.dashboardUrl && (
+                    <a
+                      href={sendStatus.dashboardUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        marginLeft: 10, fontSize: 12, fontWeight: 700,
+                        color: '#0F766E', textDecoration: 'none',
+                      }}
+                    >
+                      View in Resend →
+                    </a>
+                  )}
+                </div>
+                {sendStatus.live?.ses_message_id && (
+                  <>
+                    <div style={{ fontWeight: 700 }}>Envelope-ID</div>
+                    <div><code style={{ ...inlineCode, fontSize: 10 }}>{sendStatus.live.ses_message_id}</code></div>
+                  </>
+                )}
               </div>
-              {sendStatus.deliveryNote && (
+
+              {sendStatus.live?.last_event === 'bounced' || sendStatus.live?.last_event === 'rejected' ? (
                 <p style={{
-                  margin: '14px 0 0 0',
-                  padding: '10px 12px',
-                  background: '#FEFCE8',
-                  border: '1px solid #FDE68A',
-                  borderRadius: 8,
-                  color: '#78350F',
-                  fontSize: 12,
-                  lineHeight: 1.55,
+                  margin: '14px 0 0 0', padding: '10px 12px',
+                  background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8,
+                  color: '#7F1D1D', fontSize: 12, lineHeight: 1.55,
                 }}>
-                  <strong>Note:</strong> {sendStatus.deliveryNote} If the
-                  email does not appear in the inbox, check the Resend
-                  dashboard for <code style={{ ...inlineCode, fontSize: 11 }}>{sendStatus.messageId}</code> — status will be
-                  one of <em>Sent · Queued · Delivered · Bounced · Rejected</em>.
-                  Common causes of a Sent-but-not-received: spam/junk
-                  folder, DMARC/SPF misalignment, or the mailbox filtering
-                  same-domain sends.
+                  <strong>{sendStatus.live.status_label}.</strong> {sendStatus.live.error || 'Resend reported a delivery failure. Open "View in Resend →" above for the full event log with the bounce reason.'}
+                </p>
+              ) : sendStatus.live?.last_event === 'delivered' ? (
+                <p style={{
+                  margin: '14px 0 0 0', padding: '10px 12px',
+                  background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 8,
+                  color: '#065F46', fontSize: 12, lineHeight: 1.55,
+                }}>
+                  <strong>Delivered to {sendStatus.recipient}.</strong> The recipient mail server accepted the message. If it&rsquo;s not visible in the inbox, check Spam / Junk, Quarantine, or any forwarding / filter rules — same-domain sends are frequently spam-filtered.
+                </p>
+              ) : (
+                <p style={{
+                  margin: '14px 0 0 0', padding: '10px 12px',
+                  background: '#FEFCE8', border: '1px solid #FDE68A', borderRadius: 8,
+                  color: '#78350F', fontSize: 12, lineHeight: 1.55,
+                }}>
+                  Polling delivery status every 2 s for up to 30 s. Message states usually resolve within a few seconds.
                 </p>
               )}
             </div>
@@ -632,4 +769,116 @@ function pill(bg: string, color: string): React.CSSProperties {
     fontSize: 12,
     fontWeight: 700,
   };
+}
+
+
+// ─── Sending Health panel ───────────────────────────────────────────────
+//
+// At-a-glance indicator for the email system, per Garry's brief:
+//   🟢 Email System Healthy    — everything green
+//   🟠 Needs Attention         — sending works but a check is warning
+//   🔴 Broken                  — sending is failing
+//
+// Individual checks render below the headline so an operator can see
+// exactly WHICH check flipped the light — no need to open logs.
+function SendingHealthPanel({
+  health,
+  onRefresh,
+}: {
+  health: EmailSendingHealth | null;
+  onRefresh: () => void;
+}) {
+  if (!health) {
+    return (
+      <div style={{
+        background: '#FFFFFF', border: '1px solid #E2E8F0',
+        borderRadius: 14, padding: 16, color: '#64748B', fontSize: 13,
+      }}>
+        Checking email system health&hellip;
+      </div>
+    );
+  }
+  const overallStyles = {
+    healthy: {
+      icon: '🟢',
+      title: 'Email System Healthy',
+      color: '#065F46',
+      bg: '#ECFDF5',
+      border: '#A7F3D0',
+    },
+    needs_attention: {
+      icon: '🟠',
+      title: 'Needs Attention',
+      color: '#78350F',
+      bg: '#FEFCE8',
+      border: '#FDE68A',
+    },
+    broken: {
+      icon: '🔴',
+      title: 'Email System Broken',
+      color: '#7F1D1D',
+      bg: '#FEF2F2',
+      border: '#FCA5A5',
+    },
+  }[health.overall];
+
+  const iconFor = (state: 'healthy' | 'needs_attention' | 'broken') => (
+    state === 'healthy' ? '✓' : state === 'needs_attention' ? '⚠' : '⨯'
+  );
+  const colorFor = (state: 'healthy' | 'needs_attention' | 'broken') => (
+    state === 'healthy' ? '#0F766E' : state === 'needs_attention' ? '#B45309' : '#991B1B'
+  );
+
+  return (
+    <div style={{
+      background: overallStyles.bg, border: `1px solid ${overallStyles.border}`,
+      borderRadius: 14, padding: 18,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 22 }}>{overallStyles.icon}</div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontWeight: 900, fontSize: 16, color: overallStyles.color }}>
+            {overallStyles.title}
+          </div>
+          <div style={{ fontSize: 12, color: overallStyles.color, opacity: 0.75, marginTop: 2 }}>
+            Sending to <strong>{health.recipient}</strong>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onRefresh}
+          style={{
+            padding: '6px 12px', borderRadius: 8,
+            background: 'rgba(255,255,255,0.6)',
+            border: `1px solid ${overallStyles.border}`,
+            color: overallStyles.color, fontWeight: 700, fontSize: 12,
+            cursor: 'pointer', fontFamily: 'inherit',
+          }}
+        >
+          Refresh
+        </button>
+      </div>
+      <div style={{ marginTop: 14, display: 'grid', gap: 6 }}>
+        {health.checks.map((c, idx) => (
+          <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13 }}>
+            <span style={{ color: colorFor(c.state), fontWeight: 800, minWidth: 14 }}>{iconFor(c.state)}</span>
+            <div style={{ flex: 1, color: overallStyles.color }}>
+              <span style={{ fontWeight: 700 }}>{c.label}</span>
+              {c.detail && <span style={{ marginLeft: 6, opacity: 0.75 }}>· {c.detail}</span>}
+              {c.dashboard_url && (
+                <a
+                  href={c.dashboard_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ marginLeft: 8, color: colorFor(c.state), fontWeight: 700, textDecoration: 'none', fontSize: 12 }}
+                >
+                  View →
+                </a>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

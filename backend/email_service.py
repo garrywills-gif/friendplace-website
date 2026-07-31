@@ -222,6 +222,204 @@ async def send_email_detailed(
     )
 
 
+# ---------------------------------------------------------------------------
+# Read-side helpers  ·  live delivery status + verified-domain health
+# ---------------------------------------------------------------------------
+# These wrap Resend's GET endpoints so the CMS "Email templates" panel can
+# show live status (Accepted → Queued → Sent → Delivered / Bounced /
+# Rejected) and an overall "Sending health" indicator. They use plain
+# `requests` rather than the SDK because the SDK's read surface is
+# thinner than the REST API and skips over some diagnostic fields.
+#
+# All functions gracefully degrade: if the API key can't read (i.e. it's
+# a send-only key) we return a shape that the UI can render as
+# "unavailable" rather than crashing. That way an operator whose key
+# was downgraded still sees the send status; only the polling reads go
+# dark, with a clear message about why.
+
+
+async def _resend_get(path: str) -> tuple[int, dict]:
+    """Perform a GET against Resend's REST API and return (status, body).
+
+    Uses `requests` in a worker thread so it doesn't block the event
+    loop. Never raises — returns a well-formed error body on failure.
+    """
+    import json as _json
+    api_key, _from_email, _from_name, _reply_to = _config()
+    if not api_key:
+        return (0, {"error": "RESEND_API_KEY not set"})
+
+    def _do() -> tuple[int, dict]:
+        try:
+            import requests  # local import — SDK-agnostic path
+            r = requests.get(
+                f"https://api.resend.com{path}",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=15,
+            )
+            try:
+                body = r.json()
+            except Exception:
+                body = {"raw": r.text[:500]}
+            return (r.status_code, body)
+        except Exception as e:
+            return (0, {"error": str(e)})
+
+    return await asyncio.to_thread(_do)
+
+
+async def fetch_message_status(message_id: str) -> dict:
+    """Return live delivery status for one Resend message.
+
+    Response shape (stable across states):
+        {
+          "ok": bool,
+          "message_id": str,
+          "last_event": "sent"|"queued"|"delivered"|"bounced"|"rejected"|"complained"|"opened"|"clicked"|None,
+          "status_label": str,          # "Delivered", "Bounced", ...
+          "status_tone": "success"|"pending"|"error"|"unknown",
+          "created_at": str|None,
+          "to": [str],
+          "from": str|None,
+          "subject": str|None,
+          "ses_message_id": str|None,
+          "http_status": int,
+          "error": str|None,            # only when unreachable
+          "dashboard_url": str          # deep link into Resend dashboard
+        }
+    """
+    dashboard_url = f"https://resend.com/emails/{message_id}"
+    status, body = await _resend_get(f"/emails/{message_id}")
+    if status != 200:
+        return {
+            "ok": False,
+            "message_id": message_id,
+            "last_event": None,
+            "status_label": "Unavailable",
+            "status_tone": "unknown",
+            "http_status": status,
+            "error": (body or {}).get("message") or (body or {}).get("error") or "Resend rejected the lookup.",
+            "dashboard_url": dashboard_url,
+        }
+    last_event = (body.get("last_event") or "").lower() or None
+    label_map = {
+        "sent":              ("Sent",              "pending"),
+        "queued":            ("Queued",            "pending"),
+        "delivery_delayed":  ("Delivery delayed",  "pending"),
+        "delivered":         ("Delivered",         "success"),
+        "opened":            ("Delivered · opened","success"),
+        "clicked":           ("Delivered · clicked","success"),
+        "bounced":           ("Bounced",           "error"),
+        "rejected":          ("Rejected",          "error"),
+        "complained":        ("Complained (spam)", "error"),
+    }
+    label, tone = label_map.get(last_event or "", ("Accepted", "pending"))
+    return {
+        "ok": True,
+        "message_id": message_id,
+        "last_event": last_event,
+        "status_label": label,
+        "status_tone": tone,
+        "created_at": body.get("created_at"),
+        "to": body.get("to"),
+        "from": body.get("from"),
+        "subject": body.get("subject"),
+        "ses_message_id": body.get("message_id"),
+        "http_status": 200,
+        "error": None,
+        "dashboard_url": dashboard_url,
+    }
+
+
+async def fetch_domains_health() -> dict:
+    """Return the sending-domain health picture Resend gives us.
+
+    Response shape:
+        {
+          "ok": bool,
+          "domains": [
+            {
+              "id":     str,
+              "name":   str,
+              "status": str,     # "verified" | "pending" | "failed"
+              "region": str,
+              "sending_enabled":  bool,
+              "records":          [ … per-record DKIM/SPF/DMARC state … ],
+              "dkim":  "verified"|"missing"|"pending"|"failed",
+              "spf":   "verified"|"missing"|"pending"|"failed",
+              "dmarc": "verified"|"missing"|"pending"|"failed",
+              "dashboard_url": str,
+            }, …
+          ],
+          "http_status": int,
+          "error": str|None,
+        }
+    """
+    status, body = await _resend_get("/domains")
+    if status != 200:
+        return {
+            "ok": False,
+            "domains": [],
+            "http_status": status,
+            "error": (body or {}).get("message") or (body or {}).get("error") or "Couldn't read Resend domains.",
+        }
+    rows = (body.get("data") or []) if isinstance(body, dict) else []
+    domains_out: list[dict] = []
+    for d in rows:
+        domain_id = d.get("id")
+        # Resend `GET /domains/{id}` returns per-record verification detail.
+        record_status, record_body = await _resend_get(f"/domains/{domain_id}") if domain_id else (0, {})
+        records = record_body.get("records") if isinstance(record_body, dict) else None
+        # Reduce records to a per-mechanism verdict. Resend uses `type` in
+        # {"MX","TXT","CNAME"} + `name` prefixes to distinguish DKIM
+        # (`resend._domainkey` / `..._domainkey`), SPF (`v=spf1`), DMARC
+        # (`_dmarc`). Any record with status != 'verified' → the mechanism
+        # is not yet green.
+        def _mech_status(records_list, mechanism: str) -> str:
+            if not isinstance(records_list, list):
+                return "unknown"
+            related = []
+            for r in records_list:
+                name = (r.get("name") or "").lower()
+                value = (r.get("value") or "").lower()
+                if mechanism == "dkim" and "_domainkey" in name:
+                    related.append(r)
+                elif mechanism == "spf" and ("v=spf1" in value or (r.get("type") == "TXT" and "spf" in name)):
+                    related.append(r)
+                elif mechanism == "dmarc" and ("_dmarc" in name or "v=dmarc" in value):
+                    related.append(r)
+            if not related:
+                return "missing"
+            statuses = {(r.get("status") or "").lower() for r in related}
+            if statuses == {"verified"} or statuses == {"success"}:
+                return "verified"
+            if "failed" in statuses or "not_started" in statuses:
+                return "failed"
+            if "pending" in statuses:
+                return "pending"
+            return "unknown"
+
+        domains_out.append({
+            "id":              domain_id,
+            "name":            d.get("name"),
+            "status":          d.get("status"),
+            "region":          d.get("region"),
+            "sending_enabled": (d.get("capabilities") or {}).get("sending") == "enabled",
+            "records":         records,
+            "dkim":            _mech_status(records, "dkim"),
+            "spf":             _mech_status(records, "spf"),
+            "dmarc":           _mech_status(records, "dmarc"),
+            "dashboard_url":   f"https://resend.com/domains/{domain_id}" if domain_id else None,
+        })
+    return {
+        "ok": True,
+        "domains": domains_out,
+        "http_status": 200,
+        "error": None,
+    }
+
+
+
 async def send_email(
     *,
     to: str,
