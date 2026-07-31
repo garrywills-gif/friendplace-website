@@ -321,9 +321,10 @@ def _letter_signature_html(*, signer: str = "george") -> str:
     a plain team signature for operational/security emails.
 
     `signer` values:
-      • "george"  — personal emails (welcome, waitlist, invitation).
-                    In future this can flip to "georgia" per the
-                    user's persona preference.
+      • "george"  — personal emails signed by George.
+      • "georgia" — personal emails signed by Georgia (same voice,
+                    different companion — the visitor's original pick
+                    on the marketing page).
       • "team"    — operational (support, password reset).
     """
     if signer == "team":
@@ -333,10 +334,12 @@ def _letter_signature_html(*, signer: str = "george") -> str:
   <span style="font-weight:700;color:#0A2540;">The FriendPlace Team</span>
 </p>
 """
-    return """\
+    # Personal signer — proper case for the display name ("Georgia"/"George").
+    display = signer.capitalize() if signer else "George"
+    return f"""\
 <p style="margin:36px 0 0 0;">
   Warmly,<br>
-  <span style="font-weight:700;color:#0A2540;">George</span><br>
+  <span style="font-weight:700;color:#0A2540;">{display}</span><br>
   <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:#64748B;font-style:italic;">Your friend at FriendPlace</span>
 </p>
 """
@@ -477,18 +480,33 @@ def _branded_footer_text() -> str:
     )
 
 
-def password_reset_template(*, first_name: str | None, code: str, ttl_minutes: int) -> tuple[str, str, str]:
+def password_reset_template(
+    *,
+    first_name: str | None,
+    code: str,
+    ttl_minutes: int,
+    subject_override: str | None = None,
+    preheader_override: str | None = None,
+) -> tuple[str, str, str]:
     """Password-reset email — clean white letter design.
 
     Operational/security email, signed by "The FriendPlace Team".
     The reset code sits in a soft teal chip that's still legible on
     white without shouting. Body copy is warm but appropriately calm
     for a security context.
+
+    `subject_override` / `preheader_override` — provided by the CMS
+    email-preview panel when an admin has edited these fields before
+    sending a test. Both are optional; sensible defaults are used
+    when omitted.
     """
     from html import escape as _esc
     name = (first_name or "there").strip()
-    subject = "Reset your FriendPlace password"
-    preheader = f"Your secure reset code, valid for {ttl_minutes} minutes."
+    subject = subject_override or "Reset your FriendPlace password"
+    preheader = (
+        preheader_override
+        or f"Your secure reset code, valid for {ttl_minutes} minutes."
+    )
 
     body = (
         _letter_body_open()
@@ -529,6 +547,8 @@ def support_acknowledgement_template(
     ticket_ref: str,
     category: str,
     subject_snippet: str,
+    subject_override: str | None = None,
+    preheader_override: str | None = None,
 ) -> tuple[str, str, str]:
     """Support "we've received your message" acknowledgement.
 
@@ -536,6 +556,9 @@ def support_acknowledgement_template(
     reassuring — echoes the user's subject line back so they visually
     confirm we received the right thing, and displays their ticket
     reference in a soft teal chip for easy quoting later.
+
+    `subject_override` / `preheader_override` — CMS preview panel
+    passes these when an admin has edited them before sending a test.
     """
     from html import escape as _esc
     name = (first_name or "there").strip()
@@ -547,13 +570,13 @@ def support_acknowledgement_template(
     is_report = ("report" in _cat_lower or "bug" in _cat_lower or "technical" in _cat_lower)
 
     if is_report:
-        email_subject = f"We've received your report — {ticket_ref}"
-        preheader = "Thanks for taking the time to report this. We're on it."
+        default_subject = f"We've received your report — {ticket_ref}"
+        default_preheader = "Thanks for taking the time to report this. We're on it."
         opening = (
             "Thanks for taking the time to report this. We&rsquo;ve logged it "
             "and one of our team will look into it and get back to you as soon "
-            "as we can — usually within <strong>24 hours</strong>, often much "
-            "sooner."
+            "as we can &mdash; usually within <strong>24 hours</strong>, often "
+            "much sooner."
         )
         opening_text = (
             "Thanks for taking the time to report this. We've logged it and "
@@ -561,18 +584,22 @@ def support_acknowledgement_template(
             "as we can — usually within 24 hours, often much sooner."
         )
     else:
-        email_subject = f"We've received your message — {ticket_ref}"
-        preheader = "Thanks for reaching out. We'll get back to you soon."
+        default_subject = f"We've received your message — {ticket_ref}"
+        default_preheader = "Thanks for reaching out. We'll get back to you soon."
         opening = (
             "Thanks for reaching out to FriendPlace. We&rsquo;ve received your "
             "message and one of our team will get back to you as soon as we "
-            "can — usually within <strong>24 hours</strong>, often much sooner."
+            "can &mdash; usually within <strong>24 hours</strong>, often much "
+            "sooner."
         )
         opening_text = (
             "Thanks for reaching out to FriendPlace. We've received your "
             "message and one of our team will get back to you as soon as we "
             "can — usually within 24 hours, often much sooner."
         )
+
+    email_subject = subject_override or default_subject
+    preheader = preheader_override or default_preheader
 
     safe_ref = _esc(ticket_ref)
     safe_category = _esc(category or "Support")
@@ -1184,23 +1211,37 @@ def welcome_template(
     *,
     first_name: str | None,
     action_url: str | None = None,
+    companion: str = "george",
+    subject_override: str | None = None,
+    preheader_override: str | None = None,
 ) -> tuple[str, str, str]:
     """Sent the first time an account is created and confirmed.
 
-    Personal letter from George — warm, welcoming, and gently pointing
-    at the next thing to explore. Deliberately short: this is a
-    handshake, not an onboarding manual.
+    Personal letter from the visitor's chosen companion (George by
+    default; Georgia if they picked her on the marketing page). Warm,
+    welcoming, gently pointing at the next thing to explore.
 
     Args:
-        first_name: Recipient's first name (falls back to "there").
-        action_url: Optional CTA target (usually the app home / their
-                    new profile). If omitted, no button is rendered
-                    and the letter simply closes on the signature.
+        first_name:  Recipient's first name (falls back to "there").
+        action_url:  Optional CTA target (usually the app home / their
+                     new profile). If omitted, no button is rendered
+                     and the letter simply closes on the signature.
+        companion:   Who is writing this letter — "george" or "georgia".
+                     Threads through the intro line and signature so
+                     the whole letter feels consistent.
+        subject_override / preheader_override:
+                     CMS preview panel passes these when an admin has
+                     edited the subject or preheader before sending.
+                     Both fall back to the on-brand defaults.
     """
     from html import escape as _esc
     name = (first_name or "there").strip()
-    subject = "Welcome to FriendPlace"
-    preheader = "A little note from George — glad you found us."
+    display = "Georgia" if str(companion).lower() == "georgia" else "George"
+    subject = subject_override or "Welcome to FriendPlace"
+    preheader = (
+        preheader_override
+        or f"A little note from {display} — glad you found us."
+    )
 
     cta_html = (
         _letter_button_html(label="Step inside FriendPlace", url=action_url)
@@ -1211,13 +1252,13 @@ def welcome_template(
     body = (
         _letter_body_open()
         + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
-        + "<p style=\"margin:0 0 20px 0;\">Welcome to FriendPlace — and thank you for finding us.</p>"
-        + "<p style=\"margin:0 0 20px 0;\">I&rsquo;m George. My job here is to help you feel at home from the very first moment. Whether you&rsquo;re looking for someone to share a walk with, an event to go to on a quiet weekend, or simply a place where a warm hello isn&rsquo;t rare — you&rsquo;re in the right place.</p>"
+        + "<p style=\"margin:0 0 20px 0;\">Welcome to FriendPlace &mdash; and thank you for finding us.</p>"
+        + f"<p style=\"margin:0 0 20px 0;\">I&rsquo;m {display}. My job here is to help you feel at home from the very first moment. Whether you&rsquo;re looking for someone to share a walk with, an event to go to on a quiet weekend, or simply a place where a warm hello isn&rsquo;t rare &mdash; you&rsquo;re in the right place.</p>"
         + "<p style=\"margin:0 0 20px 0;\">Take your time. Have a wander. There&rsquo;s no rush, no pressure, and no obligation to be anything other than yourself.</p>"
-        + "<p style=\"margin:0 0 20px 0;\">If you get stuck, or just fancy a chat, I&rsquo;m never far away. Reply to this email or find me inside the app — I read every message.</p>"
+        + "<p style=\"margin:0 0 20px 0;\">If you get stuck, or just fancy a chat, I&rsquo;m never far away. Reply to this email or find me inside the app &mdash; I read every message.</p>"
         + cta_html
         + "<p style=\"margin:24px 0 0 0;\">It&rsquo;s lovely to have you with us.</p>"
-        + _letter_signature_html(signer="george")
+        + _letter_signature_html(signer=companion)
         + _letter_body_close()
     )
     html = _letter_shell(preheader=preheader, body_html=body)
@@ -1225,10 +1266,11 @@ def welcome_template(
     text = (
         f"Dear {name},\n\n"
         "Welcome to FriendPlace — and thank you for finding us.\n\n"
-        "I'm George. My job here is to help you feel at home from the "
-        "very first moment. Whether you're looking for someone to share "
-        "a walk with, an event to go to on a quiet weekend, or simply a "
-        "place where a warm hello isn't rare — you're in the right place.\n\n"
+        f"I'm {display}. My job here is to help you feel at home from "
+        "the very first moment. Whether you're looking for someone to "
+        "share a walk with, an event to go to on a quiet weekend, or "
+        "simply a place where a warm hello isn't rare — you're in the "
+        "right place.\n\n"
         "Take your time. Have a wander. There's no rush, no pressure, "
         "and no obligation to be anything other than yourself.\n\n"
         "If you get stuck, or just fancy a chat, I'm never far away. "
@@ -1237,7 +1279,7 @@ def welcome_template(
         + cta_text
         + "\nIt's lovely to have you with us.\n\n"
         "Warmly,\n"
-        "George\n"
+        f"{display}\n"
         "Your friend at FriendPlace"
         + _letter_footer_text()
     )
@@ -1248,21 +1290,27 @@ def waitlist_template(
     *,
     first_name: str | None,
     position: int | None = None,
+    companion: str = "george",
+    subject_override: str | None = None,
+    preheader_override: str | None = None,
 ) -> tuple[str, str, str]:
     """Sent when someone joins the pre-launch waitlist.
 
-    Signed by George — this is a personal thank-you, not a marketing
-    "you're in!" email. Optionally includes their queue position for a
-    small human touch ("you're #42 in line"), but never as the star of
-    the message.
+    Signed by the visitor's chosen companion. A personal thank-you,
+    not a marketing "you're in!" email. Optionally includes their
+    queue position for a small human touch.
     """
     from html import escape as _esc
     name = (first_name or "there").strip()
-    subject = "Thank you for finding us"
-    preheader = "A quick note from George while we get everything ready."
+    display = "Georgia" if str(companion).lower() == "georgia" else "George"
+    subject = subject_override or "Thank you for finding us"
+    preheader = (
+        preheader_override
+        or f"A quick note from {display} while we get everything ready."
+    )
 
     position_html = (
-        f"<p style=\"margin:0 0 20px 0;color:#64748B;font-size:15px;font-style:italic;\">You&rsquo;re currently number <strong style=\"color:#0A2540;font-style:normal;\">{int(position)}</strong> on our list — thank you for the trust.</p>"
+        f"<p style=\"margin:0 0 20px 0;color:#64748B;font-size:15px;font-style:italic;\">You&rsquo;re currently number <strong style=\"color:#0A2540;font-style:normal;\">{int(position)}</strong> on our list &mdash; thank you for the trust.</p>"
         if position and position > 0 else ""
     )
     position_text = (
@@ -1274,12 +1322,12 @@ def waitlist_template(
     body = (
         _letter_body_open()
         + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
-        + "<p style=\"margin:0 0 20px 0;\">Thank you for finding us — and for saying &ldquo;yes, I&rsquo;d like to be part of this.&rdquo;</p>"
+        + "<p style=\"margin:0 0 20px 0;\">Thank you for finding us &mdash; and for saying &ldquo;yes, I&rsquo;d like to be part of this.&rdquo;</p>"
         + "<p style=\"margin:0 0 20px 0;\">FriendPlace is being built quietly and carefully, because places where people belong don&rsquo;t happen by accident. We&rsquo;re inviting friends in a small group at a time so that every new arrival is met with warmth, not silence.</p>"
         + position_html
         + "<p style=\"margin:0 0 20px 0;\">You&rsquo;ll hear from me the moment your invitation is ready. In the meantime, if you know someone who might feel at home here, forward this email their way. Belonging tends to grow best when someone opens the door.</p>"
         + "<p style=\"margin:24px 0 0 0;\">Thank you, again, for being here from the start.</p>"
-        + _letter_signature_html(signer="george")
+        + _letter_signature_html(signer=companion)
         + _letter_body_close()
     )
     html = _letter_shell(preheader=preheader, body_html=body)
@@ -1299,7 +1347,7 @@ def waitlist_template(
         "someone opens the door.\n\n"
         "Thank you, again, for being here from the start.\n\n"
         "Warmly,\n"
-        "George\n"
+        f"{display}\n"
         "Your friend at FriendPlace"
         + _letter_footer_text()
     )
@@ -1312,33 +1360,31 @@ def invitation_template(
     inviter_name: str | None,
     accept_url: str,
     expiry_days: int = 14,
+    companion: str = "george",
+    subject_override: str | None = None,
+    preheader_override: str | None = None,
 ) -> tuple[str, str, str]:
     """Sent when someone is personally invited to join FriendPlace.
 
-    Signed by George — the tone is a personal introduction, not a
-    marketing recruitment. Names the person who invited them (if known)
-    so the invitee sees a familiar name before they see a brand.
-
-    Args:
-        first_name:   Recipient's first name.
-        inviter_name: Who invited them. If omitted, the letter falls
-                      back to a generic "a member of FriendPlace".
-        accept_url:   Signed link that opens their invitation flow.
-        expiry_days:  How long the link stays valid. Displayed to the
-                      recipient so there's no urgency panic.
+    Signed by the visitor's chosen companion. The tone is a personal
+    introduction, not a marketing recruitment. Names the person who
+    invited them (if known) so the invitee sees a familiar name before
+    they see a brand.
     """
     from html import escape as _esc
     name = (first_name or "there").strip()
     inviter = (inviter_name or "").strip()
-    subject = f"An invitation to FriendPlace"
-    preheader = (
+    display = "Georgia" if str(companion).lower() == "georgia" else "George"
+    subject = subject_override or "An invitation to FriendPlace"
+    default_preheader = (
         f"{inviter} would like you to join them at FriendPlace."
         if inviter else
         "Someone would like you to join them at FriendPlace."
     )
+    preheader = preheader_override or default_preheader
 
     inviter_line = (
-        f"<p style=\"margin:0 0 20px 0;\"><strong style=\"color:#0A2540;\">{_esc(inviter)}</strong> thought you&rsquo;d feel at home here — and asked me to send you a personal invitation to join us at FriendPlace.</p>"
+        f"<p style=\"margin:0 0 20px 0;\"><strong style=\"color:#0A2540;\">{_esc(inviter)}</strong> thought you&rsquo;d feel at home here &mdash; and asked me to send you a personal invitation to join us at FriendPlace.</p>"
         if inviter else
         "<p style=\"margin:0 0 20px 0;\">A member of FriendPlace thought you&rsquo;d feel at home here, and asked me to send you a personal invitation to join us.</p>"
     )
@@ -1354,12 +1400,12 @@ def invitation_template(
         _letter_body_open()
         + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
         + inviter_line
-        + "<p style=\"margin:0 0 20px 0;\">FriendPlace is a quiet, kind space for finding people to share the small and lovely bits of life with — a coffee, a walk, an event that would be nicer with someone next to you. There&rsquo;s no algorithm chasing your attention, no pressure to perform. Just people, being neighbourly.</p>"
+        + "<p style=\"margin:0 0 20px 0;\">FriendPlace is a quiet, kind space for finding people to share the small and lovely bits of life with &mdash; a coffee, a walk, an event that would be nicer with someone next to you. There&rsquo;s no algorithm chasing your attention, no pressure to perform. Just people, being neighbourly.</p>"
         + "<p style=\"margin:0 0 8px 0;\">Whenever you&rsquo;re ready, your invitation is waiting:</p>"
         + _letter_button_html(label="Accept your invitation", url=accept_url)
         + f"<p style=\"margin:20px 0 20px 0;color:#64748B;font-size:14px;\">This invitation is personal to you and stays open for <strong>{int(expiry_days)} days</strong>. If it expires, simply reply to this email and I&rsquo;ll send you a fresh one.</p>"
         + "<p style=\"margin:24px 0 0 0;\">I hope to see you inside.</p>"
-        + _letter_signature_html(signer="george")
+        + _letter_signature_html(signer=companion)
         + _letter_body_close()
     )
     html = _letter_shell(preheader=preheader, body_html=body)
@@ -1379,7 +1425,7 @@ def invitation_template(
         "email and I'll send you a fresh one.\n\n"
         "I hope to see you inside.\n\n"
         "Warmly,\n"
-        "George\n"
+        f"{display}\n"
         "Your friend at FriendPlace"
         + _letter_footer_text()
     )

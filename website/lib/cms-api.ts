@@ -601,3 +601,70 @@ export type EventSubmissionRow = {
   created_at: string;
   updated_at: string;
 };
+
+
+// ─────────────────────────────────────────────────────────────────────────
+// Email template preview / test-send
+// ─────────────────────────────────────────────────────────────────────────
+//
+// The CMS "Emails" panel uses these to render each transactional email
+// in the browser (subject, preheader, desktop iframe, mobile iframe,
+// light/dark mode preview) and one-click send a `[TEST]` copy to the
+// configured recipient (defaults to hello@friendplace.com.au).
+
+export type EmailTemplateMeta = {
+  name: string;
+  label: string;
+  category: 'personal' | 'operational';
+  signer: 'companion' | 'team';
+  description: string;
+  default_subject: string;
+  default_preheader: string;
+  html_url: string;
+  render_url: string;
+  send_url: string;
+};
+
+export type EmailPreviewList = {
+  recipient: string;
+  resend_configured: boolean;
+  templates: EmailTemplateMeta[];
+};
+
+export type EmailRenderRequest = {
+  companion?: 'george' | 'georgia';
+  subject?: string;
+  preheader?: string;
+};
+
+export type EmailRenderResponse = {
+  name: string;
+  subject: string;
+  preheader: string;
+  html: string;
+  text: string;
+  companion: string;
+};
+
+export type EmailSendResponse = {
+  ok: boolean;
+  sent: boolean;
+  reason?: string;
+  recipient: string;
+  subject: string;
+};
+
+export const emailPreviewsApi = {
+  list: () => req<EmailPreviewList>('GET', '/cms/email-previews'),
+  render: (name: string, body: EmailRenderRequest) =>
+    req<EmailRenderResponse>('POST', `/cms/email-previews/${name}/render`, body),
+  send: (name: string, body: EmailRenderRequest) =>
+    req<EmailSendResponse>('POST', `/cms/email-previews/${name}/send`, body),
+  sendAll: () => req<{
+    ok: boolean;
+    sent: number;
+    recipient: string;
+    reason?: string;
+    results: Array<{ name: string; sent: boolean; subject: string }>;
+  }>('POST', '/cms/email-previews/send-all'),
+};

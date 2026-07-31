@@ -657,42 +657,88 @@ def build_router(db) -> APIRouter:
     # ============================================================
     # Lets a signed-in CMS admin render each transactional email in a
     # normal browser tab (so we can iterate on copy without spamming a
-    # real inbox), and one-click send them to `EMAIL_PREVIEW_RECIPIENT`
-    # (default: hello@friendplace.com.au) for a final QA in a real
-    # mail client. The HTML endpoint accepts the CMS admin JWT via
-    # either the Authorization header OR a `?token=<jwt>` query param
-    # — the query variant is needed because browsers can't attach
-    # headers to plain link clicks.
+    # real inbox), edit the subject and preheader inline, flip between
+    # George and Georgia on personal emails, and one-click send a
+    # `[TEST]` copy to `EMAIL_PREVIEW_RECIPIENT` (default:
+    # hello@friendplace.com.au) for a final QA in a real mail client.
+    #
+    # The HTML endpoint accepts the CMS admin JWT via either the
+    # Authorization header OR a `?token=<jwt>` query param — the query
+    # variant is needed because iframes and plain link clicks can't
+    # attach headers. Same-origin admins are still guarded.
 
     from fastapi.responses import HTMLResponse as _HTMLResponse  # noqa: WPS433
 
     _EMAIL_PREVIEW_TEMPLATES = [
-        {"name": "welcome",        "label": "Welcome",         "signer": "George"},
-        {"name": "waitlist",       "label": "Waitlist thanks", "signer": "George"},
-        {"name": "invitation",     "label": "Invitation",      "signer": "George"},
-        {"name": "password_reset", "label": "Password reset",  "signer": "FriendPlace Team"},
-        {"name": "support_ack",    "label": "Support ack",     "signer": "FriendPlace Team"},
+        {
+            "name":        "welcome",
+            "label":       "Welcome",
+            "category":    "personal",
+            "signer":      "companion",       # George or Georgia
+            "description": "Sent the first time an account is created and confirmed.",
+        },
+        {
+            "name":        "waitlist",
+            "label":       "Waitlist thanks",
+            "category":    "personal",
+            "signer":      "companion",
+            "description": "Sent when someone joins the pre-launch waitlist.",
+        },
+        {
+            "name":        "invitation",
+            "label":       "Invitation",
+            "category":    "personal",
+            "signer":      "companion",
+            "description": "Sent when someone is personally invited to FriendPlace.",
+        },
+        {
+            "name":        "password_reset",
+            "label":       "Password reset",
+            "category":    "operational",
+            "signer":      "team",
+            "description": "Security email with the six-digit reset code.",
+        },
+        {
+            "name":        "support_ack",
+            "label":       "Support ack",
+            "category":    "operational",
+            "signer":      "team",
+            "description": "Acknowledgement sent when a support ticket is created.",
+        },
     ]
+
+    def _preview_meta(name: str) -> dict:
+        """Return the metadata row for the named template, or 404."""
+        for row in _EMAIL_PREVIEW_TEMPLATES:
+            if row["name"] == name:
+                return row
+        raise HTTPException(404, f"Unknown email template: {name}")
 
     def _preview_recipient() -> str:
         """Where 'send test' previews go. Env-overridable so we can
         redirect QA emails to a staging inbox later without a redeploy."""
         return (os.getenv("EMAIL_PREVIEW_RECIPIENT") or "hello@friendplace.com.au").strip()
 
-    def _preview_sample(name: str) -> dict:
+    def _preview_sample(name: str, companion: str = "george") -> dict:
         """Sample data used for every preview render. Kept in ONE place
         so the list, HTML view, and 'send test' all produce identical
-        content — makes the review loop deterministic."""
+        content — makes the review loop deterministic. Personal
+        templates accept a companion flip (george → georgia)."""
         if name == "welcome":
-            return dict(first_name="Sarah", action_url="https://www.friendplace.com.au")
+            return dict(
+                first_name="Sarah",
+                action_url="https://www.friendplace.com.au",
+                companion=companion,
+            )
         if name == "waitlist":
-            return dict(first_name="Sarah", position=42)
+            return dict(first_name="Sarah", position=42, companion=companion)
         if name == "invitation":
             return dict(
                 first_name="Sarah",
                 inviter_name="Michael Chen",
                 accept_url="https://www.friendplace.com.au/invite/preview-abc123",
                 expiry_days=14,
+                companion=companion,
             )
         if name == "password_reset":
             return dict(first_name="Sarah", code="493721", ttl_minutes=15)
@@ -705,8 +751,18 @@ def build_router(db) -> APIRouter:
             )
         raise HTTPException(404, f"Unknown email template: {name}")
 
-    def _preview_render(name: str) -> tuple[str, str, str]:
-        """Return (subject, html, text) for the named template with sample data."""
+    def _preview_render(
+        name: str,
+        *,
+        companion: str = "george",
+        subject_override: Optional[str] = None,
+        preheader_override: Optional[str] = None,
+    ) -> tuple[str, str, str]:
+        """Return (subject, html, text) for the named template with sample
+        data + optional overrides (subject, preheader, companion). All
+        overrides thread through the same `*_override` kwargs the
+        templates accept, so the rendered output is byte-identical to
+        what a real send would produce."""
         from email_service import (  # noqa: WPS433
             welcome_template,
             waitlist_template,
@@ -714,7 +770,13 @@ def build_router(db) -> APIRouter:
             password_reset_template,
             support_acknowledgement_template,
         )
-        kwargs = _preview_sample(name)
+        kwargs = _preview_sample(name, companion=companion)
+        # Only pass overrides that are actually set — passing None
+        # explicitly would fight the templates' internal defaults.
+        if subject_override is not None:
+            kwargs["subject_override"] = subject_override
+        if preheader_override is not None:
+            kwargs["preheader_override"] = preheader_override
         if name == "welcome":
             return welcome_template(**kwargs)
         if name == "waitlist":
@@ -722,10 +784,31 @@ def build_router(db) -> APIRouter:
         if name == "invitation":
             return invitation_template(**kwargs)
         if name == "password_reset":
+            # Operational template — companion doesn't apply.
+            kwargs.pop("companion", None)
             return password_reset_template(**kwargs)
         if name == "support_ack":
+            kwargs.pop("companion", None)
             return support_acknowledgement_template(**kwargs)
         raise HTTPException(404, f"Unknown email template: {name}")
+
+    def _extract_preheader(html: str) -> str:
+        """Pull the hidden inbox-preview line out of a rendered letter.
+
+        Every letter-shell renders the preheader inside a
+        `display:none` div right at the top of `<body>`. Rather than
+        expose it as a return value from every template, we just
+        parse it back out for the CMS panel — one place to change if
+        the shell layout ever changes.
+        """
+        import re
+        m = re.search(
+            r'<div[^>]*display:none[^>]*>\s*([\s\S]*?)\s*</div>',
+            html,
+        )
+        if not m:
+            return ""
+        return re.sub(r'\s+', ' ', m.group(1)).strip()
 
     async def _admin_from_query_or_header(
         request: Request,
@@ -733,7 +816,7 @@ def build_router(db) -> APIRouter:
     ) -> Dict[str, Any]:
         """Same guarantees as `current_cms_admin`, but also accepts the
         JWT via `?token=<jwt>` so an admin can paste a link into a new
-        browser tab and view the rendered HTML directly."""
+        browser tab (or embed an iframe) and view the rendered HTML."""
         tok = token or ""
         if not tok:
             auth = request.headers.get("authorization", "")
@@ -751,20 +834,27 @@ def build_router(db) -> APIRouter:
 
     @router.get("/email-previews")
     async def list_email_previews(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
-        """List the transactional email templates available for preview.
-        Response is enough for the /admin UI to render a preview panel."""
+        """List the transactional email templates available for preview,
+        along with the default subject + preheader for each so the CMS
+        panel can render editable fields at first paint (no second
+        round-trip)."""
         from email_service import is_configured as _resend_ready  # noqa: WPS433
+        items: list[dict] = []
+        for meta in _EMAIL_PREVIEW_TEMPLATES:
+            subject, html, _text = _preview_render(meta["name"])
+            preheader = _extract_preheader(html)
+            items.append({
+                **meta,
+                "default_subject":   subject,
+                "default_preheader": preheader,
+                "html_url":          f"/api/cms/email-previews/{meta['name']}.html",
+                "render_url":        f"/api/cms/email-previews/{meta['name']}/render",
+                "send_url":          f"/api/cms/email-previews/{meta['name']}/send",
+            })
         return {
-            "recipient": _preview_recipient(),
+            "recipient":         _preview_recipient(),
             "resend_configured": _resend_ready(),
-            "templates": [
-                {
-                    **t,
-                    "html_url": f"/api/cms/email-previews/{t['name']}.html",
-                    "send_url": f"/api/cms/email-previews/{t['name']}/send",
-                }
-                for t in _EMAIL_PREVIEW_TEMPLATES
-            ],
+            "templates":         items,
         }
 
     @router.get("/email-previews/{name}.html", response_class=_HTMLResponse)
@@ -772,50 +862,114 @@ def build_router(db) -> APIRouter:
         name: str,
         request: Request,
         token: Optional[str] = None,
+        companion: str = "george",
+        subject: Optional[str] = None,
+        preheader: Optional[str] = None,
     ):
-        """Render one template as a full HTML page (browser-viewable).
-        Auth via `?token=<jwt>` or `Authorization: Bearer <jwt>`."""
+        """Render one template as a full HTML page (browser-viewable +
+        iframe-safe). All render knobs are query params so the CMS
+        panel can iframe with `?companion=georgia&subject=...&preheader=...`
+        and re-render instantly on edit.
+
+        Auth: `?token=<jwt>` or `Authorization: Bearer <jwt>`.
+        """
         await _admin_from_query_or_header(request, token)
-        _subject, html, _text = _preview_render(name)
+        _subject, html, _text = _preview_render(
+            name,
+            companion=companion or "george",
+            subject_override=subject,
+            preheader_override=preheader,
+        )
         return _HTMLResponse(content=html, status_code=200)
+
+    @router.post("/email-previews/{name}/render")
+    async def email_preview_render(
+        name: str,
+        payload: Dict[str, Any] = None,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Return the fully-rendered subject / preheader / html / text
+        for the named template with the caller's overrides applied.
+        Used by the CMS panel to run its 'responsive validation'
+        checks (subject/preheader length, presence of key elements)
+        before enabling the Send Test button.
+        """
+        p = payload or {}
+        companion = str(p.get("companion") or "george")
+        subject_override = p.get("subject")
+        preheader_override = p.get("preheader")
+        subject, html, text = _preview_render(
+            name,
+            companion=companion,
+            subject_override=(subject_override.strip() if isinstance(subject_override, str) and subject_override.strip() else None),
+            preheader_override=(preheader_override.strip() if isinstance(preheader_override, str) and preheader_override.strip() else None),
+        )
+        preheader_out = _extract_preheader(html)
+        return {
+            "name":         name,
+            "subject":      subject,
+            "preheader":    preheader_out,
+            "html":         html,
+            "text":         text,
+            "companion":    companion,
+        }
 
     @router.post("/email-previews/{name}/send")
     async def email_preview_send(
         name: str,
+        payload: Dict[str, Any] = None,
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
-        """Send one rendered template to `EMAIL_PREVIEW_RECIPIENT`
-        via Resend. Response is diagnostic (never raises)."""
+        """Send the rendered template to `EMAIL_PREVIEW_RECIPIENT`
+        via Resend, applying the caller's overrides. Every preview
+        message is prefixed with `[TEST]` in the subject so nobody
+        confuses it with the real thing landing in the same inbox.
+
+        Response is diagnostic — never raises. If Resend isn't
+        configured we return {ok:false, reason:"..."} so the CMS
+        panel can surface a helpful message instead of a stack trace.
+        """
         from email_service import (  # noqa: WPS433
             is_configured as _resend_ready,
             send_email,
         )
-        subject, html, text = _preview_render(name)
+        p = payload or {}
+        companion = str(p.get("companion") or "george")
+        subject_override = p.get("subject")
+        preheader_override = p.get("preheader")
+        subject, html, text = _preview_render(
+            name,
+            companion=companion,
+            subject_override=(subject_override.strip() if isinstance(subject_override, str) and subject_override.strip() else None),
+            preheader_override=(preheader_override.strip() if isinstance(preheader_override, str) and preheader_override.strip() else None),
+        )
         to_addr = _preview_recipient()
         if not _resend_ready():
             return {
-                "ok": False,
-                "sent": False,
-                "reason": "RESEND_API_KEY not configured on backend",
-                "recipient": to_addr,
+                "ok":         False,
+                "sent":       False,
+                "reason":     "RESEND_API_KEY not configured on backend",
+                "recipient":  to_addr,
+                "subject":    f"[TEST] {subject}",
             }
         ok = await send_email(
             to=to_addr,
-            subject=f"[PREVIEW] {subject}",
+            subject=f"[TEST] {subject}",
             html=html,
             text=text,
         )
         return {
-            "ok": ok,
-            "sent": ok,
-            "recipient": to_addr,
-            "subject": subject,
+            "ok":         ok,
+            "sent":       ok,
+            "recipient":  to_addr,
+            "subject":    f"[TEST] {subject}",
         }
 
     @router.post("/email-previews/send-all")
     async def email_preview_send_all(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
-        """One-click: send every preview template to the configured
-        recipient in a single request. Handy for full-suite review."""
+        """One-click: send every preview template (defaults, no
+        overrides) to the configured recipient. Handy for full-suite
+        review after a design change."""
         from email_service import (  # noqa: WPS433
             is_configured as _resend_ready,
             send_email,
@@ -823,9 +977,9 @@ def build_router(db) -> APIRouter:
         to_addr = _preview_recipient()
         if not _resend_ready():
             return {
-                "ok": False,
-                "sent": 0,
-                "reason": "RESEND_API_KEY not configured on backend",
+                "ok":        False,
+                "sent":      0,
+                "reason":    "RESEND_API_KEY not configured on backend",
                 "recipient": to_addr,
             }
         results: list[dict] = []
@@ -833,16 +987,16 @@ def build_router(db) -> APIRouter:
             subject, html, text = _preview_render(tpl["name"])
             ok = await send_email(
                 to=to_addr,
-                subject=f"[PREVIEW] {subject}",
+                subject=f"[TEST] {subject}",
                 html=html,
                 text=text,
             )
             results.append({"name": tpl["name"], "sent": ok, "subject": subject})
         return {
-            "ok": all(r["sent"] for r in results),
-            "sent": sum(1 for r in results if r["sent"]),
+            "ok":        all(r["sent"] for r in results),
+            "sent":      sum(1 for r in results if r["sent"]),
             "recipient": to_addr,
-            "results": results,
+            "results":   results,
         }
 
 
