@@ -8429,7 +8429,24 @@ async def get_featured_moment(viewer_id: Optional[str] = None):
     # but this is a defensive gate.
     if not await _viewer_can_see_moment(m, viewer_id):
         return {"moment": None}
-    return {"moment": _moment_shape(m, viewer_id)}
+    # If a featured moment ever accrues many comments (e.g. 100+),
+    # `_moment_shape` still only returns `comments_count`, but we
+    # avoid shipping the full comments array to the client here —
+    # the Home banner only needs the summary. The detail endpoint
+    # is the place to fetch full comments.
+    m.pop("comments", None)
+    return {"moment": _moment_shape(m, viewer_id) | {"comments_count": await _count_comments(m["id"])}}
+
+
+async def _count_comments(moment_id: str) -> int:
+    """Small helper that returns the comment count for a moment using
+    `$size` — used by the featured endpoint after we drop the comments
+    array from the payload to keep it lightweight."""
+    doc = await db.moments.find_one(
+        {"id": moment_id},
+        {"_id": 0, "comments_count": {"$size": {"$ifNull": ["$comments", []]}}},
+    )
+    return int((doc or {}).get("comments_count") or 0)
 
 
 @api.get("/moments/{moment_id}")
