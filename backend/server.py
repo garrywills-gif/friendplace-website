@@ -10488,7 +10488,7 @@ _RESERVED_FOUNDERS: list[dict] = [
         "status":         "joined",
         "source":         "reserved",
         "is_reserved":    True,
-        "admin_notes":    "Founding Member #0001 — permanent reserved slot. Number locked; row editable.",
+        "admin_notes":    "Founding Member #0001 — Founding Member number permanently reserved. Other details remain editable.",
     },
     {
         "founder_number": 2,
@@ -10500,7 +10500,7 @@ _RESERVED_FOUNDERS: list[dict] = [
         "status":         "joined",
         "source":         "reserved",
         "is_reserved":    True,
-        "admin_notes":    "Founding Member #0002 — permanent reserved slot for the George AI companion. Number locked; row editable.",
+        "admin_notes":    "Founding Member #0002 — Founding Member number permanently reserved. Other details remain editable.",
     },
 ]
 

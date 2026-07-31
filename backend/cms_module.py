@@ -843,7 +843,13 @@ def build_router(db) -> APIRouter:
                 query["$and"] = [{"$or": existing_or}, {"$or": search_or}]
             else:
                 query["$or"] = search_or
-        rows = await db.interest_registrations.find(query, {"_id": 0}).sort("created_at", -1).to_list(lim)
+        # Sort by founder_number ASC — #0001 first, then #0002, etc.
+        # This tells the story of FriendPlace's history from the
+        # beginning. Rows without a founder_number (shouldn't happen
+        # post-backfill, but defensive) fall to the end.
+        rows = await db.interest_registrations.find(query, {"_id": 0}).sort(
+            [("founder_number", 1), ("created_at", 1)]
+        ).to_list(lim)
         rows = [_normalise_fm_row(r) for r in rows]
         return {"count": len(rows), "rows": rows}
 
