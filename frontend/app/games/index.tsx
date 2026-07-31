@@ -48,7 +48,7 @@ const GAMES: GameTile[] = [
   { key: "memory",     title: "Memory Match",       sub: "12 themes · 4 levels",        icon: "square",       tint: "#0891B2", route: "/games/memory",     ready: true, schedule: "weekly" },
 ];
 
-const INSTRUCTIONS = "Welcome to the Games Hub. Solitaire is your signature game — play any time. Complete daily challenges to keep your streak alive. Bingo runs live on Tuesday, Thursday and Sunday at six PM. Every game earns Butterfly Points.";
+const INSTRUCTIONS = "Welcome to the Games Hub. Solitaire is your signature game — play any time. Daily challenges give a little Butterfly Points bonus if you'd like one. Bingo runs live on Tuesday, Thursday and Sunday at six PM. Every game earns Butterfly Points.";
 
 function ScheduleChip({ sched, tint }: { sched: Schedule | undefined; tint: string }) {
   if (!sched) return null;
@@ -102,15 +102,17 @@ export default function GamesHub() {
         // enough — the fresh point total shows next time the page
         // refetches (pull-to-refresh, tab switch, etc).
         const pts = r.points_awarded ?? bonus?.points ?? 5;
+        // Warm, guilt-free toasts (locked with Garry, 31 July 2026 —
+        // "No guilt. Ever."). Never mentions runs to protect, streaks
+        // to keep alive, or coming back tomorrow. Just celebrates
+        // what happened today.
         if (r.badge_earned) {
-          show(`+${pts} Butterfly Points · Daily Devotee badge unlocked! 🏆`);
-        } else if (r.streak_days >= 2) {
-          show(`+${pts} Butterfly Points · Day ${r.streak_days} streak 🦋`);
+          show(`+${pts} Butterfly Points 🦋 Lovely to see you today.`);
         } else {
-          show(`+${pts} Butterfly Points 🦋 Come back tomorrow to build your streak!`);
+          show(`+${pts} Butterfly Points 🦋 Lovely to see you today.`);
         }
       } else {
-        show("Already claimed today — come back tomorrow!");
+        show("Today's bonus is all done — enjoy the games any time.");
       }
     } catch { show("Couldn't claim right now — please try again."); }
     finally { setClaiming(false); }
@@ -148,30 +150,24 @@ export default function GamesHub() {
           <Ionicons name="chevron-forward" size={24} color="#FFFFFF" />
         </Pressable>
 
-        {/* Daily Butterfly Bonus banner — encourages a daily return
-            without being pushy. Different states:
-              • Available today → gold gradient + "Claim" button
-              • Already claimed → soft chip showing "Day X of 7 streak"
-              • Streak ≥ 7 → celebration variant with Daily Devotee badge nod */}
+        {/* Daily Butterfly Bonus banner — a small "if you'd like a
+            little bonus today" invitation. Locked with Garry, 31 July
+            2026 (No guilt. Ever.): the "already claimed" state
+            celebrates today's visit — never references streaks, runs,
+            or how many days in a row. Total-days-played remains an
+            internal number the server tracks; the UI simply says
+            "Lovely to see you today." */}
         {bonus && (
           bonus.claimed_today ? (
             <View testID="daily-bonus-claimed" style={[styles.bonusChip, { backgroundColor: c.brandTertiary, borderColor: c.brand, marginTop: 12 }]}>
               <Text style={{ fontSize: 22 }}>🦋</Text>
               <View style={{ flex: 1, marginLeft: 10 }}>
                 <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 15 * scale }}>
-                  Today&apos;s bonus claimed
+                  Today&apos;s bonus is yours
                 </Text>
                 <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>
-                  {bonus.streak_days >= (bonus.streak_target || 7)
-                    ? `Day ${bonus.streak_days} · Daily Devotee 🏆`
-                    : `Day ${bonus.streak_days} of ${bonus.streak_target || 7} · streak building 🔥`}
+                  Lovely to see you today. Enjoy the games any time.
                 </Text>
-              </View>
-              {/* Small streak dots */}
-              <View style={{ flexDirection: "row", gap: 3 }}>
-                {Array.from({ length: bonus.streak_target || 7 }).map((_, i) => (
-                  <View key={i} style={[styles.streakDot, { backgroundColor: i < (bonus.streak_days % ((bonus.streak_target || 7) + 1)) ? c.brand : c.border }]} />
-                ))}
               </View>
             </View>
           ) : (
@@ -209,16 +205,15 @@ export default function GamesHub() {
           </Text>
         </View>
 
-        {/* Streak + total + achievements */}
+        {/* Stats card — cumulative "games done" celebrates lifetime
+            play. Removed the "Day streak" tile (locked with Garry,
+            31 July 2026 — no run-to-protect metrics). Achievements
+            stay because they celebrate what's already happened. */}
         <View style={[styles.statsCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
           <View style={{ flexDirection: "row", gap: 12 }}>
             <View style={styles.statBox}>
-              <Text style={{ color: c.brand, fontWeight: "900", fontSize: 24 * scale }}>{stats?.streak ?? 0}</Text>
-              <Text style={{ color: c.muted, fontSize: 12 * scale }}>Day streak</Text>
-            </View>
-            <View style={styles.statBox}>
               <Text style={{ color: c.brand, fontWeight: "900", fontSize: 24 * scale }}>{stats?.total_completed ?? 0}</Text>
-              <Text style={{ color: c.muted, fontSize: 12 * scale }}>Games done</Text>
+              <Text style={{ color: c.muted, fontSize: 12 * scale }}>Games enjoyed</Text>
             </View>
             <View style={styles.statBox}>
               <Text style={{ color: c.brand, fontWeight: "900", fontSize: 24 * scale }}>{stats?.achievements?.length ?? 0}</Text>

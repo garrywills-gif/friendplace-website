@@ -1,5 +1,6 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -52,6 +53,37 @@ export default function Profile() {
   // yet (card stays hidden so it doesn't flash in and out).
   const [founderCap, setFounderCap] = useState<number | null>(null);
   const [founderRemaining, setFounderRemaining] = useState<number | null>(null);
+
+  // "No guilt. Ever." — the gentle profile invitation.
+  // We stopped showing the old "Complete your profile" card as a
+  // permanent nag with a checklist of missing fields. Now it's a
+  // single soft one-liner that quietly disappears forever after the
+  // member has dismissed it twice. Members can always add a photo /
+  // suburb / bio from the Edit Profile screen whenever they're ready.
+  // Storage key is namespaced per user so a shared device doesn't
+  // hide the invite from a second member.
+  const inviteStorageKey = user?.id ? `profile_gentle_invite_dismisses_v1:${user.id}` : null;
+  const [inviteDismisses, setInviteDismisses] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!inviteStorageKey) return;
+      try {
+        const raw = await AsyncStorage.getItem(inviteStorageKey);
+        const n = raw ? parseInt(raw, 10) : 0;
+        if (!cancelled) setInviteDismisses(Number.isFinite(n) ? n : 0);
+      } catch {
+        if (!cancelled) setInviteDismisses(0);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [inviteStorageKey]);
+  async function dismissGentleInvite() {
+    if (!inviteStorageKey) return;
+    const next = (inviteDismisses || 0) + 1;
+    setInviteDismisses(next);
+    try { await AsyncStorage.setItem(inviteStorageKey, String(next)); } catch {}
+  }
 
   useFocusEffect(useCallback(() => {
     // Focus effect is intentionally lightweight — we skip the network
@@ -182,58 +214,68 @@ export default function Profile() {
         </Pressable>
       )}
 
-      {/* Complete Your Profile prompt — visible whenever the user is
-          missing quick-signup fields (suburb, avatar, bio, interests).
-          Suburb/avatar/groups were deliberately removed from onboarding
-          to let people start using the app in under a minute, so this
-          nudge is where those pieces get filled in later on. */}
+      {/* Gentle profile invitation — "No guilt. Ever." principle.
+          Instead of nagging with a checklist of missing fields, we
+          show a single soft one-liner when a member could still add
+          a bit more to their profile. It stays warm ("whenever you're
+          ready"), it's dismissible, and after two dismissals it
+          quietly disappears forever. Members can always visit Edit
+          Profile from the actions above.
+
+          Copy is chosen based on the most visible thing missing so
+          the invitation feels personal (photo first, then suburb,
+          then bio, then interests). If none of those are missing,
+          the card renders nothing. */}
       {(() => {
-        const missing: { label: string; icon: string }[] = [];
+        // Wait for the dismissal counter to hydrate — avoids flashing
+        // the card and then hiding it a tick later.
+        if (inviteDismisses === null) return null;
+        if (inviteDismisses >= 2) return null;
+
         const av = (user as any).avatar || "";
-        // Default emoji from signup ("🧑") counts as "not yet set" — we
-        // want people to pick a face that feels like them.
-        if (!av || av === "🧑") missing.push({ label: "Choose your avatar", icon: "person-circle" });
-        if (!(user as any).suburb) missing.push({ label: "Add your suburb", icon: "location" });
-        if (!(user as any).bio) missing.push({ label: "Write a short bio", icon: "chatbubble-ellipses" });
-        if (!(user as any).interests || (user as any).interests.length === 0) {
-          missing.push({ label: "Pick some interests", icon: "heart" });
-        }
-        if (missing.length === 0) return null;
+        // Treat blank / default emoji as "no photo yet".
+        const missingAvatar = !av || av === "🧑";
+        const missingSuburb = !(user as any).suburb;
+        const missingBio = !(user as any).bio;
+        const missingInterests = !(user as any).interests || (user as any).interests.length === 0;
+        if (!missingAvatar && !missingSuburb && !missingBio && !missingInterests) return null;
+
+        let message = "Add a profile photo whenever you're ready.";
+        if (!missingAvatar && missingSuburb) message = "Share your suburb whenever you're ready.";
+        else if (!missingAvatar && !missingSuburb && missingBio) message = "Add a short bio whenever you're ready.";
+        else if (!missingAvatar && !missingSuburb && !missingBio && missingInterests) message = "Add a few interests whenever you're ready.";
+
         return (
-          <Pressable
+          <View
             testID="profile-complete-card"
-            onPress={() => router.push("/edit-profile" as any)}
-            accessibilityLabel="Complete your profile"
-            style={({ pressed }) => [
-              styles.completeCard,
-              {
-                backgroundColor: c.brandTertiary,
-                borderColor: c.brand,
-                opacity: pressed ? 0.9 : 1,
-              },
-            ]}
+            style={[styles.gentleInvite, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
           >
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <Text style={{ fontSize: 26 }}>✨</Text>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>
-                  Complete your profile
-                </Text>
-                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2, lineHeight: 18 }}>
-                  Add a few details so your neighbours can get to know you.
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={22} color={c.muted} />
-            </View>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-              {missing.slice(0, 4).map((m) => (
-                <View key={m.label} style={[styles.missingChip, { backgroundColor: c.surface, borderColor: c.border }]}>
-                  <Ionicons name={m.icon as any} size={13} color={c.brand} />
-                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 12 * scale }}>{m.label}</Text>
-                </View>
-              ))}
-            </View>
-          </Pressable>
+            <Pressable
+              onPress={() => router.push("/edit-profile" as any)}
+              accessibilityRole="button"
+              accessibilityLabel={message}
+              style={({ pressed }) => [styles.gentleInviteMain, { opacity: pressed ? 0.7 : 1 }]}
+              hitSlop={8}
+            >
+              <Text style={{ fontSize: 18 }}>✨</Text>
+              <Text
+                style={{ color: c.onSurface, flex: 1, fontSize: 14 * scale, lineHeight: 20 }}
+                numberOfLines={2}
+              >
+                {message}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={dismissGentleInvite}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss"
+              hitSlop={10}
+              style={({ pressed }) => [styles.gentleInviteClose, { opacity: pressed ? 0.5 : 0.7 }]}
+              testID="profile-complete-dismiss"
+            >
+              <Ionicons name="close" size={18} color={c.muted} />
+            </Pressable>
+          </View>
         );
       })()}
 
@@ -564,6 +606,30 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
+  },
+  gentleInvite: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingLeft: 14,
+    paddingRight: 6,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  gentleInviteMain: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minWidth: 0,
+  },
+  gentleInviteClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
   missingChip: {
     flexDirection: "row",

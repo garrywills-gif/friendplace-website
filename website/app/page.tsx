@@ -326,9 +326,12 @@ export default async function HomePage() {
           </div>
 
           {/* Three mock Moment cards — real photos, first-person captions,
-              gentle likes/comments counts. This is deliberately laid out
-              to mirror the actual app so a prospective member sees
-              exactly what Share a Moment looks like on their phone. */}
+              no engagement counts. This is deliberately laid out to
+              mirror the app but keeps the visitor's eye on the story
+              itself, not on how many likes a moment has picked up.
+              (Guardrail from Garry, 26 June 2026: "these are showcase
+              cards, not a live feed — like/comment counts subtly
+              shift focus towards popularity.") */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
@@ -359,12 +362,7 @@ export default async function HomePage() {
                   aspectRatio: '4 / 3', borderRadius: 12, overflow: 'hidden',
                   backgroundImage: `url(${m.photo})`,
                   backgroundSize: 'cover', backgroundPosition: 'center',
-                  marginBottom: 12,
                 }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, color: '#64748B', fontSize: 13, fontWeight: 700 }}>
-                  <span>❤️ {m.likes}</span>
-                  <span>💬 {m.comments}</span>
-                </div>
               </div>
             ))}
           </div>
@@ -729,8 +727,6 @@ const MOCK_MOMENTS = [
     avatar: '🌺',
     caption: 'Had a lovely coffee with my neighbour this morning. Turns out we both grew up on the same street in Ballarat.',
     photo: 'https://images.unsplash.com/photo-1773504356091-222ee58cfd23?crop=entropy&cs=srgb&fm=jpg&w=800&q=80',
-    likes: 12,
-    comments: 4,
   },
   {
     name: 'David',
@@ -738,8 +734,6 @@ const MOCK_MOMENTS = [
     avatar: '🐶',
     caption: "Charlie discovered the beach today. I don't think he'll ever want to leave.",
     photo: 'https://images.unsplash.com/photo-1689783553640-e8b76148fb22?crop=entropy&cs=srgb&fm=jpg&w=800&q=80',
-    likes: 27,
-    comments: 8,
   },
   {
     name: 'Joyce',
@@ -747,8 +741,6 @@ const MOCK_MOMENTS = [
     avatar: '🌼',
     caption: 'My orchid has finally flowered. Two years of patience, worth every day.',
     photo: 'https://images.unsplash.com/photo-1781785273371-a959f34bfab0?crop=entropy&cs=srgb&fm=jpg&w=800&q=80',
-    likes: 41,
-    comments: 11,
   },
 ];
 
