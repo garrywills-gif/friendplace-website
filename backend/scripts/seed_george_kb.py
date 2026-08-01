@@ -581,6 +581,91 @@ SEED: list[dict] = [
         "sources": [{"label": "/app/backend/services/campaign_anomalies.py"}],
         "visibility": "admin",
     },
+
+    # ── SEGMENTS (CRM Phase 2C) ────────────────────────────────
+    #
+    # These teach George how to answer questions about saved
+    # segments and how to compose ad-hoc audiences.
+    {
+        "id": "KB-FEAT-SEGMENTS-01", "type": "feature",
+        "title": "What is a segment?",
+        "body_md": (
+            "A **segment** is a saved, named group of members \u2014 not "
+            "just a filter, but a group of people we care about. "
+            "Locked with Garry, 1 Aug 2026: *\u201cSegments should feel "
+            "like communities of people, not database queries.\u201d*\n\n"
+            "Every segment has: an emoji, a name, an optional "
+            "description, a filter predicate, and a cached member "
+            "count. Examples of the starter segments already saved:\n\n"
+            "- 🦋 All Founding Members\n"
+            "- 🆕 New Members (last 7 days)\n"
+            "- ✨ Haven\u2019t shared a Moment\n"
+            "- ☕ Coffee Lovers\n"
+            "- 💙 Highly Active Members\n"
+            "- 😴 Haven\u2019t visited recently\n\n"
+            "Use `list_segments` to see them all, `get_segment` for "
+            "a specific one by name, and `preview_segment` to compose "
+            "a brand-new audience on the fly."
+        ),
+        "tags": ["segments", "campaigns", "crm"],
+        "sources": [{"label": "/app/backend/services/segments.py"}],
+        "visibility": "admin",
+    },
+    {
+        "id": "KB-FEAT-SEGMENTS-02", "type": "feature",
+        "title": "Answering \u201chow many are in the X segment?\u201d",
+        "body_md": (
+            "When an admin asks about a specific segment by name "
+            "(\u201chow many gardeners do we have?\u201d, \u201chow big is the "
+            "Coffee Lovers segment?\u201d), call `get_segment` with the "
+            "segment name. It returns the current member count plus "
+            "the description of the predicate.\n\n"
+            "For comparative questions (\u201cwhich segment is biggest?\u201d "
+            "\u201cwhich segment has the most members?\u201d), call "
+            "`list_segments` with `sort_by=count_desc` and report "
+            "the top few."
+        ),
+        "tags": ["segments", "george"],
+        "visibility": "admin",
+    },
+    {
+        "id": "KB-FEAT-SEGMENTS-03", "type": "feature",
+        "title": "Segment predicate DSL \u2014 composing ad-hoc audiences",
+        "body_md": (
+            "When an admin describes a group that isn\u2019t already "
+            "saved (\u201cmembers who joined this month but haven\u2019t "
+            "shared a Moment\u201d), compose a predicate JSON tree and "
+            "pass it to `preview_segment`. The response tells you the "
+            "count + a sample.\n\n"
+            "**Predicate shape**:\n"
+            "```json\n"
+            "{\"op\": \"and\", \"children\": [\n"
+            "  {\"op\": \"filter\", \"id\": \"joined_within\", \"value\": 30},\n"
+            "  {\"op\": \"filter\", \"id\": \"shared_moment\", \"value\": false}\n"
+            "]}\n"
+            "```\n\n"
+            "**Boolean ops**: `and`, `or`, `not`, `nor` (with `children` "
+            "arrays; `not` uses `child`).\n\n"
+            "**Available filter ids** (see the `list_segment_filters` "
+            "catalog for the authoritative list):\n"
+            "- `interest_any`      \u2014 value: list of interest names "
+            "(e.g. `[\"Gardening\"]`)\n"
+            "- `location_suburb`   \u2014 value: suburb name string\n"
+            "- `location_state`    \u2014 value: state code (NSW/VIC/\u2026)\n"
+            "- `active_within`     \u2014 value: days (int)\n"
+            "- `inactive_over`     \u2014 value: days (int)\n"
+            "- `joined_within`     \u2014 value: days (int)\n"
+            "- `founder_only`      \u2014 value: bool\n"
+            "- `founder_status`    \u2014 value: list "
+            "(registered/invited/joined/opted_out)\n"
+            "- `shared_moment`     \u2014 value: bool\n"
+            "- `email_invalid`     \u2014 value: bool\n"
+            "- `restricted`        \u2014 value: bool (excluded by default)"
+        ),
+        "tags": ["segments", "george", "predicate", "architecture"],
+        "sources": [{"label": "/app/backend/services/segments.py"}],
+        "visibility": "admin",
+    },
 ]
 
 

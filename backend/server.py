@@ -10992,6 +10992,16 @@ async def _ensure_webhook_indexes():
     await _campaign_webhooks.ensure_indexes(db)
 
 
+# Segments — CRM Phase 2C. Index setup runs at startup; the endpoints
+# themselves are mounted inside the CMS router.
+from services import segments as _segments  # noqa: E402
+
+
+@app.on_event("startup")
+async def _ensure_segment_indexes():
+    await _segments.ensure_indexes(db)
+
+
 # ───────────────────────────────────────────────────────────────
 # Founding Member Numbers
 # ───────────────────────────────────────────────────────────────

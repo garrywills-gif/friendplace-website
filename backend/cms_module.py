@@ -4552,6 +4552,113 @@ def build_router(db) -> APIRouter:
     # ── Launch Manager ───────────────────────────────────────────────
     from services import launch as _launch
 
+    # ── Segments (CRM Phase 2C) ────────────────────────────────────
+    #
+    # A segment is a saved, named group of members. Predicate-driven
+    # so future filters cost ~10 LOC in services/segments.py to add.
+    # See services/segments.py for architecture notes.
+    from services import segments as _segments
+
+    @router.get("/segments")
+    async def list_segments_ep(
+        include_archived: bool = False,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        rows = await _segments.list_segments(db, include_archived=include_archived)
+        return {"items": rows, "count": len(rows)}
+
+    @router.get("/segments/filters")
+    async def list_segment_filters(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Return the catalog of available filter primitives. Consumed
+        by the segment builder UI to render the filter picker."""
+        return {"filters": _segments.filter_catalog()}
+
+    @router.post("/segments/preview")
+    async def preview_segment_ep(
+        body: dict = Body(...),
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Live audience estimate for an unsaved predicate. Called by
+        the builder UI on every filter change (debounced client-side)."""
+        try:
+            result = await _segments.run_predicate(
+                db, body.get("predicate") or body, limit=6,
+            )
+        except _segments.SegmentError as e:
+            raise HTTPException(400, str(e))
+        return result
+
+    @router.get("/segments/{sid}")
+    async def get_segment_ep(sid: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        seg = await _segments.get_segment(db, sid)
+        if not seg:
+            raise HTTPException(404, "Segment not found")
+        return seg
+
+    @router.post("/segments")
+    async def create_segment_ep(
+        body: dict = Body(...),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        try:
+            saved = await _segments.upsert_segment(
+                db, body, actor_email=admin.get("email"),
+            )
+        except _segments.SegmentError as e:
+            raise HTTPException(400, str(e))
+        await _audit.log_admin_action(
+            db, admin=admin, action="segments.create",
+            metadata={"id": saved.get("id"), "name": saved.get("name")},
+        )
+        return saved
+
+    @router.patch("/segments/{sid}")
+    async def update_segment_ep(
+        sid: str,
+        body: dict = Body(...),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        patch = dict(body or {})
+        patch["id"] = sid
+        try:
+            saved = await _segments.upsert_segment(
+                db, patch, actor_email=admin.get("email"),
+            )
+        except _segments.SegmentError as e:
+            raise HTTPException(400, str(e))
+        await _audit.log_admin_action(
+            db, admin=admin, action="segments.update",
+            metadata={"id": sid},
+        )
+        return saved
+
+    @router.delete("/segments/{sid}")
+    async def delete_segment_ep(
+        sid: str,
+        hard: bool = False,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        ok = await _segments.delete_segment(db, sid, archive=not hard)
+        if not ok:
+            raise HTTPException(404, "Segment not found")
+        await _audit.log_admin_action(
+            db, admin=admin, action="segments.delete" if hard else "segments.archive",
+            metadata={"id": sid},
+        )
+        return {"ok": True}
+
+    @router.post("/segments/{sid}/refresh-count")
+    async def refresh_segment_count_ep(
+        sid: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        seg = await _segments.refresh_count(db, sid)
+        if not seg:
+            raise HTTPException(404, "Segment not found")
+        return seg
+
     @router.get("/settings/launch")
     async def get_launch_settings(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
         settings = await _launch.get_settings(db)

@@ -165,6 +165,9 @@ def _validate_args(name: str, args: dict, spec: dict) -> dict:
         elif typ == "bool":
             if not isinstance(val, bool):
                 raise ToolError(f"{name}: arg '{key}' must be bool")
+        elif typ == "dict":
+            if not isinstance(val, dict):
+                raise ToolError(f"{name}: arg '{key}' must be dict")
         enum = meta.get("enum")
         if enum is not None:
             values = val if isinstance(val, list) else [val]
@@ -788,6 +791,118 @@ async def _list_campaign_non_openers(db: Any, args: dict) -> list[dict]:
         [("delivered_at", 1)]
     ).to_list(limit)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Segment tools \u2014 CRM Phase 2C (Segments)
+# ---------------------------------------------------------------------------
+# Teach George to reason about saved segments. Locked with Garry, 1 Aug 2026:
+# "George, how many people are in the Gardening segment?"
+# "Which segment has grown the most this month?"
+# "Who should receive this campaign?"
+
+@register(
+    "list_segments",
+    "List saved audience segments (with cached member counts). Answers "
+    "\u201cwhat segments do we have?\u201d and \u201cwhich segment has the most "
+    "members?\u201d Returns compact rows: id, name, emoji, count, description.",
+    args={
+        "sort_by": {"type": "str", "required": False,
+                    "enum": {"name", "count_desc", "count_asc", "recent"}},
+        "limit":   {"type": "int", "required": False},
+    },
+    min_role="admin",
+)
+async def _list_segments(db: Any, args: dict) -> list[dict]:
+    from services import segments as _segments
+    rows = await _segments.list_segments(db, include_archived=False)
+    sort_by = args.get("sort_by") or "name"
+    if sort_by == "count_desc":
+        rows.sort(key=lambda r: (r.get("last_count") or 0), reverse=True)
+    elif sort_by == "count_asc":
+        rows.sort(key=lambda r: (r.get("last_count") or 0))
+    elif sort_by == "recent":
+        rows.sort(key=lambda r: r.get("updated_at") or "", reverse=True)
+    else:
+        rows.sort(key=lambda r: (r.get("name") or "").lower())
+    limit = max(1, min(int(args.get("limit") or 20), 50))
+    return [
+        {
+            "id":          r.get("id"),
+            "name":        r.get("name"),
+            "emoji":       r.get("emoji"),
+            "count":       r.get("last_count"),
+            "description": r.get("description"),
+            "summary":     r.get("predicate_summary"),
+            "updated_at":  r.get("updated_at"),
+        }
+        for r in rows[:limit]
+    ]
+
+
+@register(
+    "get_segment",
+    "Get one saved segment by name or id, including its filter definition "
+    "and the current member count. Use to answer questions about a specific "
+    "segment like \u201chow many gardeners do we have?\u201d",
+    args={"name_or_id": {"type": "str", "required": True}},
+    min_role="admin",
+)
+async def _get_segment(db: Any, args: dict) -> dict:
+    from services import segments as _segments
+    key = (args.get("name_or_id") or "").strip()
+    # Try id first, then case-insensitive name match.
+    seg = await _segments.get_segment(db, key)
+    if not seg:
+        # Match by name (case-insensitive).
+        rows = await _segments.list_segments(db, include_archived=False)
+        for r in rows:
+            if (r.get("name") or "").strip().lower() == key.lower():
+                seg = r
+                break
+    if not seg:
+        return {"not_found": True, "query": key}
+    return {
+        "id":          seg.get("id"),
+        "name":        seg.get("name"),
+        "emoji":       seg.get("emoji"),
+        "description": seg.get("description"),
+        "count":       seg.get("last_count"),
+        "summary":     seg.get("predicate_summary"),
+        "updated_at":  seg.get("updated_at"),
+        "predicate":   seg.get("predicate"),
+    }
+
+
+@register(
+    "preview_segment",
+    "Preview an ad-hoc audience segment (before saving it). Accepts a "
+    "predicate JSON tree; returns count + sample. Use when the admin "
+    "describes a group like \u201cmembers who joined this month but haven\u2019t "
+    "shared a Moment\u201d \u2014 you compose the predicate from the filter "
+    "catalog (see the KB entry \u201cSegment predicate DSL\u201d) and preview it.",
+    args={"predicate": {"type": "dict", "required": True}},
+    min_role="admin",
+)
+async def _preview_segment(db: Any, args: dict) -> dict:
+    from services import segments as _segments
+    try:
+        result = await _segments.run_predicate(db, args["predicate"], limit=6)
+    except _segments.SegmentError as e:
+        return {"error": str(e)}
+    return {
+        "count":   result.get("count"),
+        "summary": result.get("summary"),
+        "sample":  [
+            {
+                "first_name": r.get("first_name"),
+                "suburb":     r.get("suburb"),
+                "state":      r.get("suburb_state"),
+                "interests":  r.get("interests"),
+            }
+            for r in result.get("sample") or []
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
