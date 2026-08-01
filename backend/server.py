@@ -10975,6 +10975,22 @@ from services.status.router import build_status_router as _build_status_router  
 from services.status.service import ensure_indexes as _ensure_status_indexes  # noqa: E402
 app.include_router(_build_status_router(db, current_user), prefix="/api")
 
+# Resend webhooks — CRM Phase 2B (Delivery & Engagement).
+# Public endpoint (no JWT). Access controlled by Svix HMAC signature
+# verified against RESEND_WEBHOOK_SECRET. See services/campaign_webhooks.py.
+from services import campaign_webhooks as _campaign_webhooks  # noqa: E402
+app.include_router(_campaign_webhooks.build_router(db), prefix="/api")
+
+
+@app.on_event("startup")
+async def _ensure_webhook_indexes():
+    """Idempotent index setup for the Resend webhook collections.
+
+    Runs once per boot. Safe to call repeatedly — Mongo `createIndex`
+    is a no-op when the index already exists with the same definition.
+    """
+    await _campaign_webhooks.ensure_indexes(db)
+
 
 # ───────────────────────────────────────────────────────────────
 # Founding Member Numbers
