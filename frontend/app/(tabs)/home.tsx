@@ -365,9 +365,125 @@ export default function Home() {
             See `/app/memory/design-morning-welcome.md`. */}
         <DailyWelcomeCard />
 
-        {/* Presence & Status — My Status card. Sits directly under the
-            greeting so it's the first thing members reach when they
-            open the app. Design ref: §5.1 in
+        {/* --- HERO: Share a Moment -------------------------------------
+            Locked with Garry 31 July 2026 as the primary feature of
+            the Home screen, and (Garry, 1 Aug 2026) moved to sit
+            immediately below George's Daily Welcome so the very first
+            action on Home every day is "what's your moment today?".
+            "What's your moment today?" is a signature FriendPlace
+            phrase — every member has moments worth sharing (a coffee,
+            a walk, a flowering orchid, the grandkids), and this hero
+            makes the ask feel warm and everyday, not performative.
+            The whole card taps through to the feed; the inline CTA
+            jumps straight into the composer. */}
+        <View style={styles.momentHero}>
+          <View style={styles.momentHeroInner}>
+            <View style={styles.momentHeroHead}>
+              <Text style={styles.momentHeroBadge}>✨ SHARE A MOMENT</Text>
+              <Ionicons name="camera" size={22} color="#78350F" />
+            </View>
+            <Pressable
+              testID="home-moment-hero-feed"
+              onPress={() => goTo("/moments")}
+              accessibilityLabel="Open Share a Moment"
+              style={{ marginTop: 8 }}
+            >
+              <Text style={[styles.momentHeroTitle, { fontSize: 26 * scale }]}>
+                What&apos;s your moment today?
+              </Text>
+              <Text style={[styles.momentHeroSub, { fontSize: 14 * scale }]}>
+                Share a photo or story about something that made you smile today.
+              </Text>
+            </Pressable>
+
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 14, alignItems: "center" }}>
+              <Pressable
+                testID="home-moment-hero-share"
+                onPress={() => goTo("/moments/new")}
+                accessibilityLabel="Share a Moment"
+                style={({ pressed }) => [
+                  styles.momentHeroCta,
+                  { opacity: pressed ? 0.9 : 1 },
+                ]}
+              >
+                <Ionicons name="add" size={18} color="#FFFFFF" />
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 * scale, marginLeft: 6 }}>
+                  Share a Moment
+                </Text>
+              </Pressable>
+              <Pressable
+                testID="home-moment-hero-see-all"
+                onPress={() => goTo("/moments")}
+                accessibilityLabel="See all moments"
+                style={styles.momentHeroSecondary}
+              >
+                <Text style={{ color: "#78350F", fontWeight: "800", fontSize: 14 * scale }}>See moments</Text>
+                <Ionicons name="chevron-forward" size={16} color="#78350F" />
+              </Pressable>
+            </View>
+          </View>
+        </View>
+
+        {/* Moment of the Week — sits right under the hero as social proof
+            and inspiration: "look what one of your neighbours shared this
+            week". Hidden when no moment is currently featured. */}
+        {featuredMoment ? (
+          <Pressable
+            testID="home-moment-of-the-week"
+            onPress={() => router.push(`/moments/${featuredMoment.id}` as any)}
+            accessibilityLabel={`Moment of the Week by ${featuredMoment.author_name}`}
+            style={({ pressed }) => [
+              styles.momentBanner,
+              { opacity: pressed ? 0.9 : 1 },
+            ]}
+          >
+            <View style={styles.momentBannerHead}>
+              <Text style={styles.momentBannerBadge}>✨ MOMENT OF THE WEEK</Text>
+              <Ionicons name="chevron-forward" size={18} color="#92400E" />
+            </View>
+            {/* MotW subtitle — never "most liked" or "trending" (locked
+                with Garry 31 July 2026). This is a hand-picked
+                celebration, not an algorithmic feed. */}
+            <Text style={{ color: "#78350F", fontSize: 12 * scale, fontWeight: "700", marginTop: 4, opacity: 0.85, fontStyle: "italic" }}>
+              🌟 Chosen by the FriendPlace team because it made us smile.
+            </Text>
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginTop: 10 }}>
+              {featuredMoment.photos && featuredMoment.photos[0] ? (
+                <View style={{ width: 72, height: 72, borderRadius: 14, overflow: "hidden", backgroundColor: "#FEF3C7" }}>
+                  <Image source={{ uri: featuredMoment.photos[0] }} style={{ width: 72, height: 72 }} />
+                </View>
+              ) : (
+                <View style={{ alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: 14, backgroundColor: "#FEF3C7" }}>
+                  <Text style={{ fontSize: 28 }}>🦋</Text>
+                </View>
+              )}
+              <View style={{ flex: 1, minWidth: 0 }}>
+                {/* Author line: their avatar emoji then their display
+                    name — warm, no "Author" label (Garry 31 Jul 2026).
+                    "🌺 Margaret" rather than "Author\nMargaret". */}
+                <Text numberOfLines={1} style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale }}>
+                  {featuredMoment.author_avatar || "🦋"}  {featuredMoment.author_name || "A member"}
+                </Text>
+                <Text numberOfLines={3} style={{ color: "#3C2A06", fontWeight: "600", fontSize: 14 * scale, marginTop: 3, lineHeight: 19 }}>
+                  {featuredMoment.caption || "Shared a moment"}
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 6 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Ionicons name="heart" size={14} color="#B45309" />
+                    <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale }}>{featuredMoment.likes_count || 0}</Text>
+                  </View>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Ionicons name="chatbubble-ellipses" size={14} color="#B45309" />
+                    <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale }}>{featuredMoment.comments_count || 0}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        ) : null}
+
+        {/* Presence & Status — My Status card. Now sits under Share a
+            Moment (Garry, 1 Aug 2026 reorder). Design ref: §5.1 in
             /app/memory/design-presence-and-status.md. */}
         <MyStatusCard />
 
@@ -598,120 +714,6 @@ export default function Home() {
               </View>
             )}
           </View>
-        ) : null}
-
-        {/* --- HERO: Share a Moment -------------------------------------
-            Locked with Garry 31 July 2026 as the primary feature of
-            the Home screen. "What's your moment today?" is a signature
-            FriendPlace phrase — every member has moments worth sharing
-            (a coffee, a walk, a flowering orchid, the grandkids),
-            and this hero makes the ask feel warm and everyday, not
-            performative. The whole card taps through to the feed; the
-            inline CTA jumps straight into the composer. */}
-        <View style={styles.momentHero}>
-          <View style={styles.momentHeroInner}>
-            <View style={styles.momentHeroHead}>
-              <Text style={styles.momentHeroBadge}>✨ SHARE A MOMENT</Text>
-              <Ionicons name="camera" size={22} color="#78350F" />
-            </View>
-            <Pressable
-              testID="home-moment-hero-feed"
-              onPress={() => goTo("/moments")}
-              accessibilityLabel="Open Share a Moment"
-              style={{ marginTop: 8 }}
-            >
-              <Text style={[styles.momentHeroTitle, { fontSize: 26 * scale }]}>
-                What&apos;s your moment today?
-              </Text>
-              <Text style={[styles.momentHeroSub, { fontSize: 14 * scale }]}>
-                Share a photo or story about something that made you smile today.
-              </Text>
-            </Pressable>
-
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 14, alignItems: "center" }}>
-              <Pressable
-                testID="home-moment-hero-share"
-                onPress={() => goTo("/moments/new")}
-                accessibilityLabel="Share a Moment"
-                style={({ pressed }) => [
-                  styles.momentHeroCta,
-                  { opacity: pressed ? 0.9 : 1 },
-                ]}
-              >
-                <Ionicons name="add" size={18} color="#FFFFFF" />
-                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 * scale, marginLeft: 6 }}>
-                  Share a Moment
-                </Text>
-              </Pressable>
-              <Pressable
-                testID="home-moment-hero-see-all"
-                onPress={() => goTo("/moments")}
-                accessibilityLabel="See all moments"
-                style={styles.momentHeroSecondary}
-              >
-                <Text style={{ color: "#78350F", fontWeight: "800", fontSize: 14 * scale }}>See moments</Text>
-                <Ionicons name="chevron-forward" size={16} color="#78350F" />
-              </Pressable>
-            </View>
-          </View>
-        </View>
-
-        {/* Moment of the Week — sits right under the hero as social proof
-            and inspiration: "look what one of your neighbours shared this
-            week". Hidden when no moment is currently featured. */}
-        {featuredMoment ? (
-          <Pressable
-            testID="home-moment-of-the-week"
-            onPress={() => router.push(`/moments/${featuredMoment.id}` as any)}
-            accessibilityLabel={`Moment of the Week by ${featuredMoment.author_name}`}
-            style={({ pressed }) => [
-              styles.momentBanner,
-              { opacity: pressed ? 0.9 : 1 },
-            ]}
-          >
-            <View style={styles.momentBannerHead}>
-              <Text style={styles.momentBannerBadge}>✨ MOMENT OF THE WEEK</Text>
-              <Ionicons name="chevron-forward" size={18} color="#92400E" />
-            </View>
-            {/* MotW subtitle — never "most liked" or "trending" (locked
-                with Garry 31 July 2026). This is a hand-picked
-                celebration, not an algorithmic feed. */}
-            <Text style={{ color: "#78350F", fontSize: 12 * scale, fontWeight: "700", marginTop: 4, opacity: 0.85, fontStyle: "italic" }}>
-              🌟 Chosen by the FriendPlace team because it made us smile.
-            </Text>
-            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12, marginTop: 10 }}>
-              {featuredMoment.photos && featuredMoment.photos[0] ? (
-                <View style={{ width: 72, height: 72, borderRadius: 14, overflow: "hidden", backgroundColor: "#FEF3C7" }}>
-                  <Image source={{ uri: featuredMoment.photos[0] }} style={{ width: 72, height: 72 }} />
-                </View>
-              ) : (
-                <View style={{ alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: 14, backgroundColor: "#FEF3C7" }}>
-                  <Text style={{ fontSize: 28 }}>🦋</Text>
-                </View>
-              )}
-              <View style={{ flex: 1, minWidth: 0 }}>
-                {/* Author line: their avatar emoji then their display
-                    name — warm, no "Author" label (Garry 31 Jul 2026).
-                    "🌺 Margaret" rather than "Author\nMargaret". */}
-                <Text numberOfLines={1} style={{ color: "#7C5300", fontWeight: "900", fontSize: 14 * scale }}>
-                  {featuredMoment.author_avatar || "🦋"}  {featuredMoment.author_name || "A member"}
-                </Text>
-                <Text numberOfLines={3} style={{ color: "#3C2A06", fontWeight: "600", fontSize: 14 * scale, marginTop: 3, lineHeight: 19 }}>
-                  {featuredMoment.caption || "Shared a moment"}
-                </Text>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 6 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                    <Ionicons name="heart" size={14} color="#B45309" />
-                    <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale }}>{featuredMoment.likes_count || 0}</Text>
-                  </View>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                    <Ionicons name="chatbubble-ellipses" size={14} color="#B45309" />
-                    <Text style={{ color: "#7C5300", fontWeight: "800", fontSize: 12 * scale }}>{featuredMoment.comments_count || 0}</Text>
-                  </View>
-                </View>
-              </View>
-            </View>
-          </Pressable>
         ) : null}
 
         <View style={styles.grid}>
