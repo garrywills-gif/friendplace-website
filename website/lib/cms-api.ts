@@ -1014,6 +1014,61 @@ export const campaignsApi = {
 };
 
 // ---------------------------------------------------------------------------
+// Segments — CRM Phase 2C
+// ---------------------------------------------------------------------------
+// A segment is a saved, named group of members. Predicate-driven so the
+// schema doesn't need to change when we add a new filter type.
+
+export type SegmentFilter = {
+  id:          string;
+  label:       string;
+  emoji:       string;
+  value_type:  'none' | 'text' | 'number' | 'boolean' | 'enum' | 'multi_enum' | 'days';
+  value_hint:  { options?: string[]; options_source?: string; min?: number; max?: number; default?: number };
+  description: string;
+};
+
+export type SegmentPredicateNode =
+  | { op: 'filter'; id: string; value: unknown }
+  | { op: 'and' | 'or' | 'nor'; children: SegmentPredicateNode[] }
+  | { op: 'not'; child: SegmentPredicateNode };
+
+export type Segment = {
+  id:                 string;
+  name:               string;
+  emoji?:             string | null;
+  description?:       string | null;
+  predicate:          SegmentPredicateNode | Record<string, never>;
+  predicate_summary?: string;
+  last_count?:        number;
+  last_counted_at?:   string;
+  updated_at?:        string;
+  created_at?:        string;
+  created_by?:        string;
+  archived?:          boolean;
+  tags?:              string[];
+};
+
+export type SegmentPreview = {
+  count:   number;
+  summary: string;
+  sample:  Array<{ id?: string; first_name?: string; username?: string; email?: string; suburb?: string; suburb_state?: string; interests?: string[]; avatar?: string }>;
+};
+
+export const segmentsApi = {
+  list: () => req<{ items: Segment[]; count: number }>('GET', '/cms/segments'),
+  filters: () => req<{ filters: SegmentFilter[] }>('GET', '/cms/segments/filters'),
+  get:  (id: string) => req<Segment>('GET', `/cms/segments/${id}`),
+  create: (body: Partial<Segment>) => req<Segment>('POST', '/cms/segments', body),
+  update: (id: string, patch: Partial<Segment>) =>
+    req<Segment>('PATCH', `/cms/segments/${id}`, patch),
+  archive: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/segments/${id}`),
+  refreshCount: (id: string) => req<Segment>('POST', `/cms/segments/${id}/refresh-count`),
+  preview: (predicate: SegmentPredicateNode | Record<string, never>) =>
+    req<SegmentPreview>('POST', '/cms/segments/preview', { predicate }),
+};
+
+// ---------------------------------------------------------------------------
 // Share a Moment — Mission Control moderation
 // ---------------------------------------------------------------------------
 // The moments admin UI is intentionally lightweight: list, filter, feature
