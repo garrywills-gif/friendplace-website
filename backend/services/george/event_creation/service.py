@@ -1247,11 +1247,20 @@ async def _compose_next(
     pending_suggestion: Optional[dict] = None,
     current_screen: Optional[str] = None,
     system_state: Optional[dict] = None,
+    kb_block: str = "",
 ) -> dict:
+    # Every George shares the same institutional memory (see
+    # `services/george/kb_grounding.py`). If the caller retrieved a
+    # public-knowledge block for this turn we append it to the
+    # composer's system prompt. Composer personality stays exactly the
+    # same — only the "what we've written down about this" grows.
+    system_message = COMPOSER_SYSTEM.strip()
+    if kb_block:
+        system_message = system_message + kb_block
     chat = LlmChat(
         api_key=_emergent_key(),
         session_id=f"event-compose-{uuid.uuid4().hex[:8]}",
-        system_message=COMPOSER_SYSTEM.strip(),
+        system_message=system_message,
     ).with_model("anthropic", COMPOSER_MODEL)
     payload = {
         "today": today_iso,
@@ -1371,11 +1380,20 @@ async def start_event_conversation(
         extracted = _merge_extracted({}, extracted_patch)
         turns = [{"role": "user", "content": seed, "at": _now_iso()}]
         defaults_pre = await infer_defaults(db, extracted, host_id=host_id)
+        # Every George reads from the same institutional memory. Member
+        # George only ever sees `visibility="public"` entries — the
+        # visibility gate is enforced inside `ground_for_george`.
+        from services.george import kb_grounding as _kbg
+        _kb_block, _ = await _kbg.ground_for_george(
+            db=db, user_message=seed, surface="member",
+            session_id=session_id, user_id=host_id,
+        )
         composed = await _compose_next(
             extracted, defaults_pre, turns, today_iso,
             suggestion_offered=False,
             current_screen=current_screen,
             system_state=await _founders_system_state(db),
+            kb_block=_kb_block,
         )
 
     defaults = await infer_defaults(db, extracted, host_id=host_id)
@@ -1901,12 +1919,24 @@ async def take_conversation_turn(
     already_offered = bool(session.get("suggestion_offered"))
     pending_suggestion = session.get("pending_suggestion") or None
 
+    # Ground the reply in the shared institutional memory. Member George
+    # only sees `visibility="public"` entries — the visibility gate is
+    # enforced inside `ground_for_george`. Telemetry is written to the
+    # `george_kb_hits` collection so admins can trace which entries
+    # informed each turn.
+    from services.george import kb_grounding as _kbg
+    _kb_block, _ = await _kbg.ground_for_george(
+        db=db, user_message=user_text, surface="member",
+        session_id=session_id, user_id=session.get("host_id"),
+    )
+
     composed = await _compose_next(
         extracted, defaults, turns, today_iso,
         suggestion_offered=already_offered,
         pending_suggestion=pending_suggestion,
         current_screen=current_screen or session.get("current_screen"),
         system_state=await _founders_system_state(db),
+        kb_block=_kb_block,
     )
     # If either side flagged a restart, we clear the draft too.
     restart = bool(composed.get("restart_requested")) or restart_locally

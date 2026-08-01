@@ -4413,6 +4413,23 @@ def build_router(db) -> APIRouter:
         """
         return await _kb.health(db)
 
+    @router.get("/knowledge-retrievals")
+    async def kb_retrievals(
+        limit: int = 50,
+        surface: str = "",
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Recent KB retrieval log across ALL Georges (MCGS + member + public).
+
+        Feeds the "Recent retrievals" panel in Mission Control so admins
+        can trace which entries informed a conversation and spot topics
+        the KB doesn't yet cover (hit_count = 0).
+        """
+        from services.george import kb_grounding as _kbg
+        rows = await _kbg.recent_hits(db, limit=max(1, min(200, int(limit))), surface=(surface or None))
+        coverage = await _kbg.coverage_summary(db, days=7)
+        return {"items": rows, "coverage": coverage}
+
     # ── Launch Manager ───────────────────────────────────────────────
     from services import launch as _launch
 

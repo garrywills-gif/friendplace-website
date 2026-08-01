@@ -9866,6 +9866,16 @@ async def _ensure_mcgs_indexes():
     except Exception:
         logger.exception("George Remembers setup failed (non-fatal)")
 
+    # KB grounding telemetry — one collection, shared across MCGS,
+    # mobile-app, and website /meet Georges. See
+    # `services/george/kb_grounding.py` for the retrieval hook.
+    try:
+        from services.george import kb_grounding as _kbg
+        await _kbg.ensure_telemetry_indexes(db)
+        logger.info("George KB grounding indexes verified.")
+    except Exception:
+        logger.exception("George KB grounding index setup failed (non-fatal)")
+
 
 
 @app.on_event("startup")

@@ -129,12 +129,16 @@ OUTPUT (strict JSON, no fences):
 # LLM helpers (Claude via emergentintegrations, same pattern as event_creation)
 # ---------------------------------------------------------------------------
 
-async def _llm(system: str, user: str, model: str) -> str:
+async def _llm(system: str, user: str, model: str, *, kb_block: str = "") -> str:
     from emergentintegrations.llm.chat import LlmChat, UserMessage
     key = os.getenv("EMERGENT_LLM_KEY") or os.getenv("UNIVERSAL_LLM_KEY") or ""
     if not key:
         raise RuntimeError("EMERGENT_LLM_KEY not configured")
-    chat = LlmChat(api_key=key, session_id=f"onboarding-{uuid.uuid4().hex[:8]}", system_message=system)
+    # If the caller retrieved a shared-memory block for this turn,
+    # append it to the system prompt so onboarding-George can quote
+    # published FriendPlace principles rather than paraphrasing them.
+    system_with_kb = f"{system}{kb_block}" if kb_block else system
+    chat = LlmChat(api_key=key, session_id=f"onboarding-{uuid.uuid4().hex[:8]}", system_message=system_with_kb)
     chat.with_model("anthropic", model)
     reply = await chat.send_message(UserMessage(text=user))
     return reply
@@ -169,7 +173,7 @@ async def _extract(user_text: str, known: dict) -> dict:
     return _clean_json(raw) or {}
 
 
-async def _compose(known: dict, turns: list, skipped: list, is_first: bool) -> dict:
+async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, kb_block: str = "") -> dict:
     prompt = (
         f"IS_FIRST_TURN: {is_first}\n"
         f"KNOWN fields (stated/inferred): {json.dumps(known, ensure_ascii=False)}\n"
@@ -177,7 +181,7 @@ async def _compose(known: dict, turns: list, skipped: list, is_first: bool) -> d
         f"CONVERSATION SO FAR (most recent last):\n" +
         "\n".join(f"{t['role']}: {t['content']}" for t in turns[-12:])
     )
-    raw = await _llm(COMPOSER_SYSTEM, prompt, "claude-sonnet-4-5-20250929")
+    raw = await _llm(COMPOSER_SYSTEM, prompt, "claude-sonnet-4-5-20250929", kb_block=kb_block)
     return _clean_json(raw) or {
         "state": "needs_reply",
         "message": "Sorry \u2014 give me a moment. Could you say that once more?",
@@ -260,7 +264,15 @@ async def take_onboarding_turn(db: Any, session_id: str, user_text: str) -> dict
     turns = list(session.get("turns") or [])
     turns.append({"role": "user", "content": user_text, "at": _now_iso()})
 
-    composed = await _compose(known, turns, skipped, is_first=False)
+    # Ground the turn in shared institutional memory (public-only for
+    # onboarding, which happens before a full member account exists).
+    from services.george import kb_grounding as _kbg
+    _kb_block, _ = await _kbg.ground_for_george(
+        db=db, user_message=user_text, surface="member",
+        session_id=session_id, user_id=session.get("actor_id"),
+    )
+
+    composed = await _compose(known, turns, skipped, is_first=False, kb_block=_kb_block)
     # Guardrail: force ready_to_summarise if enough fields gathered.
     if _fields_gathered(known, skipped) >= MIN_FIELDS_FOR_ENOUGH + 1:
         composed["state"] = "ready_to_summarise"

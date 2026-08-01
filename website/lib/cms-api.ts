@@ -301,6 +301,32 @@ export const cmsApi = {
       last_embedding_run: string | null;
       healthy: boolean;
     }>('GET', '/cms/knowledge-health'),
+  knowledgeRetrievals: (opts?: { limit?: number; surface?: 'mcgs' | 'member' | 'public' }) => {
+    const qs = new URLSearchParams();
+    if (opts?.limit) qs.set('limit', String(opts.limit));
+    if (opts?.surface) qs.set('surface', opts.surface);
+    const query = qs.toString();
+    return req<{
+      items: Array<{
+        id: string;
+        at: string;
+        surface: 'mcgs' | 'member' | 'public';
+        session_id?: string;
+        user_id?: string;
+        admin_id?: string;
+        query: string;
+        hit_ids: string[];
+        hit_scores: number[];
+        hit_count: number;
+        is_admin: boolean;
+      }>;
+      coverage: {
+        since: string;
+        days: number;
+        by_surface: Record<string, { queries: number; grounded: number }>;
+      };
+    }>('GET', `/cms/knowledge-retrievals${query ? `?${query}` : ''}`);
+  },
   retrieveKnowledge: (query: string, k = 5, types?: string[]) =>
     req<{ hits: KnowledgeEntry[]; count: number }>(
       'POST', '/cms/knowledge/retrieve',

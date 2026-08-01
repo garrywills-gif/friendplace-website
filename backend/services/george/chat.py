@@ -544,31 +544,21 @@ async def grounded_chat_stream(
     _kb_hit = False
     _kb_hit_ids: list[str] = []
     try:
-        from services import knowledge as _kb
-        _kb_gate = _kb.needs_kb(user_message)
-        if _kb_gate:
-            _hits = await _kb.retrieve(db, user_message, k=5, is_admin=True)
-            _kb_block = _kb.format_for_prompt(_hits, is_admin=True)
-            if _kb_block:
-                system_prompt = system_prompt + _kb_block
-                _kb_hit = True
-                _kb_hit_ids = [str(h.get("id")) for h in _hits if h.get("id")]
-            _hit_summary = [
-                f"{h.get('id')}={round(h.get('_score', 0.0), 3)}"
-                for h in _hits
-            ]
-            log.info(
-                "george.kb query=%r  gate=True  hits=%s  injected=%s",
-                (user_message or "")[:120],
-                _hit_summary,
-                _kb_hit,
-            )
-        else:
-            log.info(
-                "george.kb query=%r  gate=False  (skipped — needs_kb() "
-                "regex + bare-noun heuristics didn't match)",
-                (user_message or "")[:120],
-            )
+        # Route the retrieval + telemetry through the shared grounding
+        # helper so MCGS, mobile app, and website /meet all speak from
+        # the same institutional memory. Personality lives in each
+        # caller's prompt; memory lives here.
+        from services.george import kb_grounding as _kbg
+        _kb_block, _kb_hit_ids = await _kbg.ground_for_george(
+            db=db,
+            user_message=user_message,
+            surface="mcgs",
+            session_id=session_id,
+            admin_id=admin.get("id"),
+        )
+        if _kb_block:
+            system_prompt = system_prompt + _kb_block
+            _kb_hit = bool(_kb_hit_ids)
     except Exception as _kb_err:
         # Never let KB retrieval failure kill a chat turn.
         log.warning("KB retrieval skipped: %s", _kb_err)

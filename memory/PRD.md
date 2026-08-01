@@ -185,3 +185,106 @@ Three refinements + one shipping-critical config fix, all under the "No guilt. E
 - **Marketing website Share-a-Moment showcase cards** on `/app/website/app/page.tsx` no longer display the ❤️ likes / 💬 comments counts. Guardrail per Garry, 26 June 2026: these are showcase cards, not a live feed — engagement counts subtly shift focus towards popularity. Locked wording *"No pressure. No expectations. Just everyday moments worth sharing."* remains beneath the grid.
 - **Author profiles reachable from the feed and from comments.** Moment feed card now has a nested Pressable on the avatar + name row that opens `/user/{author_id}`; the rest of the card still opens the moment. Comment authors on the detail view are now tappable too — same intent, "I want to say hi to the person who left this warm word."
 - **Apple Sign-In Bundle ID aligned with backend.** `app.json` iOS `bundleIdentifier` and Android `package` moved from `com.youbelong.community` → `au.com.friendplace.app` to match backend `APPLE_CLIENT_ID_IOS` / `APPLE_SIWA_CLIENT_ID`. Backend endpoint already carries the correct .p8 key (team `6XRMF8PK98`, key `9DAMF5JRK8`). 17/17 SIWA rotation tests pass end-to-end minting an ES256 JWT with the new audience. Native Sign-in flow can only be verified on a real iOS device via TestFlight (documented in `/app/memory/testflight-readiness-report.md`).
+
+
+## 1 August 2026 — Embeddings 401 finally put to bed + Unified George KB
+
+### Root cause identified after 3 forks
+The Emergent LLM key gateway (`https://integrations.emergentagent.com/llm`)
+does not expose any embedding models — only chat/image/TTS/whisper/video.
+Previous forks kept trying to fix "the wrong endpoint"; the actual answer
+is that embeddings simply aren't available via that key.
+
+### The fix — one architectural decision
+Switched from OpenAI `text-embedding-3-small` (cloud, key-dependent) to
+`sentence-transformers/all-MiniLM-L6-v2` (local, ONNX runtime via
+`fastembed`, 384-dim, zero external dependency). Weights (~90 MB) are
+downloaded once from HuggingFace, cached in-process for the lifetime of
+the container, and stored under `~/.cache/fastembed`. `EMBED_DIM` moved
+from 1536 → 384. All 24 KB entries embedded and semantic retrieval
+verified working ("someone who hasn't logged in for weeks" now retrieves
+the No-Guilt principle even without literal word overlap).
+
+### Knowledge Health card
+New `GET /api/cms/knowledge-health` endpoint feeding a Mission Control
+diagnostics card that shows Total / Embedded / Model / Last run at a
+glance, with a "Re-embed everything" action for post-model-swap
+backfills. Runs record themselves to `knowledge_meta` so the timestamp
+survives restarts.
+
+### Unified George — one memory, three personalities
+- **KB is now the single source of truth** for all three Georges.
+  Personality lives in each caller's system prompt; institutional
+  memory lives in `knowledge_base`.
+- New shared helper `services/george/kb_grounding.py::ground_for_george()`
+  is the single hook every George calls. Enforces the visibility
+  gate (`is_admin` derived from `surface`), formats the prompt block,
+  writes telemetry.
+- **MCGS George** → sees `visibility="public"` + `admin_context` layer
+  + `visibility="admin"` entries.
+- **Member George** (event creation, onboarding) → sees `visibility="public"`
+  only. Wired into `event_creation/service.py::_compose_next` and
+  `onboarding/service.py::_compose`.
+- **Website /meet George** → same member-side pipeline, `visibility="public"` only.
+
+### Telemetry — see which entries George consulted
+New collection `george_kb_hits` records every retrieval:
+`{surface, session_id, user_id/admin_id, query (first 400 chars),
+hit_ids, hit_scores, hit_count, at}`. Exposed via
+`GET /api/cms/knowledge-retrievals?limit=&surface=` with a 7-day coverage
+roll-up per surface. Zero-hit queries are recorded too, so we can spot
+topics the KB doesn't yet cover.
+
+### Two new principles seeded to KB (visibility=public)
+- **KB-PRIN-CELEBRATES** — *George celebrates the little things.*
+  First moment, first friend, first event, Founding Member number.
+  One line, warm, never confetti.
+- **KB-PRIN-REMEMBERS** — *George remembers, gently.*
+  Health check-ins, travel, family occasions. Only when it feels
+  caring, never surveillance-y.
+
+Every George everywhere now knows both principles — teach once, know
+once. Verified by retrieval across all three surfaces.
+
+### MCGS-only greeting familiarity (visibility=admin)
+- **KB-PRIN-MCGS-FAMILIARITY** — *"Morning, mate." / "G'day, Garry."*
+  Applies **only** to Mission Control. Roughly 1 greeting in 4-5, never
+  twice in a row, never on the mobile app or public site. Visibility
+  gate keeps this invisible to member/public Georges (verified end-to-end).
+  Wired into `services/george/prompt.py::build_system_prompt` via the
+  new `GREETING_FAMILIARITY_MCGS` block.
+
+### Files touched
+- `/app/backend/services/knowledge.py` — local ONNX embedder,
+  `health()`, `backfill_embeddings(force=)`, new fallback filter that
+  detects dim drift.
+- `/app/backend/services/george/kb_grounding.py` — NEW; the shared
+  hook every George uses.
+- `/app/backend/services/george/chat.py` — MCGS chat now routes
+  through `ground_for_george`.
+- `/app/backend/services/george/event_creation/service.py` — member
+  composer accepts `kb_block=`; both callers retrieve first.
+- `/app/backend/services/george/onboarding/service.py` — onboarding
+  composer accepts `kb_block=`; ground on every turn after the first.
+- `/app/backend/services/george/prompt.py` — new
+  `GREETING_FAMILIARITY_MCGS` block scoped to MCGS.
+- `/app/backend/cms_module.py` — `/knowledge-health`,
+  `/knowledge-retrievals`, `backfill-embeddings` now takes `force=`.
+- `/app/backend/server.py` — ensure telemetry indexes at startup.
+- `/app/backend/requirements.txt` — `fastembed`, `onnxruntime`, etc.
+- `/app/website/lib/cms-api.ts` — `knowledgeHealth`, `knowledgeRetrievals`,
+  `backfillKnowledgeEmbeddings({ force })`.
+- `/app/website/components/knowledge/KnowledgeHealthCard.tsx` — NEW.
+- `/app/website/app/admin/knowledge/page.tsx` — health card slotted
+  above the drafts panel.
+- `/app/memory/PRINCIPLES.md` — added rules 5, 6, 7.
+- `/app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md` — added celebration
+  and memory principles (public); MCGS familiarity is deliberately
+  admin-only, not published here.
+- `/app/memory/design-morning-welcome.md` — NEW; specs the greeting
+  screen we build tomorrow.
+
+### What this means going forward
+> Teach George something once — anywhere — and every George that's
+> allowed to see it knows it immediately. No hardcoded prompt strings
+> to update. No parallel knowledge stores drifting apart.
