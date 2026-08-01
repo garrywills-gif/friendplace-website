@@ -3,14 +3,30 @@
 
 Six entry types: story · principle · decision · feature · roadmap · philosophy.
 
-MVP retrieval = BM25 keyword (Mongo text index) + cosine over
-OpenAI text-embedding-3-small (via Emergent LLM key), fused with
-Reciprocal Rank Fusion. Related entries and supersede chains are
-followed so George can *connect* rather than just *quote*.
+MVP retrieval = BM25 keyword (Mongo text index) + cosine over a **local**
+384-dim embedding (`sentence-transformers/all-MiniLM-L6-v2` via the
+`fastembed` ONNX runtime), fused with Reciprocal Rank Fusion. Related
+entries and supersede chains are followed so George can *connect*
+rather than just *quote*.
 
-Every function tolerates partial failure — if the embedding API is
-unreachable, we fall back to keyword-only. If the KB is empty, retrieve
-returns []. George's chat always handles an empty result gracefully.
+The embedding model is loaded lazily on first use and cached for the
+lifetime of the process. Weights (~90 MB ONNX) are fetched once from
+HuggingFace on cold start, then cached under `~/.cache/fastembed`.
+No API keys, no gateway dependency, no ongoing cost.
+
+Historical note (locked with Garry, 1 Aug 2026): we ran on OpenAI
+`text-embedding-3-small` via the Emergent LLM key for the first
+version of this file. That path silently 401'd for weeks because the
+Emergent gateway doesn't expose any embedding models (only chat /
+image / TTS / whisper / video). Rather than add another vendor key,
+we made George's institutional memory part of FriendPlace itself —
+see `/app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md` for the design
+intent. Swap the `_EMBED_MODEL_NAME` below to switch models later.
+
+Every function tolerates partial failure — if the embedding model
+can't be loaded, we fall back to keyword-only. If the KB is empty,
+retrieve returns []. George's chat always handles an empty result
+gracefully.
 """
 from __future__ import annotations
 
@@ -25,8 +41,10 @@ from typing import Any, Iterable, Optional
 logger = logging.getLogger("friendplace.knowledge")
 
 COLLECTION = "knowledge_base"
-EMBED_MODEL = "text-embedding-3-small"
-EMBED_DIM = 1536
+# Locked with Garry, 1 Aug 2026 — see module docstring for rationale.
+_EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+EMBED_MODEL = _EMBED_MODEL_NAME  # exported for the Knowledge Health card
+EMBED_DIM = 384
 
 ALLOWED_TYPES = ("story", "principle", "decision", "feature", "roadmap", "philosophy")
 ALLOWED_VISIBILITY = ("public", "admin")
@@ -61,34 +79,69 @@ async def ensure_indexes(db: Any) -> None:
         logger.warning("KB ensure_indexes: %s", e)
 
 
-# ─── embeddings via Emergent LLM key ──────────────────────────────────
+# ─── embeddings via local ONNX model (fastembed) ─────────────────────
+#
+# The encoder is loaded lazily on first use (blocking init runs on a
+# threadpool so we don't stall the event loop) and cached for the life
+# of the process. Failing loads are cached as `None` so we don't
+# hammer HuggingFace on every request if the download endpoint is
+# temporarily unavailable — the KB simply falls back to keyword-only
+# retrieval until the next process restart.
+_embedder = None            # type: ignore[assignment]
+_embedder_ready = False     # True once we've *attempted* to load
+_embedder_lock: Optional[asyncio.Lock] = None
+
+
+def _get_embedder_lock() -> asyncio.Lock:
+    global _embedder_lock
+    if _embedder_lock is None:
+        _embedder_lock = asyncio.Lock()
+    return _embedder_lock
+
+
+async def _ensure_embedder():
+    """Load the fastembed model exactly once, in a threadpool, guarded
+    by a lock so concurrent callers don't stampede the loader."""
+    global _embedder, _embedder_ready
+    if _embedder_ready:
+        return _embedder
+    async with _get_embedder_lock():
+        if _embedder_ready:
+            return _embedder
+        def _load():
+            from fastembed import TextEmbedding
+            return TextEmbedding(model_name=_EMBED_MODEL_NAME)
+        try:
+            _embedder = await asyncio.to_thread(_load)
+            logger.info("KB embedder loaded: %s (dim=%d)", _EMBED_MODEL_NAME, EMBED_DIM)
+        except Exception as e:
+            logger.warning("KB embedder load failed: %s — falling back to text search", e)
+            _embedder = None
+        _embedder_ready = True
+    return _embedder
+
+
 async def _embed(text: str) -> Optional[list[float]]:
-    """Return a 1536-dim embedding, or None on failure. Cached in-process."""
+    """Return an EMBED_DIM-dim embedding as a list[float], or None on failure.
+
+    Runs the ONNX inference on a threadpool so we don't block the
+    FastAPI event loop. ~9 ms per short string on modest hardware.
+    """
     text = (text or "").strip()
     if not text:
         return None
-    key = os.environ.get("EMERGENT_LLM_KEY") or os.environ.get("OPENAI_API_KEY")
-    if not key:
+    model = await _ensure_embedder()
+    if model is None:
         return None
     try:
-        # emergentintegrations exposes an OpenAI-compatible client through the
-        # universal key. Fall back to the openai SDK directly if that path
-        # isn't wired for embeddings on this version.
-        try:
-            from openai import AsyncOpenAI
-            base = os.environ.get("EMERGENT_LLM_BASE_URL") or None
-            client = AsyncOpenAI(
-                api_key=key,
-                base_url=base or "https://api.emergent-integrations.com/v1",
-            )
-            r = await client.embeddings.create(model=EMBED_MODEL, input=text[:8000])
-            return list(r.data[0].embedding)
-        except Exception:
-            # Direct-to-OpenAI fallback (real OpenAI key).
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI(api_key=key)
-            r = await client.embeddings.create(model=EMBED_MODEL, input=text[:8000])
-            return list(r.data[0].embedding)
+        vecs = await asyncio.to_thread(
+            lambda: list(model.embed([text[:8000]]))
+        )
+        if not vecs:
+            return None
+        # fastembed returns numpy arrays; cast to plain floats so we can
+        # persist to Mongo cleanly.
+        return [float(x) for x in vecs[0]]
     except Exception as e:
         logger.warning("KB embedding failed: %s", e)
         return None
@@ -641,9 +694,33 @@ async def list_drafts(db: Any, limit: int = 100) -> list[dict]:
     return rows
 
 
-async def backfill_embeddings(db: Any, *, limit: int | None = None) -> dict:
-    """Attempt to embed every row missing an embedding. Returns counts."""
-    q = {"embedding": {"$exists": False}}
+async def backfill_embeddings(db: Any, *, limit: int | None = None, force: bool = False) -> dict:
+    """Attempt to embed every row missing an embedding. Returns counts.
+
+    Also records the run into `knowledge_meta` so the Mission Control
+    Knowledge Health card can show "last embedding run" without guessing.
+
+    Args:
+        limit: Cap the batch size for iterative backfills.
+        force: When True, re-embed every entry (even those already
+            embedded). Used after an EMBED_DIM change so old vectors
+            get replaced.
+    """
+    # An entry counts as "missing embedding" if the field is absent,
+    # null, empty, or the dim doesn't match the current model. This
+    # matters after a model swap: the old 1536-dim OpenAI vectors from
+    # earlier attempts (if any) are now stale and must be replaced.
+    if force:
+        q: dict = {}
+    else:
+        q = {
+            "$or": [
+                {"embedding": {"$exists": False}},
+                {"embedding": None},
+                {"embedding": {"$size": 0}},
+                {"embedding": {"$not": {"$size": EMBED_DIM}}},
+            ]
+        }
     cur = db[COLLECTION].find(q, {"id": 1, "title": 1, "body_md": 1})
     if limit:
         cur = cur.limit(int(limit))
@@ -659,4 +736,74 @@ async def backfill_embeddings(db: Any, *, limit: int | None = None) -> dict:
             ok += 1
         else:
             failed += 1
-    return {"embedded": ok, "failed": failed}
+    # Record the run for the Knowledge Health card.
+    try:
+        await db.knowledge_meta.update_one(
+            {"key": "embeddings_run"},
+            {"$set": {
+                "key": "embeddings_run",
+                "at": _now(),
+                "model": _EMBED_MODEL_NAME,
+                "dim": EMBED_DIM,
+                "embedded": ok,
+                "failed": failed,
+            }},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning("KB backfill meta write failed: %s", e)
+    return {"embedded": ok, "failed": failed, "model": _EMBED_MODEL_NAME, "dim": EMBED_DIM}
+
+
+# ─── Knowledge Health (for Mission Control) ──────────────────────────
+async def health(db: Any) -> dict:
+    """Snapshot of KB coverage for the Mission Control diagnostics card.
+
+    Cheap counts only — no full document reads. Safe to poll every
+    few seconds from the admin surface if we ever want live counters.
+    """
+    coll = db[COLLECTION]
+    try:
+        total = await coll.count_documents({})
+    except Exception:
+        total = 0
+    try:
+        active = await coll.count_documents({"status": "active"})
+    except Exception:
+        active = 0
+    try:
+        # An entry is considered embedded when its embedding is an
+        # array of the current dimension (older vectors from a
+        # previous model are counted as "not embedded" — accurate).
+        embedded = await coll.count_documents({
+            "embedding": {"$exists": True, "$type": "array", "$size": EMBED_DIM},
+        })
+    except Exception:
+        embedded = 0
+    # Draft counter shows admins what's waiting for their approval.
+    try:
+        drafts = await coll.count_documents({"status": "draft"})
+    except Exception:
+        drafts = 0
+    last_run = None
+    try:
+        meta = await db.knowledge_meta.find_one({"key": "embeddings_run"}, {"_id": 0})
+        if meta and meta.get("at"):
+            at = meta["at"]
+            last_run = at.isoformat() if hasattr(at, "isoformat") else str(at)
+    except Exception:
+        last_run = None
+    # Are we healthy? A KB is healthy when every active entry is
+    # embedded (drafts don't count — they're pre-publish).
+    healthy = active == 0 or embedded >= active
+    return {
+        "total": total,
+        "active": active,
+        "drafts": drafts,
+        "embedded": embedded,
+        "embedded_pct": (round(100 * embedded / active, 1) if active else 100.0),
+        "model": _EMBED_MODEL_NAME,
+        "dim": EMBED_DIM,
+        "last_embedding_run": last_run,
+        "healthy": healthy,
+    }

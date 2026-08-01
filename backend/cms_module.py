@@ -4390,13 +4390,28 @@ def build_router(db) -> APIRouter:
         return {"ok": True, "created": created, "updated": updated, "total": total}
 
     @router.post("/knowledge/backfill-embeddings")
-    async def kb_backfill_embeddings(admin: dict = Depends(current_cms_admin)):
-        result = await _kb.backfill_embeddings(db)
+    async def kb_backfill_embeddings(
+        body: dict = Body(default={}),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        # `force=true` re-embeds every entry; used after a model swap
+        # so stale vectors get replaced. Default is idempotent.
+        force = bool(body.get("force", False))
+        result = await _kb.backfill_embeddings(db, force=force)
         await _audit.log_admin_action(
             db, admin=admin, action="kb.embeddings.backfill",
-            metadata=result,
+            metadata={**result, "forced": force},
         )
         return {"ok": True, **result}
+
+    @router.get("/knowledge-health")
+    async def kb_health(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Knowledge Health snapshot for Mission Control.
+
+        Returns counts, embedding coverage, model name, dim and the
+        last-embedding-run timestamp. Cheap enough to poll on view.
+        """
+        return await _kb.health(db)
 
     # ── Launch Manager ───────────────────────────────────────────────
     from services import launch as _launch

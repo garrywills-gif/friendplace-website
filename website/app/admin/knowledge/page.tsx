@@ -26,6 +26,7 @@ import { cmsApi, type KnowledgeEntry } from '@/lib/cms-api';
 import { KnowledgeAuthorModal } from '@/components/knowledge/KnowledgeAuthorModal';
 import { KnowledgeDraftCard } from '@/components/knowledge/KnowledgeDraftCard';
 import { KnowledgeRow } from '@/components/knowledge/KnowledgeRow';
+import { KnowledgeHealthCard } from '@/components/knowledge/KnowledgeHealthCard';
 
 const TYPES: KnowledgeEntry['type'][] = [
   'story', 'principle', 'philosophy', 'decision', 'feature', 'roadmap',
@@ -174,6 +175,14 @@ export default function KnowledgeLibraryPage() {
           {statusBanner.text}
         </div>
       )}
+
+      {/* Knowledge Health card — glanceable diagnostics for George's
+          institutional memory. Locked with Garry 1 Aug 2026 when we
+          moved embeddings from the (embedding-less) Emergent gateway
+          to a local ONNX MiniLM model. Sits between the stats strip
+          and the drafts panel so admins see it every time they open
+          the page. */}
+      <KnowledgeHealthCard onChange={reload} />
 
       {/* Drafts strip — always at the top so admin sees them first */}
       {drafts.length > 0 && (

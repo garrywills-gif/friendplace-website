@@ -285,8 +285,22 @@ export const cmsApi = {
     req<KnowledgeEntry>('POST', `/cms/knowledge/${encodeURIComponent(id)}/supersede`, newEntry),
   reseedKnowledge: () =>
     req<{ ok: true; created: number; updated: number; total: number }>('POST', '/cms/knowledge/reseed', {}),
-  backfillKnowledgeEmbeddings: () =>
-    req<{ ok: true; embedded: number; failed: number }>('POST', '/cms/knowledge/backfill-embeddings', {}),
+  backfillKnowledgeEmbeddings: (opts?: { force?: boolean }) =>
+    req<{ ok: true; embedded: number; failed: number; model: string; dim: number }>(
+      'POST', '/cms/knowledge/backfill-embeddings', opts || {},
+    ),
+  knowledgeHealth: () =>
+    req<{
+      total: number;
+      active: number;
+      drafts: number;
+      embedded: number;
+      embedded_pct: number;
+      model: string;
+      dim: number;
+      last_embedding_run: string | null;
+      healthy: boolean;
+    }>('GET', '/cms/knowledge-health'),
   retrieveKnowledge: (query: string, k = 5, types?: string[]) =>
     req<{ hits: KnowledgeEntry[]; count: number }>(
       'POST', '/cms/knowledge/retrieve',
