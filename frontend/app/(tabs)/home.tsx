@@ -348,7 +348,11 @@ export default function Home() {
             </Pressable>
           </View>
         </View>
-        <Text style={[styles.hello, { color: c.muted, fontSize: 16 * scale }]}>Welcome back</Text>
+        {/* "Welcome back" line removed 1 Aug 2026 (Garry) — George's
+            Daily Welcome now handles the greeting, and a stacked
+            "Welcome back" + "Good afternoon, Margaret." reads as two
+            voices competing. Keeping the name + butterfly as the sole
+            personal anchor is warmer. */}
         {/* Round-8 polish (Garry, Jun 2026 #3): the butterfly badge was
             visually running into the name because it sat inside the
             same <Text> as `first_name` with only a single space. Split
@@ -392,7 +396,7 @@ export default function Home() {
                 What&apos;s your moment today?
               </Text>
               <Text style={[styles.momentHeroSub, { fontSize: 14 * scale }]}>
-                Share a photo or story about something that made you smile today.
+                Share a photo, a story, or something that made you smile today.
               </Text>
             </Pressable>
 
@@ -927,14 +931,16 @@ const styles = StyleSheet.create({
   // --- Share a Moment hero (Home primary feature) ------------------------
   // Warm amber card with a slightly deeper amber panel inside. Kept
   // graphic-free on purpose so the copy carries the emotion. Locked
-  // with Garry 31 July 2026.
+  // with Garry 31 July 2026. Extra top margin (Garry, 1 Aug 2026) so
+  // the hero feels like a distinct next section rather than an
+  // extension of George's greeting card above it.
   momentHero: {
     borderRadius: 26,
     backgroundColor: "#FEF3C7",
     borderWidth: 1.5,
     borderColor: "#F59E0B",
     padding: 4,
-    marginTop: 6,
+    marginTop: 18,
   },
   momentHeroInner: {
     borderRadius: 22,
