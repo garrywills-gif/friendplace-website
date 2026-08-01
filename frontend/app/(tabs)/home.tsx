@@ -366,8 +366,21 @@ export default function Home() {
         {/* George's Daily Welcome — the first-open-of-the-day hello.
             Data-driven from `/api/mcgs/george/daily-welcome`; renders
             nothing on subsequent opens the same calendar day.
+
+            Context-aware (Garry, 1 Aug 2026): we tell George which
+            surface elements are currently on Home so he doesn't echo
+            them in the greeting. E.g. the Share a Moment hero right
+            below already asks "What's your moment today?" — no need
+            for George to ask again. This is the architectural pattern
+            for making George read the room across the whole app; see
+            PRINCIPLES.md → "George is context-aware".
             See `/app/memory/design-morning-welcome.md`. */}
-        <DailyWelcomeCard />
+        <DailyWelcomeCard
+          activeContexts={[
+            "home:share_a_moment_hero",
+            ...(featuredMoment ? ["home:moment_of_the_week"] : []),
+          ]}
+        />
 
         {/* --- HERO: Share a Moment -------------------------------------
             Locked with Garry 31 July 2026 as the primary feature of

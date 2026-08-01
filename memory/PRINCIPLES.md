@@ -96,6 +96,37 @@ into conflict, the principles win.
    collection — data-driven, admin-editable, seasonal-scheduling
    supported. **Never bury greeting variations in code.**
 
+6. **George is context-aware.**
+
+   > George doesn't repeat what the interface is already saying.
+   > If the screen already asks a question, George doesn't ask
+   > it again. If the screen is already celebrating a milestone,
+   > George doesn't congratulate the member again. George
+   > complements the interface — he doesn't echo it.
+
+   Locked with Garry, 1 Aug 2026, after noticing George could
+   land "✨ What's your moment today?" as his greeting close
+   directly above the Share a Moment hero which asks the exact
+   same question. The fix is *not* a per-screen exception. The
+   fix is teaching George about UI context.
+
+   Implementation pattern:
+   - Every screen-embedded George surface passes an
+     `activeContexts` list — surface tags like
+     `home:share_a_moment_hero`, `home:moment_of_the_week`,
+     `wall:milestone_celebrated`, `event:invite_pending`.
+   - Greeting / KB documents carry an optional
+     `context_conflicts: string[]` field listing tags they
+     would echo. Any entry whose `context_conflicts` intersects
+     with the caller's `activeContexts` is filtered out.
+   - This extends to the wider Knowledge Base over time (event
+     invites, celebrations, moderation drafts). Add the tag;
+     don't add the exception.
+
+   The vocabulary itself is deliberately open — new tags can be
+   introduced by any screen without requiring a schema change.
+   Prefer the shape `surface:element` (e.g. `home:share_a_moment_hero`).
+
 ## For agents
 
 If you are about to add:

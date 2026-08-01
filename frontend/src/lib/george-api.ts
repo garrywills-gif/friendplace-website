@@ -223,16 +223,27 @@ export const georgeApi = {
   // Daily welcome — data-driven first-open-of-the-day greeting.
   // Returns {shown: false} on subsequent opens the same local calendar
   // day; the client just doesn't render the card in that case.
-  dailyWelcome: () => _req<{
-    shown: boolean;
-    opener?: string;
-    warm_thought?: string | null;
-    invitation?: string | null;
-    callback?: string | null;
-    shape?: string;
-    band?: 'morning' | 'afternoon' | 'evening';
-    date?: string;
-  }>('/mcgs/george/daily-welcome'),
+  //
+  // `activeContexts` — optional list of surface tags currently on
+  // screen (e.g. ["home:share_a_moment_hero"]). Any greeting whose
+  // `context_conflicts` intersects with this list is filtered out
+  // by the backend, so George doesn't echo copy the UI is already
+  // showing. Locked with Garry 1 Aug 2026 as the pattern for teaching
+  // George to "read the room" instead of special-casing each screen.
+  dailyWelcome: (activeContexts?: string[]) => {
+    const clean = (activeContexts || []).filter(Boolean).map((t) => t.trim()).filter(Boolean);
+    const qs = clean.length ? `?context=${encodeURIComponent(clean.join(','))}` : '';
+    return _req<{
+      shown: boolean;
+      opener?: string;
+      warm_thought?: string | null;
+      invitation?: string | null;
+      callback?: string | null;
+      shape?: string;
+      band?: 'morning' | 'afternoon' | 'evening';
+      date?: string;
+    }>(`/mcgs/george/daily-welcome${qs}`);
+  },
   // Onboarding
   onboardingStart: () => _req<any>(
     '/mcgs/george/onboarding/start', { method: 'POST', body: JSON.stringify({}) },

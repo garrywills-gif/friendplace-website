@@ -559,9 +559,19 @@ def build_router(db) -> APIRouter:
     # `george_greetings` collection so admins can add/retire/season
     # greetings without a deploy. Returns {shown: False} on any open
     # after the first one that calendar day (user's local tz).
+    #
+    # Context awareness (Garry, 1 Aug 2026):
+    #     The caller can pass `?context=home:share_a_moment_hero,
+    #     home:moment_of_the_week` — surface tags describing what's
+    #     currently on screen. Any greeting whose `context_conflicts`
+    #     matches one of these tags is filtered out, so George never
+    #     echoes copy the UI is already displaying. This is the
+    #     architectural pattern for teaching George to "read the room"
+    #     without special-casing individual screens.
     @router.get("/mcgs/george/daily-welcome")
     async def api_daily_welcome(
         force: bool = False,
+        context: Optional[str] = None,
         actor: dict = Depends(current_george_actor),
     ):
         from services.george import daily_welcome as _dw
@@ -570,8 +580,16 @@ def build_router(db) -> APIRouter:
             {"id": actor.get("id")},
             {"_id": 0, "id": 1, "first_name": 1, "timezone": 1},
         ) or {"id": actor.get("id"), "first_name": actor.get("name") or ""}
+        # Parse the comma-separated context param into a clean list.
+        active_contexts = [
+            t.strip() for t in (context or "").split(",") if t and t.strip()
+        ] or None
         return await _dw.get_daily_welcome(
-            db, user=user_doc, tz_name=user_doc.get("timezone"), force=bool(force),
+            db,
+            user=user_doc,
+            tz_name=user_doc.get("timezone"),
+            force=bool(force),
+            active_contexts=active_contexts,
         )
 
     @router.post("/mcgs/george/event/start")

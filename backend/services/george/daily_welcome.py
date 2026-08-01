@@ -124,11 +124,29 @@ async def seed_defaults(db: Any) -> dict:
 
 # ── Pool query ────────────────────────────────────────────────────────
 async def _pool(
-    db: Any, *, kind: str, band: str, now_utc: datetime,
+    db: Any,
+    *,
+    kind: str,
+    band: str,
+    now_utc: datetime,
+    active_contexts: Optional[set[str]] = None,
 ) -> list[dict]:
     """Return the active pool of rows for the given kind+band, honouring
     seasonal windows. Bands can match the row's band OR the wildcard
-    "any" — invitations use "any" so one pool serves all times of day."""
+    "any" — invitations use "any" so one pool serves all times of day.
+
+    Context-aware filtering (Garry, 1 Aug 2026):
+        Each greeting document may declare a `context_conflicts` array —
+        surface tags describing UI it would echo if shown. When any of
+        the caller's `active_contexts` appears in that array, the row
+        is dropped. This lets us teach George "don't ask what's your
+        moment today when the interface is already asking" without
+        hard-coding an exception into the endpoint.
+
+        The field is optional; older greetings without it are always
+        kept. Passing `active_contexts=None` or an empty set disables
+        filtering entirely.
+    """
     q: dict = {
         "kind": kind,
         "active": True,
@@ -138,9 +156,15 @@ async def _pool(
             {"$or": [{"valid_to": None}, {"valid_to": {"$gte": now_utc}}]},
         ],
     }
-    proj = {"_id": 0, "id": 1, "band": 1, "kind": 1, "text": 1, "weight": 1}
+    proj = {"_id": 0, "id": 1, "band": 1, "kind": 1, "text": 1, "weight": 1, "context_conflicts": 1}
     rows: list[dict] = []
     async for r in db[GREETINGS_COLLECTION].find(q, proj):
+        # Client-side context filter — small pools, so cheaper and
+        # clearer than trying to express it in the Mongo query.
+        if active_contexts:
+            conflicts = r.get("context_conflicts") or []
+            if any(tag in active_contexts for tag in conflicts):
+                continue
         rows.append(r)
     return rows
 
@@ -159,6 +183,7 @@ async def get_daily_welcome(
     user: dict,
     tz_name: Optional[str] = None,
     force: bool = False,
+    active_contexts: Optional[list[str]] = None,
 ) -> dict:
     """Return the greeting payload for this user's first-open-of-day.
 
@@ -167,6 +192,11 @@ async def get_daily_welcome(
         tz_name: user's local timezone (defaults to DEFAULT_TZ).
         force: skip the once-per-day gate (used by previews and by
             Mission Control to sanity-check the pool).
+        active_contexts: surface-context tags currently visible on the
+            caller's screen (e.g. ["home:share_a_moment_hero"]). Any
+            greeting whose `context_conflicts` intersects with this
+            list is filtered out — so George doesn't echo what the UI
+            is already saying. Optional; None disables filtering.
 
     Returns:
         {
@@ -227,9 +257,13 @@ async def get_daily_welcome(
         [s[0] for s in _SHAPES], weights=[s[1] for s in _SHAPES], k=1,
     )[0]
 
+    # Normalise the active-context list into a frozen set the pool
+    # helper can cheaply intersect against each row's context_conflicts.
+    active_ctx: set[str] = {c.strip() for c in (active_contexts or []) if c and c.strip()}
+
     # Draw the opener (always).
     opener_row = _weighted_choice(
-        await _pool(db, kind="opener", band=band, now_utc=now_utc),
+        await _pool(db, kind="opener", band=band, now_utc=now_utc, active_contexts=active_ctx),
     )
     opener_text = _fmt(opener_row["text"]) if opener_row else f"Hello, {first_name}."
 
@@ -238,7 +272,7 @@ async def get_daily_welcome(
 
     if "thought" in shape:
         wt_row = _weighted_choice(
-            await _pool(db, kind="warm_thought", band=band, now_utc=now_utc),
+            await _pool(db, kind="warm_thought", band=band, now_utc=now_utc, active_contexts=active_ctx),
         )
         if wt_row:
             wt_text = _fmt(wt_row["text"])
@@ -260,7 +294,7 @@ async def get_daily_welcome(
 
     if "invitation" in shape:
         inv_row = _weighted_choice(
-            await _pool(db, kind="invitation", band=band, now_utc=now_utc),
+            await _pool(db, kind="invitation", band=band, now_utc=now_utc, active_contexts=active_ctx),
         )
         if inv_row:
             invitation_text = _fmt(inv_row["text"])
@@ -322,6 +356,14 @@ async def list_greetings(db: Any) -> list[dict]:
 async def upsert_greeting(db: Any, patch: dict) -> dict:
     now = datetime.now(timezone.utc)
     gid = patch.get("id") or str(uuid.uuid4())
+    # Normalise context_conflicts — accept a list of strings, dedupe,
+    # strip whitespace, drop empties. This is the surface-tag field
+    # that lets admins teach George "don't say this here" without
+    # hard-coding an exception (Garry, 1 Aug 2026).
+    raw_ctx = patch.get("context_conflicts") or []
+    if isinstance(raw_ctx, str):
+        raw_ctx = [t.strip() for t in raw_ctx.split(",")]
+    ctx_conflicts = sorted({t.strip() for t in raw_ctx if isinstance(t, str) and t.strip()})
     doc = {
         "id": gid,
         "band": patch.get("band") or "any",
@@ -332,6 +374,7 @@ async def upsert_greeting(db: Any, patch: dict) -> dict:
         "valid_from": patch.get("valid_from"),
         "valid_to": patch.get("valid_to"),
         "notes": patch.get("notes"),
+        "context_conflicts": ctx_conflicts,
         "updated_at": now,
     }
     if not doc["text"]:

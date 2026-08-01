@@ -4491,14 +4491,27 @@ def build_router(db) -> APIRouter:
     @router.get("/george/greetings/preview")
     async def preview_greeting(
         first_name: str = "Margaret",
+        context: Optional[str] = None,
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
         """Preview a greeting without burning the current admin's
-        once-per-day slot. Handy for shaping copy."""
+        once-per-day slot. Handy for shaping copy.
+
+        Accepts the same `?context=` surface-tag list as the mobile
+        endpoint (e.g. `context=home:share_a_moment_hero`) so admins
+        can sanity-check that George picks a non-echoing greeting on
+        each screen.
+        """
         from services.george import daily_welcome as _dw
+        active_contexts = [
+            t.strip() for t in (context or "").split(",") if t and t.strip()
+        ] or None
         # Use a stub user so we don't hit the state collection at all.
         return await _dw.get_daily_welcome(
-            db, user={"id": None, "first_name": first_name}, force=True,
+            db,
+            user={"id": None, "first_name": first_name},
+            force=True,
+            active_contexts=active_contexts,
         )
 
     # ── Launch Manager ───────────────────────────────────────────────

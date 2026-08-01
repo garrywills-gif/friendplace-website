@@ -15,6 +15,12 @@
  *   - Feels like walking into your favourite café, not a splash
  *     screen.
  *   - "I'm glad you're here."
+ *   - CONTEXT AWARE — the parent screen passes `activeContexts` so
+ *     George doesn't echo copy the UI is already showing. E.g. Home
+ *     mounts this with `["home:share_a_moment_hero"]` and George
+ *     naturally picks a different close instead of the ✨ What's your
+ *     moment today? invitation. See PRINCIPLES.md → "George is
+ *     context-aware".
  */
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
@@ -24,23 +30,29 @@ import { georgeApi } from '@/src/lib/george-api';
 
 type Payload = Awaited<ReturnType<typeof georgeApi.dailyWelcome>>;
 
-export function DailyWelcomeCard() {
+export function DailyWelcomeCard({ activeContexts }: { activeContexts?: string[] } = {}) {
   const { c, scale } = useTheme();
   const [payload, setPayload] = useState<Payload | null>(null);
   const [dismissed, setDismissed] = useState(false);
+
+  // Serialise the context list into a stable dep so an inline
+  // `["home:..."]` on the parent doesn't re-trigger fetches on every
+  // render. Keep the order stable — the backend treats it as a set.
+  const ctxKey = (activeContexts || []).slice().sort().join(',');
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const p = await georgeApi.dailyWelcome();
+        const tags = ctxKey ? ctxKey.split(',') : undefined;
+        const p = await georgeApi.dailyWelcome(tags);
         if (!cancelled) setPayload(p);
       } catch {
         // Silent fail — a missing greeting is invisible, not an error.
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [ctxKey]);
 
   if (!payload?.shown || dismissed) return null;
 
