@@ -5,7 +5,7 @@ import TapMeButterfly from '@/components/TapMeButterfly';
 export const metadata = { title: 'Features' };
 
 const DEFAULT_FEATURES = [
-  { icon: '✨', title: 'Share a Moment', body: "The little moments of your day — a coffee, a walk, the grandkids visiting, an orchid finally flowering. Share a photo and a warm word. Or just enjoy what your community is sharing." },
+  { icon: '✨', title: 'Share a Moment', body: 'A photo, a story or something that made you smile today. Share everyday moments with your community and enjoy theirs.' },
   { icon: '☕', title: 'FP Café', body: 'Our virtual café — a soft place to drop in, read what others are sharing, or share your own thought. No pressure, no likes.' },
   { icon: '🗓️', title: 'Local Events', body: 'Coffee catch-ups, hobby nights and community meets. RSVP with one tap and see who’s coming.' },
   { icon: '👥', title: 'Find Friends', body: 'Discover people nearby who share your interests. Send a warm hello — never a swipe.' },
