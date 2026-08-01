@@ -908,6 +908,12 @@ export type CampaignStats = {
   opened: number;
   clicked: number;
   bounced: number;
+  // Iteration 3 (CRM Phase 2B) — Delivery & Engagement rollups.
+  complained?: number;
+  delayed?: number;
+  unique_opens?: number;
+  unique_clicks?: number;
+  last_event_at?: string;
 };
 
 export type Campaign = {
@@ -939,16 +945,52 @@ export type CampaignRecipient = {
   founder_number?: number;
   first_name?: string;
   email: string;
-  status: 'pending' | 'sent' | 'failed' | 'delivered' | 'opened' | 'clicked' | 'bounced';
+  status: 'pending' | 'sent' | 'failed' | 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained';
   message_id?: string;
   sent_at?: string;
   error?: string;
   subject?: string;
+  // Iteration 3 (CRM Phase 2B) — Resend webhook rollup fields.
+  delivered_at?: string;
+  first_opened_at?: string;
+  first_clicked_at?: string;
+  bounced_at?: string;
+  complained_at?: string;
+  delayed_at?: string;
+  open_count?: number;
+  click_count?: number;
+  bounce_type?: string;
+  bounce_message?: string;
+  last_event_type?: string;
+  last_event_at?: string;
+};
+
+export type CampaignRecipientEvent = {
+  type:
+    | 'email.sent'
+    | 'email.delivered'
+    | 'email.delivery_delayed'
+    | 'email.opened'
+    | 'email.clicked'
+    | 'email.bounced'
+    | 'email.complained'
+    | string;
+  at: string;
+  meta?: {
+    subject?: string;
+    link_url?: string;
+    bounce_type?: string;
+    bounce_msg?: string;
+  };
 };
 
 export const campaignsApi = {
   list: () => req<{ count: number; rows: Campaign[] }>('GET', '/cms/campaigns'),
   get:  (id: string) => req<Campaign & { recipients: CampaignRecipient[] }>('GET', `/cms/campaigns/${id}`),
+  timeline: (id: string, recipientId: string) =>
+    req<{ recipient: CampaignRecipient; events: CampaignRecipientEvent[] }>(
+      'GET', `/cms/campaigns/${id}/recipients/${recipientId}/timeline`,
+    ),
   create: (body: Partial<Campaign>) => req<Campaign>('POST', '/cms/campaigns', body),
   update: (id: string, patch: Partial<Campaign>) =>
     req<Campaign>('PATCH', `/cms/campaigns/${id}`, patch),

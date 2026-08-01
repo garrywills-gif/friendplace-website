@@ -652,6 +652,145 @@ async def _propose_submission_decision(db: Any, args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Campaign tools \u2014 CRM Phase 2B (Delivery & Engagement)
+# ---------------------------------------------------------------------------
+# Teaching George to reason over Resend webhook data. Locked with Garry
+# 1 Aug 2026: "George should be able to answer campaign questions from
+# the same numbers I see on the dashboard \u2014 they're one shared truth."
+#
+# All three tools compute rates on the fly from the campaign's stats
+# rollup, which is kept live by services/campaign_webhooks.py. The
+# raw event log (resend_webhook_events) is authoritative and can
+# rebuild rollups if they ever drift.
+
+def _campaign_rate(num: int, den: int) -> float:
+    if not den:
+        return 0.0
+    return round(num / den, 4)
+
+
+def _summarise_campaign(row: dict) -> dict:
+    """Turn a campaigns doc into the compact shape George's synthesizer
+    likes to reason over. Adds computed rates so the LLM doesn't have to."""
+    stats = row.get("stats") or {}
+    accepted   = int(stats.get("accepted")   or 0)
+    delivered  = int(stats.get("delivered")  or 0)
+    bounced    = int(stats.get("bounced")    or 0)
+    unique_op  = int(stats.get("unique_opens")  or 0)
+    unique_cl  = int(stats.get("unique_clicks") or 0)
+    return {
+        "id":            row.get("id"),
+        "title":         row.get("name") or row.get("title") or row.get("subject") or "(untitled)",
+        "template":      row.get("template"),
+        "status":        row.get("status"),
+        "sent_at":       row.get("sent_at") or row.get("scheduled_at"),
+        "accepted":      accepted,
+        "delivered":     delivered,
+        "bounced":       bounced,
+        "complained":    int(stats.get("complained") or 0),
+        "unique_opens":  unique_op,
+        "unique_clicks": unique_cl,
+        "delivery_rate": _campaign_rate(delivered, accepted),
+        "open_rate":     _campaign_rate(unique_op, accepted),
+        "click_rate":    _campaign_rate(unique_cl, accepted),
+        "bounce_rate":   _campaign_rate(bounced, accepted),
+    }
+
+
+@register(
+    "list_campaigns",
+    "List recent email campaigns with delivery + engagement stats "
+    "(delivered / opened / clicked / bounced counts + rates). Answers "
+    "questions like \u201chow did yesterday\u2019s campaign perform?\u201d or "
+    "\u201cwhich campaign had the best open rate?\u201d Test-flagged rows are "
+    "excluded by default.",
+    args={
+        "limit":  {"type": "int", "required": False},
+        "status": {"type": "str", "required": False,
+                   "enum": {"draft", "scheduled", "sending", "sent", "failed"}},
+        "sort_by": {"type": "str", "required": False,
+                    "enum": {"recent", "open_rate", "click_rate", "bounce_rate"}},
+        "include_test_data": {"type": "bool", "required": False},
+    },
+    min_role="admin",
+)
+async def _list_campaigns(db: Any, args: dict) -> list[dict]:
+    q: dict = {}
+    if "status" in args:
+        q["status"] = args["status"]
+    if not _should_include_test_data(args):
+        exclude_test_data(q, subject_field="title")
+    limit = max(1, min(int(args.get("limit") or 10), 25))
+    rows = await db.campaigns.find(q, {"_id": 0}).sort(
+        [("sent_at", -1), ("created_at", -1)]
+    ).to_list(limit * 3)  # oversample so post-sort has enough candidates
+    summarised = [_summarise_campaign(r) for r in rows]
+    sort_by = args.get("sort_by") or "recent"
+    if sort_by == "open_rate":
+        summarised.sort(key=lambda r: r["open_rate"], reverse=True)
+    elif sort_by == "click_rate":
+        summarised.sort(key=lambda r: r["click_rate"], reverse=True)
+    elif sort_by == "bounce_rate":
+        summarised.sort(key=lambda r: r["bounce_rate"], reverse=True)
+    return summarised[:limit]
+
+
+@register(
+    "get_campaign_performance",
+    "Return the full engagement rollup for a single campaign: counts, "
+    "rates, and the most recent Resend event. Use this to answer "
+    "\u201chow did the invitation campaign perform?\u201d after list_campaigns "
+    "identifies the id.",
+    args={"campaign_id": {"type": "str", "required": True}},
+    min_role="admin",
+)
+async def _get_campaign_performance(db: Any, args: dict) -> dict:
+    row = await db.campaigns.find_one({"id": args["campaign_id"]}, {"_id": 0})
+    if not row:
+        return {"not_found": True, "campaign_id": args["campaign_id"]}
+    out = _summarise_campaign(row)
+    out["last_event_at"] = (row.get("stats") or {}).get("last_event_at")
+    return out
+
+
+@register(
+    "list_campaign_non_openers",
+    "List Founding Members on a campaign who received the email but "
+    "haven\u2019t opened it yet. Use to answer \u201cwho hasn\u2019t opened the "
+    "invitation?\u201d Returns compact rows (founder_number, first_name, "
+    "email, delivered_at). Default limit 25, max 100.",
+    args={
+        "campaign_id": {"type": "str", "required": True},
+        "limit":       {"type": "int", "required": False},
+    },
+    min_role="admin",
+)
+async def _list_campaign_non_openers(db: Any, args: dict) -> list[dict]:
+    limit = max(1, min(int(args.get("limit") or 25), 100))
+    q = {
+        "campaign_id": args["campaign_id"],
+        "delivered_at": {"$exists": True, "$ne": None},
+        "first_opened_at": {"$in": [None, ""]},
+        "status": {"$nin": ["bounced", "complained", "failed"]},
+    }
+    proj = {"_id": 0, "id": 1, "founder_id": 1, "founder_number": 1,
+            "first_name": 1, "email": 1, "delivered_at": 1}
+    # `first_opened_at` may also just be missing (never set) \u2014 handle
+    # via a second $or so we include both "field absent" and "field null".
+    q2 = dict(q)
+    q2.pop("first_opened_at", None)
+    q2["$or"] = [
+        {"first_opened_at": {"$exists": False}},
+        {"first_opened_at": None},
+        {"first_opened_at": ""},
+    ]
+    rows = await db.campaign_recipients.find(q2, proj).sort(
+        [("delivered_at", 1)]
+    ).to_list(limit)
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
 

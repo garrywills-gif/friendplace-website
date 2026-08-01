@@ -402,6 +402,25 @@ async def handle_event(db: Any, event: dict, raw_body_len: int) -> dict:
     await _flag_founder_if_needed(
         db, recipient=recipient, evt_type=evt_type, at=at,
     )
+
+    # Anomaly evaluation — after every bounce / complaint we recheck
+    # the campaign, and on a low-rate schedule after opens/clicks.
+    # Best-effort: never fail the webhook because anomaly detection had
+    # a hiccup. See services/campaign_anomalies.py for the rule set.
+    try:
+        from services import campaign_anomalies as _anom
+        # Cheap events (opens/clicks/delivered) don't need re-evaluation
+        # on every fire — only on state-changing terminal events. Keeps
+        # signal volume calm and avoids re-writing the same case on
+        # every open. Bounce and complaint always trigger.
+        should_evaluate = evt_type in (
+            "email.bounced", "email.complained", "email.delivered", "email.delivery_delayed",
+        )
+        if should_evaluate and recipient.get("campaign_id"):
+            await _anom.evaluate_and_signal(db, recipient["campaign_id"])
+    except Exception as e:  # noqa: BLE001
+        log.warning("anomaly evaluation raised (non-fatal): %s", e)
+
     return {"ok": True, "matched": True, "type": evt_type,
             "recipient_id": recipient.get("id"),
             "campaign_id":  recipient.get("campaign_id")}

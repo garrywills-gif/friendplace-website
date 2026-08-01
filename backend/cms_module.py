@@ -1729,6 +1729,41 @@ def build_router(db) -> APIRouter:
         ).sort([("founder_number", 1)]).to_list(1000)
         return {**_campaign_summary(c), "recipients": recipients}
 
+    @router.get("/campaigns/{campaign_id}/recipients/{recipient_id}/timeline")
+    async def campaigns_recipient_timeline(
+        campaign_id: str,
+        recipient_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Per-recipient event history for the drill-down modal.
+
+        Locked with Garry 1 Aug 2026: *"Every email is a timeline, not
+        just a status."* Returns the ordered event log so support can
+        answer "she says she never received it" with a real answer.
+        """
+        recip = await db.campaign_recipients.find_one(
+            {"id": recipient_id, "campaign_id": campaign_id}, {"_id": 0},
+        )
+        if not recip:
+            raise HTTPException(404, "Recipient not found on this campaign")
+        events = await db.campaign_recipient_events.find(
+            {"recipient_id": recipient_id, "campaign_id": campaign_id},
+            {"_id": 0, "type": 1, "at": 1, "meta": 1},
+        ).sort([("at", 1)]).to_list(200)
+        # Prepend a "sent" pseudo-event from the recipient row itself,
+        # so campaigns predating the webhook receiver still show a
+        # complete timeline (Resend can also emit email.sent AFTER we
+        # inserted the recipient, which we merge with dedupe).
+        if recip.get("sent_at"):
+            has_sent = any(e.get("type") == "email.sent" for e in events)
+            if not has_sent:
+                events.insert(0, {
+                    "type": "email.sent",
+                    "at":   recip["sent_at"],
+                    "meta": {"subject": recip.get("subject")},
+                })
+        return {"recipient": recip, "events": events}
+
     @router.patch("/campaigns/{campaign_id}")
     async def campaigns_update(campaign_id: str, payload: Dict[str, Any],
                                admin: dict = Depends(current_cms_admin)):  # noqa: ARG001

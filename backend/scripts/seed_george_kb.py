@@ -488,6 +488,99 @@ SEED: list[dict] = [
         "tags": ["launch", "deployment"],
         "sources": [{"label": "DEPLOY.md"}, {"label": "MCGS_SECURITY_MODEL.md"}],
     },
+
+    # ── CAMPAIGNS (CRM Phase 2B — Delivery & Engagement) ─────────
+    #
+    # These teach George how to answer campaign-performance questions
+    # by pointing him at the right read tools. All three entries are
+    # admin-only — campaign metrics never surface to members.
+    {
+        "id": "KB-FEAT-CAMPAIGNS-01", "type": "feature",
+        "title": "Answering \u201chow did the campaign perform?\u201d",
+        "body_md": (
+            "When an admin asks about email campaign performance "
+            "(open rate, click rate, delivered / bounced / complained "
+            "counts, \u201chow did yesterday\u2019s send do?\u201d) call the "
+            "`list_campaigns` tool with `sort_by=recent` for a "
+            "chronological summary, or `sort_by=open_rate` / `click_rate` "
+            "/ `bounce_rate` when the admin asks a comparative question "
+            "(\u201cbest open rate?\u201d, \u201cworst bounce rate?\u201d).\n\n"
+            "For a deep-dive on a specific campaign, call "
+            "`get_campaign_performance` with the campaign id returned by "
+            "`list_campaigns`. Report the four rates (delivery / open / "
+            "click / bounce) in plain English percentages, and mention "
+            "the raw counts so admins can spot small-sample effects."
+        ),
+        "tags": ["campaigns", "engagement", "resend"],
+        "visibility": "admin",
+    },
+    {
+        "id": "KB-FEAT-CAMPAIGNS-02", "type": "feature",
+        "title": "Answering \u201cwho hasn\u2019t opened the campaign yet?\u201d",
+        "body_md": (
+            "When an admin asks which Founding Members haven\u2019t opened "
+            "a specific campaign yet (\u201cwho hasn\u2019t seen the "
+            "invitation?\u201d), call `list_campaign_non_openers` with "
+            "the `campaign_id`. It returns the recipients who received "
+            "the email (i.e. Resend confirmed `delivered`) but haven\u2019t "
+            "fired an `email.opened` event yet.\n\n"
+            "Bounced or complained recipients are excluded automatically "
+            "(they\u2019ve already been opted out or flagged as invalid, so "
+            "chasing them for opens isn\u2019t useful)."
+        ),
+        "tags": ["campaigns", "engagement", "resend"],
+        "visibility": "admin",
+    },
+    {
+        "id": "KB-DEC-CAMPAIGNS-01", "type": "decision",
+        "title": "Every email is a timeline, not just a status",
+        "body_md": (
+            "Locked with Garry 1 Aug 2026. Resend fires per-email events "
+            "(sent \u2192 delivered \u2192 opened \u2192 clicked, plus bounce / "
+            "complaint / delivery_delayed). We persist all of them in "
+            "`campaign_recipient_events` so support can answer \u201cshe "
+            "says she never received it\u201d with a real answer.\n\n"
+            "Rollup counters live on `campaigns.stats` (accepted, "
+            "delivered, opened, clicked, bounced, complained, "
+            "unique_opens, unique_clicks) and per-recipient rollup fields "
+            "on `campaign_recipients` (first_opened_at, first_clicked_at, "
+            "open_count, click_count, bounce_type, last_event_type). "
+            "The raw signed webhook body is retained for 90 days in "
+            "`resend_webhook_events` so rollups can be rebuilt if "
+            "anything ever drifts.\n\n"
+            "Terminal events auto-protect sender reputation: a bounce "
+            "sets `email_invalid: true` on the founder; a spam complaint "
+            "sets `status: opted_out`. Both mean we never send to that "
+            "address again."
+        ),
+        "tags": ["campaigns", "resend", "webhooks", "architecture"],
+        "sources": [
+            {"label": "/app/backend/services/campaign_webhooks.py"},
+            {"label": "/app/backend/services/campaign_anomalies.py"},
+        ],
+        "visibility": "admin",
+    },
+    {
+        "id": "KB-DEC-CAMPAIGNS-02", "type": "decision",
+        "title": "Campaign anomalies surface on The Bridge",
+        "body_md": (
+            "When something unusual happens to a campaign, an MCGS "
+            "signal (`category=anomaly`, `producer=campaign_anomalies`) "
+            "is created and shows up on The Bridge alongside every "
+            "other kind of anomaly. Four rules are watched:\n\n"
+            "- **High bounce rate** (>5% AND accepted \u2265 20) \u2014 P1\n"
+            "- **Any spam complaint** \u2014 P1\n"
+            "- **Delivery rate <90%** (accepted \u2265 50) \u2014 P2\n"
+            "- **High opens, low clicks** (>30% opens AND <1% clicks "
+            "after 4h, opens \u2265 10) \u2014 P3\n\n"
+            "Signals are deduped per campaign+rule via case_key, so a "
+            "campaign that keeps receiving bounces produces one Bridge "
+            "card that gets refreshed \u2014 not one card per bounce."
+        ),
+        "tags": ["campaigns", "anomaly", "bridge", "mcgs"],
+        "sources": [{"label": "/app/backend/services/campaign_anomalies.py"}],
+        "visibility": "admin",
+    },
 ]
 
 
