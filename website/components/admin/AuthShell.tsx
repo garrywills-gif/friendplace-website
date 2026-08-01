@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
  * Auth page container — used by setup / login / forgot / reset. Keeps
@@ -16,7 +17,7 @@ export function AuthShell({ title, subtitle, children }: {
     <div style={outer}>
       <div style={card}>
         <Link href="/" style={brand}>
-          <span style={{ fontSize: 26 }}>🦋</span>
+          <span style={{ display: 'inline-flex', width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}><GeorgeButterflyMark size={32} /></span>
           <span>FriendPlace</span>
         </Link>
         <div style={{ marginTop: 8, fontSize: 12, letterSpacing: '0.15em', color: '#14B8A6', fontWeight: 800, textTransform: 'uppercase' }}>

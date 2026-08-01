@@ -7,6 +7,7 @@ import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi } from '@/lib/cms-api';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
  * Sidebar structure — grouped by domain. Items marked `soon: true`
@@ -145,7 +146,9 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
     <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: 'Public Sans, system-ui, sans-serif', display: 'flex' }}>
       <aside style={sidebar}>
         <Link href="/admin/bridge" style={sidebarBrand}>
-          <span style={{ fontSize: 34, lineHeight: 1 }}>🦋</span>
+          <span style={{ display: 'inline-flex', width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+            <GeorgeButterflyMark size={40} />
+          </span>
           <div>
             <div style={{ fontSize: 19, fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.01em' }}>FriendPlace</div>
             <div style={{ fontSize: 11, letterSpacing: '0.14em', color: '#5EEAD4', fontWeight: 800, textTransform: 'uppercase', marginTop: 2 }}>Mission Control</div>
@@ -169,7 +172,18 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                     style={navLink}
                     data-active={active ? '1' : '0'}
                   >
-                    <span style={{ fontSize: 18 }}>{item.icon}</span>
+                    <span style={{
+                      fontSize: 18,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 22,
+                      height: 22,
+                    }}>
+                      {item.icon === '🦋'
+                        ? <GeorgeButterflyMark size={22} />
+                        : item.icon}
+                    </span>
                     <span style={{ flex: 1 }}>{item.label}</span>
                     {item.soon && !active && <span style={soonPill}>Soon</span>}
                     {badgeCount > 0 && (
@@ -214,9 +228,9 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
         </div>
       </aside>
 
-      <main style={mainCol}>
+      <main className="cms-main-col">
         <AskGeorgeBar />
-        <div style={{ padding: '24px 40px 64px' }}>
+        <div className="cms-main-inner">
           {title && <h1 style={pageTitle}>{title}</h1>}
           {children}
         </div>
@@ -233,7 +247,8 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
 }
 
 const sidebar: React.CSSProperties = {
-  width: 260,
+  width: 240,
+  flexShrink: 0,
   background: 'linear-gradient(180deg, #0A2540 0%, #0F2E52 100%)',
   color: '#FFFFFF',
   display: 'flex',
@@ -294,7 +309,7 @@ const footerBtn: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
 };
-const mainCol: React.CSSProperties = { flex: 1, maxWidth: 1400, width: '100%' };
+const mainCol: React.CSSProperties = { flex: 1, minWidth: 0, width: '100%' };
 const pageTitle: React.CSSProperties = { fontSize: 28, color: '#0A2540', fontWeight: 900, marginTop: 0, marginBottom: 24 };
 
 // Reusable button/panel styles for admin editor pages.

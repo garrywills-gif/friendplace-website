@@ -2,6 +2,7 @@
 
 import { mcgsApi, type Case, type SignalStatus } from '@/lib/mcgs-api';
 import { useState } from 'react';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 interface SignalCardProps {
   case_: Case;
@@ -109,7 +110,7 @@ export function SignalCard({ case_, onChanged }: SignalCardProps) {
           borderRadius: 10, padding: '10px 12px',
         }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-            <span style={{ fontSize: 14 }} aria-hidden>🦋</span>
+            <span style={{ display: 'inline-flex', width: 14, height: 14, alignItems: 'center', justifyContent: 'center' }} aria-hidden><GeorgeButterflyMark size={14} /></span>
             <span style={{ fontWeight: 700, fontSize: 12, color: '#0F766E', letterSpacing: '0.02em' }}>
               GEORGE&apos;S READ
             </span>

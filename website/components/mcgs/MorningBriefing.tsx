@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { rhythmsApi, type BriefingRow } from '@/lib/mcgs-api';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 interface Props {
   onAsk?: (message: string) => void;
@@ -116,7 +117,7 @@ export function MorningBriefing({ onAsk }: Props) {
     return (
       <section style={skeletonCard} aria-live="polite" aria-busy="true">
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <span style={{ fontSize: 26 }} aria-hidden>🦋</span>
+          <span style={{ display: 'inline-flex', width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }} aria-hidden><GeorgeButterflyMark size={26} /></span>
           <div style={{ flex: 1 }}>
             <div style={eyebrow}>MORNING BRIEFING</div>
             <div style={{ ...bodyText, color: '#94A3B8', marginTop: 8 }}>
@@ -133,7 +134,7 @@ export function MorningBriefing({ onAsk }: Props) {
     return (
       <section style={emptyCard}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <span style={{ fontSize: 26 }} aria-hidden>🦋</span>
+          <span style={{ display: 'inline-flex', width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }} aria-hidden><GeorgeButterflyMark size={26} /></span>
           <div style={{ flex: 1 }}>
             <div style={eyebrow}>MORNING BRIEFING</div>
             <div style={{ ...bodyText, marginTop: 8 }}>
@@ -173,7 +174,7 @@ export function MorningBriefing({ onAsk }: Props) {
       <div style={{ marginBottom: 20 }}>
         {closing && (
           <div style={closingLine} aria-live="polite">
-            <span aria-hidden style={{ fontSize: 14, marginRight: 6 }}>🦋</span>
+            <span aria-hidden style={{ display: 'inline-flex', width: 14, height: 14, alignItems: 'center', justifyContent: 'center', marginRight: 6 }}><GeorgeButterflyMark size={14} /></span>
             <span>{closing}</span>
             <span style={{ marginLeft: 8, color: '#94A3B8' }}>— George</span>
           </div>
@@ -183,7 +184,7 @@ export function MorningBriefing({ onAsk }: Props) {
           onClick={() => { setDismissed(false); setClosing(null); }}
           role="button" tabIndex={0}
         >
-          <span style={{ fontSize: 18 }} aria-hidden>🦋</span>
+          <span style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }} aria-hidden><GeorgeButterflyMark size={18} /></span>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#0F766E', letterSpacing: '0.03em' }}>
             MORNING BRIEFING · read
           </span>
@@ -204,7 +205,7 @@ export function MorningBriefing({ onAsk }: Props) {
   return (
     <section style={briefingCard} aria-labelledby="morning-briefing-heading">
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 26 }} aria-hidden>🦋</span>
+        <span style={{ display: 'inline-flex', width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }} aria-hidden><GeorgeButterflyMark size={26} /></span>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <div id="morning-briefing-heading" style={eyebrow}>MORNING BRIEFING</div>

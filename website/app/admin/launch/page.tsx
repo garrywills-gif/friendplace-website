@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminShell } from '@/components/admin/AdminShell';
 import { AskGeorgeAboutThis } from '@/components/mcgs/AskGeorgeAboutThis';
 import { cmsApi, type LaunchReadiness, type LaunchSettings } from '@/lib/cms-api';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 export default function LaunchPage() {
   const [settings, setSettings] = useState<LaunchSettings | null>(null);

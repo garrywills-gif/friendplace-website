@@ -29,9 +29,9 @@ export default function BridgePage() {
           </div>
         </header>
 
-        <div style={grid}>
+        <div className="cms-two-col">
           {/* Left / main column */}
-          <div>
+          <div className="cms-grid-child">
             <MorningBriefing onAsk={dispatchAsk} />
 
             <FoundingMembersCard />
@@ -44,7 +44,7 @@ export default function BridgePage() {
           </div>
 
           {/* Right rail */}
-          <aside style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <aside className="cms-grid-child" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <GeorgePresenceCard onAsk={dispatchAsk} />
 
             <GeorgeSuggestionCard />
@@ -86,13 +86,8 @@ export default function BridgePage() {
   );
 }
 
-const container: React.CSSProperties = { maxWidth: 1400, margin: '0 auto' };
+const container: React.CSSProperties = { maxWidth: 1600, margin: '0 auto' };
 const heroWrap: React.CSSProperties = { marginBottom: 20 };
-const grid: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1fr) 320px',
-  gap: 24,
-};
 const pulseCard: React.CSSProperties = {
   background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 18,
   boxShadow: '0 1px 3px rgba(15,23,42,0.04)',

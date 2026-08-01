@@ -22,6 +22,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 export type LaunchStatus = {
   enabled: boolean;
@@ -138,7 +139,7 @@ export function LaunchCountdownRibbon({ initial }: { initial: LaunchStatus | nul
   return (
     <div style={ribbon} role="region" aria-label="FriendPlace launch countdown">
       <div style={inner}>
-        <span style={butterfly} aria-hidden>🦋</span>
+        <span style={butterfly} aria-hidden><GeorgeButterflyMark size={22} /></span>
         <span style={label}>FriendPlace launches in</span>
         <span style={countdownGroup} aria-live="polite">
           <TimeSegment value={view.days} label="Days" />

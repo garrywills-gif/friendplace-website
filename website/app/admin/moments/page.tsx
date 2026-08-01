@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { momentsApi, type MomentRow, type MomentAdminAction } from '@/lib/cms-api';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
  * Share a Moment — Mission Control moderation.
@@ -171,7 +172,7 @@ export default function AdminMomentsPage() {
         <p style={{ color: '#64748B', marginTop: 24 }}>Loading moments…</p>
       ) : rows.length === 0 ? (
         <div style={emptyBox}>
-          <div style={{ fontSize: 40 }}>🦋</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><GeorgeButterflyMark size={48} /></div>
           <div style={{ color: '#0A2540', fontSize: 18, fontWeight: 800, marginTop: 8 }}>
             {filter === 'all' ? 'No moments yet' : 'Nothing in this view'}
           </div>

@@ -37,6 +37,7 @@ import {
   type EventDraft,
   type EventApprovalResult,
 } from '@/lib/george-api';
+import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 
 // ---- Surface chrome ------------------------------------------------------
 
@@ -261,7 +262,7 @@ export function GeorgeConversation({ seedMessage, chrome }: GeorgeConversationPr
 function EmptyState({ onPick }: { onPick: (t: string) => void }) {
   return (
     <div style={emptyState}>
-      <div style={butterflyBig}>🦋</div>
+      <div style={butterflyBig}><GeorgeButterflyMark size={64} /></div>
       <h2 style={{ fontSize: 22, letterSpacing: '-0.01em', color: '#0F172A', margin: '10px 0 6px' }}>
         Let&rsquo;s create something.
       </h2>
@@ -295,10 +296,11 @@ function ChatTurn({ turn }: { turn: EventTurn }) {
     }}>
       <div style={{
         width: 34, height: 34, borderRadius: 18, flexShrink: 0,
-        background: isUser ? '#E2E8F0' : 'linear-gradient(135deg,#14B8A6,#38BDF8)',
+        background: isUser ? '#E2E8F0' : '#FFFFFF',
+        border: isUser ? 'none' : '1px solid #E2E8F0',
         color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 17,
-      }}>{isUser ? '👤' : '🦋'}</div>
+      }}>{isUser ? '👤' : <GeorgeButterflyMark size={26} />}</div>
       <div style={{
         maxWidth: '80%',
         background: isUser ? '#FFFFFF' : '#CCFBF1',
@@ -323,10 +325,11 @@ function WorkingRow({ label }: { label: string }) {
     <div style={{ display: 'flex', gap: 12, padding: '8px 4px', alignItems: 'center' }}>
       <div style={{
         width: 34, height: 34, borderRadius: 18,
-        background: 'linear-gradient(135deg,#14B8A6,#38BDF8)',
+        background: '#FFFFFF',
+        border: '1px solid #E2E8F0',
         color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 17,
-      }}>🦋</div>
+      }}><GeorgeButterflyMark size={26} /></div>
       <div style={{
         display: 'flex', gap: 8, alignItems: 'center',
         background: '#CCFBF1', border: '1px solid #5EEAD4',
@@ -505,7 +508,7 @@ function SuccessScreen({
   return (
     <div style={successWrap}>
       <div style={successCard}>
-        <div style={{ fontSize: 42, lineHeight: 1 }}>🦋</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><GeorgeButterflyMark size={44} /></div>
         <h2 style={{ fontSize: 22, margin: '10px 0 6px', color: '#0F172A', letterSpacing: '-0.01em' }}>
           {headline}
         </h2>

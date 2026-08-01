@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 interface GeorgePresenceProps {
   onAsk?: (message?: string) => void;
@@ -35,7 +36,9 @@ export function GeorgePresenceCard({ onAsk }: GeorgePresenceProps) {
   return (
     <div style={card}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <div style={butterflyCircle} aria-hidden>🦋</div>
+        <div style={butterflyCircle} aria-hidden>
+          <GeorgeButterflyMark size={30} />
+        </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 800, fontSize: 15, color: '#0F172A' }}>George</div>
           <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
@@ -73,14 +76,14 @@ const card: React.CSSProperties = {
 };
 const butterflyCircle: React.CSSProperties = {
   width: 44, height: 44, borderRadius: 22, flexShrink: 0,
-  background: 'linear-gradient(135deg,#14B8A6,#38BDF8)',
+  background: 'linear-gradient(135deg,#0EA5E9,#1E40AF)',
   color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: 22, filter: 'drop-shadow(0 4px 8px rgba(20,184,166,0.35))',
+  filter: 'drop-shadow(0 4px 8px rgba(14,165,233,0.35))',
 };
 const askBtn: React.CSSProperties = {
   width: '100%', padding: '10px 14px', marginTop: 12,
   borderRadius: 10, border: 'none', fontWeight: 800, fontSize: 14,
-  color: '#FFFFFF', background: 'linear-gradient(135deg,#14B8A6,#38BDF8)',
+  color: '#FFFFFF', background: 'linear-gradient(135deg,#0EA5E9,#1E40AF)',
   cursor: 'pointer',
 };
 const helpRow: React.CSSProperties = {

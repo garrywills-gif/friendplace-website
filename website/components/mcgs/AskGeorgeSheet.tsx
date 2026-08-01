@@ -5,6 +5,7 @@ import { askGeorge, speakText, transcribeAudio, type GeorgeStreamEvent } from '@
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
 import { useGeorgeSession, type GeorgeTurn } from '@/lib/george-session';
 import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
  * The Ask George bottom-sheet. Streaming grounded chat with George.
@@ -366,7 +367,7 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
       <div style={sheet} onClick={e => e.stopPropagation()}>
         <div style={sheetHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={butterflyBig}>🦋</span>
+            <span style={butterflyBig}><GeorgeButterflyMark size={48} /></span>
             <div>
               <div style={{ fontWeight: 800, fontSize: 16 }}>George</div>
               <div style={{ fontSize: 12, color: '#64748B' }}>Chief of staff · grounded in live data</div>
@@ -648,10 +649,11 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
     }}>
       <div style={{
         width: 32, height: 32, borderRadius: 16, flexShrink: 0,
-        background: isUser ? '#E2E8F0' : 'linear-gradient(135deg,#14B8A6,#38BDF8)',
+        background: isUser ? '#E2E8F0' : '#FFFFFF',
+        border: isUser ? 'none' : '1px solid #E2E8F0',
         color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: 16,
-      }}>{isUser ? '👤' : '🦋'}</div>
+      }}>{isUser ? '👤' : <GeorgeButterflyMark size={24} />}</div>
       <div style={{
         maxWidth: '78%',
         background: isUser ? '#F1F5F9' : '#F0FDFA',

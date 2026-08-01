@@ -5,6 +5,7 @@ import { AskGeorgeSheet } from './AskGeorgeSheet';
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
 import { transcribeAudio } from '@/lib/mcgs-api';
 import { useGeorgeSession } from '@/lib/george-session';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
  * The Ask George bar — persistent at the top of every MCGS screen.
@@ -126,7 +127,9 @@ export function AskGeorgeBar() {
     <>
       <div style={barWrap}>
         <div style={bar}>
-          <span style={butterfly} aria-hidden>🦋</span>
+          <span style={butterfly} aria-hidden>
+            <GeorgeButterflyMark size={22} />
+          </span>
 
           {/* Recording indicator */}
           <div style={{
@@ -250,7 +253,7 @@ export function AskGeorgeBar() {
 // ---- styles ----
 const barWrap: React.CSSProperties = {
   position: 'sticky', top: 0, zIndex: 40,
-  padding: '12px 32px', background: 'linear-gradient(180deg,#FEFCF8,#FEFCF8 70%,rgba(254,252,248,0.85))',
+  padding: '12px 28px', background: 'linear-gradient(180deg,#FEFCF8,#FEFCF8 70%,rgba(254,252,248,0.85))',
   borderBottom: '1px solid #F1F5F9',
 };
 const bar: React.CSSProperties = {
@@ -261,8 +264,11 @@ const bar: React.CSSProperties = {
   boxShadow: '0 2px 8px rgba(15,23,42,0.04)',
 };
 const butterfly: React.CSSProperties = {
-  fontSize: 20, lineHeight: 1,
-  filter: 'drop-shadow(0 2px 3px rgba(20,184,166,0.35))',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 22, height: 22,
+  filter: 'drop-shadow(0 2px 3px rgba(14,165,233,0.35))',
 };
 const input_: React.CSSProperties = {
   flex: 1, border: 'none', outline: 'none', fontSize: 15,
@@ -298,7 +304,7 @@ const cmdHint: React.CSSProperties = {
 };
 const askBtn: React.CSSProperties = {
   padding: '8px 16px', borderRadius: 10,
-  background: 'linear-gradient(135deg,#14B8A6,#38BDF8)',
+  background: 'linear-gradient(135deg,#0EA5E9,#1E40AF)',
   color: '#FFFFFF', border: 'none', fontWeight: 800, fontSize: 14,
   cursor: 'pointer',
 };

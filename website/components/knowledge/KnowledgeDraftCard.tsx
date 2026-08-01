@@ -2,6 +2,7 @@
 
 import { type KnowledgeEntry } from '@/lib/cms-api';
 import { VisibilityBadge, TypeBadge, formatRelative } from './KnowledgeBadges';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
  * KnowledgeDraftCard — the prominent card George shows above the
@@ -20,7 +21,7 @@ export function KnowledgeDraftCard({
   return (
     <div style={card}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-        <span style={draftBadge}>🦋 George proposed</span>
+        <span style={draftBadge}><span style={{ display: 'inline-flex', width: 14, height: 14, marginRight: 4, verticalAlign: 'middle' }}><GeorgeButterflyMark size={14} /></span>George proposed</span>
         <TypeBadge type={entry.type} />
         <VisibilityBadge visibility={entry.visibility} />
         <span style={{ marginLeft: 'auto', fontSize: 12, color: '#78350F' }}>

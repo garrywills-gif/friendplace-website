@@ -27,6 +27,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 // Two-beat timing. Kept in one place so we can fine-tune the rhythm.
 // Reduced-motion visitors get shorter delays (still intentional, but
@@ -107,7 +108,7 @@ export default function HeroInvitation() {
         }}
         aria-label="Meet George or Georgia — the FriendPlace welcome host"
       >
-        <span aria-hidden style={{ fontSize: 18 }}>🦋</span>
+        <span aria-hidden style={{ display: 'inline-flex', width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }}><GeorgeButterflyMark size={22} /></span>
         <span>Meet George or Georgia</span>
       </Link>
 

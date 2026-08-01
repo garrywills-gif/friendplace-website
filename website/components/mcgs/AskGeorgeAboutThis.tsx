@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
  * "Ask George about this" — the small reusable affordance that lives on
@@ -94,7 +95,7 @@ export function AskGeorgeAboutThis({
         style={compact ? compactBtn : primaryBtn}
         aria-label={label}
       >
-        <span aria-hidden style={{ fontSize: 14 }}>🦋</span>
+        <span aria-hidden style={{ display: 'inline-flex', width: 14, height: 14, alignItems: 'center', justifyContent: 'center' }}><GeorgeButterflyMark size={14} /></span>
         {!compact && <span>{label}</span>}
       </button>
     );
@@ -113,7 +114,7 @@ export function AskGeorgeAboutThis({
         }}
         aria-label={label}
       >
-        <span aria-hidden style={{ fontSize: 14 }}>🦋</span>
+        <span aria-hidden style={{ display: 'inline-flex', width: 14, height: 14, alignItems: 'center', justifyContent: 'center' }}><GeorgeButterflyMark size={14} /></span>
         {!compact && <span>{label}</span>}
         {!compact && <span aria-hidden style={{ opacity: 0.6, marginLeft: 2 }}>▾</span>}
       </summary>
