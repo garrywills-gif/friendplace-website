@@ -236,22 +236,23 @@ async def get_daily_welcome(
         return (txt or "").replace("{first_name}", first_name)
 
     # Choose the SHAPE of the greeting first — that's what makes George
-    # feel human rather than templated. Locked with Garry, 1 Aug 2026:
-    # "Real people don't greet you exactly the same way every morning."
+    # feel human rather than templated.
     #
-    # Shape distribution:
-    #   25% opener only
-    #   30% opener + warm_thought
-    #   30% opener + invitation
-    #   15% opener + warm_thought + invitation
+    # Rhythm locked with Garry, 1 Aug 2026:
+    #   > Greeting → one warm thought OR one invitation → done.
+    #   > Never both. The shorter George is, the more natural he feels.
+    #
+    # Shape distribution (three shapes only, no combined thought+invitation):
+    #   30% opener only
+    #   35% opener + warm_thought
+    #   35% opener + invitation
     #
     # If a callback fires today, it takes the place of the warm_thought
     # (see below) — a callback IS a warm thought, just a specific one.
     _SHAPES = (
-        ("opener_only",                25),
-        ("opener_thought",             30),
-        ("opener_invitation",          30),
-        ("opener_thought_invitation",  15),
+        ("opener_only",         30),
+        ("opener_thought",      35),
+        ("opener_invitation",   35),
     )
     shape = random.choices(
         [s[0] for s in _SHAPES], weights=[s[1] for s in _SHAPES], k=1,
@@ -305,7 +306,7 @@ async def get_daily_welcome(
     # IS a warm thought — just a specific, personal one). Falling back
     # to None here so the shape stays valid until Remembers ships.
     callback: Optional[str] = None
-    if callback and shape in ("opener_thought", "opener_thought_invitation"):
+    if callback and shape == "opener_thought":
         warm_thought_text = callback
 
     # Bookkeep. Do it even for force=True so a preview doesn't leave the

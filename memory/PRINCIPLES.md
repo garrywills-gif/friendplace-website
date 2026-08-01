@@ -85,12 +85,15 @@ into conflict, the principles win.
    > don't ask anything at all. That's the humanity we want
    > George to have.
 
-   Concretely: the Daily Welcome composes ONE OF FOUR SHAPES per
+   Concretely: the Daily Welcome composes ONE OF THREE SHAPES per
    day, weighted so no shape dominates:
-   - opener only *(25%)*
-   - opener + warm thought *(30%)*
-   - opener + invitation *(30%)*
-   - opener + warm thought + invitation *(15%)*
+   - opener only *(30%)*
+   - opener + one warm thought *(35%)*
+   - opener + one invitation *(35%)*
+
+   Never a warm thought AND an invitation together. Locked with
+   Garry, 1 Aug 2026: *"Never more than one thought and one
+   invitation. The shorter George is, the more natural he'll feel."*
 
    The greeting library lives in the `george_greetings` Mongo
    collection — data-driven, admin-editable, seasonal-scheduling
