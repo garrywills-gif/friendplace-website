@@ -14,6 +14,7 @@ import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import FirstRunCard from "@/src/components/FirstRunCard";
 import BrandLockup from "@/src/components/BrandLockup";
 import MyStatusCard from "@/src/components/status/MyStatusCard";
+import { DailyWelcomeCard } from "@/src/components/george/DailyWelcomeCard";
 import { GeorgeRemembersBanner } from "@/src/components/george/GeorgeRemembersBanner";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -357,6 +358,12 @@ export default function Home() {
           <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{user?.first_name || "Friend"}</Text>
           <Text style={{ fontSize: 26 * scale }} accessibilityLabel="butterfly">🦋</Text>
         </View>
+
+        {/* George's Daily Welcome — the first-open-of-the-day hello.
+            Data-driven from `/api/mcgs/george/daily-welcome`; renders
+            nothing on subsequent opens the same calendar day.
+            See `/app/memory/design-morning-welcome.md`. */}
+        <DailyWelcomeCard />
 
         {/* Presence & Status — My Status card. Sits directly under the
             greeting so it's the first thing members reach when they

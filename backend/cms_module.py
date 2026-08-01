@@ -4430,6 +4430,77 @@ def build_router(db) -> APIRouter:
         coverage = await _kbg.coverage_summary(db, days=7)
         return {"items": rows, "coverage": coverage}
 
+    # ── George Daily Welcome (greeting library CRUD) ─────────────────
+    @router.get("/george/greetings")
+    async def list_greetings(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        from services.george import daily_welcome as _dw
+        rows = await _dw.list_greetings(db)
+        return {"items": rows}
+
+    @router.post("/george/greetings")
+    async def create_greeting(
+        body: dict = Body(...),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        from services.george import daily_welcome as _dw
+        body = dict(body or {})
+        body["created_by"] = admin.get("email") or "admin"
+        try:
+            saved = await _dw.upsert_greeting(db, body)
+        except ValueError as ve:
+            raise HTTPException(400, str(ve))
+        await _audit.log_admin_action(
+            db, admin=admin, action="george.greetings.create",
+            metadata={"id": saved.get("id"), "text": saved.get("text")},
+        )
+        return saved
+
+    @router.patch("/george/greetings/{gid}")
+    async def update_greeting(
+        gid: str,
+        body: dict = Body(...),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        from services.george import daily_welcome as _dw
+        patch = dict(body or {})
+        patch["id"] = gid
+        try:
+            saved = await _dw.upsert_greeting(db, patch)
+        except ValueError as ve:
+            raise HTTPException(400, str(ve))
+        await _audit.log_admin_action(
+            db, admin=admin, action="george.greetings.update",
+            metadata={"id": gid},
+        )
+        return saved
+
+    @router.delete("/george/greetings/{gid}")
+    async def delete_greeting(
+        gid: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        from services.george import daily_welcome as _dw
+        ok = await _dw.delete_greeting(db, gid)
+        if not ok:
+            raise HTTPException(404, "Greeting not found")
+        await _audit.log_admin_action(
+            db, admin=admin, action="george.greetings.delete", metadata={"id": gid},
+        )
+        return {"ok": True}
+
+    @router.get("/george/greetings/preview")
+    async def preview_greeting(
+        first_name: str = "Margaret",
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Preview a greeting without burning the current admin's
+        once-per-day slot. Handy for shaping copy."""
+        from services.george import daily_welcome as _dw
+        # Use a stub user so we don't hit the state collection at all.
+        return await _dw.get_daily_welcome(
+            db, user={"id": None, "first_name": first_name}, force=True,
+        )
+
     # ── Launch Manager ───────────────────────────────────────────────
     from services import launch as _launch
 

@@ -9876,6 +9876,17 @@ async def _ensure_mcgs_indexes():
     except Exception:
         logger.exception("George KB grounding index setup failed (non-fatal)")
 
+    # Daily Welcome — data-driven first-open greeting for members.
+    # Seeds the default greeting pool from Garry's locked wording
+    # (idempotent — won't reintroduce rows an admin has retired).
+    try:
+        from services.george import daily_welcome as _dw
+        await _dw.ensure_indexes(db)
+        seed = await _dw.seed_defaults(db)
+        logger.info("George daily welcome indexes verified (seeded=%d).", seed.get("inserted", 0))
+    except Exception:
+        logger.exception("George daily welcome setup failed (non-fatal)")
+
 
 
 @app.on_event("startup")

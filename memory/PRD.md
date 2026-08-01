@@ -288,3 +288,41 @@ once. Verified by retrieval across all three surfaces.
 > Teach George something once — anywhere — and every George that's
 > allowed to see it knows it immediately. No hardcoded prompt strings
 > to update. No parallel knowledge stores drifting apart.
+
+
+## 1 August 2026 — Daily Welcome shipped, data-driven end to end
+
+Every FriendPlace member now sees George's greeting the first time they open the app each calendar day. Not before, not after. Not on refresh. Not on second visit. Just once, warmly, when they walk in.
+
+- **Storage-driven**: greetings live in `george_greetings` (Mongo). Three kinds — `opener`, `warm_thought`, `invitation` — each with band (morning/afternoon/evening/any), weight, seasonal window, and an active flag. Zero greeting strings hardcoded in the Expo app.
+- **Shape variation**: the backend picks one of four SHAPES per day, weighted so no shape dominates. 25% opener only. 30% opener+warm. 30% opener+invitation. 15% all three. Locked with Garry: *"real people don't greet you the same way every morning."*
+- **Collision guard**: a small heuristic drops a warm thought that would create redundant phrasing with the chosen opener ("Nice to see you… It's lovely to see you." now becomes just "Nice to see you.").
+- **Callback ready**: `callback` field in the payload replaces the warm thought when we ship "George remembers, gently" wiring. Today it returns null but the shape is stable.
+- **Once per calendar day**: gated by `george_daily_welcome_state.{user_id, last_date}`. Local timezone from the user document; falls back to Australia/Melbourne. Force-preview available for admins via `GET /api/cms/george/greetings/preview`.
+- **Admin CRUD**: full `/api/cms/george/greetings/*` set (list/create/update/delete/preview) so Garry (or any future admin) can add, retire, or seasonally schedule greetings without a deploy.
+- **New public KB entry** `KB-PRIN-GREETS-LIKE-A-PERSON` seeded and embedded so every George everywhere knows the principle.
+
+### Endpoints
+- `GET /api/mcgs/george/daily-welcome` — member client hits this on Home mount. Returns `{shown, opener, warm_thought, invitation, callback, shape, band, date}` or `{shown: false}`.
+- `GET /api/cms/george/greetings` — admin list.
+- `POST /api/cms/george/greetings` — create.
+- `PATCH /api/cms/george/greetings/{id}` — update.
+- `DELETE /api/cms/george/greetings/{id}` — delete.
+- `GET /api/cms/george/greetings/preview?first_name=Margaret` — preview without burning any user's daily slot.
+
+### Files
+- `/app/backend/services/george/daily_welcome.py` — NEW; all the greeting logic + seed + admin CRUD helpers.
+- `/app/backend/mcgs_module.py` — member endpoint.
+- `/app/backend/cms_module.py` — admin CRUD + preview.
+- `/app/backend/server.py` — index+seed at startup.
+- `/app/frontend/src/lib/george-api.ts` — `dailyWelcome()`.
+- `/app/frontend/src/components/george/DailyWelcomeCard.tsx` — NEW.
+- `/app/frontend/app/(tabs)/home.tsx` — mount above `MyStatusCard`.
+- `/app/memory/PRINCIPLES.md` — added principle 8.
+- `/app/memory/design-morning-welcome.md` — locked spec.
+
+### Next up (per Garry's priority order)
+- CRM Phase 2B (Resend delivery webhooks) — blocked on webhook URL in Resend dashboard.
+- CRM Phase 2C (Segments).
+- Wire George Remembers → Daily Welcome callback field once the "remembering plain-language facts" feature is scoped.
+- Mission Control admin page for the Greeting Library (`/admin/knowledge/greetings`) — quality-of-life; low priority.

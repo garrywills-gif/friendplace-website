@@ -220,6 +220,19 @@ export const georgeApi = {
   introduced: () => _req<{ ok: boolean; george_first_met_at: string }>(
     '/mcgs/george/introduced', { method: 'POST' },
   ),
+  // Daily welcome — data-driven first-open-of-the-day greeting.
+  // Returns {shown: false} on subsequent opens the same local calendar
+  // day; the client just doesn't render the card in that case.
+  dailyWelcome: () => _req<{
+    shown: boolean;
+    opener?: string;
+    warm_thought?: string | null;
+    invitation?: string | null;
+    callback?: string | null;
+    shape?: string;
+    band?: 'morning' | 'afternoon' | 'evening';
+    date?: string;
+  }>('/mcgs/george/daily-welcome'),
   // Onboarding
   onboardingStart: () => _req<any>(
     '/mcgs/george/onboarding/start', { method: 'POST', body: JSON.stringify({}) },

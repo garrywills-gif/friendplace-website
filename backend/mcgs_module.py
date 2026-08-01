@@ -554,6 +554,26 @@ def build_router(db) -> APIRouter:
     # /api/mcgs/george/event/*  — Conversational Event Creation (Phase 3)
     # =====================================================================
 
+    # ── Daily Welcome ──────────────────────────────────────────────
+    # First-open-of-the-day greeting. Data-driven from the
+    # `george_greetings` collection so admins can add/retire/season
+    # greetings without a deploy. Returns {shown: False} on any open
+    # after the first one that calendar day (user's local tz).
+    @router.get("/mcgs/george/daily-welcome")
+    async def api_daily_welcome(
+        force: bool = False,
+        actor: dict = Depends(current_george_actor),
+    ):
+        from services.george import daily_welcome as _dw
+        # Look up the full user doc so we have first_name + timezone.
+        user_doc = await db.users.find_one(
+            {"id": actor.get("id")},
+            {"_id": 0, "id": 1, "first_name": 1, "timezone": 1},
+        ) or {"id": actor.get("id"), "first_name": actor.get("name") or ""}
+        return await _dw.get_daily_welcome(
+            db, user=user_doc, tz_name=user_doc.get("timezone"), force=bool(force),
+        )
+
     @router.post("/mcgs/george/event/start")
     async def api_event_start(
         body: EventConversationStartIn,
