@@ -15,6 +15,7 @@ import AvatarBubble from "@/src/components/AvatarBubble";
 import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderBadge from "@/src/components/FounderBadge";
 import FounderMark from "@/src/components/FounderMark";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 const ALL_BADGES = [
   "Friendly Member", "Helpful Neighbour", "Social Star", "Community Builder",
@@ -198,7 +199,7 @@ export default function Profile() {
             opacity: pressed ? 0.85 : 1,
           }]}
         >
-          <Text style={{ fontSize: 28 }}>🦋</Text>
+          <GeorgeButterflyMark size={28} />
           <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
             <View>
               <Text style={{ color: c.muted, fontSize: 12 * scale, fontWeight: "700", letterSpacing: 0.5 }}>YOU JOINED BECAUSE</Text>
@@ -449,7 +450,7 @@ export default function Profile() {
             { backgroundColor: "#FEF3C7", borderColor: "#D4A017", opacity: pressed ? 0.85 : 1 },
           ]}
         >
-          <Text style={{ fontSize: 26 }}>🦋</Text>
+          <GeorgeButterflyMark size={26} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={{ color: "#7C5300", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.6 }}>
               FOUNDERS WALL
@@ -462,7 +463,7 @@ export default function Profile() {
         </Pressable>
       ) : founderRemaining != null && founderRemaining === 0 ? (
         <View style={[styles.founderRow, { backgroundColor: "#F1F5F9", borderColor: "#CBD5E1" }]}>
-          <Text style={{ fontSize: 26 }}>🦋</Text>
+          <GeorgeButterflyMark size={26} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={{ color: "#334155", fontWeight: "900", fontSize: 12 * scale, letterSpacing: 0.6 }}>
               FOUNDING MEMBERS FULL
@@ -483,7 +484,7 @@ export default function Profile() {
           ]}
         >
           <View style={styles.upgradeFounderRow}>
-            <Text style={{ fontSize: 34 }}>🦋</Text>
+            <GeorgeButterflyMark size={34} />
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={{ color: "#FDE68A", fontWeight: "900", fontSize: 11 * scale, letterSpacing: 0.8 }}>
                 LIMITED SPOTS · JOIN FREE

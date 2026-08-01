@@ -177,7 +177,7 @@ export default function LaunchPage() {
           {/* George's Launch Readiness — observation, not checklist */}
           <section style={readinessCard(readiness.tone)}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 20 }}>🦋</span>
+              <span style={{ display: 'inline-flex', width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }}><GeorgeButterflyMark size={22} /></span>
               <span style={readinessLabel}>George&apos;s Launch Readiness</span>
               <span style={{ marginLeft: 'auto' }}>
                 <AskGeorgeAboutThis
@@ -222,7 +222,7 @@ export default function LaunchPage() {
                 <span style={previewLive}>{merged.welcome_message || '🦋 The doors are open. Welcome to FriendPlace.'}</span>
               ) : (
                 <>
-                  <span style={{ fontSize: 20 }}>🦋</span>
+                  <span style={{ display: 'inline-flex', width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }}><GeorgeButterflyMark size={22} /></span>
                   <span style={previewLabel}>Visitors will see:</span>
                   <span style={previewCountdown}>
                     <PreviewSeg value={preview.days} label="Days" />

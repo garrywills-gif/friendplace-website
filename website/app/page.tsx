@@ -5,6 +5,7 @@ import { brandAssets } from '@/lib/brand-assets';
 import BrandMasthead from '@/components/BrandMasthead';
 import { LaunchCountdownRibbon, type LaunchStatus } from '@/components/site/LaunchCountdownRibbon';
 import HeroInvitation from '@/components/site/HeroInvitation';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 async function getLaunchStatus(): Promise<LaunchStatus | null> {
   try {
@@ -87,7 +88,10 @@ export default async function HomePage() {
                 background: 'rgba(94,234,212,0.15)', border: '1px solid rgba(94,234,212,0.35)',
                 color: '#5EEAD4', fontSize: 13, fontWeight: 700, marginBottom: 32,
               }}>
-                🦋 Now welcoming Founding Members
+                <span style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }}>
+                  <GeorgeButterflyMark size={18} />
+                </span>
+                Now welcoming Founding Members
               </div>
               <h1 style={{ color: '#FFFFFF', marginBottom: 32, lineHeight: 1.05 }}>
                 Find your <span style={{ color: '#5EEAD4' }}>people</span>.
@@ -394,7 +398,9 @@ export default async function HomePage() {
                 background: '#FFFFFF', padding: 28, borderRadius: 20,
                 border: '1px solid #E2E8F0',
               }} className="lift-card">
-                <div style={{ fontSize: 32, marginBottom: 12 }}>{f.icon}</div>
+                <div style={{ fontSize: 32, marginBottom: 12, display: 'flex', alignItems: 'center' }}>
+                  {f.icon === '🦋' ? <GeorgeButterflyMark size={32} /> : f.icon}
+                </div>
                 <h3 style={{ fontSize: 18, marginBottom: 8 }}>{f.title}</h3>
                 <p style={{ color: '#475569', fontSize: 15, lineHeight: 1.6 }}>{f.body}</p>
               </div>
@@ -458,7 +464,9 @@ export default async function HomePage() {
               background: '#0A2540', color: '#FFFFFF',
               fontWeight: 800, fontSize: 15,
             }}>
-              <span style={{ color: '#5EEAD4' }}>🦋</span>
+              <span style={{ display: 'inline-flex', width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
+                <GeorgeButterflyMark size={20} />
+              </span>
               {/* Show a warm invitation while we're pre-launch. Once
                   people start joining the count flips to a live "N of
                   250 welcomed" pill. */}

@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 // ─────────────────────────────────────────────────────────────────────
 // Palettes — LOCAL to this file so global theme.tsx is untouched.
@@ -308,7 +309,7 @@ function CafeBannerMulti({ pal }: { pal: Pal }) {
             borderTopColor: pal.border,
           }}
         >
-          <Text style={{ fontSize: 16 }}>🦋</Text>
+          <GeorgeButterflyMark size={16} />
           <Text style={{ color: pal.onSurface, fontWeight: '700', fontSize: 15, flex: 1 }}>{m.name}</Text>
           <Ionicons name="chevron-forward" size={20} color={pal.outline} />
         </Pressable>

@@ -10,6 +10,7 @@ import { api } from "@/src/lib/api";
 import Button from "@/src/components/Button";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 // The primary FriendPlace butterfly logo — surfaces on every page header
 // so the brand mark stays consistent across the app.
@@ -211,8 +212,9 @@ export default function Lounge() {
                       </View>
                     )}
                     {item.founder_only && (
-                      <View style={[styles.founderBadge]} testID={`founder-badge-${item.id}`}>
-                        <Text style={styles.founderBadgeText}>🦋 FOUNDERS</Text>
+                      <View style={[styles.founderBadge, { flexDirection: "row", alignItems: "center", gap: 4 }]} testID={`founder-badge-${item.id}`}>
+                        <GeorgeButterflyMark size={12} />
+                        <Text style={styles.founderBadgeText}>FOUNDERS</Text>
                       </View>
                     )}
                     {active && (
@@ -340,7 +342,7 @@ export default function Lounge() {
       <Modal visible={showFounderGate} animationType="fade" transparent onRequestClose={() => setShowFounderGate(false)}>
         <Pressable style={styles.helpBackdrop} onPress={() => setShowFounderGate(false)}>
           <Pressable style={[styles.helpSheet, { backgroundColor: c.surface }]} onPress={(e: any) => e.stopPropagation && e.stopPropagation()}>
-            <Text style={{ fontSize: 56 }}>🦋</Text>
+            <GeorgeButterflyMark size={56} />
             <Text style={[styles.helpTitle, { color: c.onSurface, fontSize: 22 * scale }]}>Founders Lounge</Text>
             <Text style={[styles.helpBody, { color: c.onSurface, fontSize: 16 * scale }]}>
               This table is just for Founding Members — the first 500 people to join FriendPlace.

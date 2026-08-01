@@ -1,6 +1,7 @@
 import { cms } from '@/lib/api';
 import { TourEnding } from '@/components/TourNav';
 import TapMeButterfly from '@/components/TapMeButterfly';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 export const metadata = { title: 'Features' };
 
@@ -48,7 +49,9 @@ export default async function FeaturesPage() {
                 border: '1px solid #E2E8F0',
                 transition: 'transform 220ms, box-shadow 220ms',
               }} className="lift-card">
-                <div style={{ fontSize: 40, marginBottom: 16 }}>{f.icon}</div>
+                <div style={{ fontSize: 40, marginBottom: 16, display: 'flex', alignItems: 'center' }}>
+                  {f.icon === '🦋' ? <GeorgeButterflyMark size={40} /> : f.icon}
+                </div>
                 <h3 style={{ fontSize: 20, marginBottom: 10 }}>{f.title}</h3>
                 <p style={{ color: '#475569', fontSize: 15, lineHeight: 1.65 }}>{f.body}</p>
               </div>

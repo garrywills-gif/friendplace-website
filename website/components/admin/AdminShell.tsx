@@ -155,6 +155,17 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
           </div>
         </Link>
 
+        {/* Quiet daily reminder — locked into the design language.
+            "Every friendship begins with two people." is not a slogan;
+            it is the guiding principle of FriendPlace. Every feature
+            we build ultimately helps those two people find one
+            another. Kept small, italic and low-contrast so it feels
+            like a whisper rather than marketing copy.               */}
+        <div style={sidebarCredo}>
+          <span aria-hidden style={sidebarCredoRule} />
+          Every friendship begins with two people.
+        </div>
+
         <nav style={{ flex: 1, marginTop: 24, paddingBottom: 12, overflowY: 'auto' }}>
           {NAV_GROUPS.map((group) => (
             <div key={group.label} style={{ marginBottom: 14 }}>
@@ -279,6 +290,34 @@ const soonPill: React.CSSProperties = {
   background: '#FBBF24',
   borderRadius: 999,
   fontWeight: 900,
+};
+
+/* -------------------------------------------------------------------------
+ * The Credo
+ * -------------------------------------------------------------------------
+ * "Every friendship begins with two people." is the guiding star of
+ * FriendPlace. Kept small, italic and gently faded so it reads as a
+ * quiet daily reminder rather than marketing copy. Sits directly
+ * beneath the Mission Control heading — the first thing every admin
+ * sees, every time.
+ * -------------------------------------------------------------------- */
+const sidebarCredo: React.CSSProperties = {
+  margin: '14px 20px 0',
+  padding: '10px 0 4px',
+  fontSize: 11.5,
+  lineHeight: 1.5,
+  fontStyle: 'italic',
+  color: 'rgba(226, 232, 240, 0.68)',
+  letterSpacing: '0.01em',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+const sidebarCredoRule: React.CSSProperties = {
+  display: 'block',
+  width: 20,
+  height: 1,
+  background: 'rgba(94, 234, 212, 0.5)',
 };
 const navBadge: React.CSSProperties = {
   minWidth: 22,

@@ -22,6 +22,7 @@
 import React from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { useTheme } from "@/src/lib/theme";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import {
   useMyStatus,
   STATUS_META,
@@ -173,7 +174,7 @@ export default function MyStatusCard({ testID = "home-my-status" }: { testID?: s
           },
         ]}
       >
-        <Text style={{ fontSize: 18 }}>🦋</Text>
+        <GeorgeButterflyMark size={18} />
         <Text
           style={{
             color: isLooking ? "#FFFFFF" : c.onSurface,

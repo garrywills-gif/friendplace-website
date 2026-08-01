@@ -35,6 +35,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 type Benefit = { icon: string; title: string; body: string };
 
@@ -152,7 +153,7 @@ export default function FounderInfo() {
       >
         {/* Hero — what is a Founding Member? */}
         <View style={[styles.hero, { backgroundColor: c.brandTertiary, borderColor: "#D4A017" }]}>
-          <Text style={{ fontSize: 44, textAlign: "center" }}>🦋</Text>
+          <GeorgeButterflyMark size={44} />
           <Text
             style={{ color: "#3C2A06", fontWeight: "900", fontSize: 24 * scale, textAlign: "center", marginTop: 6 }}
             testID="founder-info-title"
@@ -259,7 +260,7 @@ export default function FounderInfo() {
             style={[styles.modalCard, { backgroundColor: c.surface, borderColor: c.border }]}
             testID="founder-claim-modal"
           >
-            <Text style={{ fontSize: 38, textAlign: "center" }}>🦋</Text>
+            <GeorgeButterflyMark size={38} />
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale, textAlign: "center", marginTop: 6 }}>
               Join {status?.taken ? `${status.taken.toLocaleString()} other ` : ""}Founding Member{status?.taken === 1 ? "" : "s"}?
             </Text>

@@ -11,6 +11,7 @@ import { emitFlutter } from "@/src/lib/flutter-fx";
 import * as Location from "expo-location";
 import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 // Primary FriendPlace butterfly logo — surfaces in every header so the
 // brand mark is present even on tabs that don't render the full lockup.
@@ -303,7 +304,7 @@ export default function Friends() {
                 <Text style={[styles.actionText]}>Add</Text>
               </Pressable>
               <Pressable testID={`flutter-${item.id}`} onPress={(e) => sendFlutter(item, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })} style={[styles.actionBtn, { backgroundColor: "#8B5CF6" }]}>
-                <Text style={{ fontSize: 16 }}>🦋</Text>
+                <GeorgeButterflyMark size={16} />
                 <Text style={[styles.actionText]}>Flutter</Text>
               </Pressable>
               <Pressable testID={`msg-${item.id}`} onPress={() => startDm(item)} style={[styles.actionBtn, { backgroundColor: c.brandSecondary }]}>

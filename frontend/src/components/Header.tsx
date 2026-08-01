@@ -116,9 +116,19 @@ export default function Header({
           still carry the logo). */}
       <View style={styles.bannerRow}>
         {emoji ? (
-          <Text style={{ fontSize: 30, marginRight: 10 }} accessibilityRole="image" accessibilityLabel="">
-            {emoji}
-          </Text>
+          // If the emoji IS the FriendPlace butterfly, render the master
+          // butterfly mark so the header carries the same butterfly as
+          // every other surface. Any other emoji stays as text — those
+          // are just navigational icons (☕ 🎲 🌷 etc).
+          emoji === "🦋" ? (
+            <View style={{ width: 34, height: 34, marginRight: 10, alignItems: "center", justifyContent: "center" }}>
+              <GeorgeButterflyMark size={30} />
+            </View>
+          ) : (
+            <Text style={{ fontSize: 30, marginRight: 10 }} accessibilityRole="image" accessibilityLabel="">
+              {emoji}
+            </Text>
+          )
         ) : null}
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>

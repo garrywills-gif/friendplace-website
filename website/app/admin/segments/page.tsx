@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { segmentsApi, type Segment } from '@/lib/cms-api';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 export default function SegmentsPage() {
   const [segments, setSegments] = useState<Segment[] | null>(null);
@@ -94,7 +95,9 @@ export default function SegmentsPage() {
                 marginBottom: 20, fontSize: 14, color: '#0F766E', fontWeight: 700,
                 display: 'flex', alignItems: 'center', gap: 8,
               }}>
-                <span style={{ fontSize: 18 }}>🦋</span>
+                <span style={{ display: 'inline-flex', width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
+                  <GeorgeButterflyMark size={20} />
+                </span>
                 <span>
                   {segments.length} saved segment{segments.length === 1 ? '' : 's'}
                   <span style={{ color: '#64748B', fontWeight: 500 }}> · {total.toLocaleString('en-AU')} members represented across your communities</span>

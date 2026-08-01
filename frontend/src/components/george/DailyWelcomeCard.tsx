@@ -27,6 +27,7 @@ import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '@/src/lib/theme';
 import { georgeApi } from '@/src/lib/george-api';
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 type Payload = Awaited<ReturnType<typeof georgeApi.dailyWelcome>>;
 
@@ -71,7 +72,7 @@ export function DailyWelcomeCard({ activeContexts }: { activeContexts?: string[]
       ].filter(Boolean).join(' ')}
     >
       <View style={styles.headerRow}>
-        <Text style={{ fontSize: 26 }}>🦋</Text>
+        <GeorgeButterflyMark size={26} />
         <Pressable
           onPress={() => setDismissed(true)}
           hitSlop={10}

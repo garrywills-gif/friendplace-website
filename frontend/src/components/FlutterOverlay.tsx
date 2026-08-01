@@ -33,6 +33,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, Easing, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { _subscribeFlutter } from "@/src/lib/flutter-fx";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 type Flight = {
   id: number;
@@ -457,7 +458,7 @@ function Butterfly({ flight }: { flight: Flight }) {
           },
         ]}
       >
-        <Text style={styles.emoji}>🦋</Text>
+        <GeorgeButterflyMark size={44} />
       </Animated.View>
     </>
   );

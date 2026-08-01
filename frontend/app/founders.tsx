@@ -24,6 +24,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 type Founder = {
   id: string;
@@ -98,7 +99,7 @@ export default function FoundersWall() {
         {viewerIsFounder ? (
           <View style={[styles.statusCard, { backgroundColor: "#0F766E", borderColor: "#5EEAD4" }]} testID="founders-wall-status">
             <View style={styles.statusRow}>
-              <Text style={{ fontSize: 30 }}>🦋</Text>
+              <GeorgeButterflyMark size={30} />
               <View style={{ flex: 1 }}>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                   <Text style={{ color: "#ECFEFF", fontWeight: "900", fontSize: 16 * scale, letterSpacing: 0.4 }}>
@@ -155,7 +156,7 @@ export default function FoundersWall() {
             ]}
           >
             <View style={styles.upgradeInner}>
-              <Text style={{ fontSize: 32 }}>🦋</Text>
+              <GeorgeButterflyMark size={32} />
               <View style={{ flex: 1 }}>
                 <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 * scale, lineHeight: 22 }}>
                   Become one of our first {cap?.toLocaleString() ?? 500} Founding Members
@@ -181,7 +182,7 @@ export default function FoundersWall() {
         {!viewerIsFounder && user?.id && remaining === 0 ? (
           <View style={[styles.upgradeCard, { backgroundColor: "#334155", borderColor: "#94A3B8" }]}>
             <View style={styles.upgradeInner}>
-              <Text style={{ fontSize: 32 }}>🦋</Text>
+              <GeorgeButterflyMark size={32} />
               <View style={{ flex: 1 }}>
                 <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 * scale, lineHeight: 22 }}>
                   Founding Members Full
@@ -195,7 +196,7 @@ export default function FoundersWall() {
         ) : null}
 
         <View style={[styles.heroCard, { backgroundColor: c.brandTertiary, borderColor: "#D4A017" }]}>
-          <Text style={{ fontSize: 36 }}>🦋</Text>
+          <GeorgeButterflyMark size={36} />
           <View style={{ flex: 1 }}>
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale }}>
               Our Founding Members
@@ -225,7 +226,7 @@ export default function FoundersWall() {
           </View>
         ) : items.length === 0 ? (
           <View style={[styles.emptyCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-            <Text style={{ fontSize: 38 }}>🦋</Text>
+            <GeorgeButterflyMark size={38} />
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 18 * scale, textAlign: "center", marginTop: 8 }}>
               The wall is empty right now
             </Text>

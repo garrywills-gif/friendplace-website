@@ -22,6 +22,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, Modal, StyleSheet, StyleProp, ViewStyle } from "react-native";
 import { useTheme } from "@/src/lib/theme";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 type Props = {
   user?: { is_founder?: boolean; founder_number?: number | null } | null;
@@ -62,9 +63,9 @@ export default function FounderMark({
         }
         style={[styles.touchable, style]}
       >
-        <Text style={{ fontSize: size }} accessibilityElementsHidden>
-          🦋
-        </Text>
+        <View accessibilityElementsHidden>
+          <GeorgeButterflyMark size={size} />
+        </View>
       </Pressable>
 
       <Modal visible={open} animationType="fade" transparent onRequestClose={() => setOpen(false)}>
@@ -78,7 +79,7 @@ export default function FounderMark({
             onPress={(e: any) => e.stopPropagation && e.stopPropagation()}
             style={[styles.sheet, { backgroundColor: c.surface }]}
           >
-            <Text style={{ fontSize: 48 }}>🦋</Text>
+            <GeorgeButterflyMark size={48} />
             <Text style={[styles.title, { color: c.onSurface, fontSize: 22 * scale }]}>
               {number ? `Founding Member #${number}` : "Founding Member"}
             </Text>

@@ -10,6 +10,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 import { useToast } from "@/src/lib/toast";
 import { ButterflyCardBack } from "@/src/components/ButterflyCardBack";
 import { getCurrentSeason } from "@/src/lib/seasons";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 /**
  * Games Hub — restructured per June 2026 launch spec.
@@ -160,7 +161,7 @@ export default function GamesHub() {
         {bonus && (
           bonus.claimed_today ? (
             <View testID="daily-bonus-claimed" style={[styles.bonusChip, { backgroundColor: c.brandTertiary, borderColor: c.brand, marginTop: 12 }]}>
-              <Text style={{ fontSize: 22 }}>🦋</Text>
+              <GeorgeButterflyMark size={22} />
               <View style={{ flex: 1, marginLeft: 10 }}>
                 <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 15 * scale }}>
                   Today&apos;s bonus is yours
@@ -179,7 +180,7 @@ export default function GamesHub() {
               accessibilityRole="button"
               accessibilityLabel={`Claim daily butterfly bonus for ${bonus.points} points`}
             >
-              <Text style={{ fontSize: 32, marginRight: 12 }}>🦋</Text>
+              <GeorgeButterflyMark size={32} />
               <View style={{ flex: 1 }}>
                 <Text style={{ color: "#78350F", fontWeight: "900", fontSize: 16 * scale }}>
                   Daily Butterfly Bonus

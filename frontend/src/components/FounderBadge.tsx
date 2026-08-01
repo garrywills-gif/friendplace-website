@@ -20,6 +20,7 @@
 import React from "react";
 import { Text, View, StyleProp, ViewStyle, TextStyle } from "react-native";
 import { useTheme } from "@/src/lib/theme";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 type Variant = "chip" | "tag";
 
@@ -51,12 +52,13 @@ export default function FounderBadge({
     includeNumber && user.founder_number ? ` #${user.founder_number}` : "";
   const label =
     variant === "chip"
-      ? `🦋 Founding Member${numberSuffix}`
-      : `🦋 Founder${numberSuffix}`;
+      ? `Founding Member${numberSuffix}`
+      : `Founder${numberSuffix}`;
 
   // Brand-aligned palette: warm gold border (the crest) + brand-tertiary
   // tinted bg so the badge feels celebratory without yelling on a feed.
   const isChip = variant === "chip";
+  const markSize = (isChip ? 14 : 12) * scale;
   return (
     <View
       style={[
@@ -64,6 +66,7 @@ export default function FounderBadge({
           alignSelf: "flex-start",
           flexDirection: "row",
           alignItems: "center",
+          gap: 4,
           paddingHorizontal: isChip ? 12 : 8,
           paddingVertical: isChip ? 6 : 3,
           borderRadius: 999,
@@ -76,6 +79,7 @@ export default function FounderBadge({
       accessibilityRole="text"
       accessibilityLabel={`Founding member${user.founder_number ? ` number ${user.founder_number}` : ""}`}
     >
+      <GeorgeButterflyMark size={markSize} />
       <Text
         style={[
           {

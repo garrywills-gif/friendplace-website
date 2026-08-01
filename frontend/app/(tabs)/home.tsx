@@ -18,6 +18,7 @@ import { DailyWelcomeCard } from "@/src/components/george/DailyWelcomeCard";
 import { GeorgeRemembersBanner } from "@/src/components/george/GeorgeRemembersBanner";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 type Tile = {
   key: string;
@@ -360,7 +361,7 @@ export default function Home() {
             reads as a distinct badge, not part of the name string. */}
         <View style={styles.nameRow}>
           <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{user?.first_name || "Friend"}</Text>
-          <Text style={{ fontSize: 26 * scale }} accessibilityLabel="butterfly">🦋</Text>
+          <GeorgeButterflyMark size={26 * scale} />
         </View>
 
         {/* George's Daily Welcome — the first-open-of-the-day hello.
@@ -471,7 +472,7 @@ export default function Home() {
                 </View>
               ) : (
                 <View style={{ alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: 14, backgroundColor: "#FEF3C7" }}>
-                  <Text style={{ fontSize: 28 }}>🦋</Text>
+                  <GeorgeButterflyMark size={28} />
                 </View>
               )}
               <View style={{ flex: 1, minWidth: 0 }}>
@@ -559,7 +560,7 @@ export default function Home() {
             ]}
           >
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
-              <Text style={{ fontSize: 24 }}>🦋</Text>
+              <GeorgeButterflyMark size={24} />
               <Text style={{ color: "#6D28D9", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>You&apos;ve got Flutters!</Text>
             </View>
             {flutters.slice(0, 3).map((f) => (
@@ -590,7 +591,7 @@ export default function Home() {
                 </Text>
                 <View style={styles.flutterActions}>
                   <Pressable testID={`flutter-back-${f.id}`} onPress={(e) => flutterBack(f, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })} style={[styles.flutterActionBtn, { backgroundColor: "#EDE9FE", borderColor: "#8B5CF6" }]}>
-                    <Text style={{ fontSize: 14 }}>🦋</Text>
+                    <GeorgeButterflyMark size={14} />
                     <Text style={{ color: "#6D28D9", fontWeight: "800", fontSize: 13 * scale }}>Flutter back</Text>
                   </Pressable>
                   <Pressable testID={`flutter-chat-${f.id}`} onPress={() => chatFromFlutter(f)} style={[styles.flutterActionBtn, { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" }]}>
@@ -641,7 +642,7 @@ export default function Home() {
               },
             ]}
           >
-            <Text style={{ fontSize: 30 }}>🦋</Text>
+            <GeorgeButterflyMark size={30} />
             <View style={{ flex: 1, minWidth: 0 }}>
               {(user as any)?.is_founder ? (
                 <>
@@ -823,7 +824,7 @@ export default function Home() {
                   {user?.points ?? 0}
                 </Text>
               </View>
-              <Text style={{ fontSize: 52 }}>🦋</Text>
+              <GeorgeButterflyMark size={52} />
             </View>
 
             <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale, marginTop: 18 }}>

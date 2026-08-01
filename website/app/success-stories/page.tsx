@@ -1,5 +1,6 @@
 import { StoryCard } from '@/components/admin/StoryCard';
 import type { SuccessStory } from '@/lib/cms-api';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 // Runtime revalidation — refreshes every 60s so newly-published stories
 // appear on the site within a minute of Mission Control hitting Publish.
@@ -54,7 +55,9 @@ export default async function SuccessStoriesPage() {
           textAlign: 'center', padding: 64, borderRadius: 20,
           border: '2px dashed #E2E8F0', background: '#F8FAFC',
         }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🦋</div>
+          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center' }}>
+            <GeorgeButterflyMark size={56} />
+          </div>
           <p style={{ color: '#475569', fontSize: 16, margin: 0 }}>
             The first stories are being written. Come back soon.
           </p>

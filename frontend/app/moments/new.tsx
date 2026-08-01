@@ -21,6 +21,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 const CAPTION_LIMIT = 500;
 const MAX_PHOTOS = 6;
@@ -316,7 +317,7 @@ export default function NewMoment() {
             style={[styles.inspirationCard, { backgroundColor: c.surface, borderColor: c.border }]}
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <Text style={{ fontSize: 26 }}>🦋</Text>
+              <GeorgeButterflyMark size={26} />
               <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>
                 Need some inspiration?
               </Text>
@@ -370,7 +371,7 @@ export default function NewMoment() {
       >
         <View style={styles.inspirationBackdrop}>
           <View style={[styles.celebrateCard, { backgroundColor: c.surface, borderColor: c.brand }]}>
-            <Text style={{ fontSize: 48, textAlign: "center" }}>🦋</Text>
+            <GeorgeButterflyMark size={48} />
             <Text style={{
               color: c.onSurface, fontWeight: "900", fontSize: 20 * scale,
               textAlign: "center", marginTop: 8, letterSpacing: 0.2,

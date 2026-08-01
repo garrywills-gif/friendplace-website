@@ -42,6 +42,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 type Looker = {
   user_id: string;
@@ -187,7 +188,7 @@ export default function CafeLookingBanner({
                   },
                 ]}
               >
-                <Text style={{ fontSize: 16 }}>🦋</Text>
+                <GeorgeButterflyMark size={16} />
                 <Text
                   numberOfLines={1}
                   style={{

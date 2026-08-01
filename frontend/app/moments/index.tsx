@@ -18,6 +18,7 @@ import { api } from "@/src/lib/api";
 import { useToast } from "@/src/lib/toast";
 import SpeakButton from "@/src/components/SpeakButton";
 import ButterflyFlutter from "@/src/components/ButterflyFlutter";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 /**
  * Share a Moment — feed screen.
@@ -202,7 +203,7 @@ export default function MomentsScreen() {
           </View>
         ) : moments.length === 0 ? (
           <View style={[styles.empty, { borderColor: c.border, backgroundColor: c.surfaceSecondary }]}>
-            <Text style={{ fontSize: 40 }}>🦋</Text>
+            <GeorgeButterflyMark size={40} />
             <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 17 * scale, textAlign: "center", marginTop: 8 }}>
               A quiet moment
             </Text>

@@ -23,6 +23,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 type NewMember = {
   id: string;
@@ -101,7 +102,7 @@ export default function NewThisWeek() {
           <Text style={{ color: c.muted, textAlign: "center", marginTop: 24, fontSize: 14 * scale }}>Loading…</Text>
         ) : members.length === 0 ? (
           <View style={[styles.emptyCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-            <Text style={{ fontSize: 36, textAlign: "center" }}>🦋</Text>
+            <GeorgeButterflyMark size={36} />
             <Text style={{ color: c.onSurface, fontWeight: "800", textAlign: "center", marginTop: 8, fontSize: 16 * scale }}>
               No new neighbours just yet
             </Text>

@@ -40,6 +40,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 const SOURCES: { key: string; label: string }[] = [
   { key: "word_of_mouth", label: "A friend told me" },
@@ -180,7 +181,7 @@ export default function WaitlistScreen() {
             {/* Recruiting blurb + live counters */}
             <View style={cardStyle}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <Text style={{ fontSize: 28 }}>🦋</Text>
+                <GeorgeButterflyMark size={28} />
                 <Text style={{ fontSize: 20 * scale, fontWeight: "900", color: c.onSurface, flex: 1 }}>
                   Reserve your spot
                 </Text>

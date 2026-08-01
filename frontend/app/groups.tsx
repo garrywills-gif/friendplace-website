@@ -85,8 +85,9 @@ export default function Groups() {
                   <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                     <Text style={[styles.title, { color: c.onSurface, fontSize: 20 * scale }]}>{item.name}</Text>
                     {item.is_founder_only && (
-                      <View style={styles.founderBadge}>
-                        <Text style={styles.founderBadgeText}>🦋 FOUNDERS</Text>
+                      <View style={[styles.founderBadge, { flexDirection: "row", alignItems: "center", gap: 4 }]} testID={`founder-badge-${item.id}`}>
+                        <GeorgeButterflyMark size={12} />
+                        <Text style={styles.founderBadgeText}>FOUNDERS</Text>
                       </View>
                     )}
                   </View>

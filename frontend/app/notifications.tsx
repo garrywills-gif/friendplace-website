@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import { emitFlutter } from "@/src/lib/flutter-fx";
 import Header from "@/src/components/Header";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 const ICON: Record<string, { name: keyof typeof Ionicons.glyphMap; tint: string }> = {
   friend_request: { name: "person-add", tint: "#2E9EE2" },
@@ -179,7 +180,7 @@ export default function Notifications() {
                     onPress={(e) => sayHi(item, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })}
                     style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
                   >
-                    <Text style={{ fontSize: 16 }}>🦋</Text>
+                    <GeorgeButterflyMark size={16} />
                     <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale, marginLeft: 6 }}>
                       {isFlutter ? "Flutter back" : "Say Hi"}
                     </Text>

@@ -6,6 +6,24 @@ file before touching the butterfly.*
 
 ---
 
+## The Credo
+
+> **Every friendship begins with two people.**
+
+This is the guiding star of FriendPlace. It is not a slogan. It is
+the reason we build. Every feature we create should ultimately help
+those two people find one another.
+
+The credo is displayed quietly beneath the "Mission Control" heading
+in the Mission Control sidebar as a daily reminder. It must stay
+there. If future work restructures the sidebar, carry the credo with
+it — not away from it.
+
+Mission Control isn't just software. It is the place where we help
+communities grow. And that always starts with two people.
+
+---
+
 ## The single canonical butterfly
 
 The one true FriendPlace butterfly is:
@@ -18,6 +36,24 @@ Both files must stay in sync. If the master artwork changes, replace
 BOTH files (byte-identical) and every surface picks it up
 automatically.
 
+## What the butterfly represents
+
+The butterfly is not just an icon. It is the visual identity of
+FriendPlace and has been part of the project since day one. It
+represents:
+
+- **Two people coming together**
+- Belonging
+- Friendship
+- Hope
+- Community
+
+The **heart created between the upper wings is intentional** and is
+part of the design language. Do not fill it, close it, replace it,
+or "clean it up".
+
+## Evolution, not redesign
+
 ## The single component that renders it
 
 - **Web**    → `/app/website/components/george/GeorgeButterflyMark.tsx`
@@ -28,22 +64,6 @@ automatically.
 Every surface that shows the butterfly imports `GeorgeButterflyMark`
 and passes a `size` prop. There is **no other component** authorised
 to draw a butterfly.
-
-## What the butterfly means
-
-The butterfly is not just an icon. It is the visual identity of
-FriendPlace and has been part of the project since day one. It
-represents:
-
-- Two people coming together
-- Belonging
-- Friendship
-- Hope
-- Community
-
-The **heart created between the upper wings is intentional** and is
-part of the design language. Do not fill it, close it, replace it,
-or "clean it up".
 
 ## Do not, ever
 

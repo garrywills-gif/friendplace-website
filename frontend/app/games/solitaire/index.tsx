@@ -9,6 +9,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import { ButterflyCardBack } from "@/src/components/ButterflyCardBack";
 import { getCurrentSeason } from "@/src/lib/seasons";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 // AsyncStorage key for the Draw 1 vs Draw 3 preference. Persisted so
 // the choice sticks across sessions without cluttering server state.
@@ -87,7 +88,7 @@ export default function SolitaireHub() {
 
         {/* Butterfly Points chip */}
         <View style={[styles.pointsChip, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
-          <Text style={{ fontSize: 20 }}>🦋</Text>
+          <GeorgeButterflyMark size={20} />
           <View style={{ flex: 1, marginLeft: 10 }}>
             <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Earn Butterfly Points</Text>
             <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>+2 for every game played · +10 for every win</Text>

@@ -10,6 +10,7 @@ import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import { DateField, TimeField } from "@/src/components/DateTimePicker";
 import { useComposerLock } from "@/src/lib/composer-lock";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 const EMOJIS = ["☕", "🍰", "🚌", "🏞️", "🎲", "🎵", "📚", "🌳", "🎨", "🍵", "🥖", "🦋", "🌷"];
 const CAPACITY_PRESETS = [
@@ -528,7 +529,7 @@ export default function NewEvent() {
             onPress={(e: any) => e.stopPropagation && e.stopPropagation()}
             style={[modalStyles.sheet, { backgroundColor: c.surface, alignItems: "center" }]}
           >
-            <Text style={{ fontSize: 44 }}>🦋</Text>
+            <GeorgeButterflyMark size={44} />
             <Text style={[modalStyles.title, { color: c.onSurface, fontSize: 22 * scale }]}>
               You&apos;ve used your listings for this period
             </Text>
