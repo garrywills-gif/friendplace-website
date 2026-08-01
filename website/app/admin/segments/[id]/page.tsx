@@ -232,7 +232,7 @@ export default function SegmentBuilderPage() {
           )}
           {preview && preview.sample.length > 0 && (
             <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 11, color: '#0F766E', fontWeight: 700, marginBottom: 6 }}>Sample</div>
+              <div style={{ fontSize: 11, color: '#0F766E', fontWeight: 700, marginBottom: 6 }}>Example members</div>
               {preview.sample.slice(0, 4).map((m, i) => (
                 <div key={i} style={{ fontSize: 12, color: '#134E4A', padding: '4px 0' }}>
                   {m.avatar || '👤'} {m.first_name || m.username || '(unnamed)'} — <span style={{ color: '#64748B' }}>{m.suburb || 'unknown suburb'}</span>

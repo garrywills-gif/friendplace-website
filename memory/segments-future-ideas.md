@@ -51,6 +51,21 @@ wanted to capture the idea while it was fresh."*
 
 Ideas Garry has floated but we haven't scheduled yet:
 
+- **George notices patterns (proactive segment suggestions)** — captured 1 Aug 2026:
+
+    > 🦋 Just so you know...
+    > Your "Haven't shared a Moment" segment has grown by 18
+    > members this week. They might enjoy a gentle encouragement
+    > campaign.
+
+  This is George *noticing* rather than being asked. Depends on the
+  heartbeat/trend data above (needs `segment_count_history`). Once
+  we have snapshots, a nightly job compares delta vs last week and
+  emits an MCGS signal with `producer=segment_watch`, `category=attention`,
+  priority=P3, on any segment whose count moved by more than ~10%
+  week-over-week. It'd render as a Bridge card exactly like the
+  existing anomaly + milestone cards.
+
 - **Suggest segments** during campaign creation: *"This looks like a
   good campaign for the Gardening segment"* — needs an LLM step that
   reads the campaign body and matches against saved segments'
