@@ -898,6 +898,9 @@ export type CampaignAudienceFilter = {
   tags_all?: string[];
   exclude_reserved?: boolean;
   exclude_opted_out?: boolean;
+  // CRM Phase 2C \u2014 target a saved segment. When set, the resolver
+  // intersects the classic filter above with the segment's member list.
+  segment_id?: string;
 };
 
 export type CampaignStats = {
@@ -1066,6 +1069,12 @@ export const segmentsApi = {
   refreshCount: (id: string) => req<Segment>('POST', `/cms/segments/${id}/refresh-count`),
   preview: (predicate: SegmentPredicateNode | Record<string, never>) =>
     req<SegmentPreview>('POST', '/cms/segments/preview', { predicate }),
+  // Campaign-drafting assistant \u2014 returns 1-3 saved segments that
+  // look like a fit for the given subject/body. Snappy (no LLM).
+  suggest: (body: { subject?: string; title?: string; body_md?: string; preheader?: string }) =>
+    req<{ suggestions: Array<{ id: string; name: string; emoji?: string | null; count?: number; description?: string | null; confidence: number }> }>(
+      'POST', '/cms/segments/suggest', body,
+    ),
 };
 
 // ---------------------------------------------------------------------------

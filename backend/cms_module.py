@@ -1678,6 +1678,25 @@ def build_router(db) -> APIRouter:
 
     async def _resolve_audience(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
         q = _build_audience_query(f)
+        # CRM Phase 2C — segment integration. If the audience_filter
+        # names a saved segment, resolve it to a set of emails and
+        # intersect. Locked with Garry, 1 Aug 2026: campaigns can be
+        # targeted by segment OR by classic filter, never both required.
+        segment_id = (f or {}).get("segment_id")
+        if segment_id:
+            from services import segments as _segments
+            seg_emails = await _segments.resolve_segment_emails(db, segment_id)
+            if not seg_emails:
+                return []
+            # Case-insensitive email match — interest_registrations may
+            # have stored emails with mixed case.
+            import re
+            regexes = [
+                {"$regex": f"^{re.escape(e)}$", "$options": "i"}
+                for e in seg_emails
+            ]
+            existing_and = q.pop("$and", [])
+            q["$and"] = existing_and + [{"$or": [{"email": r} for r in regexes]}]
         return await db.interest_registrations.find(
             q,
             {"_id": 0, "id": 1, "first_name": 1, "email": 1,
@@ -4658,6 +4677,51 @@ def build_router(db) -> APIRouter:
         if not seg:
             raise HTTPException(404, "Segment not found")
         return seg
+
+    @router.post("/segments/suggest")
+    async def suggest_segments_ep(
+        body: dict = Body(...),
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Quiet campaign assistant. Given a draft campaign's subject
+        and body, return the top 1\u20133 saved segments that look like a
+        fit. Uses simple text overlap over segment names + descriptions
+        + predicate summaries \u2014 no LLM call, so it stays snappy while
+        the admin types. Locked with Garry, 1 Aug 2026: George should
+        \u201cquietly think\u201d, not take over.
+        """
+        text = " ".join([
+            str(body.get("subject") or ""),
+            str(body.get("title") or ""),
+            str(body.get("body_md") or ""),
+            str(body.get("preheader") or ""),
+        ]).lower()
+        if not text.strip():
+            return {"suggestions": []}
+        rows = await _segments.list_segments(db, include_archived=False)
+        scored: list[tuple[float, dict]] = []
+        for seg in rows:
+            corpus = " ".join([
+                str(seg.get("name") or ""),
+                str(seg.get("description") or ""),
+                str(seg.get("predicate_summary") or ""),
+            ]).lower()
+            words = {w for w in corpus.replace(",", " ").split() if len(w) > 3}
+            hits = sum(1 for w in words if w in text)
+            if hits:
+                scored.append((hits, seg))
+        scored.sort(key=lambda p: p[0], reverse=True)
+        return {"suggestions": [
+            {
+                "id":          s.get("id"),
+                "name":        s.get("name"),
+                "emoji":       s.get("emoji"),
+                "count":       s.get("last_count"),
+                "description": s.get("description"),
+                "confidence":  min(1.0, score / 3.0),
+            }
+            for (score, s) in scored[:3]
+        ]}
 
     @router.get("/settings/launch")
     async def get_launch_settings(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001

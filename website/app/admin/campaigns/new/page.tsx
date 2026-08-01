@@ -20,8 +20,10 @@ import { API_BASE } from '@/lib/api-base';
 import {
   campaignsApi,
   emailPreviewsApi,
+  segmentsApi,
   type Campaign,
   type CampaignAudienceFilter,
+  type Segment,
 } from '@/lib/cms-api';
 
 type Template = 'announcement' | 'invitation' | 'welcome';
@@ -71,6 +73,14 @@ function ComposePanel() {
   const [statuses, setStatuses] = useState<Array<'registered' | 'invited' | 'joined'>>(['registered', 'invited']);
   const [tagsAny, setTagsAny] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
+  // CRM Phase 2C \u2014 recipient mode toggle. `segment` uses a saved
+  // segment; `custom` falls back to the classic statuses + tags builder.
+  const [recipientMode, setRecipientMode] = useState<'segment' | 'custom'>(
+    (searchParams?.get('segment_id') ? 'segment' : 'custom'),
+  );
+  const [segmentId, setSegmentId] = useState<string>(searchParams?.get('segment_id') || '');
+  const [segments, setSegments] = useState<Array<{ id: string; name: string; emoji?: string | null; last_count?: number; description?: string | null }> | null>(null);
+  const [suggestions, setSuggestions] = useState<Array<{ id: string; name: string; emoji?: string | null; count?: number; confidence: number }>>([]);
 
   const [campaignId, setCampaignId] = useState<string | null>(editId);
   const [saving, setSaving] = useState(false);
@@ -100,6 +110,13 @@ function ComposePanel() {
         const st = (c.audience_filter?.statuses || []) as any;
         setStatuses(st.length ? st : ['registered', 'invited']);
         setTagsAny(c.audience_filter?.tags_any || []);
+        // CRM Phase 2C — restore segment mode if this draft was saved
+        // with a segment_id.
+        const sid = c.audience_filter?.segment_id;
+        if (sid) {
+          setSegmentId(sid);
+          setRecipientMode('segment');
+        }
       } catch (e: any) {
         showToast(e?.message || 'Could not load campaign');
       }
@@ -107,12 +124,47 @@ function ComposePanel() {
   }, [editId]);
 
   // Debounced auto-save-as-draft, and auto-refresh audience count + preview
-  const audienceFilter: CampaignAudienceFilter = useMemo(() => ({
-    statuses,
-    tags_any: tagsAny,
-    exclude_reserved: true,
-    exclude_opted_out: true,
-  }), [statuses, tagsAny]);
+  const audienceFilter: CampaignAudienceFilter = useMemo(() => (
+    recipientMode === 'segment'
+      ? {
+          segment_id: segmentId || undefined,
+          exclude_reserved: true,
+          exclude_opted_out: true,
+        }
+      : {
+          statuses,
+          tags_any: tagsAny,
+          exclude_reserved: true,
+          exclude_opted_out: true,
+        }
+  ), [recipientMode, segmentId, statuses, tagsAny]);
+
+  // Load saved segments once (for the picker) and refresh George's
+  // suggestions as the draft's copy changes.
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await segmentsApi.list();
+        setSegments(r.items.map((s) => ({
+          id: s.id, name: s.name, emoji: s.emoji, last_count: s.last_count, description: s.description,
+        })));
+      } catch { /* non-fatal */ }
+    })();
+  }, []);
+
+  const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (recipientMode !== 'custom' && recipientMode !== 'segment') return;
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    suggestTimer.current = setTimeout(async () => {
+      if (!subject && !bodyMd && !title) { setSuggestions([]); return; }
+      try {
+        const r = await segmentsApi.suggest({ subject, title, body_md: bodyMd, preheader });
+        setSuggestions(r.suggestions);
+      } catch { /* silent */ }
+    }, 600);
+    return () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); };
+  }, [subject, title, bodyMd, preheader, recipientMode]);
 
   const saveDraft = useCallback(async (silent = false): Promise<string | null> => {
     setSaving(true);
@@ -154,7 +206,7 @@ function ComposePanel() {
       } catch { /* ignore transient errors */ }
     }, 500);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, statuses, tagsAny, campaignId, saveDraft]);
+  }, [name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, statuses, tagsAny, recipientMode, segmentId, campaignId, saveDraft]);
 
   const doSend = async () => {
     if (!campaignId) {
@@ -280,89 +332,199 @@ function ComposePanel() {
         )}
 
         <SectionCard title="Audience">
-          <label style={s.label}>Status</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {/* CRM Phase 2C — Recipient mode toggle */}
+          <label style={s.label}>Recipient</label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
             {([
-              { key: 'registered', label: 'Registered (awaiting contact)' },
-              { key: 'invited',    label: 'Invited' },
-              { key: 'joined',     label: 'Joined' },
-            ] as const).map(sv => {
-              const on = statuses.includes(sv.key as any);
+              { key: 'segment', label: 'Saved segment', hint: 'Pick a group you have already defined' },
+              { key: 'custom',  label: 'Custom filter', hint: 'Build a one-off filter with statuses + tags' },
+            ] as const).map(opt => {
+              const on = recipientMode === opt.key;
               return (
-                <button key={sv.key} type="button" onClick={() => toggleStatus(sv.key)}
+                <button key={opt.key} type="button" onClick={() => setRecipientMode(opt.key)}
                   style={{
-                    ...s.ghostBtn, padding: '6px 12px', fontSize: 12,
+                    ...s.ghostBtn, flex: 1, padding: '10px 12px', textAlign: 'left',
                     background: on ? '#F0FDFA' : '#FFFFFF',
                     color:      on ? '#0F766E' : '#0A2540',
                     borderColor: on ? '#0F766E' : '#CBD5E1', fontWeight: 700,
+                    display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
                   }}>
-                  {on ? '✓ ' : ''}{sv.label}
+                  <span style={{ fontSize: 13 }}>
+                    {on ? '●' : '○'} {opt.label}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: on ? '#0F766E' : '#64748B' }}>
+                    {opt.hint}
+                  </span>
                 </button>
               );
             })}
           </div>
-          <div style={s.helper}>
-            Leave all unticked to reach every Founding Member (except opt-outs and the two reserved slots).
-          </div>
 
-          <label style={{ ...s.label, marginTop: 14 }}>Tags (any match)</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '6px 8px',
-            background: '#FFFFFF', border: '1.5px solid #CBD5E1', borderRadius: 12, minHeight: 40 }}>
-            {tagsAny.map(t => (
-              <span key={t} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                padding: '2px 8px', background: '#E0F2FE', color: '#075985',
-                borderRadius: 999, fontSize: 11, fontWeight: 700,
-              }}>
-                {t}
-                <button type="button" onClick={() => setTagsAny(tagsAny.filter(x => x !== t))}
-                  style={{ background: 'transparent', border: 'none', color: '#075985', cursor: 'pointer', fontSize: 14, padding: 0 }}>×</button>
-              </span>
-            ))}
-            <input value={tagInput} onChange={e => setTagInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
-              placeholder={tagsAny.length ? '' : 'Enter to add — e.g. sydney'}
-              style={{ border: 'none', outline: 'none', fontSize: 13, flex: '1 1 120px', minWidth: 120, background: 'transparent' }} />
-          </div>
+          {/* George's segment suggestions (only in segment mode & only when George found ideas) */}
+          {recipientMode === 'segment' && suggestions.length > 0 && (
+            <div style={{ marginTop: 14, padding: 10,
+              background: '#F5F3FF', border: '1px dashed #C4B5FD', borderRadius: 12 }}>
+              <div style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+                fontWeight: 800, color: '#6D28D9', marginBottom: 6 }}>
+                🦋 George quietly thinks these fit
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {suggestions.map(sg => (
+                  <button key={sg.id} type="button" onClick={() => setSegmentId(sg.id)}
+                    style={{
+                      ...s.ghostBtn, padding: '6px 10px', fontSize: 12, borderRadius: 999,
+                      background: segmentId === sg.id ? '#EDE9FE' : '#FFFFFF',
+                      color: '#5B21B6', borderColor: '#C4B5FD', fontWeight: 700,
+                    }}>
+                    {sg.emoji ? `${sg.emoji} ` : ''}{sg.name}
+                    {typeof sg.count === 'number' ? ` · ${sg.count}` : ''}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Segment mode — dropdown picker */}
+          {recipientMode === 'segment' && (
+            <div style={{ marginTop: 14 }}>
+              <label style={s.label}>Segment</label>
+              <select value={segmentId} onChange={e => setSegmentId(e.target.value)}
+                style={{ ...s.input, width: '100%' }}>
+                <option value="">— Choose a saved segment —</option>
+                {(segments || []).map(sg => (
+                  <option key={sg.id} value={sg.id}>
+                    {sg.emoji ? `${sg.emoji} ` : ''}{sg.name}
+                    {typeof sg.last_count === 'number' ? `  ·  ${sg.last_count} members` : ''}
+                  </option>
+                ))}
+              </select>
+              {segmentId && (() => {
+                const sg = (segments || []).find(x => x.id === segmentId);
+                if (!sg) return null;
+                return (
+                  <div style={{ ...s.helper, marginTop: 6 }}>
+                    {sg.description || 'This segment’s live audience will be used at send time.'}
+                    {' '}
+                    <a href={`/admin/segments/${sg.id}`} target="_blank" rel="noreferrer"
+                      style={{ color: '#0F766E', fontWeight: 700, textDecoration: 'none' }}>
+                      View →
+                    </a>
+                  </div>
+                );
+              })()}
+              {segments && segments.length === 0 && (
+                <div style={{ ...s.helper, marginTop: 6 }}>
+                  No saved segments yet.{' '}
+                  <a href="/admin/segments/new" target="_blank" rel="noreferrer"
+                    style={{ color: '#0F766E', fontWeight: 700, textDecoration: 'none' }}>
+                    Create your first segment →
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Custom mode — classic statuses + tags builder */}
+          {recipientMode === 'custom' && (
+            <>
+              <label style={{ ...s.label, marginTop: 14 }}>Status</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {([
+                  { key: 'registered', label: 'Registered (awaiting contact)' },
+                  { key: 'invited',    label: 'Invited' },
+                  { key: 'joined',     label: 'Joined' },
+                ] as const).map(sv => {
+                  const on = statuses.includes(sv.key as any);
+                  return (
+                    <button key={sv.key} type="button" onClick={() => toggleStatus(sv.key)}
+                      style={{
+                        ...s.ghostBtn, padding: '6px 12px', fontSize: 12,
+                        background: on ? '#F0FDFA' : '#FFFFFF',
+                        color:      on ? '#0F766E' : '#0A2540',
+                        borderColor: on ? '#0F766E' : '#CBD5E1', fontWeight: 700,
+                      }}>
+                      {on ? '✓ ' : ''}{sv.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={s.helper}>
+                Leave all unticked to reach every Founding Member (except opt-outs and the two reserved slots).
+              </div>
+
+              <label style={{ ...s.label, marginTop: 14 }}>Tags (any match)</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '6px 8px',
+                background: '#FFFFFF', border: '1.5px solid #CBD5E1', borderRadius: 12, minHeight: 40 }}>
+                {tagsAny.map(t => (
+                  <span key={t} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    padding: '2px 8px', background: '#E0F2FE', color: '#075985',
+                    borderRadius: 999, fontSize: 11, fontWeight: 700,
+                  }}>
+                    {t}
+                    <button type="button" onClick={() => setTagsAny(tagsAny.filter(x => x !== t))}
+                      style={{ background: 'transparent', border: 'none', color: '#075985', cursor: 'pointer', fontSize: 14, padding: 0 }}>×</button>
+                  </span>
+                ))}
+                <input value={tagInput} onChange={e => setTagInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } }}
+                  placeholder={tagsAny.length ? '' : 'Enter to add — e.g. sydney'}
+                  style={{ border: 'none', outline: 'none', fontSize: 13, flex: '1 1 120px', minWidth: 120, background: 'transparent' }} />
+              </div>
+            </>
+          )}
 
           <div style={{
             marginTop: 14, padding: '10px 14px',
             background: '#F0FDFA', border: '1px solid #99F6E4', borderRadius: 12,
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           }}>
-            <span style={{ fontSize: 13, color: '#0F766E', fontWeight: 700 }}>Recipients matching filter</span>
+            <span style={{ fontSize: 13, color: '#0F766E', fontWeight: 700 }}>
+              {recipientMode === 'segment' ? 'Recipients in this segment' : 'Recipients matching filter'}
+            </span>
             <span style={{ fontSize: 22, fontWeight: 900, color: '#0F766E', fontVariantNumeric: 'tabular-nums' }}>
-              {audienceCount === null ? '…' : audienceCount}
+              {recipientMode === 'segment' && !segmentId ? '—' : (audienceCount === null ? '…' : audienceCount)}
             </span>
           </div>
         </SectionCard>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => void saveDraft()} disabled={saving}
-            style={{ ...s.ghostBtn, opacity: saving ? 0.6 : 1 }}>
-            {saving ? 'Saving…' : 'Save draft'}
-          </button>
-          <button type="button" onClick={() => setScheduleOpen(true)}
-            disabled={!campaignId || !audienceCount || audienceCount === 0}
-            style={{
-              ...s.ghostBtn,
-              opacity: (!campaignId || !audienceCount || audienceCount === 0) ? 0.5 : 1,
-              cursor:  (!campaignId || !audienceCount || audienceCount === 0) ? 'not-allowed' : 'pointer',
-            }}>
-            ⏰ Schedule…
-          </button>
-          <button type="button" onClick={() => setConfirmOpen(true)}
-            disabled={!campaignId || !audienceCount || audienceCount === 0}
-            style={{
-              ...s.primaryBtn,
-              opacity: (!campaignId || !audienceCount || audienceCount === 0) ? 0.5 : 1,
-              cursor:  (!campaignId || !audienceCount || audienceCount === 0) ? 'not-allowed' : 'pointer',
-            }}>
-            Send campaign…
-          </button>
-          {audienceCount === 0 && (
-            <span style={{ color: '#94A3B8', fontSize: 12 }}>Nothing to send — audience is empty.</span>
-          )}
+          {(() => {
+            const missingSegment = recipientMode === 'segment' && !segmentId;
+            const cannotSend = !campaignId || !audienceCount || audienceCount === 0 || missingSegment;
+            return (
+              <>
+                <button type="button" onClick={() => void saveDraft()} disabled={saving}
+                  style={{ ...s.ghostBtn, opacity: saving ? 0.6 : 1 }}>
+                  {saving ? 'Saving…' : 'Save draft'}
+                </button>
+                <button type="button" onClick={() => setScheduleOpen(true)}
+                  disabled={cannotSend}
+                  style={{
+                    ...s.ghostBtn,
+                    opacity: cannotSend ? 0.5 : 1,
+                    cursor:  cannotSend ? 'not-allowed' : 'pointer',
+                  }}>
+                  ⏰ Schedule…
+                </button>
+                <button type="button" onClick={() => setConfirmOpen(true)}
+                  disabled={cannotSend}
+                  style={{
+                    ...s.primaryBtn,
+                    opacity: cannotSend ? 0.5 : 1,
+                    cursor:  cannotSend ? 'not-allowed' : 'pointer',
+                  }}>
+                  Send campaign…
+                </button>
+                {missingSegment && (
+                  <span style={{ color: '#B91C1C', fontSize: 12 }}>Pick a saved segment above to enable sending.</span>
+                )}
+                {!missingSegment && audienceCount === 0 && (
+                  <span style={{ color: '#94A3B8', fontSize: 12 }}>Nothing to send — audience is empty.</span>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
 
@@ -393,6 +555,10 @@ function ComposePanel() {
           templateLabel={meta.label}
           companion={companion}
           audienceCount={audienceCount ?? 0}
+          recipientMode={recipientMode}
+          segment={recipientMode === 'segment'
+            ? (segments || []).find(x => x.id === segmentId) || null
+            : null}
           statuses={statuses}
           tagsAny={tagsAny}
           sending={sending}
@@ -432,9 +598,11 @@ function SectionCard({ title, children }: { title: string; children: React.React
 }
 
 function ConfirmModal({
-  name, templateLabel, companion, audienceCount, statuses, tagsAny, sending, onCancel, onConfirm,
+  name, templateLabel, companion, audienceCount, recipientMode, segment, statuses, tagsAny, sending, onCancel, onConfirm,
 }: {
   name: string; templateLabel: string; companion: string; audienceCount: number;
+  recipientMode: 'segment' | 'custom';
+  segment: { id: string; name: string; emoji?: string | null; last_count?: number; description?: string | null } | null;
   statuses: string[]; tagsAny: string[]; sending: boolean;
   onCancel: () => void; onConfirm: () => void;
 }) {
@@ -457,14 +625,31 @@ function ConfirmModal({
 
         <div style={rowLabel}>Audience</div>
         <div style={rowValue}>
-          {statuses.length === 0 ? (
-            <div>✓ All Founding Members</div>
+          {recipientMode === 'segment' ? (
+            segment ? (
+              <div>
+                {segment.emoji ? `${segment.emoji} ` : ''}Saved segment: <strong>{segment.name}</strong>
+                {segment.description ? (
+                  <div style={{ fontSize: 12, fontWeight: 500, color: '#64748B', marginTop: 4 }}>
+                    {segment.description}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div style={{ color: '#B91C1C' }}>⚠ No segment chosen</div>
+            )
           ) : (
-            statuses.map(sv => (
-              <div key={sv}>✓ {sv.charAt(0).toUpperCase() + sv.slice(1)}</div>
-            ))
+            <>
+              {statuses.length === 0 ? (
+                <div>✓ All Founding Members</div>
+              ) : (
+                statuses.map(sv => (
+                  <div key={sv}>✓ {sv.charAt(0).toUpperCase() + sv.slice(1)}</div>
+                ))
+              )}
+              {tagsAny.map(t => <div key={t}>✓ Tag: {t}</div>)}
+            </>
           )}
-          {tagsAny.map(t => <div key={t}>✓ Tag: {t}</div>)}
         </div>
 
         <div style={rowLabel}>Recipients</div>
