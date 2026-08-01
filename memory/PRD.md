@@ -326,3 +326,26 @@ Every FriendPlace member now sees George's greeting the first time they open the
 - CRM Phase 2C (Segments).
 - Wire George Remembers → Daily Welcome callback field once the "remembering plain-language facts" feature is scoped.
 - Mission Control admin page for the Greeting Library (`/admin/knowledge/greetings`) — quality-of-life; low priority.
+
+
+## 1 August 2026 — CRM Phase 2C shipped (Segments + Campaign Integration)
+End-to-end delivery of the Segments system and its wiring into Campaigns.
+- **Predicate DSL** (`services/segments.py`): declarative JSON tree — filters + and/or/nor/not compositors. 12 filter types (status, tag, days, suburb match, interests, campaign engagement, etc.). Adding a new filter registers a function in the DSL — never rewrites the query engine.
+- **12 starter segments** seeded (`scripts/seed_starter_segments.py`): All Founding Members, New Members (last 7 days), Opted Out, Never Contacted, Warm Leads, Sydney Members, Melbourne Members, Brisbane Members, VIPs, Silent, Recently Engaged, Highly Engaged.
+- **CMS Segments UI** (`/admin/segments` + `/admin/segments/[id]`): emoji-tinted cards, per-card actions (Edit / Duplicate / Refresh count / Archive / Create Campaign), live audience preview while building.
+- **Campaign integration (Stage 4)**: `audience_filter.segment_id` in `CampaignAudienceFilter`. `_resolve_audience` intersects segment email set with the classic filter. `/admin/campaigns/new` shows Recipient toggle (`● Saved segment` / `○ Custom filter`); George quietly suggests 1-3 fitting segments as text is typed (`/api/cms/segments/suggest` — no LLM, just word-overlap over name/description/summary). Send button gates on segment-picked-and-count-greater-than-zero. ConfirmModal shows the chosen segment name + description. Backward-compatible with pre-2C drafts.
+- **Verified end-to-end**: iteration_132 — backend 17/17 pass · frontend visually verified · no email sending triggered during tests.
+
+## Product Polish Backlog (next after Phase 2C — see `/app/memory/product-polish-backlog.md`)
+Locked with Garry 1 Aug 2026. Four items ship together as one polish phase
+before the next major feature set (George Analytics, Moderation Drafts,
+Reports migration).
+1. 🦋 Replace the legacy green butterfly with the new FriendPlace butterfly
+   everywhere (mobile, marketing site, Mission Control, emails, icons).
+2. 💬 George Workspace chat window — draggable, remembers session position,
+   clamps to viewport, preserves minimise/restore.
+3. 🖥️ Mission Control responsive layout — no horizontal clipping, cards
+   resize gracefully, usable on 13"/14" laptops, no horizontal scrolling.
+4. 📣 Flyers — one shared library. Mission Control authors (create/edit/
+   publish/archive); mobile app displays only. The two flyers already
+   created in MCGS must automatically appear everywhere post-merge.
