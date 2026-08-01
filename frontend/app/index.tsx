@@ -308,12 +308,21 @@ export default function Welcome() {
           </Text>
 
           {/* Softer welcome line — invites the reader IN without
-              competing with the brand promise above it. */}
+              competing with the brand promise above it.
+              Copy locked with Garry, 1 Aug 2026:
+                - "communicate belonging, not features"
+                - primary line: long, emotional, three-beat cadence
+                - compact devices get a two-beat variant so the
+                  three-beat one never wraps awkwardly to 3 lines
+              Deliberately NOT using "Because you belong too." here —
+              that phrase already anchors the tagline directly above. */}
           <Text
             style={[styles.welcomeMsg, { fontSize: (compact ? 15 : 16) * scale, marginTop: compact ? 10 : 14 }]}
             testID="welcome-message"
           >
-            Meet new friends, discover local events, and build lasting friendships.
+            {compact
+              ? "Find your people. Share little moments that matter."
+              : "Find your people. Share life\u2019s little moments. Feel part of your community again."}
           </Text>
         </View>
 

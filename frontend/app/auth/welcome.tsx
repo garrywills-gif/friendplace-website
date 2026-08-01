@@ -87,8 +87,10 @@ export default function AuthWelcome() {
 
           <View style={{ alignItems: "center", marginTop: 10 }}>
             <Text style={[styles.hero, { fontSize: 34 * scale }]}>Welcome to FriendPlace</Text>
+            {/* Copy locked with Garry 1 Aug 2026 — belonging over
+                feature-list. Matches the app landing page tagline. */}
             <Text style={[styles.tagline, { fontSize: 17 * scale }]}>
-              Meet new friends, discover local events and build lasting friendships.
+              Find your people. Share life&rsquo;s little moments. Feel part of your community again.
             </Text>
           </View>
 
