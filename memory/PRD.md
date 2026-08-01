@@ -349,3 +349,51 @@ Reports migration).
 4. 📣 Flyers — one shared library. Mission Control authors (create/edit/
    publish/archive); mobile app displays only. The two flyers already
    created in MCGS must automatically appear everywhere post-merge.
+
+
+## 1 August 2026 — Product Polish Phase 1 shipped ✅
+
+Three of four polish items shipped in a single session. The fourth
+(Flyer Publishing Centre) is fully specified and queued for the next
+session — see `/app/memory/flyer-publishing-centre-plan.md`.
+
+### 🦋 The FriendPlace butterfly — one canonical mark, everywhere
+- The **marketing website butterfly** is now the single official
+  FriendPlace butterfly. Master PNGs: `/app/website/public/brand-assets/butterfly.png`
+  + byte-identical mirror `/app/frontend/assets/brand/friendplace-butterfly.png`.
+- Single component (web + RN mirror): `GeorgeButterflyMark`. Every
+  butterfly slot on every surface renders this component.
+- 34 standalone butterfly displays swapped across 19 mobile files;
+  marketing hero/features/success-stories/launch converted; all
+  Mission Control cards + floating chat + credo now on the master
+  butterfly.
+- **Brand doctrine locked** in `/app/memory/FRIENDPLACE_BUTTERFLY.md`:
+  represents *two people coming together*, belonging, friendship,
+  hope, community. The heart between the upper wings is intentional.
+  Evolution is allowed; redesign or reinterpretation is not.
+
+### 📜 The Credo — daily reminder in Mission Control
+> **"Every friendship begins with two people."**
+
+Displayed quietly beneath the "Mission Control" heading in the
+sidebar. Italic, faded, whispers rather than shouts. Every feature
+we build ultimately helps those two people find one another.
+
+### 🖥️ Mission Control responsive layout
+Sidebar tightened to 240px; main column padding responds at
+1400/1280/1160px; Bridge grid stacks below 1080px; `min-width: 0` on
+all grid children. **Zero horizontal scroll verified at 1200 · 1280 ·
+1440 · 1920px.**
+
+### 💬 George's floating chat is a professional draggable window
+- Drag by the header (six-dot handle + `cursor: grab`)
+- Position remembered in `sessionStorage`
+- Viewport-clamped on drag AND on window resize
+- Escape closes; minimise/restore preserved
+- Desktop: no backdrop so you can still see The Bridge behind
+- Narrow (<720px): light backdrop for touch-dismiss
+
+### Next
+Product Polish Phase 1 is **complete**. Tomorrow: start with the
+**Flyer Publishing Centre** exactly as specified in
+`/app/memory/flyer-publishing-centre-plan.md`.
