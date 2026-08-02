@@ -38,11 +38,12 @@ import { georgeApi, type Presence } from '@/src/lib/george-api';
 
 const STORAGE_KEY = 'george.lastArrival';
 const DAYS_ABSENCE_FOR_WARM_WELCOME = 3;
-// Bumped 22 July 2026 (Garry's C1 feedback): longer greetings need more
-// dwell time so older members have room to finish reading before the
-// bubble tucks itself away. 12s covers the longest returning-user line
-// without feeling long-winded. Tap-to-dismiss still works.
-const BUBBLE_LIFETIME_MS = 12000;
+// Bubble auto-dismiss (Garry, 1 Aug 2026 — "Let it auto-dismiss after
+// a few seconds"). Down from 12s to 6s so the bubble reads as a short
+// warm hello rather than a lingering panel. Tap-to-dismiss still works.
+// Longer welcome copy (thoughts, callbacks, invitations) belongs on a
+// separate Home card, not in the bubble.
+const BUBBLE_LIFETIME_MS = 6000;
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -639,18 +640,18 @@ const styles = StyleSheet.create({
     width: Math.min(280, SCREEN_W - 100),
   },
   bubble: {
-    // Matched to the website's George bubble (Garry, 31 July 2026) —
-    // white card, subtle teal border, soft teal-tinted shadow. The
-    // app was previously a saturated `#CCFBF1` wash which felt
-    // heavier than the website's warm, quiet treatment.
-    backgroundColor: '#FFFFFF',
+    // Locked with Garry 1 Aug 2026: George's signature voice. Soft
+    // FriendPlace blue with a matching border and navy text so
+    // members instantly recognise "George is speaking" wherever the
+    // bubble appears. Palette matches the master butterfly.
+    backgroundColor: '#DBEAFE',
     borderWidth: 1,
-    borderColor: '#CCFBF1',
+    borderColor: '#93C5FD',
     borderRadius: 16,
     padding: 12,
     ...Platform.select({
       ios: {
-        shadowColor: '#14B8A6',
+        shadowColor: '#1E40AF',
         shadowOpacity: 0.18,
         shadowRadius: 12,
         shadowOffset: { width: 0, height: 8 },
@@ -663,16 +664,18 @@ const styles = StyleSheet.create({
     right: -6,
     bottom: 14,
     width: 12, height: 12,
-    // White tail with a light-teal outline to match the bubble edge.
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1, borderTopColor: '#CCFBF1',
-    borderRightWidth: 1, borderRightColor: '#CCFBF1',
+    // Blue tail matched to the bubble so the pointer to the perched
+    // butterfly stays visually part of George's voice.
+    backgroundColor: '#DBEAFE',
+    borderTopWidth: 1, borderTopColor: '#93C5FD',
+    borderRightWidth: 1, borderRightColor: '#93C5FD',
     transform: [{ rotate: '45deg' }],
   },
   bubbleText: {
     fontSize: 14,
     lineHeight: 20,
-    color: '#0F172A',
+    color: '#0A2540',
+    fontWeight: '500',
   },
   chatBackdrop: {
     flex: 1,

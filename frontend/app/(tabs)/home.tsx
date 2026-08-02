@@ -14,7 +14,6 @@ import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import FirstRunCard from "@/src/components/FirstRunCard";
 import BrandLockup from "@/src/components/BrandLockup";
 import MyStatusCard from "@/src/components/status/MyStatusCard";
-import { DailyWelcomeCard } from "@/src/components/george/DailyWelcomeCard";
 import { GlobalDmPromptInline } from "@/src/components/GlobalDmPrompt";
 import { GeorgeRemembersBanner } from "@/src/components/george/GeorgeRemembersBanner";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
@@ -365,24 +364,15 @@ export default function Home() {
           <GeorgeButterflyMark size={26 * scale} />
         </View>
 
-        {/* George's Daily Welcome — the first-open-of-the-day hello.
-            Data-driven from `/api/mcgs/george/daily-welcome`; renders
-            nothing on subsequent opens the same calendar day.
-
-            Context-aware (Garry, 1 Aug 2026): we tell George which
-            surface elements are currently on Home so he doesn't echo
-            them in the greeting. E.g. the Share a Moment hero right
-            below already asks "What's your moment today?" — no need
-            for George to ask again. This is the architectural pattern
-            for making George read the room across the whole app; see
-            PRINCIPLES.md → "George is context-aware".
-            See `/app/memory/design-morning-welcome.md`. */}
-        <DailyWelcomeCard
-          activeContexts={[
-            "home:share_a_moment_hero",
-            ...(featuredMoment ? ["home:moment_of_the_week"] : []),
-          ]}
-        />
+        {/* George's voice on Home is now the perched speech bubble
+            beside the resting butterfly (see GeorgeButterfly.tsx).
+            One consistent voice — soft-blue bubble, butterfly on top,
+            auto-dismisses after a few seconds. The `DailyWelcomeCard`
+            was retired from Home on 1 Aug 2026 (Garry) because it
+            duplicated the bubble's role. Backend API
+            `/api/mcgs/george/daily-welcome` remains available if we
+            ever want George's fuller thought-for-the-day surfaced as
+            a standalone content card elsewhere. */}
 
         {/* System notifications zone — sits between George's welcome
             and the first content card so app messages (new private
