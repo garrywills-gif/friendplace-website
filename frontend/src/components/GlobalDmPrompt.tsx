@@ -227,10 +227,12 @@ export default function GlobalDmPrompt() {
             ]}
           >
             <Text
+              numberOfLines={1}
               style={{
                 color: "#FFFFFF",
                 fontWeight: "900",
-                fontSize: 14 * scale,
+                fontSize: 15 * scale,
+                letterSpacing: 0.2,
               }}
             >
               💬  Open chat
@@ -250,10 +252,12 @@ export default function GlobalDmPrompt() {
             ]}
           >
             <Text
+              numberOfLines={1}
               style={{
                 color: c.onSurface,
                 fontWeight: "800",
-                fontSize: 14 * scale,
+                fontSize: 15 * scale,
+                letterSpacing: 0.2,
               }}
             >
               ⏰  Not now
@@ -303,17 +307,21 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     flex: 1,
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+    minHeight: 48,
   },
   secondaryBtn: {
     flex: 1,
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    minHeight: 48,
   },
 });

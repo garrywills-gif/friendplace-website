@@ -329,6 +329,32 @@ async def approve_onboarding(db: Any, session_id: str, *, edits: Optional[dict] 
     return {"ok": True, "session_id": session_id, "profile": known}
 
 
+async def reset_onboarding_session(db: Any, session_id: str) -> dict:
+    """'Clear chat' — the member wants to start the conversation over.
+
+    Marks the current session as ``cancelled`` (a hard stop, unlike
+    ``cancel_onboarding_session`` which pauses for resume) and spins up a
+    fresh session for the same actor. Deliberately does NOT touch
+    ``users.george_profile`` — any answers already approved to the
+    member profile stay intact. Only the transient in-progress
+    conversation is wiped.
+    """
+    session = await db[COLL_ONBOARDING].find_one({"session_id": session_id})
+    if not session:
+        raise ValueError("Session not found")
+    actor_id = session.get("actor_id")
+    now = _now_iso()
+    # Hard-stop this session so ``active_onboarding_session`` skips it
+    # and ``start_or_resume_onboarding`` creates a brand new one.
+    await db[COLL_ONBOARDING].update_one(
+        {"session_id": session_id},
+        {"$set": {"status": "cancelled", "cancelled_at": now, "updated_at": now, "cancel_reason": "cleared_by_member"}},
+    )
+    # Fresh session — same opening greeting as a first-time start.
+    fresh = await start_or_resume_onboarding(db, actor_id=actor_id)
+    return fresh
+
+
 async def cancel_onboarding_session(db: Any, session_id: str) -> dict:
     """'Finish later' — preserves the draft. Semantic marker only; the
     session remains resumable because we keep status='in_progress' if it

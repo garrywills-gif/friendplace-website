@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
-  ActivityIndicator, Platform,
+  ActivityIndicator, Platform, Alert,
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -181,6 +181,46 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     onFinishLater();
   }
 
+  async function performClearChat() {
+    if (!sessionId || busy) return;
+    setBusy(true);
+    try {
+      const s = await georgeApi.onboardingReset(sessionId);
+      setSessionId(s.session_id);
+      setTurns(s.turns || []);
+      setStatus(s.status || 'in_progress');
+      setKnown(s.known || {});
+      setInput('');
+      spokenIdxRef.current = -1;
+      stopGeorgeAutoRead();
+    } catch {
+      setTurns(x => [...x, { role: 'george', content: "I couldn\u2019t quite start us over — give it a moment and try again?" }]);
+    } finally { setBusy(false); }
+  }
+
+  function confirmClearChat() {
+    if (!sessionId || busy) return;
+    if (Platform.OS === 'web') {
+      // React Native's Alert on web only surfaces the message and
+      // resolves the first button; use the browser confirm for a
+      // real yes/no dialog.
+      if (typeof window !== 'undefined' && window.confirm(
+        "Start over? This will clear our conversation and begin again from my opening greeting. Anything I\u2019ve already saved to your profile stays."
+      )) {
+        void performClearChat();
+      }
+      return;
+    }
+    Alert.alert(
+      'Start over?',
+      "This will clear our conversation and begin again from my opening greeting. Anything I\u2019ve already saved to your profile stays.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear chat', style: 'destructive', onPress: () => { void performClearChat(); } },
+      ],
+    );
+  }
+
   const showPreview = status === 'drafted';
 
   return (
@@ -191,6 +231,17 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
         <Text style={styles.headerName}>{voiceLabel}</Text>
+        <Pressable
+          onPress={confirmClearChat}
+          disabled={busy || !sessionId}
+          hitSlop={8}
+          style={({ pressed }) => [styles.clearChatBtn, (busy || !sessionId) && { opacity: 0.4 }, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Clear chat and start over"
+        >
+          <Ionicons name="refresh" size={14} color="#0F766E" />
+          <Text style={styles.clearChatText}>Clear chat</Text>
+        </Pressable>
         <Pressable onPress={finishLater} hitSlop={8}>
           <Text style={styles.finishLater}>Finish later</Text>
         </Pressable>
@@ -366,6 +417,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   headerName: { fontSize: 17, fontWeight: '800', color: '#0F172A', flex: 1, marginLeft: 6 },
+  clearChatBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingVertical: 6, paddingHorizontal: 10,
+    borderRadius: 999, borderWidth: 1, borderColor: '#CCFBF1',
+    backgroundColor: '#F0FDFA', marginRight: 8,
+  },
+  clearChatText: { fontSize: 12, color: '#0F766E', fontWeight: '700' },
   finishLater: { fontSize: 13, color: '#94A3B8', fontWeight: '600', textDecorationLine: 'underline' },
   scroll: { flex: 1 },
   scrollContent: {

@@ -1,198 +1,61 @@
-# Presence & Status — Commit 2 (Frontend)
+# George Onboarding — "Clear chat" option (Iteration 134)
 
 ## Context
-Commit 1 (backend) shipped last session — `member_status` collection,
-`/api/status/*` endpoints, auto-clear hooks. See
-`/app/memory/design-presence-and-status.md` for the LOCKED spec and
-`/app/backend/services/status/` for implementation. Backend was
-already verified by testing_agent in iterations 91–98.
+Small UX refinement locked with Garry: during onboarding, members reopening George return to the previous conversation with no obvious way to restart. Added a "Clear chat" pill in the onboarding header.
 
-## What just shipped (frontend)
-- `src/lib/status-context.tsx` — global `StatusProvider` mounted in
-  `app/_layout.tsx` (wraps AuthProvider + ToastProvider). Handles the
-  60 s heartbeat, foreground/background AppState transitions, and a
-  200 ms-debounced batched lookup for other users' statuses
-  (`useUserBadgeStatus` / `useUserBadgeStatuses`).
-- `src/components/status/AvatarWithBadge.tsx` — wraps existing
-  `AvatarBubble` with a bottom-right status glyph.
-- `src/components/status/MyStatusCard.tsx` — Home "My Status" card
-  (design §5.1). 🦋 primary button, Happy/Busy pills side-by-side,
-  Clear pill, effective status header chip.
-- `src/components/status/CafeLookingBanner.tsx` — FP Café banner
-  (design §5.2). Single- vs multi-member layout, tap-action sheet
-  with Join-table + PM (or PM only), 30 s polling.
-- `src/lib/api.ts` — 5 new methods: `statusMe`, `statusSetManual`,
-  `statusHeartbeat`, `statusLooking`, `statusForUsers` (all silent
-  variants where appropriate so background pollers don't nuke the
-  session on transient 401s).
-- Home screen (`app/(tabs)/home.tsx`) — `MyStatusCard` slotted
-  directly under the greeting.
-- Table screen (`app/table/[id].tsx`) — `CafeLookingBanner` slotted
-  above the seating diagram.
-- Profile screen (`app/(tabs)/profile.tsx`) — removed the OLD status
-  chip row, "Send a chat alert" button, and the audience-picker
-  modal. Kept the Nearby Opt-In checkbox (renamed section to
-  "🔔 Nearby chats").
-- `AvatarWithBadge` applied on: Chats tab (replaces the old green
-  "online dot"), Friends tab (Find Friends list), Table screen's
-  compact seated strip.
+Requirements (verbatim from Garry):
+- Clear chat button visible during onboarding.
+- Selecting it clears the onboarding conversation and starts again from George's opening greeting.
+- Preserves any preferences already saved to the member profile (`users.george_profile`). Only the transient in-progress conversation is wiped.
+- Do NOT change any of George's wording. The "always learning" line stays.
+
+## What shipped
+
+### Backend
+- `services/george/onboarding/service.py`
+  - New `reset_onboarding_session(db, session_id)` — marks the current session `status=cancelled` (with `cancel_reason="cleared_by_member"`), then calls `start_or_resume_onboarding` to create a fresh session with George's opening greeting. **Does not touch `users.george_profile`.**
+- `services/george/onboarding/__init__.py` — exports `reset_onboarding_session`.
+- `mcgs_module.py`
+  - Imports `reset_onboarding_session`.
+  - New endpoint: `POST /api/mcgs/george/onboarding/session/{session_id}/reset` (actor-authenticated, returns the fresh session dict).
+
+### Frontend
+- `src/lib/george-api.ts` — added `onboardingReset(sessionId)`.
+- `src/components/george/GeorgeOnboarding.tsx`
+  - New "Clear chat" pill in the header (teal outline, small refresh icon).
+  - `Alert.alert` confirmation on iOS/Android; `window.confirm` on web with copy: *"Start over? This will clear our conversation and begin again from my opening greeting. Anything I've already saved to your profile stays."*
+  - On confirm → calls `/reset`, replaces local `sessionId/turns/known/status`, clears composer input, resets auto-read pointer, stops any in-flight speech.
+
+## What to test — backend
+1. `POST /api/mcgs/george/onboarding/start` for `member_first` (Alex).
+2. Send a turn or two so the session has content: `POST /api/mcgs/george/onboarding/session/{id}/turn` with a message like "I'm Alex from Kellyville, I like walking and reading."
+3. `POST /api/mcgs/george/onboarding/session/{id}/reset`. Expect 200 with a new `session_id`, fresh `turns` list containing George's opening greeting, `known={}`, `status="in_progress"`.
+4. Old session should be marked `status=cancelled` in `db.george_onboarding_conversations`.
+5. `users.george_profile` for Alex should be **unchanged** (whatever was there before is still there).
+6. Auth guard: calling `/reset` with a different actor's token → 403.
+7. Non-existent session id → 404.
 
 ## What to test — frontend
+1. Log in as `member_first` / `TestPass2026!`.
+2. Ensure onboarding is active. If Alex is already through onboarding, rewind: set `profile_complete=false` and any onboarding sessions to `in_progress` (Mongo tips in `/app/memory/test_credentials.md`).
+3. Open onboarding — a "Clear chat" pill should appear in the header, between the name and "Finish later".
+4. Send at least one reply to George so the transcript grows.
+5. Tap "Clear chat" — confirmation dialog appears.
+6. Confirm → transcript resets, George's opening greeting reappears as the only turn.
+7. Confirm the mic button, Send, "Finish later", and skip chip still work after reset.
+8. Verify the visible copy is unchanged (no rewording of George's messages).
 
-### P0 — My Status card (Home)
-1. **First-visit render** — after login, the Home screen shows a
-   "MY STATUS" card between the greeting and Today's Thought. The
-   header chip is HIDDEN when effective status is `online`. The
-   primary 🦋 button shows "Looking for a chat" (unfilled state).
-   The two half-width pills are 😊 Happy to connect · 🟡 Busy right
-   now. Footer: "☕ In the FP Café and ⚫ Offline are set
-   automatically."
-2. **Toggle "Looking for a chat"** — tap `my-status-looking`. Button
-   fills brand blue and label becomes "✓ Looking for a chat · 1h
-   left". Effective chip appears with "🦋 Looking for a chat".
-   Clear pill (`my-status-clear`) appears below.
-3. **Toggle "Happy to connect"** — from the online state, tap
-   `my-status-happy`. Pill lights up. Effective chip becomes "😊
-   Happy to connect". No time-left suffix (24 h TTL is too long to
-   show).
-4. **Toggle "Busy"** — same as #3 for `my-status-busy` (4 h TTL).
-   Effective chip becomes "🟡 Busy right now".
-5. **Mutually exclusive** — activating Happy clears Looking and vice
-   versa. Activating Busy while Happy is on → only Busy shows.
-6. **Clear pill** — visible ONLY when manual status is set. Tapping
-   clears back to `online` and hides the effective chip.
-7. **Precedence** — with `manual_status = "busy"` set, effective
-   shows `busy` (design §2). With `manual_status = "looking"` set,
-   effective shows `looking` regardless of café state.
-8. **Optimistic update + revert** — flakey network: the toggle
-   should flip immediately then reconcile with the server response
-   without flicker.
+## Credentials
+- Member: `member_first` / `TestPass2026!` (Alex; see `/app/memory/test_credentials.md` §Milestone B for rewind steps).
+- Admin: `hello@friendplace.com.au` / `TestPass2026!` (not needed for this test).
 
-### P0 — Café banner
-Because the seed only has one member logged in, seed a second user's
-status manually:
-```python
-import asyncio, sys, os
-sys.path.insert(0, "/app/backend")
-from motor.motor_asyncio import AsyncIOMotorClient
-from services.status import service as svc
-async def main():
-    c = AsyncIOMotorClient(os.environ.get("MONGO_URL","mongodb://localhost:27017"))
-    db = c["test_database"]
-    # Pick any demo user (e.g. Maggie) that is NOT the viewer.
-    u = await db.users.find_one({"username": "maggie"})
-    await svc.set_manual(db, u["id"], "looking")
-    await svc.heartbeat(db, u["id"])
-    # Also flip nearby_opt_in + same suburb so nearby scope matches:
-    await db.users.update_one({"id": u["id"]}, {"$set": {"nearby_opt_in": True, "suburb": (await db.users.find_one({"username":"member_first"}))["suburb"]}})
-asyncio.run(main())
-```
-9. **Banner renders** — visit any table (`/table/{id}`). The banner
-   `cafe-looking-banner` should appear ABOVE the seating diagram
-   with "🦋 Maggie would love a chat · Tap to start chatting."
-10. **Multi-member layout** — repeat the seed for a 2nd user. Banner
-    heading becomes "People looking for a chat" with each row
-    prefixed 🦋 and chevron on the right.
-11. **Tap → action sheet** — tap a row. Modal slides up. If the
-    tapped member has `in_cafe_table_id` set AND it's not the current
-    table, `[Join their table]` primary + `[Send a private message]`
-    secondary. Else, only `[Send a private message]` primary.
-12. **PM action** — tap `looking-sheet-pm`. Deep-links to `/dm/{id}?
-    other_id=...` after `api.startDm` succeeds.
-13. **Cancel** — tap `looking-sheet-cancel` or the backdrop → sheet
-    dismisses without side effects.
-14. **Auto-clear on DM message** — after tapping PM and sending a
-    message, the target member's `manual_status` clears server-side
-    (Commit 1's DM auto-clear hook). Refetch `/api/status/for-users`
-    for that id — should return `online`.
-15. **Auto-hide when empty** — clear the seeded users' looking status
-    (`svc.set_manual(db, uid, None)`). Refresh the table view within
-    30 s; banner disappears cleanly.
-16. **Self-excluded** — set the LOGGED-IN user's own status to
-    looking. Their name must NOT appear in the banner.
+## Files changed
+- `/app/backend/services/george/onboarding/service.py`
+- `/app/backend/services/george/onboarding/__init__.py`
+- `/app/backend/mcgs_module.py`
+- `/app/frontend/src/lib/george-api.ts`
+- `/app/frontend/src/components/george/GeorgeOnboarding.tsx`
 
-### P1 — AvatarWithBadge across surfaces
-17. **Chats tab** — DM list rows show a status badge on the other
-    party's avatar (corner glyph). Old solid-green "online dot" is
-    gone. `chat-online-*` test-id no longer present.
-18. **Friends tab** — Find Friends list avatars show the badge.
-19. **Café compact strip** — while the keyboard is open at a table,
-    the compact seated strip shows badges on avatars. Signed-in user
-    (self) shows NO badge (design §5.4 refinement).
-20. **Offline members** — offline users show no badge (design §2
-    refinement: ⚫ only shown when known-offline in explicit contexts).
-
-### P1 — Profile cleanup
-21. **Nearby chats section** — old "My status" chip row + "Send a
-    chat alert" primary button + audience picker modal are all
-    GONE. The Nearby Opt-In checkbox remains, now under a "🔔
-    Nearby chats" section header. Toggling it still hits
-    `updatePreferences` with `nearby_chat_alerts`.
-
-### P0 — Heartbeat + presence
-22. **Heartbeat on foreground** — from a cold start, network log
-    shows `POST /api/status/heartbeat` fires immediately and then
-    every 60 s while the app is foregrounded.
-23. **Background pause** — putting the app in the background stops
-    heartbeats. Returning to foreground fires one immediately and
-    then resumes the interval.
-24. **/api/status/me on login** — fires ONCE right after the initial
-    heartbeat. Sets the initial state of the My Status card.
-
-### P0 — Non-regression checks
-25. **`/preview/status-mockups` route still renders** — DO NOT
-    delete this route. User wants it retained as visual reference
-    until the whole feature is approved.
-26. **VoiceInputButton unchanged** — mic/send toggle in the table
-    composer and George's composer must still work exactly as
-    before (STT baseline is LOCKED).
-27. **Existing table/dm/notifications flows untouched** — sending a
-    photo, editing an event, sending a flutter etc. must all still
-    work as they did before Commit 2.
-
-## Test credentials
-- Mobile member: `member@friendplace.com.au` / `TestPass2026!` (Alex)
-- Additional users (demo — no password, use "Try a demo account"):
-  `maggie`, `frankie`, `joycey`, `billdo`, `dot`
-- Mission Control admin: `hello@friendplace.com.au` / `TestPass2026!`
-
-## Files touched / created in this session
-- **New**:
-  - `/app/frontend/src/lib/status-context.tsx`
-  - `/app/frontend/src/components/status/AvatarWithBadge.tsx`
-  - `/app/frontend/src/components/status/MyStatusCard.tsx`
-  - `/app/frontend/src/components/status/CafeLookingBanner.tsx`
-- **Modified**:
-  - `/app/frontend/app/_layout.tsx` (StatusProvider wired in)
-  - `/app/frontend/src/lib/api.ts` (5 new methods)
-  - `/app/frontend/app/(tabs)/home.tsx` (MyStatusCard slotted)
-  - `/app/frontend/app/table/[id].tsx` (banner slotted + badge on compact strip)
-  - `/app/frontend/app/(tabs)/profile.tsx` (removed old chat-alert flow, kept Nearby Opt-In)
-  - `/app/frontend/app/(tabs)/chats.tsx` (AvatarWithBadge replaces onlineDot)
-  - `/app/frontend/app/(tabs)/friends.tsx` (AvatarWithBadge on Find Friends list)
-
-## Non-goals for Commit 2 (deferred to Commit 3)
-- Live WebSocket status_change / looking_list_update broadcast wiring
-  (currently 30 s polling on the banner). Server broadcasts are ready
-  per Commit 1; we deliberately kept the client on polling until we
-  can prove UX first.
-- AvatarWithBadge on group members list and event attendees (need
-  those screens to expose the batched-fetch pattern too — small work
-  but held for Commit 3 cleanup pass).
-- LRU/pruning of the batched cache (currently unbounded per session;
-  it's small — an object per unique user id — so this is fine for the
-  TestFlight builds).
-
-## Known good state to protect
-- STT (`VoiceInputButton.tsx`) — DO NOT alter.
-- George event creation prompt logic — DO NOT alter.
-- Nearby Opt-In checkbox behaviour — unchanged from TestFlight
-  round-7 fix #18.
-- **Share a Moment (locked 31 July 2026)** — Home hero copy
-  ("What's your moment today?" + tagline), the amber hero card,
-  the empty-state phrase *"Be the first to leave a warm word."*
-  and the composer placeholder ("Say something kind"). Signature
-  phrasings — do NOT reword.
-- **Recipes** — retired for members but backend and stored recipe
-  data preserved. `/recipes` redirects to `/moments` in-app.
-  Do not delete the recipes backend routes without user sign-off.
+## Not tested / out of scope
+- No prompt or wording changes to George — all existing onboarding tests should still pass unchanged.
+- Flyer Publishing Centre — pending per Garry's next-session plan (`/app/memory/flyer-publishing-centre-plan.md`).

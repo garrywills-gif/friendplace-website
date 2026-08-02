@@ -66,6 +66,7 @@ from services.george.onboarding import (
     get_onboarding_session,
     approve_onboarding,
     cancel_onboarding_session,
+    reset_onboarding_session,
     active_onboarding_session,
     ensure_indexes as ensure_onboarding_indexes,
 )
@@ -1074,6 +1075,25 @@ def build_router(db) -> APIRouter:
         if session.get("actor_id") != actor.get("id"):
             raise HTTPException(403, "Not your conversation.")
         return await cancel_onboarding_session(db, session_id)
+
+    @router.post("/mcgs/george/onboarding/session/{session_id}/reset")
+    async def api_onboarding_reset(
+        session_id: str,
+        actor: dict = Depends(current_george_actor),
+    ):
+        """Clear the current onboarding conversation and start fresh.
+
+        The member profile (`users.george_profile`) is intentionally
+        untouched — anything previously approved to the profile stays.
+        Only the transient in-progress conversation is wiped and a new
+        session with George's opening greeting is returned.
+        """
+        session = await get_onboarding_session(db, session_id)
+        if not session:
+            raise HTTPException(404, "Session not found")
+        if session.get("actor_id") != actor.get("id"):
+            raise HTTPException(403, "Not your conversation.")
+        return await reset_onboarding_session(db, session_id)
 
 
 

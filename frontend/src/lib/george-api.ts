@@ -259,6 +259,10 @@ export const georgeApi = {
   onboardingFinishLater: (sessionId: string) => _req<any>(
     `/mcgs/george/onboarding/session/${sessionId}/finish-later`, { method: 'POST' },
   ),
+  onboardingReset: (sessionId: string) => _req<any>(
+    `/mcgs/george/onboarding/session/${sessionId}/reset`,
+    { method: 'POST', body: JSON.stringify({}) },
+  ),
   // Event creation (Milestone B5, current_screen added in C1 Slice 3)
   eventStart: (text: string = '', currentScreen?: string | null) => _req<EventSession>(
     '/mcgs/george/event/start',
