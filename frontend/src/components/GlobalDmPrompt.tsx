@@ -37,24 +37,50 @@ import { useDmNotify } from "@/src/lib/dm-notify-context";
 import AvatarBubble from "@/src/components/AvatarBubble";
 
 // Routes on which the prompt is NOT rendered — mirrors George's
-// HIDDEN_SCREENS list so we behave consistently.
+// HIDDEN_SCREENS list so we behave consistently. Home is added to
+// this list because the Home screen renders its own INLINE version
+// of the prompt in the notification zone below George's welcome
+// (Garry, 1 Aug 2026 — "George owns the top of the Home screen; app
+// notifications should feel like messages from the app and sit in
+// their own zone, not overlaid on George").
 const _isHiddenPath = (p: string | null): boolean => {
   if (!p) return true;
   if (p === "/" || p === "") return true;
   if (p.startsWith("/auth")) return true;
   if (p.startsWith("/onboarding")) return true;
   if (p.startsWith("/waitlist")) return true;
+  // Home is now handled by an inline instance rendered in the Home
+  // screen tree itself (see `app/(tabs)/home.tsx` → HomeDmPrompt).
+  if (p === "/(tabs)/home" || p === "/home" || p === "/(tabs)") return true;
   return false;
 };
 
+/**
+ * Renders the DM prompt UI. When `inline` is true, the prompt sits
+ * in the normal document flow (used inside Home between George's
+ * welcome and the first content card) instead of floating at the
+ * top of the viewport. In inline mode we still animate in/out, but
+ * without an absolute-position wrapper or safe-area top inset.
+ */
+export function GlobalDmPromptInline() {
+  return <DmPromptBody inline />;
+}
+
 export default function GlobalDmPrompt() {
+  return <DmPromptBody />;
+}
+
+function DmPromptBody({ inline = false }: { inline?: boolean }) {
   const { c, scale } = useTheme();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const { prompt, openTarget, dismiss } = useDmNotify();
 
-  const visible = !!prompt && !!user && !_isHiddenPath(pathname);
+  // The floating instance hides on Home (handled inline). The inline
+  // instance ignores the pathname guard because it is only mounted
+  // on Home by design.
+  const visible = !!prompt && !!user && (inline || !_isHiddenPath(pathname));
 
   // Slide-in animation — subtle, matches the pace of George's
   // header flutter (~380ms). Native driver-friendly.
@@ -98,13 +124,11 @@ export default function GlobalDmPrompt() {
     <Reanimated.View
       pointerEvents="box-none"
       style={[
-        styles.wrap,
-        {
-          top: insets.top + 6,
-        },
+        inline ? styles.inlineWrap : styles.wrap,
+        inline ? null : { top: insets.top + 6 },
         cardStyle,
       ]}
-      testID="global-dm-prompt"
+      testID={inline ? "home-dm-prompt" : "global-dm-prompt"}
     >
       <View
         style={[
@@ -219,6 +243,14 @@ const styles = StyleSheet.create({
     zIndex: 999,
     // Android needs explicit elevation for the same effect.
     ...Platform.select({ android: { elevation: 12 }, default: {} }),
+  },
+  // Inline variant — flows in the normal document, no floating z-index,
+  // used on Home so app-notifications sit in their own zone beneath
+  // George's welcome. Same card visual, no absolute wrapper.
+  inlineWrap: {
+    marginHorizontal: 0,
+    marginTop: 4,
+    marginBottom: 12,
   },
   card: {
     padding: 14,

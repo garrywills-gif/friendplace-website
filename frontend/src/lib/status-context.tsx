@@ -62,13 +62,19 @@ export type MyStatus = {
 
 // ─── Status metadata (glyph + label). Kept in one place so every
 //     surface renders the same emoji + copy. If we swap to SVG later,
-//     only this constant changes. Precedence order matches design §2. ─
+//     only this constant changes. Precedence order matches design §2.
+//     "Happy to connect" removed 1 Aug 2026 (Garry): felt too dating-
+//     app; "Looking for a chat" captures the FriendPlace warmth
+//     better on its own. `happy` retained as a valid status literal
+//     for backward compatibility with any old records so the type
+//     union stays stable, but is no longer offered as a manual
+//     option in the UI. ─
 export const STATUS_META: Record<EffectiveStatus, { glyph: string; label: string }> = {
   offline: { glyph: "⚫", label: "Offline" },
   looking: { glyph: "🦋", label: "Looking for a chat" },
   in_cafe: { glyph: "☕", label: "In the FP Café" },
   busy: { glyph: "🟡", label: "Busy right now" },
-  happy: { glyph: "😊", label: "Happy to connect" },
+  happy: { glyph: "🦋", label: "Looking for a chat" },   // legacy alias — reads as Looking
   online: { glyph: "🟢", label: "Online" },
 };
 

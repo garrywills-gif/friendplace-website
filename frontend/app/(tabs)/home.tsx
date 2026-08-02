@@ -15,6 +15,7 @@ import FirstRunCard from "@/src/components/FirstRunCard";
 import BrandLockup from "@/src/components/BrandLockup";
 import MyStatusCard from "@/src/components/status/MyStatusCard";
 import { DailyWelcomeCard } from "@/src/components/george/DailyWelcomeCard";
+import { GlobalDmPromptInline } from "@/src/components/GlobalDmPrompt";
 import { GeorgeRemembersBanner } from "@/src/components/george/GeorgeRemembersBanner";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -382,6 +383,16 @@ export default function Home() {
             ...(featuredMoment ? ["home:moment_of_the_week"] : []),
           ]}
         />
+
+        {/* System notifications zone — sits between George's welcome
+            and the first content card so app messages (new private
+            chats, friend requests) live in their own visual space,
+            distinct from George's voice. Locked with Garry 1 Aug 2026:
+            "George should feel like a person welcoming you; app
+            notifications should feel like messages from the app.
+            Keeping those separate makes Home calmer."
+            Renders nothing when there are no pending notifications. */}
+        <GlobalDmPromptInline />
 
         {/* --- HERO: Share a Moment -------------------------------------
             Locked with Garry 31 July 2026 as the primary feature of

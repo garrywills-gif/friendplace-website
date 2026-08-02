@@ -32,7 +32,7 @@ import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark
 type Payload = Awaited<ReturnType<typeof georgeApi.dailyWelcome>>;
 
 export function DailyWelcomeCard({ activeContexts }: { activeContexts?: string[] } = {}) {
-  const { c, scale } = useTheme();
+  const { scale } = useTheme();
   const [payload, setPayload] = useState<Payload | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
@@ -57,12 +57,23 @@ export function DailyWelcomeCard({ activeContexts }: { activeContexts?: string[]
 
   if (!payload?.shown || dismissed) return null;
 
+  // Locked with Garry 1 Aug 2026: George's welcome uses the FriendPlace
+  // soft-blue speech bubble so members instantly recognise "George is
+  // speaking." White backgrounds blended into the surface too much.
+  // Palette: #DBEAFE (soft brand blue) with navy #0A2540 text — matches
+  // the master butterfly's palette so George's voice reads visually
+  // consistent with his mark.
+  const GEORGE_BUBBLE_BG = '#DBEAFE';
+  const GEORGE_BUBBLE_BORDER = '#93C5FD';
+  const GEORGE_TEXT = '#0A2540';
+  const GEORGE_INVITE = '#1D4ED8';
+
   return (
     <View
       testID="daily-welcome-card"
       style={[
         styles.card,
-        { backgroundColor: c.brandTertiary, borderColor: c.brand },
+        { backgroundColor: GEORGE_BUBBLE_BG, borderColor: GEORGE_BUBBLE_BORDER },
       ]}
       accessibilityRole="text"
       accessibilityLabel={[
@@ -84,14 +95,14 @@ export function DailyWelcomeCard({ activeContexts }: { activeContexts?: string[]
             { opacity: pressed ? 0.4 : 0.6 },
           ]}
         >
-          <Ionicons name="close" size={18} color={c.muted} />
+          <Ionicons name="close" size={18} color={GEORGE_TEXT} />
         </Pressable>
       </View>
 
       <Text
         testID="daily-welcome-opener"
         style={{
-          color: c.onSurface,
+          color: GEORGE_TEXT,
           fontSize: 22 * scale,
           fontWeight: '800',
           lineHeight: 30 * scale,
@@ -105,7 +116,7 @@ export function DailyWelcomeCard({ activeContexts }: { activeContexts?: string[]
         <Text
           testID="daily-welcome-thought"
           style={{
-            color: c.onSurface,
+            color: GEORGE_TEXT,
             fontSize: 16 * scale,
             lineHeight: 24 * scale,
             marginTop: 8,
@@ -119,7 +130,7 @@ export function DailyWelcomeCard({ activeContexts }: { activeContexts?: string[]
         <Text
           testID="daily-welcome-callback"
           style={{
-            color: c.onSurface,
+            color: GEORGE_TEXT,
             fontSize: 16 * scale,
             lineHeight: 24 * scale,
             marginTop: 8,
@@ -134,7 +145,7 @@ export function DailyWelcomeCard({ activeContexts }: { activeContexts?: string[]
         <Text
           testID="daily-welcome-invitation"
           style={{
-            color: c.brand,
+            color: GEORGE_INVITE,
             fontSize: 16 * scale,
             lineHeight: 24 * scale,
             marginTop: 10,

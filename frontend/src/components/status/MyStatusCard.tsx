@@ -113,7 +113,6 @@ export default function MyStatusCard({ testID = "home-my-status" }: { testID?: s
   const manual = me?.manual ?? null;
   const effective: EffectiveStatus = me?.effective ?? "online";
   const isLooking = manual === "looking";
-  const isHappy = manual === "happy";
   const isBusy = manual === "busy";
 
   // Human-readable "in X minutes / hours" hint for the primary
@@ -134,7 +133,7 @@ export default function MyStatusCard({ testID = "home-my-status" }: { testID?: s
   const showHeader = effective !== "online";
   const headerMeta = showHeader ? STATUS_META[effective] : null;
 
-  const toggle = (target: "looking" | "happy" | "busy") => {
+  const toggle = (target: "looking" | "busy") => {
     if (busy) return;
     setManual(manual === target ? null : target);
   };
@@ -191,26 +190,12 @@ export default function MyStatusCard({ testID = "home-my-status" }: { testID?: s
         </Text>
       </Pressable>
 
-      {/* Half/half Happy · Busy pill row. Wider gap + tightened pill
-          padding give the two labels visual breathing room without
-          shrinking the card itself (round-8 polish #1). */}
+      {/* Busy pill — single half-width now that "Happy to connect"
+          has been removed (Garry, 1 Aug 2026 — "felt too dating-app;
+          Looking for a chat captures the FriendPlace feel better").
+          Rendered full-width in its row to match visual weight of
+          the primary Looking pill without stretching it. */}
       <View style={{ flexDirection: "row", gap: 12, marginTop: 10 }}>
-        <View style={{ flex: 1 }}>
-          <Pill
-            testID="my-status-happy"
-            label="Happy to connect"
-            icon="😊"
-            active={isHappy}
-            disabled={busy}
-            onPress={() => toggle("happy")}
-            brand={c.brand}
-            brandTint={c.brandTertiary}
-            surface={c.surface}
-            onSurface={c.onSurface}
-            onBrand={c.onBrandPrimary}
-            border={c.brand}
-          />
-        </View>
         <View style={{ flex: 1 }}>
           <Pill
             testID="my-status-busy"
