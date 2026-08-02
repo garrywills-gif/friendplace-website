@@ -8755,6 +8755,14 @@ class FlutterDoc(BaseModel):
     from_avatar: str = ""
     message: str = "would like to chat 🦋"
     read: bool = False
+    # Recipient's response to the flutter — persists on the card until
+    # they explicitly close it. Set by the recipient via
+    # `POST /flutters/{id}/respond`. One of:
+    #   • "fluttered_back"  — recipient sent a flutter back
+    #   • "chat_started"    — recipient opened a DM with the sender
+    #   • None              — no response yet ("Later" is silent)
+    responded_action: Optional[str] = None
+    responded_at: Optional[str] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -8773,11 +8781,37 @@ async def send_flutter(body: FlutterSendBody):
     sender = await db.users.find_one({"id": body.from_id}, {"_id": 0})
     if not sender:
         raise HTTPException(404, "Sender not found")
-    receiver = await db.users.find_one({"id": body.to_id}, {"_id": 0, "blocked": 1})
+    receiver = await db.users.find_one({"id": body.to_id}, {"_id": 0, "blocked": 1, "first_name": 1})
     if not receiver:
         raise HTTPException(404, "Recipient not found")
-    if body.from_id in (receiver.get("blocked") or []):
+    if body.from_id != body.to_id and body.from_id in (receiver.get("blocked") or []):
         raise HTTPException(403, "Cannot flutter this user")
+
+    # ONE active flutter per (sender → recipient) pair. TestFlight feedback
+    # (Garry, 2 Aug 2026): tapping Flutter multiple times used to send
+    # multiple flutters to the same person, which felt spammy. Now the
+    # backend rejects a second flutter while a previous one is still
+    # unread. The client uses the returned 409 to flip the button state
+    # so the UX matches: "Fluttered ✓" until the recipient reads or
+    # responds.
+    #
+    # Self-flutters (notes-to-self style) are exempt — the same rule
+    # would otherwise stop members from using flutter as a personal
+    # reminder ping.
+    if body.from_id != body.to_id:
+        existing_active = await db.flutters.find_one(
+            {"from_id": body.from_id, "to_id": body.to_id, "read": {"$ne": True}},
+            {"_id": 0, "id": 1},
+        )
+        if existing_active:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "error": "flutter_already_active",
+                    "message": f"You've already sent {receiver.get('first_name') or 'them'} a flutter — give them a moment to reply.",
+                    "flutter_id": existing_active["id"],
+                },
+            )
 
     # Detect "reply flutter": is this person flutter-ing back at someone who
     # already flutter-ed them? We look for ANY prior flutter going the other
@@ -8794,6 +8828,8 @@ async def send_flutter(body: FlutterSendBody):
 
     if body.message:
         msg = body.message
+    elif body.from_id == body.to_id:
+        msg = "🦋 a flutter to yourself — a little nudge for later"
     elif is_reply:
         msg = "replied with a flutter 🦋 — would you like to start a chat?"
     else:
@@ -8827,6 +8863,31 @@ async def my_flutters(user_id: str):
 async def mark_flutter_read(flutter_id: str):
     await db.flutters.update_one({"id": flutter_id}, {"$set": {"read": True}})
     return {"ok": True}
+
+
+class FlutterRespondBody(BaseModel):
+    action: str  # "fluttered_back" | "chat_started"
+
+
+@api.post("/flutters/{flutter_id}/respond")
+async def respond_to_flutter(flutter_id: str, body: FlutterRespondBody):
+    """Recipient records an action on the flutter card without dismissing it.
+
+    Locked with Garry, 2 Aug 2026: the flutter notification card should
+    persist on the recipient's home screen until they explicitly close
+    it, so they don't lose track of who they've already responded to.
+    "Flutter back" and "Start chat" now record what they did on the
+    card itself — the card sticks around with a ✅ badge until closed.
+    """
+    if body.action not in ("fluttered_back", "chat_started"):
+        raise HTTPException(400, "action must be 'fluttered_back' or 'chat_started'")
+    r = await db.flutters.update_one(
+        {"id": flutter_id},
+        {"$set": {"responded_action": body.action, "responded_at": now_iso()}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Flutter not found")
+    return {"ok": True, "action": body.action}
 
 
 class ChatAlertBody(BaseModel):
@@ -10166,6 +10227,46 @@ async def public_content():
     at boot means every subsequent page-change is instant.
     """
     return await _get_site_content_doc()
+
+
+# ---------------------------------------------------------------------------
+# Public / FriendPlace-hosted Events — TOLERANT STUBS.
+#
+# The mobile Events screen preloads a "FriendPlace-hosted events" strip via
+# `/api/public/events`. That surface is not launched yet, but the fetch
+# happens on every focus of the Events tab. Without these stubs the frontend
+# emits repeated 404s in the console after an event is created (the create
+# flow ends with `router.replace("/events")`, which re-runs the loader).
+#
+# Returning empty payloads is the correct behaviour today: the client already
+# treats an empty list as "no FP events yet." When the feature actually ships
+# these routes get replaced with real implementations. Until then they keep
+# the console clean and match the client's expected envelope shape.
+# ---------------------------------------------------------------------------
+
+@api.get("/public/events")
+async def public_events_list():
+    return {"events": []}
+
+
+@api.get("/public/events/mine")
+async def public_events_mine(user_id: Optional[str] = None):
+    return {"items": []}
+
+
+@api.get("/public/events/{slug}")
+async def public_event_by_slug(slug: str):
+    raise HTTPException(status_code=404, detail="Event not found")
+
+
+@api.post("/public/events/{slug}/rsvp")
+async def public_event_rsvp(slug: str, body: dict):
+    raise HTTPException(status_code=404, detail="Event not found")
+
+
+@api.post("/public/events/{slug}/rsvp/{token}/cancel")
+async def public_event_rsvp_cancel(slug: str, token: str):
+    raise HTTPException(status_code=404, detail="Event not found")
 
 
 @api.get("/public/founders/count")

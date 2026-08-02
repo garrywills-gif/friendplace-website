@@ -226,49 +226,60 @@ export default function Home() {
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
 
   /**
-   * Open a DM with the person who flutter-ed us. Renamed visually from
-   * "Reply" → "Chat" because the card now offers two distinct actions:
-   * "Flutter back" (send a flutter the other way) and "Chat" (open DM).
+   * Open a DM with the person who flutter-ed us. Locked with Garry
+   * 2 Aug 2026: this NO LONGER auto-dismisses the flutter card. We
+   * record the response on the card so a ✅ badge shows the recipient
+   * has already acted, and they can still close the card manually
+   * whenever they're ready.
    */
   const chatFromFlutter = async (f: any) => {
-    await api.markFlutterRead(f.id);
-    const conv = await api.startDm(user!.id, f.from_id);
-    router.push(`/dm/${conv.id}?other_id=${f.from_id}` as any);
-    await loadFlutters();
+    if (!user) return;
+    try {
+      await api.respondToFlutter(f.id, "chat_started");
+    } catch { /* non-fatal — still open the chat */ }
+    setFlutters((arr) =>
+      arr.map((x) => (x.id === f.id ? { ...x, responded_action: "chat_started" } : x))
+    );
+    try {
+      const conv = await api.startDm(user.id, f.from_id);
+      router.push(`/dm/${conv.id}?other_id=${f.from_id}` as any);
+    } catch {
+      show("Couldn't open chat — please try again.");
+    }
   };
   /**
-   * Send a flutter back to the original sender. Backend detects this is a
-   * reply (because the other person flutter-ed first) and frames the
-   * notification as "<You> replied with a flutter — would you like to
-   * start a chat?". Card is dismissed locally after the send so the
-   * recipient sees fresh state next refresh.
+   * Send a flutter back to the original sender. Card stays visible with
+   * a ✅ "Fluttered back" state — the recipient dismisses it themselves
+   * when they're ready (Garry, 2 Aug 2026).
    */
   const flutterBack = async (f: any, tap?: { pageX: number; pageY: number }) => {
     if (!user) return;
     try {
       await api.sendFlutter({ from_id: user.id, to_id: f.from_id });
-      await api.markFlutterRead(f.id);
-      setFlutters((arr) => arr.filter((x) => x.id !== f.id));
+      try { await api.respondToFlutter(f.id, "fluttered_back"); } catch { /* non-fatal */ }
+      setFlutters((arr) =>
+        arr.map((x) => (x.id === f.id ? { ...x, responded_action: "fluttered_back" } : x))
+      );
       // Signature single-butterfly celebration. The toast is deferred
       // until the butterfly lands (via onLand) so the message arrives
       // with the butterfly.
       emitFlutter({
         targetX: tap?.pageX,
         targetY: tap?.pageY,
-        onLand: () => show(`Flutter sent to ${f.from_name || "them"} 🦋`),
+        onLand: () => show(`Fluttered back to ${f.from_name || "them"} 🦋`),
       });
-      // NOTE: we deliberately do NOT call auth `refresh()` here anymore.
-      // It fires /api/users/{id} which occasionally 401s mid-session and
-      // was bouncing users back to Home via the global unauthorized
-      // handler. Butterfly points show correctly on next focus/refresh.
     } catch (e: any) {
       const msg = String(e?.message || "").toLowerCase();
-      // Backend returns "Cannot flutter this user" (lowercased here) when
-      // the recipient has the sender in their blocked list. The recipient
-      // may still have sent us a flutter — so show a kind, non-judgmental
-      // message rather than the scary generic fallback.
       if (msg.includes("cannot flutter") || msg.includes("blocked")) {
         show("They're not taking flutters from you right now.");
+      } else if (msg.includes("409") || msg.includes("flutter_already_active")) {
+        // Already-active flutter — treat as success for UX purposes so
+        // the card flips to the "Fluttered back" state without a scary
+        // error toast.
+        setFlutters((arr) =>
+          arr.map((x) => (x.id === f.id ? { ...x, responded_action: "fluttered_back" } : x))
+        );
+        show(`You've already fluttered ${f.from_name || "them"} — waiting for a reply.`);
       } else if (msg.includes("rate") || msg.includes("429")) {
         show("Whoa — slow down on the flutters! Try again in a bit.");
       } else if (msg.includes("not found") || msg.includes("404")) {
@@ -279,9 +290,11 @@ export default function Home() {
     }
   };
   const dismissFlutter = async (f: any) => {
-    await api.markFlutterRead(f.id);
+    // Explicit close from the recipient — this is what actually marks
+    // the flutter read on the backend. Everything else (Flutter back /
+    // Chat) leaves the card in place with a ✅ state.
+    try { await api.markFlutterRead(f.id); } catch { /* non-fatal */ }
     setFlutters((arr) => arr.filter((x) => x.id !== f.id));
-    show("Flutter dismissed");
   };
 
   const tiles: Tile[] = [
@@ -550,47 +563,100 @@ export default function Home() {
               <GeorgeButterflyMark size={24} />
               <Text style={{ color: "#6D28D9", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>You&apos;ve got Flutters!</Text>
             </View>
-            {flutters.slice(0, 3).map((f) => (
-              <View key={f.id} style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#EDE9FE" }]}>
-                {/* Sender identity row — the whole strip is a Pressable
-                    that opens the sender's profile so recipients can
-                    learn a little about them before Chat / Flutter Back. */}
-                <Pressable
-                  testID={`flutter-open-profile-${f.id}`}
-                  onPress={() => router.push(`/user/${f.from_id}` as any)}
-                  accessibilityLabel={`View ${f.from_name}'s profile`}
-                  style={styles.flutterSenderRow}
-                  hitSlop={4}
-                >
-                  <AvatarBubble value={f.from_avatar} size={36} fallback="🙂" />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={{ color: "#1E293B", fontWeight: "900", fontSize: 15 * scale }} numberOfLines={1}>
-                      {f.from_name}
-                    </Text>
-                    <Text style={{ color: "#64748B", fontSize: 12 * scale, fontWeight: "600" }}>
-                      Tap to see their profile
-                    </Text>
+            {flutters.slice(0, 3).map((f) => {
+              const responded = f?.responded_action;
+              const hasFlutteredBack = responded === "fluttered_back";
+              const hasStartedChat = responded === "chat_started";
+              return (
+                <View key={f.id} style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#EDE9FE" }]}>
+                  {/* Sender identity row — the whole strip is a Pressable
+                      that opens the sender's profile so recipients can
+                      learn a little about them before Chat / Flutter Back. */}
+                  <Pressable
+                    testID={`flutter-open-profile-${f.id}`}
+                    onPress={() => router.push(`/user/${f.from_id}` as any)}
+                    accessibilityLabel={`View ${f.from_name}'s profile`}
+                    style={styles.flutterSenderRow}
+                    hitSlop={4}
+                  >
+                    <AvatarBubble value={f.from_avatar} size={36} fallback="🙂" />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={{ color: "#1E293B", fontWeight: "900", fontSize: 15 * scale }} numberOfLines={1}>
+                        {f.from_name}
+                      </Text>
+                      <Text style={{ color: "#64748B", fontSize: 12 * scale, fontWeight: "600" }}>
+                        Tap to see their profile
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                  </Pressable>
+                  <Text style={{ color: "#1E293B", fontSize: 15 * scale, marginTop: 8, lineHeight: 20 }} numberOfLines={4}>
+                    {f.message}
+                  </Text>
+                  {responded ? (
+                    <View style={styles.flutterRespondedRow} testID={`flutter-responded-${f.id}`}>
+                      <Ionicons name="checkmark-circle" size={18} color="#059669" />
+                      <Text style={{ color: "#065F46", fontWeight: "800", fontSize: 13 * scale }}>
+                        {hasFlutteredBack ? `Fluttered back to ${f.from_name}` : hasStartedChat ? `Chat opened with ${f.from_name}` : "Responded"}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.flutterActions}>
+                    {hasFlutteredBack ? (
+                      <View style={[styles.flutterActionBtn, { backgroundColor: "#D1FAE5", borderColor: "#059669" }]}>
+                        <Ionicons name="checkmark" size={14} color="#065F46" />
+                        <Text style={{ color: "#065F46", fontWeight: "800", fontSize: 13 * scale }}>Fluttered back</Text>
+                      </View>
+                    ) : (
+                      <Pressable
+                        testID={`flutter-back-${f.id}`}
+                        onPress={(e) => flutterBack(f, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })}
+                        style={[styles.flutterActionBtn, { backgroundColor: "#EDE9FE", borderColor: "#8B5CF6" }]}
+                      >
+                        <GeorgeButterflyMark size={14} />
+                        <Text style={{ color: "#6D28D9", fontWeight: "800", fontSize: 13 * scale }}>Flutter back</Text>
+                      </Pressable>
+                    )}
+                    {hasStartedChat ? (
+                      <Pressable
+                        testID={`flutter-chat-again-${f.id}`}
+                        onPress={() => chatFromFlutter(f)}
+                        style={[styles.flutterActionBtn, { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" }]}
+                      >
+                        <Ionicons name="chatbubble" size={12} color="#FFF" />
+                        <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Re-open chat</Text>
+                      </Pressable>
+                    ) : (
+                      <Pressable
+                        testID={`flutter-chat-${f.id}`}
+                        onPress={() => chatFromFlutter(f)}
+                        style={[styles.flutterActionBtn, { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" }]}
+                      >
+                        <Ionicons name="chatbubble" size={12} color="#FFF" />
+                        <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Start chat</Text>
+                      </Pressable>
+                    )}
+                    <Pressable
+                      testID={`flutter-later-${f.id}`}
+                      onPress={() => show("We'll keep it here for you.")}
+                      style={[styles.flutterActionBtn, { backgroundColor: "#F1F5F9", borderColor: "#CBD5E1" }]}
+                      accessibilityLabel="Decide later — the flutter card stays visible"
+                    >
+                      <Ionicons name="time-outline" size={14} color="#64748B" />
+                      <Text style={{ color: "#334155", fontWeight: "800", fontSize: 13 * scale }}>Later</Text>
+                    </Pressable>
+                    <Pressable
+                      testID={`flutter-dismiss-${f.id}`}
+                      onPress={() => dismissFlutter(f)}
+                      style={styles.dismissBtn}
+                      accessibilityLabel="Close this flutter card"
+                    >
+                      <Ionicons name="close" size={18} color="#94A3B8" />
+                    </Pressable>
                   </View>
-                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-                </Pressable>
-                <Text style={{ color: "#1E293B", fontSize: 15 * scale, marginTop: 8, lineHeight: 20 }} numberOfLines={4}>
-                  {f.message}
-                </Text>
-                <View style={styles.flutterActions}>
-                  <Pressable testID={`flutter-back-${f.id}`} onPress={(e) => flutterBack(f, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })} style={[styles.flutterActionBtn, { backgroundColor: "#EDE9FE", borderColor: "#8B5CF6" }]}>
-                    <GeorgeButterflyMark size={14} />
-                    <Text style={{ color: "#6D28D9", fontWeight: "800", fontSize: 13 * scale }}>Flutter back</Text>
-                  </Pressable>
-                  <Pressable testID={`flutter-chat-${f.id}`} onPress={() => chatFromFlutter(f)} style={[styles.flutterActionBtn, { backgroundColor: "#8B5CF6", borderColor: "#8B5CF6" }]}>
-                    <Ionicons name="chatbubble" size={12} color="#FFF" />
-                    <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Chat</Text>
-                  </Pressable>
-                  <Pressable testID={`flutter-dismiss-${f.id}`} onPress={() => dismissFlutter(f)} style={styles.dismissBtn}>
-                    <Ionicons name="close" size={18} color="#94A3B8" />
-                  </Pressable>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </Animated.View>
         )}
 
@@ -911,8 +977,21 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 2,
   },
-  flutterActions: { flexDirection: "row", alignItems: "center", gap: 6 },
+  flutterActions: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
   flutterActionBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, borderWidth: 1.5 },
+  flutterRespondedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: "#ECFDF5",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    alignSelf: "flex-start",
+  },
   replyBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
   dismissBtn: { padding: 6 },
   pointsCard: { flexDirection: "row", alignItems: "center", borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18, marginTop: 20, marginBottom: 8, borderWidth: 1.5 },

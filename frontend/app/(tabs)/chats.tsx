@@ -337,9 +337,54 @@ export default function Chats() {
       </View>
 
       <FlatList
-        data={convs}
+        data={convs.filter((c) => {
+          // Self-DM is surfaced separately via the pinned "Notes to
+          // Myself" card at the top of the list, so hide it from the
+          // main scroll to avoid a duplicate row.
+          if (!c.participants || c.participants.length !== 2) return true;
+          const [a, b] = c.participants;
+          return a !== b;
+        })}
         keyExtractor={(i) => i.id}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24, gap: 10 }}
+        ListHeaderComponent={
+          view === "active" && user?.id ? (
+            <Pressable
+              testID="chats-notes-to-myself"
+              onPress={async () => {
+                if (!user) return;
+                try {
+                  const conv: any = await api.startDm(user.id, user.id);
+                  router.push(`/dm/${conv.id}?other_id=${user.id}` as any);
+                } catch {
+                  show("Couldn't open Notes to Myself");
+                }
+              }}
+              style={({ pressed }) => [
+                styles.notesCard,
+                {
+                  backgroundColor: c.brandTertiary,
+                  borderColor: c.brand,
+                  opacity: pressed ? 0.9 : 1,
+                },
+              ]}
+              accessibilityLabel="Open Notes to Myself"
+            >
+              <View style={[styles.notesIcon, { backgroundColor: c.surface, borderColor: c.brand }]}>
+                <Text style={{ fontSize: 22 }}>📝</Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }} numberOfLines={1}>
+                  Notes to Myself
+                </Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }} numberOfLines={1}>
+                  Reminders, ideas, shopping lists, photos
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={c.brand} />
+            </Pressable>
+          ) : null
+        }
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -526,6 +571,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   togglePillText: { fontSize: 12, fontWeight: "800" },
+  // Pinned "Notes to Myself" card — sits above the conversations list
+  // so members always have a personal scratchpad at the top of Chats
+  // (Garry, 2 Aug 2026).
+  notesCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    marginBottom: 4,
+  },
+  notesIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",

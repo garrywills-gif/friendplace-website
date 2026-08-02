@@ -121,12 +121,40 @@ export default function Events() {
         <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Host a new event</Text>
       </Pressable>
 
-      {/* Month filter + FriendPlace section both moved INTO the
-          FlatList's ListHeaderComponent so the whole page scrolls
-          as one unit. Keeping them outside pinned them to the top
-          and turned the community-events list into a tiny scrollable
-          window near the bottom of the screen — bad UX at any font
-          size, worse at accessibility-scaled sizes. */}
+      {/* Filter pills — Garry, 2 Aug 2026: PINNED above the list so
+          "Today / This week / This month / All upcoming" always stay
+          visible even after the user scrolls into future events.
+          Previously these sat inside `ListHeaderComponent` and scrolled
+          off, forcing members to scroll all the way back up to change
+          filters. */}
+      <View style={{ height: 56, marginTop: 8 }}>
+        <ScrollView
+          testID="event-filter-pills"
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, alignItems: "center", gap: 8 }}
+        >
+          {filterOptions.map((m) => {
+            const on = filter === m.value;
+            return (
+              <Pressable
+                key={m.value}
+                testID={`filter-pill-${m.value}`}
+                onPress={() => setFilter(m.value)}
+                style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: on ? c.brand : c.surfaceSecondary, borderWidth: 1.5, borderColor: on ? c.brand : c.border, flexDirection: "row", alignItems: "center", gap: 5 }}
+              >
+                {m.value === "near_me" && (
+                  <Ionicons name="location" size={12} color={on ? "#FFF" : c.brand} />
+                )}
+                <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{m.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Only the events list itself scrolls below — Host button + filter
+          pills remain sticky at the top. */}
       <FlatList
         data={visibleEvents}
         keyExtractor={(e) => e.id}
@@ -144,33 +172,6 @@ export default function Events() {
                 myRsvps={myFpRsvps}
                 onOpen={(slug) => setFpDetailSlug(slug)}
               />
-            </View>
-            {/* Month filter pills — older eyes can quickly jump to
-                "This month" / "Next month". */}
-            <View style={{ height: 56, marginHorizontal: -16, marginTop: 8 }}>
-              <ScrollView
-                testID="event-filter-pills"
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16, alignItems: "center", gap: 8 }}
-              >
-                {filterOptions.map((m) => {
-                  const on = filter === m.value;
-                  return (
-                    <Pressable
-                      key={m.value}
-                      testID={`filter-pill-${m.value}`}
-                      onPress={() => setFilter(m.value)}
-                      style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? c.brand : c.surfaceSecondary, borderWidth: 1.5, borderColor: on ? c.brand : c.border, flexDirection: "row", alignItems: "center", gap: 5 }}
-                    >
-                      {m.value === "near_me" && (
-                        <Ionicons name="location" size={12} color={on ? "#FFF" : c.brand} />
-                      )}
-                      <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{m.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
             </View>
           </View>
         }

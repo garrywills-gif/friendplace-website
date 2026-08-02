@@ -61,7 +61,7 @@ const DAYS_ABSENCE_FOR_WARM_WELCOME = 3;
 // warm hello rather than a lingering panel. Tap-to-dismiss still works.
 // Longer welcome copy (thoughts, callbacks, invitations) belongs on a
 // separate Home card, not in the bubble.
-const BUBBLE_LIFETIME_MS = 6000;
+const BUBBLE_LIFETIME_MS = 3200;
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -479,9 +479,19 @@ export function GeorgeButterfly() {
          *  cap the bubble's height so its top edge can never slide
          *  behind the Dynamic Island / notch on any device. Combined
          *  with the shortened georgiaHint greeting text, the bubble
-         *  sits comfortably below the status bar. */}
+         *  sits comfortably below the status bar.
+         *
+         *  Garry, 2 Aug 2026: `pointerEvents="box-none"` on the wrap
+         *  so touches pass through the EMPTY area around the bubble
+         *  and reach the pinned cards / buttons underneath. Only the
+         *  bubble itself remains tappable (to dismiss on tap). This
+         *  is what makes George feel present without ever *blocking*
+         *  the member's next tap. */}
         {showBubble && greeting && (
-          <Animated.View style={[styles.bubbleWrap, bubbleStyle]}>
+          <Animated.View
+            pointerEvents="box-none"
+            style={[styles.bubbleWrap, bubbleStyle]}
+          >
             <Pressable onPress={() => {
               bubbleOpacity.value = withTiming(0, { duration: 160 });
               setTimeout(() => setShowBubble(false), 180);
@@ -673,8 +683,16 @@ const styles = StyleSheet.create({
   bubbleWrap: {
     position: 'absolute',
     right: 60,
-    bottom: 6,
-    width: Math.min(280, SCREEN_W - 100),
+    // Garry, 2 Aug 2026: hang the bubble UP-and-LEFT of the butterfly
+    // instead of overlapping his height range. This keeps the top of
+    // the scroll area (where pinned cards like "Notes to Myself" and
+    // notification banners live) clear of George's speech while still
+    // leaving the tail visibly connected to him. Combined with the
+    // shorter 3.2 s auto-fade and `pointerEvents="box-none"` above,
+    // George now feels present without ever *blocking* a member's
+    // next tap.
+    bottom: 44,
+    width: Math.min(240, SCREEN_W - 120),
   },
   bubble: {
     // Locked with Garry 1 Aug 2026: George's signature voice. Soft
@@ -698,13 +716,14 @@ const styles = StyleSheet.create({
   },
   bubbleTail: {
     position: 'absolute',
-    right: -6,
-    bottom: 14,
+    // Tail sits at the BOTTOM-RIGHT of the bubble now that the bubble
+    // is anchored above the butterfly — the diamond points DOWN toward
+    // George's landing spot. (Garry, 2 Aug 2026.)
+    right: 12,
+    bottom: -6,
     width: 12, height: 12,
-    // Blue tail matched to the bubble so the pointer to the perched
-    // butterfly stays visually part of George's voice.
     backgroundColor: '#DBEAFE',
-    borderTopWidth: 1, borderTopColor: '#93C5FD',
+    borderBottomWidth: 1, borderBottomColor: '#93C5FD',
     borderRightWidth: 1, borderRightColor: '#93C5FD',
     transform: [{ rotate: '45deg' }],
   },

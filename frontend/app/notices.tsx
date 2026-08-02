@@ -14,8 +14,28 @@ import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import { useComposerLock } from "@/src/lib/composer-lock";
 
-const CATS = ["All", "Announcement", "Question", "Looking For", "Recommendation", "Local Event", "Success Story", "Community Help"];
-const POST_CATS = CATS.filter((c) => c !== "All");
+// Notice Board categories — Garry, 2 Aug 2026. Each category carries
+// its own emoji so the picker feels warm and skimmable, and so the
+// listing shows the emoji next to the title as a quick visual cue.
+// One category per notice (the previous implementation was already
+// single-select). Order is deliberate: high-frequency posts first.
+const CATEGORY_LIST = [
+  { key: "Announcement", emoji: "📢" },
+  { key: "Question",     emoji: "❓" },
+  { key: "Event",        emoji: "🎉" },
+  { key: "Kindness",     emoji: "❤️" },
+  { key: "Buy & Sell",   emoji: "🛒" },
+  { key: "Community",    emoji: "🏡" },
+  { key: "Help Needed",  emoji: "🙋" },
+  { key: "Giveaway",     emoji: "🎁" },
+] as const;
+// Emoji lookup used by category chips + notice-row badges.
+const CATEGORY_EMOJI: Record<string, string> = CATEGORY_LIST.reduce(
+  (acc, c) => ({ ...acc, [c.key]: c.emoji }),
+  {} as Record<string, string>,
+);
+const CATS = ["All", ...CATEGORY_LIST.map((c) => c.key)];
+const POST_CATS = CATEGORY_LIST.map((c) => c.key);
 
 const REACTIONS = [
   { kind: "well_done", emoji: "👏", label: "Well Done" },
@@ -173,7 +193,7 @@ export default function Notices() {
               <FounderMark isFounder={n.user_is_founder} founderNumber={n.user_founder_number} size={14} testID={`notice-founder-${n.id}`} />
             </View>
             <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-              <View style={[styles.catChip, { backgroundColor: c.brandTertiary }]}><Text style={{ color: c.brand, fontWeight: "800", fontSize: 11 * scale }}>{n.category}</Text></View>
+              <View style={[styles.catChip, { backgroundColor: c.brandTertiary }]}><Text style={{ color: c.brand, fontWeight: "800", fontSize: 11 * scale }}>{CATEGORY_EMOJI[n.category] ? `${CATEGORY_EMOJI[n.category]} ` : ""}{n.category}</Text></View>
               {n.solved && (
                 <View style={[styles.solvedChip, { backgroundColor: c.success }]}>
                   <Ionicons name="checkmark" size={11} color="#FFF" />
@@ -281,9 +301,10 @@ export default function Notices() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catsRow}>
           {CATS.map((cat) => {
             const active = cat === category;
+            const emoji = CATEGORY_EMOJI[cat] || "";
             return (
               <Pressable key={cat} testID={`cat-${cat}`} onPress={() => setCategory(cat)} style={[styles.catFilter, { backgroundColor: active ? c.brand : c.surfaceSecondary, borderColor: active ? c.brand : c.border }]}>
-                <Text style={{ color: active ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{cat}</Text>
+                <Text style={{ color: active ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{emoji ? `${emoji} ` : ""}{cat}</Text>
               </Pressable>
             );
           })}
@@ -345,7 +366,7 @@ export default function Notices() {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {POST_CATS.map((cat) => (
                   <Pressable key={cat} onPress={() => setPCat(cat)} style={[styles.catFilter, { backgroundColor: pCat === cat ? c.brand : c.surfaceSecondary, borderColor: pCat === cat ? c.brand : c.border }]}>
-                    <Text style={{ color: pCat === cat ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{cat}</Text>
+                    <Text style={{ color: pCat === cat ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{CATEGORY_EMOJI[cat]} {cat}</Text>
                   </Pressable>
                 ))}
               </ScrollView>

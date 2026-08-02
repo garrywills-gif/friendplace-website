@@ -27,6 +27,13 @@ export default function Friends() {
   const insets = useSafeAreaInsets();
   const [q, setQ] = useState("");
   const [users, setUsers] = useState<any[]>([]);
+  // Locally-tracked "request sent" state per row so the button flips to
+  // "Request Sent ✓" the moment the API call succeeds — Garry, 2 Aug
+  // 2026: prevents repeat taps and gives obvious feedback that the
+  // request actually went through. Hydrated on focus from
+  // `friendsInbox().outgoing` so the pill sticks across screen visits.
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+  const [friendIds, setFriendIds] = useState<Set<string>>(new Set());
   const [nearMe, setNearMe] = useState<{ lat: number; lng: number; suburb?: string } | null>(null);
   const [radius, setRadius] = useState<number>(25);
   const [askingLoc, setAskingLoc] = useState(false);
@@ -68,6 +75,32 @@ export default function Friends() {
     }
   };
   useFocusEffect(useCallback(() => { load(); }, [q, user?.id, nearMe?.lat, nearMe?.lng, radius]));
+
+  // Hydrate the outbound-request set so previously-sent requests still
+  // show "Request Sent ✓" after coming back to this tab. Best-effort —
+  // we don't block the row render on it, and a failure just leaves the
+  // button in its default "Add" state.
+  const friendCount = (user as any)?.friends?.length ?? 0;
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        if (!user?.id) return;
+        try {
+          const inbox: any = await api.friendsInbox(user.id);
+          if (cancelled) return;
+          const outIds: string[] = (inbox?.outgoing || [])
+            .map((r: any) => r?.other?.id || r?.to_id)
+            .filter(Boolean);
+          setSentIds(new Set(outIds));
+          const fr: string[] = (user as any)?.friends || [];
+          setFriendIds(new Set(fr));
+        } catch { /* non-fatal */ }
+      })();
+      return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.id, friendCount])
+  );
 
   const requestNearMe = async () => {
     setShowRationale(false);
@@ -112,6 +145,9 @@ export default function Friends() {
 
   const sendReq = async (other: any) => {
     if (!user) return;
+    // Optimistic UI: flip the button to "Request Sent ✓" the moment
+    // the tap fires so double-taps don't fire duplicate requests.
+    setSentIds((s) => new Set([...Array.from(s), other.id]));
     try {
       await api.sendFriendReq(user.id, other.id);
       show(`Friend request sent to ${other.first_name} 🦋`);
@@ -120,11 +156,27 @@ export default function Friends() {
       // re-fetch which occasionally bounced the tab to /home when the
       // API round-trip was slow or momentarily 401'd.
       await load();
-    } catch { show("Already sent or error"); }
+    } catch {
+      // Roll back the optimistic flip so the button becomes tappable
+      // again (unless it was already tracked — probably "already sent").
+      show("Already sent or error");
+    }
   };
+
+  // Track "already fluttered them in this session" so the button flips
+  // to "Fluttered ✓" and blocks repeat taps until the backend clears
+  // the flag (recipient reads / responds).
+  const [flutteredIds, setFlutteredIds] = useState<Set<string>>(new Set());
 
   const sendFlutter = async (other: any, tap?: { pageX: number; pageY: number }) => {
     if (!user) return;
+    if (flutteredIds.has(other.id)) {
+      show(`You've already fluttered ${other.first_name} — waiting for a reply.`);
+      return;
+    }
+    // Optimistically flip the button so double-taps are absorbed even if
+    // the network round-trip is slow.
+    setFlutteredIds((s) => new Set([...Array.from(s), other.id]));
     try {
       await api.sendFlutter({ from_id: user.id, to_id: other.id });
       // Signature single-butterfly celebration. Prefer to land on the
@@ -139,7 +191,18 @@ export default function Friends() {
         onLand: () => show(`🦋 Flutter sent to ${other.first_name}!`),
       });
       await load();
-    } catch { show("Could not send flutter"); }
+    } catch (e: any) {
+      const msg = String(e?.message || "").toLowerCase();
+      if (msg.includes("409") || msg.includes("flutter_already_active")) {
+        // Server confirms there's already an active flutter to this
+        // person. Leave the button flipped so the UI matches truth.
+        show(`You've already fluttered ${other.first_name} — waiting for a reply.`);
+      } else {
+        // Roll back the local flip so retry is possible.
+        setFlutteredIds((s) => { const n = new Set(s); n.delete(other.id); return n; });
+        show("Could not send flutter");
+      }
+    }
   };
 
   const startDm = async (other: any) => {
@@ -299,13 +362,57 @@ export default function Friends() {
               </View>
             </Pressable>
             <View style={styles.actionRow}>
-              <Pressable testID={`add-friend-${item.id}`} onPress={() => sendReq(item)} style={[styles.actionBtn, { backgroundColor: c.brand }]}>
-                <Ionicons name="person-add" size={18} color="#FFF" />
-                <Text style={[styles.actionText]}>Add</Text>
-              </Pressable>
-              <Pressable testID={`flutter-${item.id}`} onPress={(e) => sendFlutter(item, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })} style={[styles.actionBtn, { backgroundColor: "#8B5CF6" }]}>
-                <GeorgeButterflyMark size={16} />
-                <Text style={[styles.actionText]}>Flutter</Text>
+              {(() => {
+                const isFriend = friendIds.has(item.id);
+                const isSent = sentIds.has(item.id);
+                if (isFriend) {
+                  return (
+                    <View style={[styles.actionBtn, { backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.border }]}>
+                      <Ionicons name="checkmark-circle" size={18} color={c.brand} />
+                      <Text style={[styles.actionText, { color: c.onSurface }]}>Friends</Text>
+                    </View>
+                  );
+                }
+                if (isSent) {
+                  return (
+                    <View
+                      testID={`add-friend-sent-${item.id}`}
+                      style={[styles.actionBtn, { backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.border }]}
+                    >
+                      <Ionicons name="checkmark" size={18} color={c.brand} />
+                      <Text style={[styles.actionText, { color: c.onSurface }]}>Request Sent</Text>
+                    </View>
+                  );
+                }
+                return (
+                  <Pressable testID={`add-friend-${item.id}`} onPress={() => sendReq(item)} style={[styles.actionBtn, { backgroundColor: c.brand }]}>
+                    <Ionicons name="person-add" size={18} color="#FFF" />
+                    <Text style={[styles.actionText]}>Add</Text>
+                  </Pressable>
+                );
+              })()}
+              <Pressable
+                testID={`flutter-${item.id}`}
+                onPress={(e) => sendFlutter(item, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })}
+                disabled={flutteredIds.has(item.id)}
+                style={[
+                  styles.actionBtn,
+                  flutteredIds.has(item.id)
+                    ? { backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.border }
+                    : { backgroundColor: "#8B5CF6" },
+                ]}
+              >
+                {flutteredIds.has(item.id) ? (
+                  <>
+                    <Ionicons name="checkmark" size={16} color={c.brand} />
+                    <Text style={[styles.actionText, { color: c.onSurface }]}>Fluttered</Text>
+                  </>
+                ) : (
+                  <>
+                    <GeorgeButterflyMark size={16} />
+                    <Text style={[styles.actionText]}>Flutter</Text>
+                  </>
+                )}
               </Pressable>
               <Pressable testID={`msg-${item.id}`} onPress={() => startDm(item)} style={[styles.actionBtn, { backgroundColor: c.brandSecondary }]}>
                 <Ionicons name="chatbubble-ellipses" size={18} color="#FFF" />

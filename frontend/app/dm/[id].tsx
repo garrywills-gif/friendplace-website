@@ -26,6 +26,10 @@ export default function DM() {
   const [reportTarget, setReportTarget] = useState<null | { type: "user" } | { type: "message"; id: string }>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<FlatList>(null);
+  // Self-DM (Notes to Myself) — when the other participant is the
+  // caller. The Header renames itself and the "report user" button
+  // is hidden (there's nobody else to report). (Garry, 2 Aug 2026.)
+  const isSelfDm = !!user && !!other_id && other_id === user.id;
   // Composer-lock (approved 24 Jun 2026): hold the global composer
   // lock whenever the member has typed something so the
   // GlobalDmPrompt defers instead of interrupting. Recording is
@@ -82,9 +86,15 @@ export default function DM() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header
-        title={other ? `${parseAvatar(other.avatar).base ?? ""} ${other.first_name}` : "Message"}
-        titleAccessory={other ? <FounderMark user={other} size={15} testID="dm-header-founder" /> : null}
-        right={other_id ? (
+        title={
+          isSelfDm
+            ? "📝 Notes to Myself"
+            : other
+            ? `${parseAvatar(other.avatar).base ?? ""} ${other.first_name}`
+            : "Message"
+        }
+        titleAccessory={!isSelfDm && other ? <FounderMark user={other} size={15} testID="dm-header-founder" /> : null}
+        right={other_id && !isSelfDm ? (
         <Pressable testID="dm-report-user" onPress={() => setReportTarget({ type: "user" })} hitSlop={8} style={{ padding: 6 }}>
           <Ionicons name="flag-outline" size={22} color={c.warning} />
         </Pressable>

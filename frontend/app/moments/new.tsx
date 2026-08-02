@@ -76,11 +76,53 @@ export default function NewMoment() {
   const remaining = CAPTION_LIMIT - caption.length;
   const canShare = (caption.trim().length > 0 || photos.length > 0) && !saving;
 
-  const addPhoto = async () => {
+  // Photo source picker sheet. TestFlight feedback (Garry, 2 Aug 2026):
+  // the "Add photo" tap should offer Take Photo vs Choose from Library
+  // rather than jumping straight to the gallery. Feels more like a
+  // native iOS/Android photo attach.
+  const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
+
+  const addPhoto = () => {
     if (photos.length >= MAX_PHOTOS) {
       show(`You can share up to ${MAX_PHOTOS} photos.`);
       return;
     }
+    setPhotoSheetOpen(true);
+  };
+
+  // Pull the picked image into our base64 preview. Shared between the
+  // camera and library flows so both look identical downstream.
+  const commitPickedAsset = (asset: any) => {
+    const uri = asset?.base64 ? `data:image/jpeg;base64,${asset.base64}` : (asset?.uri || "");
+    if (uri) setPhotos((arr) => [...arr, uri]);
+  };
+
+  const takePhoto = async () => {
+    setPhotoSheetOpen(false);
+    setPicking(true);
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        show("Camera permission needed to take a photo.");
+        return;
+      }
+      const r = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.6,
+        base64: true,
+      });
+      if (r.canceled || !r.assets?.[0]) return;
+      commitPickedAsset(r.assets[0]);
+    } catch {
+      show("Couldn't open the camera — please try again.");
+    } finally {
+      setPicking(false);
+    }
+  };
+
+  const pickFromLibrary = async () => {
+    setPhotoSheetOpen(false);
     setPicking(true);
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -96,9 +138,7 @@ export default function NewMoment() {
         base64: true,
       });
       if (r.canceled || !r.assets?.[0]) return;
-      const a = r.assets[0];
-      const uri = a.base64 ? `data:image/jpeg;base64,${a.base64}` : a.uri || "";
-      if (uri) setPhotos((arr) => [...arr, uri]);
+      commitPickedAsset(r.assets[0]);
     } catch {
       show("Couldn't pick a photo — please try again.");
     } finally {
@@ -409,6 +449,82 @@ export default function NewMoment() {
           </View>
         </View>
       </Modal>
+
+      {/* --- Photo source picker sheet (Garry, 2 Aug 2026) ----------
+          Native-feeling "Take Photo / Choose from Library / Cancel"
+          action sheet. Slides in from the bottom over a soft scrim so
+          it feels obvious. Cancel is the visually softer option. */}
+      <Modal
+        visible={photoSheetOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPhotoSheetOpen(false)}
+      >
+        <Pressable
+          onPress={() => setPhotoSheetOpen(false)}
+          style={styles.photoSheetBackdrop}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={[styles.photoSheetCard, { backgroundColor: c.surface }]}
+          >
+            <View style={styles.photoSheetGrabber} />
+            <Text
+              style={{
+                color: c.muted,
+                fontSize: 13 * scale,
+                fontWeight: "700",
+                textAlign: "center",
+                marginBottom: 8,
+                letterSpacing: 0.3,
+                textTransform: "uppercase",
+              }}
+            >
+              Add a photo
+            </Text>
+            <Pressable
+              testID="moment-photo-source-camera"
+              onPress={takePhoto}
+              style={({ pressed }) => [
+                styles.photoSheetBtn,
+                { borderColor: c.border, backgroundColor: pressed ? c.brandTertiary : c.surfaceSecondary },
+              ]}
+            >
+              <Ionicons name="camera" size={22} color={c.brand} />
+              <Text style={{ color: c.onSurface, fontSize: 16 * scale, fontWeight: "800", flex: 1 }}>
+                Take Photo
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={c.muted} />
+            </Pressable>
+            <Pressable
+              testID="moment-photo-source-library"
+              onPress={pickFromLibrary}
+              style={({ pressed }) => [
+                styles.photoSheetBtn,
+                { borderColor: c.border, backgroundColor: pressed ? c.brandTertiary : c.surfaceSecondary },
+              ]}
+            >
+              <Ionicons name="images" size={22} color={c.brand} />
+              <Text style={{ color: c.onSurface, fontSize: 16 * scale, fontWeight: "800", flex: 1 }}>
+                Choose from Library
+              </Text>
+              <Ionicons name="chevron-forward" size={18} color={c.muted} />
+            </Pressable>
+            <Pressable
+              testID="moment-photo-source-cancel"
+              onPress={() => setPhotoSheetOpen(false)}
+              style={({ pressed }) => [
+                styles.photoSheetCancel,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Text style={{ color: c.muted, fontSize: 15 * scale, fontWeight: "700" }}>
+                Cancel
+              </Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -532,5 +648,44 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     borderWidth: 2,
     padding: 24,
+  },
+  // Photo source picker (Take Photo / Choose from Library) — sits at
+  // the bottom of the screen over a soft scrim so it feels like a
+  // native iOS action sheet.
+  photoSheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  photoSheetCard: {
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: 16,
+    paddingBottom: 28,
+    gap: 10,
+  },
+  photoSheetGrabber: {
+    alignSelf: "center",
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#CBD5E1",
+    marginBottom: 12,
+  },
+  photoSheetBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+    borderWidth: 1,
+    minHeight: 60,
+  },
+  photoSheetCancel: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    marginTop: 6,
   },
 });

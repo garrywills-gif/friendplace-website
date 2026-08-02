@@ -572,6 +572,11 @@ export const api = {
     req("/flutters/send", { method: "POST", body: JSON.stringify(body) }),
   myFlutters: (uid: string) => req(`/flutters/${uid}`),
   markFlutterRead: (fid: string) => req(`/flutters/${fid}/read`, { method: "POST" }),
+  // Record a response on the flutter card WITHOUT dismissing it. Keeps
+  // the card visible on the recipient's home until they explicitly
+  // close it (Garry, 2 Aug 2026).
+  respondToFlutter: (fid: string, action: "fluttered_back" | "chat_started") =>
+    req(`/flutters/${fid}/respond`, { method: "POST", body: JSON.stringify({ action }) }),
 
   // recipes
   listRecipes: (viewer_id?: string, q?: string) =>
