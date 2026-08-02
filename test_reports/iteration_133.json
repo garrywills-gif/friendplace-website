@@ -1,0 +1,38 @@
+{
+  "summary": "Frontend-only static + smoke test of Garry's four TestFlight UX fixes (George once-per-session greeting, DM notification bottom-slide with post-greet delay, Not-now snooze, Happy-to-connect pill removed). All P0 and P1 items pass: code inspection matches the spec, Metro bundle sanity is clean (HTTP 200, no red-screen, no SyntaxError in expo.err.log), ESLint clean on all four modified files, and the web preview renders without 'Happy to connect' in the DOM.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "P0-1 PASS: ESLint clean on /app/frontend/src/components/GlobalDmPrompt.tsx, GeorgeButterfly.tsx, MyStatusCard.tsx, status-context.tsx. home.tsx has only pre-existing warnings (unused eslint-disable, exhaustive-deps) — not introduced by this change.",
+    "P0-2 PASS: GlobalDmPrompt.tsx exports `default function GlobalDmPrompt`. `GlobalDmPromptInline` no longer referenced anywhere in /app/frontend/src or /app/frontend/app (grep returned 0 hits).",
+    "P0-3 PASS: home.tsx contains no `GlobalDmPromptInline` reference (dead import removed).",
+    "P0-4 PASS: _sessionGreetingConsumed defined at module scope (GeorgeButterfly.tsx line 53). Referenced in three boot-effect locations as required: (a) early-bail check (line 106), (b) daily-gate skip branch sets it to true (line 128), (c) arrival-complete callback sets it to true (line 160).",
+    "P0-Metro PASS: curl http://localhost:3002 returns 200 OK with FriendPlace HTML. expo.err.log shows only pre-existing 'expected version' warnings (expo@54.0.35 vs 54.0.36; react-native-keyboard-controller minor) — no SyntaxError, no 'Unable to resolve module'.",
+    "P1-Web PASS: Web preview at http://localhost:3000 renders landing (title 'FriendPlace'), no red-screen. Auth wall prevents deeper nav without credentials, but DOM search confirms 'Happy to connect' string is absent.",
+    "P1-Contract POST_GREET_DELAY_MS PASS: `const POST_GREET_DELAY_MS = 4200;` at GlobalDmPrompt.tsx:43.",
+    "P1-Contract SNOOZE_MS PASS: `const SNOOZE_MS = 7 * 60 * 1000;` at GlobalDmPrompt.tsx:50.",
+    "P1-Contract bottom-slide PASS: Wrap style at line 160 uses `{ bottom: bottomOffset }` where `bottomOffset = insets.bottom + 76` (line 155). `translateY` shared value initialised to 160 (line 107) — off-screen below viewport. On visible=true it animates to 0 with 380ms ease-out cubic (line 112-115).",
+    "P1-Contract handleSnooze PASS: `handleSnooze` (line 138) only calls `setSnoozedUntil(Date.now() + SNOOZE_MS)` — no call to `dismiss()` from `useDmNotify`. Comment on lines 140-143 explicitly documents this is a soft snooze.",
+    "P1-Contract session gate PASS: Boot effect at GeorgeButterfly.tsx:98-167 early-returns when `_sessionGreetingConsumed` is true (line 106-110), sets the flag on daily-gate skip (line 128), and sets it inside `playArrival` completion callback (line 160).",
+    "P1-Contract BUBBLE_LIFETIME_MS PASS: `const BUBBLE_LIFETIME_MS = 6000;` at GeorgeButterfly.tsx:64.",
+    "Bonus PASS: STATUS_META in status-context.tsx (line 72-79) aliases `happy` → { glyph: '🦋', label: 'Looking for a chat' } for legacy backward compat. MyStatusCard.tsx renders only Looking primary button + Busy pill; no 'Happy to connect' pill.",
+    "Observation (non-blocking): MyStatusCard wraps the single Busy pill inside a `<View style={{flex:1}}>` inside a `flexDirection: 'row'` — visually fine (renders as a full-width pill in that row). No fix needed."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All four TestFlight UX fixes verified statically. Full behaviour verification (session-scoped George greeting across tab nav, 4.2s delayed bottom slide-up of DM notification, 7-min snooze on Not now) requires an authenticated session and a triggered DM prompt — best done on device / iOS simulator via TestFlight, per the request's explicit 'Do NOT test iOS simulator or physical device flows' guidance. Web preview cannot exercise the DM prompt without seeded auth + DM state.",
+  "rca_of_issue": "N/A — this iteration validated fixes; no regressions found."
+}

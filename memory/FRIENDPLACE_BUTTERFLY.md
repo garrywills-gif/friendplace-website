@@ -122,3 +122,31 @@ If Garry provides a refined master butterfly:
    splash-icons, adaptive-icon, email banner). Track those in the
    `/app/frontend/assets/brand/` and `/app/website/public/brand-assets/`
    folders.
+
+## George's behaviour principles (locked 1 Aug 2026)
+
+### One welcome per session
+> **George welcomes members when they arrive, not every time they
+> navigate.**
+
+Implementation: `_sessionGreetingConsumed` module-level flag in
+`GeorgeButterfly.tsx`. Set to `true` the first time George arrives
++ greets in an app process; never reset while the app is alive.
+Persists across every `GeorgeButterfly` unmount/remount cycle
+(tab switches, transient `butterflyVisible` toggles, warm reloads).
+The daily-arrival storage gate (`STORAGE_KEY = george.lastArrival`)
+remains as a secondary defence across app restarts.
+
+### One voice
+George's signature voice is the perched blue speech bubble beside
+the resting butterfly. Use it for greetings and short conversational
+messages. Auto-dismisses after 6 seconds (`BUBBLE_LIFETIME_MS`).
+The butterfly stays perched on the bubble.
+
+### Never competes with app notifications
+George is the companion; FriendPlace is the application. Private
+messages, friend requests and other app alerts must never overlay
+George's bubble. They slide UP from the bottom of the screen a few
+seconds AFTER George has finished greeting — see
+`GlobalDmPrompt.tsx` → `POST_GREET_DELAY_MS`. "Not now" genuinely
+snoozes; see `SNOOZE_MS`.

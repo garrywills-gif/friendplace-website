@@ -14,7 +14,6 @@ import ShareFriendPlace from "@/src/components/ShareFriendPlace";
 import FirstRunCard from "@/src/components/FirstRunCard";
 import BrandLockup from "@/src/components/BrandLockup";
 import MyStatusCard from "@/src/components/status/MyStatusCard";
-import { GlobalDmPromptInline } from "@/src/components/GlobalDmPrompt";
 import { GeorgeRemembersBanner } from "@/src/components/george/GeorgeRemembersBanner";
 import { getThoughtForDate, getRandomThought, loadFavourites, toggleFavourite } from "@/src/lib/thoughts";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -364,25 +363,12 @@ export default function Home() {
           <GeorgeButterflyMark size={26 * scale} />
         </View>
 
-        {/* George's voice on Home is now the perched speech bubble
-            beside the resting butterfly (see GeorgeButterfly.tsx).
-            One consistent voice — soft-blue bubble, butterfly on top,
-            auto-dismisses after a few seconds. The `DailyWelcomeCard`
-            was retired from Home on 1 Aug 2026 (Garry) because it
-            duplicated the bubble's role. Backend API
-            `/api/mcgs/george/daily-welcome` remains available if we
-            ever want George's fuller thought-for-the-day surfaced as
-            a standalone content card elsewhere. */}
-
-        {/* System notifications zone — sits between George's welcome
-            and the first content card so app messages (new private
-            chats, friend requests) live in their own visual space,
-            distinct from George's voice. Locked with Garry 1 Aug 2026:
-            "George should feel like a person welcoming you; app
-            notifications should feel like messages from the app.
-            Keeping those separate makes Home calmer."
-            Renders nothing when there are no pending notifications. */}
-        <GlobalDmPromptInline />
+        {/* George's voice on Home is the perched speech bubble beside
+            the resting butterfly (see GeorgeButterfly.tsx). Private-
+            message notifications slide UP from the bottom of the
+            screen a few seconds AFTER George's greeting so his hello
+            is never overlaid by an app alert (see GlobalDmPrompt.tsx
+            → POST_GREET_DELAY_MS). */}
 
         {/* --- HERO: Share a Moment -------------------------------------
             Locked with Garry 31 July 2026 as the primary feature of

@@ -1,26 +1,27 @@
 /**
- * GlobalDmPrompt — the small "🦋 Kerry sent you a private message"
- * card that slides in from the top when a new DM arrives on any
- * screen. Mounted once at the app root next to `GeorgeGlobalHost`.
+ * GlobalDmPrompt — the iOS-style bottom notification sheet that
+ * announces a waiting private message.
  *
- * Approved by Garry on 24 June 2026. Copy is deliberately compact:
- *   • Single: "🦋 Kerry sent you a private message" (per Garry's
- *     shorter phrasing — was "has sent you", now the natural verb).
- *   • Group:  "🦋 You have N new private chats"
+ * Locked with Garry on 1 August 2026 as George's private-message
+ * companion:
  *
- * Design notes (respecting the UI freeze):
- *   • Uses ONLY existing brand tokens (c.surface, c.brand, c.muted,
- *     c.onSurface, c.border). No new palette entries.
- *   • Buttons follow the existing Chat Alert modal action pattern
- *     (filled brand primary + outlined secondary).
- *   • Sits ABOVE the tab bar and George butterfly using a high
- *     zIndex on iOS/Android and a fixed `elevation`. Sits BELOW
- *     modals so it can't overlay a full-screen sheet.
- *   • Uses SafeAreaInsets so it clears the notch / dynamic island.
- *   • Never appears on `/`, `/auth/*`, `/onboarding`, `/waitlist` —
- *     the same routes George itself hides on.
+ *   "While you were away…
+ *    Margaret has sent you a private message."
+ *          [💬 Open chat]   [⏰ Not now]
+ *
+ * Behaviour principles (all TestFlight feedback):
+ *   • Slides UP from the bottom (not down from the top).
+ *   • Appears a couple of seconds AFTER George has finished greeting
+ *     — never at the same moment. See `POST_GREET_DELAY_MS`.
+ *   • Sits BELOW George; never overlays his speech bubble.
+ *   • "Not now" genuinely means not now — snoozes the same message
+ *     for `SNOOZE_MS` (7 min). A newer message re-arms it earlier
+ *     via the existing `dm-notify-context` timestamp-keyed dismissal.
+ *   • Mounted once at the app root. Hidden on `/`, `/auth/*`,
+ *     `/onboarding`, `/waitlist` (same as George).
  */
-import React, { useEffect } from "react";
+
+import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, StyleSheet, Platform } from "react-native";
 import Reanimated, {
   Easing,
@@ -30,76 +31,95 @@ import Reanimated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useDmNotify } from "@/src/lib/dm-notify-context";
 import AvatarBubble from "@/src/components/AvatarBubble";
 
+// Delay between app-boot and the first DM notification appearing.
+// Chosen so George's arrival + greeting bubble comes first, and the
+// notification only slides in once George is settled. See George's
+// arrival timing in `GeorgeButterfly.tsx`.
+const POST_GREET_DELAY_MS = 4200;
+
+// "Not now" snooze duration. Middle of Garry's 5-10 min window.
+// After this expires the same message re-appears provided it is
+// still unread. A newer message from the same sender re-arms the
+// prompt earlier via the timestamp-keyed dismissed-set in
+// `dm-notify-context.tsx` — no extra work needed here.
+const SNOOZE_MS = 7 * 60 * 1000;
+
 // Routes on which the prompt is NOT rendered — mirrors George's
-// HIDDEN_SCREENS list so we behave consistently. Home is added to
-// this list because the Home screen renders its own INLINE version
-// of the prompt in the notification zone below George's welcome
-// (Garry, 1 Aug 2026 — "George owns the top of the Home screen; app
-// notifications should feel like messages from the app and sit in
-// their own zone, not overlaid on George").
+// HIDDEN_SCREENS list so we behave consistently.
 const _isHiddenPath = (p: string | null): boolean => {
   if (!p) return true;
   if (p === "/" || p === "") return true;
   if (p.startsWith("/auth")) return true;
   if (p.startsWith("/onboarding")) return true;
   if (p.startsWith("/waitlist")) return true;
-  // Home is now handled by an inline instance rendered in the Home
-  // screen tree itself (see `app/(tabs)/home.tsx` → HomeDmPrompt).
-  if (p === "/(tabs)/home" || p === "/home" || p === "/(tabs)") return true;
   return false;
 };
 
-/**
- * Renders the DM prompt UI. When `inline` is true, the prompt sits
- * in the normal document flow (used inside Home between George's
- * welcome and the first content card) instead of floating at the
- * top of the viewport. In inline mode we still animate in/out, but
- * without an absolute-position wrapper or safe-area top inset.
- */
-export function GlobalDmPromptInline() {
-  return <DmPromptBody inline />;
-}
-
 export default function GlobalDmPrompt() {
-  return <DmPromptBody />;
-}
-
-function DmPromptBody({ inline = false }: { inline?: boolean }) {
   const { c, scale } = useTheme();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const { prompt, openTarget, dismiss } = useDmNotify();
+  const { prompt, openTarget } = useDmNotify();
 
-  // The floating instance hides on Home (handled inline). The inline
-  // instance ignores the pathname guard because it is only mounted
-  // on Home by design.
-  const visible = !!prompt && !!user && (inline || !_isHiddenPath(pathname));
+  // ─── Post-greet delay ─────────────────────────────────────────────
+  // The prompt starts hidden and unlocks after POST_GREET_DELAY_MS so
+  // George gets his arrival + hello without a competing notification.
+  const [postGreetOK, setPostGreetOK] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setPostGreetOK(true), POST_GREET_DELAY_MS);
+    return () => clearTimeout(t);
+  }, []);
 
-  // Slide-in animation — subtle, matches the pace of George's
-  // header flutter (~380ms). Native driver-friendly.
-  const translateY = useSharedValue(-120);
+  // ─── Snooze state ─────────────────────────────────────────────────
+  // The dismissed-set in `dm-notify-context` handles per-message
+  // dismissal. Here we add a soft timed snooze on top: "Not now" hides
+  // the CURRENT prompt for SNOOZE_MS even if it's technically still
+  // eligible. If a NEW message arrives the timestamp-keyed dismissal
+  // set (in context) re-arms the prompt earlier — that's desirable.
+  const [snoozedUntil, setSnoozedUntil] = useState<number>(0);
+  const [now, setNow] = useState<number>(() => Date.now());
+  // Tick the local clock every 30s while snoozed so we naturally
+  // re-render when the snooze expires. Cheap; only runs while there
+  // is a live snooze in effect.
+  useEffect(() => {
+    if (!snoozedUntil || snoozedUntil <= Date.now()) return;
+    const iv = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(iv);
+  }, [snoozedUntil]);
+
+  const snoozeActive = snoozedUntil > now;
+
+  const visible =
+    !!prompt &&
+    !!user &&
+    !_isHiddenPath(pathname) &&
+    postGreetOK &&
+    !snoozeActive;
+
+  // ─── Slide-up animation ───────────────────────────────────────────
+  // Starts off-screen below and slides up when a prompt arrives.
+  const translateY = useSharedValue(160);
   const opacity = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
       translateY.value = withTiming(0, {
-        duration: 340,
+        duration: 380,
         easing: Easing.out(Easing.cubic),
       });
-      opacity.value = withTiming(1, { duration: 260 });
+      opacity.value = withTiming(1, { duration: 300 });
     } else {
-      translateY.value = withTiming(-120, {
-        duration: 220,
+      translateY.value = withTiming(160, {
+        duration: 240,
         easing: Easing.in(Easing.cubic),
       });
-      opacity.value = withTiming(0, { duration: 180 });
+      opacity.value = withTiming(0, { duration: 220 });
     }
   }, [visible, translateY, opacity]);
 
@@ -108,41 +128,51 @@ function DmPromptBody({ inline = false }: { inline?: boolean }) {
     opacity: opacity.value,
   }));
 
-  if (!prompt || !user || _isHiddenPath(pathname)) {
-    // Still render the animated container so a fade-out can play,
-    // but bail early if we don't need it. Keeping this outside the
-    // main return would break the shared-value continuity.
+  if (!prompt || !user || _isHiddenPath(pathname) || !postGreetOK) {
     return null;
   }
+  if (snoozeActive) return null;
 
   const isSingle = prompt.kind === "single";
-  const title = isSingle
-    ? `${prompt.name} sent you a private message`
-    : `You have ${prompt.count} new private chats`;
+
+  const handleSnooze = () => {
+    setSnoozedUntil(Date.now() + SNOOZE_MS);
+    // We deliberately DO NOT call `dismiss()` from the context here.
+    // That would permanently remove the prompt for this message. We
+    // just want a soft snooze — if the member returns Home or waits
+    // SNOOZE_MS, the same prompt should reappear.
+  };
+
+  // ── Copy ──────────────────────────────────────────────────────────
+  const headline = "While you were away…";
+  const body = isSingle
+    ? `${prompt.name} has sent you a private message.`
+    : `You have ${prompt.count} new private chats.`;
+
+  // Bottom offset — sit above the tab bar (~64pt on most devices)
+  // plus the home indicator inset. Enough breathing room from the
+  // resting butterfly's landing spot too.
+  const bottomOffset = insets.bottom + 76;
 
   return (
     <Reanimated.View
       pointerEvents="box-none"
-      style={[
-        inline ? styles.inlineWrap : styles.wrap,
-        inline ? null : { top: insets.top + 6 },
-        cardStyle,
-      ]}
-      testID={inline ? "home-dm-prompt" : "global-dm-prompt"}
+      style={[styles.wrap, { bottom: bottomOffset }, cardStyle]}
+      testID="global-dm-prompt"
     >
       <View
         style={[
           styles.card,
           {
             backgroundColor: c.surface,
-            borderColor: c.brand,
+            borderColor: c.border,
             shadowColor: "#000",
           },
         ]}
       >
         <View style={styles.headerRow}>
           {isSingle ? (
-            <AvatarBubble value={prompt.avatar} size={36} fallback="🙂" />
+            <AvatarBubble value={prompt.avatar} size={40} fallback="🙂" />
           ) : (
             <View
               style={[
@@ -150,57 +180,37 @@ function DmPromptBody({ inline = false }: { inline?: boolean }) {
                 { backgroundColor: c.brandTertiary },
               ]}
             >
-              <Ionicons name="chatbubbles" size={20} color={c.brand} />
+              <Text style={{ fontSize: 20 }}>💬</Text>
             </View>
           )}
-          <View style={{ flex: 1, marginLeft: 10 }}>
+          <View style={{ flex: 1, marginLeft: 12 }}>
             <Text
+              testID="global-dm-prompt-headline"
               style={{
                 color: c.muted,
-                fontSize: 11 * scale,
-                fontWeight: "800",
-                letterSpacing: 0.4,
+                fontSize: 12 * scale,
+                fontWeight: "700",
+                marginBottom: 2,
               }}
             >
-              🦋 GEORGE
+              {headline}
             </Text>
             <Text
               numberOfLines={2}
+              testID="global-dm-prompt-body"
               style={{
                 color: c.onSurface,
                 fontSize: 15 * scale,
-                fontWeight: "800",
-                marginTop: 2,
+                fontWeight: "700",
+                lineHeight: 20 * scale,
               }}
             >
-              {title}
+              {body}
             </Text>
           </View>
         </View>
+
         <View style={styles.actions}>
-          <Pressable
-            testID="global-dm-prompt-dismiss"
-            onPress={dismiss}
-            accessibilityRole="button"
-            accessibilityLabel="Dismiss George's prompt"
-            style={({ pressed }) => [
-              styles.secondaryBtn,
-              {
-                backgroundColor: pressed ? c.brandTertiary : c.surface,
-                borderColor: c.border,
-              },
-            ]}
-          >
-            <Text
-              style={{
-                color: c.onSurface,
-                fontWeight: "800",
-                fontSize: 14 * scale,
-              }}
-            >
-              Not now
-            </Text>
-          </Pressable>
           <Pressable
             testID="global-dm-prompt-open"
             onPress={openTarget}
@@ -223,7 +233,30 @@ function DmPromptBody({ inline = false }: { inline?: boolean }) {
                 fontSize: 14 * scale,
               }}
             >
-              {isSingle ? "Open chat" : "View chats"}
+              💬  Open chat
+            </Text>
+          </Pressable>
+          <Pressable
+            testID="global-dm-prompt-dismiss"
+            onPress={handleSnooze}
+            accessibilityRole="button"
+            accessibilityLabel="Snooze George's prompt for a few minutes"
+            style={({ pressed }) => [
+              styles.secondaryBtn,
+              {
+                backgroundColor: pressed ? c.brandTertiary : c.surface,
+                borderColor: c.border,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                color: c.onSurface,
+                fontWeight: "800",
+                fontSize: 14 * scale,
+              }}
+            >
+              ⏰  Not now
             </Text>
           </Pressable>
         </View>
@@ -238,68 +271,48 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     // Sit above the tab bar / George butterfly, but below full-screen
-    // Modals (which use their own portal). Values chosen to match
-    // the existing header shadow z on iOS.
+    // Modals (which use their own portal).
     zIndex: 999,
-    // Android needs explicit elevation for the same effect.
     ...Platform.select({ android: { elevation: 12 }, default: {} }),
   },
-  // Inline variant — flows in the normal document, no floating z-index,
-  // used on Home so app-notifications sit in their own zone beneath
-  // George's welcome. Same card visual, no absolute wrapper.
-  inlineWrap: {
-    marginHorizontal: 0,
-    marginTop: 4,
-    marginBottom: 12,
-  },
   card: {
+    borderRadius: 16,
+    borderWidth: 1,
     padding: 14,
-    borderRadius: 18,
-    borderWidth: 2,
-    // Soft drop shadow so the card lifts off any background —
-    // matches the FP Café "Looking for a chat" banner shadow depth
-    // so we stay visually consistent without introducing new tokens.
-    ...Platform.select({
-      ios: {
-        shadowOpacity: 0.16,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 4 },
-      },
-      android: {},
-      default: {},
-    }),
+    // Soft iOS-style shadow — familiar territory for members used
+    // to native iOS notifications.
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: -6 },
   },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
   },
   groupIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
   },
   actions: {
     flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 8,
+    gap: 10,
     marginTop: 12,
   },
-  secondaryBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+  primaryBtn: {
+    flex: 1,
+    paddingVertical: 11,
     borderRadius: 12,
-    borderWidth: 1.5,
-    minHeight: 40,
     alignItems: "center",
     justifyContent: "center",
   },
-  primaryBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+  secondaryBtn: {
+    flex: 1,
+    paddingVertical: 11,
     borderRadius: 12,
-    minHeight: 40,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },

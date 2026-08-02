@@ -37,6 +37,24 @@ import { georgeApi, type Presence } from '@/src/lib/george-api';
  */
 
 const STORAGE_KEY = 'george.lastArrival';
+
+// ---- Session-level greeting gate --------------------------------------
+// Locked with Garry 1 Aug 2026 as a permanent behaviour principle:
+//   "George welcomes members when they arrive, not every time they
+//    navigate."
+// Module-level singleton so the flag survives every GeorgeButterfly
+// unmount/remount cycle within the same app process. The flag resets
+// only when the app is fully killed and relaunched — which is what a
+// "session" is for the member. Never persisted to storage, deliberately,
+// so a real cold-start greets George once again. This is DIFFERENT
+// from the daily gate (`STORAGE_KEY` above) — the daily gate limits
+// arrivals to once per calendar day even across app restarts, and
+// this session gate limits them to once per app process on top.
+let _sessionGreetingConsumed = false;
+/** For tests only — resets the module-level session flag. */
+export function _resetSessionGreetingForTests() {
+  _sessionGreetingConsumed = false;
+}
 const DAYS_ABSENCE_FOR_WARM_WELCOME = 3;
 // Bubble auto-dismiss (Garry, 1 Aug 2026 — "Let it auto-dismiss after
 // a few seconds"). Down from 12s to 6s so the bubble reads as a short
@@ -80,6 +98,17 @@ export function GeorgeButterfly() {
   useEffect(() => {
     let cancelled = false;
     async function boot() {
+      // Session gate — see `_sessionGreetingConsumed` above.
+      // Once George has said hello this app session, he stays quietly
+      // perched no matter how many times this component mounts (e.g.
+      // brief butterflyVisible toggles during navigation, warm reload
+      // of the tab layout, etc.). Cold-start resets the flag.
+      if (_sessionGreetingConsumed) {
+        setPhase('resting');
+        opacity.value = 1;
+        return;
+      }
+
       let pres: Presence | null = null;
       try { pres = await georgeApi.presence(); }
       catch { /* silent — he'll just say a generic hello */ }
@@ -94,6 +123,9 @@ export function GeorgeButterfly() {
         // Land straight into the resting state without an animation.
         setPhase('resting');
         opacity.value = 1;
+        // Consume the session flag anyway — subsequent mounts today
+        // shouldn't even hit the presence fetch. Belt and braces.
+        _sessionGreetingConsumed = true;
         return;
       }
 
@@ -121,6 +153,11 @@ export function GeorgeButterfly() {
         setPhase('landed');
         setGreeting(pickReturningGreeting(pres, gate.warmWelcome, georgiaHint));
         setShowBubble(true);
+        // Consume the session flag ONLY once George has actually
+        // arrived + greeted. If arrival was skipped (daily gate above)
+        // the flag is already set; if the whole boot failed silently
+        // it will retry on the next mount — which is what we want.
+        _sessionGreetingConsumed = true;
       });
       await markArrivedToday(pres?.actor_id || 'anonymous');
     }
