@@ -83,7 +83,7 @@ function EventsListInner() {
 }
 
 function EventRowCard({ event, onDelete }: { event: EventRow; onDelete: () => void }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
   const cover = event.cover_image_url
     ? (event.cover_image_url.startsWith('http') ? event.cover_image_url : `${BASE}${event.cover_image_url}`)
     : null;

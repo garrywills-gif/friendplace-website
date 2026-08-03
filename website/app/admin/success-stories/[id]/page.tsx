@@ -260,7 +260,7 @@ export default function SuccessStoryEditorPage() {
 /* ---------- Sub-components ---------- */
 
 function AvatarWell({ url, authorName }: { url: string; authorName: string }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
   const absUrl = url ? (url.startsWith('http') ? url : `${BASE}${url}`) : '';
   return (
     <div style={{

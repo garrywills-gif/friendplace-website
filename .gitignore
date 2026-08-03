@@ -85,6 +85,13 @@ website/node_modules/@next/swc-linux-arm64-gnu/next-swc.linux-arm64-gnu.node
 .env
 .env.*
 *.env
+# Emergent deployment: the runtime .env files at backend/, frontend/,
+# and website/ are read by the deployment pipeline and MUST be tracked.
+# Everything else matching `.env*` stays ignored so developer-local
+# `.env.local` / `.env.dev` etc. never leak into commits.
+!/backend/.env
+!/frontend/.env
+!/website/.env
 credentials.json
 *.key
 .credentials

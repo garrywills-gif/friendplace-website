@@ -1,8 +1,0 @@
-# FriendPlace — pre-launch robots policy.
-#
-# Blocks every crawler until FRIENDPLACE_INDEXABLE=true is set in
-# Vercel's environment variables. When we're ready to launch we
-# generate a proper `sitemap.xml` and change this to `Allow: /`.
-
-User-agent: *
-Disallow: /

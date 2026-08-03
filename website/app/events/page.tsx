@@ -4,7 +4,7 @@ import type { EventRow } from '@/lib/cms-api';
 export const revalidate = 60;
 
 async function fetchEvents(): Promise<EventRow[]> {
-  const base = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
+  const base = process.env.NEXT_PUBLIC_API_URL || '';
   try {
     const res = await fetch(`${base}/api/public/events`, { next: { revalidate: 60 } });
     if (!res.ok) return [];
@@ -20,7 +20,7 @@ export const metadata = {
 
 export default async function EventsPage() {
   const events = await fetchEvents();
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
   return (
     <main style={{ maxWidth: 1080, margin: '0 auto', padding: '48px 24px 96px', fontFamily: 'Public Sans, system-ui, sans-serif' }}>
