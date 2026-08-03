@@ -2,9 +2,14 @@
 TestFlight Round-4 (v1.0.12 / build 119) verification.
 
 Covers three bugs Garry found in build 118:
-  - BUG 14: Onboarding ending — single '☕ Head to FP Café' primary + 'Finish later'
-            tertiary; closing turn contains 'Why not head over to the FP Café first?';
-            approval routes to /(tabs)/lounge.
+  - BUG 14: Onboarding ending — dual '📸 Share a Moment' / '☕ Head to FP Café'
+            equally-prominent primaries + 'Finish later' tertiary; closing turn
+            offers BOTH natural starting points ('share a little moment' /
+            'pop into the FP Café'); approval routes to /moments/new OR
+            /(tabs)/lounge depending on which button the member picked.
+            Refined by Garry 3 Aug 2026: previously a single '☕ Head to FP
+            Café' button — updated to be more inclusive of members who'd
+            rather post first than chat first.
   - BUG 15: GeorgeRemembersBanner uses GeorgeSpeakButton (cloud TTS) instead of
             legacy SpeakButton (device TTS).
   - BUG 16: VoiceInputButton — 250ms iOS flush wait; blob-size guard >=500b;
@@ -60,8 +65,12 @@ class TestBug14OnboardingEnding:
         self.src = _read(f"{FRONTEND_ROOT}/src/components/george/GeorgeOnboarding.tsx")
         self.butterfly = _read(f"{FRONTEND_ROOT}/src/components/george/GeorgeButterfly.tsx")
 
-    def test_single_primary_head_to_fp_cafe_button(self):
-        assert "☕ Head to FP Café" in self.src, "Primary CTA label missing"
+    def test_dual_primary_ctas_share_moment_and_fp_cafe(self):
+        # Refined by Garry 3 Aug 2026: BOTH natural starting points now
+        # rendered as equally-prominent primaries. Some members will
+        # post first, others will chat first — both are equally valid.
+        assert "📸 Share a Moment" in self.src, "'Share a Moment' CTA label missing"
+        assert "☕ Head to FP Café" in self.src, "'Head to FP Café' CTA label missing"
 
     def test_no_change_something_button(self):
         # Strip comments so we only inspect JSX/code. Only failure is if the
@@ -79,17 +88,28 @@ class TestBug14OnboardingEnding:
 
     def test_finish_later_tertiary_present(self):
         # Two references expected: the header "Finish later" pressable AND the
-        # tertiary button under the primary CTA.
+        # tertiary button under the primary CTAs.
         assert self.src.count(">Finish later<") >= 2
 
-    def test_closing_turn_contains_fp_cafe_invitation(self):
-        assert "Why not head over to the FP Caf" in self.src, \
-            "Closing George turn missing FP Café invitation"
+    def test_closing_turn_offers_both_starting_points(self):
+        # Refined wording (Garry, 3 Aug 2026): closing turn no longer
+        # steers everyone to the café. It offers Share a Moment OR the
+        # FP Café and reassures the member there's no right way to start.
+        assert "share a little moment" in self.src, \
+            "Closing George turn missing the 'share a little moment' invitation"
+        assert "pop into the FP Caf" in self.src, \
+            "Closing George turn missing the 'pop into the FP Café' invitation"
+        assert "no right way to start" in self.src, \
+            "Closing George turn missing the 'no right way to start' reassurance"
 
-    def test_butterfly_routes_to_lounge_on_done(self):
-        # After onboarding approve → onDone → router.push('/(tabs)/lounge')
-        assert "router.push('/(tabs)/lounge')" in self.butterfly, \
-            "GeorgeButterfly.onDone should route to /(tabs)/lounge after approve"
+    def test_butterfly_routes_by_destination(self):
+        # After onboarding approve → onDone(destination) → router picks
+        # between /moments/new (Share a Moment) and /(tabs)/lounge
+        # (FP Café) depending on which button the member tapped.
+        assert "'/moments/new'" in self.butterfly or '"/moments/new"' in self.butterfly, \
+            "GeorgeButterfly.onDone should route to /moments/new when destination='moment'"
+        assert "'/(tabs)/lounge'" in self.butterfly or '"/(tabs)/lounge"' in self.butterfly, \
+            "GeorgeButterfly.onDone should route to /(tabs)/lounge when destination='lounge'"
 
 
 # ─── BUG 15 — George voice consistency ──────────────────────────────────────

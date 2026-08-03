@@ -87,6 +87,17 @@ async def ensure_indexes(db: Any) -> None:
 # hammer HuggingFace on every request if the download endpoint is
 # temporarily unavailable — the KB simply falls back to keyword-only
 # retrieval until the next process restart.
+#
+# LAUNCH GUARD (Garry, 3 Aug 2026): the local ONNX runtime + 90 MB
+# HuggingFace model can OOM on Emergent's default deployment tier
+# (250m CPU / 1Gi RAM). We now require an explicit opt-in via
+# `ENABLE_LOCAL_EMBEDDINGS=true` — production defaults to OFF so the
+# knowledge base runs pure keyword (BM25) retrieval, which is already
+# solid for our corpus and never crashes. Flip the env var back on
+# once we've migrated the backend to a bigger tier or wired a hosted
+# embeddings API. All existing "fall back to keyword" code paths are
+# unchanged; this guard just short-circuits the load attempt.
+_LOCAL_EMBEDDINGS_ENABLED = os.getenv("ENABLE_LOCAL_EMBEDDINGS", "").strip().lower() in {"1", "true", "yes", "on"}
 _embedder = None            # type: ignore[assignment]
 _embedder_ready = False     # True once we've *attempted* to load
 _embedder_lock: Optional[asyncio.Lock] = None
@@ -101,10 +112,27 @@ def _get_embedder_lock() -> asyncio.Lock:
 
 async def _ensure_embedder():
     """Load the fastembed model exactly once, in a threadpool, guarded
-    by a lock so concurrent callers don't stampede the loader."""
+    by a lock so concurrent callers don't stampede the loader.
+
+    Returns None immediately if `ENABLE_LOCAL_EMBEDDINGS` is not set —
+    the retrieval code already handles a None encoder by dropping to
+    keyword-only search, so downstream behaviour is unchanged.
+    """
     global _embedder, _embedder_ready
     if _embedder_ready:
         return _embedder
+    if not _LOCAL_EMBEDDINGS_ENABLED:
+        # Short-circuit: mark ready with a None encoder so the log
+        # message appears exactly once per process instead of on every
+        # search request.
+        if not _embedder_ready:
+            logger.info(
+                "KB embedder disabled (ENABLE_LOCAL_EMBEDDINGS not set) — "
+                "using keyword-only retrieval"
+            )
+        _embedder = None
+        _embedder_ready = True
+        return None
     async with _get_embedder_lock():
         if _embedder_ready:
             return _embedder

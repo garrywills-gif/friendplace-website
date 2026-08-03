@@ -37,7 +37,13 @@ import { useComposerLock } from '@/src/lib/composer-lock';
  */
 
 interface Props {
-  onDone: () => void;      // profile written; return to Home
+  // Called after the profile is written to the server. The optional
+  // `destination` tells the host where the member wants to head next
+  // ("moment" → /moments/new · "lounge" → /(tabs)/lounge). Both are
+  // equally valid first steps — some members want to say hello in
+  // the FP Café, others prefer to share a moment first. Locked with
+  // Garry, 3 Aug 2026.
+  onDone: (destination?: 'moment' | 'lounge') => void;
   onFinishLater: () => void;
 }
 
@@ -127,13 +133,16 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
       const nextStatus = s.status || 'in_progress';
       if (nextStatus === 'drafted' && status !== 'drafted') {
         const firstName = (returnedTurns.find((tt: any) => tt.role === 'user')?.content?.split(/\s+/)[0]) || null;
-        // TestFlight round-3 v3 (Garry, 29 July 2026 #14): the closing
-        // turn now includes a warm invitation to the FP Café — the
-        // obvious first destination for a brand-new member. Pairs
-        // with the single "☕ Head to FP Café" button below.
+        // TestFlight refinement (Garry, 3 Aug 2026): the closing turn
+        // now offers BOTH natural starting points rather than steering
+        // everyone to the café. Some members will be ready to chat
+        // immediately, others may be more comfortable sharing a photo
+        // or story first — both are equally valid first steps. Pairs
+        // with the two equally-prominent buttons below (Share a Moment /
+        // Head to FP Café).
         const thankYou = firstName
-          ? `That's really helpful, ${firstName}. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.\n\nWhy not head over to the FP Caf\u00e9 first? It's a lovely place to say hello and see who's around. I'll be here if you need me.`
-          : `That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.\n\nWhy not head over to the FP Caf\u00e9 first? It's a lovely place to say hello and see who's around. I'll be here if you need me.`;
+          ? `That's really helpful, ${firstName}. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.\n\nWhy not share a little moment from your day, or pop into the FP Caf\u00e9 and say hello? There's no right way to start \u2014 just choose whatever feels right today. I'll be here if you need me.`
+          : `That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know \u2014 I'm always learning.\n\nWhy not share a little moment from your day, or pop into the FP Caf\u00e9 and say hello? There's no right way to start \u2014 just choose whatever feels right today. I'll be here if you need me.`;
         // Find the last George turn and replace it. If none exists, append.
         let replaced = false;
         for (let i = returnedTurns.length - 1; i >= 0; i--) {
@@ -168,10 +177,10 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     } finally { setBusy(false); }
   }
 
-  async function approve() {
+  async function approve(destination: 'moment' | 'lounge' = 'lounge') {
     if (!sessionId) return;
     setBusy(true);
-    try { await georgeApi.onboardingApprove(sessionId); onDone(); }
+    try { await georgeApi.onboardingApprove(sessionId); onDone(destination); }
     catch { setBusy(false); }
   }
 
@@ -294,14 +303,32 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
 
       {showPreview ? (
         <View style={[styles.actionsWrap, { paddingBottom: insets.bottom + 12 }]}>
-          {/* TestFlight round-3 (Garry, 29 July 2026 #14): retired the
-              "That looks right / Change something" pair — there's no
-              summary card to review anymore. Single warm CTA now
-              points members to their obvious first destination: the
-              FP Café. Finish later still available for pausers. */}
-          <Pressable onPress={approve} style={({ pressed }) => [styles.primaryBtn, pressed && styles.pressed]}>
-            <Text style={styles.primaryBtnText}>☕ Head to FP Café</Text>
-          </Pressable>
+          {/* TestFlight refinement (Garry, 3 Aug 2026): offer BOTH
+              natural starting points — Share a Moment OR head to FP
+              Café — as equally-prominent buttons. Some members will
+              want to post first, others will want to chat. Both are
+              equally valid ways to start on FriendPlace. Finish later
+              still available for pausers. */}
+          <View style={styles.dualCtaRow}>
+            <Pressable
+              testID="onboarding-cta-moment"
+              onPress={() => approve('moment')}
+              accessibilityRole="button"
+              accessibilityLabel="Share a moment as your first step"
+              style={({ pressed }) => [styles.primaryBtn, styles.dualCtaBtn, pressed && styles.pressed]}
+            >
+              <Text style={styles.primaryBtnText}>📸 Share a Moment</Text>
+            </Pressable>
+            <Pressable
+              testID="onboarding-cta-lounge"
+              onPress={() => approve('lounge')}
+              accessibilityRole="button"
+              accessibilityLabel="Head to the FP Café as your first step"
+              style={({ pressed }) => [styles.primaryBtn, styles.dualCtaBtn, pressed && styles.pressed]}
+            >
+              <Text style={styles.primaryBtnText}>☕ Head to FP Café</Text>
+            </Pressable>
+          </View>
           <Pressable onPress={finishLater} style={({ pressed }) => [styles.tertiaryBtn, pressed && styles.pressed]}>
             <Text style={styles.tertiaryBtnText}>Finish later</Text>
           </Pressable>
@@ -507,9 +534,15 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#E2E8F0', backgroundColor: '#FFFFFF',
   },
   primaryBtn: {
-    backgroundColor: '#14B8A6', paddingVertical: 14, borderRadius: 14, alignItems: 'center',
+    backgroundColor: '#14B8A6', paddingVertical: 14, paddingHorizontal: 14, borderRadius: 14, alignItems: 'center',
+    justifyContent: 'center',
   },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  primaryBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  // Two equally-prominent CTA buttons for the onboarding close — the
+  // row wraps sensibly on very narrow screens and both children share
+  // the width evenly on standard phone widths.
+  dualCtaRow: { flexDirection: 'row', gap: 10 },
+  dualCtaBtn: { flex: 1, minHeight: 52 },
   secondaryBtn: {
     backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#CBD5E1',
     paddingVertical: 14, borderRadius: 14, alignItems: 'center',

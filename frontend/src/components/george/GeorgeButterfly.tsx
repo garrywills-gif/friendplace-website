@@ -519,17 +519,23 @@ export function GeorgeButterfly() {
         onRequestClose={() => setShowChat(false)}
       >
         <GeorgeOnboarding
-          onDone={() => {
+          onDone={(destination) => {
             setShowChat(false);
             // After profile is complete, refresh presence so a
             // subsequent tap opens event creation rather than
             // re-opening onboarding.
             georgeApi.presence().then(setPresence).catch(() => {});
-            // TestFlight round-3 v3 (Garry, 29 July 2026 #14): the
-            // onboarding closing CTA is now "☕ Head to FP Café" —
-            // route the member straight there as their first
-            // destination.
-            try { router.push('/(tabs)/lounge'); } catch { /* noop */ }
+            // TestFlight refinement (Garry, 3 Aug 2026): the closing
+            // CTA now offers TWO natural starting points. Route to
+            // whichever the member picked — Share a Moment or FP Café.
+            // Both are equally valid ways to start on FriendPlace.
+            try {
+              if (destination === 'moment') {
+                router.push('/moments/new' as any);
+              } else {
+                router.push('/(tabs)/lounge');
+              }
+            } catch { /* noop */ }
           }}
           onFinishLater={() => setShowChat(false)}
         />
