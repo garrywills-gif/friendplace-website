@@ -25,13 +25,16 @@ const TRAPPED_HOST = 'friendplace-website.vercel.app';
 
 export function middleware(req: NextRequest) {
   const host = req.headers.get('host') || '';
+
   if (host === TRAPPED_HOST) {
     const url = req.nextUrl.clone();
     url.host = CANONICAL_HOST;
     url.protocol = 'https:';
+
     // 308 preserves method + body, unlike 301/302.
     return NextResponse.redirect(url, 308);
   }
+
   return NextResponse.next();
 }
 
