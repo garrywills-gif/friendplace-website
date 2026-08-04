@@ -95,3 +95,13 @@ website/node_modules/@next/swc-linux-arm64-gnu/next-swc.linux-arm64-gnu.node
 credentials.json
 *.key
 .credentials
+
+# Internal development notes / handoff docs — should not appear in public repo
+/memory/
+/test_reports/
+/test_result.md
+JOURNEY_CONTINUITY.md
+
+# Emergent platform internals (cron dispatch scripts, PRD summary) — not
+# needed in a public marketing/website repo, keep them local to the pod.
+.emergent/
