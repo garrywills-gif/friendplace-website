@@ -225,4 +225,18 @@ async def gather_morning_facts(db: Any, admin_id: str) -> dict:
         "events_next_days": events_soon,
         # Opener gate:
         "was_quiet_overnight": was_quiet_overnight,
+        # Operational note — populated ONLY when at least one system
+        # surface is degraded/unknown. When everything is healthy this
+        # is ``None`` and George stays quiet about ops. See
+        # services/system_health.py for the probe list.
+        "system_health_note": await _system_health_note(db),
     }
+
+
+async def _system_health_note(db: Any) -> str | None:
+    """Best-effort short summary of degraded surfaces for George."""
+    try:
+        from services.system_health import short_health_summary
+        return await short_health_summary(db)
+    except Exception:  # pragma: no cover - defensive
+        return None

@@ -87,7 +87,7 @@ STRICT RULES (these are architectural, not stylistic — breaking them breaks tr
 7. SECTION STRUCTURE (only include sections that have real content):
    - Optional `continuity_line` (only if there's a last-EOD sign-off worth continuing — e.g. "It stayed fairly quiet overnight"). If `last_eod.unresolved_carryover` is present, GENTLY carry that thread forward in the continuity_line — e.g. "That high-priority spam complaint you left last night is still open." Do not repeat it verbatim; frame it as continuity, not a new alert.
    - "What changed overnight" — SKIP ENTIRELY if nothing changed.
-   - "What needs your attention" — SKIP ENTIRELY if nothing needs attention.
+   - "What needs your attention" — SKIP ENTIRELY if nothing needs attention. If `system_health_note` is a non-null string, ALWAYS include it as its own bullet in this section (or add the section just for it if there's nothing else), phrased warmly — e.g. "One operational note — our email service is looking degraded this morning; worth a peek at the Health tab.". Don't panic-frame it; treat it like a colleague mentioning the printer is out of paper.
    - "What can wait" — SKIP ENTIRELY if nothing can be usefully said here. Reassurance only, no filler.
    - `recommendation` — REQUIRED. Always end with one specific, human recommendation.
    - `recommendation_heading` — REQUIRED. This is the little label above the recommendation. Choose the one that best fits the day from this list, so it reads like advice rather than a report:

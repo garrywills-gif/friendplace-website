@@ -1410,6 +1410,25 @@ def build_router(db) -> APIRouter:
         return await compute_counts(db)
 
     # =====================================================================
+    # /api/mcgs/system-health — operational visibility across every surface
+    # =====================================================================
+
+    @router.get("/mcgs/system-health")
+    async def api_system_health(
+        fresh: bool = False,
+        admin: dict = Depends(current_admin),
+    ):
+        """Consolidated operational status.
+
+        Live probes for George LLM + Resend are cached 5 minutes; the
+        overall payload is cached 60 seconds. Pass ``?fresh=1`` for a
+        force-refresh (bypasses the overall cache, not the per-probe
+        cache — that would spam Resend/Anthropic).
+        """
+        from services.system_health import collect_health
+        return await collect_health(db, fresh=fresh)
+
+    # =====================================================================
     # /api/mcgs/stream \u2014 SSE from the channel-agnostic event bus
     # =====================================================================
 

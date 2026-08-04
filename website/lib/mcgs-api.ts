@@ -106,10 +106,41 @@ export interface Counts {
   computed_at: string;
 }
 
+// ---------- System health ----------
+
+export type ProbeStatus = 'ok' | 'degraded' | 'unknown' | 'disabled';
+
+export interface Probe {
+  name: string;
+  status: ProbeStatus;
+  note: string;
+  response_ms: number | null;
+  last_checked: string;
+  details?: { cached?: boolean; url?: string; used_bytes?: number; free_bytes?: number; [key: string]: unknown };
+}
+
+export interface SystemHealth {
+  overall: ProbeStatus;
+  generated_at: string;
+  cached: boolean;
+  probes: Probe[];
+  counts: Record<string, number>;
+  deployment: {
+    website_version: string | null;
+    frontend_version: string | null;
+    commit_hash: string | null;
+    commit_short: string | null;
+    commit_time: string | null;
+    commit_message: string | null;
+  };
+}
+
 // ---------- API surface ----------
 
 export const mcgsApi = {
   counts: () => req<Counts>('GET', '/mcgs/counts'),
+  systemHealth: (opts: { fresh?: boolean } = {}) =>
+    req<SystemHealth>('GET', `/mcgs/system-health${opts.fresh ? '?fresh=1' : ''}`),
   listSignals: (params: { limit?: number; status?: string[]; priority?: Priority[] } = {}) => {
     const q = new URLSearchParams();
     if (params.limit) q.set('limit', String(params.limit));
