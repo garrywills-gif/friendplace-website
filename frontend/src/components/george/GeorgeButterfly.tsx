@@ -94,6 +94,18 @@ export function GeorgeButterfly() {
 
   const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // First-meeting persistence gate (Garry, 4 Aug 2026 TestFlight polish):
+  //   On a member's very first introduction to George, the welcome
+  //   bubble MUST stay visible until the member chooses either
+  //   "Dismiss" (tap ✕) or "Chat with George" (tap the butterfly). We
+  //   never auto-fade the introduction — first impressions matter.
+  //   All subsequent visits keep the standard 3.2s auto-fade so the
+  //   bubble stays a warm hello, not a lingering panel.
+  //
+  // Uses a ref (not state) because the value is read inside effect
+  // callbacks that shouldn't re-run when it flips.
+  const isFirstMeetingRef = useRef<boolean>(false);
+
   // ---- Boot: fetch presence + decide what to do --------------------------
   useEffect(() => {
     let cancelled = false;
@@ -117,6 +129,7 @@ export function GeorgeButterfly() {
 
       const gate = await shouldArriveToday(pres?.actor_id || 'anonymous');
       const firstMeeting = !!pres?.first_meeting;
+      isFirstMeetingRef.current = firstMeeting;
 
       // First meeting always plays; otherwise honour the daily gate.
       if (!firstMeeting && !gate.allowed) {
@@ -298,6 +311,10 @@ export function GeorgeButterfly() {
     bubbleOpacity.value = withTiming(1, { duration: 320 });
     bubbleTranslate.value = withTiming(0, { duration: 340, easing: Easing.out(Easing.cubic) });
     if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current);
+    // First-meeting persistence: never auto-dismiss the very first
+    // welcome. Member must choose "Dismiss" (tap ✕ / tap-away) or
+    // "Chat with George" (tap butterfly). See isFirstMeetingRef doc.
+    if (isFirstMeetingRef.current) return;
     bubbleTimerRef.current = setTimeout(() => {
       bubbleOpacity.value = withTiming(0, { duration: 260 });
       bubbleTranslate.value = withTiming(6, { duration: 260 });
@@ -313,6 +330,15 @@ export function GeorgeButterfly() {
     if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current);
     bubbleOpacity.value = withTiming(0, { duration: 180 });
     setTimeout(() => setShowBubble(false), 200);
+
+    // First-meeting persistence: as soon as the member chose an action
+    // (chat) we retire the flag server-side so we never re-play the
+    // introduction. Best-effort — a network blip must never block the
+    // chat from opening.
+    if (isFirstMeetingRef.current) {
+      isFirstMeetingRef.current = false;
+      void georgeApi.introduced().catch(() => {});
+    }
 
     // Tiny flutter — a scale wobble on the wings.
     wingFlap.value = withSequence(
@@ -496,9 +522,24 @@ export function GeorgeButterfly() {
               bubbleOpacity.value = withTiming(0, { duration: 160 });
               setTimeout(() => setShowBubble(false), 180);
               setPhase('resting');
+              // First-meeting persistence: mark introduction consumed
+              // once the member has chosen to dismiss. Best-effort.
+              if (isFirstMeetingRef.current) {
+                isFirstMeetingRef.current = false;
+                void georgeApi.introduced().catch(() => {});
+              }
             }}>
               <View style={styles.bubble}>
                 <Text style={styles.bubbleText} numberOfLines={4}>{greeting}</Text>
+                {isFirstMeetingRef.current && (
+                  // First-meeting hint (Garry, 4 Aug 2026): the bubble
+                  // stays until the member acts, so surface the two
+                  // choices explicitly. Removed on all subsequent
+                  // visits (returning users know the affordance).
+                  <Text style={styles.bubbleHint}>
+                    Tap to dismiss · tap the butterfly to chat
+                  </Text>
+                )}
               </View>
               <View style={styles.bubbleTail} />
             </Pressable>
@@ -738,6 +779,14 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: '#0A2540',
     fontWeight: '500',
+  },
+  bubbleHint: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: '#1E3A8A',
+    fontWeight: '600',
+    marginTop: 8,
+    opacity: 0.7,
   },
   chatBackdrop: {
     flex: 1,

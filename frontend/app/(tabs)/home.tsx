@@ -28,6 +28,7 @@ type Tile = {
   ink: string;
   sub?: string;      // secondary line under the title (2x3 tiles only)
   full?: boolean;    // hero tile (FP Café) — spans full width
+  badge?: number;    // optional red unread-count badge (e.g. My Chats)
 };
 
 export default function Home() {
@@ -38,6 +39,11 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const [flutters, setFlutters] = useState<any[]>([]);
   const [unread, setUnread] = useState<number>(0);
+  // DM unread total surfaces as a badge on the My Chats Home tile
+  // (Garry, 4 Aug 2026 TestFlight polish — Chats needed a discoverable
+  // Home entry point in addition to the tab bar). Same 15s poll cadence
+  // as the ChatsIcon in the tab bar.
+  const [chatsUnread, setChatsUnread] = useState<number>(0);
   const [refreshing, setRefreshing] = useState(false);
   const [thought, setThought] = useState<string>(() => getThoughtForDate());
   const [isFav, setIsFav] = useState<boolean>(false);
@@ -209,6 +215,7 @@ export default function Home() {
       }
     } catch {}
     try { const r: any = await api.notificationCount(user.id); setUnread(r?.unread || 0); } catch {}
+    try { const r: any = await api.dmUnreadTotal(user.id); setChatsUnread(Math.max(0, Number(r?.unread) || 0)); } catch {}
     try { await api.heartbeat(user.id); } catch {}
     try { setCommunity(await api.communityToday(user.id)); } catch {}
     try {
@@ -302,6 +309,12 @@ export default function Home() {
     // taglines. FP Café now sits at the top of the grid (still important
     // — just no longer the hero, since it depends on members being
     // online at the same time). Locked with Garry 31 July 2026.
+    //
+    // My Chats added 4 Aug 2026 (TestFlight polish): needed a
+    // discoverable Home entry so Chats isn't only reachable via the
+    // small tab-bar icon. Sits first so conversations are the very
+    // first thing on Home — mirrors the messaging-first mental model.
+    { key: "chats",   title: "My Chats",           icon: "chatbubbles",     route: "/chats",    bg: "#DBEAFE", ink: "#1E3A8A", sub: "Your ongoing conversations", badge: chatsUnread },
     { key: "lounge",  title: "FP Café",           icon: "cafe",            route: "/lounge",   bg: "#DFF2ED", ink: "#0F766E", sub: "Pull up a chair & join a chat" },
     { key: "friends", title: "Find Friends",       icon: "people",          route: "/friends",  bg: "#E0EAFB", ink: "#1E3A8A", sub: "Connect with people like you" },
     { key: "events",  title: "Local Events",       icon: "calendar",        route: "/events",   bg: "#EDE4FA", ink: "#5B21B6", sub: "See what's happening near you" },
@@ -814,7 +827,35 @@ export default function Home() {
                   },
                 ]}
               >
-                <Ionicons name={t.icon} size={iconSize} color={t.ink} />
+                <View>
+                  <Ionicons name={t.icon} size={iconSize} color={t.ink} />
+                  {t.badge && t.badge > 0 ? (
+                    // Unread badge for Chats (Garry, 4 Aug 2026). Matches
+                    // the tab-bar badge style so both feel like the same
+                    // signal in different places.
+                    <View
+                      testID={`tile-${t.key}-badge`}
+                      style={{
+                        position: "absolute",
+                        top: -6,
+                        right: -10,
+                        minWidth: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        paddingHorizontal: 6,
+                        backgroundColor: c.error,
+                        borderWidth: 2,
+                        borderColor: t.bg,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 }}>
+                        {t.badge > 9 ? "9+" : String(t.badge)}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
                 <View style={{ flex: isProfileRow ? 1 : undefined, minWidth: 0 }}>
                   <Text
                     style={[
