@@ -931,3 +931,122 @@ def tool_schema_for_planner() -> list[dict]:
             },
         })
     return out
+
+
+# ---------------------------------------------------------------------------
+# Analytics tool (Commit 2 — see services/analytics)
+# ---------------------------------------------------------------------------
+#
+# One consolidated tool that gives George typed access to the full
+# analytics catalogue. The planner picks a ``query_id`` from the fixed
+# enum (populated at import time from the registered queries) plus a
+# ``range_kind`` from ``NamedRange``. The engine handles period
+# comparison + drill-down under the hood.
+#
+# Conversational formatting note: the returned dict includes both the
+# raw ``value`` AND a pre-formatted ``george_summary`` that George is
+# instructed to lightly rewrite in the natural voice of the app rather
+# than reading numbers verbatim. Any ``coverage_notes`` MUST be surfaced
+# so George stays honest when historical attribution is unavailable.
+
+
+def _build_analytics_enums():
+    """Populate the analytics tool's enum values lazily.
+
+    Runs inside ``register`` at import time — must not hit MongoDB.
+    """
+    from services.analytics.time_ranges import NamedRange
+    from services.analytics.queries import _ALL_QUERIES
+
+    query_ids = {q.query_id for q in _ALL_QUERIES}
+    range_kinds = {r.value for r in NamedRange}
+    return query_ids, range_kinds
+
+
+try:
+    _ANALYTICS_QUERY_IDS, _ANALYTICS_RANGES = _build_analytics_enums()
+except Exception:  # pragma: no cover - defensive; keeps import resilient.
+    log.exception("Failed to load analytics enums for George tool schema")
+    _ANALYTICS_QUERY_IDS, _ANALYTICS_RANGES = set(), set()
+
+
+@register(
+    "run_analytics_query",
+    (
+        "Answer data questions about FriendPlace by running a registered "
+        "analytics query. Use this for questions about how many members "
+        "joined, active users, campaign performance, events created, "
+        "open support cases, best-performing flyers, or top QR/bridge "
+        "sources. Returns a typed result with an optional period-over-"
+        "period comparison AND coverage_notes George MUST surface "
+        "verbatim when historical attribution is limited. Reword the "
+        "raw numbers into natural conversational language — never read "
+        "'Metric: value' verbatim."
+    ),
+    args={
+        "query_id": {
+            "type": "str",
+            "required": True,
+            "enum": _ANALYTICS_QUERY_IDS,
+        },
+        "range_kind": {
+            "type": "str",
+            "required": False,
+            "enum": _ANALYTICS_RANGES,
+        },
+        "compare": {"type": "bool", "required": False},
+    },
+)
+async def _run_analytics_query(db: Any, args: dict) -> dict:
+    """Execute an analytics query and return a compact result envelope."""
+    from services.analytics import get_engine
+    from services.analytics.time_ranges import NamedRange
+
+    engine = get_engine()
+    range_kind_raw = args.get("range_kind") or "this_week"
+    try:
+        range_kind = NamedRange(range_kind_raw)
+    except ValueError as exc:
+        raise ToolError(
+            f"run_analytics_query: unknown range_kind '{range_kind_raw}'"
+        ) from exc
+
+    result = await engine.run(
+        args["query_id"],
+        db=db,
+        range_kind=range_kind,
+        compare=bool(args.get("compare", True)),
+    )
+    # Compact envelope for the synthesizer — everything George needs
+    # to compose a natural sentence, nothing it doesn't.
+    envelope: dict[str, Any] = {
+        "query_id": result.query_id,
+        "metric_label": result.metric_label,
+        "value": result.value,
+        "unit": result.unit,
+        "time_range_label": result.time_range.label,
+        "coverage": result.coverage,
+        "coverage_notes": result.notes,
+        "george_summary": result.to_george_summary(),
+    }
+    if result.comparison is not None:
+        envelope["comparison"] = {
+            "previous_label": result.comparison.previous_time_range.label,
+            "previous_value": result.comparison.previous_value,
+            "delta_absolute": result.comparison.delta_absolute,
+            "delta_pct": result.comparison.delta_pct,
+            "direction": result.comparison.direction.value,
+            "humanized": result.comparison.humanize(),
+        }
+    if result.breakdown:
+        envelope["breakdown"] = [
+            {
+                "key": row.key,
+                "label": row.label,
+                "value": row.value,
+                "secondary_values": row.secondary_values,
+            }
+            for row in result.breakdown[:10]  # cap for token efficiency
+        ]
+    return envelope
+

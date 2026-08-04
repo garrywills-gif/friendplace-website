@@ -6084,7 +6084,14 @@ class AdminHardDeleteBody(BaseModel):
 
 
 @api.get("/admin/invite-flyer")
-async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
+async def admin_invite_flyer(
+    admin_id: str,
+    venue: str = "",
+    url: str = "",
+    flyer_id: str = "",
+    qr_code_id: str = "",
+    campaign_id: str = "",
+):
     """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
     for printing and pinning up at noticeboards. The layout is intentionally
     BOLD and TYPOGRAPHIC so it works at a glance from across a room.
@@ -6108,6 +6115,31 @@ async def admin_invite_flyer(admin_id: str, venue: str = "", url: str = ""):
 
     target_url = (url or "").strip() or "https://friendplace.com.au"
     venue = (venue or "").strip()[:80]
+
+    # ─── Acquisition attribution (Commit-2 rollout) ──────────────────
+    # Every newly-generated flyer embeds ``flyer_id`` / ``qr_code_id`` /
+    # ``campaign_id`` as URL query params on the QR destination, so when
+    # a visitor scans the QR the analytics bridge endpoint (and later
+    # the registration form) can attribute the traffic. Older printed
+    # flyers won't carry these — accepted trade-off; the flyer analytics
+    # query is honest about this via its coverage note.
+    from urllib.parse import urlencode, urlparse, urlunparse, parse_qsl
+
+    _attr: dict[str, str] = {}
+    if flyer_id:
+        _attr["flyer"] = flyer_id.strip()[:120]
+    if qr_code_id:
+        _attr["qr"] = qr_code_id.strip()[:120]
+    if campaign_id:
+        _attr["campaign"] = campaign_id.strip()[:120]
+    # Always tag the channel so the bridge endpoint doesn't have to guess.
+    if _attr:
+        _attr.setdefault("ch", "flyer")
+    if _attr:
+        _parts = urlparse(target_url)
+        _q = dict(parse_qsl(_parts.query, keep_blank_values=True))
+        _q.update(_attr)
+        target_url = urlunparse(_parts._replace(query=urlencode(_q)))
 
     # A4 portrait at ~150 dpi
     W, H = 1240, 1754
@@ -10579,6 +10611,16 @@ async def public_register_interest(payload: dict, request: Request):
     # registration.
     founder_number = await _next_founder_number()
 
+    # Acquisition attribution (Commit-2 rollout). Captures which flyer /
+    # QR / campaign brought this visitor here. Best-effort — historical
+    # registrations that pre-date this rollout simply won't have this
+    # field, which is honestly surfaced by the analytics engine.
+    from services.analytics.acquisition import (
+        parse_acquisition,
+        attach_acquisition_to_registration,
+    )
+    acquisition = parse_acquisition(payload)
+
     doc = {
         "id": str(uuid.uuid4()),
         "founder_number":        founder_number,
@@ -10591,6 +10633,7 @@ async def public_register_interest(payload: dict, request: Request):
         "companion_choice": companion,     # 'george' | 'georgia' | None
         "status": "registered",             # CRM ladder: registered → invited → joined → opted_out
         "source": "website",                # future: 'app_prelaunch', 'referral', etc.
+        "acquisition": acquisition,         # {channel, flyer_id, qr_code_id, campaign_id, ref_source, captured_at}
         "ip": ip,
         "is_test": False,                   # tools.py filters this out of George's counts
         "created_at": now_iso(),
@@ -10598,9 +10641,21 @@ async def public_register_interest(payload: dict, request: Request):
 
     try:
         await db.interest_registrations.insert_one(dict(doc))
+        # Best-effort: retro-link the most recent matching bridge_event
+        # so top-of-funnel telemetry knows this hit converted. Never
+        # fail the request on a link failure.
+        try:
+            await attach_acquisition_to_registration(
+                db,
+                registration_id=doc["id"],
+                acquisition=acquisition,
+            )
+        except Exception:
+            logger.exception("bridge_event conversion link failed for %s", doc["id"])
         logger.info(
-            "RYI new: id=%s email=%s first_name=%s companion=%s ip=%s",
+            "RYI new: id=%s email=%s first_name=%s companion=%s ip=%s acq=%s",
             doc["id"], email, first_name, companion, ip,
+            acquisition.get("channel"),
         )
     except Exception:
         # If the DB write itself fails, we DO fail the request — silently
@@ -11081,6 +11136,23 @@ app.include_router(_build_status_router(db, current_user), prefix="/api")
 # verified against RESEND_WEBHOOK_SECRET. See services/campaign_webhooks.py.
 from services import campaign_webhooks as _campaign_webhooks  # noqa: E402
 app.include_router(_campaign_webhooks.build_router(db), prefix="/api")
+
+# Analytics engine — powers George's data-question tool AND future
+# Mission Control dashboards. Two routers:
+#   * /mcgs/george/analytics/*  — admin-only (catalogue / run / drilldown)
+#   * /public/bridge/hit        — public QR-scan telemetry (rate-limited)
+from services.analytics.router import build_analytics_router as _build_analytics_router  # noqa: E402
+from services.analytics.public_router import build_bridge_public_router as _build_bridge_public_router  # noqa: E402
+from services.analytics.bridge import ensure_indexes as _ensure_bridge_indexes  # noqa: E402
+app.include_router(_build_analytics_router(db), prefix="/api")
+app.include_router(_build_bridge_public_router(db), prefix="/api")
+
+
+@app.on_event("startup")
+async def _ensure_analytics_indexes():
+    """Idempotent index setup for bridge_events."""
+    await _ensure_bridge_indexes(db)
+
 
 
 @app.on_event("startup")

@@ -162,7 +162,22 @@ async def _render_founding_base_a4(db, params: Dict[str, Any]) -> Image.Image:
         raise ValueError("founding-flyer render requires admin_id")
     venue = str(params.get("venue") or "").strip()[:80]
     url = str(params.get("url") or "").strip()
-    resp = await admin_invite_flyer(admin_id=admin_id, venue=venue, url=url)
+    # Attribution params — every new render gets a unique qr_code_id so
+    # we can distinguish physical prints even when they point at the same
+    # flyer template. `flyer_id` and `campaign_id` come from the caller
+    # (CMS render endpoint) so ops can override defaults.
+    import uuid as _uuid
+    flyer_id = str(params.get("flyer_id") or params.get("template_key") or "").strip()
+    qr_code_id = str(params.get("qr_code_id") or "").strip() or f"qr_{_uuid.uuid4().hex[:12]}"
+    campaign_id = str(params.get("campaign_id") or "").strip()
+    resp = await admin_invite_flyer(
+        admin_id=admin_id,
+        venue=venue,
+        url=url,
+        flyer_id=flyer_id,
+        qr_code_id=qr_code_id,
+        campaign_id=campaign_id,
+    )
     # `resp` is a FastAPI Response; the raw PNG bytes are on `.body`.
     return Image.open(io.BytesIO(resp.body)).convert("RGB")
 
@@ -174,6 +189,10 @@ async def _render_founding(
     params: Dict[str, Any],
 ) -> bytes:
     """Turn the base A4 render into whichever layout was requested."""
+    # Inject the template key as the default flyer_id so the QR carries
+    # attribution even when the CMS caller doesn't pass one explicitly.
+    if not params.get("flyer_id"):
+        params = {**params, "flyer_id": tpl.get("key")}
     base = await _render_founding_base_a4(db, params)
 
     if lay.kind == "single":

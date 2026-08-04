@@ -23,6 +23,8 @@ from .members import (
 from .events import EventsCreatedQuery
 from .support import OpenSupportTicketsQuery
 from .campaigns import BestCampaignByOpenRateQuery, BestCampaignByClickRateQuery
+from .flyers import BestFlyerByRegistrationsQuery
+from .bridge_sources import TopBridgeSourcesQuery
 
 
 _ALL_QUERIES: list[AnalyticsQuery] = [
@@ -36,6 +38,8 @@ _ALL_QUERIES: list[AnalyticsQuery] = [
     OpenSupportTicketsQuery(),
     BestCampaignByOpenRateQuery(),
     BestCampaignByClickRateQuery(),
+    BestFlyerByRegistrationsQuery(),
+    TopBridgeSourcesQuery(),
 ]
 
 

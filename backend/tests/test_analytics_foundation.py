@@ -185,6 +185,8 @@ class TestLiveExecution:
                     if entry["query_id"] not in {
                         "campaigns.best_by_open_rate",
                         "campaigns.best_by_click_rate",
+                        "flyers.best_by_registrations",
+                        "bridge.top_sources",
                     }:
                         assert r.drilldown is not None, (
                             f"{entry['query_id']} missing drilldown"

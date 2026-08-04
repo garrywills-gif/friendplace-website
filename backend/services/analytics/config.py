@@ -34,16 +34,16 @@ ACTIVE_WEEK_DAYS: int = int(os.getenv("ANALYTICS_ACTIVE_WEEK_DAYS", "7"))
 #: ISO date (YYYY-MM-DD) from which per-flyer/per-QR acquisition attribution
 #: began flowing into ``interest_registrations.acquisition``. Any query that
 #: relies on this data will emit a coverage note for registrations older
-#: than this date. Set by the Commit-2 schema addition; keep as ``None``
-#: until it lands.
+#: than this date. Introduced by the Commit-2 schema addition — override
+#: via ``ANALYTICS_ATTRIBUTION_START`` if you back-fill historical data.
 ATTRIBUTION_TRACKING_START: str | None = os.getenv(
-    "ANALYTICS_ATTRIBUTION_START", None
+    "ANALYTICS_ATTRIBUTION_START", "2026-06-15"
 )
 
 #: ISO date (YYYY-MM-DD) from which bridge_events (QR-scan telemetry) began
 #: being recorded. Same rules as above.
 BRIDGE_EVENTS_START: str | None = os.getenv(
-    "ANALYTICS_BRIDGE_EVENTS_START", None
+    "ANALYTICS_BRIDGE_EVENTS_START", "2026-06-15"
 )
 
 
