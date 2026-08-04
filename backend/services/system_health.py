@@ -230,9 +230,9 @@ async def _probe_george_llm() -> ProbeResult:
             name="George AI",
             status="ok" if ok else "degraded",
             note=(
-                "Haiku responded."
+                "George AI responding normally."
                 if ok
-                else "Haiku returned empty response — key may be stale."
+                else "George AI returned an empty response — key may be stale."
             ),
             response_ms=elapsed_ms,
             details={"model": "claude-haiku-4-5-20251001"},
@@ -242,7 +242,7 @@ async def _probe_george_llm() -> ProbeResult:
         result = ProbeResult(
             name="George AI",
             status="degraded",
-            note=f"Live LLM ping failed: {str(exc)[:140]}",
+            note=f"George AI not reachable: {str(exc)[:140]}",
             response_ms=elapsed_ms,
         )
     _cache_set(_probe_cache, "george_llm", result)
@@ -330,9 +330,9 @@ async def _probe_push() -> ProbeResult:
             name="Push notifications",
             status="disabled",
             note=(
-                "EMERGENT_PUSH_KEY is a placeholder. Push notifications "
-                "will activate when the app is deployed and the real "
-                "key is injected by the build pipeline."
+                "Will activate after production deployment — the real key "
+                "is injected by the build pipeline when the app is "
+                "published to the App Store / Play Store."
             ),
             response_ms=0,
         )
@@ -384,8 +384,20 @@ async def _probe_storage() -> ProbeResult:
 
 
 async def _probe_website() -> ProbeResult:
-    """HEAD the public site URL to verify the marketing site is up."""
+    """HEAD the public site URL to verify the marketing site is up.
+
+    Enriches the ``details`` payload with the deployed website version
+    and short commit hash so admins can confirm at a glance that the
+    live site matches the latest deployment (both come from the same
+    monorepo, so equality is expected).
+    """
     url = os.environ.get("PUBLIC_SITE_URL", DEFAULT_PUBLIC_SITE_URL)
+    deployment = _read_deployment_meta()
+    base_details: dict[str, Any] = {
+        "url": url,
+        "website_version": deployment.get("website_version"),
+        "commit_short": deployment.get("commit_short"),
+    }
     started = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=3.0, follow_redirects=True) as client:
@@ -397,14 +409,14 @@ async def _probe_website() -> ProbeResult:
                 status="ok",
                 note=f"{url} responded HTTP {r.status_code}.",
                 response_ms=elapsed_ms,
-                details={"url": url, "status_code": r.status_code},
+                details={**base_details, "status_code": r.status_code},
             )
         return ProbeResult(
             name="Website",
             status="degraded",
             note=f"{url} responded HTTP {r.status_code}.",
             response_ms=elapsed_ms,
-            details={"url": url, "status_code": r.status_code},
+            details={**base_details, "status_code": r.status_code},
         )
     except httpx.TimeoutException:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -413,7 +425,7 @@ async def _probe_website() -> ProbeResult:
             status="degraded",
             note=f"{url} timed out.",
             response_ms=elapsed_ms,
-            details={"url": url},
+            details=base_details,
         )
     except Exception as exc:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -422,7 +434,7 @@ async def _probe_website() -> ProbeResult:
             status="unknown",
             note=f"HEAD failed: {type(exc).__name__}: {str(exc)[:120]}",
             response_ms=elapsed_ms,
-            details={"url": url},
+            details=base_details,
         )
 
 

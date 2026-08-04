@@ -29,11 +29,11 @@ const STATUS_LABEL: Record<ProbeStatus, string> = {
   disabled: 'Not configured',
 };
 
-const STATUS_COLOR: Record<ProbeStatus, { bg: string; fg: string; dot: string }> = {
-  ok:       { bg: '#ECFDF5', fg: '#065F46', dot: '#10B981' },
-  degraded: { bg: '#FEF3C7', fg: '#78350F', dot: '#F59E0B' },
-  unknown:  { bg: '#F1F5F9', fg: '#334155', dot: '#94A3B8' },
-  disabled: { bg: '#F1F5F9', fg: '#64748B', dot: '#CBD5E1' },
+const STATUS_COLOR: Record<ProbeStatus, { bg: string; fg: string; dot: string; cardBg: string; cardBorder: string }> = {
+  ok:       { bg: '#ECFDF5', fg: '#065F46', dot: '#10B981', cardBg: '#F0FDF4', cardBorder: '#BBF7D0' },
+  degraded: { bg: '#FEF3C7', fg: '#78350F', dot: '#F59E0B', cardBg: '#FFFBEB', cardBorder: '#FDE68A' },
+  unknown:  { bg: '#FEE2E2', fg: '#7F1D1D', dot: '#EF4444', cardBg: '#FEF2F2', cardBorder: '#FECACA' },
+  disabled: { bg: '#F1F5F9', fg: '#64748B', dot: '#CBD5E1', cardBg: '#F8FAFC', cardBorder: '#E2E8F0' },
 };
 
 const OVERALL_HEADLINE: Record<ProbeStatus, string> = {
@@ -145,7 +145,17 @@ export default function SystemHealthPage() {
               disabled={refreshing || loading}
               style={refreshBtn(refreshing || loading)}
             >
-              {refreshing ? 'Refreshing…' : 'Refresh'}
+              {(refreshing || loading) ? (
+                <>
+                  <span style={spinner} aria-hidden />
+                  <span>Checking…</span>
+                </>
+              ) : (
+                <>
+                  <span aria-hidden>↻</span>
+                  <span>Refresh</span>
+                </>
+              )}
             </button>
           </div>
         </header>
@@ -176,12 +186,7 @@ export default function SystemHealthPage() {
               </div>
             </section>
 
-            {/* Probe grid */}
-            <section style={grid}>
-              {health.probes.map((p) => <ProbeCard key={p.name} probe={p} />)}
-            </section>
-
-            {/* Operational snapshot — basic DB counts */}
+            {/* Operational snapshot — moved above probes per launch-day cockpit design */}
             <section style={snapshotWrap}>
               <div style={sectionTitle}>Operational snapshot</div>
               <div style={countsGrid}>
@@ -195,6 +200,11 @@ export default function SystemHealthPage() {
               <div style={snapshotNote}>
                 Counts are estimated from collection metadata (near-instant) — accurate to within one document.
               </div>
+            </section>
+
+            {/* Probe grid */}
+            <section style={grid}>
+              {health.probes.map((p) => <ProbeCard key={p.name} probe={p} />)}
             </section>
 
             {/* Deployment footer */}
@@ -212,16 +222,40 @@ export default function SystemHealthPage() {
 
 function ProbeCard({ probe }: { probe: Probe }) {
   const c = STATUS_COLOR[probe.status];
+  // Website card gets an extra deployment strip so admins can verify
+  // "the live site is running the latest build" at a glance.
+  const isWebsite = probe.name === 'Website';
+  const version = probe.details?.website_version as string | undefined;
+  const commit = probe.details?.commit_short as string | undefined;
+
   return (
-    <div style={probeCard}>
+    <div style={{ ...probeCard, background: c.cardBg, borderColor: c.cardBorder }}>
       <div style={probeHead}>
         <span style={{ ...dot, background: c.dot }} />
         <div style={{ fontSize: 15, fontWeight: 600, color: '#0F172A' }}>{probe.name}</div>
       </div>
-      <div style={{ ...probeStatusPill, background: c.bg, color: c.fg }}>
+      <div style={{ ...probeStatusPill, background: '#FFFFFF', color: c.fg, border: `1px solid ${c.cardBorder}` }}>
         {STATUS_LABEL[probe.status]}
       </div>
       <div style={probeNote}>{probe.note}</div>
+
+      {isWebsite && (version || commit) && (
+        <div style={websiteDetailStrip}>
+          {version && (
+            <div style={websiteDetailRow}>
+              <span style={websiteDetailLabel}>Version</span>
+              <span style={websiteDetailValue}>{version}</span>
+            </div>
+          )}
+          {commit && (
+            <div style={websiteDetailRow}>
+              <span style={websiteDetailLabel}>Build</span>
+              <span style={{ ...websiteDetailValue, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{commit}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={probeMeta}>
         <span>{probe.response_ms != null ? `${probe.response_ms} ms` : '—'}</span>
         <span style={{ opacity: 0.5 }}>·</span>
@@ -291,9 +325,31 @@ const refreshBtn = (disabled: boolean): React.CSSProperties => ({
   fontSize: 14,
   color: disabled ? '#94A3B8' : '#334155',
   background: '#FFFFFF',
-  cursor: disabled ? 'not-allowed' : 'pointer',
+  cursor: disabled ? 'wait' : 'pointer',
   fontWeight: 500,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
 });
+
+const spinner: React.CSSProperties = {
+  display: 'inline-block',
+  width: 14,
+  height: 14,
+  borderRadius: '50%',
+  border: '2px solid #CBD5E1',
+  borderTopColor: '#0F172A',
+  animation: 'sysHealthSpin 0.8s linear infinite',
+};
+
+// Injected once at module scope so the keyframes exist even without a
+// global CSS file (this page is style-inline by design).
+if (typeof document !== 'undefined' && !document.getElementById('sys-health-anim')) {
+  const style = document.createElement('style');
+  style.id = 'sys-health-anim';
+  style.textContent = '@keyframes sysHealthSpin { to { transform: rotate(360deg); } }';
+  document.head.appendChild(style);
+}
 
 const errorBox: React.CSSProperties = {
   background: '#FEE2E2', color: '#7F1D1D', padding: '12px 16px',
@@ -324,6 +380,28 @@ const grid: React.CSSProperties = {
 const probeCard: React.CSSProperties = {
   background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 12,
   padding: 16, display: 'flex', flexDirection: 'column', gap: 8,
+  transition: 'background 200ms ease, border-color 200ms ease',
+};
+
+const websiteDetailStrip: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.7)',
+  borderRadius: 8,
+  padding: '10px 12px',
+  display: 'flex', flexDirection: 'column', gap: 6,
+  border: '1px solid rgba(0,0,0,0.04)',
+};
+
+const websiteDetailRow: React.CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  fontSize: 12,
+};
+
+const websiteDetailLabel: React.CSSProperties = {
+  color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em',
+};
+
+const websiteDetailValue: React.CSSProperties = {
+  color: '#0F172A', fontWeight: 500,
 };
 
 const probeHead: React.CSSProperties = {
