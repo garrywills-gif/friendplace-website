@@ -27,7 +27,10 @@ type Props = {
 
 export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) {
   const [selectedLayoutKey, setSelectedLayoutKey] = useState<string>(template.default_layout);
-  const [venue, setVenue] = useState('');
+  // Field values keyed by field.key. Auto-initialised from any
+  // defaults on the template so the preview reflects the current
+  // saved wording the moment the modal opens.
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   // Only show layouts THIS template actually supports.
@@ -46,9 +49,16 @@ export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) 
     [selectedLayoutKey, layoutCategories],
   );
 
+  // Fields the admin can edit inline (skip hidden — those are passed
+  // through by the backend without a form control).
+  const editableFields = useMemo(
+    () => (template.fields || []).filter((f) => f.type !== 'hidden'),
+    [template],
+  );
+
   const renderUrl = flyersApi.renderUrl(template.key, {
     layout: selectedLayoutKey,
-    venue: venue.trim(),
+    fields: fieldValues,
   });
 
   // Close on Esc — a small courtesy for keyboard users, and consistent
@@ -215,25 +225,54 @@ export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) 
             ))}
           </div>
 
-          {/* Venue field — only meaningful for engines that use it. */}
-          {template.fields.some((f) => f.key === 'venue') && (
+          {/* Editable fields — auto-generated from the template's
+              schema. Every field type in the FIELD_LIBRARY has its
+              own control (text/textarea/date/time/url/select). New
+              field types can be added here without touching the
+              backend. */}
+          {editableFields.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 }}>
-                Venue (optional)
+              <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>
+                Content
               </div>
-              <input
-                type="text"
-                value={venue}
-                onChange={(e) => setVenue(e.target.value)}
-                placeholder="e.g. Kellyville Library"
-                maxLength={80}
-                style={{
-                  width: '100%', padding: '10px 12px', borderRadius: 10,
-                  border: '1.5px solid #CBD5E1', fontSize: 14,
-                }}
-              />
-              <div style={{ fontSize: 11, color: '#64748B', marginTop: 4 }}>
-                Printed as “Posted by …” along the flyer footer.
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {editableFields.map((f) => {
+                  const v = fieldValues[f.key] ?? '';
+                  const set = (nv: string) => setFieldValues((prev) => ({ ...prev, [f.key]: nv }));
+                  const inputStyle: React.CSSProperties = {
+                    width: '100%', padding: '9px 12px', borderRadius: 10,
+                    border: '1.5px solid #CBD5E1', fontSize: 14, boxSizing: 'border-box',
+                  };
+                  return (
+                    <div key={f.key}>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+                        {f.label}{f.required ? ' *' : ''}
+                      </label>
+                      {f.type === 'textarea' ? (
+                        <textarea value={v} onChange={(e) => set(e.target.value)} rows={2}
+                                  style={{ ...inputStyle, resize: 'vertical' }} />
+                      ) : f.type === 'select' ? (
+                        <select value={v} onChange={(e) => set(e.target.value)} style={inputStyle}>
+                          <option value="">—</option>
+                          {(f.options || []).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      ) : f.type === 'date' ? (
+                        <input type="date" value={v} onChange={(e) => set(e.target.value)} style={inputStyle} />
+                      ) : f.type === 'time' ? (
+                        <input type="time" value={v} onChange={(e) => set(e.target.value)} style={inputStyle} />
+                      ) : f.type === 'url' ? (
+                        <input type="url" value={v} onChange={(e) => set(e.target.value)}
+                               placeholder="https://…" style={inputStyle} />
+                      ) : (
+                        <input type="text" value={v} onChange={(e) => set(e.target.value)}
+                               maxLength={200} style={inputStyle} />
+                      )}
+                      {f.help && (
+                        <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>{f.help}</div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

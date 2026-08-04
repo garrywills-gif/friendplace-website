@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
-import { flyersApi, type FlyerLayoutCategory, type FlyerTemplate } from '@/lib/cms-api';
+import { flyersApi, type FlyerLayoutCategory, type FlyerTemplate, type FlyerField } from '@/lib/cms-api';
 import { FlyerPrintModal } from '@/components/admin/FlyerPrintModal';
 
 export default function FlyerDetailPage() {
@@ -24,6 +24,7 @@ export default function FlyerDetailPage() {
 
   const [template, setTemplate] = useState<FlyerTemplate | null>(null);
   const [layoutCats, setLayoutCats] = useState<FlyerLayoutCategory[]>([]);
+  const [fieldLibrary, setFieldLibrary] = useState<FlyerField[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -32,20 +33,27 @@ export default function FlyerDetailPage() {
   const [description, setDescription] = useState('');
   const [supported, setSupported] = useState<string[]>([]);
   const [defaultLayout, setDefaultLayout] = useState('poster_a4');
+  // Editable field schema — admins pick which placeholders THIS
+  // template exposes to the print modal. Any field from the backend
+  // FIELD_LIBRARY can be added without a code change (Garry, 3 Aug).
+  const [fields, setFields] = useState<FlyerField[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [tpl, cats] = await Promise.all([
+        const [tpl, cats, lib] = await Promise.all([
           flyersApi.get(key),
           flyersApi.listLayouts(),
+          flyersApi.listFieldLibrary(),
         ]);
         setTemplate(tpl);
         setLayoutCats(cats.categories);
+        setFieldLibrary(lib.fields);
         setName(tpl.name);
         setDescription(tpl.description);
         setSupported(tpl.supported_layouts || []);
         setDefaultLayout(tpl.default_layout || 'poster_a4');
+        setFields(tpl.fields || []);
       } catch (e: any) {
         setErr(e?.message || 'Could not load template');
       }
@@ -66,7 +74,8 @@ export default function FlyerDetailPage() {
     setBusy(true); setErr(null);
     try {
       const updated = await flyersApi.update(template.key, {
-        name, description, supported_layouts: supported, default_layout: defaultLayout,
+        name, description, supported_layouts: supported,
+        default_layout: defaultLayout, fields,
       });
       setTemplate(updated);
     } catch (e: any) {
@@ -168,6 +177,43 @@ export default function FlyerDetailPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: '#64748B', marginBottom: 8 }}>
+                Editable content fields
+              </label>
+              <div style={{ color: '#64748B', fontSize: 12, marginBottom: 10 }}>
+                Any field ticked here appears in the Print &amp; Preview modal so admins can change the wording without rebuilding the template.
+                {template?.engine === 'founding_flyer_v1' && (
+                  <span style={{ display: 'block', marginTop: 4, color: '#92400E' }}>
+                    ⚠️ The Founding Member Invite uses the existing PIL renderer — it honours <code>admin_id</code>, <code>venue</code> and <code>url</code> only. Other fields will be surfaced in the editor but won&apos;t change the rendered image until the engine adopts them.
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {fieldLibrary.map((f) => {
+                  const on = fields.some((existing) => existing.key === f.key);
+                  return (
+                    <button
+                      key={f.key}
+                      onClick={() => setFields((prev) => on
+                        ? prev.filter((x) => x.key !== f.key)
+                        : [...prev, f])}
+                      title={f.help || f.label}
+                      style={{
+                        padding: '7px 12px', borderRadius: 10,
+                        border: on ? '1.5px solid #0F766E' : '1.5px solid #CBD5E1',
+                        background: on ? '#0F766E' : '#FFFFFF',
+                        color: on ? '#FFFFFF' : '#334155',
+                        fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                      }}
+                    >
+                      {on ? '✓ ' : '+ '}{f.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

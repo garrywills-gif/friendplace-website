@@ -1087,9 +1087,10 @@ export const segmentsApi = {
 export type FlyerField = {
   key: string;
   label: string;
-  type: 'text' | 'hidden' | 'select';
+  type: 'text' | 'textarea' | 'date' | 'time' | 'url' | 'select' | 'hidden';
   required?: boolean;
   help?: string;
+  options?: string[];  // for select fields
 };
 
 export type FlyerLayout = {
@@ -1142,6 +1143,7 @@ export type FlyerTemplate = {
 
 export const flyersApi = {
   listLayouts: () => req<{ categories: FlyerLayoutCategory[] }>('GET', '/cms/flyer-layouts'),
+  listFieldLibrary: () => req<{ fields: FlyerField[] }>('GET', '/cms/flyer-fields'),
   list: (opts?: { status?: string; category?: string }) => {
     const q: string[] = [];
     if (opts?.status)   q.push(`status=${encodeURIComponent(opts.status)}`);
@@ -1156,16 +1158,14 @@ export const flyersApi = {
   duplicate: (key: string) => req<FlyerTemplate>('POST', `/cms/flyer-templates/${key}/duplicate`),
   update: (key: string, patch: Partial<FlyerTemplate>) =>
     req<FlyerTemplate>('PATCH', `/cms/flyer-templates/${key}`, patch),
-  // Build the render URL directly — the caller passes it to <iframe>
-  // (for print) or to `window.open()` (for download). We deliberately
-  // don't wrap this in `req()` because we need the raw absolute URL
-  // for the iframe src, and the browser handles the auth cookie for
-  // us on same-origin requests.
-  renderUrl: (key: string, opts: { layout: string; admin_id?: string; venue?: string; url?: string }): string => {
+  // Build the render URL — the caller passes it to <iframe> for print
+  // or window.open() for download. `fields` is a free-form dict; any
+  // key from the backend field library is a valid query param.
+  renderUrl: (key: string, opts: { layout: string; fields?: Record<string, string | undefined> }): string => {
     const q = new URLSearchParams({ layout: opts.layout });
-    if (opts.admin_id) q.set('admin_id', opts.admin_id);
-    if (opts.venue)    q.set('venue',    opts.venue);
-    if (opts.url)      q.set('url',      opts.url);
+    for (const [k, v] of Object.entries(opts.fields || {})) {
+      if (v !== undefined && v !== null && String(v).trim() !== '') q.set(k, String(v));
+    }
     return `${BASE}/api/cms/flyer-templates/${key}/render?${q.toString()}`;
   },
 };
