@@ -1078,6 +1078,99 @@ export const segmentsApi = {
 };
 
 // ---------------------------------------------------------------------------
+// Flyer Publishing Centre (Garry, 3 Aug 2026)
+// ---------------------------------------------------------------------------
+// Data-driven flyer library. Layouts come from the backend registry so the
+// UI never hard-codes paper sizes or crop-mark rules — adding "DL flyer" or
+// "postcard" later becomes a one-file backend change with zero MC edits.
+
+export type FlyerField = {
+  key: string;
+  label: string;
+  type: 'text' | 'hidden' | 'select';
+  required?: boolean;
+  help?: string;
+};
+
+export type FlyerLayout = {
+  key: string;
+  label: string;
+  category: string;
+  category_label: string;
+  width_mm: number;
+  height_mm: number;
+  width_px: number;
+  height_px: number;
+  kind: 'single' | 'multi_up';
+  tiles_across: number;
+  tiles_down: number;
+  tile_count: number;
+  tile_size_mm: [number, number] | null;
+  crop_marks: boolean;
+  order: number;
+  description: string;
+};
+
+export type FlyerLayoutCategory = {
+  key: string;
+  label: string;
+  description: string;
+  layouts: FlyerLayout[];
+};
+
+export type FlyerTemplate = {
+  key: string;
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  engine: string;
+  fields: FlyerField[];
+  supported_layouts: string[];
+  default_layout: string;
+  status: 'draft' | 'published' | 'archived';
+  used_count: number;
+  version: number;
+  preview_image?: string | null;
+  static_assets?: Record<string, string>;
+  george_hint?: string;
+  created_at?: string;
+  updated_at?: string;
+  published_at?: string | null;
+  last_used_at?: string;
+};
+
+export const flyersApi = {
+  listLayouts: () => req<{ categories: FlyerLayoutCategory[] }>('GET', '/cms/flyer-layouts'),
+  list: (opts?: { status?: string; category?: string }) => {
+    const q: string[] = [];
+    if (opts?.status)   q.push(`status=${encodeURIComponent(opts.status)}`);
+    if (opts?.category) q.push(`category=${encodeURIComponent(opts.category)}`);
+    const qs = q.length ? `?${q.join('&')}` : '';
+    return req<{ templates: FlyerTemplate[] }>('GET', `/cms/flyer-templates${qs}`);
+  },
+  get: (key: string) => req<FlyerTemplate>('GET', `/cms/flyer-templates/${key}`),
+  publish:   (key: string) => req<FlyerTemplate>('POST', `/cms/flyer-templates/${key}/publish`),
+  unpublish: (key: string) => req<FlyerTemplate>('POST', `/cms/flyer-templates/${key}/unpublish`),
+  archive:   (key: string) => req<FlyerTemplate>('POST', `/cms/flyer-templates/${key}/archive`),
+  duplicate: (key: string) => req<FlyerTemplate>('POST', `/cms/flyer-templates/${key}/duplicate`),
+  update: (key: string, patch: Partial<FlyerTemplate>) =>
+    req<FlyerTemplate>('PATCH', `/cms/flyer-templates/${key}`, patch),
+  // Build the render URL directly — the caller passes it to <iframe>
+  // (for print) or to `window.open()` (for download). We deliberately
+  // don't wrap this in `req()` because we need the raw absolute URL
+  // for the iframe src, and the browser handles the auth cookie for
+  // us on same-origin requests.
+  renderUrl: (key: string, opts: { layout: string; admin_id?: string; venue?: string; url?: string }): string => {
+    const q = new URLSearchParams({ layout: opts.layout });
+    if (opts.admin_id) q.set('admin_id', opts.admin_id);
+    if (opts.venue)    q.set('venue',    opts.venue);
+    if (opts.url)      q.set('url',      opts.url);
+    return `${BASE}/api/cms/flyer-templates/${key}/render?${q.toString()}`;
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Share a Moment — Mission Control moderation
 // ---------------------------------------------------------------------------
 // The moments admin UI is intentionally lightweight: list, filter, feature

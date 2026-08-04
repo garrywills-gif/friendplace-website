@@ -48,6 +48,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/events',           label: 'Events',           icon: '📅' },
       { href: '/admin/event-submissions',label: 'Event submissions',icon: '📝', badgeKey: 'submissions' },
       { href: '/admin/announcements',    label: 'Announcements',    icon: '📣', soon: true },
+      { href: '/admin/flyers',           label: 'Flyers',           icon: '🖨️' },
     ],
   },
   {
