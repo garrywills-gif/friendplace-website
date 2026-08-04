@@ -4754,9 +4754,224 @@ def build_router(db) -> APIRouter:
 
     # Ensure indexes on startup (idempotent).
     import asyncio as _asyncio
+    # -----------------------------------------------------------------
+    # Flyer Publishing Centre (Garry, 3 Aug 2026)
+    # -----------------------------------------------------------------
+    # Templates live in the `flyer_templates` collection. Layouts live
+    # in `services.flyers.registry.LAYOUTS`. The renderer dispatches
+    # to the existing PIL engine (via `services.flyers.renderer`) so
+    # the design remains authored in exactly one place.
+    #
+    # All CRUD routes require CMS admin auth. The `/render` endpoint
+    # is also admin-gated for now — public rendering (for the mobile
+    # "Share a flyer" screen) will land as a signed public endpoint
+    # in a follow-on. This keeps launch scope tight and avoids leaking
+    # per-admin QR codes to unauthenticated callers.
+    from services import flyers as _flyers
+
+    @router.get("/flyer-layouts")
+    async def flyer_layouts(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Data-driven layout registry — the UI uses this to build the
+        picker without hard-coding any layout details."""
+        cats = sorted(_flyers.CATEGORIES.values(), key=lambda c: c.order)
+        return {
+            "categories": [
+                {
+                    "key": c.key,
+                    "label": c.label,
+                    "description": c.description,
+                    "layouts": [lay.as_dict() for lay in _flyers.layouts_for_category(c.key)],
+                }
+                for c in cats
+            ],
+        }
+
+    @router.get("/flyer-templates")
+    async def list_flyer_templates_ep(
+        status: Optional[str] = None,
+        category: Optional[str] = None,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        rows = await _flyers.list_templates(db, status=status, category=category)
+        return {"templates": rows}
+
+    @router.get("/flyer-templates/{key}")
+    async def get_flyer_template_ep(key: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        tpl = await _flyers.get_template(db, key)
+        if not tpl:
+            raise HTTPException(404, "Template not found")
+        return tpl
+
+    @router.post("/flyer-templates")
+    async def create_flyer_template_ep(
+        body: dict = Body(...),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        key = str(body.get("key") or "").strip()
+        name = str(body.get("name") or "").strip()
+        if not key or not name:
+            raise HTTPException(400, "key and name are required")
+        # Prevent silent duplicate on repeated POSTs.
+        existing = await _flyers.get_template(db, key)
+        if existing:
+            raise HTTPException(409, f"Template '{key}' already exists")
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        doc = {
+            "key": key,
+            "id": key,
+            "name": name,
+            "description": body.get("description") or "",
+            "category": body.get("category") or "notice",
+            "engine": body.get("engine") or _flyers.templates.ENGINE_FOUNDING,
+            "fields": body.get("fields") or [],
+            "supported_layouts": body.get("supported_layouts") or ["poster_a4"],
+            "default_layout": body.get("default_layout") or "poster_a4",
+            "static_assets": body.get("static_assets") or {},
+            "george_hint": body.get("george_hint") or "",
+            "status": "draft",
+            "used_count": 0,
+            "version": 1,
+            "created_at": now,
+            "updated_at": now,
+            "created_by": admin.get("id"),
+        }
+        await db[_flyers.COLL_FLYER_TEMPLATES].insert_one(doc)
+        doc.pop("_id", None)
+        return doc
+
+    @router.patch("/flyer-templates/{key}")
+    async def edit_flyer_template_ep(
+        key: str,
+        body: dict = Body(...),
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        allowed = {
+            "name", "description", "category", "fields",
+            "supported_layouts", "default_layout", "george_hint",
+            "preview_image", "static_assets",
+        }
+        update = {k: v for k, v in body.items() if k in allowed}
+        if not update:
+            raise HTTPException(400, "Nothing to update")
+        from datetime import datetime, timezone
+        update["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        r = await db[_flyers.COLL_FLYER_TEMPLATES].update_one(
+            {"key": key}, {"$set": update, "$inc": {"version": 1}},
+        )
+        if r.matched_count == 0:
+            raise HTTPException(404, "Template not found")
+        return await _flyers.get_template(db, key)
+
+    async def _set_flyer_status(key: str, new_status: str) -> dict:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        upd: dict = {"status": new_status, "updated_at": now}
+        if new_status == "published":
+            upd["published_at"] = now
+        r = await db[_flyers.COLL_FLYER_TEMPLATES].update_one({"key": key}, {"$set": upd})
+        if r.matched_count == 0:
+            raise HTTPException(404, "Template not found")
+        return await _flyers.get_template(db, key)
+
+    @router.post("/flyer-templates/{key}/publish")
+    async def publish_flyer_ep(key: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        return await _set_flyer_status(key, "published")
+
+    @router.post("/flyer-templates/{key}/unpublish")
+    async def unpublish_flyer_ep(key: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        return await _set_flyer_status(key, "draft")
+
+    @router.post("/flyer-templates/{key}/archive")
+    async def archive_flyer_ep(key: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        return await _set_flyer_status(key, "archived")
+
+    @router.post("/flyer-templates/{key}/duplicate")
+    async def duplicate_flyer_ep(key: str, admin: dict = Depends(current_cms_admin)):
+        tpl = await _flyers.get_template(db, key)
+        if not tpl:
+            raise HTTPException(404, "Template not found")
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        # Suffix -copy / -copy-2 / -copy-3 … until we find a free slot.
+        base = f"{key}-copy"
+        n, cand = 0, base
+        while await _flyers.get_template(db, cand):
+            n += 1
+            cand = f"{base}-{n}"
+        new_doc = {**tpl, "key": cand, "id": cand, "status": "draft",
+                   "used_count": 0, "version": 1,
+                   "name": f"{tpl.get('name', key)} (copy)",
+                   "created_at": now, "updated_at": now,
+                   "published_at": None,
+                   "created_by": admin.get("id")}
+        new_doc.pop("_id", None)
+        await db[_flyers.COLL_FLYER_TEMPLATES].insert_one(dict(new_doc))
+        return new_doc
+
+    @router.get("/flyer-templates/{key}/render")
+    async def render_flyer_ep(
+        key: str,
+        layout: str = "poster_a4",
+        admin_id: Optional[str] = None,
+        venue: str = "",
+        url: str = "",
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Render a flyer for print / preview.
+
+        Returns the raw bytes (PNG or PDF depending on the engine) with
+        an `inline` disposition so the Mission Control print modal can
+        embed it via <iframe> for `window.print()` without any download
+        step.
+
+        Attribution note (Garry, 3 Aug 2026): the founding-flyer engine
+        embeds a QR that credits an *app admin* (from `users` where
+        `is_admin=true`). CMS admins live in `cms_admins` and don't
+        have their own `users.id`, so when the caller doesn't specify
+        an `admin_id`, we auto-attribute to the first app admin found.
+        The Mission Control UI exposes an admin picker so this
+        fallback is only used when the caller really doesn't care.
+        """
+        effective_admin = (admin_id or "").strip() or None
+        if not effective_admin:
+            # Fall back to the first configured app-admin so previews
+            # always work from Mission Control without asking the CMS
+            # admin to pick someone.
+            fallback = await db.users.find_one(
+                {"is_admin": True, "is_demo": {"$ne": True}},
+                {"_id": 0, "id": 1},
+            )
+            if not fallback:
+                fallback = await db.users.find_one({"is_admin": True}, {"_id": 0, "id": 1})
+            if fallback:
+                effective_admin = fallback["id"]
+        try:
+            result = await _flyers.render_flyer(
+                db=db,
+                template_key=key,
+                layout_key=layout,
+                params={"admin_id": effective_admin, "venue": venue, "url": url},
+            )
+        except (ValueError, KeyError, FileNotFoundError) as e:
+            raise HTTPException(400, str(e))
+        from fastapi.responses import Response  # local import to match cms_module.py pattern
+        return Response(
+            content=result.content,
+            media_type=result.media_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{result.filename}"',
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                # A tiny audit breadcrumb — visible in the browser
+                # devtools when debugging print quality.
+                "X-Flyer-Summary": result.summary,
+            },
+        )
+
+    # Seed the initial templates on boot (idempotent) + ensure indexes.
     try:
-        _asyncio.get_event_loop().create_task(_sec.ensure_indexes(db))
-        _asyncio.get_event_loop().create_task(_kb.ensure_indexes(db))
+        _asyncio.get_event_loop().create_task(_flyers.seed_flyer_templates(db))
     except Exception:
         pass
 
