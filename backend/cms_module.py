@@ -4786,6 +4786,13 @@ def build_router(db) -> APIRouter:
             ],
         }
 
+    @router.get("/flyer-fields")
+    async def flyer_fields_ep(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Return the FIELD_LIBRARY so the /admin/flyers/[key] editor can
+        show a menu of editable placeholders any template can opt into.
+        Adding a new field is a data-only edit to `templates.FIELD_LIBRARY`."""
+        return {"fields": _flyers.field_library()}
+
     @router.get("/flyer-templates")
     async def list_flyer_templates_ep(
         status: Optional[str] = None,
@@ -4912,46 +4919,54 @@ def build_router(db) -> APIRouter:
     @router.get("/flyer-templates/{key}/render")
     async def render_flyer_ep(
         key: str,
+        request: Request,
         layout: str = "poster_a4",
-        admin_id: Optional[str] = None,
-        venue: str = "",
-        url: str = "",
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
         """Render a flyer for print / preview.
 
-        Returns the raw bytes (PNG or PDF depending on the engine) with
-        an `inline` disposition so the Mission Control print modal can
-        embed it via <iframe> for `window.print()` without any download
-        step.
+        Accepts ANY field from the FIELD_LIBRARY as an optional query
+        parameter (`?venue=…&headline=…&meeting_day=…`). Engines
+        consume the fields they care about; unknown fields are
+        ignored so the API stays forward-compatible when new engines
+        adopt more of the library.
+
+        Returns raw bytes (PNG or PDF) with `inline` disposition so
+        the Mission Control print modal can embed via <iframe> and
+        trigger `window.print()` without a download step.
 
         Attribution note (Garry, 3 Aug 2026): the founding-flyer engine
-        embeds a QR that credits an *app admin* (from `users` where
-        `is_admin=true`). CMS admins live in `cms_admins` and don't
-        have their own `users.id`, so when the caller doesn't specify
-        an `admin_id`, we auto-attribute to the first app admin found.
-        The Mission Control UI exposes an admin picker so this
-        fallback is only used when the caller really doesn't care.
+        embeds a QR that credits an *app admin* from `users`. CMS
+        admins live in `cms_admins` so when the caller doesn't pass
+        `admin_id`, we auto-attribute to the first app admin found.
         """
-        effective_admin = (admin_id or "").strip() or None
-        if not effective_admin:
-            # Fall back to the first configured app-admin so previews
-            # always work from Mission Control without asking the CMS
-            # admin to pick someone.
+        # Pull every known field from the query string. Unknown params
+        # are silently ignored — the render layer will only pass what
+        # each engine understands.
+        params: Dict[str, Any] = {}
+        qp = request.query_params
+        for fkey in _flyers.KNOWN_FIELD_KEYS:
+            v = qp.get(fkey)
+            if v is not None and v != "":
+                params[fkey] = v
+
+        # admin_id fallback so previews always work from Mission Control
+        # without asking the CMS admin to pick someone.
+        if not params.get("admin_id"):
             fallback = await db.users.find_one(
-                {"is_admin": True, "is_demo": {"$ne": True}},
-                {"_id": 0, "id": 1},
+                {"is_admin": True, "is_demo": {"$ne": True}}, {"_id": 0, "id": 1},
             )
             if not fallback:
                 fallback = await db.users.find_one({"is_admin": True}, {"_id": 0, "id": 1})
             if fallback:
-                effective_admin = fallback["id"]
+                params["admin_id"] = fallback["id"]
+
         try:
             result = await _flyers.render_flyer(
                 db=db,
                 template_key=key,
                 layout_key=layout,
-                params={"admin_id": effective_admin, "venue": venue, "url": url},
+                params=params,
             )
         except (ValueError, KeyError, FileNotFoundError) as e:
             raise HTTPException(400, str(e))

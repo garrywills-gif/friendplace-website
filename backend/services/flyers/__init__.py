@@ -39,6 +39,9 @@ from .templates import (
     COLL_FLYER_TEMPLATES,
     list_templates,
     get_template,
+    field_library,
+    resolve_field,
+    KNOWN_FIELD_KEYS,
     ensure_indexes as ensure_flyer_indexes,
 )
 
@@ -55,5 +58,8 @@ __all__ = [
     "COLL_FLYER_TEMPLATES",
     "list_templates",
     "get_template",
+    "field_library",
+    "resolve_field",
+    "KNOWN_FIELD_KEYS",
     "ensure_flyer_indexes",
 ]
