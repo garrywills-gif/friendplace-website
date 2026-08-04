@@ -41,6 +41,26 @@ log = logging.getLogger("friendplace.mcgs.signals")
 # Priorities ordered low weight = high priority (P0 sorts first).
 PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
 
+# Human-facing labels George uses when speaking to admins. Never surface
+# raw "P0"/"P1" shorthand in conversation — always use these. See the
+# George system prompt (services/george/prompt.py) for the guidance rule.
+PRIORITY_LABELS = {
+    "P0": "critical",
+    "P1": "high-priority",
+    "P2": "normal-priority",
+    "P3": "low-priority",
+    "P4": "informational",
+}
+
+
+def priority_label(code: str | None) -> str:
+    """Return the conversational label for a priority code.
+
+    Falls back to "normal-priority" for unknown/missing codes so George
+    never speaks a raw enum value by accident.
+    """
+    return PRIORITY_LABELS.get((code or "").upper(), "normal-priority")
+
 CATEGORIES = {"attention", "anomaly", "risk", "milestone", "question", "housekeeping"}
 
 # State machine. Keys are the current state; values are allowed target

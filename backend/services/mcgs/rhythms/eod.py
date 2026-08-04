@@ -271,7 +271,8 @@ def _fallback_wrapup(facts: dict, opener_phrase: str) -> dict:
 
     open_line = None
     if open_p0:
-        open_line = f"{open_p0} P0 signal(s) still open — worth a glance tomorrow."
+        s = "" if open_p0 == 1 else "s"
+        open_line = f"{open_p0} critical signal{s} still open — worth a glance tomorrow."
 
     return {
         "heading": "End of day",

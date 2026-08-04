@@ -85,7 +85,7 @@ STRICT RULES (these are architectural, not stylistic — breaking them breaks tr
 6. "ONE THING THAT CAUGHT MY EYE." If something in the facts is unusual, small, or unexpected — an outlier count, a surprising pattern, a first-of-its-kind moment — include it as `noticed_line` phrased naturally: "One thing that caught my eye…" or "One small surprise overnight…". Only when something genuinely stands out. If nothing does, leave `noticed_line` null.
 
 7. SECTION STRUCTURE (only include sections that have real content):
-   - Optional `continuity_line` (only if there's a last-EOD sign-off worth continuing — e.g. "It stayed fairly quiet overnight"). If `last_eod.unresolved_carryover` is present, GENTLY carry that thread forward in the continuity_line — e.g. "That P1 you left last night is still open." Do not repeat it verbatim; frame it as continuity, not a new alert.
+   - Optional `continuity_line` (only if there's a last-EOD sign-off worth continuing — e.g. "It stayed fairly quiet overnight"). If `last_eod.unresolved_carryover` is present, GENTLY carry that thread forward in the continuity_line — e.g. "That high-priority spam complaint you left last night is still open." Do not repeat it verbatim; frame it as continuity, not a new alert.
    - "What changed overnight" — SKIP ENTIRELY if nothing changed.
    - "What needs your attention" — SKIP ENTIRELY if nothing needs attention.
    - "What can wait" — SKIP ENTIRELY if nothing can be usefully said here. Reassurance only, no filler.
@@ -170,6 +170,8 @@ def _facts_summary_for_llm(facts: dict) -> str:
 
 def _fallback_briefing(opener: dict, facts: dict) -> dict:
     """Composed briefing when the LLM call fails. Grounded, minimal, honest."""
+    from ..signals import priority_label
+
     counts = facts.get("new_signal_counts", {}) or {}
     open_counts = facts.get("open_signal_counts", {}) or {}
     pending = facts.get("pending_submissions", 0)
@@ -179,9 +181,15 @@ def _fallback_briefing(opener: dict, facts: dict) -> dict:
     if any(counts.values()):
         bullets = []
         if counts.get("P0"):
-            bullets.append(f"{counts['P0']} new P0 signal(s) came in overnight.")
+            n = counts["P0"]
+            bullets.append(
+                f"{n} new {priority_label('P0')} signal{'s' if n != 1 else ''} came in overnight."
+            )
         if counts.get("P1"):
-            bullets.append(f"{counts['P1']} new P1 signal(s) came in overnight.")
+            n = counts["P1"]
+            bullets.append(
+                f"{n} new {priority_label('P1')} signal{'s' if n != 1 else ''} came in overnight."
+            )
         if bullets:
             sections.append({"heading": "What changed overnight", "bullets": bullets})
 
@@ -192,7 +200,7 @@ def _fallback_briefing(opener: dict, facts: dict) -> dict:
         attention_bullets.append(f"{tickets} open support ticket(s).")
     if open_counts.get("P0") or open_counts.get("P1"):
         attention_bullets.append(
-            "Open high-priority signals remain — worth a glance on the Bridge."
+            "Open critical or high-priority signals remain — worth a glance on the Bridge."
         )
     if attention_bullets:
         sections.append({"heading": "What needs your attention", "bullets": attention_bullets})
@@ -202,7 +210,7 @@ def _fallback_briefing(opener: dict, facts: dict) -> dict:
     elif tickets:
         rec = f"I'd probably start with the open support ticket(s) — there's {tickets} sitting."
     elif open_counts.get("P0"):
-        rec = "I'd start with the open P0 signal on the Bridge."
+        rec = "I'd start with the open critical signal on the Bridge."
     else:
         rec = "I'd start by having a slow coffee — nothing pressing is waiting."
 
