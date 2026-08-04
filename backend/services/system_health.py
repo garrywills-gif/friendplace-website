@@ -192,12 +192,19 @@ async def _probe_database(db) -> ProbeResult:
         )
 
 
-async def _probe_george_llm() -> ProbeResult:
-    """Live cheapest-possible Haiku ping. Cached for LIVE_PROBE_TTL."""
-    cached = _cache_get(_probe_cache, "george_llm", LIVE_PROBE_TTL_SECONDS)
-    if cached is not None:
-        cached.details = {**cached.details, "cached": True}
-        return cached
+async def _probe_george_llm(*, bypass_cache: bool = False) -> ProbeResult:
+    """Live cheapest-possible Haiku ping. Cached for LIVE_PROBE_TTL.
+
+    Args:
+        bypass_cache: When True, ignore the 5-minute cache and re-hit
+            the LLM immediately. Used by the Refresh button so admins
+            can verify current health on launch day, not stale data.
+    """
+    if not bypass_cache:
+        cached = _cache_get(_probe_cache, "george_llm", LIVE_PROBE_TTL_SECONDS)
+        if cached is not None:
+            cached.details = {**cached.details, "cached": True}
+            return cached
 
     key = os.environ.get("EMERGENT_LLM_KEY")
     if not key:
@@ -249,16 +256,21 @@ async def _probe_george_llm() -> ProbeResult:
     return result
 
 
-async def _probe_email() -> ProbeResult:
+async def _probe_email(*, bypass_cache: bool = False) -> ProbeResult:
     """Verify the Resend API key is live by listing domains.
 
     ``GET https://api.resend.com/domains`` requires only the API key,
     is idempotent, and returns 200 for any active key. Cached 5 min.
+
+    Args:
+        bypass_cache: When True, ignore the 5-minute cache and re-hit
+            Resend immediately (used by the Refresh button).
     """
-    cached = _cache_get(_probe_cache, "email", LIVE_PROBE_TTL_SECONDS)
-    if cached is not None:
-        cached.details = {**cached.details, "cached": True}
-        return cached
+    if not bypass_cache:
+        cached = _cache_get(_probe_cache, "email", LIVE_PROBE_TTL_SECONDS)
+        if cached is not None:
+            cached.details = {**cached.details, "cached": True}
+            return cached
 
     key = os.environ.get("RESEND_API_KEY")
     if not key:
@@ -551,7 +563,9 @@ async def collect_health(db, *, fresh: bool = False) -> dict[str, Any]:
 
     Args:
         db: motor async database handle.
-        fresh: bypass the overall cache and force fresh probes.
+        fresh: bypass ALL caches (overall + per-probe) and force fresh
+            probes across every surface. Used by the Refresh button so
+            admins get a live launch-day read, not stale data.
 
     Returns a JSON-serialisable dict:
 
@@ -574,8 +588,14 @@ async def collect_health(db, *, fresh: bool = False) -> dict[str, Any]:
     probes = await asyncio.gather(
         _run_probe("Backend API", _probe_backend),
         _run_probe("Database", lambda: _probe_database(db)),
-        _run_probe("George AI", _probe_george_llm),
-        _run_probe("Email service", _probe_email),
+        _run_probe(
+            "George AI",
+            lambda: _probe_george_llm(bypass_cache=fresh),
+        ),
+        _run_probe(
+            "Email service",
+            lambda: _probe_email(bypass_cache=fresh),
+        ),
         _run_probe("Push notifications", _probe_push),
         _run_probe("Storage", _probe_storage),
         _run_probe("Website", _probe_website),

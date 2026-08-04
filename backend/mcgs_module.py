@@ -1420,10 +1420,14 @@ def build_router(db) -> APIRouter:
     ):
         """Consolidated operational status.
 
-        Live probes for George LLM + Resend are cached 5 minutes; the
-        overall payload is cached 60 seconds. Pass ``?fresh=1`` for a
-        force-refresh (bypasses the overall cache, not the per-probe
-        cache — that would spam Resend/Anthropic).
+        By default:
+          * George LLM + Resend probes are served from a 5-minute cache
+            to keep costs and latency negligible.
+          * The overall payload is served from a 60-second cache.
+
+        Pass ``?fresh=1`` to bypass ALL caches (overall AND per-probe)
+        and re-check every surface immediately — used by the Refresh
+        button so admins get a truly live read on launch day.
         """
         from services.system_health import collect_health
         return await collect_health(db, fresh=fresh)

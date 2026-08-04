@@ -249,7 +249,7 @@ function ProbeCard({ probe }: { probe: Probe }) {
           )}
           {commit && (
             <div style={websiteDetailRow}>
-              <span style={websiteDetailLabel}>Build</span>
+              <span style={websiteDetailLabel}>Commit</span>
               <span style={{ ...websiteDetailValue, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{commit}</span>
             </div>
           )}
