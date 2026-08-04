@@ -9278,6 +9278,39 @@ async def dm_messages(conv_id: str, me: dict = Depends(current_user)):
     return docs
 
 
+@api.delete("/dm/{conv_id}/messages")
+async def dm_clear_messages(conv_id: str, me: dict = Depends(current_user)):
+    """Hard-delete every message in a Notes-to-Myself conversation.
+
+    Garry, 4 Aug 2026 TestFlight polish: members want a one-tap "Clear
+    notes" button on the Notes to Myself screen. To keep the blast
+    radius tiny and safe, this endpoint ONLY works when the caller is
+    both participants (i.e., a self-DM). Any real two-party chat is
+    rejected with 403 — clearing someone else's history without their
+    consent is out of scope for V1.
+    """
+    conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0, "participants": 1})
+    if not conv:
+        raise HTTPException(404, "Conversation not found")
+    uid = me.get("id")
+    parts = conv.get("participants") or []
+    if uid not in parts:
+        raise HTTPException(403, "Not a participant")
+    # Self-DM guard — both participant slots must resolve to the caller.
+    if len(set(parts)) != 1 or set(parts) != {uid}:
+        raise HTTPException(403, "Clear notes is only available for Notes to Myself")
+    res = await db.messages.delete_many({"dm_id": conv_id})
+    # Bump updated_at so any downstream list refreshes; drop last_read
+    # implicitly (empty history reads as "no unread" anyway).
+    await db.dm_conversations.update_one(
+        {"id": conv_id},
+        {"$set": {"updated_at": now_iso()}},
+    )
+    return {"ok": True, "deleted": int(getattr(res, "deleted_count", 0) or 0)}
+
+
+
+
 @api.post("/dm/start")
 async def start_dm(body: dict, me: dict = Depends(current_user)):
     a = body.get("user_id")

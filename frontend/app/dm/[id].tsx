@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView, Platform, Pressable } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { speakGeorgeAuto, stopGeorgeAuto } from "@/src/lib/tts-shared";
@@ -14,6 +14,95 @@ import { parseAvatar } from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import { useComposerLock } from "@/src/lib/composer-lock";
+
+// Notebook look-and-feel (Garry, 4 Aug 2026 TestFlight polish): both
+// Notes to Myself and normal chats get a subtle ruled-paper background
+// so messaging feels calmer and more readable. Zero functionality
+// changes — pure visual treatment sitting behind the existing bubbles.
+const NOTEBOOK_BG_SELF = "#F1F7F5";     // pale teal for Notes to Myself
+const NOTEBOOK_BG_CHAT = "#FBFAF5";     // near-white cream for normal chats
+const NOTEBOOK_LINE = "rgba(15,23,42,0.05)";
+const NOTEBOOK_MARGIN_LINE = "rgba(220,38,38,0.15)"; // faint red left margin
+const NOTEBOOK_LINE_HEIGHT = 32;
+const NOTEBOOK_LINE_COUNT = 80;         // ~2560px of ruled paper — enough for any scroll
+
+function NotebookBackground({ bg, showMargin }: { bg: string; showMargin: boolean }) {
+  // Static ruled-paper backdrop. Rendered once behind the FlatList so
+  // scrolling doesn't cause repaint churn. Doesn't scroll with content
+  // — the lines are a visual texture, not a coordinate system. The
+  // left margin line is exclusive to Notes to Myself so normal chats
+  // stay clean of any journal cue.
+  return (
+    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: bg }]}>
+      {showMargin && (
+        <View style={{ position: "absolute", top: 0, bottom: 0, left: 44, width: 1, backgroundColor: NOTEBOOK_MARGIN_LINE }} />
+      )}
+      {Array.from({ length: NOTEBOOK_LINE_COUNT }).map((_, i) => (
+        <View
+          key={i}
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: (i + 1) * NOTEBOOK_LINE_HEIGHT,
+            height: 1,
+            backgroundColor: NOTEBOOK_LINE,
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+// Format helpers for date separators + per-bubble timestamps.
+function _fmtDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const startOf = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diffDays = Math.floor((startOf(now) - startOf(d)) / 86_400_000);
+  if (diffDays === 0) return "Today";
+  if (diffDays === 1) return "Yesterday";
+  return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+}
+function _fmtTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-AU", { hour: "numeric", minute: "2-digit" });
+}
+
+// Combined "date · time" caption sitting under every bubble. Garry
+// asked for the date to be visible alongside the time, not just the
+// time — so we always render both.
+function _fmtStamp(iso: string): string {
+  const day = _fmtDay(iso);
+  const time = _fmtTime(iso);
+  if (!day && !time) return "";
+  if (!day) return time;
+  if (!time) return day;
+  return `${day} · ${time}`;
+}
+
+// Row types for the FlatList — either a real message or an injected
+// date separator computed from consecutive-message day changes.
+type SepRow = { key: string; type: "sep"; label: string };
+type MsgRow = { key: string; type: "msg"; data: any };
+type Row = SepRow | MsgRow;
+
+function _build_rows(messages: any[]): Row[] {
+  const out: Row[] = [];
+  let lastDay = "";
+  for (const m of messages) {
+    const iso = m?.created_at || "";
+    const day = _fmtDay(iso);
+    if (day && day !== lastDay) {
+      out.push({ key: `sep-${day}-${m.id || out.length}`, type: "sep", label: day });
+      lastDay = day;
+    }
+    out.push({ key: String(m.id || `m-${out.length}`), type: "msg", data: m });
+  }
+  return out;
+}
 
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
@@ -79,9 +168,38 @@ export default function DM() {
     setText("");
   };
 
+  // Clear notes — Notes to Myself only. Backend enforces the self-DM
+  // guard; we only expose the button when isSelfDm is true so the
+  // network 403 path is a safety net, not a UX one.
+  const handleClearNotes = () => {
+    Alert.alert(
+      "Clear all notes?",
+      "This permanently deletes every note in Notes to Myself. This can't be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear notes",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await api.dmClearMessages(String(id));
+              setMessages([]);
+              try { show?.("Notes cleared"); } catch {}
+            } catch (e: any) {
+              try { show?.(e?.message || "Couldn't clear notes"); } catch {}
+            }
+          },
+        },
+      ],
+    );
+  };
+
   // NOTE: onMicPress was a stub that told users to use the OS keyboard's
   // dictate key. Replaced with a real <VoiceInputButton> below which
   // records via expo-audio and transcribes via whisper-1.
+
+  const rows: Row[] = useMemo(() => _build_rows(messages), [messages]);
+  const notebookBg = isSelfDm ? NOTEBOOK_BG_SELF : NOTEBOOK_BG_CHAT;
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
@@ -94,45 +212,96 @@ export default function DM() {
             : "Message"
         }
         titleAccessory={!isSelfDm && other ? <FounderMark user={other} size={15} testID="dm-header-founder" /> : null}
-        right={other_id && !isSelfDm ? (
-        <Pressable testID="dm-report-user" onPress={() => setReportTarget({ type: "user" })} hitSlop={8} style={{ padding: 6 }}>
-          <Ionicons name="flag-outline" size={22} color={c.warning} />
-        </Pressable>
-      ) : undefined} />
+        right={
+          isSelfDm ? (
+            <Pressable
+              testID="dm-clear-notes"
+              onPress={handleClearNotes}
+              hitSlop={8}
+              style={{ padding: 6 }}
+              accessibilityRole="button"
+              accessibilityLabel="Clear all notes"
+            >
+              <Ionicons name="trash-outline" size={22} color={c.muted} />
+            </Pressable>
+          ) : other_id ? (
+            <Pressable testID="dm-report-user" onPress={() => setReportTarget({ type: "user" })} hitSlop={8} style={{ padding: 6 }}>
+              <Ionicons name="flag-outline" size={22} color={c.warning} />
+            </Pressable>
+          ) : undefined
+        } />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }} keyboardVerticalOffset={90}>
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(m) => m.id}
-          contentContainerStyle={{ padding: 14, gap: 8, paddingBottom: 20 }}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
-          renderItem={({ item }) => {
-            const mine = item.user_id === user?.id;
-            return (
-              <View style={[{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%", flexDirection: "row", alignItems: "flex-end", gap: 4 }]}>
-                <View style={[{ padding: 12, borderRadius: 18, backgroundColor: mine ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderBottomRightRadius: mine ? 4 : 18, borderBottomLeftRadius: mine ? 18 : 4, flexShrink: 1 }]}>
-                  <Text style={{ color: mine ? "#FFF" : c.onSurface, fontSize: 16 * scale }}>{item.text}</Text>
+        <View style={{ flex: 1 }}>
+          <NotebookBackground bg={notebookBg} showMargin={isSelfDm} />
+          <FlatList
+            ref={listRef}
+            data={rows}
+            keyExtractor={(r) => r.key}
+            contentContainerStyle={{ padding: 14, gap: 8, paddingBottom: 20 }}
+            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+            renderItem={({ item }) => {
+              if (item.type === "sep") {
+                // Injected day separator (Today / Yesterday / d MMM yyyy).
+                return (
+                  <View style={styles.sepRow}>
+                    <View style={[styles.sepLine, { backgroundColor: c.border }]} />
+                    <View style={[styles.sepPill, { backgroundColor: c.surface, borderColor: c.border }]}>
+                      <Text style={[styles.sepLabel, { color: c.muted, fontSize: 12 * scale }]}>{item.label}</Text>
+                    </View>
+                    <View style={[styles.sepLine, { backgroundColor: c.border }]} />
+                  </View>
+                );
+              }
+              const m = item.data;
+              const mine = m.user_id === user?.id;
+              const stamp = _fmtStamp(m.created_at || "");
+              return (
+                <View style={{ alignSelf: mine ? "flex-end" : "flex-start", maxWidth: "82%" }}>
+                  <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 4 }}>
+                    <View style={[{ padding: 12, borderRadius: 18, backgroundColor: mine ? c.brand : c.surfaceSecondary, borderWidth: 1, borderColor: c.border, borderBottomRightRadius: mine ? 4 : 18, borderBottomLeftRadius: mine ? 18 : 4, flexShrink: 1 }]}>
+                      <Text style={{ color: mine ? "#FFF" : c.onSurface, fontSize: 16 * scale }}>{m.text}</Text>
+                    </View>
+                    {!mine && !isSelfDm && (
+                      <Pressable testID={`dm-report-msg-${m.id}`} onLongPress={() => setReportTarget({ type: "message", id: m.id })} hitSlop={6} style={{ padding: 4 }}>
+                        <Ionicons name="flag-outline" size={14} color={c.muted} />
+                      </Pressable>
+                    )}
+                    {prefs.readMessagesAloud && (
+                      <SpeakButton text={m.text} color={mine ? c.brand : c.muted} bg={c.surfaceTertiary} size={18} testID={`speak-msg-${m.id}`} />
+                    )}
+                  </View>
+                  {!!stamp && (
+                    <Text
+                      style={{
+                        color: c.muted,
+                        fontSize: 11 * scale,
+                        alignSelf: mine ? "flex-end" : "flex-start",
+                        paddingHorizontal: 6,
+                        paddingTop: 2,
+                      }}
+                    >
+                      {stamp}
+                    </Text>
+                  )}
                 </View>
-                {!mine && (
-                  <Pressable testID={`dm-report-msg-${item.id}`} onLongPress={() => setReportTarget({ type: "message", id: item.id })} hitSlop={6} style={{ padding: 4 }}>
-                    <Ionicons name="flag-outline" size={14} color={c.muted} />
-                  </Pressable>
-                )}
-                {prefs.readMessagesAloud && (
-                  <SpeakButton text={item.text} color={mine ? c.brand : c.muted} bg={c.surfaceTertiary} size={18} testID={`speak-msg-${item.id}`} />
-                )}
-              </View>
-            );
-          }}
-        />
+              );
+            }}
+          />
+        </View>
         <View style={[styles.composerRow, { backgroundColor: c.surface, borderColor: c.border }]}>
           {/* Round-8 polish (#4d): DM composer restructured to match
               George Event Creation exactly — input + mic sit inside a
               rounded pill for one visual language across the app. */}
           <View style={[styles.composerPill, { backgroundColor: c.surfaceSecondary }]}>
             <TextInput
-              testID="dm-input" value={text} onChangeText={setText} placeholder="Type a message…" placeholderTextColor={c.muted}
-              style={[styles.pillInput, { color: c.onSurface, fontSize: 15 * scale }]} multiline />
+              testID="dm-input"
+              value={text}
+              onChangeText={setText}
+              placeholder={isSelfDm ? "Write yourself a note…" : "Type a message…"}
+              placeholderTextColor={c.muted}
+              style={[styles.pillInput, { color: c.onSurface, fontSize: 15 * scale }]}
+              multiline
+            />
             <VoiceInputButton
               testID="dm-mic"
               sendTestID="dm-send"
@@ -187,5 +356,26 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 8,
     maxHeight: 120,
+  },
+  // Date separator (Today · Yesterday · long date) — a pill nested
+  // between two hairlines so it sits calmly on the notebook paper.
+  sepRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginVertical: 4,
+  },
+  sepLine: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+  },
+  sepPill: {
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  sepLabel: {
+    fontWeight: "600",
   },
 });

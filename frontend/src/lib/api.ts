@@ -566,6 +566,9 @@ export const api = {
   dmUnhide: (convId: string) => req(`/dm/${convId}/unhide`, { method: "POST" }),
   startDm: (uid: string, other: string) => req("/dm/start", { method: "POST", body: JSON.stringify({ user_id: uid, other_id: other }) }),
   dmMessages: (cid: string) => req(`/dm/${cid}/messages`),
+  // Notes to Myself hard delete (Garry, 4 Aug 2026). Backend rejects if
+  // the conversation isn't a self-DM, so this is safe to expose.
+  dmClearMessages: (cid: string) => req(`/dm/${cid}/messages`, { method: "DELETE" }),
 
   // flutter
   sendFlutter: (body: { from_id: string; to_id: string; message?: string }) =>

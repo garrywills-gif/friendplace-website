@@ -42,12 +42,13 @@ import AvatarBubble from "@/src/components/AvatarBubble";
 // arrival timing in `GeorgeButterfly.tsx`.
 const POST_GREET_DELAY_MS = 4200;
 
-// "Not now" snooze duration. Middle of Garry's 5-10 min window.
-// After this expires the same message re-appears provided it is
-// still unread. A newer message from the same sender re-arms the
-// prompt earlier via the timestamp-keyed dismissed-set in
-// `dm-notify-context.tsx` — no extra work needed here.
-const SNOOZE_MS = 7 * 60 * 1000;
+// "Not now" snooze duration. Bumped from 7 min → 30 min on 4 Aug 2026
+// after Garry reported the prompt reappearing every ~2 min. This
+// duration now matches the context-level `DISMISS_COOLDOWN_MS` so both
+// layers agree: a "Not now" tap suppresses this prompt for a solid
+// half-hour unless a genuinely new message arrives first (in which
+// case the context re-arms it via fresh-message detection).
+const SNOOZE_MS = 30 * 60 * 1000;
 
 // Routes on which the prompt is NOT rendered — mirrors George's
 // HIDDEN_SCREENS list so we behave consistently.
@@ -65,7 +66,7 @@ export default function GlobalDmPrompt() {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const { prompt, openTarget } = useDmNotify();
+  const { prompt, openTarget, dismiss } = useDmNotify();
 
   // ─── Post-greet delay ─────────────────────────────────────────────
   // The prompt starts hidden and unlocks after POST_GREET_DELAY_MS so
@@ -136,11 +137,15 @@ export default function GlobalDmPrompt() {
   const isSingle = prompt.kind === "single";
 
   const handleSnooze = () => {
+    // Two-layer dismissal (Garry, 4 Aug 2026 fix): the LOCAL snooze
+    // hides the sheet instantly so the animation doesn't wait on a
+    // context recompute; the CONTEXT `dismiss()` records the 30-minute
+    // cooldown that persists across component remounts and route
+    // changes. Prior version relied only on the local snooze, which
+    // reset the moment the provider re-rendered (~ every 2 minutes on
+    // an active screen), causing Garry's "keeps coming back" report.
     setSnoozedUntil(Date.now() + SNOOZE_MS);
-    // We deliberately DO NOT call `dismiss()` from the context here.
-    // That would permanently remove the prompt for this message. We
-    // just want a soft snooze — if the member returns Home or waits
-    // SNOOZE_MS, the same prompt should reappear.
+    try { dismiss(); } catch {}
   };
 
   // ── Copy ──────────────────────────────────────────────────────────

@@ -101,16 +101,72 @@ const DmNotifyCtx = createContext<Ctx | null>(null);
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
-function _prompt_key(p: DmPrompt): string {
-  return p.kind === "single"
-    ? `single:${p.convId}:${p.messageTs}`
-    : `group:${p.newestTs}:${p.count}`;
+// Time-based cooldown window (Garry, 4 Aug 2026): a "Not now" tap
+// suppresses the prompt for this long UNLESS a genuinely new message
+// arrives in the meantime. Prior key-based approach re-armed the
+// prompt every time updated_at was bumped by unrelated activity
+// (reads, presence pings), causing the ~2-minute nag Garry reported.
+const DISMISS_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes
+
+type DismissRecord = {
+  at: number;                       // ms since epoch when the user tapped Not now
+  seenTs: Record<string, string>;   // convId → newest message ts at dismissal
+  seenFingerprint: Record<string, string>;  // convId → `${unread}|${text}|${ts}` at dismissal
+};
+
+function _newest_ts(c: Conversation): string {
+  return (
+    c.last?.created_at ||
+    c.updated_at ||
+    c.last_message?.created_at ||
+    c.last_message_at ||
+    ""
+  );
+}
+
+// Content fingerprint that changes ONLY when a real new message
+// arrives — not when server bumps `updated_at` due to reads/pings.
+// Combines the unread count, last message text and last message ts.
+// Immune to timestamp wobble because it also requires the text or
+// count to match. (Garry, 4 Aug 2026 — fixes "Not now keeps coming
+// back" nag caused by pure-timestamp comparison drifting.)
+function _fingerprint(c: Conversation): string {
+  const unread = String(c.unread_count || 0);
+  const text = String(c.last?.text || c.last_message?.text || "");
+  const ts = _newest_ts(c);
+  return `${unread}|${text}|${ts}`;
+}
+
+function _has_fresh_message(
+  convs: Conversation[],
+  seenTs: Record<string, string>,
+  seenFp: Record<string, string>,
+): boolean {
+  // Any eligible conv whose fingerprint differs from the snapshot →
+  // genuine new activity → re-arm the prompt. We require BOTH the
+  // fingerprint to differ AND the newest ts to have advanced, so
+  // read-only pings (which shouldn't change ts anyway) can't trigger.
+  for (const c of convs) {
+    const nowFp = _fingerprint(c);
+    const prevFp = seenFp[c.id];
+    const nowTs = _newest_ts(c);
+    const prevTs = seenTs[c.id] || "";
+    if (prevFp === undefined) {
+      // Conv was not tracked at dismissal — must be genuinely new to
+      // the eligible set (either a new conv or one that just crossed
+      // the unread threshold). Count as fresh.
+      if (nowTs) return true;
+      continue;
+    }
+    if (nowFp !== prevFp && nowTs && nowTs > prevTs) return true;
+  }
+  return false;
 }
 
 function _pick_prompt(
   convs: Conversation[],
   viewingConvId: string | null,
-  dismissed: Map<string, true>,
+  dismiss: DismissRecord | null,
 ): DmPrompt | null {
   const unread = convs.filter((c) => (c.unread_count || 0) > 0);
   if (unread.length === 0) return null;
@@ -123,19 +179,19 @@ function _pick_prompt(
     : unread;
   if (eligible.length === 0) return null;
 
+  // Time-based cooldown: if we're still inside the cooldown window
+  // AND no genuinely fresh message has landed since the dismissal,
+  // suppress. Fresh messages always re-arm regardless of cooldown.
+  if (dismiss) {
+    const withinCooldown = Date.now() - dismiss.at < DISMISS_COOLDOWN_MS;
+    if (withinCooldown && !_has_fresh_message(eligible, dismiss.seenTs, dismiss.seenFingerprint)) {
+      return null;
+    }
+  }
+
   if (eligible.length === 1) {
     const c = eligible[0];
-    // The dismissed-set key MUST include the newest-message timestamp
-    // so a fresh DM re-arms the prompt after a prior dismissal. The
-    // canonical backend fields are `last.created_at` and `updated_at`
-    // (bumped on every incoming DM at server.py:9142). We fall back
-    // to the legacy `last_message.*` names purely for defensiveness.
-    const ts =
-      c.last?.created_at ||
-      c.updated_at ||
-      c.last_message?.created_at ||
-      c.last_message_at ||
-      "";
+    const ts = _newest_ts(c);
     const p: DmPrompt = {
       kind: "single",
       convId: c.id,
@@ -144,21 +200,13 @@ function _pick_prompt(
       avatar: c.other?.avatar,
       messageTs: ts,
     };
-    if (dismissed.has(_prompt_key(p))) return null;
     return p;
   }
 
   // Group prompt — take the newest message timestamp so a fresh
-  // arrival re-arms the prompt after dismissal. Same field-name
-  // priority as the single case: `last.created_at` → `updated_at` →
-  // legacy fallbacks.
+  // arrival re-arms the prompt after dismissal.
   const newest = eligible.reduce<string>((acc, c) => {
-    const t =
-      c.last?.created_at ||
-      c.updated_at ||
-      c.last_message?.created_at ||
-      c.last_message_at ||
-      "";
+    const t = _newest_ts(c);
     return t > acc ? t : acc;
   }, "");
   const previewNames = eligible
@@ -170,7 +218,6 @@ function _pick_prompt(
     newestTs: newest,
     previewNames,
   };
-  if (dismissed.has(_prompt_key(p))) return null;
   return p;
 }
 
@@ -184,7 +231,10 @@ export function DmNotifyProvider({ children }: { children: React.ReactNode }) {
 
   const [convs, setConvs] = useState<Conversation[]>([]);
   const [dismissedVersion, setDismissedVersion] = useState(0);
-  const dismissedRef = useRef<Map<string, true>>(new Map());
+  // Time-based cooldown record. Null before any dismissal; set by
+  // dismiss(); cleared implicitly when a fresh message re-arms
+  // (see _pick_prompt).
+  const dismissedRef = useRef<DismissRecord | null>(null);
   const timerRef = useRef<any>(null);
 
   // Path check — while the member is INSIDE /dm/{id} we treat that
@@ -252,16 +302,32 @@ export function DmNotifyProvider({ children }: { children: React.ReactNode }) {
     return _pick_prompt(convs, viewingConvId, dismissedRef.current);
   }, [convs, viewingConvId, dismissedVersion]);
 
-  // If a NEW message arrives for a previously-dismissed conv, its
-  // key (which includes the message timestamp) will be absent from
-  // dismissedRef → the prompt re-arms automatically. Nothing to do
-  // here beyond returning `prompt`.
+  // If a genuinely NEW message arrives after a dismissal, its newest
+  // ts will exceed the recorded seenTs → _has_fresh_message returns
+  // true → the cooldown is bypassed and the prompt re-arms. See
+  // _pick_prompt for the check.
+
+  const _record_dismissal = useCallback(() => {
+    // Snapshot the current newest-ts + fingerprint per eligible conv so
+    // any FUTURE arrival can be detected as "genuinely new" and bypass
+    // the cooldown. Uses the same source-of-truth field priority as the
+    // pick logic (see _newest_ts + _fingerprint).
+    const seenTs: Record<string, string> = {};
+    const seenFingerprint: Record<string, string> = {};
+    for (const c of convs) {
+      if ((c.unread_count || 0) <= 0) continue;
+      const ts = _newest_ts(c);
+      if (ts) seenTs[c.id] = ts;
+      seenFingerprint[c.id] = _fingerprint(c);
+    }
+    dismissedRef.current = { at: Date.now(), seenTs, seenFingerprint };
+    setDismissedVersion((v) => v + 1);
+  }, [convs]);
 
   const dismiss = useCallback(() => {
     if (!prompt) return;
-    dismissedRef.current.set(_prompt_key(prompt), true);
-    setDismissedVersion((v) => v + 1);
-  }, [prompt]);
+    _record_dismissal();
+  }, [prompt, _record_dismissal]);
 
   const openTarget = useCallback(() => {
     if (!prompt) return;
@@ -269,8 +335,7 @@ export function DmNotifyProvider({ children }: { children: React.ReactNode }) {
     // view during the navigation transition — the DM screen will
     // clear the unread count server-side on its own poll, at which
     // point the prompt is truly gone regardless of dismissed state.
-    dismissedRef.current.set(_prompt_key(prompt), true);
-    setDismissedVersion((v) => v + 1);
+    _record_dismissal();
     if (prompt.kind === "single") {
       const q = prompt.otherId
         ? `?other_id=${encodeURIComponent(prompt.otherId)}`
@@ -279,18 +344,10 @@ export function DmNotifyProvider({ children }: { children: React.ReactNode }) {
     } else {
       router.push("/chats" as any);
     }
-  }, [prompt, router]);
+  }, [prompt, router, _record_dismissal]);
 
-  // Housekeeping — trim the dismissed set opportunistically so it
-  // doesn't grow without bound during a very long session. Small
-  // budget (100) is plenty; oldest entries fall out first.
-  useEffect(() => {
-    const m = dismissedRef.current;
-    if (m.size > 100) {
-      const keys = Array.from(m.keys());
-      for (let i = 0; i < keys.length - 100; i += 1) m.delete(keys[i]);
-    }
-  }, [dismissedVersion]);
+  // No housekeeping trim needed — dismissedRef holds at most one
+  // small record. Old logic used a growing Map keyed on messages.
 
   // Expose composerBusy through a memoised value so the renderer
   // (`GlobalDmPrompt`) can defer showing while typing/recording is
