@@ -12,6 +12,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
+import Header from "@/src/components/Header";
 
 /**
  * Chats tab — a dedicated conversations list that lives in the bottom nav.
@@ -296,29 +297,28 @@ export default function Chats() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      {/* Header — matches the visual weight of Home / Lounge headers so the
-          tab bar feels consistent. Keeps the "💬 Chats" heading + a friendly
-          subtitle counting how many conversations the user has. */}
-      <View style={[styles.header, { paddingTop: insets.top + 12, backgroundColor: c.surface, borderBottomColor: c.border }]}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={{ fontSize: 28 }}>💬</Text>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[styles.title, { color: c.onSurface, fontSize: 24 * scale }]}>
-              {view === "archived" ? "Archived" : "Chats"}
-            </Text>
-            <Text style={[styles.subtitle, { color: c.muted, fontSize: 13 * scale }]}>
-              {convs.length === 0
-                ? (view === "archived" ? "Nothing archived" : "Your conversations will appear here")
-                : `${convs.length} conversation${convs.length === 1 ? "" : "s"}`}
-            </Text>
-          </View>
-          {/* View toggle: only show Archive pill when the user actually
-              has archived items — otherwise it's noise. */}
-          {view === "archived" ? (
+      {/* Shared <Header/> so Back navigation is consistent across
+          every drill-down surface (Garry, 4 Aug 2026 TestFlight polish).
+          The Header's smart handleBack falls back to /home if there's
+          no router history, so tapping Back from the Chats tab always
+          leaves the member somewhere sensible. */}
+      <Header
+        title={view === "archived" ? "Archived" : "Chats"}
+        emoji="💬"
+        subtitle={
+          convs.length === 0
+            ? (view === "archived" ? "Nothing archived" : "Your conversations will appear here")
+            : `${convs.length} conversation${convs.length === 1 ? "" : "s"}`
+        }
+        backHref="/home"
+        right={
+          view === "archived" ? (
             <Pressable
               testID="chats-back-to-active"
               onPress={() => setView("active")}
               style={({ pressed }) => [styles.togglePill, { borderColor: c.brand, opacity: pressed ? 0.7 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Show active chats"
             >
               <Ionicons name="arrow-back" size={14} color={c.brand} />
               <Text style={[styles.togglePillText, { color: c.brand }]}>Chats</Text>
@@ -328,13 +328,15 @@ export default function Chats() {
               testID="chats-view-archived"
               onPress={() => setView("archived")}
               style={({ pressed }) => [styles.togglePill, { borderColor: c.border, backgroundColor: c.surfaceSecondary, opacity: pressed ? 0.7 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Show ${archivedCount} archived chats`}
             >
               <Ionicons name="archive" size={14} color={c.muted} />
               <Text style={[styles.togglePillText, { color: c.muted }]}>{archivedCount}</Text>
             </Pressable>
-          ) : null}
-        </View>
-      </View>
+          ) : undefined
+        }
+      />
 
       <FlatList
         data={convs.filter((c) => {

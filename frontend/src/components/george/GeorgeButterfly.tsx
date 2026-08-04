@@ -489,7 +489,7 @@ export function GeorgeButterfly() {
             onPress={canTap ? flutterAndOpenChat : undefined}
             hitSlop={12}
             accessibilityRole="button"
-            accessibilityLabel="Talk to George"
+            accessibilityLabel="Chat to George"
             style={styles.butterflyPress}
           >
             <Animated.View style={wingStyle}>
@@ -516,33 +516,80 @@ export function GeorgeButterfly() {
         {showBubble && greeting && (
           <Animated.View
             pointerEvents="box-none"
-            style={[styles.bubbleWrap, bubbleStyle]}
+            style={[
+              styles.bubbleWrap,
+              // First-meeting bubbles are taller because they carry
+              // the [Chat to George] / [Dismiss] action row. Drop the
+              // anchor closer to the butterfly and widen slightly so
+              // the greeting + buttons don't crowd the notch.
+              isFirstMeetingRef.current
+                ? { bottom: 4, width: Math.min(280, SCREEN_W - 90) }
+                : null,
+              bubbleStyle,
+            ]}
           >
-            <Pressable onPress={() => {
-              bubbleOpacity.value = withTiming(0, { duration: 160 });
-              setTimeout(() => setShowBubble(false), 180);
-              setPhase('resting');
-              // First-meeting persistence: mark introduction consumed
-              // once the member has chosen to dismiss. Best-effort.
-              if (isFirstMeetingRef.current) {
-                isFirstMeetingRef.current = false;
-                void georgeApi.introduced().catch(() => {});
-              }
-            }}>
-              <View style={styles.bubble}>
-                <Text style={styles.bubbleText} numberOfLines={4}>{greeting}</Text>
-                {isFirstMeetingRef.current && (
-                  // First-meeting hint (Garry, 4 Aug 2026): the bubble
-                  // stays until the member acts, so surface the two
-                  // choices explicitly. Removed on all subsequent
-                  // visits (returning users know the affordance).
-                  <Text style={styles.bubbleHint}>
-                    Tap to dismiss · tap the butterfly to chat
-                  </Text>
-                )}
+            {isFirstMeetingRef.current ? (
+              // First-meeting bubble (Garry, 4 Aug 2026 TestFlight polish).
+              // Members were confused by tap-to-dismiss vs tap-butterfly-
+              // to-chat, so we now show explicit buttons: primary
+              // "💬 Chat to George" (opens onboarding/event chat) and
+              // secondary "Dismiss" (retires the intro flag server-side).
+              // Wording is the app-wide standard for George's welcome —
+              // never "Later" / "Close" / "Skip".
+              <View>
+                <View style={styles.bubble}>
+                  <Text style={styles.bubbleText} numberOfLines={3}>{greeting}</Text>
+                  <View style={styles.bubbleActions}>
+                    <Pressable
+                      testID="george-welcome-chat"
+                      onPress={flutterAndOpenChat}
+                      accessibilityRole="button"
+                      accessibilityLabel="Chat to George"
+                      style={({ pressed }) => [
+                        styles.bubbleBtnPrimary,
+                        { opacity: pressed ? 0.85 : 1 },
+                      ]}
+                    >
+                      <Text style={styles.bubbleBtnPrimaryText} numberOfLines={1}>💬  Chat to George</Text>
+                    </Pressable>
+                    <Pressable
+                      testID="george-welcome-dismiss"
+                      onPress={() => {
+                        bubbleOpacity.value = withTiming(0, { duration: 160 });
+                        setTimeout(() => setShowBubble(false), 180);
+                        setPhase('resting');
+                        if (isFirstMeetingRef.current) {
+                          isFirstMeetingRef.current = false;
+                          void georgeApi.introduced().catch(() => {});
+                        }
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Dismiss"
+                      style={({ pressed }) => [
+                        styles.bubbleBtnSecondary,
+                        { opacity: pressed ? 0.75 : 1 },
+                      ]}
+                    >
+                      <Text style={styles.bubbleBtnSecondaryText} numberOfLines={1}>Dismiss</Text>
+                    </Pressable>
+                  </View>
+                </View>
+                <View style={styles.bubbleTail} />
               </View>
-              <View style={styles.bubbleTail} />
-            </Pressable>
+            ) : (
+              // Returning-user bubble — tap anywhere to dismiss. No
+              // buttons needed; the affordance is already learned.
+              <Pressable onPress={() => {
+                bubbleOpacity.value = withTiming(0, { duration: 160 });
+                setTimeout(() => setShowBubble(false), 180);
+                setPhase('resting');
+              }}>
+                <View style={styles.bubble}>
+                  <Text style={styles.bubbleText} numberOfLines={4}>{greeting}</Text>
+                </View>
+                <View style={styles.bubbleTail} />
+              </Pressable>
+            )}
           </Animated.View>
         )}
         </Animated.View>
@@ -787,6 +834,47 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 8,
     opacity: 0.7,
+  },
+  // First-meeting action row (Garry, 4 Aug 2026). Primary + secondary
+  // sit side-by-side inside the bubble so the two choices are always
+  // visible; wording is locked to "Chat to George" / "Dismiss" — the
+  // app-wide standard for any George welcome bubble.
+  bubbleActions: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  bubbleBtnPrimary: {
+    backgroundColor: '#2563EB',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  bubbleBtnPrimaryText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 13,
+    letterSpacing: 0.2,
+  },
+  bubbleBtnSecondary: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#93C5FD',
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  bubbleBtnSecondaryText: {
+    color: '#1E3A8A',
+    fontWeight: '800',
+    fontSize: 13,
+    letterSpacing: 0.2,
   },
   chatBackdrop: {
     flex: 1,

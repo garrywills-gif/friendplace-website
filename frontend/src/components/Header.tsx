@@ -241,7 +241,7 @@ function GeorgeHeaderMark() {
       onPress={openGeorge}
       hitSlop={10}
       accessibilityRole="button"
-      accessibilityLabel="Talk to George"
+      accessibilityLabel="Chat to George"
       testID="george-butterfly-header"
       style={styles.brandMark}
     >
