@@ -254,13 +254,49 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
           // there. Fires immediately (60ms) so the click feels like the
           // OS just launched the surface, not a slow bounce (Garry,
           // 6 Aug 2026 QA: navigation should feel immediate).
+          //
+          // Graceful failure (Garry's suggestion): if router.push
+          // silently fails to change the pathname within 800ms — e.g.
+          // a bad route, a guarded surface, or a client-side error —
+          // inject an assistant note so George isn't left pretending
+          // the navigation succeeded. Trustworthy > perfect.
           const nav = String(ev.path);
+          const before = typeof window !== 'undefined' ? window.location.pathname : '';
           setTimeout(() => {
+            let pushed = false;
             try {
-              (router as any)?.push?.(nav) ?? window.location.assign(nav);
+              (router as any)?.push?.(nav);
+              pushed = true;
             } catch {
-              window.location.assign(nav);
+              try { window.location.assign(nav); pushed = true; } catch { pushed = false; }
             }
+            // Confirmation window: give the new route ~800ms to become
+            // authoritative before we conclude nav failed.
+            setTimeout(() => {
+              const after = typeof window !== 'undefined' ? window.location.pathname : '';
+              const arrived = after.replace(/\/$/, '') === nav.replace(/\/$/, '');
+              if (!pushed || !arrived) {
+                const humanPage = nav.replace(/^\/admin\//, '').replace(/-/g, ' ');
+                const note =
+                  `I couldn't open ${humanPage} automatically, but you can reach it from the left menu. I'll log that navigation failure for review.`;
+                // Append the note as a fresh assistant turn so it flows
+                // naturally with the conversation. If turnsRef isn't
+                // available (very early boot), fall back to a toast.
+                try {
+                  const failMsg = {
+                    id: `nav-fail-${Date.now()}`,
+                    role: 'assistant' as const,
+                    content: note,
+                    streaming: false,
+                    failed: false,
+                  };
+                  setTurns((prev) => [...prev, failMsg]);
+                } catch (err) {
+                  console.error('[navigate] fallback insertion failed:', err);
+                }
+                console.warn('[navigate] silent nav failure', { before, target: nav, after });
+              }
+            }, 800);
           }, 60);
         } else if (ev.kind === 'action_preview') {
           // Attach the preview to the current George turn.
@@ -485,7 +521,14 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
           onPointerCancel={onHeaderPointerUp}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, pointerEvents: 'none' }}>
-            <span style={butterflyBig}><GeorgeButterflyMark size={48} /></span>
+            <span
+              style={butterflyBig}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              aria-hidden
+            >
+              <GeorgeButterflyMark size={48} />
+            </span>
             <div>
               <div style={{ fontWeight: 800, fontSize: 16 }}>George</div>
               <div style={{ fontSize: 12, color: '#64748B' }}>Chief of staff · drag to move</div>
