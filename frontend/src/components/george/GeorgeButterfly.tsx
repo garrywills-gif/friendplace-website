@@ -56,12 +56,15 @@ export function _resetSessionGreetingForTests() {
   _sessionGreetingConsumed = false;
 }
 const DAYS_ABSENCE_FOR_WARM_WELCOME = 3;
-// Bubble auto-dismiss (Garry, 1 Aug 2026 — "Let it auto-dismiss after
-// a few seconds"). Down from 12s to 6s so the bubble reads as a short
-// warm hello rather than a lingering panel. Tap-to-dismiss still works.
-// Longer welcome copy (thoughts, callbacks, invitations) belongs on a
-// separate Home card, not in the bubble.
-const BUBBLE_LIFETIME_MS = 3200;
+// Bubble persistence (Garry, 8 Aug 2026 — TestFlight iter143, "the
+// Welcome Back is behaving like a toast"). The greeting bubble is
+// George's front door: a conversation card, not a notification. It
+// stays on screen until the member CHOOSES [Chat to George] or
+// [Dismiss / Not now]. No auto-fade, first-meeting or returning.
+// This supersedes the 1 Aug 2026 "let it auto-dismiss after a few
+// seconds" direction after real-device testing showed the auto-fade
+// making the Welcome Back feel like a transient notification instead
+// of George genuinely being there to welcome the member back.
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -305,23 +308,38 @@ export function GeorgeButterfly() {
     );
   }, [x, y, opacity, rotate, wingFlap, idleBreathe, insets.top]);
 
-  // ---- Bubble bloom + auto-fade -----------------------------------------
+  // ---- Bubble bloom (persistent — no auto-fade) -------------------------
+  //
+  // The bubble is George's front door: the first thing a returning
+  // member sees when the app opens. It's a conversation card, not a
+  // notification. It stays on screen until the member chooses one of
+  // the affordances that dismiss it:
+  //   • [Chat to George]     — tap the butterfly or the CTA
+  //   • [Dismiss / Not now]  — tap the ✕, tap-away, or the CTA
+  //
+  // TestFlight iter143 (Garry, 8 Aug 2026 — "the Welcome Back is
+  // behaving like a toast"): the bubble previously auto-faded after
+  // ~3.2 seconds for RETURNING members (first-meeting was already
+  // persistent). That regressed the Welcome Back to a transient
+  // notification — members reported it flashing up and disappearing
+  // before they could read it. Fixed by removing the auto-fade
+  // entirely: every bubble is now persistent, first-meeting or
+  // returning, exactly the same way.
+  //
+  // If any future surface needs a genuinely transient toast for
+  // George, it should be a separate component, not this bubble.
   useEffect(() => {
     if (!showBubble) return;
     bubbleOpacity.value = withTiming(1, { duration: 320 });
     bubbleTranslate.value = withTiming(0, { duration: 340, easing: Easing.out(Easing.cubic) });
-    if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current);
-    // First-meeting persistence: never auto-dismiss the very first
-    // welcome. Member must choose "Dismiss" (tap ✕ / tap-away) or
-    // "Chat with George" (tap butterfly). See isFirstMeetingRef doc.
-    if (isFirstMeetingRef.current) return;
-    bubbleTimerRef.current = setTimeout(() => {
-      bubbleOpacity.value = withTiming(0, { duration: 260 });
-      bubbleTranslate.value = withTiming(6, { duration: 260 });
-      setTimeout(() => setShowBubble(false), 280);
-      setPhase('resting');
-    }, BUBBLE_LIFETIME_MS);
-    return () => { if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current); };
+    // Cancel any legacy timer that a stale render may have queued
+    // (belt-and-braces during upgrades — no timer is scheduled below).
+    if (bubbleTimerRef.current) {
+      clearTimeout(bubbleTimerRef.current);
+      bubbleTimerRef.current = null;
+    }
+    // Persistent — waits for the member. No setTimeout, no auto-fade.
+    return undefined;
   }, [showBubble, bubbleOpacity, bubbleTranslate]);
 
   // ---- Tap the butterfly ------------------------------------------------
