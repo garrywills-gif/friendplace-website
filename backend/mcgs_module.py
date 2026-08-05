@@ -1558,6 +1558,16 @@ def build_router(db) -> APIRouter:
                         # affordance inline in the chat.
                         proposal = ev.get("proposal") or {}
                         yield f"event: kb_proposal\ndata: {json.dumps(proposal, default=str)}\n\n"
+                    elif kind == "navigate":
+                        # Auto-navigation (Garry, 5 Aug 2026 launch polish).
+                        # George announced "Opening the X now" — pass the
+                        # target route through to the frontend so it can
+                        # actually call `router.push(path)`. Emitted once
+                        # per turn, always BEFORE the `done` event so the
+                        # UI can queue the navigation with the reply.
+                        nav_path = ev.get("path") or ""
+                        if nav_path:
+                            yield f"event: navigate\ndata: {json.dumps({'path': nav_path})}\n\n"
                     elif kind == "done":
                         usage = {"error": ev.get("error")} if ev.get("error") else {}
                         yield f"event: done\ndata: {json.dumps({'reply_length': len(ev.get('reply') or '')})}\n\n"

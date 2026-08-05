@@ -96,23 +96,47 @@ export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) 
     const doc = iframe.contentDocument;
     if (!doc) return;
 
-    const pageSize = selected.kind === 'multi_up' || selected.width_mm > selected.height_mm
-      ? `${selected.width_mm}mm ${selected.height_mm}mm`
-      : `${selected.width_mm}mm ${selected.height_mm}mm`;
-
     doc.open();
+    // Layout width/height in millimetres — used to constrain the image
+    // AND to size the print viewport. Safari sizes the iframe from the
+    // computed body size on print, not from @page; without an explicit
+    // mm-based body we get a viewport-height flex container that spills
+    // onto a second page. Locking every layer to the same mm avoids the
+    // "half on page 1, blank page 2" bug Garry flagged on 5 Aug 2026.
+    const wMm = selected.width_mm;
+    const hMm = selected.height_mm;
     doc.write(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(template.name)} · ${escapeHtml(selected.label)}</title>
   <style>
-    @page { size: ${pageSize}; margin: 0; }
-    html, body { margin: 0; padding: 0; background: #FFFFFF; }
-    body { display: flex; align-items: center; justify-content: center; }
-    img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    /* Every layer is sized in the SAME millimetre box as @page. This
+       is what Safari, Chrome, Firefox and Edge each need to keep the
+       flyer on a single page. Do not switch to % or vh — those cause
+       Safari to spill onto a second, mostly-blank page. */
+    @page { size: ${wMm}mm ${hMm}mm; margin: 0; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      width: ${wMm}mm; height: ${hMm}mm;
+      background: #FFFFFF;
+      overflow: hidden;
+    }
+    body { display: block; }
+    img {
+      display: block;
+      width: ${wMm}mm; height: ${hMm}mm;
+      max-width: ${wMm}mm; max-height: ${hMm}mm;
+      object-fit: contain;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
     @media print {
-      html, body { width: ${selected.width_mm}mm; height: ${selected.height_mm}mm; }
+      html, body {
+        width: ${wMm}mm; height: ${hMm}mm;
+        overflow: hidden;
+      }
       /* No headers/footers — the flyer IS the page. */
     }
   </style>

@@ -376,12 +376,16 @@ export function subscribeToBridge(
 // ---------- George grounded chat ----------
 
 export interface GeorgeStreamEvent {
-  kind: 'session' | 'plan' | 'tools' | 'delta' | 'done' | 'action_preview' | 'error';
+  kind: 'session' | 'plan' | 'tools' | 'delta' | 'done' | 'action_preview' | 'navigate' | 'error';
   text?: string;
   chat_id?: string;
   plan?: unknown;
   results?: unknown;
   reply_length?: number;
+  // navigate event: emitted by the backend when George announces
+  // "Opening the X now" and there's a matching MCGS route. Frontend
+  // consumers should `router.push(path)` to actually navigate.
+  path?: string;
   // action_preview payload arrives with the same top-level fields as
   // the /api/mcgs/proposals/* endpoint response — action_type, target,
   // what, why, sources, confidence, draft, case_id, etc.

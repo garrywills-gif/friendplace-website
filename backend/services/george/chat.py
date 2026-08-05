@@ -87,6 +87,103 @@ def _emergent_key() -> str:
     return key
 
 
+
+# ---------------------------------------------------------------------------
+# MCGS navigation surface catalogue
+# ---------------------------------------------------------------------------
+# When George announces "Opening the X now", he emits a `navigate` SSE
+# event so the frontend can `router.push(path)` and actually take Garry
+# there. The list below MUST stay in lock-step with the
+# ``MCGS_CAPABILITY_MAP`` in prompt.py — same routes, human names, and
+# order. Human names are matched case-insensitively; the first match wins.
+#
+# (Garry, 5 Aug 2026 launch polish: George says he'll open pages but
+# doesn't. Fixed at the pipeline layer so every consumer benefits.)
+_MCGS_ROUTES: list[tuple[str, list[str]]] = [
+    ("/admin/home",              ["chief-of-staff home", "george home"]),
+    ("/admin/dashboard",         ["operations dashboard", "ops dashboard", "dashboard"]),
+    ("/admin/system-health",     ["system health dashboard", "system health", "health dashboard"]),
+    ("/admin/bridge",            ["mcgs bridge", "bridge feed", "the bridge", "bridge"]),
+    ("/admin/audit-log",         ["audit log"]),
+    ("/admin/analytics",         ["george analytics", "analytics"]),
+    ("/admin/launch",            ["launch dashboard"]),
+    ("/admin/reports",           ["community reports", "reports"]),
+    ("/admin/members",           ["members directory", "members"]),
+    ("/admin/founding-members",  ["founding member crm", "founding members"]),
+    ("/admin/segments",          ["segments"]),
+    ("/admin/crm",               ["crm overview", "crm"]),
+    ("/admin/admins",            ["admin management", "admins"]),
+    ("/admin/account",           ["account settings", "my account"]),
+    ("/admin/moments",           ["share a moment moderation", "moments"]),
+    ("/admin/event-submissions", ["event submissions"]),
+    ("/admin/events",            ["events management", "events"]),
+    ("/admin/groups",            ["community groups", "groups"]),
+    ("/admin/announcements",     ["announcements"]),
+    ("/admin/enquiries",         ["register-your-interest", "enquiries"]),
+    ("/admin/success-stories",   ["success stories"]),
+    ("/admin/about",             ["about page"]),
+    ("/admin/faqs",              ["faqs"]),
+    ("/admin/campaigns",         ["email campaigns", "campaigns"]),
+    ("/admin/emails",            ["email outbox", "emails"]),
+    ("/admin/flyers",            ["flyer publishing centre", "flyers"]),
+    ("/admin/support",           ["support tickets", "support queue", "support"]),
+    ("/admin/security",          ["security posture", "security"]),
+    ("/admin/settings",          ["system settings", "settings"]),
+    ("/admin/media",             ["media library", "media"]),
+    ("/admin/knowledge",         ["institutional knowledge base", "knowledge base", "knowledge"]),
+    ("/admin/george",            ["george chat archives", "george workspace"]),
+]
+
+# Trigger verbs George uses when he's ACTUALLY performing the navigate.
+# "Would you like me to open X?" (a question) must NOT trigger.
+_NAV_TRIGGER = re.compile(
+    r"(?i)\b(?:opening|taking you (?:to|there)|jumping (?:into|to)|"
+    r"navigating (?:to|there)|heading (?:to|over to))\b",
+)
+
+
+def _detect_navigation(reply: str) -> str | None:
+    """Scan George's reply for an explicit navigation announcement.
+
+    Returns the target route (e.g. ``/admin/system-health``) or None.
+
+    Two conditions must hold:
+      1. The reply contains a navigation trigger verb ("Opening ...",
+         "Taking you to ...", "Navigating to ..."), NOT a question.
+      2. Exactly one MCGS surface name appears near the trigger.
+
+    Belt-and-braces: if a QUESTION mark sits inside the trigger sentence,
+    we bail — "Would you like me to open the Bridge?" must not navigate.
+    """
+    if not reply:
+        return None
+    # Split into sentences and inspect the first sentence containing a
+    # trigger verb. This keeps us honest — later paragraphs of prose
+    # (like a follow-up "Would you like me to also open X?") don't
+    # accidentally trigger a second navigation.
+    for sentence in re.split(r"(?<=[.!?\n])\s+", reply):
+        s = sentence.strip()
+        if not s or "?" in s:
+            continue
+        if not _NAV_TRIGGER.search(s):
+            continue
+        low = s.lower()
+        # First route whose human name appears in this sentence wins.
+        # Longest names first so "founding member crm" beats "crm".
+        candidates = sorted(
+            ((path, name) for path, names in _MCGS_ROUTES for name in names),
+            key=lambda pn: -len(pn[1]),
+        )
+        for path, name in candidates:
+            if name in low:
+                return path
+        # No known surface named — bail cleanly.
+        return None
+    return None
+
+
+
+
 # ---------------------------------------------------------------------------
 # Planner
 # ---------------------------------------------------------------------------
@@ -619,22 +716,86 @@ async def grounded_chat_stream(
     _show_kb = os.environ.get("GEORGE_SHOW_KB_CITATIONS", "").lower() in {"1", "true", "yes"}
     import re as _re
     _KB_TAG_RE = _re.compile(r"\s*\[KB-[A-Z0-9-]+\]\s*")
-    _stream_buf = ""
-    def _scrub_kb(text: str) -> str:
-        if _show_kb or not text:
+    # Grounding-footer scrub (Garry, 5 Aug 2026 launch polish). The
+    # prompt already forbids meta-commentary about grounding, but LLMs
+    # occasionally slip a "Grounded in 3 tool results" style footer.
+    # We strip any such phrase from the streamed deltas so admins never
+    # see the plumbing. Case-insensitive; matches common variants.
+    _FOOTER_RE = _re.compile(
+        r"(?im)^[\s\-\*\u2022]*"                                      # optional bullet / whitespace
+        r"(?:grounded (?:in|via)|based on the tool (?:output|results?)"
+        r"|verified (?:via|by) [\d]+ (?:sources?|tools?)"
+        r"|from (?:the )?tool_results?"
+        r"|source[s]?:\s*\d+ tool result[s]?)"
+        r"[^\n]*\n?",
+    )
+    # Also catch the phrase mid-line (e.g. after a period, no newline).
+    _FOOTER_INLINE_RE = _re.compile(
+        r"(?i)\s*(?:\(|—|-\s+)?\s*grounded (?:in|via)\s+\d+\s+tool result[s]?\.?\s*(?:\)|—)?",
+    )
+    def _scrub(text: str) -> str:
+        if not text:
             return text
-        # Collapse trailing double-spaces we might have introduced.
-        cleaned = _KB_TAG_RE.sub(" ", text)
-        return _re.sub(r"[ \t]{2,}", " ", cleaned)
+        cleaned = text
+        if not _show_kb:
+            cleaned = _KB_TAG_RE.sub(" ", cleaned)
+        # Strip grounding-footer lines and inline mentions.
+        cleaned = _FOOTER_RE.sub("", cleaned)
+        cleaned = _FOOTER_INLINE_RE.sub("", cleaned)
+        # Collapse any double spaces we introduced.
+        cleaned = _re.sub(r"[ \t]{2,}", " ", cleaned)
+        return cleaned
+    # Keep the legacy alias so nothing else in this function breaks.
+    _scrub_kb = _scrub
+    # Streaming buffer for scrubbing (Garry, 5 Aug 2026). We can't run
+    # the grounding-footer regex on individual token deltas because
+    # "Grounded in 3 tool results" arrives across multiple deltas.
+    # Instead we buffer until we hit a sentence boundary (period + space,
+    # newline, or a natural pause), scrub the completed sentence, then
+    # emit. The tail is flushed on StreamDone.
+    _pending = ""
+    _FLUSH_RE = _re.compile(r"([.!?][\s\)\"'\u201d]?\s+|\n+|$)")
+
+    def _drain_buffer(final: bool = False) -> str:
+        """Return any scrubbed, ready-to-emit text from ``_pending``.
+
+        When ``final`` is True, whatever remains is flushed. Otherwise
+        we only release text up to the last sentence boundary so we
+        can rescan the same sentence with more context if needed.
+        """
+        nonlocal _pending
+        if not _pending:
+            return ""
+        if final:
+            out = _scrub(_pending)
+            _pending = ""
+            return out
+        # Split at the last sentence terminator we've seen.
+        matches = list(_FLUSH_RE.finditer(_pending))
+        if not matches:
+            return ""
+        last = matches[-1]
+        cutoff = last.end()
+        ready = _pending[:cutoff]
+        _pending = _pending[cutoff:]
+        return _scrub(ready)
+
     try:
         async for event in chat.stream_message(UserMessage(text=user_block)):
             if isinstance(event, TextDelta):
                 text = event.content or ""
                 if text:
                     reply_parts.append(text)
-                    yield {"kind": "delta", "text": _scrub_kb(text)}
+                    _pending += text
+                    out = _drain_buffer(final=False)
+                    if out:
+                        yield {"kind": "delta", "text": out}
             elif isinstance(event, StreamDone):
                 break
+        # Flush any remaining buffered text.
+        tail = _drain_buffer(final=True)
+        if tail:
+            yield {"kind": "delta", "text": tail}
     except Exception as exc:
         log.exception("synthesizer stream failed")
         yield {"kind": "delta", "text": (
@@ -644,7 +805,25 @@ async def grounded_chat_stream(
         yield {"kind": "done", "reply": "".join(reply_parts), "error": str(exc)}
         return
 
-    yield {"kind": "done", "reply": "".join(reply_parts)}
+    # Assemble the scrubbed full reply (same scrub as the streamed
+    # deltas) so any downstream consumer using the `done` payload also
+    # gets footer-free text.
+    _full_reply = "".join(reply_parts)
+    _clean_reply = _scrub(_full_reply)
+
+    # Navigation intent detection (Garry, 5 Aug 2026 launch polish).
+    # When George says *"Opening the System Health Dashboard now"* he
+    # should ACTUALLY open the page, not just talk about it. We scan
+    # the assembled reply for the app-wide MCGS surface names and, if
+    # exactly one is announced, emit a `navigate` event the frontend
+    # picks up to call `router.push(path)`. Everything is derived from
+    # the same catalogue that lives in prompt.py's MCGS_CAPABILITY_MAP
+    # so the two lists can't drift.
+    navigate_path = _detect_navigation(_clean_reply)
+    if navigate_path:
+        yield {"kind": "navigate", "path": navigate_path}
+
+    yield {"kind": "done", "reply": _clean_reply}
 
     # ---- 4. Draft-from-chat detection (Knowledge Phase 2) ----
     # After the reply lands, sniff the exchange for freshly-shared

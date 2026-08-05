@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { askGeorge, speakText, transcribeAudio, type GeorgeStreamEvent } from '@/lib/mcgs-api';
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
 import { useGeorgeSession, type GeorgeTurn } from '@/lib/george-session';
@@ -36,6 +37,9 @@ type Turn = GeorgeTurn & {
 };
 
 export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }: AskGeorgeSheetProps) {
+  // Router for auto-navigation when George says "Opening the X now".
+  // See the `navigate` SSE event handler below.
+  const router = useRouter();
   // Persistent conversation — survives Close / page nav within the
   // current admin session. Cleared on logout or explicit "New chat".
   const {
@@ -73,6 +77,76 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
   // failed / timed-out George turn.
   const lastUserRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Draggable position (Garry, 5 Aug 2026 launch polish — "one George"
+  // consistency with GeorgeFloatingChat). Persisted per session so the
+  // panel returns to where Garry left it after a route change. Null
+  // means "use the default anchor" (bottom-right on desktop, centred
+  // bottom on smaller viewports). Same DRAG_HANDLE / clamping rules
+  // as GeorgeFloatingChat.
+  type Position = { x: number; y: number };
+  const [pos, setPos] = useState<Position | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.sessionStorage.getItem('ask-george-sheet:pos');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed?.x === 'number' && typeof parsed?.y === 'number') return parsed;
+    } catch {
+      /* noop */
+    }
+    return null;
+  });
+  const dragRef = useRef<{ dx: number; dy: number; active: boolean }>({ dx: 0, dy: 0, active: false });
+
+  const savePos = (p: Position) => {
+    try { window.sessionStorage.setItem('ask-george-sheet:pos', JSON.stringify(p)); } catch { /* noop */ }
+  };
+  const clampPos = (p: Position): Position => {
+    if (typeof window === 'undefined') return p;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // Approximate panel size — matches sheetFloat below.
+    const PANEL_W = 420;
+    const PANEL_H = Math.min(560, Math.round(vh * 0.72));
+    const M = 8;
+    return {
+      x: Math.max(M, Math.min(p.x, vw - PANEL_W - M)),
+      y: Math.max(M, Math.min(p.y, vh - PANEL_H - M)),
+    };
+  };
+  const onHeaderPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Only left-click on mouse; ignore other buttons. Touch/pen are
+    // fine on any button code.
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    // Do not start a drag when the user clicked a button in the header
+    // (Minimise / Close / New). We check up-to-3 ancestors — any of
+    // them being a <button> means "this is a control, not the handle".
+    let node: HTMLElement | null = target;
+    for (let i = 0; i < 3 && node; i += 1) {
+      if (node.tagName === 'BUTTON') return;
+      node = node.parentElement;
+    }
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+    dragRef.current = {
+      dx: e.clientX - rect.left,
+      dy: e.clientY - rect.top,
+      active: true,
+    };
+  };
+  const onHeaderPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current.active) return;
+    const next = clampPos({ x: e.clientX - dragRef.current.dx, y: e.clientY - dragRef.current.dy });
+    setPos(next);
+  };
+  const onHeaderPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current.active) return;
+    dragRef.current.active = false;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+    if (pos) savePos(pos);
+  };
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   // Ref guard so React 18 StrictMode's double-invocation of effects
   // doesn't dispatch the initial-message chat twice.
@@ -175,6 +249,23 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
               ? { ...t, results: ev.results }
               : t,
           ));
+        } else if (ev.kind === 'navigate' && ev.path) {
+          // George announced "Opening the X now" — actually take Garry
+          // there. Deferred by a beat so the closing sentence of the
+          // reply has time to render before we push. Same instance nav
+          // path used by every clickable admin surface so the route
+          // guards etc. behave identically.
+          const nav = String(ev.path);
+          setTimeout(() => {
+            try {
+              // Prefer Next's router when we can grab it; fall back to
+              // window.location so the sheet still works if imported
+              // from a non-Next context.
+              (router as any)?.push?.(nav) ?? window.location.assign(nav);
+            } catch {
+              window.location.assign(nav);
+            }
+          }, 350);
         } else if (ev.kind === 'action_preview') {
           // Attach the preview to the current George turn.
           const preview = ev as unknown as ActionPreviewPayload;
@@ -362,15 +453,33 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     );
   }
 
+  // Compute the floating panel's on-screen position. When `pos` is
+  // null we fall back to a bottom-right anchor; otherwise the user's
+  // saved / dragged coordinates take over. Clamping is done in the
+  // pointer handlers so viewport resizes don't need to touch state.
+  const sheetStyle: React.CSSProperties = pos
+    ? { ...sheetFloat, left: pos.x, top: pos.y, right: 'auto', bottom: 'auto' }
+    : { ...sheetFloat };
+
   return (
-    <div style={overlay} onClick={() => setMinimised(true)}>
-      <div style={sheet} onClick={e => e.stopPropagation()}>
-        <div style={sheetHeader}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+    // NON-modal container: pointer-events pass through to the
+    // background so admins can keep working underneath George. The
+    // panel itself is a floating, draggable rectangle — one George
+    // pattern shared with GeorgeFloatingChat.
+    <div style={overlay} aria-hidden={false}>
+      <div style={sheetStyle} onClick={e => e.stopPropagation()} role="dialog" aria-label="George — Chief of Staff">
+        <div
+          style={sheetHeader}
+          onPointerDown={onHeaderPointerDown}
+          onPointerMove={onHeaderPointerMove}
+          onPointerUp={onHeaderPointerUp}
+          onPointerCancel={onHeaderPointerUp}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, pointerEvents: 'none' }}>
             <span style={butterflyBig}><GeorgeButterflyMark size={48} /></span>
             <div>
               <div style={{ fontWeight: 800, fontSize: 16 }}>George</div>
-              <div style={{ fontSize: 12, color: '#64748B' }}>Chief of staff · grounded in live data</div>
+              <div style={{ fontSize: 12, color: '#64748B' }}>Chief of staff · drag to move</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
@@ -499,6 +608,12 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
           @keyframes micPulse {
             0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
             50%     { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+          }
+          /* Floating-panel entrance — a tiny lift so the panel doesn't
+             feel like it teleports in. Matches GeorgeFloatingChat. */
+          @keyframes ask-george-bloom {
+            0%   { transform: translateY(6px) scale(0.98); opacity: 0; }
+            100% { transform: translateY(0)   scale(1);    opacity: 1; }
           }
         `}</style>
       </div>
@@ -732,11 +847,11 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
                 I couldn&rsquo;t play that just now &mdash; tap Try again.
               </span>
             )}
-            {Array.isArray(turn.results) && turn.results.length > 0 && (
-              <span title={JSON.stringify(turn.results, null, 2)}>
-                Grounded in {turn.results.length} tool result{turn.results.length === 1 ? '' : 's'}
-              </span>
-            )}
+            {/* "Grounded in N tool results" footer removed (Garry,
+                5 Aug 2026 launch polish). Grounding stays internal —
+                admins shouldn't see the plumbing. The `results` array
+                is still kept in state for future debug affordances,
+                but the UI no longer surfaces it. */}
             <style>{`
               @keyframes playSpin { to { transform: rotate(360deg); } }
             `}</style>
@@ -755,21 +870,44 @@ const SILENT_WAV =
   'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
 
 const overlay: React.CSSProperties = {
-  position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)',
-  display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+  // Transparent non-modal container. `pointer-events: none` lets clicks
+  // pass through to the background so admins can keep working with the
+  // panel open. The panel itself re-enables pointer events. Matches
+  // the GeorgeFloatingChat behaviour so both chats feel identical.
+  position: 'fixed', inset: 0, background: 'transparent',
+  pointerEvents: 'none',
   zIndex: 1100,
 };
-const sheet: React.CSSProperties = {
-  width: '100%', maxWidth: 780, height: '72vh', background: '#FFFFFF',
-  borderTopLeftRadius: 20, borderTopRightRadius: 20,
-  boxShadow: '0 -12px 40px rgba(15,23,42,0.18)',
+// Default anchor when the user hasn't dragged. Bottom-right on desktop
+// keeps George out of the way of the primary content. Position is
+// switched to a free floating rectangle the moment the header is
+// dragged (see sheetStyle above).
+const sheetFloat: React.CSSProperties = {
+  position: 'fixed', right: 24, bottom: 24,
+  width: 'min(420px, calc(100vw - 32px))',
+  height: 'min(560px, 72vh)',
+  background: '#FFFFFF',
+  borderRadius: 18,
+  border: '1px solid #E2E8F0',
+  boxShadow: '0 20px 44px rgba(15,23,42,0.24)',
   display: 'flex', flexDirection: 'column',
-  position: 'relative', // so the mic-error pop and future overlays anchor here
   overflow: 'hidden',
+  pointerEvents: 'auto',
+  animation: 'ask-george-bloom 220ms cubic-bezier(0.2, 0.9, 0.3, 1)',
 };
+const sheet = sheetFloat; // kept for anything still referencing the old name.
 const sheetHeader: React.CSSProperties = {
-  padding: '16px 24px', borderBottom: '1px solid #F1F5F9',
+  padding: '14px 20px',
+  borderBottom: '1px solid #F1F5F9',
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+  // Grab-cursor over the whole header — makes the drag affordance
+  // discoverable. Buttons inside intercept on their own so this is
+  // safe. Touch-action:none lets pointer events on iPad drive the
+  // drag instead of scrolling the page beneath.
+  cursor: 'grab',
+  touchAction: 'none',
+  userSelect: 'none',
+  background: 'linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 100%)',
 };
 const sheetBody: React.CSSProperties = {
   flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 8,
