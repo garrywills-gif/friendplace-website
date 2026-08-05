@@ -62,6 +62,13 @@ export function useGeorgeVoiceInput(
     setVoicePhase('transcribing');
     try {
       await audioRecorder.stop();
+      // TestFlight iter136 (Garry, 5 Aug 2026): give iOS a 250ms
+      // grace period to finalise the .m4a container to disk before
+      // reading `.uri`. Without this on some iPhones we grab a
+      // 0-byte file and the backend rejects with "Empty audio upload"
+      // — which the member sees as "I couldn't quite catch that".
+      // Mirrors the wait `VoiceInputButton` learned in earlier rounds.
+      await new Promise((r) => setTimeout(r, 250));
       const uri = audioRecorder.uri;
       try { await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); } catch { /* noop */ }
       if (!uri) {
@@ -109,9 +116,18 @@ export function useGeorgeVoiceInput(
         return;
       }
       setPermissionBlocked(false);
+      // TestFlight iter136 (Garry, 5 Aug 2026): match the exact
+      // warm-up ordering VoiceInputButton uses. iOS needs ~150ms
+      // between `prepareToRecordAsync` and the first `record()` call
+      // to actually start writing audio samples; without this the
+      // encoder is still warming and the resulting file is empty.
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await audioRecorder.prepareToRecordAsync();
+      await new Promise((r) => setTimeout(r, 150));
       audioRecorder.record();
+      if ((audioRecorder as any).isRecording === false) {
+        throw new Error('audio recorder failed to start');
+      }
       setVoicePhase('recording');
     } catch {
       setVoiceError("I couldn't start the microphone. Please try again in a moment.");

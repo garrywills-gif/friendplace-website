@@ -21,8 +21,12 @@ import { useComposerLock } from "@/src/lib/composer-lock";
 // changes — pure visual treatment sitting behind the existing bubbles.
 const NOTEBOOK_BG_SELF = "#F1F7F5";     // pale teal for Notes to Myself
 const NOTEBOOK_BG_CHAT = "#FBFAF5";     // near-white cream for normal chats
-const NOTEBOOK_LINE = "rgba(15,23,42,0.05)";
-const NOTEBOOK_MARGIN_LINE = "rgba(220,38,38,0.15)"; // faint red left margin
+// Ruled-line + margin-line opacity dialed back by ~40% on 5 Aug 2026
+// (Garry launch polish): "fade the blue ruled lines by roughly 30–40%
+// so they become more subtle. The notes themselves will stand out a
+// little better while still keeping the notebook appearance."
+const NOTEBOOK_LINE = "rgba(15,23,42,0.03)";
+const NOTEBOOK_MARGIN_LINE = "rgba(220,38,38,0.09)"; // faint red left margin
 const NOTEBOOK_LINE_HEIGHT = 32;
 const NOTEBOOK_LINE_COUNT = 80;         // ~2560px of ruled paper — enough for any scroll
 
@@ -171,26 +175,44 @@ export default function DM() {
   // Clear notes — Notes to Myself only. Backend enforces the self-DM
   // guard; we only expose the button when isSelfDm is true so the
   // network 403 path is a safety net, not a UX one.
+  //
+  // Wording locked with Garry on 5 Aug 2026: notes auto-save the
+  // moment they're sent, so any "Save / Disregard"-style dialog is
+  // misleading. This is a pure destructive action — the copy reads
+  // like clearing a physical notebook.
+  //
+  // Cross-platform confirm (fix for iOS "trash does nothing" report):
+  // React Native's `Alert.alert` is a no-op on web AND has been
+  // reported flaky on some iOS builds when the app isn't the topmost
+  // presenter. We call it on native for the native look, and fall
+  // back to `window.confirm` on web so the button never appears dead.
   const handleClearNotes = () => {
+    if (!id) return;
+    const doClear = async () => {
+      try {
+        await api.dmClearMessages(String(id));
+        setMessages([]);
+        try { show?.("Notebook cleared"); } catch {}
+      } catch (e: any) {
+        try { show?.(e?.message || "Couldn't clear the notebook. Please try again."); } catch {}
+      }
+    };
+    if (Platform.OS === "web") {
+      // eslint-disable-next-line no-alert
+      const ok = typeof window !== "undefined" && window.confirm(
+        "Clear notebook?\n\nThis will permanently remove every note from your notebook. This cannot be undone.",
+      );
+      if (ok) void doClear();
+      return;
+    }
     Alert.alert(
-      "Clear all notes?",
-      "This permanently deletes every note in Notes to Myself. This can't be undone.",
+      "Clear notebook?",
+      "This will permanently remove every note from your notebook. This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
-        {
-          text: "Clear notes",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await api.dmClearMessages(String(id));
-              setMessages([]);
-              try { show?.("Notes cleared"); } catch {}
-            } catch (e: any) {
-              try { show?.(e?.message || "Couldn't clear notes"); } catch {}
-            }
-          },
-        },
+        { text: "Clear Notebook", style: "destructive", onPress: () => { void doClear(); } },
       ],
+      { cancelable: true },
     );
   };
 

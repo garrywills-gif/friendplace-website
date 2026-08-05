@@ -200,9 +200,21 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
         return;
       }
       setPermissionBlocked(false);
+      // TestFlight iter136 fix (Garry, 5 Aug 2026): George's own mic
+      // was silently failing on iOS because we skipped the warm-up
+      // steps that `VoiceInputButton` learned across earlier rounds.
+      // Copy the exact ordering so both pipelines behave identically:
+      //   1. Configure the session for recording BEFORE prepare.
+      //   2. Prepare, then wait ~150ms for iOS to warm the encoder.
+      //   3. Guard on `recorder.isRecording === false` to catch the
+      //      "recorder didn't start" edge case with a friendly error.
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await audioRecorder.prepareToRecordAsync();
+      await new Promise((r) => setTimeout(r, 150));
       audioRecorder.record();
+      if ((audioRecorder as any).isRecording === false) {
+        throw new Error('audio recorder failed to start');
+      }
       setVoicePhase('recording');
     } catch {
       setVoiceError("I couldn't start the microphone. Please try again in a moment.");
@@ -215,6 +227,13 @@ export function GeorgeEventCreation({ onDone, onLeave, resumeSessionId = null }:
     setVoicePhase('transcribing');
     try {
       await audioRecorder.stop();
+      // TestFlight iter136 fix (Garry, 5 Aug 2026): give iOS a moment
+      // to flush the m4a container to disk before we read `.uri`.
+      // Without this the URI can resolve to a 0-byte file and the
+      // backend correctly rejects with "Empty audio upload" — which
+      // the user sees as "I couldn't quite catch that". This is the
+      // same 250ms wait `VoiceInputButton.stopAndTranscribe` uses.
+      await new Promise((r) => setTimeout(r, 250));
       const uri = audioRecorder.uri;
       // Reset audio mode so playback of other media isn't affected.
       try { await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }); } catch { /* noop */ }
