@@ -100,37 +100,45 @@ def _emergent_key() -> str:
 # (Garry, 5 Aug 2026 launch polish: George says he'll open pages but
 # doesn't. Fixed at the pipeline layer so every consumer benefits.)
 _MCGS_ROUTES: list[tuple[str, list[str]]] = [
-    ("/admin/home",              ["chief-of-staff home", "george home"]),
+    # Order and human names mirror MCGS_CAPABILITY_MAP. Aliases include
+    # singular AND plural / phrasing variants — e.g. George might say
+    # "Segment builder", "the segments page", "Segments" — all must
+    # resolve to /admin/segments. Extra aliases were added on 6 Aug 2026
+    # after Garry reported "Opening the Campaigns dashboard now",
+    # "Opening the Segment builder now", and "Opening the Share a Moment
+    # moderation queue now" all failed to actually navigate — the
+    # earlier catalogue only knew the exact catalogue names.
+    ("/admin/home",              ["chief-of-staff home", "george home", "home surface"]),
     ("/admin/dashboard",         ["operations dashboard", "ops dashboard", "dashboard"]),
     ("/admin/system-health",     ["system health dashboard", "system health", "health dashboard"]),
     ("/admin/bridge",            ["mcgs bridge", "bridge feed", "the bridge", "bridge"]),
-    ("/admin/audit-log",         ["audit log"]),
-    ("/admin/analytics",         ["george analytics", "analytics"]),
-    ("/admin/launch",            ["launch dashboard"]),
-    ("/admin/reports",           ["community reports", "reports"]),
-    ("/admin/members",           ["members directory", "members"]),
-    ("/admin/founding-members",  ["founding member crm", "founding members"]),
-    ("/admin/segments",          ["segments"]),
-    ("/admin/crm",               ["crm overview", "crm"]),
-    ("/admin/admins",            ["admin management", "admins"]),
-    ("/admin/account",           ["account settings", "my account"]),
-    ("/admin/moments",           ["share a moment moderation", "moments"]),
-    ("/admin/event-submissions", ["event submissions"]),
-    ("/admin/events",            ["events management", "events"]),
-    ("/admin/groups",            ["community groups", "groups"]),
-    ("/admin/announcements",     ["announcements"]),
-    ("/admin/enquiries",         ["register-your-interest", "enquiries"]),
-    ("/admin/success-stories",   ["success stories"]),
-    ("/admin/about",             ["about page"]),
-    ("/admin/faqs",              ["faqs"]),
-    ("/admin/campaigns",         ["email campaigns", "campaigns"]),
-    ("/admin/emails",            ["email outbox", "emails"]),
-    ("/admin/flyers",            ["flyer publishing centre", "flyers"]),
-    ("/admin/support",           ["support tickets", "support queue", "support"]),
-    ("/admin/security",          ["security posture", "security"]),
-    ("/admin/settings",          ["system settings", "settings"]),
-    ("/admin/media",             ["media library", "media"]),
-    ("/admin/knowledge",         ["institutional knowledge base", "knowledge base", "knowledge"]),
+    ("/admin/audit-log",         ["audit log", "audit-log"]),
+    ("/admin/analytics",         ["george analytics", "analytics dashboard", "analytics page", "analytics"]),
+    ("/admin/launch",            ["launch dashboard", "launch page", "launch"]),
+    ("/admin/reports",           ["community reports", "reports queue", "reports page", "reports"]),
+    ("/admin/members",           ["members directory", "member directory", "members page", "members"]),
+    ("/admin/founding-members",  ["founding member crm", "founding members crm", "founding-members", "founding members", "founding member"]),
+    ("/admin/segments",          ["segment builder", "audience segments", "segments page", "segment page", "segments", "segment"]),
+    ("/admin/crm",               ["crm overview", "crm dashboard", "crm"]),
+    ("/admin/admins",            ["admin management", "admins page", "admins"]),
+    ("/admin/account",           ["account settings", "my account", "account page"]),
+    ("/admin/moments",           ["share a moment moderation queue", "share a moment moderation", "moments moderation", "moments queue", "moments page", "moments"]),
+    ("/admin/event-submissions", ["event submissions queue", "event submissions", "event-submissions"]),
+    ("/admin/events",            ["events management", "events page", "published events", "events"]),
+    ("/admin/groups",            ["community groups", "groups page", "groups"]),
+    ("/admin/announcements",     ["announcements page", "announcements"]),
+    ("/admin/enquiries",         ["register-your-interest", "enquiries page", "enquiries"]),
+    ("/admin/success-stories",   ["success stories cms", "success stories"]),
+    ("/admin/about",             ["about page", "about content"]),
+    ("/admin/faqs",              ["faqs page", "faqs"]),
+    ("/admin/campaigns",         ["email campaigns", "campaigns dashboard", "campaigns page", "campaigns"]),
+    ("/admin/emails",            ["email outbox", "delivery log", "emails page", "emails"]),
+    ("/admin/flyers",            ["flyer publishing centre", "flyer publishing center", "flyers page", "flyers"]),
+    ("/admin/support",           ["support tickets", "support queue", "support page", "support"]),
+    ("/admin/security",          ["security posture", "security page", "security"]),
+    ("/admin/settings",          ["system settings", "settings page", "settings"]),
+    ("/admin/media",             ["media library", "media page", "media"]),
+    ("/admin/knowledge",         ["institutional knowledge base", "knowledge base", "knowledge page", "knowledge"]),
     ("/admin/george",            ["george chat archives", "george workspace"]),
 ]
 
@@ -482,10 +490,24 @@ def _format_surface_context(ctx: dict | None) -> str:
     if not isinstance(ctx, dict) or not ctx:
         return ""
     surface = str(ctx.get("surface") or "").strip() or "unknown"
+    # Current MCGS route (Garry, 6 Aug 2026 QA fix — George kept saying
+    # "you're already here" when Garry wasn't). The frontend now sends
+    # `pathname` on every turn; we surface it prominently so the LLM
+    # can compare against the requested destination before answering.
+    pathname = str(ctx.get("pathname") or ctx.get("route") or "").strip()
     lines: list[str] = [
         "\n\n## What the administrator is viewing right now",
         f"Surface: **{surface}**",
     ]
+    if pathname:
+        lines.append(f"Current route: **{pathname}**")
+        lines.append(
+            "Use this route to decide whether Garry is already on the page "
+            "he's asking about. Only say *\"You're already here\"* if the "
+            "requested destination's route matches the current route above; "
+            "if it doesn't match, ALWAYS emit an 'Opening the X now' "
+            "announcement (which triggers navigation) instead."
+        )
 
     member = ctx.get("member")
     if isinstance(member, dict):
@@ -820,6 +842,14 @@ async def grounded_chat_stream(
     # the same catalogue that lives in prompt.py's MCGS_CAPABILITY_MAP
     # so the two lists can't drift.
     navigate_path = _detect_navigation(_clean_reply)
+    # Don't fire if we're already on that route (Garry, 6 Aug 2026 QA:
+    # avoids a jarring navigate-to-current when George says "opening"
+    # while already there).
+    current_route = ""
+    if isinstance(surface_context, dict):
+        current_route = str(surface_context.get("pathname") or surface_context.get("route") or "").strip()
+    if navigate_path and current_route and navigate_path.rstrip("/") == current_route.rstrip("/"):
+        navigate_path = None
     if navigate_path:
         yield {"kind": "navigate", "path": navigate_path}
 

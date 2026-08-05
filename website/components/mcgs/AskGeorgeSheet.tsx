@@ -251,21 +251,17 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
           ));
         } else if (ev.kind === 'navigate' && ev.path) {
           // George announced "Opening the X now" — actually take Garry
-          // there. Deferred by a beat so the closing sentence of the
-          // reply has time to render before we push. Same instance nav
-          // path used by every clickable admin surface so the route
-          // guards etc. behave identically.
+          // there. Fires immediately (60ms) so the click feels like the
+          // OS just launched the surface, not a slow bounce (Garry,
+          // 6 Aug 2026 QA: navigation should feel immediate).
           const nav = String(ev.path);
           setTimeout(() => {
             try {
-              // Prefer Next's router when we can grab it; fall back to
-              // window.location so the sheet still works if imported
-              // from a non-Next context.
               (router as any)?.push?.(nav) ?? window.location.assign(nav);
             } catch {
               window.location.assign(nav);
             }
-          }, 350);
+          }, 60);
         } else if (ev.kind === 'action_preview') {
           // Attach the preview to the current George turn.
           const preview = ev as unknown as ActionPreviewPayload;
@@ -318,7 +314,20 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
         }
       },
       chatIdRef.current,
-      surfaceContext ?? undefined,
+      // Always merge the caller-supplied surfaceContext with the CURRENT
+      // MCGS route (Garry, 6 Aug 2026 QA fix — George kept saying "you're
+      // already here" when Garry wasn't). Sending `pathname` on every
+      // turn lets the backend suppress a navigate-to-current AND lets
+      // George's response reflect where Garry actually is.
+      (() => {
+        const merged: Record<string, unknown> = { ...(surfaceContext || {}) };
+        try {
+          if (typeof window !== 'undefined') {
+            merged.pathname = window.location.pathname;
+          }
+        } catch { /* noop */ }
+        return merged;
+      })(),
     );
   }
 
@@ -683,6 +692,21 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
     // isn't abandoned mid-stream by an over-aggressive browser.
     el.preload = 'auto';
     audioRef.current = el;
+    // Batch-6 fix (Garry, 6 Aug 2026 MCGS QA): "Play only speaks the
+    // first word or two." Root cause: the SILENT_WAV Safari-unlock
+    // clip below fires `onended` on the AUDIO ELEMENT after ~0.5s,
+    // and any stale `onended` handler from a previous play cycle was
+    // then interpreted as the REAL audio finishing early — the state
+    // machine flipped `playing=false` while the actual speech was
+    // still loading. Belt-and-braces: null out every event handler on
+    // the element before we touch it so nothing stale can fire.
+    el.onended = null;
+    el.onpause = null;
+    el.onerror = null;
+    el.onstalled = null;
+    el.ontimeupdate = null;
+    el.onloadedmetadata = null;
+    el.onplaying = null;
     try {
       let url = audioUrl;
       if (!url) {
