@@ -596,6 +596,20 @@ async def _founding_members_conversion(db: Any, args: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @register(
+    "get_system_health",
+    "Return the live System Health Dashboard payload — infrastructure probes for Backend API, "
+    "Database, George AI, Email service, Push notifications, Storage, and the Website, plus a "
+    "top-level `overall` status ('ok' | 'degraded' | 'unknown') and basic DB counts. Cached for "
+    "60s by default; pass fresh=true to force a live re-probe. This is the INFRA dashboard at "
+    "/admin/system-health — NOT the Phase 4 community Health Pulse rings.",
+    args={"fresh": {"type": "bool", "required": False}},
+)
+async def _get_system_health(db: Any, args: dict) -> dict:
+    from services import system_health as _sh
+    return await _sh.collect_health(db, fresh=bool(args.get("fresh") or False))
+
+
+@register(
     "read_briefing",
     "Return the saved Daily Briefing for a date (YYYY-MM-DD). "
     "The Briefing Rhythm ships in Phase 2 \u2014 for now this always returns not_yet_built.",
@@ -607,12 +621,13 @@ async def _read_briefing(db: Any, args: dict) -> dict:
 
 @register(
     "get_health_pulse",
-    "Return the four Health Pulse rings (Belonging, Kindness, Safety, Growth). "
-    "Ships in Phase 4 \u2014 returns not_yet_built for now.",
+    "Return the four COMMUNITY Health Pulse rings (Belonging, Kindness, Safety, Growth). "
+    "Ships in Phase 4 \u2014 returns not_yet_built for now. NOTE: this is separate from the "
+    "live System Health Dashboard (infra probes) — use get_system_health for that.",
     args={},
 )
 async def _get_health_pulse(db: Any, args: dict) -> dict:
-    return {"not_yet_built": True, "phase": "Phase 4 \u2014 Health Pulse"}
+    return {"not_yet_built": True, "phase": "Phase 4 \u2014 Community Health Pulse rings"}
 
 
 # ---------------------------------------------------------------------------

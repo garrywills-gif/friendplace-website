@@ -1168,6 +1168,42 @@ export const flyersApi = {
     }
     return `${BASE}/api/cms/flyer-templates/${key}/render?${q.toString()}`;
   },
+  // Authenticated blob fetch — same URL as `renderUrl` but pulls the
+  // bytes with the admin's Bearer token attached and hands back an
+  // object URL suitable for <img src> and <iframe src>. Required
+  // because the render endpoint sits behind CMS auth and browser
+  // `<img>` requests don't attach the Authorization header. Caller
+  // is responsible for `URL.revokeObjectURL(url)` when done —
+  // typically in a useEffect cleanup.
+  renderBlob: async (
+    key: string,
+    opts: { layout: string; fields?: Record<string, string | undefined> },
+  ): Promise<{ url: string; contentType: string }> => {
+    const q = new URLSearchParams({ layout: opts.layout });
+    for (const [k, v] of Object.entries(opts.fields || {})) {
+      if (v !== undefined && v !== null && String(v).trim() !== '') q.set(k, String(v));
+    }
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(
+      `${BASE}/api/cms/flyer-templates/${key}/render?${q.toString()}`,
+      { headers, cache: 'no-store' },
+    );
+    if (res.status === 401) {
+      clearAuth();
+      throw new Error('Session expired — please sign in again.');
+    }
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(txt || `Render failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    return {
+      url: URL.createObjectURL(blob),
+      contentType: res.headers.get('Content-Type') || 'application/octet-stream',
+    };
+  },
 };
 
 // ---------------------------------------------------------------------------
