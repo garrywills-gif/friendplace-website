@@ -121,9 +121,29 @@ async def _pending_submissions(db: Any) -> int:
 
 
 async def _open_tickets(db: Any) -> int:
-    # Open OR in_progress — both need eyes.
-    return await db.support_tickets.count_documents(
-        {"status": {"$in": ["open", "in_progress"]}}
+    """Return the count of open support-ticket CASES on the Bridge.
+
+    Launch-readiness fix (Garry, 8 Aug 2026 iter141): previously this
+    counted `support_tickets` documents with status `open`/`in_progress`
+    directly. That's the wrong source of truth — the Bridge is what
+    admins actually see, and it shows CASES (deduped/grouped) from the
+    MCGS signals pipeline. If a support ticket's signal-producer step
+    failed silently (see `server.py:7711` — the producer is best-effort
+    and swallows exceptions), the raw table and the Bridge diverge, and
+    George's briefing says *"six tickets"* while the Bridge shows *"5
+    cases"*.
+    See prompt.py OPERATING RULE — *"Signals vs Cases"*: report the
+    number that matches the on-screen count.
+
+    Support-ticket cases are keyed as `support_ticket:<ticket_id>`
+    (see `server.py:7706`), so a case_key prefix match is the
+    canonical way to count them.
+    """
+    return await db.mcgs_cases.count_documents(
+        {
+            "case_key": {"$regex": "^support_ticket:"},
+            "status": {"$in": list(_OPEN_STATES)},
+        }
     )
 
 
@@ -181,8 +201,16 @@ async def gather_morning_facts(db: Any, admin_id: str) -> dict:
 
     # "Quiet overnight" = zero new P0/P1 signals AND no new tickets AND no new submissions.
     # This gates the `nice and quiet overnight` opener honestly.
-    new_tickets_overnight = await db.support_tickets.count_documents(
-        {"created_at": {"$gte": since_iso}}
+    # We count NEW support-ticket CASES (mcgs_cases with case_key prefix
+    # `support_ticket:`) rather than raw `support_tickets` rows so the
+    # briefing agrees with the Bridge — see `_open_tickets` for the
+    # full rationale. If a signal-producer step failed silently the two
+    # sources diverge; the Bridge is the on-screen truth.
+    new_tickets_overnight = await db.mcgs_cases.count_documents(
+        {
+            "case_key": {"$regex": "^support_ticket:"},
+            "created_at": {"$gte": since_iso},
+        }
     )
     new_subs_overnight = await db.cms_event_submissions.count_documents(
         {"created_at": {"$gte": since_iso}}

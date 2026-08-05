@@ -137,10 +137,16 @@ async def gather_eod_facts(db: Any, admin_id: str, day_start_iso: str) -> dict:
         "status": "approved",
         "updated_at": {"$gte": day_start_iso},
     })
-    # Support tickets closed today.
-    tickets_closed = await db.support_tickets.count_documents({
-        "status": {"$in": ["resolved", "closed"]},
-        "updated_at": {"$gte": day_start_iso},
+    # Support tickets closed today. Sourced from the Bridge (mcgs_cases
+    # with case_key prefix `support_ticket:`) rather than raw
+    # support_tickets so the count agrees with what the admin sees on
+    # `/admin/bridge`. See `services/mcgs/rhythms/facts.py::_open_tickets`
+    # for the full rationale (Garry, 8 Aug 2026 — "I need to be able to
+    # trust what George says is correct").
+    tickets_closed = await db.mcgs_cases.count_documents({
+        "case_key": {"$regex": "^support_ticket:"},
+        "status": "RESOLVED",
+        "resolved_at": {"$gte": day_start_iso},
     })
     # Milestone signals landed today.
     milestones_today = await db.mcgs_signals.find(
@@ -154,8 +160,14 @@ async def gather_eod_facts(db: Any, admin_id: str, day_start_iso: str) -> dict:
     open_p1 = await db.mcgs_signals.count_documents(
         {"priority": "P1", "status": {"$in": ["NEW", "SEEN", "IN_REVIEW"]}},
     )
-    open_tickets = await db.support_tickets.count_documents(
-        {"status": {"$in": ["open", "in_progress"]}},
+    # Open support-ticket CASES on the Bridge — same source-of-truth as
+    # the morning briefing (facts.py::_open_tickets). Never the raw
+    # support_tickets collection.
+    open_tickets = await db.mcgs_cases.count_documents(
+        {
+            "case_key": {"$regex": "^support_ticket:"},
+            "status": {"$in": ["NEW", "SEEN", "IN_REVIEW", "SNOOZED", "ESCALATED"]},
+        },
     )
     pending_submissions = await db.cms_event_submissions.count_documents(
         {"status": "pending"},

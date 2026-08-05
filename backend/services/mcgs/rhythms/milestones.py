@@ -237,9 +237,18 @@ async def _scan_org_event_thresholds(db: Any) -> list[str]:
 
 
 async def _scan_tickets_cleared(db: Any) -> list[str]:
-    """First time in ≥7 days that every open support ticket is cleared."""
-    open_tickets = await db.support_tickets.count_documents(
-        {"status": {"$in": ["open", "in_progress"]}},
+    """First time in ≥7 days that every open support-ticket CASE is cleared.
+
+    Sourced from `mcgs_cases` (the Bridge) — not the raw `support_tickets`
+    collection — so this milestone only fires when the ADMIN sees a
+    zero on the Bridge. Same source-of-truth as George's morning/EOD
+    briefings (see `rhythms/facts.py::_open_tickets`).
+    """
+    open_tickets = await db.mcgs_cases.count_documents(
+        {
+            "case_key": {"$regex": "^support_ticket:"},
+            "status": {"$in": ["NEW", "SEEN", "IN_REVIEW", "SNOOZED", "ESCALATED"]},
+        },
     )
     if open_tickets > 0:
         return []

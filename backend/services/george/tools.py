@@ -338,7 +338,7 @@ async def _list_upcoming_events(db: Any, args: dict) -> list[dict]:
 
 @register(
     "count_support_tickets",
-    "Count support tickets by status. Test-flagged rows are excluded by default; pass include_test_data=true to include them.",
+    "Count support tickets by status. Sourced from the Bridge (mcgs_cases with case_key prefix `support_ticket:`) so the number always matches what admins see on /admin/bridge. Test-flagged rows are excluded by default; pass include_test_data=true to include them.",
     args={
         "status": {"type": "str", "required": False,
                    "enum": {"open", "in_progress", "resolved", "closed"}},
@@ -346,10 +346,48 @@ async def _list_upcoming_events(db: Any, args: dict) -> list[dict]:
     },
 )
 async def _count_support_tickets(db: Any, args: dict) -> int:
-    q: dict = {"status": args.get("status", "open")}
+    """Return the count of support-ticket cases on the Bridge.
+
+    Launch-readiness fix (Garry, 8 Aug 2026 iter141 — "I need to be
+    able to trust what George says is correct"): this tool used to
+    count the raw `support_tickets` collection, which drifted from
+    the Bridge whenever the signal-producer failed silently. The
+    briefing said "six tickets" while the Bridge showed "5 cases".
+    Now every ticket-count answer George gives — briefings, tool
+    calls, milestones — comes from a single source (mcgs_cases with
+    case_key prefix `support_ticket:`).
+
+    Status mapping:
+      open / in_progress → OPEN_STATES on the case
+      resolved / closed  → RESOLVED status on the case
+
+    The two ticket sub-statuses (open vs in_progress) both collapse
+    to "open on the Bridge" because the Bridge doesn't distinguish
+    them; George's briefings already treated them as the same
+    ("needs eyes"), so this is behaviourally equivalent.
+    """
+    status_arg = str(args.get("status", "open")).lower()
+    if status_arg in {"open", "in_progress"}:
+        case_status: dict = {
+            "$in": ["NEW", "SEEN", "IN_REVIEW", "SNOOZED", "ESCALATED"],
+        }
+    elif status_arg in {"resolved", "closed"}:
+        case_status = "RESOLVED"
+    else:
+        # Unknown status: match nothing rather than lie.
+        return 0
+
+    q: dict = {
+        "case_key": {"$regex": "^support_ticket:"},
+        "status": case_status,
+    }
     if not _should_include_test_data(args):
+        # Test-data exclusion still uses the Case's `subject` field —
+        # signal producers copy the ticket subject into the case's
+        # subject (see `services/mcgs/signals.py::create_signal`), so
+        # the test-marker regex works identically on either source.
         exclude_test_data(q, subject_field="subject")
-    return await db.support_tickets.count_documents(q)
+    return await db.mcgs_cases.count_documents(q)
 
 
 # ---------------------------------------------------------------------------
