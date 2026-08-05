@@ -311,6 +311,10 @@ export default function Chats() {
             : `${convs.length} conversation${convs.length === 1 ? "" : "s"}`
         }
         backHref="/home"
+        // Chats is a tab screen; the global floating George butterfly
+        // is already visible here. Hide the Header's inline George
+        // so members don't see two of him at once (Garry, 8 Aug 2026).
+        showGeorge={false}
         right={
           view === "archived" ? (
             <Pressable

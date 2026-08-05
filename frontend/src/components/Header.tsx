@@ -41,6 +41,7 @@ export default function Header({
   back = true,
   backHref,
   titleAccessory,
+  showGeorge = true,
 }: {
   title: string;
   subtitle?: string;
@@ -49,6 +50,11 @@ export default function Header({
   back?: boolean;
   backHref?: string;
   titleAccessory?: React.ReactNode;
+  /** When false, hides the inline George butterfly on the right of
+   * the banner row. Use on tab screens where the global floating
+   * butterfly is already visible, to avoid rendering two Georges
+   * (Garry, 8 Aug 2026 TestFlight polish). */
+  showGeorge?: boolean;
 }) {
   const router = useRouter();
   const { c, scale } = useTheme();
@@ -151,7 +157,7 @@ export default function Header({
             </Text>
           ) : null}
         </View>
-        <GeorgeHeaderMark />
+        <GeorgeHeaderMark hidden={!showGeorge} />
       </View>
     </View>
   );
@@ -169,7 +175,7 @@ export default function Header({
  * short flutter-in (~800ms) triggered by the `landedFrom` context
  * flag matching the current screen.
  */
-function GeorgeHeaderMark() {
+function GeorgeHeaderMark({ hidden = false }: { hidden?: boolean }) {
   const { openGeorge, landedFrom, currentScreen, consumeLanded } = useGeorge();
   const scale = useSharedValue(1);
   const opacity = useSharedValue(1);
@@ -243,13 +249,15 @@ function GeorgeHeaderMark() {
       accessibilityRole="button"
       accessibilityLabel="Chat to George"
       testID="george-butterfly-header"
-      style={styles.brandMark}
+      style={[styles.brandMark, hidden && { opacity: 0, pointerEvents: 'none' as const, width: 0, height: 0, overflow: 'hidden' }]}
     >
-      <Reanimated.View style={markStyle}>
-        <Reanimated.View style={wingStyle}>
-          <GeorgeButterflyMark size={40} />
+      {hidden ? null : (
+        <Reanimated.View style={markStyle}>
+          <Reanimated.View style={wingStyle}>
+            <GeorgeButterflyMark size={40} />
+          </Reanimated.View>
         </Reanimated.View>
-      </Reanimated.View>
+      )}
     </Pressable>
   );
 }
