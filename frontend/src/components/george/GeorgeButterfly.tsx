@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, Pressable, Modal, Dimensions, Platform,
+  StyleSheet, Pressable, Modal, Dimensions, Platform,
 } from 'react-native';
 import Animated, {
   useSharedValue, useAnimatedStyle, withTiming, withSequence, withRepeat,
@@ -10,6 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
+import { GeorgeWelcomeBubble } from './GeorgeWelcomeBubble';
 import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { GeorgeEventCreation } from './GeorgeEventCreation';
 import { useGeorge } from '@/src/lib/george-context';
@@ -550,78 +551,38 @@ export function GeorgeButterfly() {
             pointerEvents="box-none"
             style={[
               styles.bubbleWrap,
-              // First-meeting bubbles are taller because they carry
-              // the [Chat to George] / [Dismiss] action row. Drop the
-              // anchor closer to the butterfly and widen slightly so
-              // the greeting + buttons don't crowd the notch.
-              isFirstMeetingRef.current
-                ? { bottom: 4, width: Math.min(280, SCREEN_W - 90) }
-                : null,
+              // The bubble now carries actions in EVERY case (first-
+              // meeting AND returning), so we always widen and anchor
+              // slightly closer to the butterfly. (iter144 unification —
+              // Garry, 8 Aug 2026.)
+              { bottom: 4, width: Math.min(280, SCREEN_W - 90) },
               bubbleStyle,
             ]}
           >
-            {isFirstMeetingRef.current ? (
-              // First-meeting bubble (Garry, 4 Aug 2026 TestFlight polish).
-              // Members were confused by tap-to-dismiss vs tap-butterfly-
-              // to-chat, so we now show explicit buttons: primary
-              // "💬 Chat to George" (opens onboarding/event chat) and
-              // secondary "Dismiss" (retires the intro flag server-side).
-              // Wording is the app-wide standard for George's welcome —
-              // never "Later" / "Close" / "Skip".
-              <View>
-                <View style={styles.bubble}>
-                  <Text style={styles.bubbleText} numberOfLines={3}>{greeting}</Text>
-                  <View style={styles.bubbleActions}>
-                    <Pressable
-                      testID="george-welcome-chat"
-                      onPress={flutterAndOpenChat}
-                      accessibilityRole="button"
-                      accessibilityLabel="Chat to George"
-                      style={({ pressed }) => [
-                        styles.bubbleBtnPrimary,
-                        { opacity: pressed ? 0.85 : 1 },
-                      ]}
-                    >
-                      <Text style={styles.bubbleBtnPrimaryText} numberOfLines={1}>💬  Chat to George</Text>
-                    </Pressable>
-                    <Pressable
-                      testID="george-welcome-dismiss"
-                      onPress={() => {
-                        bubbleOpacity.value = withTiming(0, { duration: 160 });
-                        setTimeout(() => setShowBubble(false), 180);
-                        setPhase('resting');
-                        if (isFirstMeetingRef.current) {
-                          isFirstMeetingRef.current = false;
-                          void georgeApi.introduced().catch(() => {});
-                        }
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Dismiss"
-                      style={({ pressed }) => [
-                        styles.bubbleBtnSecondary,
-                        { opacity: pressed ? 0.75 : 1 },
-                      ]}
-                    >
-                      <Text style={styles.bubbleBtnSecondaryText} numberOfLines={1}>Dismiss</Text>
-                    </Pressable>
-                  </View>
-                </View>
-                <View style={styles.bubbleTail} />
-              </View>
-            ) : (
-              // Returning-user bubble — tap anywhere to dismiss. No
-              // buttons needed; the affordance is already learned.
-              <Pressable onPress={() => {
+            {/* Single Welcome Back UI — see components/george/
+                GeorgeWelcomeBubble.tsx. Previously this file forked into
+                a full-card variant (first meeting) and a plain-bubble
+                variant (returning member) — that inconsistency was the
+                iter144 regression Garry flagged (Frank vs Eileen). The
+                unified component always renders the card with [Chat to
+                George] + [Dismiss] so every member gets the same
+                Welcome Back experience. */}
+            <GeorgeWelcomeBubble
+              greeting={greeting}
+              onChat={flutterAndOpenChat}
+              onDismiss={() => {
                 bubbleOpacity.value = withTiming(0, { duration: 160 });
                 setTimeout(() => setShowBubble(false), 180);
                 setPhase('resting');
-              }}>
-                <View style={styles.bubble}>
-                  <Text style={styles.bubbleText} numberOfLines={4}>{greeting}</Text>
-                </View>
-                <View style={styles.bubbleTail} />
-              </Pressable>
-            )}
+                // First-meeting-only: retire the intro flag server-side
+                // so the introduction never plays again for this actor.
+                // Returning-member dismisses are a no-op server-side.
+                if (isFirstMeetingRef.current) {
+                  isFirstMeetingRef.current = false;
+                  void georgeApi.introduced().catch(() => {});
+                }
+              }}
+            />
           </Animated.View>
         )}
         </Animated.View>
