@@ -114,6 +114,11 @@ RULES
   5. When you have enough (see above), don't ask another question. Instead switch to state="ready_to_summarise" with a warm hand-off line. The profile summary card was retired 28 July 2026 (TestFlight round-2 feedback from Garry) — the member sees NO list of what you've learned. So NEVER say "have a look at what I've learned" or "does this look right" referring to a list. Use a warm humble line that mentions no artefact, e.g. *"That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know — I'm always learning."* (Vary the phrasing but hold the meaning.)
   6. If the member declines/skips, say something like *"That's absolutely fine."* and move on.
   7. INFERRED FIELDS: when the member says something ambiguous, you MAY infer softly. When you'd like the preview to gently confirm an inference, add the field to `confirm_hints`.
+  8. NEVER INVENT CONVERSATION HISTORY. This is critical (Garry, TestFlight iter142, 8 Aug 2026 — "George is inventing previous conversations"). You must never reference things you and the member "discussed", "planned", or "were working on" unless they appear *verbatim* in the visible turns of THIS session (see CONVERSATION below). Absence of memory is not permission to fabricate. If the member returns and there is no prior context, greet them warmly and ask an open question — do NOT reach for a plausible-sounding continuation. Examples of what is banned:
+     • *"We were planning a get-together — want to continue?"* (if no such planning appears above)
+     • *"Last time you mentioned your barbecue — how did it go?"* (if no barbecue mention appears above)
+     • *"You were telling me about your walking group…"* (if not in the visible turns)
+     If a member challenges an invented reference, acknowledge honestly ("You're right, I'm sorry — I got that wrong") and move on with an open, present-tense question. Do NOT immediately re-introduce the same invented topic.
 
 OUTPUT (strict JSON, no fences):
 {
@@ -206,11 +211,65 @@ def _fields_gathered(known: dict, skipped: list) -> int:
 
 
 async def active_onboarding_session(db: Any, *, actor_id: str) -> Optional[dict]:
-    return await db[COLL_ONBOARDING].find_one(
+    """Return the actor's currently active onboarding session, if any.
+
+    TestFlight iter142 fix (Garry, 8 Aug 2026 — "Onboarding restarts
+    unnecessarily"): if the actor has already completed onboarding
+    (`users.profile_complete == True`), any lingering `in_progress`
+    or `drafted` session on this collection is by definition STALE
+    — the completed profile is the source of truth. Returning it as
+    "active" caused completed members to be silently re-routed back
+    into the onboarding chat after tapping the butterfly. We now
+    treat such sessions as garbage and return `None`; the caller
+    (`presence` endpoint) will therefore see `has_active_onboarding=
+    False`, and the butterfly router will open the completed-member
+    surface as intended.
+
+    We also opportunistically mark the stale session as `cancelled`
+    with a `cancel_reason` so it stops appearing in future presence
+    calls — a one-time cleanup that scales safely because it only
+    runs when both flags disagree.
+    """
+    active = await db[COLL_ONBOARDING].find_one(
         {"actor_id": actor_id, "status": {"$in": ["in_progress", "drafted"]}},
         {"_id": 0},
         sort=[("updated_at", -1)],
     )
+    if not active:
+        return None
+    # Cross-check with the user's profile-complete flag. If the user
+    # is a member whose onboarding has already been approved, this
+    # session is stale — never re-route them back into onboarding.
+    try:
+        user_doc = await db.users.find_one(
+            {"id": actor_id},
+            {"_id": 0, "profile_complete": 1, "onboarding_completed": 1},
+        )
+    except Exception:
+        user_doc = None
+    if user_doc and (
+        user_doc.get("profile_complete") is True
+        or user_doc.get("onboarding_completed") is True
+    ):
+        # Best-effort cleanup so subsequent presence lookups are
+        # cheap and the session doesn't linger indefinitely.
+        try:
+            await db[COLL_ONBOARDING].update_one(
+                {"session_id": active.get("session_id")},
+                {
+                    "$set": {
+                        "status": "cancelled",
+                        "cancelled_at": _now_iso(),
+                        "updated_at": _now_iso(),
+                        "cancel_reason": "stale_after_profile_complete",
+                    }
+                },
+            )
+        except Exception:
+            # Cleanup failure must never block the presence response.
+            pass
+        return None
+    return active
 
 
 async def start_or_resume_onboarding(db: Any, *, actor_id: str) -> dict:

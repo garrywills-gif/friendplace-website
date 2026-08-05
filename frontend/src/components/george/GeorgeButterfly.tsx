@@ -348,29 +348,43 @@ export function GeorgeButterfly() {
     );
 
     // Route by presence:
-    //   - Onboarding hasn't finished yet (either never started or paused
-    //     mid-conversation) → resume the profile chat.
+    //   - Onboarding hasn't finished yet → resume the profile chat.
     //   - Onboarding complete → open Milestone B5 event creation. George
     //     always leads with an open-ended warmth line — Principle #18.
     // Presence is refreshed opportunistically on every tap so the router
     // stays honest.
+    //
+    // TestFlight iter142 (Garry, 8 Aug 2026 — "George is inventing
+    // previous conversations"): completed members were being auto-
+    // dropped back into onboarding if a stale `onboarding_sessions`
+    // doc existed (has_active_onboarding=true), and completed members
+    // were being auto-resumed into paused event drafts — which is where
+    // "we were planning a get-together…" came from. That was George
+    // resuming a week-old draft, not inventing history. Both auto-
+    // pulls now removed for launch:
+    //   • `needsOnboarding` is derived from `onboarding_complete` ONLY,
+    //     never from a stale session doc. If profile is complete, the
+    //     member always lands on the completed-member surface — even
+    //     if a paused onboarding session still exists on the server.
+    //   • Event creation opens FRESH by default. The paused event
+    //     draft is no longer silently resumed. When we ship an
+    //     explicit "Continue draft" affordance (post-launch), it will
+    //     be an opt-in action, not a hidden auto-open.
+    // The full architectural fix (single unified George engine across
+    // member + admin) is captured in
+    // `/app/memory/unified-george-engine-post-launch.md`.
     setTimeout(async () => {
       try {
         const fresh = await georgeApi.presence();
         setPresence(fresh);
         const needsOnboarding =
-          fresh.actor_type === 'member' &&
-          (!fresh.onboarding_complete || fresh.has_active_onboarding);
+          fresh.actor_type === 'member' && !fresh.onboarding_complete;
         if (needsOnboarding) {
           setResumeSessionId(null);
           setShowChat(true);
         } else {
-          // If the member has a paused event conversation, we open the
-          // event surface in RESUME mode. George picks up with a warm,
-          // age-aware welcome-back and offers Carry on / Start new.
-          // Otherwise we start fresh.
-          const paused = fresh.paused_event_session || null;
-          setResumeSessionId(paused ? paused.session_id : null);
+          // Always start fresh — no silent resume of stale drafts.
+          setResumeSessionId(null);
           setShowEvent(true);
         }
       } catch {
