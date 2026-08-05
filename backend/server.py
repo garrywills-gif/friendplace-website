@@ -8891,6 +8891,45 @@ async def my_flutters(user_id: str):
     return await db.flutters.find({"to_id": user_id, "read": False}, {"_id": 0}).sort("created_at", -1).to_list(100)
 
 
+@api.get("/flutters/{user_id}/outbound-active")
+async def my_outbound_active_flutters(user_id: str):
+    """Return the recipient IDs of flutters this user has SENT that are
+    still active (unread by the recipient).
+
+    Launch-readiness fix (Garry, TestFlight iter141): the friends list
+    keeps its "Fluttered ✓" state in component-local state, which is
+    lost the moment the user navigates away and returns. The UI reverts
+    to a tappable "Flutter" button until the server 409s a duplicate
+    send. That regression is visible for one full round-trip and reads
+    as inconsistent. This tiny read endpoint lets the client hydrate
+    the flipped-button set on mount so persistence is honest.
+
+    Read-only, no schema change — the same underlying `flutters`
+    collection + same `read != True` predicate the 409 check already
+    uses. The response shape is deliberately minimal — a `to_id` list
+    (plus the flutter id and timestamp for debugging) — so the client
+    doesn't need to know the full flutter document to restore state.
+    """
+    docs = await db.flutters.find(
+        {"from_id": user_id, "read": {"$ne": True}},
+        {"_id": 0, "id": 1, "to_id": 1, "created_at": 1},
+    ).sort("created_at", -1).to_list(500)
+    return {
+        "active": [
+            {
+                "flutter_id": d.get("id"),
+                "to_id": d.get("to_id"),
+                "created_at": d.get("created_at"),
+            }
+            for d in docs
+            # Ignore self-flutters — they don't affect the button state
+            # of any friend row (a user never sees themselves in the
+            # friends list) and would only add noise.
+            if d.get("to_id") and d.get("to_id") != user_id
+        ],
+    }
+
+
 @api.post("/flutters/{flutter_id}/read")
 async def mark_flutter_read(flutter_id: str):
     await db.flutters.update_one({"id": flutter_id}, {"$set": {"read": True}})

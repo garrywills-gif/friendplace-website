@@ -61,6 +61,24 @@ const _isHiddenPath = (p: string | null): boolean => {
   return false;
 };
 
+/** Is the current DM screen a *self-DM* (Notes to Myself)?
+ *
+ * The self-DM has a conversation id of the form "<uid>-<uid>" (both
+ * participants are the same user). Showing the "While you were away…
+ * you have a new private message" prompt on top of Notes to Myself is
+ * always wrong — the note IS the user's own, and it visually collides
+ * with the notebook composer. Suppress the prompt on that route.
+ *
+ * Launch-readiness fix (Garry, TestFlight iter141).
+ */
+const _isSelfDmRoute = (pathname: string | null, userId: string | null | undefined): boolean => {
+  if (!pathname || !userId) return false;
+  const m = pathname.match(/^\/dm\/([^\/?#]+)/);
+  if (!m) return false;
+  const convId = decodeURIComponent(m[1]);
+  return convId === `${userId}-${userId}`;
+};
+
 export default function GlobalDmPrompt() {
   const { c, scale } = useTheme();
   const { user } = useAuth();
@@ -100,6 +118,7 @@ export default function GlobalDmPrompt() {
     !!prompt &&
     !!user &&
     !_isHiddenPath(pathname) &&
+    !_isSelfDmRoute(pathname, user?.id) &&
     postGreetOK &&
     !snoozeActive;
 
@@ -132,6 +151,7 @@ export default function GlobalDmPrompt() {
   if (!prompt || !user || _isHiddenPath(pathname) || !postGreetOK) {
     return null;
   }
+  if (_isSelfDmRoute(pathname, user?.id)) return null;
   if (snoozeActive) return null;
 
   const isSingle = prompt.kind === "single";

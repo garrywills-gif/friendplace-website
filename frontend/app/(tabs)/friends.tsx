@@ -102,6 +102,33 @@ export default function Friends() {
     }, [user?.id, friendCount])
   );
 
+  // Hydrate the "Fluttered ✓" set so previously-sent flutters still
+  // show as sent after coming back to this tab. Same pattern as the
+  // friend-request hydrate above — best-effort, non-blocking.
+  //
+  // Launch-readiness fix (Garry, TestFlight iter141): without this,
+  // navigating away and back reset the button to a tappable "Flutter"
+  // even though the server would 409 a re-send. The UX regressed for
+  // one round-trip and read as inconsistent. Now the state matches
+  // the server on every mount.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        if (!user?.id) return;
+        try {
+          const res = await api.myOutboundActiveFlutters(user.id);
+          if (cancelled) return;
+          const ids: string[] = (res?.active || [])
+            .map((r) => r?.to_id)
+            .filter(Boolean) as string[];
+          setFlutteredIds(new Set(ids));
+        } catch { /* non-fatal */ }
+      })();
+      return () => { cancelled = true; };
+    }, [user?.id])
+  );
+
   const requestNearMe = async () => {
     setShowRationale(false);
     setAskingLoc(true);

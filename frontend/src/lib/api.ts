@@ -574,6 +574,8 @@ export const api = {
   sendFlutter: (body: { from_id: string; to_id: string; message?: string }) =>
     req("/flutters/send", { method: "POST", body: JSON.stringify(body) }),
   myFlutters: (uid: string) => req(`/flutters/${uid}`),
+  myOutboundActiveFlutters: (uid: string): Promise<{ active: Array<{ flutter_id: string; to_id: string; created_at: string }> }> =>
+    req(`/flutters/${uid}/outbound-active`),
   markFlutterRead: (fid: string) => req(`/flutters/${fid}/read`, { method: "POST" }),
   // Record a response on the flutter card WITHOUT dismissing it. Keeps
   // the card visible on the recipient's home until they explicitly
