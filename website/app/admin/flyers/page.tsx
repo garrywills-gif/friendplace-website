@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { flyersApi, type FlyerTemplate, type FlyerLayoutCategory } from '@/lib/cms-api';
 import { FlyerPrintModal } from '@/components/admin/FlyerPrintModal';
+import { AuthedFlyerImage } from '@/components/admin/AuthedFlyerImage';
 
 export default function FlyersLibraryPage() {
   const [templates, setTemplates] = useState<FlyerTemplate[] | null>(null);
@@ -144,15 +145,18 @@ export default function FlyersLibraryPage() {
                 {/* Thumbnail */}
                 <div style={{ aspectRatio: '210 / 297', background: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid #E2E8F0' }}>
                   {tpl.preview_image ? (
-                    // Static thumbnail (community_notice)
+                    // Static thumbnail (community_notice) — served
+                    // from Next's public assets. No auth needed.
+                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={tpl.preview_image} alt={tpl.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                   ) : (
-                    // Live-generated preview via the render endpoint (A4).
-                    <img
-                      src={flyersApi.renderUrl(tpl.key, { layout: tpl.default_layout })}
+                    // Live-generated preview via the render endpoint
+                    // (behind CMS auth — must be fetched with a token,
+                    // hence the AuthedFlyerImage helper).
+                    <AuthedFlyerImage
+                      templateKey={tpl.key}
+                      layout={tpl.default_layout}
                       alt={tpl.name}
-                      loading="lazy"
-                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
                   )}
                 </div>

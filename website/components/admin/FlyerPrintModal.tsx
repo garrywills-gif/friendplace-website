@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { flyersApi, type FlyerLayout, type FlyerLayoutCategory, type FlyerTemplate } from '@/lib/cms-api';
+import { AuthedFlyerImage } from '@/components/admin/AuthedFlyerImage';
 
 type Props = {
   template: FlyerTemplate;
@@ -56,10 +57,13 @@ export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) 
     [template],
   );
 
-  const renderUrl = flyersApi.renderUrl(template.key, {
-    layout: selectedLayoutKey,
-    fields: fieldValues,
-  });
+  // `renderUrl` was previously baked into <img> and iframe srcs, but
+  // the browser doesn't send Bearer headers on those, causing 401s.
+  // We now fetch the render as an authenticated blob inside doPrint /
+  // doDownload (and inside <AuthedFlyerImage/>) so no naked renderUrl
+  // is exposed to the browser.
+
+
 
   // Close on Esc — a small courtesy for keyboard users, and consistent
   // with how other Mission Control modals behave.
@@ -71,11 +75,22 @@ export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) 
 
   const doPrint = async () => {
     if (!selected) return;
-    // Build a self-contained HTML document in the hidden iframe with a
-    // properly-sized @page rule. The image is the render URL — same-
-    // origin so the auth cookie rides along automatically. We wait for
-    // the image to load before calling `print()` so the dialog shows
-    // the flyer, not a blank page.
+    // Fetch the render as an AUTHENTICATED blob first — the iframe's
+    // <img> tag can't send a Bearer token, so a naked renderUrl would
+    // just 401 and print a blank page. We hand it a same-document
+    // blob URL instead, which needs no headers.
+    let blobUrl: string;
+    try {
+      const { url } = await flyersApi.renderBlob(template.key, {
+        layout: selectedLayoutKey,
+        fields: fieldValues,
+      });
+      blobUrl = url;
+    } catch (e: any) {
+      alert(e?.message || 'Could not prepare flyer for printing.');
+      return;
+    }
+
     const iframe = printFrameRef.current;
     if (!iframe) return;
     const doc = iframe.contentDocument;
@@ -103,7 +118,7 @@ export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) 
   </style>
 </head>
 <body>
-  <img src="${escapeAttr(renderUrl)}" alt="${escapeAttr(template.name)}" />
+  <img src="${escapeAttr(blobUrl)}" alt="${escapeAttr(template.name)}" />
 </body>
 </html>`);
     doc.close();
@@ -126,17 +141,41 @@ export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) 
       iframe.contentWindow?.print();
     } catch {
       // Fallback for browsers that block programmatic print on iframes —
-      // open the raw render in a new tab so the user can Cmd/Ctrl-P.
-      window.open(renderUrl, '_blank', 'noopener');
+      // open the blob directly so the user can Cmd/Ctrl-P from a real tab.
+      window.open(blobUrl, '_blank', 'noopener');
+    } finally {
+      // Revoke shortly after the print dialogue has a chance to open;
+      // the browser has already read the bytes into the print job.
+      setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch { /* noop */ } }, 30_000);
     }
   };
 
-  const doDownload = () => {
-    // Simplest reliable path across browsers: open the render URL in
-    // a new tab. On Safari this pops a real image viewer with a share
-    // button, on Chrome/Firefox it inlines the image and the user can
-    // right-click → Save. This mirrors the mobile app's proven flow.
-    window.open(renderUrl, '_blank', 'noopener');
+  const doDownload = async () => {
+    // Same story as Print — the render endpoint needs a Bearer token,
+    // so a plain `window.open(renderUrl)` prints a 401 page. Fetch
+    // authenticated, then trigger a proper download via an anchor tag
+    // whose `download` attribute preserves the filename hint. Works
+    // consistently across Chrome, Safari, Firefox, and Edge.
+    try {
+      const { url, contentType } = await flyersApi.renderBlob(template.key, {
+        layout: selectedLayoutKey,
+        fields: fieldValues,
+      });
+      const ext = contentType.includes('pdf') ? 'pdf' : (contentType.includes('png') ? 'png' : 'bin');
+      const safeName = template.name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'flyer';
+      const safeLayout = selectedLayoutKey.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 40) || 'layout';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeName}-${safeLayout}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // Revoke after the download has kicked off. Some browsers keep
+      // the request alive for a moment, so we give it a healthy grace.
+      setTimeout(() => { try { URL.revokeObjectURL(url); } catch { /* noop */ } }, 30_000);
+    } catch (e: any) {
+      alert(e?.message || 'Could not download the flyer.');
+    }
   };
 
   return (
@@ -171,12 +210,15 @@ export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) 
             >×</button>
           </div>
           <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 12, padding: 16, textAlign: 'center' }}>
-            <img
-              src={renderUrl}
-              alt={`${template.name} preview`}
-              key={renderUrl}
-              style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', boxShadow: '0 6px 18px rgba(0,0,0,0.12)' }}
-            />
+            <div style={{ display: 'inline-block', maxWidth: '100%', maxHeight: '70vh' }}>
+              <AuthedFlyerImage
+                templateKey={template.key}
+                layout={selectedLayoutKey}
+                fields={fieldValues}
+                alt={`${template.name} preview`}
+                style={{ maxWidth: '100%', maxHeight: '70vh', boxShadow: '0 6px 18px rgba(0,0,0,0.12)' }}
+              />
+            </div>
             <div style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
               {selected ? (
                 <>
