@@ -304,13 +304,48 @@ export const georgeApi = {
   // reviews it in the composer first (Garry's review-first rule).
   transcribe: async (audioUri: string, filename?: string, mimeType?: string): Promise<string> => {
     const tok = await _token();
+    const name = filename || 'george-voice.m4a';
+    const type = mimeType || 'audio/m4a';
     const form = new FormData();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    form.append('file', {
-      uri: audioUri,
-      name: filename || 'george-voice.m4a',
-      type: mimeType || 'audio/m4a',
-    } as any);
+
+    // TestFlight iter140 (Garry, 8 Aug 2026): the previous
+    // `{uri, name, type}` shape worked on native (React Native's
+    // FormData polyfill understands it) but on the web preview it
+    // was serialised as `[object Object]` — the backend saw no file
+    // field and returned 422. The user just got "I couldn't quite
+    // catch that" with no clue why. Fix: on web (and any platform
+    // exposing a `blob:` / `data:` / `http(s):` URL), fetch the URI
+    // and append a real `Blob` so multipart parsing works the same
+    // way everywhere. On iOS/Android with `file://` URIs we keep
+    // the RN-native form so we don't disturb the working path.
+    const isBlobOrWebUri =
+      Platform.OS === 'web' ||
+      audioUri.startsWith('blob:') ||
+      audioUri.startsWith('data:') ||
+      audioUri.startsWith('http:') ||
+      audioUri.startsWith('https:');
+    if (isBlobOrWebUri) {
+      try {
+        const audioRes = await fetch(audioUri);
+        const blob = await audioRes.blob();
+        // Prefer the blob's own MIME (browsers set this reliably for
+        // MediaRecorder output) but fall back to the caller's hint.
+        const effectiveType = blob.type || type;
+        form.append('file', blob, name);
+        // Some FormData implementations don't propagate the blob's
+        // MIME when the third arg overrides the filename — belt and
+        // braces by also attaching a File when available.
+        if (typeof File !== 'undefined' && !blob.type && effectiveType) {
+          const file = new File([blob], name, { type: effectiveType });
+          form.set('file', file, name);
+        }
+      } catch (e) {
+        throw new Error(`transcribe: failed to load audio blob (${(e as Error).message})`);
+      }
+    } else {
+      form.append('file', { uri: audioUri, name, type } as unknown as Blob);
+    }
+
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (tok) headers.Authorization = `Bearer ${tok}`;
     const res = await fetch(`${BASE}/api/mcgs/george/transcribe`, {
