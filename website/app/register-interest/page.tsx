@@ -18,7 +18,7 @@
  */
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useCompanion, COMPANIONS } from '@/lib/companion-context';
 import { API_BASE } from '@/lib/api-base';
 
@@ -38,6 +38,126 @@ export default function RegisterInterestPage() {
   const [done, setDone]               = useState(false);
   const [founderNumber, setFounderNumber] = useState<number | null>(null);
   const [error, setError]             = useState<string | null>(null);
+
+  // Audio state for the celebration line.
+  //
+  //   audioBlobUrl        — object-URL of the fetched MP3, injected
+  //                         into <audio src>. Null while we haven't
+  //                         fetched (or the fetch failed silently).
+  //   audioBlocked        — true if autoplay was refused (Safari
+  //                         will do this if the visitor hasn't
+  //                         gestured on the page since navigation).
+  //                         Drives a subtle "Hear George" prompt.
+  //   audioReplaying      — true briefly after Replay is tapped so
+  //                         the button can dim/lock while playing.
+  const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null);
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [audioReplaying, setAudioReplaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // The Continue Exploring button deep-links to the "Why FriendPlace?"
+  // section on the homepage. In production this lives at
+  // `/#why-friendplace`. In the preview environment served by
+  // Emergent (`*.preview.emergentagent.com`) the root path "/" is
+  // claimed by the Expo mobile app; the marketing homepage is
+  // reachable via the `/site` alias. We resolve the correct href on
+  // the client so refreshes/deploys behave the same in both worlds.
+  // Locked with Garry (iter152, June 2026).
+  const [whyHref, setWhyHref] = useState<string>('/#why-friendplace');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const host = window.location.hostname || '';
+    if (host.endsWith('.preview.emergentagent.com')) {
+      setWhyHref('/site#why-friendplace');
+    } else {
+      setWhyHref('/#why-friendplace');
+    }
+  }, []);
+
+  // Reveal-moment side-effects — run once when the form flips from
+  // pending → done.
+  //
+  //   1. Scroll to the very top so the visitor's first sight is the
+  //      celebration headline + Founding Member number, not whatever
+  //      the form had scrolled into view during submission. Locked
+  //      with Garry (iter152, June 2026): "The celebration is the
+  //      reward — it should never open halfway down the page."
+  //   2. Fetch the personalised TTS clip ("Congratulations, {name}!
+  //      You're officially Founding Member number {n}.") and attempt
+  //      to auto-play in the host's voice. Safari may block autoplay
+  //      if the user hasn't gestured since page load — in that case
+  //      we surface a small "Hear George/Georgia" prompt instead.
+  useEffect(() => {
+    if (!done) return;
+
+    // 1. Scroll to top. Instant, no animation — the visitor should
+    // see the headline the moment the reveal renders. Also reset
+    // the documentElement scrollTop for iOS Safari where the body
+    // occasionally holds a stale scroll position.
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+      if (document.documentElement) document.documentElement.scrollTop = 0;
+      if (document.body) document.body.scrollTop = 0;
+    } catch { /* non-fatal */ }
+
+    // 2. Fetch the TTS clip. Guard against missing data.
+    if (!founderNumber || !firstName.trim()) return;
+    const chosen = (companion === 'georgia') ? 'georgia' : 'george';
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/public/founding-member-audio`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_name: firstName.trim(),
+            founder_number: founderNumber,
+            companion: chosen,
+          }),
+        });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setAudioBlobUrl(objectUrl);
+      } catch { /* non-fatal; page still renders without audio */ }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [done, founderNumber, firstName, companion]);
+
+  // Auto-play the celebration clip once the audio element receives
+  // its src. Safari may refuse — we detect that and surface a
+  // "Hear George/Georgia" replay prompt.
+  useEffect(() => {
+    if (!audioBlobUrl) return;
+    const el = audioRef.current;
+    if (!el) return;
+    const p = el.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(() => setAudioBlocked(true));
+    }
+  }, [audioBlobUrl]);
+
+  function replayCelebration() {
+    const el = audioRef.current;
+    if (!el || !audioBlobUrl) return;
+    try {
+      el.currentTime = 0;
+      setAudioBlocked(false);
+      setAudioReplaying(true);
+      const p = el.play();
+      const clear = () => setAudioReplaying(false);
+      el.addEventListener('ended', clear, { once: true });
+      if (p && typeof p.catch === 'function') {
+        p.catch(() => { setAudioBlocked(true); setAudioReplaying(false); });
+      }
+    } catch { setAudioReplaying(false); }
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -166,6 +286,48 @@ export default function RegisterInterestPage() {
               </div>
             )}
 
+            {/* ── Celebration audio ─────────────────────────────
+             *  A single spoken line in the host's voice:
+             *  "Congratulations, {first_name}! You're officially
+             *  Founding Member number {n}." Auto-plays when the
+             *  reveal renders (Safari may block — the "Hear
+             *  {host} again" prompt below picks that up). We do
+             *  NOT read the farewell or the ticks aloud — the
+             *  spoken introduction is enough to make the moment
+             *  feel special; anything more would over-narrate
+             *  and take the visitor's own pace away.
+             *  Locked with Garry (iter152, June 2026). */}
+            <audio
+              ref={audioRef}
+              src={audioBlobUrl || undefined}
+              preload="auto"
+              playsInline
+              // eslint-disable-next-line react/no-unknown-property
+              // @ts-ignore — playsInline is valid on HTMLAudioElement
+            />
+            {(audioBlobUrl || audioBlocked) && (
+              <div style={{ marginTop: 18, display: 'flex', justifyContent: 'center' }}>
+                <button
+                  type="button"
+                  onClick={replayCelebration}
+                  disabled={!audioBlobUrl || audioReplaying}
+                  style={{
+                    ...replayButton,
+                    opacity: (!audioBlobUrl || audioReplaying) ? 0.55 : 1,
+                    cursor: (!audioBlobUrl || audioReplaying) ? 'default' : 'pointer',
+                  }}
+                  aria-label={audioBlocked
+                    ? `Hear ${signOff} say hello`
+                    : `Hear ${signOff} again`}
+                >
+                  <span aria-hidden style={{ fontSize: 15, marginRight: 6 }}>🔊</span>
+                  {audioBlocked
+                    ? `Hear ${signOff} say hello`
+                    : `Hear ${signOff} again`}
+                </button>
+              </div>
+            )}
+
             {/* ── Host's farewell — exact copy locked with Garry
                 (iter151). George/Georgia speaks one warm paragraph
                 on this page and this page only. Do not split it
@@ -202,12 +364,16 @@ export default function RegisterInterestPage() {
               {/* Continue Exploring — deep-links to the "Why
                   FriendPlace?" section on the homepage (NOT the
                   hero). By this point the visitor has already
-                  said yes; the hero has done its job. Sending
-                  them into the "No swiping / No followers / No
-                  popularity contests" section continues the
-                  story instead of restarting it. Locked with
-                  Garry (iter151, June 2026). */}
-              <Link href="/#why-friendplace" style={secondaryCta}>Continue Exploring &rarr;</Link>
+                  said yes; the hero has done its job.
+                  We use a plain <a> (NOT next/link) because in
+                  the preview environment the target lives at
+                  /site (the marketing homepage alias) which
+                  Next.js's client router doesn't know about —
+                  a full navigation lets nginx route to the
+                  correct upstream. In production this resolves
+                  to /#why-friendplace (a normal same-app deep
+                  link). Locked with Garry (iter152, June 2026). */}
+              <a href={whyHref} style={secondaryCta}>Continue Exploring &rarr;</a>
             </div>
           </div>
         </div>
@@ -413,6 +579,20 @@ const secondaryCta: React.CSSProperties = {
   fontSize: 14, fontWeight: 700, textDecoration: 'none',
   border: '1.5px solid #99F6E4',
   borderRadius: 12,
+};
+
+// Quiet, secondary — sits under the number card, doesn't fight
+// with the celebration or the farewell. Matches the pattern used
+// by "Hear George again" on /meet so the same button reads the
+// same across the whole journey.
+const replayButton: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  padding: '9px 16px',
+  background: 'rgba(94, 234, 212, 0.12)',
+  color: '#0F766E',
+  border: '1.5px solid rgba(94, 234, 212, 0.55)',
+  borderRadius: 999,
+  fontSize: 13, fontWeight: 700, fontFamily: 'inherit',
 };
 
 const footNote: React.CSSProperties = {

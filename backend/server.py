@@ -10837,6 +10837,94 @@ async def public_register_interest(payload: dict, request: Request):
     }
 
 
+# ── Public: Founding-Member celebration TTS ─────────────────────────
+#
+# The Congratulations page auto-plays a single spoken line in the
+# host's voice: "Congratulations, {first_name}! You're officially
+# Founding Member number {n}." It's the reveal moment — one short
+# beat, personalised, then silence so the visitor can read the rest.
+#
+# Voices match the Meet → Welcome journey the visitor just heard
+# minutes ago (Ash for George, Nova for Georgia) — NOT George's chat
+# reply voice (onyx). Consistency of the front-door voice matters
+# more than reusing the chat synthesis path.
+#
+# Not cached to disk: the response body is served directly with a
+# short public cache header. The endpoint is idempotent per
+# (first_name, founder_number, companion) so the browser/CDN can
+# short-circuit repeat plays of the same combination.
+@api.post("/public/founding-member-audio")
+async def public_founding_member_audio(payload: dict, request: Request):
+    from fastapi.responses import Response
+    from emergentintegrations.llm.openai.text_to_speech import OpenAITextToSpeech
+
+    first_name = str(payload.get("first_name") or "").strip()[:80]
+    try:
+        founder_number = int(payload.get("founder_number") or 0)
+    except (TypeError, ValueError):
+        founder_number = 0
+    raw_companion = str(payload.get("companion") or "").strip().lower()
+    companion = raw_companion if raw_companion in {"george", "georgia"} else "george"
+
+    if not first_name:
+        raise HTTPException(400, "first_name is required")
+    if founder_number <= 0 or founder_number > 100000:
+        raise HTTPException(400, "founder_number must be a positive integer")
+
+    # Light rate-limit — 30 per IP per hour. Well above any real
+    # visitor pattern (one submission → one auto-play + a replay),
+    # low enough to blunt a scripted TTS-cost drain.
+    xff = request.headers.get("x-forwarded-for") if request else None
+    if xff:
+        ip = xff.split(",")[0].strip() or "unknown"
+    else:
+        ip = (request.client.host if request and request.client else "unknown") or "unknown"
+    hour_ago_iso = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    try:
+        recent = await db.tts_rate_log.count_documents({"ip": ip, "created_at": {"$gt": hour_ago_iso}, "kind": "founding"})
+    except Exception:
+        recent = 0
+    if recent >= 30:
+        raise HTTPException(429, "Too many audio requests — please try again later.")
+    try:
+        await db.tts_rate_log.insert_one({"ip": ip, "kind": "founding", "created_at": now_iso()})
+    except Exception:
+        pass  # non-fatal — rate limiting is best-effort
+
+    # Voice map (matches /app/backend/scripts/generate_welcome_journey_audio.py)
+    voice = "ash" if companion == "george" else "nova"
+
+    # Say the number naturally: "number six", "number twenty-four",
+    # "number two hundred and fifty" — NOT "number zero zero zero six".
+    # OpenAI TTS handles integers well; pass without leading zeros.
+    line = f"Congratulations, {first_name}! You're officially Founding Member number {founder_number}."
+
+    key = os.getenv("EMERGENT_LLM_KEY")
+    if not key:
+        raise HTTPException(503, "TTS is unavailable right now.")
+    tts = OpenAITextToSpeech(api_key=key)
+    try:
+        audio_bytes = await tts.generate_speech(
+            text=line,
+            model="tts-1-hd",
+            voice=voice,  # type: ignore[arg-type]
+            speed=1.02,
+            response_format="mp3",
+        )
+    except Exception:
+        logger.exception("founding-member TTS synthesis failed")
+        raise HTTPException(502, "Could not generate the celebration audio.")
+
+    # 1-hour public cache — same (name, number, companion) will
+    # return byte-identical audio, so refreshing the success page or
+    # tapping Replay reuses the CDN copy for free.
+    return Response(
+        content=audio_bytes,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "public, max-age=3600, immutable"},
+    )
+
+
 # ── Admin: interest-registrations ────────────────────────────────────
 
 @api.get("/admin/interest-registrations")
