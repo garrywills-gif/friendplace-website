@@ -65,7 +65,8 @@
         "ACCESS_COARSE_LOCATION",
         "READ_MEDIA_IMAGES",
         "CAMERA",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -86,8 +87,14 @@
         }
       ],
       "expo-font",
-      "./plugins/withStripApsEnvironment",
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#0A2540"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

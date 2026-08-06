@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api, setAuthToken, registerUnauthorizedHandler } from "./api";
-import { registerForPush } from "./push";
+import { registerForPush, clearPushRegistration } from "./push";
 import { clearArrivalGates } from "@/src/components/george/GeorgeButterfly";
 
 export type User = {
@@ -89,10 +89,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(USER_KEY),
           AsyncStorage.getItem(TOKEN_KEY),
         ]);
-        if (rawU) try { setUser(JSON.parse(rawU) as User); } catch {}
+        let hydratedUserId: string | null = null;
+        if (rawU) try {
+          const u = JSON.parse(rawU) as User;
+          setUser(u);
+          hydratedUserId = u?.id || null;
+        } catch {}
         if (rawT) setToken(rawT);
         // Sync into api.ts cache so cold-start requests are authed.
         setAuthToken(rawT || null);
+        // iter155: re-register for push on every warm start too. The
+        // helper is idempotent (dedupes on user_id:device_token via
+        // AsyncStorage) so the network hit only happens when the OS
+        // rotated the token since we last saw it, or the user is new.
+        if (hydratedUserId) {
+          registerForPush(hydratedUserId).catch(() => {});
+        }
       } catch {}
       if (!cancelled) setLoading(false);
       clearTimeout(t);
@@ -186,6 +198,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // last_seen_at + clears manual status, giving every observer
           // an "offline" answer on their next 30 s status batch.
           try { await api.statusSignOff(); } catch { /* best-effort */ }
+          // iter155: clear the push-registration marker so the next login
+          // (potentially a different account on the same device) re-
+          // registers the token cleanly under the new user_id. SuprSend
+          // treats re-register as an upsert, so this transparently
+          // reassigns the device to whoever logs in next.
+          try { await clearPushRegistration(); } catch { /* best-effort */ }
           await persist(null, null);
         },
         refresh: async () => {
