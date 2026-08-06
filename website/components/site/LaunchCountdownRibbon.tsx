@@ -137,8 +137,8 @@ export function LaunchCountdownRibbon({ initial }: { initial: LaunchStatus | nul
   }
 
   return (
-    <div style={ribbon} role="region" aria-label="FriendPlace launch countdown">
-      <div style={inner}>
+    <div style={ribbon} role="region" aria-label="FriendPlace launch countdown" className="fp-countdown-ribbon">
+      <div style={inner} className="fp-countdown-inner">
         <span style={butterfly} aria-hidden><GeorgeButterflyMark size={22} /></span>
         <span style={label}>FriendPlace launches in</span>
         <span style={countdownGroup} aria-live="polite">
@@ -148,8 +148,22 @@ export function LaunchCountdownRibbon({ initial }: { initial: LaunchStatus | nul
           <span style={dot} aria-hidden>·</span>
           <TimeSegment value={view.minutes} label="Minutes" />
         </span>
-        <span style={tagline}>Every friendship starts with a hello.</span>
+        <span style={tagline} className="fp-countdown-tagline">Every friendship starts with a hello.</span>
       </div>
+      {/* Mobile compression (Garry, iter147) — the ribbon was
+          consuming ~140px of prime above-the-fold real estate on
+          iPhone, pushing the "Meet George or Georgia" pill below the
+          fold. Tighter vertical padding + smaller gap keeps the
+          countdown visible but reclaims ~50-60px for the hero. */}
+      <style>{`
+        @media (max-width: 720px) {
+          .fp-countdown-inner {
+            padding: 8px 16px !important;
+            gap: 10px !important;
+          }
+          .fp-countdown-tagline { display: none !important; }
+        }
+      `}</style>
     </div>
   );
 }

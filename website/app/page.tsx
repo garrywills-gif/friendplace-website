@@ -71,7 +71,7 @@ export default async function HomePage() {
         position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(180deg, #0A2540 0%, #12365B 100%)',
         color: '#FFFFFF', paddingTop: 96, paddingBottom: 120,
-      }}>
+      }} className="fp-hero">
         {/* soft teal glow behind the butterfly */}
         <div aria-hidden style={{
           position: 'absolute', right: '-10%', top: '-20%',
@@ -81,8 +81,8 @@ export default async function HomePage() {
         }} />
         <div className="container" style={{ position: 'relative', zIndex: 1 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 48, alignItems: 'center' }} className="hero-grid">
-            <div>
-              <div style={{
+            <div className="hero-copy">
+              <div className="hero-founding-pill" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 padding: '6px 14px', borderRadius: 999,
                 background: 'rgba(94,234,212,0.15)', border: '1px solid rgba(94,234,212,0.35)',
@@ -93,17 +93,17 @@ export default async function HomePage() {
                 </span>
                 Now welcoming Founding Members
               </div>
-              <h1 style={{ color: '#FFFFFF', marginBottom: 32, lineHeight: 1.05 }}>
+              <h1 className="hero-h1" style={{ color: '#FFFFFF', marginBottom: 32, lineHeight: 1.05 }}>
                 Find your <span style={{ color: '#5EEAD4' }}>people</span>.
               </h1>
-              <p style={{ fontSize: 22, color: '#FFFFFF', lineHeight: 1.5, marginBottom: 24, maxWidth: 560, fontWeight: 600 }}>
+              <p className="hero-short" style={{ fontSize: 22, color: '#FFFFFF', lineHeight: 1.5, marginBottom: 24, maxWidth: 560, fontWeight: 600 }}>
                 Real friendships. Real communities.<br />
                 Right where you live.
               </p>
-              <p style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.65, marginBottom: 40, maxWidth: 560 }}>
+              <p className="hero-long" style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.65, marginBottom: 40, maxWidth: 560 }}>
                 FriendPlace is where genuine friendships begin. Meet local people, discover welcoming communities and enjoy real conversations — without swiping, followers or popularity contests.
               </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+              <div className="hero-cta-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                 <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
                   Get the App →
                 </Link>
@@ -116,10 +116,17 @@ export default async function HomePage() {
                   visual level below the primary CTAs and fades in ~1.3s
                   after paint, so visitors get a moment to read the hero
                   before George politely steps forward. Not another
-                  navigation item — an intentional invitation. */}
+                  navigation item — an intentional invitation.
+
+                  On mobile we deliberately hoist this above the long
+                  descriptive paragraph and app-store CTAs (via CSS
+                  `order`) so the "Meet George or Georgia" button is
+                  visible without scrolling — it's one of FriendPlace's
+                  unique features and deserves to be seen first on
+                  small screens (Garry, iter147). */}
               <HeroInvitation />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div className="hero-butterfly-wrap" style={{ display: 'flex', justifyContent: 'center' }}>
               <div className="butterfly-float" style={{ position: 'relative' }}>
                 <div aria-hidden className="butterfly-glow" />
                 {/* OFFICIAL butterfly (transparent background) from the
@@ -157,6 +164,31 @@ export default async function HomePage() {
           }
           @media (max-width: 899px) {
             .hero-butterfly { width: 260px !important; }
+          }
+
+          /* ── Mobile hero compression (Garry, iter147) ────────────────
+             On iPhone the Meet George or Georgia invitation must be
+             visible without scrolling. We tighten paddings, compress
+             margins, and use flex order to hoist the invitation above
+             the long descriptive paragraph and app-store CTAs. DOM
+             order stays intentional for accessibility and SEO. */
+          @media (max-width: 720px) {
+            .fp-hero {
+              padding-top: 32px !important;
+              padding-bottom: 56px !important;
+            }
+            .hero-copy {
+              display: flex;
+              flex-direction: column;
+            }
+            .hero-founding-pill  { order: 1; margin-bottom: 14px !important; font-size: 12px !important; padding: 5px 12px !important; }
+            .hero-h1             { order: 2; margin-bottom: 12px !important; font-size: 40px !important; }
+            .hero-short          { order: 3; margin-bottom: 16px !important; font-size: 18px !important; }
+            .hero-copy .hero-invitation { order: 4; margin-top: 4px !important; margin-bottom: 20px !important; }
+            .hero-copy .hero-invitation-pill { padding: 13px 22px !important; font-size: 15px !important; }
+            .hero-long           { order: 5; margin-bottom: 24px !important; font-size: 16px !important; }
+            .hero-cta-row        { order: 6; }
+            .hero-butterfly-wrap { display: none !important; } /* Big brand butterfly duplicates the site-header butterfly on mobile; hide to reclaim ~260px of prime above-the-fold real estate. */
           }
 
           /* Gentle floating animation. The butterfly hovers like it is

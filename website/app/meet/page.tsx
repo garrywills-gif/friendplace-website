@@ -385,7 +385,14 @@ function MeetPageContent() {
     // ACTUAL visible viewport, so 42% of it puts the butterfly at a
     // consistent, comfortable position on every device.
     const viewportH = window.visualViewport?.height ?? window.innerHeight;
-    const targetY = viewportH * 0.42;
+    // Butterfly landing height. On mobile the butterfly used to land
+    // at 42% of the viewport, which visually overlapped the "Hello."
+    // line of speech starting at 40svh (Garry, iter147). Moving the
+    // landing point higher on narrow viewports gives the greeting
+    // text room to breathe and reads much more cleanly. Desktop
+    // keeps 42% because the composition is drawn for that.
+    const isMobile = window.innerWidth < 720;
+    const targetY = viewportH * (isMobile ? 0.30 : 0.42);
 
     // Arrival-from-concierge: butterfly is ALREADY at the target
     // position (the concierge overlay just brought it there). Set
