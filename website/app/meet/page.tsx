@@ -63,18 +63,26 @@ const T = {
   // ─── The three emotional moments (Garry, iter147, locked) ────────
   // The visitor has just chosen George or Georgia only seconds ago.
   // We do NOT re-introduce the host — that would repeat what they
-  // already know. Instead we deliver two calm, distinct beats and
-  // then a considered pause before the "Come inside" button appears:
+  // already know. The chosen host speaks one warm greeting delivered
+  // in three calm beats, then the "Come inside…" button appears.
   //
-  //   Welcome.                           ← t = SAY_WELCOME
-  //   I'm so glad you found us.          ← t = SAY_GLAD   (1.7s later)
-  //   [Come inside]                      ← t = CTAS_APPEAR (2.3s later)
+  //   Welcome.                                       ← SAY_WELCOME
+  //   Hi… I'm so glad you found us.                  ← SAY_GLAD  (1.4s later)
+  //   Come inside and let me show you around.        ← SAY_SHOW  (1.6s later)
+  //   [Come inside…]                                 ← CTAS_APPEAR (1.6s later)
   //
-  // Each moment has room to land before the next begins. Nothing
-  // rushed. Nothing overlapping. Meet → Welcome → Begin.
-  SAY_WELCOME:    8500,   // text: "Welcome."             (audio disabled)
-  SAY_GLAD:      10200,   // text: "I'm so glad you found us."
-  CTAS_APPEAR:   12500,   // "Come inside" button fades in — Begin
+  // The pauses after landing are DELIBERATELY BRIEF (0.8s between
+  // landing and the first word) — Garry (iter147, feedback from
+  // real-device testing): "There is too much blank time after
+  // choosing. The butterfly should begin its movement much sooner
+  // and the pauses should sit after meaningful moments, not before
+  // anything happens."
+  //
+  // Meet → Welcome → Begin. Each moment complete before the next.
+  SAY_WELCOME:    6800,   // "Welcome."                       (0.8s after landing)
+  SAY_GLAD:       8200,   // "Hi… I'm so glad you found us."  (1.4s later)
+  SAY_SHOW:       9800,   // "Come inside and let me show you around." (1.6s later)
+  CTAS_APPEAR:   11400,   // "Come inside…" button fades in — Begin (1.6s later)
 } as const;
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -118,10 +126,22 @@ function MeetPageContent() {
 
   // Wait for hydration so SSR and first client render match — otherwise
   // React complains and the flight can start against the wrong DOM.
+  //
+  // /meet is the CHOICE moment. Every visit must show the choice
+  // screen — even if the visitor previously picked George or Georgia
+  // on an earlier visit and the choice is still in the companion
+  // context. Garry (iter147): "The Meet moment is the visitor's
+  // decision to invite a guide in. It is not a page they can be
+  // routed past on a subsequent visit."
+  //
+  // The only route that skips the choice is the concierge overlay —
+  // when a visitor picks their guide inside the overlay, `?from=
+  // concierge` is passed and we start the greeting with the butterfly
+  // already landed (the flight happened inside the overlay).
   const bootPhase: Phase = !ready
     ? 'idle'
-    : companion
-      ? (fromConcierge ? 'landed' : 'idle')  // arrived-from-concierge starts at landed
+    : (fromConcierge && companion)
+      ? 'landed'
       : 'awaiting-choice';
   const [phase, setPhase] = useState<Phase>(bootPhase);
   const [textStage, setTextStage] = useState<0 | 1 | 2 | 3 | 4>(0);
@@ -515,24 +535,23 @@ function MeetPageContent() {
     // The host has already been chosen. We do NOT re-introduce them
     // by name — the visitor knows exactly who they picked seconds
     // ago (Garry, iter147, locked). Instead the host simply arrives,
-    // takes a breath, and welcomes the visitor in two calm beats.
+    // takes a breath, and welcomes the visitor with one warm
+    // greeting delivered in three calm beats.
     //
     // Audio is INTENTIONALLY SILENT here. The existing hello/intro/
     // invite clips no longer match the on-screen copy, and Garry has
-    // asked for no audio rather than mismatched audio: "When we
-    // record new audio later, it should match the final wording
-    // exactly." Once new clips exist we drop them in behind
-    // SAY_WELCOME / SAY_GLAD respectively.
+    // asked for no audio rather than mismatched audio.
     at(T.SAY_WELCOME, () => {
       setPhase('greeting');
       setTextStage(1);
     });
     at(T.SAY_GLAD, () => setTextStage(2));
+    at(T.SAY_SHOW, () => setTextStage(3));
 
     // ─── Begin moment ──────────────────────────────────────────────
-    // A considered pause after the welcome, then the "Come inside"
-    // button fades in on its own. The visitor now has time to feel
-    // the welcome before being invited to step inside.
+    // A considered pause after the invitation, then the "Come
+    // inside…" button fades in on its own. The visitor now has time
+    // to feel the welcome before being invited to step inside.
     at(T.CTAS_APPEAR, () => setPhase('complete'));
 
     // Flight #2 (Welcome \u2192 Tour) is triggered by the visitor
@@ -592,15 +611,24 @@ function MeetPageContent() {
   // only for first-time visitors, and only up to the moment the
   // butterfly has landed. From landing onwards the middle of the
   // screen belongs to George: no competing plate, no visual clutter.
-  // Locked with Garry (Nov 2026): "Once someone's inside the room,
-  // they shouldn't still see the front door."
+  // The choice plate must fade out the moment the visitor makes
+  // their choice — otherwise it visually covers the butterfly's
+  // flight and the whole "tap → butterfly responds" cause-and-effect
+  // is invisible. Garry (iter147): "Tap George or Georgia, and
+  // almost immediately the butterfly lifts off. The plate should
+  // never be in the way of that response."
+  //
+  // 'idle' is the ~30-100ms bridge between the tap and the first
+  // choreography frame — we keep the plate up during that brief
+  // window so the choice feels acknowledged before it slides away.
+  // From 'noticing' onward the butterfly is on stage and the plate
+  // is out of the way.
   //
   // Kept mounted (opacity 0) rather than unmounted so the layout
   // height never jumps under the visitor's feet during the flight.
   const showPlate =
     phase === 'awaiting-choice' ||
-    (pendingCompanion !== null &&
-      (phase === 'idle' || phase === 'noticing' || phase === 'flying'));
+    (pendingCompanion !== null && phase === 'idle');
   const choicePlateOpacity = showPlate ? 1 : 0;
 
   // Note (Dec 2026, locked with Garry): the FriendPlace logo remains
@@ -677,12 +705,12 @@ function MeetPageContent() {
       >
         <div style={greetingStack}>
           {/* ─── Welcome moment ─────────────────────────────────────
-              Two calm beats, delivered one after the other with a
-              deliberate pause between them. The visitor knows who
-              they picked — the host does not re-introduce themselves.
-              Locked with Garry (iter147). */}
-          <LineOfSpeech text="Welcome."                 visible={textStage >= 1 && phase !== 'leading'} isLead />
-          <LineOfSpeech text="I'm so glad you found us." visible={textStage >= 2 && phase !== 'leading'} />
+              One warm greeting delivered in three calm beats. The
+              visitor knows who they picked — the host does not
+              re-introduce themselves. Locked with Garry (iter147). */}
+          <LineOfSpeech text="Welcome."                                        visible={textStage >= 1 && phase !== 'leading'} isLead />
+          <LineOfSpeech text={'Hi\u2026 I\u2019m so glad you found us.'}       visible={textStage >= 2 && phase !== 'leading'} />
+          <LineOfSpeech text="Come inside and let me show you around."         visible={textStage >= 3 && phase !== 'leading'} />
         </div>
 
         {/* CTAs — fade in only after the greeting is fully delivered
@@ -1292,7 +1320,10 @@ const choiceOuter: React.CSSProperties = {
   // screens. The full 72px is preserved on ≥720px viewports via the
   // media query in globals.css.
   padding: '24px 20px 24px',
-  transition: 'opacity 1200ms cubic-bezier(0.4, 0, 0.2, 1)',
+  // Fade out quickly the moment the visitor makes their choice so the
+  // butterfly's flight is visible almost immediately — 400ms feels
+  // responsive without being abrupt (Garry, iter147).
+  transition: 'opacity 400ms cubic-bezier(0.4, 0, 0.2, 1)',
   willChange: 'opacity',
 };
 
