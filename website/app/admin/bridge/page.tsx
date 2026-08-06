@@ -2,6 +2,7 @@
 
 import { AdminShell } from '@/components/admin/AdminShell';
 import { SignalFeed } from '@/components/mcgs/SignalFeed';
+import { BridgeCategoryTiles } from '@/components/mcgs/BridgeCategoryTiles';
 import { GeorgePresenceCard } from '@/components/mcgs/GeorgePresenceCard';
 import { GeorgeSuggestionCard } from '@/components/george/GeorgeSuggestionCard';
 import { MorningBriefing } from '@/components/mcgs/MorningBriefing';
@@ -32,6 +33,8 @@ export default function BridgePage() {
         <div className="cms-two-col">
           {/* Left / main column */}
           <div className="cms-grid-child">
+            <BridgeCategoryTiles />
+
             <MorningBriefing onAsk={dispatchAsk} />
 
             <FoundingMembersCard />

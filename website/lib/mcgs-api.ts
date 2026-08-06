@@ -137,22 +137,44 @@ export interface SystemHealth {
 
 // ---------- API surface ----------
 
+export interface BridgeCategoryTile {
+  key: string;
+  label: string;
+  short: string;
+  producers: string[];
+  open: number;
+  oldest_waiting_seconds: number | null;
+  oldest_waiting_at: string | null;
+}
+
+export interface BridgeSummary {
+  categories: BridgeCategoryTile[];
+  milestones: { open: number };
+  total_actionable: number;
+  computed_at: string;
+}
+
 export const mcgsApi = {
   counts: () => req<Counts>('GET', '/mcgs/counts'),
+  bridgeSummary: () => req<BridgeSummary>('GET', '/mcgs/bridge/summary'),
   systemHealth: (opts: { fresh?: boolean } = {}) =>
     req<SystemHealth>('GET', `/mcgs/system-health${opts.fresh ? '?fresh=1' : ''}`),
-  listSignals: (params: { limit?: number; status?: string[]; priority?: Priority[] } = {}) => {
+  listSignals: (params: { limit?: number; status?: string[]; priority?: Priority[]; producer?: string[]; origin?: string[] } = {}) => {
     const q = new URLSearchParams();
     if (params.limit) q.set('limit', String(params.limit));
     (params.status || []).forEach(s => q.append('status', s));
     (params.priority || []).forEach(p => q.append('priority', p));
+    (params.producer || []).forEach(p => q.append('producer', p));
+    (params.origin || []).forEach(o => q.append('origin', o));
     return req<{ items: Signal[]; count: number }>('GET', `/mcgs/signals?${q.toString()}`);
   },
-  listCases: (params: { limit?: number; status?: string[]; priority?: Priority[] } = {}) => {
+  listCases: (params: { limit?: number; status?: string[]; priority?: Priority[]; producer?: string[]; origin?: string[] } = {}) => {
     const q = new URLSearchParams();
     if (params.limit) q.set('limit', String(params.limit));
     (params.status || []).forEach(s => q.append('status', s));
     (params.priority || []).forEach(p => q.append('priority', p));
+    (params.producer || []).forEach(p => q.append('producer', p));
+    (params.origin || []).forEach(o => q.append('origin', o));
     return req<{ items: Case[]; count: number }>('GET', `/mcgs/cases?${q.toString()}`);
   },
   getCase: (id: string) => req<Case & { signals: Signal[] }>('GET', `/mcgs/cases/${id}`),

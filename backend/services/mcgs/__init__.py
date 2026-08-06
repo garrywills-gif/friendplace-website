@@ -22,6 +22,18 @@ from .signals import (
     get_case,
     compute_counts,
 )
+from .bridge_categories import (
+    BRIDGE_CATEGORIES,
+    INFORMATIONAL_PRODUCERS,
+    PRODUCER_TO_CATEGORY,
+    category_for_producer,
+    compute_bridge_summary,
+    default_origin_for,
+    looks_like_test_submission,
+    raise_member_complaint,
+    raise_safety_review,
+    raise_app_feedback,
+)
 from .audit import log_activity
 
 __all__ = [
@@ -38,4 +50,14 @@ __all__ = [
     "get_case",
     "compute_counts",
     "log_activity",
+    "BRIDGE_CATEGORIES",
+    "INFORMATIONAL_PRODUCERS",
+    "PRODUCER_TO_CATEGORY",
+    "category_for_producer",
+    "compute_bridge_summary",
+    "default_origin_for",
+    "looks_like_test_submission",
+    "raise_member_complaint",
+    "raise_safety_review",
+    "raise_app_feedback",
 ]

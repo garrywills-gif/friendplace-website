@@ -396,6 +396,24 @@ async def _count_support_tickets(db: Any, args: dict) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Bridge workload summary (iter155 Phase 3)
+# ---------------------------------------------------------------------------
+#
+# Single source of truth for George's "what needs my attention?" answer.
+# Uses the same six-category mapping as the Bridge tiles so his numbers
+# always match what the admin sees on screen.
+
+@register(
+    "bridge_summary",
+    "Get the six-category Bridge workload summary — the exact numbers behind The Bridge's tiles. Categories: event_approvals, notice_approvals, member_complaints, safety_reviews, app_feedback, support_tickets. Milestone signals are reported separately (informational only, not actionable). Use this to answer 'what needs my attention?' — always call this rather than the raw count_signals/count_cases tools when the admin asks for a workload overview.",
+    args={},
+)
+async def _bridge_summary(db: Any, args: dict) -> dict:
+    from services.mcgs import compute_bridge_summary
+    return await compute_bridge_summary(db)
+
+
+# ---------------------------------------------------------------------------
 # Members
 # ---------------------------------------------------------------------------
 

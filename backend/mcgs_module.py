@@ -1239,11 +1239,12 @@ def build_router(db) -> APIRouter:
         category: Optional[list[str]] = Query(default=None),
         assignee_id: Optional[str] = Query(default=None),
         origin: Optional[list[str]] = Query(default=None),
+        producer: Optional[list[str]] = Query(default=None),
         limit: int = Query(default=50, ge=1, le=200),
     ):
         rows = await list_signals(
             db, status=status, priority=priority, category=category,
-            assignee_id=assignee_id, origin=origin, limit=limit,
+            assignee_id=assignee_id, origin=origin, producer=producer, limit=limit,
         )
         return {"items": rows, "count": len(rows)}
 
@@ -1288,11 +1289,12 @@ def build_router(db) -> APIRouter:
         category: Optional[list[str]] = Query(default=None),
         assignee_id: Optional[str] = Query(default=None),
         origin: Optional[list[str]] = Query(default=None),
+        producer: Optional[list[str]] = Query(default=None),
         limit: int = Query(default=50, ge=1, le=200),
     ):
         rows = await list_cases(
             db, status=status, priority=priority, category=category,
-            assignee_id=assignee_id, origin=origin, limit=limit,
+            assignee_id=assignee_id, origin=origin, producer=producer, limit=limit,
         )
         return {"items": rows, "count": len(rows)}
 
@@ -1410,6 +1412,19 @@ def build_router(db) -> APIRouter:
     @router.get("/mcgs/counts")
     async def api_counts(admin: dict = Depends(current_admin)):
         return await compute_counts(db)
+
+    # =====================================================================
+    # /api/mcgs/bridge/summary  \u2014 six-tile Bridge summary (iter155 Phase 3)
+    # =====================================================================
+
+    @router.get("/mcgs/bridge/summary")
+    async def api_bridge_summary(admin: dict = Depends(current_admin)):
+        """Return the six-category summary for The Bridge tiles.
+
+        See services/mcgs/bridge_categories.py for the mapping.
+        """
+        from services.mcgs import compute_bridge_summary
+        return await compute_bridge_summary(db)
 
     # =====================================================================
     # /api/mcgs/system-health — operational visibility across every surface

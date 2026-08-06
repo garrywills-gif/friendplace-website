@@ -7279,7 +7279,11 @@ async def create_notice(body: Notice):
     # iter155: tag every runtime notice as production so it flows through
     # the live Bridge queue. Test/seed inserts explicitly set origin='test'/
     # 'seed' via the fixtures (see /app/backend/tests/conftest.py::TEST_MARKER).
-    doc.setdefault("origin", "production")
+    # Defensive: title/body prefixed with TEST_ / PROP_ auto-tags as test
+    # so a test suite POSTing through the real endpoint can't leak into
+    # live counts.
+    from services.mcgs import default_origin_for
+    doc["origin"] = default_origin_for(body.title, body.body)
     if held:
         # Persist with the hold flags so the shared MCGS queue can
         # find it and admins can approve / reject. `auto_hidden` keeps
@@ -7321,6 +7325,7 @@ async def create_notice(body: Notice):
                 source="user_report",
                 injection_check_fields=[body.title or "", body.body or ""],
                 triage_fn=_mcgs_triage,
+                origin=doc.get("origin", "production"),
             )
         except Exception:
             logger.exception("notice moderation signal producer failed for %s", doc["id"])
@@ -7606,6 +7611,23 @@ async def _apply_moderation_policy(target_user_id: str) -> Dict:
             "body": f"{target.get('username','?')} reached {MODERATION_RESTRICT_THRESHOLD} unique reports in {MODERATION_WINDOW_DAYS} days. Awaiting admin review.",
             "ref_user_id": target_user_id,
         })
+        # iter155 Phase 3: raise a Bridge Signal in the "Safety / Ban
+        # Reviews" category. Best-effort — never blocks the auto-restrict.
+        try:
+            from services.mcgs import raise_safety_review
+            from services.george import triage_signal_with_haiku as _mcgs_triage
+            await raise_safety_review(
+                db,
+                target_user_id=target_user_id,
+                action="auto_restrict",
+                reason=f"Reached {MODERATION_RESTRICT_THRESHOLD}+ unique reports in {MODERATION_WINDOW_DAYS} days. Requires admin review.",
+                triggered_by="system",
+                unique_reporters=len(unique_reporters),
+                priority="P0",
+                triage_fn=_mcgs_triage,
+            )
+        except Exception:
+            logger.exception("safety_review signal failed for auto_restrict on %s", target_user_id)
         out["restricted"] = True
         out["flagged"] = True
         out["profile_hidden"] = True
@@ -7638,6 +7660,23 @@ async def _apply_moderation_policy(target_user_id: str) -> Dict:
             "body": f"{target.get('username','?')} reached {MODERATION_FLAG_THRESHOLD} unique reports in {MODERATION_WINDOW_DAYS} days. Profile is hidden from listings.",
             "ref_user_id": target_user_id,
         })
+        # iter155 Phase 3: raise a Bridge Signal in the "Safety / Ban
+        # Reviews" category.
+        try:
+            from services.mcgs import raise_safety_review
+            from services.george import triage_signal_with_haiku as _mcgs_triage
+            await raise_safety_review(
+                db,
+                target_user_id=target_user_id,
+                action="auto_hide",
+                reason=f"{MODERATION_FLAG_THRESHOLD}+ unique reports in {MODERATION_WINDOW_DAYS} days. Profile auto-hidden pending admin review.",
+                triggered_by="system",
+                unique_reporters=len(unique_reporters),
+                priority="P1",
+                triage_fn=_mcgs_triage,
+            )
+        except Exception:
+            logger.exception("safety_review signal failed for auto_hide on %s", target_user_id)
         out["flagged"] = True
         out["profile_hidden"] = True
     return out
@@ -7721,6 +7760,28 @@ async def submit_report(body: SubmitReportBody):
         "body": f"{(reporter or {}).get('first_name') or (reporter or {}).get('username','?')} reported {(target or {}).get('username','?')} for {body.reason}",
         "ref_user_id": target_user_id or "",
     })
+
+    # iter155 Phase 3: also raise a Bridge Signal in the "Member Complaints"
+    # category. Best-effort — never blocks report persistence.
+    try:
+        from services.mcgs import raise_member_complaint
+        from services.george import triage_signal_with_haiku as _mcgs_triage
+        await raise_member_complaint(
+            db,
+            report_id=rep["id"],
+            reporter_id=body.reporter_id,
+            target_user_id=target_user_id,
+            target_type=body.target_type,
+            target_id=body.target_id,
+            reason=body.reason,
+            notes=body.notes,
+            reporter_name=(reporter or {}).get("first_name") or (reporter or {}).get("username"),
+            target_name=(target or {}).get("username"),
+            priority="P1" if reporter_priority == "high" else "P2",
+            triage_fn=_mcgs_triage,
+        )
+    except Exception:
+        logger.exception("member_complaint signal failed for report %s", rep["id"])
 
     # Auto-restriction trigger.
     restricted = await _maybe_auto_restrict(target_user_id) if target_user_id else False
@@ -7967,12 +8028,15 @@ async def submit_support_ticket(body: SupportTicketBody):
     # deterministically from the UUID so we can still map back if we
     # only have the display id (e.g. from a user email reply).
     display_id = "FP-" + ticket_id.replace("-", "")[:6].upper()
+    # iter155: default_origin_for auto-tags TEST_ / PROP_ prefixed
+    # submissions as 'test' for forward-safety.
+    from services.mcgs import default_origin_for as _default_origin
     doc = {
         "id": ticket_id, "display_id": display_id,
         "user_id": body.user_id, "user_email": body.user_email,
         "category": body.category, "subject": body.subject, "message": body.message,
         "status": "open",                 # open | resolved
-        "origin": "production",           # iter155 – Bridge cleanup
+        "origin": _default_origin(body.subject, body.message),
         "created_at": now_iso(), "updated_at": now_iso(),
     }
     await db.support_tickets.insert_one(doc)
@@ -8003,6 +8067,7 @@ async def submit_support_ticket(body: SupportTicketBody):
             source="user_report",
             injection_check_fields=[body.subject, body.message],
             triage_fn=_mcgs_triage,
+            origin=doc.get("origin", "production"),
         )
     except Exception:
         import logging as _logging
@@ -8171,6 +8236,131 @@ async def admin_list_tickets(admin_id: str, status: str = "all", _me: dict = Dep
 async def admin_resolve_ticket(ticket_id: str, body: AdminActionBody, _me: dict = Depends(current_admin)):
     await _require_admin(body.admin_id)
     await db.support_tickets.update_one({"id": ticket_id}, {"$set": {"status": "resolved", "updated_at": now_iso(), "admin_note": body.note}})
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------------
+# App Feedback (iter155 Phase 3)
+# ------------------------------------------------------------------------
+#
+# In-app feedback submissions (bug / idea / praise / other). Persists to
+# ``app_feedback`` collection and raises a Bridge Signal in the
+# "App Feedback" tile so admins can triage without leaving The Bridge.
+
+class AppFeedbackBody(BaseModel):
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    category: str = "other"       # bug | idea | praise | other
+    subject: str = ""
+    message: str = ""
+    app_version: Optional[str] = None
+    platform: Optional[str] = None    # ios | android | web
+
+
+APP_FEEDBACK_CATEGORIES = {"bug", "idea", "praise", "other"}
+
+
+@api.post("/feedback")
+async def submit_app_feedback(body: AppFeedbackBody):
+    # Rate-limit anonymous spamming: 20 items / hour per user_id or IP-less key.
+    rl_key = body.user_id or "anon"
+    rate_limit(f"feedback:{rl_key}", max_calls=20, window_seconds=3600)
+
+    category = body.category if body.category in APP_FEEDBACK_CATEGORIES else "other"
+    subject = (body.subject or "").strip()[:160]
+    message = (body.message or "").strip()[:4000]
+    if not (subject or message):
+        raise HTTPException(400, "subject or message is required")
+
+    fb_id = nid()
+    display_id = "FB-" + fb_id.replace("-", "")[:6].upper()
+    from services.mcgs import default_origin_for as _default_origin
+    doc = {
+        "id": fb_id,
+        "display_id": display_id,
+        "user_id": body.user_id,
+        "user_email": body.user_email,
+        "category": category,
+        "subject": subject,
+        "message": message,
+        "app_version": body.app_version,
+        "platform": body.platform,
+        "status": "open",             # open | triaged | resolved
+        "origin": _default_origin(subject, message),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.app_feedback.insert_one(doc)
+
+    # Look up submitter for nicer subject on the Bridge signal.
+    user_name = None
+    if body.user_id:
+        u = await db.users.find_one({"id": body.user_id}, {"_id": 0, "first_name": 1, "username": 1})
+        if u:
+            user_name = u.get("first_name") or u.get("username")
+
+    # iter155 Phase 3: raise a Bridge Signal under "App Feedback".
+    try:
+        from services.mcgs import raise_app_feedback
+        from services.george import triage_signal_with_haiku as _mcgs_triage
+        # Bug reports get bumped to P2 so they don't hide behind praise.
+        pri = "P2" if category == "bug" else "P3"
+        await raise_app_feedback(
+            db,
+            feedback_id=fb_id,
+            user_id=body.user_id,
+            user_name=user_name,
+            category=category,
+            subject=subject or f"({category})",
+            message=message,
+            app_version=body.app_version,
+            platform=body.platform,
+            priority=pri,
+            triage_fn=_mcgs_triage,
+        )
+    except Exception:
+        logger.exception("app_feedback signal failed for %s", fb_id)
+
+    # Gentle admin ping.
+    await _notify_admins({
+        "type": "app_feedback_new",
+        "title": f"New app feedback [{category}]",
+        "body": subject or (message[:80] + ("…" if len(message) > 80 else "")),
+        "ref_id": fb_id,
+    })
+
+    return {
+        "ok": True,
+        "id": fb_id,
+        "display_id": display_id,
+        "message": "Thank you — your feedback landed with the team.",
+    }
+
+
+@api.get("/admin/feedback")
+async def admin_list_feedback(admin_id: str, status: str = "all", _me: dict = Depends(current_admin)):
+    await _require_admin(admin_id)
+    q: Dict = {}
+    if status and status != "all":
+        q["status"] = status
+    rows = await db.app_feedback.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    user_ids = [r.get("user_id") for r in rows if r.get("user_id")]
+    users_map = {}
+    if user_ids:
+        async for u in db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1}):
+            users_map[u["id"]] = u
+    for r in rows:
+        r["user"] = users_map.get(r.get("user_id"))
+    return {"feedback": rows}
+
+
+@api.post("/admin/feedback/{feedback_id}/resolve")
+async def admin_resolve_feedback(feedback_id: str, body: AdminActionBody, _me: dict = Depends(current_admin)):
+    await _require_admin(body.admin_id)
+    await db.app_feedback.update_one(
+        {"id": feedback_id},
+        {"$set": {"status": "resolved", "updated_at": now_iso(), "admin_note": body.note}},
+    )
     return {"ok": True}
 
 

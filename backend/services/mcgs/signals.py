@@ -569,6 +569,7 @@ async def list_signals(
     category: Optional[list[str]] = None,
     assignee_id: Optional[str] = None,
     origin: Optional[list[str]] = None,
+    producer: Optional[list[str]] = None,
     limit: int = 50,
 ) -> list[dict]:
     q: dict = {}
@@ -583,6 +584,8 @@ async def list_signals(
         q["category"] = {"$in": category}
     if assignee_id is not None:
         q["assignee_id"] = assignee_id
+    if producer:
+        q["producer"] = {"$in": producer}
     # Origin filter defaults to production-only. Callers wanting to include
     # seed/test/diagnostic rows must pass origin=["production","test",...]
     # or origin=["*"] explicitly. This is *strict* by design so no
@@ -604,6 +607,7 @@ async def list_cases(
     category: Optional[list[str]] = None,
     assignee_id: Optional[str] = None,
     origin: Optional[list[str]] = None,
+    producer: Optional[list[str]] = None,
     limit: int = 50,
 ) -> list[dict]:
     q: dict = {}
@@ -621,6 +625,15 @@ async def list_cases(
         q["origin"] = "production"
     elif origin and "*" not in origin:
         q["origin"] = {"$in": origin}
+    if producer:
+        # Cases don't carry producer directly. Derive the set of case_ids
+        # from signals matching the producer filter, then constrain the
+        # case query. Case_key prefix is a shorthand fallback for stable
+        # 1:1 producer→prefix mapping but we prefer the signal join.
+        sig_ids = await db.mcgs_signals.distinct(
+            "case_id", {"producer": {"$in": producer}},
+        )
+        q["id"] = {"$in": sig_ids}
     cur = db.mcgs_cases.find(q, {"_id": 0}).sort([("priority", 1), ("updated_at", -1)])
     return await cur.to_list(max(1, min(200, limit)))
 
