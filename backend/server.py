@@ -10310,16 +10310,33 @@ async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
     logger.info("ws_user CONNECT peer=%s room=%s room_size_now=%d", peer, room, room_size)
     # iter154-fix: the WS itself is authoritative proof-of-presence.
     # Update `last_seen_at` on connect + on every subsequent ping so
-    # a user with an active socket ALWAYS shows online, even if the
-    # HTTP heartbeat path (POST /api/status/heartbeat) is delayed or
-    # missed by a stale client build.
-    try:
-        await db.users.update_one(
-            {"id": user_id},
-            {"$set": {"last_seen_at": now_iso()}},
-        )
-    except Exception:
-        pass
+    # a user with an active socket ALWAYS shows online. We mirror to
+    # BOTH presence collections:
+    #   * member_status  — modern; drives the mobile status UI
+    #   * db.users        — legacy; drives Chats list / DM peer chips
+    # until we consolidate the two systems post-launch. Locked with
+    # Garry (iter154 real-device fix). RESPECTS privacy=invisible:
+    # we still update last_seen (so re-emerging from invisible is
+    # instant) but the read-side `_status_from` short-circuits to
+    # offline for invisible users.
+    async def _touch_presence():
+        try:
+            iso = now_iso()
+            await db.users.update_one({"id": user_id}, {"$set": {"last_seen_at": iso}})
+        except Exception:
+            pass
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            aware = _dt.now(_tz.utc)
+            await db.member_status.update_one(
+                {"user_id": user_id},
+                {"$set": {"last_seen_at": aware, "updated_at": aware},
+                 "$setOnInsert": {"user_id": user_id}},
+                upsert=True,
+            )
+        except Exception:
+            pass
+    await _touch_presence()
     try:
         await websocket.send_json({"type": "hello", "server_time": now_iso()})
     except Exception:
@@ -10333,15 +10350,9 @@ async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
                 continue
             if (payload or {}).get("type") == "ping":
                 # Every ping is also a presence heartbeat — refreshes
-                # last_seen_at and confirms the socket is alive to any
-                # proxy in between (iter154 real-device fix).
-                try:
-                    await db.users.update_one(
-                        {"id": user_id},
-                        {"$set": {"last_seen_at": now_iso()}},
-                    )
-                except Exception:
-                    pass
+                # last_seen_at in BOTH collections and confirms the
+                # socket is alive to any proxy in between.
+                await _touch_presence()
                 try:
                     await websocket.send_json({"type": "pong", "server_time": now_iso()})
                 except Exception:

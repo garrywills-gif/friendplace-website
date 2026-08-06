@@ -178,7 +178,16 @@ async def set_manual(db, user_id: str, status: Optional[str]) -> dict:
 
 
 async def heartbeat(db, user_id: str) -> None:
-    """Bump last_seen_at. Called every 60s from the client while foregrounded."""
+    """Bump last_seen_at. Called every 60s from the client while foregrounded.
+
+    iter154 (June 2026): the DM/Chats list, coffee-table peer view and
+    several older endpoints read presence from `db.users.last_seen_at`
+    — a legacy collection separate from `member_status`. Writing to
+    just `member_status` here silently left every "who's online" surface
+    off by the age of the last DB write. We mirror the timestamp to
+    `db.users.last_seen_at` on every heartbeat so BOTH systems stay in
+    sync until we eventually consolidate them. Locked with Garry.
+    """
     now = _utc_now()
     await db[COLL].update_one(
         {"user_id": user_id},
@@ -188,6 +197,13 @@ async def heartbeat(db, user_id: str) -> None:
         },
         upsert=True,
     )
+    # Mirror to the legacy users.last_seen_at column. Best-effort —
+    # a failure here must not fail the heartbeat because member_status
+    # (the modern collection) has already been updated above.
+    try:
+        await db.users.update_one({"id": user_id}, {"$set": {"last_seen_at": now.isoformat()}})
+    except Exception:
+        pass
 
 
 async def sign_off(db, user_id: str) -> None:
