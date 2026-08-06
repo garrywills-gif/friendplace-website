@@ -1,3 +1,12 @@
+/* ─────────────────────────────────────────────────────────────
+ * 🔒 APPROVED BASELINE — iter152, June 2026
+ *   /features is the LAST tour page. The grid MUST NOT contain
+ *   a "Founding Members" tile — the reveal is post-registration
+ *   only. TourEnding at the bottom is George's only spoken beat
+ *   between /meet and /register-interest. Both are LOCKED.
+ *   See /app/website/APPROVED_ONBOARDING_JOURNEY.md.
+ * ─────────────────────────────────────────────────────────── */
+
 import { cms } from '@/lib/api';
 import { TourEnding } from '@/components/TourNav';
 import TapMeButterfly from '@/components/TapMeButterfly';

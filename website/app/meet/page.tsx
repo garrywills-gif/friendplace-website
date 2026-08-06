@@ -1,5 +1,14 @@
 'use client';
 
+/* ─────────────────────────────────────────────────────────────
+ * 🔒 APPROVED BASELINE — iter152, June 2026
+ *   Timings, choreography, voice cues and choice-moment logic
+ *   on this page are LOCKED. Real-device iPhone Safari signed
+ *   off by Garry. See /app/website/APPROVED_ONBOARDING_JOURNEY.md
+ *   before changing ANYTHING in this file — including a "small"
+ *   millisecond tweak, a copy adjustment, or a comment refactor.
+ * ─────────────────────────────────────────────────────────── */
+
 /**
  * /meet — the centrepiece of FriendPlace.
  *

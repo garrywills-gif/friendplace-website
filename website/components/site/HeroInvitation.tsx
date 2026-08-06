@@ -1,5 +1,12 @@
 'use client';
 
+/* ─────────────────────────────────────────────────────────────
+ * 🔒 APPROVED BASELINE — iter152, June 2026
+ *   Hero pill arrival choreography, float animation, caption
+ *   follow-on and reduced-motion path are LOCKED.
+ *   See /app/website/APPROVED_ONBOARDING_JOURNEY.md.
+ * ─────────────────────────────────────────────────────────── */
+
 /**
  * HeroInvitation — the hero-level "Meet George or Georgia" pill.
  *

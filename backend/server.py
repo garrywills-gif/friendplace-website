@@ -10594,6 +10594,11 @@ def _render_ryi_confirmation_text(first_name: str, companion: str) -> str:
 async def public_register_interest(payload: dict, request: Request):
     """Public "Register Your Interest" submission (no auth).
 
+    🔒 APPROVED BASELINE — iter152, June 2026
+       Founding Member number allocation, dedup window, email
+       side-effects and response shape are LOCKED. See
+       /app/website/APPROVED_ONBOARDING_JOURNEY.md before changing.
+
     Persists to `interest_registrations` and fires a warm confirmation
     email from the visitor's chosen companion. Idempotent within 24h so
     the visitor never gets duplicate confirmations from double-clicks or
@@ -10838,6 +10843,11 @@ async def public_register_interest(payload: dict, request: Request):
 
 
 # ── Public: Founding-Member celebration TTS ─────────────────────────
+#
+# 🔒 APPROVED BASELINE — iter152, June 2026
+#    Spoken line, voice map (Ash/Nova), rate limit and Cache-Control
+#    are LOCKED. Do not change without Garry's sign-off. See
+#    /app/website/APPROVED_ONBOARDING_JOURNEY.md.
 #
 # The Congratulations page auto-plays a single spoken line in the
 # host's voice: "Congratulations, {first_name}! You're officially

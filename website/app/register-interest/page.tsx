@@ -1,5 +1,15 @@
 'use client';
 
+/* ─────────────────────────────────────────────────────────────
+ * 🔒 APPROVED BASELINE — iter152, June 2026
+ *   The Founding Member reveal (celebration line → number card →
+ *   auto-playing personalised TTS → replay pill → farewell → two
+ *   ✅ ticks → "Continue Exploring →") is LOCKED. Scroll-to-top
+ *   on `done`, preview-aware whyHref, and Ash/Nova voice mapping
+ *   are all approved. See /app/website/APPROVED_ONBOARDING_JOURNEY.md
+ *   before changing anything on this page.
+ * ─────────────────────────────────────────────────────────── */
+
 /**
  * /register-interest — the RYI page.
  *

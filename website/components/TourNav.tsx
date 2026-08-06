@@ -1,3 +1,12 @@
+/* ─────────────────────────────────────────────────────────────
+ * 🔒 APPROVED BASELINE — iter152, June 2026
+ *   The three-line TourEnding closing beat ("You're all set." /
+ *   "FriendPlace is yours to explore now." / "And remember… if
+ *   you ever need me, just tap the butterfly. 🦋") is LOCKED,
+ *   as is the "Not opened yet? Let me know when we do →" link.
+ *   See /app/website/APPROVED_ONBOARDING_JOURNEY.md.
+ * ─────────────────────────────────────────────────────────── */
+
 /**
  * Tour navigation for the FriendPlace public tour.
  *
