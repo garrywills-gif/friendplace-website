@@ -171,7 +171,15 @@ export function LaunchCountdownRibbon({ initial }: { initial: LaunchStatus | nul
 function TimeSegment({ value, label }: { value: number; label: string }) {
   return (
     <span style={segmentBox}>
-      <span style={segmentValue}>{value}</span>
+      {/* suppressHydrationWarning: the countdown value is derived from
+       * Date.now() which unavoidably differs between the SSR moment
+       * and the client-hydration moment (they run seconds apart on
+       * different clocks). Without this, iOS Safari surfaces a
+       * hydration-mismatch error in the Next.js dev overlay ("1
+       * error"). The value auto-corrects on the next 1s tick, so
+       * suppressing here is the documented React 18 pattern for
+       * live timestamps. */}
+      <span style={segmentValue} suppressHydrationWarning>{value}</span>
       <span style={segmentLabel}>{label}</span>
     </span>
   );
