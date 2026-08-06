@@ -5320,11 +5320,11 @@ def _looks_like_business_event(title: str, description: str = "", location: str 
     """Heuristic — does this event look like a business pitch rather than a
     community gathering?
 
-    FriendPlace is for the community. We're happy to host **one free** business
-    listing as a gesture (lots of local cafés, RSLs and bowling clubs run
-    great events worth knowing about). After that we ask businesses to chip
-    in. This function returns the cues that tripped the detector so the
-    sign-up modal can be honest with the user about *why* we flagged it.
+    ⚠️  This function now delegates to
+    `services.moderation.business_content.check_business_content` — the
+    single source of truth used by BOTH the events preflight AND the
+    Notice Board post flow (iter153, June 2026). Kept as a thin wrapper
+    so existing callers/tests don't break.
 
     Returns a dict:
       {
@@ -5332,79 +5332,9 @@ def _looks_like_business_event(title: str, description: str = "", location: str 
         "score":          int,   # 0+; ≥2 trips the flag
         "reasons":        list[str],   # human-readable bullets
       }
-
-    The heuristic is intentionally conservative (score ≥ 2 required) so a
-    community member posting "Sausage sizzle $5 — bring the kids" doesn't
-    get treated like a business. We also test on the LOCATION field because
-    "RSL", "Bowling Club", "Surf Club" etc. often live there, not in the
-    title.
     """
-    haystack = " ".join([title or "", description or "", location or ""]).lower()
-    reasons: list[str] = []
-    score = 0
-
-    # ── Bucket 1 — clubs & community-business venues (Aussie focus). ─────
-    # These places ARE community spaces, but they're also commercial and we
-    # want them to share the listing fee. Catches RSLs, bowling/surf/golf
-    # clubs etc. that try to fill mid-week tables via the app.
-    CLUBS = [
-        "rsl", "returned and services league", "bowls club", "bowling club",
-        "bowlo", "surf club", "surf life saving", "leagues club", "workers club",
-        "country club", "golf club", "yacht club", "sailing club", "tennis club",
-        "lawn bowls", "sports club", "football club", "cricket club", "polo club",
-        "rotary club", "lions club", "men's shed", "mens shed",
-    ]
-    for c in CLUBS:
-        if c in haystack:
-            reasons.append(f'mentions a club / venue ("{c}")')
-            score += 2  # strong signal — clubs almost always = paid promotion
-            break  # one club mention is enough
-
-    # ── Bucket 2 — overt business types. ─────────────────────────────────
-    BIZ_NOUNS = [
-        "café", "cafe", "restaurant", "bistro", "pub", "brewery", "winery",
-        "bakery", "patisserie", "salon", "studio", "boutique", "clinic",
-        "dentist", "gym", "fitness centre", "yoga studio", "pilates studio",
-        "academy", "school of", "spa", "massage", "shop", "store",
-        "retailer", "showroom", "dealership", "gallery", "theatre",
-    ]
-    for n in BIZ_NOUNS:
-        if n in haystack:
-            reasons.append(f'business noun ("{n}")')
-            score += 1
-            break
-
-    # ── Bucket 3 — explicit pricing / ticketing language. ────────────────
-    money_re = re.compile(r"\$\s?\d|\baud?\b|\bgst\b|\bper person\b|\bper head\b", re.I)
-    if money_re.search(haystack):
-        reasons.append("explicit pricing / dollar amount")
-        score += 1
-    BOOK_WORDS = [
-        "book now", "buy tickets", "tickets available", "register at",
-        "rsvp by phone", "limited spots", "limited tickets", "early bird",
-        "discount code", "% off", " off!", "deal", "sale", "special offer",
-        "promo code", "promotion code", "trybooking", "eventbrite",
-        "humanitix", "moshtix", "ticketek", "stickytickets",
-    ]
-    for w in BOOK_WORDS:
-        if w in haystack:
-            reasons.append(f'ticketing / promo language ("{w.strip()}")')
-            score += 1
-            break
-
-    # ── Bucket 4 — links + phone numbers. ────────────────────────────────
-    if re.search(r"https?://|www\.", haystack):
-        reasons.append("external website link")
-        score += 1
-    if re.search(r"\b0[2-578]\s?\d{4}\s?\d{4}\b|\b1300\s?\d{3}\s?\d{3}\b|\b1800\s?\d{3}\s?\d{3}\b", haystack):
-        reasons.append("business phone number (1300 / 1800 / landline)")
-        score += 1
-
-    return {
-        "looks_business": score >= 2,
-        "score": score,
-        "reasons": reasons[:4],  # cap so the modal stays scannable
-    }
+    from services.moderation import check_business_content as _check
+    return _check(title=title, body=description, location=location)
 
 
 class EventPreflightBody(BaseModel):
@@ -6722,6 +6652,199 @@ async def admin_hard_delete_notice(notice_id: str, admin_id: str, reason: Option
     return {"ok": True}
 
 
+# ── Notice-Board moderation queue admin actions (iter153) ──────────
+#
+# Notices flagged by the shared business-content / prolific-poster
+# heuristic land in the MCGS moderation view (producer
+# "notice_moderation") with `pending_review=True` on the notice row.
+# Admins act via the two endpoints below.
+
+@api.get("/admin/notices/moderation-queue")
+async def admin_notices_moderation_queue(
+    admin_id: str,
+    limit: int = 100,
+    _me: dict = Depends(current_admin),
+):
+    """List notices held for moderator review — newest first.
+
+    Returns everything an admin needs to decide in one glance:
+    the notice content, the reasons it was flagged, the author's
+    recent posting frequency and any prior moderation history.
+    """
+    await _require_admin(admin_id)
+    limit = max(1, min(int(limit or 100), 500))
+    rows = await db.notices.find(
+        {"pending_review": True},
+        {"_id": 0},
+    ).sort("moderation_flagged_at", -1).to_list(limit)
+
+    # Enrich with the author's recent history so admins don't need to
+    # bounce to a separate screen. Each row gets:
+    #   • recent_notice_count   — this author's notices in last 30d
+    #   • prior_moderation_actions — count of moderation-log entries
+    #     against this author (so repeat offenders stand out)
+    from datetime import timedelta as _td
+    since = (datetime.now(timezone.utc) - _td(days=30)).isoformat()
+    for r in rows:
+        uid = r.get("user_id")
+        if not uid:
+            r["recent_notice_count"] = 0
+            r["prior_moderation_actions"] = 0
+            continue
+        try:
+            r["recent_notice_count"] = await db.notices.count_documents(
+                {"user_id": uid, "created_at": {"$gt": since}}
+            )
+        except Exception:
+            r["recent_notice_count"] = 0
+        try:
+            r["prior_moderation_actions"] = await db.moderation_log.count_documents(
+                {"user_id": uid}
+            )
+        except Exception:
+            r["prior_moderation_actions"] = 0
+
+    return {"count": len(rows), "items": rows}
+
+
+@api.post("/admin/notices/{notice_id}/approve")
+async def admin_notice_approve(
+    notice_id: str,
+    payload: dict,
+    _me: dict = Depends(current_admin),
+):
+    """Approve a flagged notice — publish it and clear the hold.
+
+    Idempotent: approving an already-approved notice is a no-op.
+    Also resolves any open MCGS case for this notice so the shared
+    moderation queue stays accurate.
+    """
+    admin_id = str(payload.get("admin_id") or "")
+    reason = str(payload.get("reason") or "").strip() or "Notice approved by admin"
+    await _require_admin(admin_id)
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0, "user_id": 1, "pending_review": 1})
+    if not n:
+        raise HTTPException(404, "Notice not found")
+
+    await db.notices.update_one(
+        {"id": notice_id},
+        {"$set": {
+            "pending_review":         False,
+            "auto_hidden":            False,
+            "moderation_approved_at": now_iso(),
+            "moderation_approved_by": admin_id,
+        }},
+    )
+
+    # Reward the community post now that it's live.
+    if n.get("pending_review"):
+        try:
+            await award_points(n["user_id"], 4)
+        except Exception:
+            logger.exception("award_points failed on approve for %s", notice_id)
+
+    # Audit trail — always logged so we have a record even on idempotent replays.
+    await _log_moderation_action(
+        user_id=n.get("user_id") or "",
+        by=admin_id,
+        action="notice_approved",
+        reason=reason,
+        target_type="notice",
+        target_id=notice_id,
+    )
+
+    # Best-effort MCGS case close so the shared queue stays clean.
+    try:
+        case = await db.mcgs_cases.find_one(
+            {"case_key": f"notice_moderation:{notice_id}",
+             "status": {"$nin": ["RESOLVED", "DISMISSED"]}},
+            {"_id": 0, "id": 1, "status": 1},
+        )
+        if case:
+            from services.mcgs import transition_case as _mcgs_transition
+            try:
+                await _mcgs_transition(
+                    db,
+                    case_id=case["id"],
+                    to_state="RESOLVED",
+                    actor_id=admin_id,
+                    resolved_action="approved",
+                    notes=reason,
+                )
+            except Exception:
+                # Illegal-transition (already terminal) or similar —
+                # non-fatal; the notice update above is the source of truth.
+                pass
+    except Exception:
+        pass
+
+    return {"ok": True, "id": notice_id, "status": "approved"}
+
+
+@api.post("/admin/notices/{notice_id}/reject")
+async def admin_notice_reject(
+    notice_id: str,
+    payload: dict,
+    _me: dict = Depends(current_admin),
+):
+    """Reject a flagged notice — keep the row for audit, hide it publicly.
+
+    Soft-remove: sets `removed=true` + `auto_hidden=true` so it never
+    appears in listings, but the row (and its moderation reasons) stays
+    in the DB for compliance / appeals.
+
+    Use `DELETE /api/admin/notices/{id}` for a permanent purge.
+    """
+    admin_id = str(payload.get("admin_id") or "")
+    reason = str(payload.get("reason") or "").strip() or "Notice rejected by admin"
+    await _require_admin(admin_id)
+    n = await db.notices.find_one({"id": notice_id}, {"_id": 0, "user_id": 1})
+    if not n:
+        raise HTTPException(404, "Notice not found")
+
+    await db.notices.update_one(
+        {"id": notice_id},
+        {"$set": {
+            "pending_review":         False,
+            "auto_hidden":            True,
+            "removed":                True,
+            "moderation_rejected_at": now_iso(),
+            "moderation_rejected_by": admin_id,
+            "moderation_rejection_reason": reason,
+        }},
+    )
+    await _log_moderation_action(
+        user_id=n.get("user_id") or "",
+        by=admin_id,
+        action="notice_rejected",
+        reason=reason,
+        target_type="notice",
+        target_id=notice_id,
+    )
+    try:
+        case = await db.mcgs_cases.find_one(
+            {"case_key": f"notice_moderation:{notice_id}",
+             "status": {"$nin": ["RESOLVED", "DISMISSED"]}},
+            {"_id": 0, "id": 1, "status": 1},
+        )
+        if case:
+            from services.mcgs import transition_case as _mcgs_transition
+            try:
+                await _mcgs_transition(
+                    db,
+                    case_id=case["id"],
+                    to_state="RESOLVED",
+                    actor_id=admin_id,
+                    resolved_action="rejected",
+                    notes=reason,
+                )
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return {"ok": True, "id": notice_id, "status": "rejected"}
+
+
 async def _hard_delete_user_data(user_id: str) -> None:
     """Irreversibly purge a user and all their content from MongoDB.
 
@@ -7039,10 +7162,87 @@ async def create_notice(body: Notice):
     u = await db.users.find_one({"id": body.user_id}, {"_id": 0, "restricted": 1, "banned": 1})
     if u and (u.get("restricted") or u.get("banned")):
         raise HTTPException(403, "Your account is currently restricted. Please contact support.")
+
+    # ── Notice Board moderation parity (iter153) ───────────────────
+    # The same business-content + prolific-poster gate that runs at
+    # /events/preflight now also runs here so a business or spammer
+    # can't defeat the events check by posting the same promotion on
+    # the Notice Board. Reasons are surfaced ONLY to admins via the
+    # MCGS moderation queue — never to the poster.
+    from services.moderation import (
+        moderation_verdict as _mod_verdict,
+        HOLD_MESSAGE_NOTICE as _MOD_HOLD_MSG,
+    )
+    verdict = await _mod_verdict(
+        db,
+        title=body.title or "",
+        body=body.body or "",
+        location="",
+        user_id=body.user_id,
+        kind="notice",
+    )
+    held = bool(verdict.get("should_hold"))
+
     n = Notice(**body.dict())
-    await db.notices.insert_one(n.dict())
+    doc = n.dict()
+    if held:
+        # Persist with the hold flags so the shared MCGS queue can
+        # find it and admins can approve / reject. `auto_hidden` keeps
+        # the notice off the public list until an admin approves it.
+        doc.update({
+            "pending_review":       True,
+            "auto_hidden":          True,
+            "moderation_reasons":   list(verdict.get("reasons") or []),
+            "moderation_score":     int(verdict.get("score") or 0),
+            "moderation_prolific":  bool(verdict.get("prolific_flag")),
+            "moderation_prior_count": int(verdict.get("prior_count") or 0),
+            "moderation_flagged_at": now_iso(),
+        })
+    await db.notices.insert_one(doc)
+    # `insert_one` mutates the doc with an ObjectId `_id` which
+    # FastAPI can't serialise — strip before returning.
+    doc.pop("_id", None)
+
+    if held:
+        # File an MCGS Signal so the notice lands in the shared
+        # moderation view alongside events. Uses producer
+        # "notice_moderation" so admins can filter by content-type.
+        try:
+            from services.mcgs import create_signal as _mcgs_create_signal
+            from services.george import triage_signal_with_haiku as _mcgs_triage
+            await _mcgs_create_signal(
+                db,
+                producer="notice_moderation",
+                entity_ref={"kind": "notice", "id": doc["id"]},
+                subject=f"Notice needs review: {(body.title or '')[:80]}",
+                body=(
+                    f"Notice by {body.user_name or body.user_id} — reasons: "
+                    f"{', '.join(verdict.get('reasons') or ['(none)'])}\n\n"
+                    f"{(body.body or '').strip()[:2000]}"
+                )[:4000],
+                category="attention",
+                priority="P2",
+                case_key=f"notice_moderation:{doc['id']}",
+                source="user_report",
+                injection_check_fields=[body.title or "", body.body or ""],
+                triage_fn=_mcgs_triage,
+            )
+        except Exception:
+            logger.exception("notice moderation signal producer failed for %s", doc["id"])
+
+        # No points awarded until an admin approves the notice.
+        # Return the notice + a calm, generic hold message. The
+        # message deliberately does NOT tell the member they've
+        # been detected as a business or suspected of spam.
+        return {
+            **doc,
+            "held_for_review":    True,
+            "moderation_message": _MOD_HOLD_MSG,
+        }
+
+    # Not held → normal path, award community points.
     await award_points(body.user_id, 4)
-    return n.dict()
+    return {**doc, "held_for_review": False}
 
 
 @api.patch("/notices/{notice_id}")

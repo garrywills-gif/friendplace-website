@@ -92,8 +92,27 @@ export default function Notices() {
         await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat });
         show("Notice updated");
       } else {
-        await api.createNotice({ user_id: user.id, user_name: user.first_name || user.username, avatar: user.avatar, title: pTitle.trim(), body: pBody.trim(), category: pCat });
-        show("Posted to Notice Board");
+        // The backend may hold the notice for moderator review if the
+        // shared business-content / prolific-poster heuristic fires
+        // (iter153). In that case the response carries
+        // `held_for_review: true` and a calm, generic
+        // `moderation_message`. We surface exactly that message so
+        // the poster sees a routine safety-check tone rather than
+        // any accusation. Locked with Garry.
+        const resp: any = await api.createNotice({
+          user_id: user.id,
+          user_name: user.first_name || user.username,
+          avatar: user.avatar,
+          title: pTitle.trim(),
+          body: pBody.trim(),
+          category: pCat,
+        });
+        if (resp && resp.held_for_review) {
+          show(resp.moderation_message ||
+            "We're just checking this notice fits our community guidelines. We'll let you know as soon as it's been reviewed.");
+        } else {
+          show("Posted to Notice Board");
+        }
       }
       setPosting(false); setEditing(null);
       load();
