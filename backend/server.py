@@ -2946,6 +2946,31 @@ async def admin_ws_user_status(user_id: str, admin_id: str, _me: dict = Depends(
     return {"user_id": user_id, "inbox_sockets_open": n, "connected": n > 0}
 
 
+# Inject a synthetic event onto a user's inbox socket for on-device
+# diagnostics. Real-device testers can hit this from another logged-in
+# session and watch the diagnostics panel for the corresponding entry
+# to appear in the "recent" list — proving the client-side dispatch
+# actually works, isolated from any real DM plumbing.
+@api.post("/admin/ws/user/{user_id}/test-broadcast")
+async def admin_ws_test_broadcast(user_id: str, admin_id: str, _me: dict = Depends(current_admin)):
+    await _require_admin(admin_id)
+    n_before = len(hub.rooms.get(f"user:{user_id}", set()))
+    await _broadcast_to_user(user_id, {
+        "type": "notification",
+        "notification": {
+            "id": nid(),
+            "user_id": user_id,
+            "type": "iter154_diag_test",
+            "title": "🔬 diagnostic ping",
+            "body": f"Test broadcast at {now_iso()}",
+            "payload": {},
+            "read": False,
+            "created_at": now_iso(),
+        },
+    })
+    return {"ok": True, "user_id": user_id, "sockets_at_broadcast": n_before}
+
+
 def _status_from(last_seen: Optional[str], privacy: str = "everyone", chosen: Optional[str] = None) -> Dict:
     """Return {label, code, emoji} for a user.
 
@@ -10283,6 +10308,18 @@ async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
         return
     room_size = len(hub.rooms.get(room, set()))
     logger.info("ws_user CONNECT peer=%s room=%s room_size_now=%d", peer, room, room_size)
+    # iter154-fix: the WS itself is authoritative proof-of-presence.
+    # Update `last_seen_at` on connect + on every subsequent ping so
+    # a user with an active socket ALWAYS shows online, even if the
+    # HTTP heartbeat path (POST /api/status/heartbeat) is delayed or
+    # missed by a stale client build.
+    try:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {"last_seen_at": now_iso()}},
+        )
+    except Exception:
+        pass
     try:
         await websocket.send_json({"type": "hello", "server_time": now_iso()})
     except Exception:
@@ -10295,6 +10332,16 @@ async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
             except Exception:
                 continue
             if (payload or {}).get("type") == "ping":
+                # Every ping is also a presence heartbeat — refreshes
+                # last_seen_at and confirms the socket is alive to any
+                # proxy in between (iter154 real-device fix).
+                try:
+                    await db.users.update_one(
+                        {"id": user_id},
+                        {"$set": {"last_seen_at": now_iso()}},
+                    )
+                except Exception:
+                    pass
                 try:
                     await websocket.send_json({"type": "pong", "server_time": now_iso()})
                 except Exception:

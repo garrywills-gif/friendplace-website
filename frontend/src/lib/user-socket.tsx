@@ -70,6 +70,35 @@ type Ctx = {
   epoch: number;
   /** Subscribe to a server-emitted event; returns an unsubscribe fn. */
   subscribe: (kind: EventKind, handler: Handler) => () => void;
+  /** Live introspection — the on-device diagnostics panel reads this
+   *  so testers can verify the socket without opening a console. */
+  debug: {
+    /** OPEN / CONNECTING / CLOSING / CLOSED / NULL */
+    readyState: string;
+    /** iso timestamp of the last successful hello frame, or null */
+    lastHello: string | null;
+    /** iso timestamp of the last event of ANY kind, or null */
+    lastEvent: string | null;
+    /** iso timestamp of the last ping we sent, or null */
+    lastPingSent: string | null;
+    /** iso timestamp of the last pong we received, or null */
+    lastPongRecv: string | null;
+    /** iso timestamp of the last onclose, or null */
+    lastClose: string | null;
+    /** Numeric ws close code from the last close (or 0) */
+    lastCloseCode: number;
+    /** Per-kind event counters since app boot. */
+    counts: Record<string, number>;
+    /** Compact preview of the most-recent event, oldest→newest, max 5. */
+    recent: Array<{ ts: string; kind: string; preview: string }>;
+    /** The URL the socket was constructed with (token redacted). */
+    lastUrl: string | null;
+    /** How many reconnect attempts we've made since the last success. */
+    attempts: number;
+    /** Set true once the server closes us with code 4401 — the loop
+     *  is then frozen until AuthProvider refreshes the token. */
+    authExpired: boolean;
+  };
 };
 
 const UserSocketCtx = createContext<Ctx | null>(null);
@@ -79,7 +108,12 @@ const UserSocketCtx = createContext<Ctx | null>(null);
 // prevents thundering-herd retries after a server bounce.
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_CAP_MS = 30_000;
-const KEEPALIVE_MS = 25_000;
+// iter154-fix — keep-alive interval was 25 s, but real-device
+// testing showed the K8s ingress in front of the app-proxy was
+// dropping idle WebSockets in under 30 s. 15 s comfortably stays
+// under any reasonable proxy idle timeout AND doubles as a
+// presence heartbeat (server updates `last_seen_at` on every ping).
+const KEEPALIVE_MS = 15_000;
 
 function _next_delay(attempt: number): number {
   const raw = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt);
@@ -91,6 +125,15 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
   const { user, token } = useAuth();
   const [connected, setConnected] = useState(false);
   const [epoch, setEpoch] = useState(0);
+  // Diagnostics state — surfaced through the ctx.debug view for the
+  // on-device diagnostics screen. Updates trigger re-renders of any
+  // consumer bound to `useUserSocket().debug`.
+  const [dbg, setDbg] = useState<Ctx["debug"]>(() => ({
+    readyState: "NULL", lastHello: null, lastEvent: null,
+    lastPingSent: null, lastPongRecv: null, lastClose: null,
+    lastCloseCode: 0, counts: {}, recent: [], lastUrl: null,
+    attempts: 0, authExpired: false,
+  }));
 
   // Handler registry keyed by event kind → Set<Handler>. Using a ref
   // so subscribe/unsubscribe don't cause re-renders of the provider.
@@ -107,6 +150,25 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
   const authExpiredRef = useRef(false);
 
   const dispatch = useCallback((kind: EventKind, evt: any) => {
+    // Update diagnostics regardless of whether anyone subscribed —
+    // the on-device panel is the ONLY way we can verify a real
+    // device is receiving events without a console.
+    const preview =
+      kind === "dm_update"    ? `conv=${(evt?.conv_id || "").slice(0, 8)} from=${(evt?.from_id || "").slice(0, 8)} d=${evt?.unread_delta ?? "?"}` :
+      kind === "notification" ? `${evt?.notification?.type || "?"}#${(evt?.notification?.id || "").slice(0, 8)}` :
+      kind === "dm_read"      ? `conv=${(evt?.conv_id || "").slice(0, 8)} d=${evt?.unread_delta ?? "?"}` :
+      kind === "reconnect"    ? "handshake ok" :
+      kind === "hello"        ? `t=${evt?.server_time || "?"}` :
+      "";
+    setDbg((d) => ({
+      ...d,
+      lastEvent: new Date().toISOString(),
+      counts: { ...d.counts, [kind]: (d.counts[kind] || 0) + 1 },
+      recent: [
+        ...d.recent.slice(-4),
+        { ts: new Date().toISOString(), kind, preview },
+      ],
+    }));
     const set = handlersRef.current.get(kind);
     if (!set) return;
     for (const h of Array.from(set)) {
@@ -159,17 +221,20 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
     // Never open a second socket; close any existing first.
     cleanup();
     const url = wsUrl(`/ws/user/${user.id}?token=${encodeURIComponent(token)}`);
+    const safeUrl = url.replace(/token=[^&]+/, "token=<redacted>");
     // iter154-debug: verbose lifecycle logging so a real-device
     // failure can be diagnosed from Xcode/Android logs without a
     // second round-trip. Never logs the token contents.
     // eslint-disable-next-line no-console
-    console.log("[user-socket] CONNECT-ATTEMPT", { url, uid: user.id.slice(0, 8), tokenLen: token.length });
+    console.log("[user-socket] CONNECT-ATTEMPT", { url: safeUrl, uid: user.id.slice(0, 8), tokenLen: token.length });
+    setDbg((d) => ({ ...d, readyState: "CONNECTING", lastUrl: safeUrl, attempts: attemptRef.current }));
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn("[user-socket] CONNECT-THROWN", String(e));
+      setDbg((d) => ({ ...d, readyState: "CLOSED" }));
       scheduleReconnect(connect);
       return;
     }
@@ -178,6 +243,7 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
     ws.onopen = () => {
       // eslint-disable-next-line no-console
       console.log("[user-socket] ONOPEN (awaiting hello)");
+      setDbg((d) => ({ ...d, readyState: "OPEN" }));
       // The "hello" frame will confirm auth in a moment; we don't
       // flip connected=true until then, so consumers that trigger
       // a reconciliation on the "connected" edge don't fire twice.
@@ -186,7 +252,10 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
       // Start keep-alive.
       if (keepaliveTimerRef.current) clearInterval(keepaliveTimerRef.current);
       keepaliveTimerRef.current = setInterval(() => {
-        try { ws.send(JSON.stringify({ type: "ping" })); } catch { /* ignore */ }
+        try {
+          ws.send(JSON.stringify({ type: "ping" }));
+          setDbg((d) => ({ ...d, lastPingSent: new Date().toISOString() }));
+        } catch { /* ignore */ }
       }, KEEPALIVE_MS);
     };
 
@@ -200,10 +269,12 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
         console.log("[user-socket] HELLO", { server_time: payload.server_time });
         setConnected(true);
         setEpoch((e) => e + 1);
-        // Give consumers a chance to reconcile on every fresh
-        // connection — not on `hello` frames from the SAME session,
-        // but the epoch bump covers reconnection edges.
+        setDbg((d) => ({ ...d, lastHello: new Date().toISOString(), authExpired: false }));
         dispatch("reconnect", { server_time: payload.server_time });
+        return;
+      }
+      if (kind === "pong") {
+        setDbg((d) => ({ ...d, lastPongRecv: new Date().toISOString() }));
         return;
       }
       // eslint-disable-next-line no-console
@@ -225,17 +296,19 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
       // eslint-disable-next-line no-console
       console.log("[user-socket] ONCLOSE", { code: ev.code, reason: ev.reason || "" });
       setConnected(false);
+      setDbg((d) => ({
+        ...d, readyState: "CLOSED",
+        lastClose: new Date().toISOString(), lastCloseCode: ev.code,
+      }));
       if (keepaliveTimerRef.current) {
         clearInterval(keepaliveTimerRef.current);
         keepaliveTimerRef.current = null;
       }
-      // 4401 = server-side auth failure. Sit tight until AuthProvider
-      // hands us a new token.
       if (ev.code === 4401) {
         authExpiredRef.current = true;
+        setDbg((d) => ({ ...d, authExpired: true }));
         return;
       }
-      // 1000 = clean close (user logged out). Do not reconnect.
       if (ev.code === 1000) return;
       scheduleReconnect(connect);
     };
@@ -279,8 +352,8 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
   }, [connect]);
 
   const value = useMemo<Ctx>(
-    () => ({ connected, epoch, subscribe }),
-    [connected, epoch, subscribe],
+    () => ({ connected, epoch, subscribe, debug: dbg }),
+    [connected, epoch, subscribe, dbg],
   );
 
   return <UserSocketCtx.Provider value={value}>{children}</UserSocketCtx.Provider>;
