@@ -42,6 +42,7 @@ import { usePathname, useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { useComposerActive } from "@/src/lib/composer-lock";
+import { useUserSocket } from "@/src/lib/user-socket";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -81,7 +82,12 @@ export type DmPrompt =
       previewNames: string[];
     };
 
-const POLL_MS = 15_000;
+// Poll cadence. iter154 dropped this from 15 s → 30 s because the
+// per-user WebSocket now delivers `dm_update` / `dm_read` events in
+// real-time; polling is only a reconciliation safety net for missed
+// events on flaky networks. Keep this above 15 s to stay well below
+// the socket's ~1 s reconnect budget so we don't waste bandwidth.
+const POLL_MS = 30_000;
 
 // ─── Context ────────────────────────────────────────────────────────
 
@@ -291,6 +297,17 @@ export function DmNotifyProvider({ children }: { children: React.ReactNode }) {
       sub.remove();
     };
   }, [user?.id, token, load]);
+
+  // iter154 realtime — real-time reload triggered by the per-user
+  // socket. `dm_update` / `dm_read` immediately refetch the conv
+  // list so the eligible-set / newest-ts / fingerprint calculations
+  // that drive the prompt see the new state within ~100 ms of the
+  // server writing the message. On (re)connect we also reload so
+  // any disconnect drift is corrected in one shot.
+  const { subscribe } = useUserSocket();
+  useEffect(() => subscribe("dm_update", () => { load(); }), [subscribe, load]);
+  useEffect(() => subscribe("dm_read", () => { load(); }), [subscribe, load]);
+  useEffect(() => subscribe("reconnect", () => { load(); }), [subscribe, load]);
 
   // Derived prompt — recomputes on convs change, path change, and
   // dismissedVersion bump. Deliberately excludes composerBusy: the

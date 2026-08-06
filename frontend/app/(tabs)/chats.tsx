@@ -1,6 +1,6 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  View, Text, StyleSheet, FlatList, Pressable, RefreshControl, Platform, Animated,
+  View, Text, StyleSheet, FlatList, Pressable, RefreshControl, Platform, Animated, AppState,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -10,6 +10,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import { useUserSocket } from "@/src/lib/user-socket";
 import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
 import Header from "@/src/components/Header";
@@ -180,6 +181,78 @@ export default function Chats() {
       Object.values(swipeableRefs.current).forEach((r) => r?.close());
     };
   }, [load]));
+
+  // ── Real-time cache updates (iter154) ───────────────────────────
+  // When a DM lands on the server, the backend fans a `dm_update`
+  // event over the per-user socket. We patch our in-memory `convs`
+  // list in place so the row reorders, the preview text updates,
+  // and the unread pill advances WITHOUT a full round-trip. On every
+  // socket (re)connect we do a full reconcile to ensure our cache
+  // matches the server's authoritative state — this is what prevents
+  // "no duplicate unread increments after reconnect" (Garry's spec).
+  const { subscribe } = useUserSocket();
+
+  useEffect(() => subscribe("dm_update", (evt: any) => {
+    // Only care about active-view updates. Archived toggling handles
+    // itself via the existing load() calls in archive handlers.
+    if (view !== "active") return;
+    const convId: string = evt?.conv_id;
+    if (!convId) return;
+    setConvs((prev) => {
+      const idx = prev.findIndex((c) => c.id === convId);
+      const nowIso = evt?.last_message?.created_at || new Date().toISOString();
+      const lm = evt?.last_message || {};
+      if (idx === -1) {
+        // Conversation we didn't know about yet — trigger a full
+        // reload rather than fabricate a partial row from the event
+        // payload. This keeps our schema strict and avoids missing
+        // `other.first_name`/`avatar` fields the list depends on.
+        // Fire-and-forget; the load() call below returns a promise
+        // we don't need to await inside setConvs.
+        load();
+        return prev;
+      }
+      const patched = { ...prev[idx] };
+      patched.updated_at = nowIso;
+      patched.last = { text: lm.text || "", created_at: nowIso };
+      // Optimistic unread bump — only counts as unread if the message
+      // did NOT come from us. `from_id` is stamped on the event by
+      // the backend broadcast.
+      if (evt?.from_id && evt.from_id !== user?.id) {
+        const delta = Number(evt?.unread_delta || 1);
+        patched.unread_count = Math.max(0, Number(patched.unread_count || 0) + delta);
+      }
+      // Move the patched row to the top so the newest chat is always
+      // visible without a refresh.
+      const next = prev.slice();
+      next.splice(idx, 1);
+      next.unshift(patched);
+      return next;
+    });
+  }), [subscribe, view, user?.id, load]);
+
+  useEffect(() => subscribe("dm_read", (evt: any) => {
+    if (view !== "active") return;
+    const convId: string = evt?.conv_id;
+    if (!convId) return;
+    setConvs((prev) => prev.map((c) => (
+      c.id === convId ? { ...c, unread_count: 0 } : c
+    )));
+  }), [subscribe, view]);
+
+  // Every (re)connect edge → full reconcile so any optimistic drift
+  // during a disconnect is cleaned up in one shot.
+  useEffect(() => subscribe("reconnect", () => { load(); }), [subscribe, load]);
+
+  // App-state resume → reconcile. Some devices don't fire the socket
+  // "reconnect" edge if the socket was still OPEN on background, so
+  // we belt-and-braces on AppState too.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "active") load();
+    });
+    return () => sub.remove();
+  }, [load]);
 
   const closeRow = (id: string) => {
     swipeableRefs.current[id]?.close();

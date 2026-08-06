@@ -2235,17 +2235,30 @@ async def push_notification(user_id: str, n_type: str, title: str, body: str = "
         "created_at": now_iso(),
     }
     await db.notifications.insert_one(doc)
+    # `insert_one` mutates the doc with a Mongo _id — strip so it can
+    # go over the WebSocket / to serialisers cleanly.
+    doc.pop("_id", None)
+
+    # Real-time fan-out over the user's inbox socket (iter154). Any
+    # client with `/api/ws/user/{user_id}` open — the Chats-tab badge,
+    # Chats list, Notifications bell, DmNotifyProvider prompt — reacts
+    # immediately. Best-effort; polling still reconciles missed events.
+    await _broadcast_to_user(user_id, {"type": "notification", "notification": doc})
+
     # Mirror to device push (Emergent-managed). Safe to call without google-services.json
     # — fails silently and never blocks the in-app notification.
     try:
         from push import send_push
         push_data: Dict = {"title": title, "message": body or title, "type": n_type}
-        # Deep-link hint so a tap from the system tray opens the right screen
+        # Deep-link hint so a tap from the system tray opens the right screen.
+        # DM tap MUST open the specific conversation, not the generic
+        # inbox — otherwise the member has to hunt for the message
+        # George just told them about (iter154).
         deeplink_map = {
             "friend_request": "/messages",
             "friend_accepted": "/friends",
-            "dm": "/messages",
-            "dm_request": "/messages",
+            "dm": "/messages",           # overridden below with conv_id
+            "dm_request": "/messages",   # overridden below with conv_id
             "table_join": "/coffee",
             "table_invite": "/coffee",
             "event_invite": "/events",
@@ -2256,6 +2269,17 @@ async def push_notification(user_id: str, n_type: str, title: str, body: str = "
         }
         if n_type in deeplink_map:
             push_data["action_url"] = deeplink_map[n_type]
+        # DM push: prefer the direct /dm/{conv_id} route when we have it.
+        # Also stash conv_id at the top level so a tap handler can jump
+        # straight in without parsing the URL.
+        if n_type in ("dm", "dm_request"):
+            conv_id = (payload or {}).get("dm_id") if payload else None
+            from_id = (payload or {}).get("from_id") if payload else None
+            if conv_id:
+                push_data["action_url"] = f"/dm/{conv_id}"
+                push_data["dm_id"] = conv_id
+                if from_id:
+                    push_data["from_id"] = from_id
         await send_push(recipients=[user_id], data=push_data)
     except Exception as e:
         logger.warning("device push failed (non-blocking): %s", e)
@@ -9488,17 +9512,39 @@ async def dm_mark_read(conv_id: str, me: dict = Depends(current_user)):
     Sets `last_read_at[user_id] = now` on the conversation doc, which the
     conversations & unread-total endpoints use to compute the badge count.
     """
-    conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0, "participants": 1})
+    conv = await db.dm_conversations.find_one({"id": conv_id}, {"_id": 0, "participants": 1, "last_read_at": 1})
     if not conv:
         raise HTTPException(404, "Conversation not found")
     uid = me.get("id")
     if uid not in (conv.get("participants") or []):
         raise HTTPException(403, "Not a participant")
+
+    # Count what we're about to clear so the user-socket subscribers
+    # (Chats badge, list) can apply a precise negative delta instead
+    # of a full re-fetch. If the reader was already up-to-date this
+    # is zero and the client can ignore the event.
+    last_read_map = conv.get("last_read_at") or {}
+    prev_last_read = last_read_map.get(uid)
+    q: Dict[str, Any] = {"dm_id": conv_id, "user_id": {"$ne": uid}}
+    if prev_last_read:
+        q["created_at"] = {"$gt": prev_last_read}
+    cleared = await db.messages.count_documents(q)
+
     await db.dm_conversations.update_one(
         {"id": conv_id},
         {"$set": {f"last_read_at.{uid}": now_iso()}},
     )
-    return {"ok": True}
+
+    # Real-time echo — lets any OTHER device the same user has open
+    # (or the same device's non-focused surfaces) drop the unread
+    # count immediately. iter154.
+    if cleared > 0:
+        await _broadcast_to_user(uid, {
+            "type": "dm_read",
+            "conv_id": conv_id,
+            "unread_delta": -cleared,
+        })
+    return {"ok": True, "cleared": cleared}
 
 
 @api.get("/dm/{conv_id}/messages")
@@ -9595,6 +9641,44 @@ class ConnectionHub:
 
 
 hub = ConnectionHub()
+
+
+# ── Per-user inbox broadcast helper ────────────────────────────────
+#
+# The DM/Notice/Flutter/etc. WebSocket rooms are all keyed to a
+# specific *topic* (dm:{conv_id}, table:{table_id}). To reach a user
+# in real-time regardless of what screen they're on, we also expose a
+# per-user room `user:{user_id}` that a single long-lived socket from
+# the mobile app joins at login. All inbox-worthy events fan out
+# there.
+#
+# Event schema (kept small on purpose so a stale client shrugs it off):
+#
+#   {"type": "notification", "notification": {...}}
+#       — any push_notification() insert (DM, friend request, event,
+#         flutter, notice-comment, etc.)
+#
+#   {"type": "dm_update", "conv_id": "...", "last_message": {...},
+#    "unread_delta": 1, "from_id": "..."}
+#       — a new DM landed in a conv the user participates in.
+#         Lets the Chats list update in place without a round-trip.
+#
+#   {"type": "dm_read", "conv_id": "...", "unread_delta": -N}
+#       — user marked a DM as read on another device / tab.
+#
+# Locked with Garry (iter154, June 2026). Do not rename event `type`
+# values without a coordinated mobile release — old clients drop
+# unknown events, so *adding* a type is safe.
+async def _broadcast_to_user(user_id: str, payload: dict) -> None:
+    if not user_id:
+        return
+    try:
+        await hub.broadcast(f"user:{user_id}", payload)
+    except Exception:
+        # Broadcast failures MUST NEVER block the caller — the socket
+        # is a real-time nicety, not the source of truth. Polling
+        # reconciles anything the socket misses.
+        logger.exception("user socket broadcast failed for %s", user_id)
 
 
 DOCS_DIR = "/app/backend/docs"
@@ -10049,7 +10133,55 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                         if is_chat_request
                         else f"{sender_avatar} {sender_name} sent you a message"
                     )
+                    # ── Real-time inbox fan-out to each recipient (iter154) ──
+                    # Emits BEFORE we decide about push, so the Chats
+                    # list / badge always react even if the recipient
+                    # is inside the DM (in which case we then suppress
+                    # the redundant push below).
+                    dm_update_payload = {
+                        "type":         "dm_update",
+                        "conv_id":      conv_id,
+                        "from_id":      user_id,
+                        "from_name":    sender_name,
+                        "from_avatar":  sender_avatar,
+                        "unread_delta": 1,
+                        "last_message": {
+                            "id":         out.get("id"),
+                            "text":       text[:180],
+                            "created_at": out.get("created_at"),
+                            "user_id":    user_id,
+                        },
+                        "is_chat_request": is_chat_request,
+                    }
                     for other_id in others:
+                        await _broadcast_to_user(other_id, dm_update_payload)
+
+                    # If the recipient is ALREADY inside this DM room
+                    # they saw the message via the dm:{conv_id} broadcast
+                    # a moment ago — no need for a redundant push /
+                    # notifications row. iter154 fix for Garry's spec:
+                    # "no duplicate push while the user is already
+                    # inside that conversation".
+                    dm_room = hub.rooms.get(f"dm:{conv_id}", set())
+                    # Best-effort presence check: any socket in the
+                    # room means someone else is looking. We don't
+                    # track socket→user mapping directly, so we skip
+                    # the notification when > 1 socket is present
+                    # (sender + recipient). If only the sender's
+                    # socket is here, the recipient is elsewhere.
+                    others_present_in_room = len(dm_room) > 1
+                    for other_id in others:
+                        if others_present_in_room:
+                            # In-conversation: the DM broadcast already
+                            # delivered the message. Skip push + notifications
+                            # insert so the recipient's Chats list doesn't
+                            # get a spurious unread bump right after they
+                            # already saw the message.
+                            logger.debug(
+                                "dm push suppressed for %s — recipient is in room %s",
+                                other_id, dm_room,
+                            )
+                            continue
                         await push_notification(
                             other_id,
                             n_type,
@@ -10059,6 +10191,60 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                         )
             except Exception as e:
                 logger.warning("dm notification failed: %s", e)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        hub.disconnect(room, websocket)
+
+
+# ── Per-user inbox WebSocket (iter154) ─────────────────────────────
+#
+# One long-lived socket per authenticated mobile client. Sink-only:
+# the server pushes events (`notification`, `dm_update`, `dm_read`,
+# …); the client sends nothing but keep-alive pings. Auth mirrors
+# ws_dm (SEC-005): the token subject MUST equal user_id.
+#
+# Deliberately liberal about incoming frames — a well-behaved client
+# might send `{"type":"ping"}` and we reply `{"type":"pong"}` so
+# balancers with idle timeouts don't cut the connection.
+@app.websocket("/api/ws/user/{user_id}")
+async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
+    room = f"user:{user_id}"
+    await hub.connect(room, websocket)
+    token_uid = decode_token(token) if token else None
+    if not token_uid or token_uid != user_id:
+        try:
+            await websocket.send_json({"type": "error", "code": "unauthorized", "message": "Please sign in again."})
+        except Exception:
+            pass
+        try:
+            await websocket.close(code=4401)
+        except Exception:
+            pass
+        hub.disconnect(room, websocket)
+        return
+    # Say hello — lets the client know the socket is authenticated and
+    # active. Also carries a server-side timestamp the client can use
+    # to detect its own clock drift.
+    try:
+        await websocket.send_json({"type": "hello", "server_time": now_iso()})
+    except Exception:
+        pass
+    try:
+        while True:
+            data = await websocket.receive_text()
+            # Best-effort keep-alive. Unknown frames are ignored so a
+            # future client can add message types without breaking
+            # existing servers.
+            try:
+                payload = json.loads(data) if data else {}
+            except Exception:
+                continue
+            if (payload or {}).get("type") == "ping":
+                try:
+                    await websocket.send_json({"type": "pong", "server_time": now_iso()})
+                except Exception:
+                    break
     except WebSocketDisconnect:
         pass
     finally:

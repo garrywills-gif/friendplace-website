@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
+import { useUserSocket } from "@/src/lib/user-socket";
 
 /**
  * Custom tab button — replaces the default expo-router/react-navigation tab
@@ -41,16 +42,22 @@ const TabBtn = (props: any) => {
 
 /**
  * Icon renderer for the Chats tab. Overlays a red badge with the total
- * unread count polled from /api/dm/{me}/unread-total. Poll cadence is a
- * gentle 15 s while the app is in the foreground; on background/resume we
- * fire an immediate refresh so the number is accurate the moment the user
- * comes back. The badge quietly hides itself when the count is zero.
+ * unread count.
+ *
+ * iter154 realtime — the badge now reacts to `dm_update` / `dm_read` /
+ * `notification` events over the per-user inbox WebSocket, so the
+ * count updates within ~100 ms of a message landing on the server.
+ * Polling stays as a safety net at a slow 30 s cadence so a dropped
+ * socket eventually reconciles. On AppState → "active" AND on every
+ * socket "reconnect" edge we force a fresh reconciliation fetch so
+ * the count is authoritative before optimistic deltas resume.
  */
 function ChatsIcon({ focused, color }: { focused: boolean; color: string }) {
   const { user } = useAuth();
   const { c } = useTheme();
   const [count, setCount] = useState<number>(0);
   const timerRef = useRef<any>(null);
+  const { subscribe } = useUserSocket();
 
   const refresh = useCallback(async () => {
     if (!user?.id) { setCount(0); return; }
@@ -59,13 +66,15 @@ function ChatsIcon({ focused, color }: { focused: boolean; color: string }) {
       setCount(Math.max(0, Number(r?.unread) || 0));
     } catch {
       // Silent — a transient 401/network blip must not spam the console
-      // for a background poll every 15 seconds.
+      // for a background poll.
     }
   }, [user?.id]);
 
   useEffect(() => {
     refresh();
-    timerRef.current = setInterval(refresh, 15000);
+    // 30 s reconciliation — much slower than pre-iter154 because the
+    // socket does the fast work; this is only a safety net.
+    timerRef.current = setInterval(refresh, 30000);
     const sub = AppState.addEventListener("change", (s) => {
       if (s === "active") refresh();
     });
@@ -74,6 +83,24 @@ function ChatsIcon({ focused, color }: { focused: boolean; color: string }) {
       sub.remove();
     };
   }, [refresh]);
+
+  // Real-time reactions. We apply optimistic +/- deltas from socket
+  // events and rely on the 30 s reconcile (plus the on-reconnect
+  // reconcile below) to keep drift bounded.
+  useEffect(() => subscribe("dm_update", (evt: any) => {
+    const delta = Number(evt?.unread_delta || 1);
+    setCount((n) => Math.max(0, n + delta));
+  }), [subscribe]);
+
+  useEffect(() => subscribe("dm_read", (evt: any) => {
+    const delta = Number(evt?.unread_delta || 0); // negative
+    setCount((n) => Math.max(0, n + delta));
+  }), [subscribe]);
+
+  // Every (re)connect edge → refetch the authoritative total so any
+  // optimistic drift is cleaned up. This is the piece that guarantees
+  // "no duplicate unread increments after reconnect" (Garry's spec).
+  useEffect(() => subscribe("reconnect", () => { refresh(); }), [subscribe, refresh]);
 
   return (
     <View style={{ width: 30, height: 30, alignItems: "center", justifyContent: "center" }}>

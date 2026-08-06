@@ -18,6 +18,7 @@ import { ToastProvider } from "@/src/lib/toast";
 import { GeorgeProvider } from "@/src/lib/george-context";
 import { StatusProvider } from "@/src/lib/status-context";
 import { DmNotifyProvider } from "@/src/lib/dm-notify-context";
+import { UserSocketProvider } from "@/src/lib/user-socket";
 import { hydrateVoice } from "@/src/lib/george-voice";
 import GeorgeGlobalHost from "@/src/components/george/GeorgeGlobalHost";
 import GlobalDmPrompt from "@/src/components/GlobalDmPrompt";
@@ -51,6 +52,12 @@ export default function RootLayout() {
                 <ToastProvider>
                   <StatusProvider>
                     <GeorgeProvider>
+                    {/* UserSocketProvider (iter154) — MUST live above
+                        DmNotifyProvider so the DM prompt can consume
+                        real-time events. Idle sink while unauthed;
+                        opens the WS as soon as AuthProvider hands us
+                        a user + token. */}
+                    <UserSocketProvider>
                     <DmNotifyProvider>
                     <StatusBar style="dark" />
                     <SplashGate>
@@ -81,6 +88,7 @@ export default function RootLayout() {
                         typing/recording isn't interrupted. */}
                     <GlobalDmPrompt />
                   </DmNotifyProvider>
+                  </UserSocketProvider>
                   </GeorgeProvider>
                   </StatusProvider>
                 </ToastProvider>

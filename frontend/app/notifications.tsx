@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import { emitFlutter } from "@/src/lib/flutter-fx";
+import { useUserSocket } from "@/src/lib/user-socket";
 import Header from "@/src/components/Header";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
@@ -56,6 +57,19 @@ export default function Notifications() {
   const load = async () => { if (!user) return; try { setList(await api.notifications(user.id)); } catch {} };
 
   useFocusEffect(useCallback(() => { load(); return undefined; }, [user?.id]));
+
+  // iter154 realtime — inbox socket. New notifications are prepended
+  // to the visible list without a fetch; on (re)connect we reload
+  // the full list so any drift during a disconnect is corrected.
+  // Guards against duplicates by id (backend + optimistic paths must
+  // never insert the same notification twice).
+  const { subscribe } = useUserSocket();
+  useEffect(() => subscribe("notification", (evt: any) => {
+    const n = evt?.notification;
+    if (!n || !n.id) return;
+    setList((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
+  }), [subscribe]);
+  useEffect(() => subscribe("reconnect", () => { load(); }), [subscribe]);
 
   const onItemPress = async (n: any) => {
     try { if (!n.read) { await api.readNotification(n.id); load(); } } catch {}
