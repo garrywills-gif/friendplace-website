@@ -1,0 +1,63 @@
+# .easignore — EAS Build tarball exclusions.
+#
+# When this file exists, EAS Build uses it INSTEAD of .gitignore to decide which
+# files to include in the upload tarball, and it BYPASSES the git-tracking check
+# that otherwise strips untracked files (like google-services.json) from remote
+# builds run in Emergent's --no-vcs deploy container.
+#
+# Rule: only list files/directories that should NEVER ship to the EAS builder.
+# Do NOT list google-services.json, .env, app.json, or any config the build needs.
+
+# Node/JS build artefacts
+node_modules/
+.expo/
+.expo-shared/
+dist/
+web-build/
+build/
+.next/
+.cache/
+
+# Metro / Expo runtime caches
+.metro-cache/
+.metro-health-check*
+
+# Native tooling caches
+.gradle/
+android/
+ios/
+.kotlin/
+
+# Signing artefacts (do NOT ship credentials to EAS)
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+*.orig.*
+
+# Local env overlays (base .env IS uploaded so EXPO_PUBLIC_BACKEND_URL is present)
+.env.local
+.env*.local
+
+# Debug logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# Editor / OS junk
+.DS_Store
+.idea/
+.vscode/
+*.tsbuildinfo
+
+# Python / lint caches that leaked into frontend/ historically
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+
+# QA / scratch
+app-example/
+public/docs/
