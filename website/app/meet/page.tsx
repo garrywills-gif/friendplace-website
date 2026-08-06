@@ -635,17 +635,18 @@ function MeetPageContent() {
               src={brandAssets.butterfly.src}
               alt=""
               aria-hidden
+              className="meet-hero-butterfly"
               style={{ width: 110, height: 'auto', margin: '0 auto 20px', display: 'block' }}
             />
-            <h1 style={openingLine}>Come in.</h1>
-            <p style={leadCopy}>Who would you like to show you around today?</p>
+            <h1 className="meet-opening-line" style={openingLine}>Meet George or Georgia</h1>
+            <p className="meet-lead-copy" style={leadCopy}>Who would you like to show you around today?</p>
 
-            <div style={choiceRow}>
+            <div className="meet-choice-row" style={choiceRow}>
               <ChoiceCard companionId="george"  onChoose={onChooseFromCard} />
               <ChoiceCard companionId="georgia" onChoose={onChooseFromCard} />
             </div>
 
-            <p style={footNote}>
+            <p className="meet-foot-note" style={footNote}>
               George and Georgia are the same person &mdash; same warmth, same
               honesty, same voice. Simply choose whichever feels right to you.
             </p>
@@ -1049,7 +1050,7 @@ function NextSteps({ phase, onLead }: { phase: Phase; onLead: () => void }) {
           onLead();
         }}
       >
-        Come inside
+        Come inside…
       </a>
     </div>
   );
@@ -1094,6 +1095,7 @@ function ChoiceCard({ companionId, onChoose }: {
     <button
       type="button"
       onClick={() => onChoose(companionId)}
+      className="meet-choice-card"
       style={choiceCard}
       aria-label={`Choose ${meta.name}`}
       onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)'; }}
@@ -1110,7 +1112,7 @@ function ChoiceCard({ companionId, onChoose }: {
         aria-hidden
         style={{ width: 55, height: 'auto', display: 'block' }}
       />
-      <span style={choiceName}>{meta.name}</span>
+      <span className="meet-choice-card-label" style={choiceName}>{meta.name}</span>
     </button>
   );
 }
