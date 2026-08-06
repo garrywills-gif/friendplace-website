@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "694415433307",
+    "project_id": "friendplace-9e5e2",
+    "storage_bucket": "friendplace-9e5e2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:694415433307:android:af66e397ae664ca00b697e",
+        "android_client_info": {
+          "package_name": "au.com.friendplace.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB1H2HDvhxIUOwCSEKJP-_qw79SoOFwRmg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -38,5 +38,5 @@ yarn-error.*
 
 app-example
 
-# Firebase Android — keep out of source control per platform convention
-google-services.json
+# Firebase Android — google-services.json is intentionally tracked so EAS Build can bundle it.
+# NOTE: This is the CLIENT config (safe to commit). NEVER commit the Firebase service-account JSON.
