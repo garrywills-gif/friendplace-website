@@ -200,8 +200,15 @@ async def create_signal(
     region: Optional[str] = None,\
     triage_fn: TriageFn = _default_triage,\
     injection_check_fields: Optional[list[str]] = None,\
+    origin: str = "production",\
 ) -> dict:
     """Create a Signal, attaching to an existing open Case or opening one.
+
+    ``origin`` marks whether this is production traffic, seed/demo content,
+    an automated test fixture or a diagnostic. Bridge queries filter by
+    ``origin='production'`` explicitly so nothing else leaks into the live
+    operational count. Allowed values: ``production``, ``seed``, ``test``,
+    ``diagnostic``.
 
     Idempotency: if an open Signal with the same ``(producer, entity_ref)``
     already exists on the target Case, the existing Signal is returned
@@ -212,6 +219,8 @@ async def create_signal(
         raise SignalError(f"unknown category: {category}")
     if priority not in PRIORITY_ORDER:
         raise SignalError(f"unknown priority: {priority}")
+    if origin not in {"production", "seed", "test", "diagnostic"}:
+        raise SignalError(f"unknown origin: {origin}")
 
     now = _now_iso()
     prompt_injection_suspected = sniff_prompt_injection(*(injection_check_fields or [body]))
@@ -243,6 +252,7 @@ async def create_signal(
             "created_at": now,
             "updated_at": now,
             "region": region,
+            "origin": origin,
         }
         await db.mcgs_cases.insert_one(dict(case))
         await log_activity(
@@ -297,6 +307,7 @@ async def create_signal(
         }],
         "prompt_injection_suspected": prompt_injection_suspected,
         "region": region,
+        "origin": origin,
         "created_at": now,
         "updated_at": now,
     }
@@ -557,6 +568,7 @@ async def list_signals(
     priority: Optional[list[str]] = None,
     category: Optional[list[str]] = None,
     assignee_id: Optional[str] = None,
+    origin: Optional[list[str]] = None,
     limit: int = 50,
 ) -> list[dict]:
     q: dict = {}
@@ -571,6 +583,14 @@ async def list_signals(
         q["category"] = {"$in": category}
     if assignee_id is not None:
         q["assignee_id"] = assignee_id
+    # Origin filter defaults to production-only. Callers wanting to include
+    # seed/test/diagnostic rows must pass origin=["production","test",...]
+    # or origin=["*"] explicitly. This is *strict* by design so no
+    # unlabelled test row can leak back into live operational counts.
+    if origin is None:
+        q["origin"] = "production"
+    elif origin and "*" not in origin:
+        q["origin"] = {"$in": origin}
     # Priority ASC (P0 first via numeric field), then recency DESC.
     cur = db.mcgs_signals.find(q, {"_id": 0}).sort([("priority", 1), ("created_at", -1)])
     return await cur.to_list(max(1, min(200, limit)))
@@ -583,6 +603,7 @@ async def list_cases(
     priority: Optional[list[str]] = None,
     category: Optional[list[str]] = None,
     assignee_id: Optional[str] = None,
+    origin: Optional[list[str]] = None,
     limit: int = 50,
 ) -> list[dict]:
     q: dict = {}
@@ -596,6 +617,10 @@ async def list_cases(
         q["category"] = {"$in": category}
     if assignee_id is not None:
         q["assignee_id"] = assignee_id
+    if origin is None:
+        q["origin"] = "production"
+    elif origin and "*" not in origin:
+        q["origin"] = {"$in": origin}
     cur = db.mcgs_cases.find(q, {"_id": 0}).sort([("priority", 1), ("updated_at", -1)])
     return await cur.to_list(max(1, min(200, limit)))
 
@@ -603,17 +628,39 @@ async def list_cases(
 async def compute_counts(db: Any) -> dict:
     """Compute the single-doc hot counts cache.
 
-    Called on demand + writes `mcgs_counts` for the Bridge sidebar badges.
+    Called on demand + writes ``mcgs_counts`` for the Bridge sidebar badges.
+    All counts are ``origin='production'`` only — seed/test/diagnostic
+    rows are archived elsewhere and never contaminate the live queue.
     """
-    signals_open = await db.mcgs_signals.count_documents({"status": {"$in": list(OPEN_STATES)}})
-    signals_new = await db.mcgs_signals.count_documents({"status": "NEW"})
-    signals_in_review = await db.mcgs_signals.count_documents({"status": "IN_REVIEW"})
-    cases_open = await db.mcgs_cases.count_documents({"status": {"$in": list(OPEN_STATES)}})
+    prod_filter = {"origin": "production"}
+    signals_open = await db.mcgs_signals.count_documents({
+        "status": {"$in": list(OPEN_STATES)}, **prod_filter,
+    })
+    signals_new = await db.mcgs_signals.count_documents({
+        "status": "NEW", **prod_filter,
+    })
+    signals_in_review = await db.mcgs_signals.count_documents({
+        "status": "IN_REVIEW", **prod_filter,
+    })
+    cases_open = await db.mcgs_cases.count_documents({
+        "status": {"$in": list(OPEN_STATES)}, **prod_filter,
+    })
+    # Actionable open signals: exclude milestone signals (informational).
+    signals_actionable = await db.mcgs_signals.count_documents({
+        "status": {"$in": list(OPEN_STATES)},
+        "producer": {"$ne": "milestones"},
+        **prod_filter,
+    })
+    milestones_open = await db.mcgs_signals.count_documents({
+        "status": {"$in": list(OPEN_STATES)},
+        "producer": "milestones",
+        **prod_filter,
+    })
 
-    # Per-producer open cases (for sidebar badges).
+    # Per-producer open cases (for sidebar badges) — production only.
     per_producer: dict[str, int] = {}
     async for row in db.mcgs_signals.aggregate([
-        {"$match": {"status": {"$in": list(OPEN_STATES)}}},
+        {"$match": {"status": {"$in": list(OPEN_STATES)}, **prod_filter}},
         {"$group": {"_id": "$producer", "n": {"$sum": 1}}},
     ]):
         if row.get("_id"):
@@ -621,7 +668,13 @@ async def compute_counts(db: Any) -> dict:
 
     doc = {
         "id": "mcgs_counts",
-        "signals": {"open": signals_open, "new": signals_new, "in_review": signals_in_review},
+        "signals": {
+            "open": signals_open,
+            "new": signals_new,
+            "in_review": signals_in_review,
+            "actionable": signals_actionable,
+            "milestones": milestones_open,
+        },
         "cases": {"open": cases_open},
         "per_producer": per_producer,
         "computed_at": _now_iso(),

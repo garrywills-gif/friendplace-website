@@ -29,10 +29,13 @@ os.environ.setdefault(
 #
 # The `is_test` boolean is the primary signal (checked by George's tools);
 # `environment` is a future-proof secondary. `created_by_test` names the
-# source so we can trace stray records to a specific fixture.
+# source so we can trace stray records to a specific fixture. `origin`
+# aligns with the iter155 Bridge cleanup schema so live Bridge queries
+# (which filter ``origin='production'``) automatically exclude these.
 TEST_MARKER = {
     "is_test": True,
     "environment": "test",
+    "origin": "test",
 }
 
 

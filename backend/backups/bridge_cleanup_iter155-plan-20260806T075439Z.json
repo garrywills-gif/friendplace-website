@@ -1,0 +1,2847 @@
+{
+  "mcgs_cases": [
+    {
+      "id": "19e59318-3ee5-41c1-97da-e9177f0f5bbb",
+      "origin": "production",
+      "reason": "default",
+      "case_key": "event_submission:0681bd36-2aca-40c0-a1a8-c4bc4694577e",
+      "subject": "Event awaiting review: Community Trivia Night",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "458cd624-a0f3-4f68-adf0-ce9a36da46e7",
+      "origin": "production",
+      "reason": "default",
+      "case_key": "event_submission:f2d30beb-46d0-4d49-b16d-7bb81a199412",
+      "subject": "Event awaiting review: Ping",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "5a1f97f8-f693-4988-8113-a47e2d53c891",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:10dcc5e7-c3c2-4930-b37e-5f27cd186408",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "5673f004-aed7-4749-bb2d-c28e00578b25",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:2234579e-a873-4894-91d5-58387211031b",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "1b5861fd-34ae-405b-9689-5e8e4641d8a6",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:e405d1b9-79be-415a-913d-1ca0e93c6bcd",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "00125973-b64f-4829-b8a2-554fa538e1a8",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:21093619-a576-4cba-b842-75c118105a89",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "fc0de452-8aed-4339-ab14-c4580b1cdde0",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:2d677929-77b7-4068-affc-f12a5d6f4167",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "68943985-1a8b-4a61-a303-7cc4d926c24d",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:286a9fc4-55d5-495b-a5be-d834913f52d4",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "0719ad5c-70e7-441c-928c-b221cb6815a7",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:5a75a1b3-67d5-40f3-b2e4-4342e07e6a72",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "2c5337a0-14aa-41a1-8982-0ce72a7855f7",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:6f60e8fe-b828-421d-9237-8da14dbde017",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "a1ef3516-e643-4422-a425-7bca163bdeaf",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:00b46853-b872-4516-9832-8adf1f821032",
+      "subject": "Support ticket: Help out ",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "ca1419b8-58c4-44f7-9f92-22a135edea96",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:5f42d98c-d674-49e4-bf18-8df89266967f",
+      "subject": "Support ticket: Website ",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "f25a8891-13b1-41c3-af4c-45d3bb322255",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:8bc47b93-379e-451b-bc2e-613cf59e9e62",
+      "subject": "Support ticket: Test ticket - Resend wire-up",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "0d36128d-6cb5-4bdc-8ffe-4aede63e7f82",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:2a29db4a-1c32-400b-94cb-0985171ca55c",
+      "subject": "Support ticket: Testing user acknowledgement",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "8c8dfb39-f4af-475f-846d-7d72fd813716",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:7b50996b-73cf-4538-8dad-fe26fde3f40b",
+      "subject": "Support ticket: Can't log in on iOS",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "db7ad013-4dde-4e0b-b386-6ff95e058289",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:c55fe8c4-0b77-4483-83cb-4ba8f623cdcc",
+      "subject": "Support ticket: Hi problem",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "9a07e84f-5db8-4411-9434-502501d25fe3",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:6d0e1455-3392-47d4-ba57-b18fd4d44294",
+      "subject": "Support ticket: Another one",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "97bfc188-c5f3-4e8e-8ce6-a7c1ea023afc",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:0cc0a1c6-4415-4ef4-aaf5-05a53bced618",
+      "subject": "Support ticket: Preview of updated ack email",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "10eaa346-1ee0-47f9-a0bc-e934275d92dd",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:93b9b4d8-0fda-4235-916e-e2bf2a6a34cf",
+      "subject": "Support ticket: Test A - Contact Support",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "f2cd09de-bdac-4d68-b842-fec8b63fa887",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:1da10924-fb75-498c-ab2c-5b12658c809f",
+      "subject": "Support ticket: Test B - Report a Problem",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "923efee2-0ad6-4352-923c-955aaeee2ce9",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:12d195ee-419c-4d7c-95e9-99c8cbaf0eb0",
+      "subject": "Support ticket: MCGS smoke test",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "97356798-86df-462d-8171-31d2001decd1",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "case_key": "support_ticket:0ab4798e-f6b3-4651-8db4-6a2bf1ed4f3d",
+      "subject": "Support ticket: SSE stream test",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "25a0ffc7-23f3-4726-99ad-a73ee30b31ac",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:f180a706-8626-4d2b-a134-0b7d6de78cf9",
+      "subject": "Support ticket: MCGS phase1 e2e TEST_MCGS_62f1ac72aa",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "ca6ac84a-4942-4bec-81fb-6857f870065e",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:ff3a7723-7f2b-4e6b-95a1-e3fba5957774",
+      "subject": "Support ticket: SSE test TEST_SSE_e5c7df4b",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "48a2d23a-58a9-4424-8ace-677049465e8a",
+      "origin": "test",
+      "reason": "case matches PROP_",
+      "case_key": "support_ticket:df86263d-f14e-44e9-8112-e63a7bc18802",
+      "subject": "Support ticket: Proposal test PROP_e787e100",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "3fd5501c-6f05-425b-a098-8497a87bf80f",
+      "origin": "production",
+      "reason": "default",
+      "case_key": "campaign.anomaly.complaint.cam_phase2b_demo",
+      "subject": "Spam complaint on \u201cFounders Invitation \u2014 August 2026\u201d",
+      "status": "RESOLVED",
+      "priority": "P1"
+    },
+    {
+      "id": "6012aeda-89bd-4173-8085-48166dc00530",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:7cbeb9f7-8018-4328-8460-26b8ac879c8d",
+      "subject": "Support ticket: MCGS phase1 e2e TEST_MCGS_ecc2fa2d0e",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "aafc8a9f-7c12-43c8-ad75-9b44744b3eef",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:dd074a32-05b9-4488-9f7e-ec84d7fb4f66",
+      "subject": "Support ticket: SSE test TEST_SSE_ee427491",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "decd446c-29ea-4b1d-b05e-087374ee5872",
+      "origin": "test",
+      "reason": "case matches PROP_",
+      "case_key": "support_ticket:6de8310b-5cbf-4e09-911e-ec305bc4f4a3",
+      "subject": "Support ticket: Proposal test PROP_e6433a48",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "e5a8bb41-af7d-4e67-be8e-c801e7cb8b2c",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:38c4e2f4-89f1-40ee-b554-b6fc89612539",
+      "subject": "Support ticket: MCGS phase1 e2e TEST_MCGS_ec5c105434",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "f38b8106-b1fd-4548-992c-af92907354f8",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "support_ticket:dc48c0d6-357c-47ee-aeca-a6e1ea516846",
+      "subject": "Support ticket: SSE test TEST_SSE_273562da",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "35285e32-55f4-4c04-a1d4-cc28a3eb1a1f",
+      "origin": "test",
+      "reason": "case matches PROP_",
+      "case_key": "support_ticket:f56933b1-e56e-47df-a492-d8f06abe8abf",
+      "subject": "Support ticket: Proposal test PROP_b80ca7ee",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "361e8e7e-842f-4e53-84a4-b4a286134de2",
+      "origin": "test",
+      "reason": "orphaned \u2013 notice no longer exists",
+      "case_key": "notice_moderation:019df8cb-b26b-4a37-9076-2bad14a3a1a5",
+      "subject": "Notice needs review: Looking for a walking companion",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "e36329b0-4972-4974-b6f6-060c790a09f9",
+      "origin": "test",
+      "reason": "orphaned \u2013 notice no longer exists",
+      "case_key": "notice_moderation:36a2fd9a-9797-45f7-8ff3-fabb519dc13a",
+      "subject": "Notice needs review: Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "2cd84dae-839f-404c-86da-1fa23770337a",
+      "origin": "test",
+      "reason": "orphaned \u2013 notice no longer exists",
+      "case_key": "notice_moderation:591debd4-22ac-4dc8-ae1d-78d34bb452ce",
+      "subject": "Notice needs review: Looking for a walking companion",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "a7498855-2b56-478b-834e-753d71a5eca9",
+      "origin": "test",
+      "reason": "orphaned \u2013 notice no longer exists",
+      "case_key": "notice_moderation:a99e18f8-b88c-44cc-a6fb-c2909edeccf1",
+      "subject": "Notice needs review: Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "203a3184-6016-4517-9852-258a8146b51c",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "case_key": "notice_moderation:e3f4fe8c-35af-4341-a4db-105ee3c7d8eb",
+      "subject": "Notice needs review: Looking for a walking companion",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "d70e58fa-8660-45ac-bdde-e4aff35a480b",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "case_key": "notice_moderation:272410ab-e712-4367-ab58-bb10c53ea155",
+      "subject": "Notice needs review: Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "3529751a-00b8-4cd3-81c9-2451e1296fab",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "case_key": "notice_moderation:98a0a3a3-103b-4115-8e19-c04ed6cd0124",
+      "subject": "Notice needs review: 20% off yoga classes at our studio",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "7b578d5b-ff15-4631-96ae-5b18ec47acbc",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:ae00a80f-82cd-43e6-ac27-67dddf0fbf08",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "601e9b26-f473-414b-9b94-32a6292a446c",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:4b89899a-2bf3-4f4f-848c-0ebba44ea69c",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "7c58f186-c505-4482-a5ce-4c01fab34f18",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:f820209b-67ab-4b4e-9768-bf098a176e18",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "18cbb0ac-dd5a-472b-aee4-c1cd81ed1bc6",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:f8c6cdc1-7106-49af-a492-a7a6de8b06be",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "55583915-d5c0-4511-83ea-31fbd0568142",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:70639d2b-539b-4573-b5f0-a6c7f3ffd62f",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "4e3d5951-137f-4b78-8514-4d3864f4e461",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:e4a74313-2f60-4fd9-98f6-178b04cf725d",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "d3c6986c-55f1-4fc5-8818-d4c7f6698ced",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:be6db3ec-e45e-428d-bba7-ec14ac4188de",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "1eec7430-4c32-4cc8-9df5-f47fa00bf890",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:9ee4fb9c-8e2c-4bfa-952f-1db0f0ed429c",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "770bc2e8-6e64-4ccd-b711-e5d0619e30f2",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:7cbd9561-7389-486a-a830-5697bba0b161",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "9db3406c-a98c-4fa6-811a-a84ee483b20c",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:8804013a-0a87-48fa-a788-f3c8d163ab0b",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "a71d20a8-959d-4b04-a62a-1412a5339308",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:d4321cc6-2e53-46fe-b9da-67ffbfa3663b",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "5a8830f0-01b1-4550-a5bc-f9cb59c2e99f",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:fc4ce521-32a3-4385-95dc-9f3b57b5f839",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "06d298be-126b-4d26-a66b-fc682b6eae91",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:5027cf1e-1381-4f3f-bb71-ccf9f0057370",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "70facc1b-9f90-4a53-96d4-ae8f7f9d2fcb",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:ec6fef0b-de54-40d1-aa44-d7be610d3293",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "23afb386-904e-4984-90ba-364512506e8b",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:ab257d63-c478-48e1-a1db-c8cba6a492b8",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening Cafe X",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "0b52e3fc-461d-45ad-8529-f71335b565b2",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:126a963f-016a-4bcb-a2f7-fdb1f1768e2e",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "b5c414da-dbde-4795-928f-f63fa7b1990e",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:b630940a-b674-4a27-93d5-a85e736b00d7",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "d3ac5bef-0bfc-4ab9-8c7a-e9a561beb6db",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:671ccb98-a8ea-4a44-99e4-6710ee2f99e1",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "3906d59a-fea7-4a17-abd4-af7c8b645f9c",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:aa088b62-0ccc-4760-9469-5e27bbaa0bfc",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "34a314f8-98c6-4b72-afa5-3f83b14d3e0b",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:4ab9454c-b85f-425e-9c4d-59d9846e1742",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "2045d25a-4057-4979-8983-e4eae6f40d2d",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:36677449-b34e-4604-a87f-4908562732de",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "05319878-dc3e-4af6-a84a-4a35d79f95d8",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:3e21ad11-951d-4e19-95a7-edef021db3f2",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "a968d880-ad8d-4eed-9b87-5bd96b7993ee",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 seed notice (user_name=Margaret)",
+      "case_key": "notice_moderation:b95bfb12-8696-45ed-a71a-e91a05ab748f",
+      "subject": "Existing notice flagged for review: Free veggie seedlings",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "6838faec-d8f0-4b69-a67f-dbbc955140a7",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 seed notice (user_name=Frank)",
+      "case_key": "notice_moderation:c7906e70-6ba9-4b58-8042-96cc5cc7c4ce",
+      "subject": "Existing notice flagged for review: Recommend a podiatrist",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "9d10e87a-d08e-465c-a785-a4e20e023d06",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 seed notice (user_name=Joyce)",
+      "case_key": "notice_moderation:ab6123e0-d946-4682-979e-610c9dc95e09",
+      "subject": "Existing notice flagged for review: Knitting circle Wednesdays",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "4e5d2dbf-f98d-4fac-af7d-6d1607a197fc",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:48e0b65e-a9d7-418d-b9e4-e73eab6376d6",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "bc74fc8b-2676-4130-8538-e46fd6427c7c",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:1e297506-2b5f-4830-b7fb-afc9bd454858",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "241926f4-ad4f-4fd0-ad00-fe6f7eb69f6e",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:41b1bbc0-3754-421e-a03b-a618ac3c629c",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "be298761-1f5e-42a0-9f05-23b0862b8b4f",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:0429efa8-cde5-4118-af36-f41a1fe005b7",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "e5fb107e-447d-47fc-8daf-9afc8d41d80b",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:4cc4274c-89ee-4914-be30-bbbd47fadc30",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "80b0f8ef-c8ae-4c75-9309-6911e90f8a5a",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:9002736b-71d0-46aa-85ca-e4e184386572",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "a7f7644c-d629-415d-af78-20052ab3da5f",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:161342e1-f990-4214-a390-1f9f69a2fc52",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "f1d574d5-cdb8-49f8-bd78-db3554e92fe3",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:e19dadb6-e575-4d83-999b-aa8195f0fc4c",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "427b30d2-2f3c-4a0d-b1f6-0d53a68c9ab3",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:2086e16a-396e-47d1-94d5-fce85a7bc46e",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "0c9c2f03-c383-456e-8213-b11fcb9973c6",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:82125388-7c9d-43da-9e32-6f47f05efb87",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "32c5400b-cafb-4481-8a24-8deb1166318e",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:ca0a6b1d-5f15-4154-827a-155847e1f714",
+      "subject": "Existing notice flagged for review: TEST_iter28_n0",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "897ae5b4-fa14-437b-b633-cfe3ede91843",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:05a048a5-fbf9-4d38-8cd0-809a608f6a51",
+      "subject": "Existing notice flagged for review: TEST_iter28_n1",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "74296b89-3cd1-4fbc-be37-18baa3a7b2f8",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:48193644-26b8-4abb-a64e-35982381025b",
+      "subject": "Existing notice flagged for review: TEST_iter28_n2",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "9adf174b-9679-49d4-a8d0-31f26baad7bb",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:3f5dfb54-deb5-4800-a342-734e93adee25",
+      "subject": "Existing notice flagged for review: TEST_iter28_n3",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "458481c1-b979-484a-8988-fb67e6f4aa50",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:2385be5d-c877-47e5-9d2e-47271fa13e29",
+      "subject": "Existing notice flagged for review: TEST_iter28_n4",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "6adf5766-890f-44ea-ac41-eac8ced9c244",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:27b34602-c024-4251-9b76-60df837d616a",
+      "subject": "Existing notice flagged for review: TEST_iter28_n5",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "3d328faf-8f03-47ab-a19f-3bad70094d72",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:5d8d8e72-2778-4c6b-b54d-7da44380b5af",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "78d25bb4-f350-446a-b1dc-635e64fc80b3",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:e0b97886-671b-42d4-8b92-ca635be128f8",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "bad22f47-0878-4187-9e4b-6f8c7d05fb23",
+      "origin": "test",
+      "reason": "case matches Test bug",
+      "case_key": "notice_moderation:55cf106c-70e6-4237-bec7-dac095e87468",
+      "subject": "Existing notice flagged for review: Test bug",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "fa32113f-8479-483b-b0a1-9b6e0c5876a5",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:e52102af-7027-4bd1-abe6-f5e2e7f176a3",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "16c158a4-2e2b-4291-a7d1-ca0ab2b694a8",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:b5142bd7-9574-4557-b632-31bdef5ea575",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "b215a12d-286b-479e-807b-74d60245a479",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 seed notice (user_name=Joyce)",
+      "case_key": "notice_moderation:98e98d51-1fb7-4d48-886a-d5429703dc24",
+      "subject": "Existing notice flagged for review: RH GARAHE SALE",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "454ed274-99f9-42d3-a922-311552fa07dc",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "case_key": "notice_moderation:1dde003f-e435-42ef-a352-193b1c1e447c",
+      "subject": "Existing notice flagged for review: Free coffee table \u2014 pickup only",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "366c142d-6fae-4f75-bbcd-eeba96ebb36f",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:TEST_MOD_legacy_d5a56b",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "f4330ad0-75ed-4a63-bab7-02ed3ba7d9ae",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:17ba5ba4-da23-49ac-94f9-e2f5515fec2d",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "ada71be0-c76e-4e1d-86a6-8a854daf1d22",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:9c33d8e6-c703-4901-88b3-06be8f737844",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "54fd1df6-7cfa-46ca-a1d6-1cfa1b3c55fb",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:42a24b41-dc55-49a9-959c-49833ad84b6a",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "94e2fea3-76f7-43f6-b163-2f3ccd44744f",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:bd659ea0-d560-4ca0-8737-8c0cfd7c9aac",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "6341a9e1-fa82-44d4-9243-d6934a263ac2",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:b5891b9a-8181-49c8-82a0-3687109a050d",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "50aea5e2-da41-402b-aec4-8c0cae7d2eb6",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:d1522fd6-2098-422c-92ed-1f6872e865e2",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "29306978-6f04-464d-bc40-c4ecb5a02de4",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:7ca2fca2-7202-4ff0-8e11-c2bbd107a3d3",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "73a9673b-4d85-4e26-8026-c69ccabcba6e",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:65121b71-bbb6-475f-9b59-a2a47202a1f0",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "ba9c52f7-9ead-40d4-be01-39765f5ff1c1",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:TEST_MOD_legacy_c95e39",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "db498fb8-29e8-440b-a357-3987a1a5fb5c",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:c9cee6db-8cd5-4443-946c-4163b15c00d7",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "72f54e79-cf6f-4986-9a1f-2192c748ce19",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:afd16ebb-8587-4940-a7f7-d89f15c4bf0b",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "6de73040-d2c1-42c8-8f78-d42aee01347a",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:b90667fa-9b55-4954-8e9c-4e69cf7a4b82",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "dc3acadc-7097-43ac-97f2-6b138050880d",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:d5f5dd2a-0337-472f-a941-d2e401e54b15",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "f5ecdc39-8fa4-4704-9818-043f643a11ce",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:b3f67cba-3557-4afd-a2d8-55c7aaa2ba70",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "13993ee4-a356-4562-9165-686e4c028037",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:a4c3776f-7a33-47b7-a483-878711754dc9",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "ea1ca524-dbf9-4a5e-a1ac-e46ff969a861",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:60e534b5-ede7-479a-9c5e-59f4e68abc9e",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "35d3729d-1ab4-485b-b838-e66ae30d286b",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:TEST_MOD_legacy_36e915",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "c01c4fc9-b232-4892-ba13-2be60b93f465",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:808c906b-3e82-4dbe-aa6f-1c6a4ab28566",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "ff418143-2591-4cc0-9124-fe8a391e647c",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:fc419d2e-94dd-4f66-9f11-9e37aafbafc7",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "0bb2772b-fead-461e-93e4-3a16b56003ce",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:1ded080c-d90b-45f2-be2f-dbfb7301d95b",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "2e0286ae-f317-4c22-bcb6-e87784f9927e",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:c41cf3ab-6a96-4284-bf67-8b7f02a32ae8",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "5945721c-d903-4f96-989e-270142301cb9",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:cfe6b554-9e06-4e8d-bfab-2890efcb0627",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "cfd2e82f-4a66-41ee-9248-3db101107228",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:2d7fdeb3-d610-45fb-a5ca-1de261a59a55",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "2baf7b91-180e-4380-b3d4-41d4590cf7c7",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:b7b45a36-0ab9-440e-931a-b1d98d3694b1",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "06e3a84e-8cc0-4c99-991c-34cedd8814fe",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:TEST_MOD_legacy_05f709",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "fb150fcf-cec0-483d-a6bf-090f5c462828",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:f1a6da3c-6a3d-4cd0-9533-7151476808ec",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "68eadb60-10f5-442a-9f53-f5a59720f6d2",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:ad0a4a8c-94e7-41e3-bbcb-96e31e851151",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "a25b94b0-4a46-45b6-884e-f5ec6f53fd3c",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:c65813b1-003c-4f1d-b839-c54634a1df9b",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "1fbba95b-17c5-4235-a273-b9fb20e263fc",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:d11aa51a-ae71-4a33-a707-3d69c6651b85",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "72b9770b-6d05-44a7-ae03-1f0e61638b27",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:7d0537e6-f0ab-4ab5-9d0d-4d342cb55188",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "eb4671ab-3944-486f-a4c3-bb4ae3483443",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:9beb61c8-fb47-4911-953c-732b5271d23c",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "effeb045-20ec-418d-a603-1fd2ef22e5ba",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:7d128bb4-d655-4f1b-8157-cf58126728a9",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "c693c825-0543-4191-a397-d495906a2b43",
+      "origin": "test",
+      "reason": "case matches TEST_",
+      "case_key": "notice_moderation:TEST_MOD_legacy_b46aff",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    }
+  ],
+  "mcgs_signals": [
+    {
+      "id": "034730fb-ea7e-41a7-8fb7-c506a575ea16",
+      "origin": "production",
+      "reason": "default",
+      "producer": "event_submission",
+      "subject": "Event awaiting review: Community Trivia Night",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "ca999e1d-5746-44eb-955a-b5247ac1a515",
+      "origin": "production",
+      "reason": "default",
+      "producer": "event_submission",
+      "subject": "Event awaiting review: Ping",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "7b1f0f35-2186-4aab-bee2-6c4fce958169",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "f2b8a42d-5830-4dc2-b7d3-e55226181080",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "3d293dc8-dd89-436e-b2fa-30083e333263",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "b98a346a-7e8e-4063-8067-f6265d976e67",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "a6301a99-87b5-4fe7-ba86-08335cb91440",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "0e718e62-1dbc-475e-94cc-7a6add46ea43",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "b9ea08aa-134a-4271-baf3-d241803d8556",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "9046e84f-7ccc-43e6-9aae-45a8e92cd257",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: TEST_subject",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "cd6ed029-88da-4a8f-be8e-b5c3896ca76d",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Help out ",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "114f6052-80fe-4fb3-baa7-7bbc5975e3d9",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Website ",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "cd346566-3d88-423b-913f-148ead511812",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Test ticket - Resend wire-up",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "d71c68b0-4b74-49b9-9bff-8c4eb6004e2e",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Testing user acknowledgement",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "062e577d-efb6-4a53-9789-4656562da43e",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Can't log in on iOS",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "6fef5d96-d63d-45d6-9b99-3c433952d0e0",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Hi problem",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "4d61d002-7688-43ef-b160-c596553189b9",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Another one",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "8fdbea36-02d1-4e95-9648-f13ddad292a7",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Preview of updated ack email",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "40b02667-06ae-47d0-9793-d555bcbbca6d",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Test A - Contact Support",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "659c50b5-0f21-4761-97a1-ff2b6a2d5638",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Test B - Report a Problem",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "d6916d96-f1b7-4c6c-94f7-432491fa8fd0",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: MCGS smoke test",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "3a11ae3e-fe9e-4a18-a1ac-bc986e1d65a3",
+      "origin": "production",
+      "reason": "genuine support ticket",
+      "producer": "support_ticket",
+      "subject": "Support ticket: SSE stream test",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "e0207bab-2184-4272-b84b-4668efd3bc0e",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: MCGS phase1 e2e TEST_MCGS_62f1ac72aa",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "0e7b8531-fffc-4c2d-98fc-600a3b648c09",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: SSE test TEST_SSE_e5c7df4b",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "6eafc073-d665-411f-a052-f2ed7c3d619b",
+      "origin": "test",
+      "reason": "signal matches PROP_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Proposal test PROP_e787e100",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "af2e2861-1723-473a-9ab8-36e44af24812",
+      "origin": "production",
+      "reason": "milestone informational signal",
+      "producer": "milestones",
+      "subject": "Thirty days without a safeguarding incident",
+      "status": "RESOLVED",
+      "priority": "P3"
+    },
+    {
+      "id": "bb7233fd-9e47-41f3-8686-826c3fcb5c81",
+      "origin": "production",
+      "reason": "milestone informational signal",
+      "producer": "milestones",
+      "subject": "Reached our hundredth member",
+      "status": "RESOLVED",
+      "priority": "P3"
+    },
+    {
+      "id": "fa991a2f-2656-4f6f-9899-1e38ca1ee4b1",
+      "origin": "production",
+      "reason": "milestone informational signal",
+      "producer": "milestones",
+      "subject": "Support queue is clear",
+      "status": "NEW",
+      "priority": "P3"
+    },
+    {
+      "id": "6897247b-65ed-44b4-b7cd-7d2156509595",
+      "origin": "production",
+      "reason": "milestone informational signal",
+      "producer": "milestones",
+      "subject": "Thirty days without a safeguarding incident",
+      "status": "NEW",
+      "priority": "P3"
+    },
+    {
+      "id": "aa6294c4-6fec-4ea6-b840-cdf735022a94",
+      "origin": "production",
+      "reason": "default",
+      "producer": "campaign_anomalies",
+      "subject": "Spam complaint on \u201cFounders Invitation \u2014 August 2026\u201d",
+      "status": "RESOLVED",
+      "priority": "P1"
+    },
+    {
+      "id": "dc83a985-3128-4632-a148-b3230aeb4ec7",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: MCGS phase1 e2e TEST_MCGS_ecc2fa2d0e",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "5ecad44d-c7f3-4305-b8ec-09ad4a8d9652",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: SSE test TEST_SSE_ee427491",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "3d4971d7-ed13-47a5-9261-f11704a213a2",
+      "origin": "test",
+      "reason": "signal matches PROP_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Proposal test PROP_e6433a48",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "d6984565-70f3-49f6-aa70-5b25097f09c4",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: MCGS phase1 e2e TEST_MCGS_ec5c105434",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "7096b7f5-469e-4d0d-9c7f-f3f0fae45df1",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: SSE test TEST_SSE_273562da",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "42064786-0419-49c7-852d-f8a94b4e015c",
+      "origin": "test",
+      "reason": "signal matches PROP_",
+      "producer": "support_ticket",
+      "subject": "Support ticket: Proposal test PROP_b80ca7ee",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "b1df8b2f-4258-463a-aba4-bf3c40ba8faa",
+      "origin": "test",
+      "reason": "orphaned \u2013 notice no longer exists",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: Looking for a walking companion",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "227057f6-b9d6-412d-92e5-212a40625822",
+      "origin": "test",
+      "reason": "orphaned \u2013 notice no longer exists",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "bb946204-fa4b-4afc-833c-fb3d71520c19",
+      "origin": "test",
+      "reason": "orphaned \u2013 notice no longer exists",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: Looking for a walking companion",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "73eb3756-e98f-4ec8-8e14-777d0a79f03c",
+      "origin": "test",
+      "reason": "orphaned \u2013 notice no longer exists",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "442ec4bc-e80a-4078-a446-c3914e0a04ee",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: Looking for a walking companion",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "1ee41fa5-79a8-4712-9a6c-fe486fa04bbf",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "7c317749-6d5d-434f-9b46-271f5598cf6c",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: 20% off yoga classes at our studio",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "035fe2d5-952b-4bb6-8ab4-0e4d0e0fc48c",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "876ec58f-7e67-49d7-8b53-4495978dd10f",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "f2143539-d9d6-4923-9e4d-cbb3f50276a2",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "e9d8092a-c6e8-4cb7-b983-f9ea4e94dd8f",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "931e04f2-510c-4d16-af72-118895bcb6d3",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "992ed1d3-002e-4ccc-8edd-32305bdabd9d",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "f12b5c6a-0dfc-41d1-bc1f-2a4ec288f754",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "8ade0d92-d254-4061-8e78-9a72e5991986",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "956c865b-5674-4162-a98a-fc8f511365f7",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "4689ec8f-4661-472a-88ba-b9fa8d9c4d8d",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "459e7c11-66e0-4fac-b53a-7a6c049ec0e3",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "75c4d9e7-4ec9-4db9-a388-397f731cde52",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "9926b2c3-587e-446b-b7e7-a56a459f7373",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "a61c5600-80fa-4bf6-9a45-93a2864d7811",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "621e3771-cdb8-49d6-9d4b-31bc1f306a14",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening Cafe X",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "597bd582-d2dd-406e-80e8-b38a6d31a465",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "17ab6a46-f2b4-462a-ad1a-e70c66b14353",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "e197b98e-6e4a-430e-8ca7-e092dee1f9b1",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "9b85906d-ae17-420f-a0cc-678dfff27f3f",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "380cc9fd-8cfb-4934-b455-bcb0c31fbd08",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "90e56018-1972-49b7-9503-65ea53df5d65",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "a8fcabca-4c3f-4a79-9927-b29bc64b17f9",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "1cac8aa0-6211-4140-affc-004a43fe3f9a",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 seed notice (user_name=Margaret)",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: Free veggie seedlings",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "35ae9c93-e122-4c5c-8d42-a586e1ab5d01",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 seed notice (user_name=Frank)",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: Recommend a podiatrist",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "8dccf35f-384e-46c9-845f-df6869c4c916",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 seed notice (user_name=Joyce)",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: Knitting circle Wednesdays",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "ec913fe5-9b92-4dae-8974-1afb208580ba",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "f1edcdd5-eda8-4e41-995b-c669ce8dfaee",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "fcb6289f-6cd4-4d39-ba65-1b907d1592a6",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "5b4956f9-4344-4564-a9f1-99fac7686da2",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "d31679ab-dd31-4eaa-912b-41f2190b7153",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "ebc408e3-eb65-4283-8a5f-3053b7e6bef1",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "ba3f44b5-987f-4060-83df-94317473de0b",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "ed7e2037-b0a6-43b2-becf-dae3885f355e",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "4b6f04cd-8c31-4e29-b5c3-1892b0857b2f",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "f164de22-9050-4195-9cc6-21afab02bac1",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "596edec4-3e93-435a-a3e9-c2b158410b25",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_iter28_n0",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "3ffb5e58-050a-4eab-aea7-3431e29e3a25",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_iter28_n1",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "c530db9f-c6cd-4175-a0c5-249338d87e48",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_iter28_n2",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "bb792888-2edb-49d5-94cf-affff87c5d98",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_iter28_n3",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "47c75e40-3b18-4ab2-8fea-019adc555411",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_iter28_n4",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "06d865bd-3683-4154-9b4b-fbe504abe920",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_iter28_n5",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "1feea159-c506-43df-b332-7d0d5ce4174a",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_report_target",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "8426d042-a396-4f45-906c-bc51b3fd4e2b",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "dfc0aad4-2095-4d9b-bfc0-49af19b87661",
+      "origin": "test",
+      "reason": "signal matches Test bug",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: Test bug",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "d5f9f241-7aea-404f-ab2e-4b7244e3bfd3",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "6fb165a3-e6fe-4e12-a870-ee1e76ed3095",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_notice",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "9f76d1ad-a666-4961-815a-91f6c1c307a4",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 seed notice (user_name=Joyce)",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: RH GARAHE SALE",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "66ab5a24-4f65-4cf6-80a8-20ab1b10e611",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: Free coffee table \u2014 pickup only",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "988664f3-c114-4f4b-a224-cb225ab6629b",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "0682b814-fa32-4386-a876-6a494a0cc687",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "815a8773-c104-419c-b21c-df7ced03d18b",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "a6e2d4d3-3b2d-4f9a-a44d-ae51d4e1737d",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "725c6673-66ea-4da7-ba2a-3aab49a5ff9a",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "8406c109-400f-4287-b730-e53f6e8f62a0",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "9f3a9deb-a249-4daf-b95a-c174b949feec",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "6c29f6e0-3021-4b26-8caf-312a82fd08ba",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "0ee09f11-bbca-4606-bef8-030c59d013d5",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "05d966ef-4338-48d5-ad73-d6987bcdc1a5",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "366e6894-28d5-4745-94a9-1d542e4968b5",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "16bdd34b-d076-47ac-b3e6-befcda33b6db",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "75db1ae0-50aa-436c-a92f-f4b1d2ae40c4",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "794f239d-f44a-4248-a0bc-357de1a7b229",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "53a433b1-f370-42bd-9ea6-a13cbca15b41",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "b7ee3605-3775-456c-a4d1-725c14e950da",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "02f510df-0284-4652-8887-9f1806bc57fa",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "5728b88d-d501-4cb5-9bca-01c2873c95c4",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "1f0fca34-84a3-46a1-b2fa-1b04ed11d369",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "d37f3b6d-52c4-4b03-9b71-a4264bd3a7b2",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "24713e18-81f6-41c2-9614-9ff66a91e3fa",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "2f92f568-8399-4f77-84cc-360b2f11b11a",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "55749ae1-ecae-410e-9477-ca0ba5057d29",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "e78a1b2e-08b0-4992-9cf7-3475b334062b",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "3d5f2925-2bf5-4b00-be66-22a3880e78e5",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "fe16f726-6450-4433-a9f6-6903614a36ed",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "4e1e48df-ce7c-4620-a931-41a0b4356cf0",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "cd45ba9a-566e-4f0a-b39d-e44404be121d",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "674e2e0a-7824-4fc2-82d3-62467fdba5d0",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Fourth friendly note",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "428965b9-9dfa-4c43-8297-1e0bf9d2c6f8",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "588bb057-38f5-4d92-a19f-3069c469f6f2",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Bingo night at the RSL Club",
+      "status": "NEW",
+      "priority": "P2"
+    },
+    {
+      "id": "69fcc651-0fc7-4907-abba-838089b43227",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica!",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "67b4e554-b623-4bf7-9c05-319917a5edfa",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Notice needs review: TEST_MOD_ Grand opening at Cafe Botanica two",
+      "status": "RESOLVED",
+      "priority": "P2"
+    },
+    {
+      "id": "21d2d8a5-e023-4cad-88de-d071b58fcadc",
+      "origin": "test",
+      "reason": "signal matches TEST_",
+      "producer": "notice_moderation",
+      "subject": "Existing notice flagged for review: TEST_MOD_ Grand opening Cafe Legacy",
+      "status": "NEW",
+      "priority": "P2"
+    }
+  ],
+  "support_tickets": [
+    {
+      "id": "10dcc5e7-c3c2-4930-b37e-5f27cd186408",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "TEST_subject",
+      "status": "resolved"
+    },
+    {
+      "id": "2234579e-a873-4894-91d5-58387211031b",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "TEST_subject",
+      "status": "resolved"
+    },
+    {
+      "id": "e405d1b9-79be-415a-913d-1ca0e93c6bcd",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "TEST_subject",
+      "status": "resolved"
+    },
+    {
+      "id": "21093619-a576-4cba-b842-75c118105a89",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "TEST_subject",
+      "status": "resolved"
+    },
+    {
+      "id": "2d677929-77b7-4068-affc-f12a5d6f4167",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "TEST_subject",
+      "status": "resolved"
+    },
+    {
+      "id": "286a9fc4-55d5-495b-a5be-d834913f52d4",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "TEST_subject",
+      "status": "resolved"
+    },
+    {
+      "id": "5a75a1b3-67d5-40f3-b2e4-4342e07e6a72",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "TEST_subject",
+      "status": "resolved"
+    },
+    {
+      "id": "6f60e8fe-b828-421d-9237-8da14dbde017",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "TEST_subject",
+      "status": "resolved"
+    },
+    {
+      "id": "00b46853-b872-4516-9832-8adf1f821032",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Help out ",
+      "status": "resolved"
+    },
+    {
+      "id": "5f42d98c-d674-49e4-bf18-8df89266967f",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Website ",
+      "status": "resolved"
+    },
+    {
+      "id": "8bc47b93-379e-451b-bc2e-613cf59e9e62",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Test ticket - Resend wire-up",
+      "status": "resolved"
+    },
+    {
+      "id": "2a29db4a-1c32-400b-94cb-0985171ca55c",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Testing user acknowledgement",
+      "status": "resolved"
+    },
+    {
+      "id": "7b50996b-73cf-4538-8dad-fe26fde3f40b",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Can't log in on iOS",
+      "status": "resolved"
+    },
+    {
+      "id": "c55fe8c4-0b77-4483-83cb-4ba8f623cdcc",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Hi problem",
+      "status": "resolved"
+    },
+    {
+      "id": "6d0e1455-3392-47d4-ba57-b18fd4d44294",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Another one",
+      "status": "resolved"
+    },
+    {
+      "id": "0cc0a1c6-4415-4ef4-aaf5-05a53bced618",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Preview of updated ack email",
+      "status": "resolved"
+    },
+    {
+      "id": "93b9b4d8-0fda-4235-916e-e2bf2a6a34cf",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Test A - Contact Support",
+      "status": "resolved"
+    },
+    {
+      "id": "1da10924-fb75-498c-ab2c-5b12658c809f",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "Test B - Report a Problem",
+      "status": "resolved"
+    },
+    {
+      "id": "12d195ee-419c-4d7c-95e9-99c8cbaf0eb0",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "MCGS smoke test",
+      "status": "resolved"
+    },
+    {
+      "id": "0ab4798e-f6b3-4651-8db4-6a2bf1ed4f3d",
+      "origin": "production",
+      "reason": "genuine ticket",
+      "subject": "SSE stream test",
+      "status": "resolved"
+    },
+    {
+      "id": "f180a706-8626-4d2b-a134-0b7d6de78cf9",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "MCGS phase1 e2e TEST_MCGS_62f1ac72aa",
+      "status": "resolved"
+    },
+    {
+      "id": "ff3a7723-7f2b-4e6b-95a1-e3fba5957774",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "SSE test TEST_SSE_e5c7df4b",
+      "status": "resolved"
+    },
+    {
+      "id": "df86263d-f14e-44e9-8112-e63a7bc18802",
+      "origin": "test",
+      "reason": "ticket matches PROP_",
+      "subject": "Proposal test PROP_e787e100",
+      "status": "resolved"
+    },
+    {
+      "id": "7cbeb9f7-8018-4328-8460-26b8ac879c8d",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "MCGS phase1 e2e TEST_MCGS_ecc2fa2d0e",
+      "status": "open"
+    },
+    {
+      "id": "dd074a32-05b9-4488-9f7e-ec84d7fb4f66",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "SSE test TEST_SSE_ee427491",
+      "status": "open"
+    },
+    {
+      "id": "6de8310b-5cbf-4e09-911e-ec305bc4f4a3",
+      "origin": "test",
+      "reason": "ticket matches PROP_",
+      "subject": "Proposal test PROP_e6433a48",
+      "status": "open"
+    },
+    {
+      "id": "38c4e2f4-89f1-40ee-b554-b6fc89612539",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "MCGS phase1 e2e TEST_MCGS_ec5c105434",
+      "status": "open"
+    },
+    {
+      "id": "dc48c0d6-357c-47ee-aeca-a6e1ea516846",
+      "origin": "test",
+      "reason": "ticket matches TEST_",
+      "subject": "SSE test TEST_SSE_273562da",
+      "status": "open"
+    },
+    {
+      "id": "f56933b1-e56e-47df-a492-d8f06abe8abf",
+      "origin": "test",
+      "reason": "ticket matches PROP_",
+      "subject": "Proposal test PROP_b80ca7ee",
+      "status": "open"
+    }
+  ],
+  "notices": [
+    {
+      "id": "b95bfb12-8696-45ed-a71a-e91a05ab748f",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 re-flag",
+      "title": "Free veggie seedlings",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "c7906e70-6ba9-4b58-8042-96cc5cc7c4ce",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 re-flag",
+      "title": "Recommend a podiatrist",
+      "user_name": "Frank"
+    },
+    {
+      "id": "ab6123e0-d946-4682-979e-610c9dc95e09",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 re-flag",
+      "title": "Knitting circle Wednesdays",
+      "user_name": "Joyce"
+    },
+    {
+      "id": "29aaa19b-bd26-4e7c-9543-cce487099b7d",
+      "origin": "production",
+      "reason": "genuine notice",
+      "title": "Lost cat \u2014 orange tabby",
+      "user_name": "Bill"
+    },
+    {
+      "id": "48e0b65e-a9d7-418d-b9e4-e73eab6376d6",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_notice",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "1e297506-2b5f-4830-b7fb-afc9bd454858",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_notice",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "dc35e7c7-6b53-4d2c-82a3-096697bcbc8b",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_target_notice",
+      "user_name": "TEST"
+    },
+    {
+      "id": "1f9c31bd-208f-48db-ab58-d4fa4c0adce5",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_remove_me",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "86eedacf-0041-498a-8e80-12e3b0ea6ccd",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_pre",
+      "user_name": "Restr"
+    },
+    {
+      "id": "61490eac-8c60-4616-ac22-7f7cb4859ac2",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_target_notice",
+      "user_name": "TEST"
+    },
+    {
+      "id": "44b3d586-94e4-4509-97f8-4accf15fa567",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_remove_me",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "6c79b17a-3435-4d78-99c0-d57b5c0134e7",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_pre",
+      "user_name": "Restr"
+    },
+    {
+      "id": "3646369e-6072-4b39-b0c7-adc0f82bf4d2",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_target_notice",
+      "user_name": "TEST"
+    },
+    {
+      "id": "bbe40faa-7c39-41c6-9853-fde27d5b1232",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_remove_me",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "f29c346c-468d-43bd-bf17-e8122888ff66",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_pre",
+      "user_name": "Restr"
+    },
+    {
+      "id": "e77ba005-0209-4142-91e7-11c6965fa5ae",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_target_notice",
+      "user_name": "TEST"
+    },
+    {
+      "id": "9d02eabf-438d-4eb1-8c49-6ba8159656bc",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_remove_me",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "b24dc12e-1447-4f3d-98b0-150a3eba88ef",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_pre",
+      "user_name": "Restr"
+    },
+    {
+      "id": "41b1bbc0-3754-421e-a03b-a618ac3c629c",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_report_target",
+      "user_name": "Frank"
+    },
+    {
+      "id": "c5484b64-b1b9-4c1d-94a2-da07c8599456",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_auto_protect",
+      "user_name": "Victim"
+    },
+    {
+      "id": "0429efa8-cde5-4118-af36-f41a1fe005b7",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_notice",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "920bc08a-2a99-4087-ad88-dc13927459da",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_target_notice",
+      "user_name": "TEST"
+    },
+    {
+      "id": "4ea3de1f-906b-4443-b6c9-cfdc900cb9cf",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_remove_me",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "344d59af-574e-4a6c-b1ec-d05e39f9636f",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_pre",
+      "user_name": "Restr"
+    },
+    {
+      "id": "593312cf-efbd-44d4-946c-b16bd9fdf1ae",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_target_notice",
+      "user_name": "TEST"
+    },
+    {
+      "id": "5c090470-77d5-49c0-8fef-02f48ba86a9c",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_remove_me",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "20969d02-18ac-4524-a1cf-9263f98df30c",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_pre",
+      "user_name": "Restr"
+    },
+    {
+      "id": "4cc4274c-89ee-4914-be30-bbbd47fadc30",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_report_target",
+      "user_name": "Frank"
+    },
+    {
+      "id": "a7c7a323-4b38-473c-9607-46e53d3e377b",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_auto_protect",
+      "user_name": "Victim"
+    },
+    {
+      "id": "9002736b-71d0-46aa-85ca-e4e184386572",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_notice",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "18f3be3b-2001-4dd4-8c0e-1206411dc91f",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_target_notice",
+      "user_name": "TEST"
+    },
+    {
+      "id": "3c80e439-f81f-42df-80d1-73a75c642596",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_remove_me",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "663b4a6e-3dd0-42bb-8857-19ce8a6e1587",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_pre",
+      "user_name": "Restr"
+    },
+    {
+      "id": "161342e1-f990-4214-a390-1f9f69a2fc52",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_report_target",
+      "user_name": "Frank"
+    },
+    {
+      "id": "cc6f60e5-3d52-47d8-910e-502797b39888",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_auto_protect",
+      "user_name": "Victim"
+    },
+    {
+      "id": "e19dadb6-e575-4d83-999b-aa8195f0fc4c",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_notice",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "a5580c70-be02-48dd-a036-5163c618d4f3",
+      "origin": "production",
+      "reason": "genuine notice",
+      "title": "Electrician needed",
+      "user_name": "Garry"
+    },
+    {
+      "id": "aabc40ff-a262-4dc6-93e4-5d619fae10b2",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_target_notice",
+      "user_name": "TEST"
+    },
+    {
+      "id": "13cec46d-8183-49ba-ae2e-92631099376c",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_remove_me",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "07b0b142-f594-43bd-8189-4268e626134d",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_pre",
+      "user_name": "Restr"
+    },
+    {
+      "id": "2086e16a-396e-47d1-94d5-fce85a7bc46e",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_report_target",
+      "user_name": "Frank"
+    },
+    {
+      "id": "cb220bb2-e8bf-4f64-bc10-5230ca4b01ac",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_auto_protect",
+      "user_name": "Victim"
+    },
+    {
+      "id": "82125388-7c9d-43da-9e32-6f47f05efb87",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_notice",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "1120fe3f-112a-477a-834c-95ecfdc3ec83",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_target_notice",
+      "user_name": "TEST"
+    },
+    {
+      "id": "ca0a6b1d-5f15-4154-827a-155847e1f714",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_iter28_n0",
+      "user_name": "TEST_iter28_user"
+    },
+    {
+      "id": "05a048a5-fbf9-4d38-8cd0-809a608f6a51",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_iter28_n1",
+      "user_name": "TEST_iter28_user"
+    },
+    {
+      "id": "48193644-26b8-4abb-a64e-35982381025b",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_iter28_n2",
+      "user_name": "TEST_iter28_user"
+    },
+    {
+      "id": "3f5dfb54-deb5-4800-a342-734e93adee25",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_iter28_n3",
+      "user_name": "TEST_iter28_user"
+    },
+    {
+      "id": "2385be5d-c877-47e5-9d2e-47271fa13e29",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_iter28_n4",
+      "user_name": "TEST_iter28_user"
+    },
+    {
+      "id": "27b34602-c024-4251-9b76-60df837d616a",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_iter28_n5",
+      "user_name": "TEST_iter28_user"
+    },
+    {
+      "id": "5d8d8e72-2778-4c6b-b54d-7da44380b5af",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_report_target",
+      "user_name": "Frank"
+    },
+    {
+      "id": "e0b97886-671b-42d4-8b92-ca635be128f8",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_notice",
+      "user_name": "Margaret"
+    },
+    {
+      "id": "55cf106c-70e6-4237-bec7-dac095e87468",
+      "origin": "test",
+      "reason": "notice content matches Test bug",
+      "title": "Test bug",
+      "user_name": "Frank"
+    },
+    {
+      "id": "e52102af-7027-4bd1-abe6-f5e2e7f176a3",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_notice",
+      "user_name": ""
+    },
+    {
+      "id": "b5142bd7-9574-4557-b632-31bdef5ea575",
+      "origin": "test",
+      "reason": "notice content matches TEST_",
+      "title": "TEST_notice",
+      "user_name": ""
+    },
+    {
+      "id": "98e98d51-1fb7-4d48-886a-d5429703dc24",
+      "origin": "seed",
+      "reason": "retro_scan_iter153 re-flag",
+      "title": "RH GARAHE SALE",
+      "user_name": "Joyce"
+    },
+    {
+      "id": "e3f4fe8c-35af-4341-a4db-105ee3c7d8eb",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "title": "Looking for a walking companion",
+      "user_name": "Test"
+    },
+    {
+      "id": "272410ab-e712-4367-ab58-bb10c53ea155",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "title": "Grand opening at Cafe Botanica!",
+      "user_name": "Test"
+    },
+    {
+      "id": "1dde003f-e435-42ef-a352-193b1c1e447c",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "title": "Free coffee table \u2014 pickup only",
+      "user_name": "Test"
+    },
+    {
+      "id": "98a0a3a3-103b-4115-8e19-c04ed6cd0124",
+      "origin": "test",
+      "reason": "author is literal 'Test' user",
+      "title": "20% off yoga classes at our studio",
+      "user_name": "Test"
+    }
+  ]
+}

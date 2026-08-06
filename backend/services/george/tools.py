@@ -81,6 +81,11 @@ def exclude_test_data(query: dict, subject_field: str | None = None) -> dict:
     conditions = list(query.pop("$and", [])) if "$and" in query else []
     conditions.append({"is_test": {"$ne": True}})
     conditions.append({"environment": {"$ne": "test"}})
+    # iter155 Bridge cleanup: authoritative ``origin`` field. Anything
+    # explicitly marked seed / test / diagnostic is out. Rows without an
+    # ``origin`` are treated as production (backfill guarantees every
+    # existing row has one).
+    conditions.append({"origin": {"$nin": ["test", "seed", "diagnostic"]}})
 
     if subject_field:
         # Subject either doesn't exist, or exists and doesn't match the

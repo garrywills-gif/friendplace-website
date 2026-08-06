@@ -1238,11 +1238,12 @@ def build_router(db) -> APIRouter:
         priority: Optional[list[str]] = Query(default=None),
         category: Optional[list[str]] = Query(default=None),
         assignee_id: Optional[str] = Query(default=None),
+        origin: Optional[list[str]] = Query(default=None),
         limit: int = Query(default=50, ge=1, le=200),
     ):
         rows = await list_signals(
             db, status=status, priority=priority, category=category,
-            assignee_id=assignee_id, limit=limit,
+            assignee_id=assignee_id, origin=origin, limit=limit,
         )
         return {"items": rows, "count": len(rows)}
 
@@ -1286,11 +1287,12 @@ def build_router(db) -> APIRouter:
         priority: Optional[list[str]] = Query(default=None),
         category: Optional[list[str]] = Query(default=None),
         assignee_id: Optional[str] = Query(default=None),
+        origin: Optional[list[str]] = Query(default=None),
         limit: int = Query(default=50, ge=1, le=200),
     ):
         rows = await list_cases(
             db, status=status, priority=priority, category=category,
-            assignee_id=assignee_id, limit=limit,
+            assignee_id=assignee_id, origin=origin, limit=limit,
         )
         return {"items": rows, "count": len(rows)}
 

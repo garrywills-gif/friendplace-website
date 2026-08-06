@@ -7276,6 +7276,10 @@ async def create_notice(body: Notice):
 
     n = Notice(**body.dict())
     doc = n.dict()
+    # iter155: tag every runtime notice as production so it flows through
+    # the live Bridge queue. Test/seed inserts explicitly set origin='test'/
+    # 'seed' via the fixtures (see /app/backend/tests/conftest.py::TEST_MARKER).
+    doc.setdefault("origin", "production")
     if held:
         # Persist with the hold flags so the shared MCGS queue can
         # find it and admins can approve / reject. `auto_hidden` keeps
@@ -7968,6 +7972,7 @@ async def submit_support_ticket(body: SupportTicketBody):
         "user_id": body.user_id, "user_email": body.user_email,
         "category": body.category, "subject": body.subject, "message": body.message,
         "status": "open",                 # open | resolved
+        "origin": "production",           # iter155 – Bridge cleanup
         "created_at": now_iso(), "updated_at": now_iso(),
     }
     await db.support_tickets.insert_one(doc)
@@ -10698,7 +10703,9 @@ async def seed():
     for i, n in enumerate(SAMPLE_NOTICES):
         u = users[i % len(users)]
         notice = Notice(user_id=u["id"], user_name=u["first_name"], avatar=u["avatar"], **n, likes=[users[(i + 1) % len(users)]["id"]])
-        await db.notices.insert_one(notice.dict())
+        d = notice.dict()
+        d["origin"] = "seed"   # iter155 – Bridge cleanup: demo/seed content
+        await db.notices.insert_one(d)
 
     # seed a DM between Margaret and Joyce
     a, b = users[0]["id"], users[2]["id"]

@@ -156,6 +156,11 @@ async def main(apply: bool = False, limit: int = 0) -> None:
                 case_key=f"notice_moderation:{u['id']}",
                 source="system",
                 triage_fn=_mcgs_triage,
+                # This scan runs against existing (mostly seed) notices as a
+                # one-off. Anything it produces is a *seed* signal, not
+                # production traffic, and must not leak into live Bridge
+                # counts. See iter155 (Bridge cleanup).
+                origin="seed",
             )
         except Exception as e:  # noqa: BLE001
             print(f"  ! MCGS signal failed for {u['id']}: {e}", file=sys.stderr)
