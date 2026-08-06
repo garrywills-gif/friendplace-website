@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "preinstall": "./scripts/check-pkg.js",
+    "eas-build-post-install": "node ./scripts/eas-diag.js",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
