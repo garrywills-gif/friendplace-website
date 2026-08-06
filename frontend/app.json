@@ -61,7 +61,7 @@
         "backgroundColor": "#0A2540"
       },
       "edgeToEdgeEnabled": true,
-      "googleServicesFile": "./frontend/google-services.json",
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "READ_MEDIA_IMAGES",
