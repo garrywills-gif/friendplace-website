@@ -109,3 +109,50 @@ button { font-family: inherit; cursor: pointer; }
   html { scroll-behavior: auto; }
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* /meet — restore desktop-friendly padding on wider viewports.
+ * The inline styles in `app/meet/page.tsx` intentionally compress
+ * padding for mobile so the George/Georgia ChoiceCards remain
+ * above the fold on iPhone Safari (launch-blocker iter145, Garry
+ * 8 Aug 2026). Once we have room to breathe on tablet+ we go back
+ * to the generous 72/56 padding the design was drawn for.
+ */
+@media (min-width: 720px) {
+  .meet-choice-outer { padding: 72px 24px 24px !important; }
+  .meet-choice-plate { padding: 56px 40px 48px !important; }
+}
+
+/* /meet — greeting stack position (Garry, iter146 launch-blocker
+ * follow-up). On iPhone Safari with the URL bar visible,
+ * `window.innerHeight` reports the LARGE viewport (URL bar hidden
+ * state), which meant `top: 55vh` positioned the greeting so low
+ * that the primary CTA fell off the bottom of the visible viewport
+ * — and because the wrap is `position: fixed`, the visitor could
+ * NOT scroll to reach it.
+ *
+ * Fix: use `svh` on mobile so the greeting is anchored to the
+ * SMALL viewport (URL-bar-visible state). Combined with the
+ * `visualViewport.height`-based butterfly landing point in
+ * measure(), the whole scene fits comfortably on every iPhone.
+ *
+ * Desktop retains the drawn `55vh` because `svh === vh` there.
+ */
+.meet-greeting-wrap {
+  top: 55vh;
+}
+@media (max-width: 720px) {
+  .meet-greeting-wrap {
+    /* Higher on mobile so speech + CTA + secondary row all fit with
+     * the URL bar visible. `svh` is the small-viewport unit and is
+     * stable on all modern iOS/Safari and Chrome for Android. Combined
+     * with the smaller speech font below, this reliably keeps the
+     * primary CTA above the fold on iPhone SE (375×667) and up. */
+    top: 40svh !important;
+  }
+  /* Compress the greeting typography on narrow viewports so the four
+   * beats don't wrap into 8+ lines. Desktop keeps the drawn 34px. */
+  .meet-greeting-wrap .meet-speech-line {
+    font-size: 26px !important;
+    line-height: 1.25 !important;
+  }
+}

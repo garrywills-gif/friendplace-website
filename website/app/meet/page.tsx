@@ -178,6 +178,47 @@ function MeetPageContent() {
   const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
   const [geom, setGeom] = useState<{ dx: number; dy: number } | null>(null);
 
+  // Stable geom setter — bails out if values are unchanged so React
+  // effect deps don't fire on every re-measure. Prevents the
+  // choreography restart loop on iPhone Safari that surfaced as
+  // "Georgia restarts when I try to scroll" (Garry, iter146). Even
+  // the CSS custom properties don't need to re-emit if the target
+  // didn't move.
+  const setGeomIfChanged = useCallback((next: { dx: number; dy: number }) => {
+    setGeom(prev => {
+      if (prev && prev.dx === next.dx && prev.dy === next.dy) return prev;
+      return next;
+    });
+  }, []);
+  const setOriginIfChanged = useCallback((next: { x: number; y: number }) => {
+    setOrigin(prev => {
+      if (prev && prev.x === next.x && prev.y === next.y) return prev;
+      return next;
+    });
+  }, []);
+
+  // Choreography guard — ensures the timeline runs EXACTLY ONCE per
+  // (runId, fromConcierge) tuple. Without this, any downstream geom
+  // update (from a re-measure, a StrictMode double-invoke, or an
+  // iOS Safari visualViewport re-emit) would re-run the choreography
+  // effect and reset the phase to 'noticing' mid-flight. This is the
+  // true root cause of the iOS scroll-restarts-Georgia symptom Garry
+  // reported at iter146. Locked with Garry (Aug 2026).
+  const choreoStartedRunKeyRef = useRef<string | null>(null);
+  // Timers must live in a ref (NOT in the effect closure) so a
+  // React StrictMode double-invoke doesn't clear them between the
+  // first run's cleanup and the second run's early-return. Without
+  // this, the whole greeting timeline was silently cancelled in dev
+  // (and — likely — in production too under React 18's aggressive
+  // effect batching) so textStage never advanced past 0.
+  const choreoTimersRef = useRef<number[]>([]);
+  // Snapshot phase into a ref so the resize handler can read the
+  // current phase without forcing the measure effect to re-run on
+  // every phase transition (which was creating fresh geom objects
+  // and cascading into the restart loop above).
+  const phaseRef = useRef<Phase>(bootPhase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
   // Audio elements — real Ash / Nova clips. Preloaded so the "Hello."
   // fires the instant we call play(). We keep separate clips per
   // companion so the beats between sentences are OUR beats, not
@@ -238,6 +279,19 @@ function MeetPageContent() {
     });
   }, []);
 
+  // Defensive: if the ConciergeOverlay was open on a previous route
+  // and its scroll-lock cleanup didn't fire cleanly (rare, but seen
+  // during hot-reloads and back/forward cache restores), `body.style
+  // .overflow` can be left as 'hidden' — which on iOS Safari makes
+  // /meet feel like the page won't scroll at all. Explicitly reset
+  // it on mount so nothing further up the tree keeps us locked.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (document.body.style.overflow === 'hidden') {
+      document.body.style.overflow = '';
+    }
+  }, []);
+
   // First user gesture anywhere on the page primes the audio. This
   // covers the returning-visitor case (no card click) — the moment
   // they scroll, tap or press a key, we unlock. In Safari this is
@@ -292,6 +346,8 @@ function MeetPageContent() {
     setPendingCompanion(id);
     choose(id);
     setGeom(null);
+    // Fresh choice = fresh choreography run.
+    choreoStartedRunKeyRef.current = null;
     setTextStage(0);
     setPhase('idle');
   }, [choose, primeAudio]);
@@ -320,7 +376,16 @@ function MeetPageContent() {
   const measure = useCallback(() => {
     if (typeof window === 'undefined') return;
     const targetX = window.innerWidth / 2;
-    const targetY = window.innerHeight * 0.42;
+    // Use the *visible* viewport height for the butterfly landing
+    // point when available. On iOS Safari, `window.innerHeight`
+    // reports the LARGE viewport (URL bar hidden state), which makes
+    // the butterfly land ~55% down the visible viewport when the URL
+    // bar is showing — pushing the greeting + primary CTA off the
+    // bottom of the screen. visualViewport.height reflects the
+    // ACTUAL visible viewport, so 42% of it puts the butterfly at a
+    // consistent, comfortable position on every device.
+    const viewportH = window.visualViewport?.height ?? window.innerHeight;
+    const targetY = viewportH * 0.42;
 
     // Arrival-from-concierge: butterfly is ALREADY at the target
     // position (the concierge overlay just brought it there). Set
@@ -328,8 +393,8 @@ function MeetPageContent() {
     // with no motion. The flight animation is CSS-driven from
     // `--dx/--dy` translation, so 0/0 means "no flight."
     if (fromConcierge) {
-      setOrigin({ x: targetX - FLYER_SIZE / 2, y: targetY - FLYER_SIZE / 2 });
-      setGeom({ dx: 0, dy: 0 });
+      setOriginIfChanged({ x: targetX - FLYER_SIZE / 2, y: targetY - FLYER_SIZE / 2 });
+      setGeomIfChanged({ dx: 0, dy: 0 });
       return;
     }
 
@@ -341,27 +406,78 @@ function MeetPageContent() {
     const r = el.getBoundingClientRect();
     const originX = r.left + r.width / 2;
     const originY = r.top + r.height / 2;
-    setOrigin({ x: originX - FLYER_SIZE / 2, y: originY - FLYER_SIZE / 2 });
-    setGeom({ dx: targetX - originX, dy: targetY - originY });
-  }, [fromConcierge]);
+    setOriginIfChanged({ x: originX - FLYER_SIZE / 2, y: originY - FLYER_SIZE / 2 });
+    setGeomIfChanged({ dx: targetX - originX, dy: targetY - originY });
+  }, [fromConcierge, setGeomIfChanged, setOriginIfChanged]);
+
+  const isAwaitingChoice = phase === 'awaiting-choice';
 
   useEffect(() => {
-    if (phase === 'awaiting-choice') return;
-    // Measure once after mount + on resize. Deliberately does NOT
-    // depend on `phase` — otherwise every state transition inside
-    // the choreography would re-measure and reset the timeline.
+    if (isAwaitingChoice) return;
+    //
+    // CRITICAL: we intentionally do NOT depend on `phase` here. If we
+    // did, every choreography transition (noticing → flying → landed
+    // → …) would re-run this effect, re-schedule measure(), and even
+    // with stable setters the churn cascades into iOS Safari
+    // re-renders that made Georgia restart when the visitor tried to
+    // scroll (Garry, iter146). We read the live phase via `phaseRef`
+    // inside the resize handler instead so the effect subscribes to
+    // (measure, runId) only and stays quiet during the timeline.
+    //
+    // Launch-blocker fix (iPhone Safari): the previous handler fired
+    // on every `resize` event. On iOS Safari, scrolling collapses/
+    // expands the URL bar and dispatches `resize` even though the
+    // *width* hasn't changed. We now:
+    //   (a) only re-measure when the *width* has actually changed,
+    //   (b) freeze once the flight/greeting is under way,
+    //   (c) prefer visualViewport when available for extra filtering.
     const t = window.setTimeout(measure, 30);
-    window.addEventListener('resize', measure);
+    let lastWidth = window.innerWidth;
+    // Phases at or after which we STOP re-measuring — the butterfly
+    // is already in flight or has landed, and the visitor is watching
+    // or reading. Restarting the timeline would be jarring.
+    const FROZEN_PHASES = new Set<Phase>([
+      'flying', 'landed', 'looked', 'eye-contact', 'greeting', 'complete', 'leading',
+    ]);
+    const onResize = () => {
+      const w = window.innerWidth;
+      if (w === lastWidth) return;   // Safari URL-bar collapse — ignore
+      lastWidth = w;
+      if (FROZEN_PHASES.has(phaseRef.current)) return;   // don't restart mid-arrival
+      measure();
+    };
+    window.addEventListener('resize', onResize);
+    // Prefer the visualViewport when available — it filters out the
+    // URL-bar animations on iOS Safari before they even reach us.
+    window.visualViewport?.addEventListener?.('resize', onResize);
     return () => {
       window.clearTimeout(t);
-      window.removeEventListener('resize', measure);
+      window.removeEventListener('resize', onResize);
+      window.visualViewport?.removeEventListener?.('resize', onResize);
     };
-  }, [measure, runId, phase === 'awaiting-choice']);
+  }, [measure, runId, isAwaitingChoice]);
 
-  // The choreography timer. Runs once per (runId, geom).
+  // The choreography timer. Runs once per (runId, fromConcierge).
   useEffect(() => {
     if (phase === 'awaiting-choice') return;
     if (!geom) return;
+
+    // Choreography gate — guarantees the timeline runs exactly once
+    // per (runId, fromConcierge). Even if `geom` re-emits (StrictMode
+    // double-invoke, an iOS Safari re-measure, or any downstream
+    // update), we do NOT reset the phase back to 'noticing' mid-
+    // flight. This is the true root cause of the iPhone Safari
+    // "Georgia restarts when I scroll" symptom (Garry, iter146).
+    const runKey = `${runId}:${fromConcierge}`;
+    if (choreoStartedRunKeyRef.current === runKey) return;
+    choreoStartedRunKeyRef.current = runKey;
+
+    // Clear any leftover timers from a previous run (e.g. after
+    // `replay()` bumped runId). Do this only INSIDE the gate-passing
+    // branch so a StrictMode double-invoke can't accidentally
+    // cancel a healthy timeline.
+    choreoTimersRef.current.forEach(clearTimeout);
+    choreoTimersRef.current = [];
 
     // Arrival-from-concierge: butterfly is already at target. Skip
     // NOTICE → FLYING and start the "arrived, looking around, saying
@@ -374,13 +490,12 @@ function MeetPageContent() {
     }
     setTextStage(0);
 
-    const timers: number[] = [];
     const at = (ms: number, fn: () => void) => {
       const delay = ms + offset;
       // Don't schedule timers that would fire "in the past" — they'd
       // fire immediately in a jarring flurry when arriving from concierge.
       if (delay < 0) return;
-      timers.push(window.setTimeout(fn, delay));
+      choreoTimersRef.current.push(window.setTimeout(fn, delay));
     };
 
     if (!fromConcierge) {
@@ -417,8 +532,21 @@ function MeetPageContent() {
     // See `NextSteps.onLead` \u2192 dispatches `friendplace:lead-to-tour`
     // which the LeadingButterfly component picks up.
 
-    return () => { timers.forEach(clearTimeout); };
+    // NOTE: intentionally NO cleanup function returned. Cleanup for
+    // real unmounts happens in the dedicated effect below. If we
+    // returned a cleanup here, StrictMode's double-invoke would
+    // cancel our own timers between run 1 and run 2 — which is
+    // exactly what happened at iter146 and silently killed the
+    // greeting (textStage never advanced past 0).
   }, [runId, geom, fromConcierge, phase === 'awaiting-choice']);
+
+  // Dedicated unmount cleanup so timers don't outlive the page.
+  useEffect(() => {
+    return () => {
+      choreoTimersRef.current.forEach(clearTimeout);
+      choreoTimersRef.current = [];
+    };
+  }, []);
 
   // Re-run the choreography — used after "meet the other one" so the
   // new companion arrives freshly. Flies from the logo (as always).
@@ -429,6 +557,9 @@ function MeetPageContent() {
     });
     setPendingCompanion(null);
     setGeom(null);
+    // Reset the choreography gate so the new run is allowed to
+    // execute the timeline from scratch.
+    choreoStartedRunKeyRef.current = null;
     setPhase('idle');
     setTextStage(0);
     setRunId(r => r + 1);
@@ -481,13 +612,14 @@ function MeetPageContent() {
           moment the greeting completes. Locked with Garry (Nov 2026):
           "Come in. deserves to stay forever." */}
       <div
+        className="meet-choice-outer"
         style={{
           ...choiceOuter,
           opacity: choicePlateOpacity,
           pointerEvents: phase === 'awaiting-choice' || phase === 'complete' ? 'auto' : 'none',
         }}
       >
-          <div style={choicePlate}>
+          <div className="meet-choice-plate" style={choicePlate}>
             <img
               src={brandAssets.butterfly.src}
               alt=""
@@ -504,7 +636,7 @@ function MeetPageContent() {
 
             <p style={footNote}>
               George and Georgia are the same person &mdash; same warmth, same
-              honesty, same voice. The choice is simply what feels right to you.
+              honesty, same voice. Simply choose whichever feels right to you.
             </p>
           </div>
         </div>
@@ -523,6 +655,7 @@ function MeetPageContent() {
           beat 3 is the invitation. See PUBLIC_EXPERIENCE_PRINCIPLES.md
           \u2192 "The One Principle". */}
       <div
+        className="meet-greeting-wrap"
         style={{
           ...greetingWrap,
           opacity: phase === 'leading' ? 0 : 1,
@@ -568,6 +701,10 @@ function MeetPageContent() {
             ...meetOtherWrap,
             opacity: phase === 'complete' ? 1 : 0,
             transform: phase === 'complete' ? 'translateY(0)' : 'translateY(6px)',
+            // Only interactive when actually visible — otherwise this
+            // invisible row could intercept touches over the choice
+            // cards on mobile viewports (iter146).
+            pointerEvents: phase === 'complete' ? 'auto' : 'none',
             display: 'flex',
             gap: 14,
             alignItems: 'center',
@@ -912,6 +1049,7 @@ function NextSteps({ phase, onLead }: { phase: Phase; onLead: () => void }) {
 function LineOfSpeech({ text, visible }: { text: string; visible: boolean }) {
   return (
     <div
+      className="meet-speech-line"
       style={{
         ...speechLine,
         opacity: visible ? 1 : 0,
@@ -982,7 +1120,21 @@ const pageBg: React.CSSProperties = {
   // never feel like they've gone to another page."
   background: '#0A2540',
   position: 'relative',
-  overflow: 'hidden',
+  // overflow-x only — vertical MUST scroll natively on mobile so the
+  // ChoiceCards below the fold are reachable. The previous
+  // `overflow: 'hidden'` was intended to clip the ambient glow but
+  // was also swallowing vertical pan gestures on iPhone Safari (Garry,
+  // launch-blocker iter145 — "attempting to scroll causes Georgia to
+  // restart"). Trapping the vertical axis is what turned every scroll
+  // into a resize/measure loop; the ambient glow only overflows
+  // horizontally so we clip that axis alone.
+  overflowX: 'hidden',
+  // Explicitly permit vertical panning on touch devices so Safari
+  // never treats the section as "no scroll here". This is redundant
+  // with browsers' defaults but belt-and-braces on iOS where a bug
+  // in older iOS versions can prevent panning when nested transforms
+  // are present higher in the tree.
+  touchAction: 'pan-y',
 };
 
 // The soft ambient glow behind the greeting. On the deep-navy stage
@@ -1112,7 +1264,13 @@ const choiceOuter: React.CSSProperties = {
   zIndex: 3,
   maxWidth: 720,
   margin: '0 auto',
-  padding: '72px 24px 24px',
+  // Tightened on narrow viewports so the George/Georgia choice cards
+  // are visible without scrolling on standard iPhone widths (Garry,
+  // launch-blocker iter145 — iPhone Safari testing). The earlier
+  // 72px top padding pushed the cards below the fold on 390×750-ish
+  // screens. The full 72px is preserved on ≥720px viewports via the
+  // media query in globals.css.
+  padding: '24px 20px 24px',
   transition: 'opacity 1200ms cubic-bezier(0.4, 0, 0.2, 1)',
   willChange: 'opacity',
 };
@@ -1123,7 +1281,10 @@ const choicePlate: React.CSSProperties = {
   borderRadius: 24,
   border: '1px solid #F1E9DC',
   boxShadow: '0 10px 40px rgba(15,23,42,0.06)',
-  padding: '56px 40px 48px',
+  // Compressed inner padding on narrow viewports (iter145). The
+  // desktop-friendly 56/40/48 padding stays on ≥720px via the
+  // media query — the compression is mobile-only.
+  padding: '32px 20px 28px',
   textAlign: 'center',
 };
 
