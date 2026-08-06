@@ -146,13 +146,24 @@ class TestClaimBusiness:
             }, timeout=10)
             assert r0.status_code == 200
             assert r0.json()["already_business"] is False
-            assert r0.json()["free_listing_used"] is False
+            # Note: iter35 originally exposed a flat `free_listing_used`
+            # boolean on the preflight response. That was folded into the
+            # richer `business_status` object in a later iteration
+            # (business_plan / period counts sit there now). The
+            # equivalent iter35 assertion is "the user is not on a
+            # business plan yet", which is implied by
+            # already_business=False on a brand-new signup.
 
-            # claim business
+            # claim business — first-time claim now requires a contact
+            # name + email so ops can reach a human (added post-iter35).
             r = requests.post(
                 f"{API}/users/me/business",
                 headers={"Authorization": f"Bearer {token}"},
-                json={"business_name": "Margaret's Café"},
+                json={
+                    "business_name": "Margaret's Café",
+                    "contact_name": "Margaret Test",
+                    "contact_email": "margaret+iter35@friendplace-tests.com",
+                },
                 timeout=10,
             )
             assert r.status_code == 200, r.text
@@ -161,7 +172,9 @@ class TestClaimBusiness:
             assert updated["business_name"] == "Margaret's Café"
             assert updated.get("business_free_listing_used", False) is False
 
-            # idempotent — call again with same name
+            # idempotent — call again with same name (contact_* omitted
+            # is fine for repeat claims; the endpoint only enforces
+            # first-claim capture)
             r2 = requests.post(
                 f"{API}/users/me/business",
                 headers={"Authorization": f"Bearer {token}"},
@@ -182,7 +195,8 @@ class TestClaimBusiness:
             body = r3.json()
             assert body["looks_business"] is True
             assert body["already_business"] is True
-            assert body["free_listing_used"] is False
+            # (free_listing_used field replaced by business_status object —
+            # see the note in test_claim_business_and_preflight_already_business.)
         finally:
             _delete_self(token)
 
@@ -215,17 +229,26 @@ class TestSponsorAutoAttach:
     def test_first_and_second_sponsored_events(self):
         token, user = _signup()
         try:
-            # claim business
+            # claim business — first-time claim now requires a contact
+            # name + email so ops can reach a human (added post-iter35).
             r = requests.post(
                 f"{API}/users/me/business",
                 headers={"Authorization": f"Bearer {token}"},
-                json={"business_name": "Margaret's Café"},
+                json={
+                    "business_name": "Margaret's Café",
+                    "contact_name": "Margaret Test",
+                    "contact_email": "margaret+sponsor@friendplace-tests.com",
+                },
                 timeout=10,
             )
             assert r.status_code == 200, r.text
 
-            # confirm free_listing_used is still False before any event
-            r_pre = requests.get(f"{API}/users/{user['id']}", timeout=10)
+            # confirm free_listing_used is still False before any event.
+            # `GET /users/{id}` now requires auth (SEC-002); as the
+            # owner we get the full safe projection including
+            # business_free_listing_used.
+            hdr = {"Authorization": f"Bearer {token}"}
+            r_pre = requests.get(f"{API}/users/{user['id']}", headers=hdr, timeout=10)
             assert r_pre.status_code == 200
             assert r_pre.json().get("business_free_listing_used", False) is False
 
@@ -245,10 +268,14 @@ class TestSponsorAutoAttach:
             assert ev1_body["sponsor"]["message"] == ""
             assert ev1_body["sponsor"]["discount_code"] == ""
 
-            # verify business_free_listing_used flipped to True
-            r_post = requests.get(f"{API}/users/{user['id']}", timeout=10)
+            # verify the sponsored-event counter advanced. iter35
+            # tracked this via a `business_free_listing_used` boolean;
+            # post-iter35 the API records a numeric
+            # `business_events_this_period` counter instead (per-period,
+            # not one-shot), so we assert on the current field.
+            r_post = requests.get(f"{API}/users/{user['id']}", headers=hdr, timeout=10)
             assert r_post.status_code == 200
-            assert r_post.json().get("business_free_listing_used") is True, r_post.json()
+            assert int(r_post.json().get("business_events_this_period") or 0) >= 1, r_post.json()
 
             # SECOND event — sponsor still attached
             ev2 = requests.post(f"{API}/events", json={
