@@ -238,17 +238,18 @@ function MeetPageContent() {
   const phaseRef = useRef<Phase>(bootPhase);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
-  // Audio elements — real Ash / Nova clips. Preloaded so the "Hello."
-  // fires the instant we call play(). We keep separate clips per
-  // companion so the beats between sentences are OUR beats, not
-  // whatever OpenAI decided to space them at.
-  const helloAudioRef  = useRef<HTMLAudioElement | null>(null);
-  const introAudioRef  = useRef<HTMLAudioElement | null>(null);
-  // Beat 4: "Come in\u2026 let me show you around." A separate clip
-  // so the deliberate silence between beats 3 and 4 stays exactly as
-  // long as we want, and so seasonal welcomes can leave the invite
-  // untouched even when the earlier lines change.
-  const inviteAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Audio elements — real Ash / Nova clips generated via OpenAI TTS
+  // by /app/backend/scripts/generate_welcome_journey_audio.py. One
+  // clip per beat per companion so the pauses between beats are OUR
+  // pauses, not whatever the model decided to space them at.
+  //
+  // The three beats of the Welcome moment (Garry, iter147):
+  //   welcome:     "Welcome."
+  //   gladfound:   "Hi… I'm so glad you found us."
+  //   comeinside:  "Come inside and let me show you around."
+  const welcomeAudioRef    = useRef<HTMLAudioElement | null>(null);
+  const gladfoundAudioRef  = useRef<HTMLAudioElement | null>(null);
+  const comeInsideAudioRef = useRef<HTMLAudioElement | null>(null);
   // Audio consent — Safari (and Chrome, on some settings) will only
   // let us play audio after a user gesture. Choosing a companion IS
   // the gesture on first visit; for returning visitors any pointer
@@ -275,7 +276,7 @@ function MeetPageContent() {
   const primeAudio = useCallback(() => {
     if (primedRef.current) return;
     primedRef.current = true;
-    const els = [helloAudioRef.current, introAudioRef.current, inviteAudioRef.current];
+    const els = [welcomeAudioRef.current, gladfoundAudioRef.current, comeInsideAudioRef.current];
     els.forEach((a) => {
       if (!a) return;
       try {
@@ -538,15 +539,23 @@ function MeetPageContent() {
     // takes a breath, and welcomes the visitor with one warm
     // greeting delivered in three calm beats.
     //
-    // Audio is INTENTIONALLY SILENT here. The existing hello/intro/
-    // invite clips no longer match the on-screen copy, and Garry has
-    // asked for no audio rather than mismatched audio.
+    // Each spoken beat plays its matching Ash/Nova clip in perfect
+    // sync with the on-screen text (Garry, iter147 P0). Silent
+    // fallback if audio was blocked — the Hear-George link handles
+    // recovery so the visitor never misses the greeting.
     at(T.SAY_WELCOME, () => {
       setPhase('greeting');
       setTextStage(1);
+      playSafely(welcomeAudioRef.current);
     });
-    at(T.SAY_GLAD, () => setTextStage(2));
-    at(T.SAY_SHOW, () => setTextStage(3));
+    at(T.SAY_GLAD, () => {
+      setTextStage(2);
+      playSafely(gladfoundAudioRef.current);
+    });
+    at(T.SAY_SHOW, () => {
+      setTextStage(3);
+      playSafely(comeInsideAudioRef.current);
+    });
 
     // ─── Begin moment ──────────────────────────────────────────────
     // A considered pause after the invitation, then the "Come
@@ -582,7 +591,7 @@ function MeetPageContent() {
   // new companion arrives freshly. Flies from the logo (as always).
   const replay = useCallback(() => {
     // Stop any playing audio from the previous run.
-    [helloAudioRef.current, introAudioRef.current, inviteAudioRef.current].forEach(a => {
+    [welcomeAudioRef.current, gladfoundAudioRef.current, comeInsideAudioRef.current].forEach(a => {
       if (a) { a.pause(); a.currentTime = 0; }
     });
     setPendingCompanion(null);
@@ -764,14 +773,17 @@ function MeetPageContent() {
             onClick={() => {
               setAudioConsent(true);
               setAudioBlocked(false);
-              const h = helloAudioRef.current;
-              const i = introAudioRef.current;
-              const v = inviteAudioRef.current;
+              const h = welcomeAudioRef.current;
+              const i = gladfoundAudioRef.current;
+              const v = comeInsideAudioRef.current;
               [h, i, v].forEach((a) => { if (a) a.muted = false; });
+              // Replay the three-beat Welcome. Timings match the
+              // choreography gaps (T.SAY_GLAD - T.SAY_WELCOME = 1.4s,
+              // T.SAY_SHOW - T.SAY_GLAD = 1.6s) so the replay lands
+              // at the same cadence as the first hearing.
               playSafely(h);
-              window.setTimeout(() => playSafely(i), 1100);
-              // Match the timeline gap between SAY_NAME and SAY_INVITE.
-              window.setTimeout(() => playSafely(v), 5100);
+              window.setTimeout(() => playSafely(i), 1400);
+              window.setTimeout(() => playSafely(v), 3000);
             }}
             style={meetOtherBtn}
             aria-label={
@@ -846,27 +858,29 @@ function MeetPageContent() {
           greeting simply lands as text on beat — no sound, no error.
           The visitor never sees a broken UI. */}
       <audio
-        key={`hello-${effectiveCompanion}-${welcome.id}`}
-        ref={helloAudioRef}
-        src={audioSrcs.hello}
+        key={`welcome-${effectiveCompanion}`}
+        ref={welcomeAudioRef}
+        src={`/audio/welcome-${effectiveCompanion}.mp3`}
         preload="auto"
         onError={(e) => { try { e.stopPropagation(); } catch { /* silent */ } }}
       />
       <audio
-        key={`intro-${effectiveCompanion}-${welcome.id}`}
-        ref={introAudioRef}
-        src={audioSrcs.intro}
+        key={`gladfound-${effectiveCompanion}`}
+        ref={gladfoundAudioRef}
+        src={`/audio/gladfound-${effectiveCompanion}.mp3`}
         preload="auto"
         onError={(e) => { try { e.stopPropagation(); } catch { /* silent */ } }}
       />
-      {/* Beat 4 audio — George/Georgia actually SAYING the invitation
+      {/* Beat 3 audio — George/Georgia actually SAYING the invitation
           in the same Ash/Nova voice as the earlier lines. Generated
-          server-side by /app/backend/scripts/generate_invite_audio.py
-          and dropped into /public/audio/invite-{companion}.mp3. */}
+          server-side by
+          /app/backend/scripts/generate_welcome_journey_audio.py
+          and dropped into /public/audio/comeinside-{companion}.mp3.
+          Locked with Garry (iter147). */}
       <audio
-        key={`invite-${effectiveCompanion}-${welcome.id}`}
-        ref={inviteAudioRef}
-        src={audioSrcs.invite}
+        key={`comeinside-${effectiveCompanion}`}
+        ref={comeInsideAudioRef}
+        src={`/audio/comeinside-${effectiveCompanion}.mp3`}
         preload="auto"
         onError={(e) => { try { e.stopPropagation(); } catch { /* silent */ } }}
       />
@@ -885,15 +899,19 @@ function MeetPageContent() {
            middle of the room without dithering.
            ──────────────────────────────────────────────────────────── */
         @keyframes fpFlightArc {
-          /* Nestled in the logo — a small breath forward, aware of
-             the visitor. */
-          0%     { transform: translate(0px, 0px)  rotate(0deg); }
-          5%     { transform: translate(0px, -2px) rotate(-2deg); }
-
-          /* Lift-off. Clean, decisive — no hesitation. Rises with
-             intent. */
-          10%    { transform: translate(2px,  -14px) rotate(-4deg); }
-          15%    { transform: translate(6px,  -26px) rotate(-3deg); }
+          /* Immediate lift-off — the visitor's tap must be
+             acknowledged visually within ~150ms. Garry (iter147):
+             "The butterfly should begin its movement almost
+             instantly. There shouldn't be a moment where the
+             visitor wonders whether anything happened."
+             The old 0→5% "breath forward" hover has been removed
+             so the butterfly commits to the flight from the
+             instant the flyer mounts (~30ms after the tap). */
+          0%     { transform: translate(0px, 0px)   rotate(0deg); }
+          2%     { transform: translate(0px, -12px) rotate(-3deg); }
+          5%     { transform: translate(2px, -22px) rotate(-4deg); }
+          10%    { transform: translate(6px, -30px) rotate(-3deg); }
+          15%    { transform: translate(10px, -32px) rotate(-2deg); }
 
           /* Airborne. One gentle arc from lift-off to the visitor.
              Small rotation shifts keep it alive without making it
@@ -1122,7 +1140,17 @@ function ChoiceCard({ companionId, onChoose }: {
   return (
     <button
       type="button"
-      onClick={() => onChoose(companionId)}
+      onClick={e => {
+        // Immediate tactile acknowledgement of the tap — the card
+        // scales down for a heartbeat as the choice locks in. No
+        // setTimeout gate: the button visual and onChoose fire in
+        // the same tick so the butterfly's lift-off begins on the
+        // very next frame. Garry (iter147): "The tap must be
+        // recognised almost instantly."
+        const btn = e.currentTarget as HTMLButtonElement;
+        btn.style.transform = 'scale(0.96)';
+        onChoose(companionId);
+      }}
       className="meet-choice-card"
       style={choiceCard}
       aria-label={`Choose ${meta.name}`}

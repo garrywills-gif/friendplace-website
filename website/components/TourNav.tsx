@@ -25,6 +25,7 @@
 
 import Link from 'next/link';
 import { brandAssets } from '@/lib/brand-assets';
+import TourEndingVoice from '@/components/site/TourEndingVoice';
 
 // ─── Intermediate tour "next" ────────────────────────────────────────
 
@@ -113,6 +114,16 @@ export function TourEnding() {
         <p style={endingReassurance}>
           And remember&hellip; if you ever need me, just tap the butterfly. <span aria-hidden>🦋</span>
         </p>
+
+        {/* George's / Georgia's voice returns for the closing line —
+            the same Ash/Nova voice that welcomed the visitor at
+            /meet, delivering the entire closing paragraph so the
+            visitor hears "…just tap the butterfly" spoken aloud.
+            Auto-plays when the paragraph scrolls into view once the
+            visitor has made any gesture on the page. Falls back to
+            a small "Hear George" button if autoplay is blocked.
+            Locked with Garry (iter147). */}
+        <TourEndingVoice />
 
         {/* Pre-launch fallback. Quiet, secondary, positioned so it
             does not compete with the emotional beat above. Once
