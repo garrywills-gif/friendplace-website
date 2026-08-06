@@ -59,23 +59,22 @@ const T = {
   ARRIVED_HOLD:   6400,   // BEING at the destination. Do not speak yet.
   LOOK_END:       7200,   // considered look left/right
   EYE_CONTACT:    7900,   // held eye contact. Do not shorten.
-  SAY_HELLO:      7900,   // audio: "Hello."
-  TEXT_HELLO:     8150,   // text: "Hello."
-  SAY_NAME:       9000,   // audio: "I'm George/Georgia."
-  SAY_CLOSING:   10400,   // text: "I'm really pleased you found us."
-  // A comfortable pause, then George extends the invitation. Beat 4
-  // has its own Ash/Nova audio (see /public/audio/invite-*.mp3) so
-  // he actually SAYS the invitation rather than the text landing in
-  // silence. The pause between beat 3 and beat 4 is deliberately
-  // long — Garry (Dec 2026): "It felt a bit quick. Give it a proper
-  // considered pause before the invitation lands." ~2.6s reads as a
-  // real host thinking, then adding the welcome.
-  SAY_INVITE:    13000,   // "Come in\u2026 let me show you around." (audio + text)
-  // Flight #2 (Welcome \u2192 Tour) is now visitor-triggered by the CTA
-  // below. See onLead in NextSteps. The butterfly waits for the
-  // visitor's "yes, show me around" \u2014 it doesn't lift off on its
-  // own timer. Locked with Garry (1 Aug 2026).
-  CTAS_APPEAR:   15700,   // comfortable pause AFTER the invite audio ends
+
+  // ─── The three emotional moments (Garry, iter147, locked) ────────
+  // The visitor has just chosen George or Georgia only seconds ago.
+  // We do NOT re-introduce the host — that would repeat what they
+  // already know. Instead we deliver two calm, distinct beats and
+  // then a considered pause before the "Come inside" button appears:
+  //
+  //   Welcome.                           ← t = SAY_WELCOME
+  //   I'm so glad you found us.          ← t = SAY_GLAD   (1.7s later)
+  //   [Come inside]                      ← t = CTAS_APPEAR (2.3s later)
+  //
+  // Each moment has room to land before the next begins. Nothing
+  // rushed. Nothing overlapping. Meet → Welcome → Begin.
+  SAY_WELCOME:    8500,   // text: "Welcome."             (audio disabled)
+  SAY_GLAD:      10200,   // text: "I'm so glad you found us."
+  CTAS_APPEAR:   12500,   // "Come inside" button fades in — Begin
 } as const;
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -511,25 +510,30 @@ function MeetPageContent() {
     }
     at(T.LOOK_END,       () => setPhase('looked'));
     at(T.LOOK_END + 100, () => setPhase('eye-contact'));
-    at(T.SAY_HELLO, () => {
+
+    // ─── Welcome moment ────────────────────────────────────────────
+    // The host has already been chosen. We do NOT re-introduce them
+    // by name — the visitor knows exactly who they picked seconds
+    // ago (Garry, iter147, locked). Instead the host simply arrives,
+    // takes a breath, and welcomes the visitor in two calm beats.
+    //
+    // Audio is INTENTIONALLY SILENT here. The existing hello/intro/
+    // invite clips no longer match the on-screen copy, and Garry has
+    // asked for no audio rather than mismatched audio: "When we
+    // record new audio later, it should match the final wording
+    // exactly." Once new clips exist we drop them in behind
+    // SAY_WELCOME / SAY_GLAD respectively.
+    at(T.SAY_WELCOME, () => {
       setPhase('greeting');
-      playSafely(helloAudioRef.current);
+      setTextStage(1);
     });
-    at(T.TEXT_HELLO, () => setTextStage(1));
-    at(T.SAY_NAME, () => {
-      setTextStage(2);
-      playSafely(introAudioRef.current);
-    });
-    at(T.SAY_CLOSING,    () => setTextStage(3));
-    at(T.SAY_INVITE, () => {
-      // George/Georgia now actually SAYS the invitation instead of
-      // silently displaying it. Locked with Garry (Dec 2026):
-      // "Come in..." is what turns this from someone describing a
-      // welcome into someone extending one.
-      setTextStage(4);
-      playSafely(inviteAudioRef.current);
-    });
-    at(T.CTAS_APPEAR,    () => setPhase('complete'));
+    at(T.SAY_GLAD, () => setTextStage(2));
+
+    // ─── Begin moment ──────────────────────────────────────────────
+    // A considered pause after the welcome, then the "Come inside"
+    // button fades in on its own. The visitor now has time to feel
+    // the welcome before being invited to step inside.
+    at(T.CTAS_APPEAR, () => setPhase('complete'));
 
     // Flight #2 (Welcome \u2192 Tour) is triggered by the visitor
     // pressing the CTA \u2014 not automatically. The butterfly waits
@@ -671,10 +675,13 @@ function MeetPageContent() {
         aria-live="polite"
       >
         <div style={greetingStack}>
-          <LineOfSpeech text={speechLines.hello}   visible={textStage >= 1 && phase !== 'leading'} />
-          <LineOfSpeech text={speechLines.name}    visible={textStage >= 2 && phase !== 'leading'} />
-          <LineOfSpeech text={speechLines.closing} visible={textStage >= 3 && phase !== 'leading'} />
-          <LineOfSpeech text={speechLines.invite}  visible={textStage >= 4 && phase !== 'leading'} />
+          {/* ─── Welcome moment ─────────────────────────────────────
+              Two calm beats, delivered one after the other with a
+              deliberate pause between them. The visitor knows who
+              they picked — the host does not re-introduce themselves.
+              Locked with Garry (iter147). */}
+          <LineOfSpeech text="Welcome."                 visible={textStage >= 1 && phase !== 'leading'} isLead />
+          <LineOfSpeech text="I'm so glad you found us." visible={textStage >= 2 && phase !== 'leading'} />
         </div>
 
         {/* CTAs — fade in only after the greeting is fully delivered
@@ -1042,7 +1049,7 @@ function NextSteps({ phase, onLead }: { phase: Phase; onLead: () => void }) {
           onLead();
         }}
       >
-        Come on, let me show you around.
+        Come inside
       </a>
     </div>
   );
@@ -1052,13 +1059,18 @@ function NextSteps({ phase, onLead }: { phase: Phase; onLead: () => void }) {
 //
 // Each line fades in on its own beat so the text feels spoken, not
 // pasted. Do not merge these into one paragraph.
+//
+// `isLead` marks the primary line of the moment (e.g. "Welcome.") —
+// slightly larger and heavier so it lands with weight before the
+// softer supporting line follows. Locked with Garry (iter147).
 
-function LineOfSpeech({ text, visible }: { text: string; visible: boolean }) {
+function LineOfSpeech({ text, visible, isLead = false }: { text: string; visible: boolean; isLead?: boolean }) {
   return (
     <div
-      className="meet-speech-line"
+      className={`meet-speech-line${isLead ? ' meet-speech-line--lead' : ''}`}
       style={{
         ...speechLine,
+        ...(isLead ? { fontSize: 44, fontWeight: 900, marginBottom: 4 } : null),
         opacity: visible ? 1 : 0,
         transform: visible ? 'translateY(0)' : 'translateY(4px)',
       }}
