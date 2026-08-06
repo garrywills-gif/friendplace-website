@@ -2904,6 +2904,48 @@ async def heartbeat(user_id: str):
     return {"ok": True}
 
 
+# ── iter154 diagnostics ────────────────────────────────────────────
+#
+# Real-time inbox / presence troubleshooting endpoint.
+# Admin-only. Returns the current WebSocket room membership so we can
+# tell — from off-device — whether a specific user's inbox socket is
+# actually connected on the server after they open the app.
+@api.get("/admin/ws/diagnostics")
+async def admin_ws_diagnostics(admin_id: str, _me: dict = Depends(current_admin)):
+    await _require_admin(admin_id)
+    rooms: Dict[str, int] = {}
+    try:
+        for name, sockets in hub.rooms.items():
+            rooms[name] = len(sockets)
+    except Exception:
+        rooms = {}
+    # Summarise by type so scrolling admins can spot patterns.
+    user_rooms = {k: v for k, v in rooms.items() if k.startswith("user:")}
+    dm_rooms   = {k: v for k, v in rooms.items() if k.startswith("dm:")}
+    table_rooms = {k: v for k, v in rooms.items() if k.startswith("table:")}
+    return {
+        "server_time": now_iso(),
+        "totals": {
+            "user_rooms":  len(user_rooms),
+            "user_sockets_open": sum(user_rooms.values()),
+            "dm_rooms":    len(dm_rooms),
+            "table_rooms": len(table_rooms),
+        },
+        "user_rooms":  user_rooms,
+        "dm_rooms":    dm_rooms,
+        "table_rooms": table_rooms,
+    }
+
+
+# Simple lookup — "is user X's inbox socket currently open?" Handy for
+# a support ticket where the admin knows the user id but not their DM.
+@api.get("/admin/ws/user/{user_id}")
+async def admin_ws_user_status(user_id: str, admin_id: str, _me: dict = Depends(current_admin)):
+    await _require_admin(admin_id)
+    n = len(hub.rooms.get(f"user:{user_id}", set()))
+    return {"user_id": user_id, "inbox_sockets_open": n, "connected": n > 0}
+
+
 def _status_from(last_seen: Optional[str], privacy: str = "everyone", chosen: Optional[str] = None) -> Dict:
     """Return {label, code, emoji} for a user.
 
@@ -10134,10 +10176,6 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                         else f"{sender_avatar} {sender_name} sent you a message"
                     )
                     # ── Real-time inbox fan-out to each recipient (iter154) ──
-                    # Emits BEFORE we decide about push, so the Chats
-                    # list / badge always react even if the recipient
-                    # is inside the DM (in which case we then suppress
-                    # the redundant push below).
                     dm_update_payload = {
                         "type":         "dm_update",
                         "conv_id":      conv_id,
@@ -10154,6 +10192,14 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                         "is_chat_request": is_chat_request,
                     }
                     for other_id in others:
+                        room_key = f"user:{other_id}"
+                        room_size = len(hub.rooms.get(room_key, set()))
+                        logger.info(
+                            "ws_dm FANOUT conv=%s to_user=%s room_size=%d "
+                            "(0 = recipient's inbox socket NOT connected, message will "
+                            "wait for poll)",
+                            conv_id, other_id[:8], room_size,
+                        )
                         await _broadcast_to_user(other_id, dm_update_payload)
 
                     # If the recipient is ALREADY inside this DM room
@@ -10210,9 +10256,21 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
 @app.websocket("/api/ws/user/{user_id}")
 async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
     room = f"user:{user_id}"
+    peer = None
+    try:
+        peer = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "?"
+    except Exception:
+        peer = "?"
     await hub.connect(room, websocket)
     token_uid = decode_token(token) if token else None
     if not token_uid or token_uid != user_id:
+        # iter154-debug: log every rejected user-socket handshake with
+        # enough detail to diagnose real-device failures WITHOUT leaking
+        # token contents.
+        logger.warning(
+            "ws_user AUTH-FAIL peer=%s room=%s token_present=%s token_uid=%s expected_uid=%s",
+            peer, room, bool(token), (token_uid or "<invalid>")[:8], user_id[:8] if user_id else "-",
+        )
         try:
             await websocket.send_json({"type": "error", "code": "unauthorized", "message": "Please sign in again."})
         except Exception:
@@ -10223,9 +10281,8 @@ async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
             pass
         hub.disconnect(room, websocket)
         return
-    # Say hello — lets the client know the socket is authenticated and
-    # active. Also carries a server-side timestamp the client can use
-    # to detect its own clock drift.
+    room_size = len(hub.rooms.get(room, set()))
+    logger.info("ws_user CONNECT peer=%s room=%s room_size_now=%d", peer, room, room_size)
     try:
         await websocket.send_json({"type": "hello", "server_time": now_iso()})
     except Exception:
@@ -10233,9 +10290,6 @@ async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
     try:
         while True:
             data = await websocket.receive_text()
-            # Best-effort keep-alive. Unknown frames are ignored so a
-            # future client can add message types without breaking
-            # existing servers.
             try:
                 payload = json.loads(data) if data else {}
             except Exception:
@@ -10246,9 +10300,13 @@ async def ws_user(websocket: WebSocket, user_id: str, token: str = Query("")):
                 except Exception:
                     break
     except WebSocketDisconnect:
-        pass
+        logger.info("ws_user DISCONNECT peer=%s room=%s", peer, room)
+    except Exception:
+        logger.exception("ws_user UNEXPECTED_ERROR peer=%s room=%s", peer, room)
     finally:
         hub.disconnect(room, websocket)
+        left_size = len(hub.rooms.get(room, set()))
+        logger.info("ws_user LEFT peer=%s room=%s room_size_now=%d", peer, room, left_size)
 
 
 # ------------- Seed -------------

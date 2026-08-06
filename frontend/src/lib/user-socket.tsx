@@ -158,18 +158,26 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
     if (!user?.id || !token) return;
     // Never open a second socket; close any existing first.
     cleanup();
+    const url = wsUrl(`/ws/user/${user.id}?token=${encodeURIComponent(token)}`);
+    // iter154-debug: verbose lifecycle logging so a real-device
+    // failure can be diagnosed from Xcode/Android logs without a
+    // second round-trip. Never logs the token contents.
+    // eslint-disable-next-line no-console
+    console.log("[user-socket] CONNECT-ATTEMPT", { url, uid: user.id.slice(0, 8), tokenLen: token.length });
     let ws: WebSocket;
     try {
-      ws = new WebSocket(
-        wsUrl(`/ws/user/${user.id}?token=${encodeURIComponent(token)}`),
-      );
-    } catch {
+      ws = new WebSocket(url);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn("[user-socket] CONNECT-THROWN", String(e));
       scheduleReconnect(connect);
       return;
     }
     wsRef.current = ws;
 
     ws.onopen = () => {
+      // eslint-disable-next-line no-console
+      console.log("[user-socket] ONOPEN (awaiting hello)");
       // The "hello" frame will confirm auth in a moment; we don't
       // flip connected=true until then, so consumers that trigger
       // a reconciliation on the "connected" edge don't fire twice.
@@ -188,6 +196,8 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
       const kind = payload?.type as EventKind | undefined;
       if (!kind) return;
       if (kind === "hello") {
+        // eslint-disable-next-line no-console
+        console.log("[user-socket] HELLO", { server_time: payload.server_time });
         setConnected(true);
         setEpoch((e) => e + 1);
         // Give consumers a chance to reconcile on every fresh
@@ -196,14 +206,24 @@ export function UserSocketProvider({ children }: { children: React.ReactNode }) 
         dispatch("reconnect", { server_time: payload.server_time });
         return;
       }
+      // eslint-disable-next-line no-console
+      console.log("[user-socket] EVENT", kind, kind === "dm_update"
+        ? { conv_id: payload.conv_id, from: (payload.from_id || "").slice(0, 8), unread_delta: payload.unread_delta }
+        : kind === "notification"
+        ? { type: payload.notification?.type, id: (payload.notification?.id || "").slice(0, 8) }
+        : {});
       dispatch(kind, payload);
     };
 
-    ws.onerror = () => {
+    ws.onerror = (ev) => {
+      // eslint-disable-next-line no-console
+      console.warn("[user-socket] ONERROR", (ev as any)?.message || "(no message)");
       // Do nothing — onclose will follow immediately with a code.
     };
 
     ws.onclose = (ev) => {
+      // eslint-disable-next-line no-console
+      console.log("[user-socket] ONCLOSE", { code: ev.code, reason: ev.reason || "" });
       setConnected(false);
       if (keepaliveTimerRef.current) {
         clearInterval(keepaliveTimerRef.current);
