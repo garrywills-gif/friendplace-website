@@ -13,7 +13,6 @@ const DEFAULT_FEATURES = [
   { icon: '🎯', title: 'Games & Groups', body: 'Solitaire, Word of the Day, book clubs, walking groups. Something for every kind of connection.' },
   { icon: '🦋', title: 'Butterfly Points', body: 'A gentle way to celebrate kindness. Earn points for warm messages, RSVPs and helping others feel welcome.' },
   { icon: '🔒', title: 'Safe & Verified', body: 'Every member is verified. Report tools, one-tap blocking, and human moderators keep it warm.' },
-  { icon: '🌟', title: 'Founding Members', body: 'Join us in our first 250 and wear a permanent Founding Member badge forever.' },
   { icon: '🌐', title: 'Made in Australia', body: 'Built by Australians, for Australians. Data stays in Australia, and support speaks your accent.' },
   { icon: '💬', title: 'Voice & Text Chat', body: 'Tap the mic to dictate a message, pinch to zoom on photos, and hear replies read aloud if you prefer.' },
 ];

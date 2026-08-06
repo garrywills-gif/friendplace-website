@@ -219,7 +219,13 @@ export default async function HomePage() {
       </section>
 
       {/* ---------- 2. WHY FRIENDPLACE ---------- */}
-      <section style={{ padding: '96px 0', background: '#FEFCF8' }}>
+      {/* id="why-friendplace" — deep-link target for the post-
+          registration "Continue Exploring →" button. New Founding
+          Members land here (not the hero) because they've already
+          said yes; the hero has done its job. Locked with Garry
+          (iter151, June 2026). Do not rename the id without
+          updating /register-interest → the success CTA. */}
+      <section id="why-friendplace" style={{ padding: '96px 0', background: '#FEFCF8', scrollMarginTop: 80 }}>
         <div className="container">
           <div style={{ textAlign: 'center', marginBottom: 56 }}>
             <SectionEyebrow>Why FriendPlace?</SectionEyebrow>

@@ -110,20 +110,39 @@ export default function RegisterInterestPage() {
 
   if (done) {
     const signOff = meta?.emailSignatureName || 'George';
+    const displayName = firstName.trim() || 'friend';
     return (
       <div style={pageBg}>
         <div className="container" style={{ paddingTop: 72, paddingBottom: 96 }}>
           <div style={plate}>
-            <h1 style={openingLine}>Thank you, {firstName.trim() || 'friend'}.</h1>
-            <p style={leadCopy}>
-              I&rsquo;m really glad you stopped by.
+            {/* ─── The reveal ────────────────────────────────────
+             *  Founding Membership is NOT promised during the
+             *  tour or the form — it is REVEALED here as the
+             *  reward for saying yes. The order matters:
+             *    1) Celebration     — "🎉 Congratulations…"
+             *    2) The status      — "…officially a Founding Member"
+             *    3) The number card — permanent, yours forever
+             *    4) The farewell    — George/Georgia's own voice
+             *    5) The two ticks   — plain, reassuring
+             *    6) One CTA         — Continue Exploring →
+             *  Locked with Garry (iter151, June 2026). Do not
+             *  add a "Thank you" beat before the celebration —
+             *  that softens the reveal.
+             */}
+            <h1 style={celebrationLine}>
+              <span aria-hidden style={{ marginRight: 8 }}>🎉</span>
+              Congratulations, {displayName}!
+            </h1>
+            <p style={{ ...leadCopy, marginTop: 14, fontSize: 18 }}>
+              You&rsquo;re officially one of FriendPlace&rsquo;s{' '}
+              <span style={{ fontWeight: 800, color: '#0F766E' }}>Founding Members</span>.
             </p>
 
             {founderNumber && founderNumber > 0 && (
               <div style={{
-                marginTop: 22,
+                marginTop: 26,
                 marginBottom: 6,
-                padding: '22px 24px',
+                padding: '24px 24px 22px',
                 background: 'linear-gradient(135deg, #0F766E 0%, #14B8A6 100%)',
                 borderRadius: 22,
                 color: '#FFFFFF',
@@ -133,7 +152,7 @@ export default function RegisterInterestPage() {
                 <div style={{
                   fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase',
                   fontWeight: 800, opacity: 0.9,
-                }}>Your Founding Member Number</div>
+                }}>Founding Member</div>
                 <div style={{
                   fontSize: 56, fontWeight: 900, lineHeight: 1, marginTop: 8,
                   letterSpacing: '-0.02em',
@@ -147,28 +166,48 @@ export default function RegisterInterestPage() {
               </div>
             )}
 
-            <p style={{ ...leadCopy, marginTop: 20 }}>
-              You&rsquo;re now one of our{' '}
-              <span style={{ fontWeight: 700, color: '#0F766E' }}>Founding Members</span>
-              {founderNumber ? ' — number and all — ' : ' — '}
-              and I&rsquo;ll make sure you&rsquo;re one of the first to hear when FriendPlace is ready.
+            {/* ── Host's farewell — exact copy locked with Garry
+                (iter151). George/Georgia speaks one warm paragraph
+                on this page and this page only. Do not split it
+                into two paragraphs; do not rewrite; do not add a
+                supporting line. */}
+            <p style={{ ...leadCopy, marginTop: 26, fontSize: 17 }}>
+              I&rsquo;m so pleased you&rsquo;ve decided to join us.
+              You&rsquo;re one of the very first people helping shape
+              FriendPlace, and I&rsquo;ll make sure you&rsquo;re among
+              the first to know when FriendPlace launches. Until then,
+              take care, and I&rsquo;ll see you soon.
             </p>
-            <p style={{ ...leadCopy, marginTop: 12 }}>
-              I&rsquo;ve just popped a little note into your inbox to say hello. Until then, take care.
-            </p>
-            <p style={{ ...leadCopy, marginTop: 24, fontStyle: 'italic', color: '#0F766E' }}>
+            <p style={{ ...leadCopy, marginTop: 16, fontStyle: 'italic', color: '#0F766E' }}>
               <span aria-hidden style={{ fontSize: 22, verticalAlign: '-3px', marginRight: 6 }}>&#129419;</span>
               {signOff}
             </p>
+
+            {/* ── Two clear takeaways. Plain, reassuring, no
+                marketing tone. Answers the visitor's silent
+                question: "What just happened, and what happens
+                next?" */}
+            <ul style={ticksList} aria-label="What this means">
+              <li style={tickItem}>
+                <span aria-hidden style={tickMark}>✅</span>
+                <span>You are now officially a Founding Member.</span>
+              </li>
+              <li style={tickItem}>
+                <span aria-hidden style={tickMark}>✅</span>
+                <span>We&rsquo;ll be in touch as soon as FriendPlace launches.</span>
+              </li>
+            </ul>
+
             <div style={{ marginTop: 32 }}>
-              {/* Closes the conversation loop that began on /meet
-                  with "Come in\u2026 let me show you around." The
-                  visitor has now been welcomed, has taken the tour,
-                  has left their hello \u2014 and George gently
-                  invites them inside once more. Locked with Garry
-                  (Dec 2026): "Come inside" feels more like the final
-                  invitation than browser navigation. */}
-              <Link href="/" style={secondaryCta}>Come inside.</Link>
+              {/* Continue Exploring — deep-links to the "Why
+                  FriendPlace?" section on the homepage (NOT the
+                  hero). By this point the visitor has already
+                  said yes; the hero has done its job. Sending
+                  them into the "No swiping / No followers / No
+                  popularity contests" section continues the
+                  story instead of restarting it. Locked with
+                  Garry (iter151, June 2026). */}
+              <Link href="/#why-friendplace" style={secondaryCta}>Continue Exploring &rarr;</Link>
             </div>
           </div>
         </div>
@@ -186,22 +225,12 @@ export default function RegisterInterestPage() {
               Garry (Dec 2026): "This should be the natural conclusion
               after they've explored the story." */}
           <h1 style={openingLine}>Whenever you&rsquo;re ready.</h1>
-          {/* One gentle line of context. Locked with Garry (Jul 2026):
-              "Everyone who registers before launch becomes one of our
-              Founding Members." Anyone who takes this step is signing
-              on to be part of the founding community — this line makes
-              that explicit without turning the moment into marketing. */}
-          <p style={{
-            ...leadCopy,
-            marginTop: 14,
-            marginBottom: 10,
-            color: '#475569',
-            fontSize: 16,
-          }}>
-            Everyone who registers before we launch becomes one of our{' '}
-            <span style={{ fontWeight: 700, color: '#0F766E' }}>Founding Members</span>{' '}
-            &mdash; the first friends of FriendPlace.
-          </p>
+          {/* No explanation, no persuasion. By the time a visitor
+              reaches this page they've had the whole story. RYI is
+              the moment they say yes — nothing more. The Founding
+              Member moment is now the REWARD after they submit, not
+              a promise before (Garry, iter151 — June 2026). Do not
+              re-introduce a pre-tease here. */}
 
           <form onSubmit={onSubmit} style={{ marginTop: 8 }} noValidate>
             <Field label="First name" required>
@@ -307,6 +336,34 @@ const plate: React.CSSProperties = {
 const openingLine: React.CSSProperties = {
   fontSize: 32, lineHeight: 1.2, fontWeight: 800,
   color: '#0A2540', margin: '0 0 14px', letterSpacing: '-0.02em',
+};
+
+// Slightly larger and more celebratory than openingLine — reserved
+// for the Founding Member reveal beat. Tight line-height keeps the
+// two-line headline ("🎉 Congratulations, {firstName}!") coherent
+// even for longer first names on mobile.
+const celebrationLine: React.CSSProperties = {
+  fontSize: 34, lineHeight: 1.18, fontWeight: 900,
+  color: '#0A2540', margin: '0 0 4px', letterSpacing: '-0.02em',
+};
+
+const ticksList: React.CSSProperties = {
+  listStyle: 'none', padding: 0, margin: '28px auto 0',
+  maxWidth: 460, textAlign: 'left',
+  display: 'flex', flexDirection: 'column', gap: 10,
+};
+
+const tickItem: React.CSSProperties = {
+  display: 'flex', alignItems: 'flex-start', gap: 12,
+  fontSize: 16, lineHeight: 1.5, color: '#0F172A',
+  background: '#F0FDFA',
+  border: '1px solid #99F6E4',
+  borderRadius: 12,
+  padding: '12px 14px',
+};
+
+const tickMark: React.CSSProperties = {
+  fontSize: 18, lineHeight: 1.4, flex: '0 0 auto',
 };
 
 const leadCopy: React.CSSProperties = {
