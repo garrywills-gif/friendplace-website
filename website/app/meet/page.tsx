@@ -68,8 +68,8 @@ const T = {
   //
   //   Welcome.                                       ← SAY_WELCOME
   //   Hi… I'm so glad you found us.                  ← SAY_GLAD  (1.4s later)
-  //   Come inside and let me show you around.        ← SAY_SHOW  (1.6s later)
-  //   [Come inside…]                                 ← CTAS_APPEAR (1.6s later)
+  //   Come inside and let me show you around.        ← SAY_SHOW  (3.0s later)
+  //   [Come inside…]                                 ← CTAS_APPEAR (3.8s later)
   //
   // The pauses after landing are DELIBERATELY BRIEF (0.8s between
   // landing and the first word) — Garry (iter147, feedback from
@@ -78,11 +78,22 @@ const T = {
   // and the pauses should sit after meaningful moments, not before
   // anything happens."
   //
+  // BUT — the pause BETWEEN "I'm so glad you found us." and
+  // "Come inside and let me show you around." must be given room to
+  // breathe. Garry (iter150): "It should feel as though George is
+  // smiling at the visitor before warmly inviting them inside, not
+  // reading one continuous sentence." The gladfound clip is ~1.7s
+  // long, so SAY_SHOW must sit at least ~1.7s + a full held beat
+  // (~1.3s) after SAY_GLAD. That places SAY_SHOW at 8200 + 3000 =
+  // 11200ms. CTAS_APPEAR is then delayed so the button still lands
+  // naturally ~1.4s AFTER the comeinside clip (~2.4s) has finished
+  // playing — i.e. 11200 + 2400 + 1400 = 15000ms. Do not compress.
+  //
   // Meet → Welcome → Begin. Each moment complete before the next.
   SAY_WELCOME:    6800,   // "Welcome."                       (0.8s after landing)
   SAY_GLAD:       8200,   // "Hi… I'm so glad you found us."  (1.4s later)
-  SAY_SHOW:       9800,   // "Come inside and let me show you around." (1.6s later)
-  CTAS_APPEAR:   11400,   // "Come inside…" button fades in — Begin (1.6s later)
+  SAY_SHOW:      11200,   // "Come inside and let me show you around." (3.0s later — held smile beat)
+  CTAS_APPEAR:   15000,   // "Come inside…" button fades in — Begin (3.8s later, ~1.4s after comeinside clip ends)
 } as const;
 
 // ─── Component ────────────────────────────────────────────────────────
@@ -779,11 +790,13 @@ function MeetPageContent() {
               [h, i, v].forEach((a) => { if (a) a.muted = false; });
               // Replay the three-beat Welcome. Timings match the
               // choreography gaps (T.SAY_GLAD - T.SAY_WELCOME = 1.4s,
-              // T.SAY_SHOW - T.SAY_GLAD = 1.6s) so the replay lands
-              // at the same cadence as the first hearing.
+              // T.SAY_SHOW - T.SAY_GLAD = 3.0s — the held "smile beat"
+              // that lets "…I'm so glad you found us." land before
+              // "Come inside…" begins) so the replay lands at the
+              // same cadence as the first hearing.
               playSafely(h);
               window.setTimeout(() => playSafely(i), 1400);
-              window.setTimeout(() => playSafely(v), 3000);
+              window.setTimeout(() => playSafely(v), 4400);
             }}
             style={meetOtherBtn}
             aria-label={
