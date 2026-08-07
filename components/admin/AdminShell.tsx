@@ -7,20 +7,85 @@ import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi } from '@/lib/cms-api';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
-const NAV: { href: string; label: string; icon: string; badgeKey?: 'submissions'; group?: string }[] = [
-  { href: '/admin/bridge',           label: 'The Bridge',        icon: '🌉' },
-  { href: '/admin/george',           label: "George's Workspace", icon: '🦋' },
-  { href: '/admin/home',             label: 'Home page',         icon: '🏠' },
-  { href: '/admin/about',            label: 'About page',        icon: 'ℹ️' },
-  { href: '/admin/faqs',             label: 'FAQs',              icon: '❓' },
-  { href: '/admin/success-stories',  label: 'Success Stories',   icon: '📖' },
-  { href: '/admin/founding-members', label: 'Founding Members',  icon: '👥' },
-  { href: '/admin/events',           label: 'Events',            icon: '📅' },
-  { href: '/admin/event-submissions',label: 'Event Submissions', icon: '📝', badgeKey: 'submissions' },
-  { href: '/admin/media',            label: 'Media library',     icon: '🖼️' },
-  { href: '/admin/dashboard',        label: 'Dashboard (legacy)', icon: '📊' },
+/**
+ * Sidebar structure — grouped by domain. Items marked `soon: true`
+ * light up a small "Soon" pill so admins can see the migration
+ * roadmap without needing to open the audit doc. Each of those routes
+ * points at a real placeholder page that explains what's coming.
+ */
+type NavItem = {
+  href: string;
+  label: string;
+  icon: string;
+  badgeKey?: 'submissions';
+  soon?: boolean;
+};
+
+type NavGroup = { label: string; items: NavItem[] };
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Mission Control',
+    items: [
+      { href: '/admin/bridge',    label: 'The Bridge',           icon: '🌉' },
+      { href: '/admin/george',    label: "George's Workspace",   icon: '🦋' },
+    ],
+  },
+  {
+    label: 'Community',
+    items: [
+      { href: '/admin/members',          label: 'Members',          icon: '👤' },
+      { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥' },
+      { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
+      { href: '/admin/campaigns',        label: 'Campaigns',        icon: '📮' },
+      { href: '/admin/segments',         label: 'Segments',         icon: '🦋' },
+      { href: '/admin/moments',          label: 'Moments',          icon: '✨' },
+      { href: '/admin/reports',          label: 'Reports',          icon: '🚩', soon: true },
+      { href: '/admin/support',          label: 'Support',          icon: '💬', soon: true },
+      { href: '/admin/groups/pending',   label: 'Pending groups',   icon: '👥', soon: true },
+      { href: '/admin/events',           label: 'Events',           icon: '📅' },
+      { href: '/admin/event-submissions',label: 'Event submissions',icon: '📝', badgeKey: 'submissions' },
+      { href: '/admin/announcements',    label: 'Announcements',    icon: '📣', soon: true },
+      { href: '/admin/flyers',           label: 'Flyers',           icon: '🖨️' },
+    ],
+  },
+  {
+    label: 'Website',
+    items: [
+      { href: '/admin/home',             label: 'Home page',        icon: '🏠' },
+      { href: '/admin/about',            label: 'About page',       icon: 'ℹ️' },
+      { href: '/admin/faqs',             label: 'FAQs',             icon: '❓' },
+      { href: '/admin/success-stories',  label: 'Success stories',  icon: '📖' },
+      { href: '/admin/founding-members', label: 'Founding members', icon: '🌱' },
+      { href: '/admin/media',            label: 'Media library',    icon: '🖼️' },
+      { href: '/admin/emails',           label: 'Email templates',  icon: '✉️' },
+    ],
+  },
+  {
+    label: 'Insights',
+    items: [
+      { href: '/admin/analytics',        label: 'Analytics',        icon: '📈', soon: true },
+      { href: '/admin/system-health',    label: 'System health',    icon: '🩺' },
+      { href: '/admin/audit-log',        label: 'Audit log',        icon: '🧾' },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { href: '/admin/knowledge',        label: 'Knowledge',        icon: '📚' },
+      { href: '/admin/launch',           label: 'Launch',           icon: '🚀' },
+      { href: '/admin/security',         label: 'Security',         icon: '🛡️' },
+      { href: '/admin/admins',           label: 'Admins',           icon: '👑', soon: true },
+      { href: '/admin/settings',         label: 'Settings',         icon: '⚙️', soon: true },
+      { href: '/admin/dashboard',        label: 'Dashboard (legacy)', icon: '📊' },
+    ],
+  },
 ];
+
+// Flat view retained for the pending-submissions badge lookup below.
+const NAV: NavItem[] = NAV_GROUPS.flatMap((g) => g.items);
 
 /**
  * Sidebar-shell layout used by every protected /admin page.
@@ -83,42 +148,70 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
     <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: 'Public Sans, system-ui, sans-serif', display: 'flex' }}>
       <aside style={sidebar}>
         <Link href="/admin/bridge" style={sidebarBrand}>
-          <span style={{ fontSize: 34, lineHeight: 1 }}>🦋</span>
+          <span style={{ display: 'inline-flex', width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+            <GeorgeButterflyMark size={40} />
+          </span>
           <div>
             <div style={{ fontSize: 19, fontWeight: 900, color: '#FFFFFF', letterSpacing: '-0.01em' }}>FriendPlace</div>
             <div style={{ fontSize: 11, letterSpacing: '0.14em', color: '#5EEAD4', fontWeight: 800, textTransform: 'uppercase', marginTop: 2 }}>Mission Control</div>
           </div>
         </Link>
 
-        <nav style={{ flex: 1, marginTop: 32 }}>
-          {NAV.map(item => {
-            // Exact match OR next char is "/" so /admin/events doesn't also
-            // light up when visiting /admin/event-submissions.
-            const active =
-              pathname === item.href ||
-              (pathname?.startsWith(item.href + '/') ?? false);
-            const badgeCount = item.badgeKey === 'submissions' ? pendingSubmissions : 0;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`cms-nav-link${active ? ' cms-nav-link-active' : ''}`}
-                style={navLink}
-                data-active={active ? '1' : '0'}
-              >
-                <span style={{ fontSize: 18 }}>{item.icon}</span>
-                <span style={{ flex: 1 }}>{item.label}</span>
-                {badgeCount > 0 && (
-                  <span
-                    aria-label={`${badgeCount} pending`}
-                    style={navBadge}
+        {/* Quiet daily reminder — locked into the design language.
+            "Every friendship begins with two people." is not a slogan;
+            it is the guiding principle of FriendPlace. Every feature
+            we build ultimately helps those two people find one
+            another. Kept small, italic and low-contrast so it feels
+            like a whisper rather than marketing copy.               */}
+        <div style={sidebarCredo}>
+          <span aria-hidden style={sidebarCredoRule} />
+          Every friendship begins with two people.
+        </div>
+
+        <nav style={{ flex: 1, marginTop: 24, paddingBottom: 12, overflowY: 'auto' }}>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} style={{ marginBottom: 14 }}>
+              <div style={navGroupHeading}>{group.label}</div>
+              {group.items.map((item) => {
+                const active =
+                  pathname === item.href ||
+                  (pathname?.startsWith(item.href + '/') ?? false);
+                const badgeCount = item.badgeKey === 'submissions' ? pendingSubmissions : 0;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`cms-nav-link${active ? ' cms-nav-link-active' : ''}`}
+                    style={navLink}
+                    data-active={active ? '1' : '0'}
                   >
-                    {badgeCount > 99 ? '99+' : badgeCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+                    <span style={{
+                      fontSize: 18,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 22,
+                      height: 22,
+                    }}>
+                      {item.icon === '🦋'
+                        ? <GeorgeButterflyMark size={22} />
+                        : item.icon}
+                    </span>
+                    <span style={{ flex: 1 }}>{item.label}</span>
+                    {item.soon && !active && <span style={soonPill}>Soon</span>}
+                    {badgeCount > 0 && (
+                      <span
+                        aria-label={`${badgeCount} pending`}
+                        style={navBadge}
+                      >
+                        {badgeCount > 99 ? '99+' : badgeCount}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '16px 20px' }}>
@@ -148,9 +241,9 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
         </div>
       </aside>
 
-      <main style={mainCol}>
+      <main className="cms-main-col">
         <AskGeorgeBar />
-        <div style={{ padding: '24px 40px 64px' }}>
+        <div className="cms-main-inner">
           {title && <h1 style={pageTitle}>{title}</h1>}
           {children}
         </div>
@@ -167,7 +260,8 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
 }
 
 const sidebar: React.CSSProperties = {
-  width: 260,
+  width: 240,
+  flexShrink: 0,
   background: 'linear-gradient(180deg, #0A2540 0%, #0F2E52 100%)',
   color: '#FFFFFF',
   display: 'flex',
@@ -179,7 +273,54 @@ const sidebar: React.CSSProperties = {
   height: '100vh',
 };
 const sidebarBrand: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '0 20px', color: '#FFFFFF', textDecoration: 'none' };
-const navLink: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '12px 20px', fontSize: 15, fontWeight: 700, textDecoration: 'none' };
+const navLink: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '10px 20px', fontSize: 14, fontWeight: 700, textDecoration: 'none' };
+const navGroupHeading: React.CSSProperties = {
+  padding: '6px 20px 6px',
+  fontSize: 10,
+  letterSpacing: '0.12em',
+  color: '#5EEAD4',
+  textTransform: 'uppercase',
+  fontWeight: 800,
+  opacity: 0.75,
+};
+const soonPill: React.CSSProperties = {
+  padding: '2px 7px',
+  fontSize: 9,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: '#0F172A',
+  background: '#FBBF24',
+  borderRadius: 999,
+  fontWeight: 900,
+};
+
+/* -------------------------------------------------------------------------
+ * The Credo
+ * -------------------------------------------------------------------------
+ * "Every friendship begins with two people." is the guiding star of
+ * FriendPlace. Kept small, italic and gently faded so it reads as a
+ * quiet daily reminder rather than marketing copy. Sits directly
+ * beneath the Mission Control heading — the first thing every admin
+ * sees, every time.
+ * -------------------------------------------------------------------- */
+const sidebarCredo: React.CSSProperties = {
+  margin: '14px 20px 0',
+  padding: '10px 0 4px',
+  fontSize: 11.5,
+  lineHeight: 1.5,
+  fontStyle: 'italic',
+  color: 'rgba(226, 232, 240, 0.68)',
+  letterSpacing: '0.01em',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+const sidebarCredoRule: React.CSSProperties = {
+  display: 'block',
+  width: 20,
+  height: 1,
+  background: 'rgba(94, 234, 212, 0.5)',
+};
 const navBadge: React.CSSProperties = {
   minWidth: 22,
   height: 22,
@@ -209,7 +350,7 @@ const footerBtn: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
 };
-const mainCol: React.CSSProperties = { flex: 1, maxWidth: 1400, width: '100%' };
+const mainCol: React.CSSProperties = { flex: 1, minWidth: 0, width: '100%' };
 const pageTitle: React.CSSProperties = { fontSize: 28, color: '#0A2540', fontWeight: 900, marginTop: 0, marginBottom: 24 };
 
 // Reusable button/panel styles for admin editor pages.

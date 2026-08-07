@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { AskGeorgeSheet } from './AskGeorgeSheet';
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
 import { transcribeAudio } from '@/lib/mcgs-api';
+import { useGeorgeSession } from '@/lib/george-session';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
  * The Ask George bar — persistent at the top of every MCGS screen.
@@ -16,9 +18,14 @@ export function AskGeorgeBar() {
   const [input, setInput] = useState('');
   const [open, setOpen] = useState(false);
   const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined);
+  const [initialContext, setInitialContext] = useState<Record<string, unknown> | undefined>(undefined);
   const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Batch-3 continuity: know if there's a preserved conversation so we
+  // can offer a "Continue" button when the sheet is closed.
+  const { hasConversation, turns } = useGeorgeSession();
+  const lastGeorge = [...turns].reverse().find(t => t.role === 'george');
 
   const rec = useVoiceRecorder({ maxSeconds: 60, silenceSeconds: 3 });
 
@@ -39,18 +46,22 @@ export function AskGeorgeBar() {
   // Keeps George available system-wide without prop-drilling.
   useEffect(() => {
     const onAsk = (e: Event) => {
-      const detail = (e as CustomEvent<{ message?: string }>).detail;
-      submit(detail?.message);
+      const detail = (e as CustomEvent<{
+        message?: string;
+        context?: Record<string, unknown>;
+      }>).detail;
+      submit(detail?.message, detail?.context);
     };
     window.addEventListener('mcgs:ask-george', onAsk as EventListener);
     return () => window.removeEventListener('mcgs:ask-george', onAsk as EventListener);
      
   }, []);
 
-  function submit(msg?: string) {
+  function submit(msg?: string, ctx?: Record<string, unknown>) {
     const message = (msg ?? input).trim();
     if (!message) return;
     setInitialMessage(message);
+    setInitialContext(ctx);
     setInput('');
     setOpen(true);
   }
@@ -74,10 +85,12 @@ export function AskGeorgeBar() {
         setInput(prev => (prev ? prev.trim() + ' ' : '') + transcript);
         inputRef.current?.focus();
       } catch (err) {
-        // Graceful, human wording \u2014 never expose HTTP/API technical detail.
+        // Log the real error so failures are diagnosable from the
+        // console, then show graceful, human wording.
+        console.error('[voice] transcription failed:', err);
         const msg = (err as Error).message || '';
-        if (/network|fetch|failed to fetch/i.test(msg)) {
-          setMicError("I lost the connection for a moment. Please try that again.");
+        if (/took a moment too long|network|fetch|failed to fetch/i.test(msg)) {
+          setMicError("The connection hiccupped while I was listening \u2014 please try that again.");
         } else if (/permission|denied/i.test(msg)) {
           setMicError("I need microphone access to hear you \u2014 please allow it in your browser.");
         } else {
@@ -114,7 +127,9 @@ export function AskGeorgeBar() {
     <>
       <div style={barWrap}>
         <div style={bar}>
-          <span style={butterfly} aria-hidden>🦋</span>
+          <span style={butterfly} aria-hidden>
+            <GeorgeButterflyMark size={22} />
+          </span>
 
           {/* Recording indicator */}
           <div style={{
@@ -179,6 +194,35 @@ export function AskGeorgeBar() {
           >Ask</button>
         </div>
 
+        {/*
+         * Continue-conversation affordance. Appears when the sheet is
+         * closed but there's a preserved conversation for this admin
+         * session \u2014 so accidentally hitting \u00D7 doesn\u2019t leave Garry
+         * stranded with no visible way to bring George back.
+         */}
+        {!open && hasConversation && (
+          <div style={continuePillRow}>
+            <button
+              type="button"
+              onClick={() => { setInitialMessage(undefined); setOpen(true); }}
+              style={continuePill}
+              aria-label={`Continue conversation with George (${turns.length} messages)`}
+              title="Reopen your George conversation"
+            >
+              <span aria-hidden>{'\uD83E\uDD8B'}</span>
+              <span style={{ fontWeight: 800 }}>Continue with George</span>
+              <span style={{ color: '#64748B', fontSize: 12 }}>
+                &middot; {turns.length} message{turns.length === 1 ? '' : 's'}
+              </span>
+              {lastGeorge?.content && (
+                <span style={continuePreview} aria-hidden>
+                  &ldquo;{lastGeorge.content.slice(0, 60)}{lastGeorge.content.length > 60 ? '\u2026' : ''}&rdquo;
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+
         {micError && (
           <div style={{ ...hintPop, background: '#7F1D1D' }} role="alert">{micError}</div>
         )}
@@ -199,7 +243,8 @@ export function AskGeorgeBar() {
       <AskGeorgeSheet
         open={open}
         initialMessage={initialMessage}
-        onClose={() => { setOpen(false); setInitialMessage(undefined); }}
+        initialContext={initialContext}
+        onClose={() => { setOpen(false); setInitialMessage(undefined); setInitialContext(undefined); }}
       />
     </>
   );
@@ -208,7 +253,7 @@ export function AskGeorgeBar() {
 // ---- styles ----
 const barWrap: React.CSSProperties = {
   position: 'sticky', top: 0, zIndex: 40,
-  padding: '12px 32px', background: 'linear-gradient(180deg,#FEFCF8,#FEFCF8 70%,rgba(254,252,248,0.85))',
+  padding: '12px 28px', background: 'linear-gradient(180deg,#FEFCF8,#FEFCF8 70%,rgba(254,252,248,0.85))',
   borderBottom: '1px solid #F1F5F9',
 };
 const bar: React.CSSProperties = {
@@ -219,8 +264,11 @@ const bar: React.CSSProperties = {
   boxShadow: '0 2px 8px rgba(15,23,42,0.04)',
 };
 const butterfly: React.CSSProperties = {
-  fontSize: 20, lineHeight: 1,
-  filter: 'drop-shadow(0 2px 3px rgba(20,184,166,0.35))',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 22, height: 22,
+  filter: 'drop-shadow(0 2px 3px rgba(14,165,233,0.35))',
 };
 const input_: React.CSSProperties = {
   flex: 1, border: 'none', outline: 'none', fontSize: 15,
@@ -256,9 +304,33 @@ const cmdHint: React.CSSProperties = {
 };
 const askBtn: React.CSSProperties = {
   padding: '8px 16px', borderRadius: 10,
-  background: 'linear-gradient(135deg,#14B8A6,#38BDF8)',
+  background: 'linear-gradient(135deg,#0EA5E9,#1E40AF)',
   color: '#FFFFFF', border: 'none', fontWeight: 800, fontSize: 14,
   cursor: 'pointer',
+};
+const continuePillRow: React.CSSProperties = {
+  marginTop: 8, display: 'flex', justifyContent: 'flex-start',
+};
+const continuePill: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 8,
+  padding: '8px 14px',
+  borderRadius: 999,
+  background: '#F0FDFA',
+  border: '1px solid #99F6E4',
+  color: '#0F766E',
+  fontSize: 13, fontWeight: 700,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  maxWidth: '100%',
+  overflow: 'hidden',
+  whiteSpace: 'nowrap',
+  textOverflow: 'ellipsis',
+};
+const continuePreview: React.CSSProperties = {
+  color: '#475569', fontSize: 12, fontWeight: 500, fontStyle: 'italic',
+  marginLeft: 8,
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  maxWidth: 380,
 };
 const hintPop: React.CSSProperties = {
   position: 'absolute', top: 60, right: 32,

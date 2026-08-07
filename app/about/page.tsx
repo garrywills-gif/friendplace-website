@@ -1,6 +1,8 @@
 import { cms } from '@/lib/api';
 import { brandAssets } from '@/lib/brand-assets';
 import { site } from '@/lib/brand';
+import { TourNext } from '@/components/TourNav';
+import TapMeButterfly from '@/components/TapMeButterfly';
 
 export const metadata = { title: 'About Us' };
 
@@ -84,6 +86,17 @@ export default async function AboutPage() {
           </div>
         </div>
       </section>
+
+      {/* Tour continues — page-owned voice, not George's. He has
+          quietly stepped back through the tour so the story lands
+          on its own. See /app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md
+          → "The Quiet Host". */}
+      <TourNext href="/how-it-works" label="See how it works" />
+
+      {/* The one mark of George during the tour \u2014 quiet, corner,
+          "here if you want me". Never on /meet (he's fully present)
+          or /register-interest (his voice returns to close). */}
+      <TapMeButterfly />
     </>
   );
 }

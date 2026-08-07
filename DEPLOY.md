@@ -1,59 +1,105 @@
 # Deploying FriendPlace Website to Vercel
 
+> **Status: V1 launch candidate.** Backend confirmed live at `https://belong-together.emergent.host` (FastAPI + MongoDB Atlas). Website code is deploy-ready.
+
 ## What's in this folder
 
-A production-ready Next.js 14 marketing site for FriendPlace. Every
-page pre-renders to static HTML for optimal SEO + speed. Content is
-fetched from the FriendPlace FastAPI backend at request time so the
-website + mobile app stay perfectly in sync.
+A production-ready Next.js 14 marketing site + Mini-CMS + MCGS admin surfaces for FriendPlace. Every public page pre-renders to static HTML for SEO and speed. All content is fetched from the FriendPlace FastAPI backend at request time so the website and mobile app stay perfectly in sync.
+
+## Backend production URL
+
+The live FastAPI backend (already deployed by Emergent) is:
+
+```
+https://belong-together.emergent.host
+```
+
+Every API path in this codebase is composed as `${API_BASE}/api/…` — so the base URL you set in Vercel is the **origin only**, without `/api`. `api-base.ts` and `next.config.js` fall back to this same origin if the env var is missing, so the site cannot accidentally same-origin itself.
 
 ## Pre-launch privacy — ON by default
 
-Until you set the env var `FRIENDPLACE_INDEXABLE=true`, the site is:
+Until you set `FRIENDPLACE_INDEXABLE=true` in Vercel, the site is:
 - Blocked in `robots.txt` (`Disallow: /`)
 - Served with `X-Robots-Tag: noindex, nofollow, noarchive` header
 - Every page carries `<meta name="robots" content="noindex, nofollow">`
 
-Search engines will not list your site until you explicitly flip the
-switch. Safe to share the Vercel URL privately for feedback.
+Safe to share the Vercel preview URL privately for feedback. Flip the switch only when you're ready for Google.
 
 ## Environment variables to set in Vercel
 
-| Name                     | Value                                                        | Notes                              |
-| ------------------------ | ------------------------------------------------------------ | ---------------------------------- |
-| `NEXT_PUBLIC_API_URL`    | `https://belong-together.preview.emergentagent.com`          | Your live FastAPI + MongoDB URL    |
-| `FRIENDPLACE_INDEXABLE`  | *(leave unset for now)*                                      | Set to `true` at official launch   |
+| Name | Value | Required at launch |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `https://belong-together.emergent.host` | ✅ Yes |
+| `FRIENDPLACE_INDEXABLE` | *(leave unset until launch, then set to `true`)* | ⚪ Later |
 
-## Deploying — three options
+> That's it — the website itself doesn't need MongoDB or Resend keys. The backend at `belong-together.emergent.host` already has all of those configured (`MONGO_URL`, `EMERGENT_LLM_KEY`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `JWT_SECRET`, `APPLE_SIWA_*`). The website only ever talks to the backend over HTTPS.
 
-### Option A — Vercel CLI drag-and-drop (simplest, no GitHub needed)
-1. Create a free account at https://vercel.com/signup
-2. On your Mac, install the CLI: `npm i -g vercel`
-3. From THIS folder, run `vercel` and follow the prompts
-4. Vercel gives you a URL like `friendplace-abc123.vercel.app`
+## Simplest deploy path (recommended — 10 minutes, no GitHub)
 
-### Option B — GitHub import (recommended if you want auto-deploy on future changes)
-1. Create a GitHub repo (private is fine)
-2. Push the `/app/website` folder as its own repo
-3. Go to https://vercel.com/new → Import from GitHub
-4. Add the env vars in the "Environment Variables" section
-5. Click Deploy
+1. **Create a free Vercel account** at https://vercel.com/signup (use your Apple/Google login for speed).
 
-### Option C — Have Neo deploy for you
-Give me a **Vercel Deploy Token** (Vercel → Settings → Tokens → Create)
-and I'll deploy directly using the API. Token can be scoped to just
-this project.
+2. **Install the Vercel CLI on your Mac**:
+   ```
+   npm i -g vercel
+   ```
 
-## After deployment
+3. **Deploy from this folder**:
+   ```
+   cd /app/website
+   vercel
+   ```
+   - When it asks "Set up and deploy?" → **Y**
+   - "Which scope?" → your personal account
+   - "Link to existing project?" → **N**
+   - "What's your project's name?" → `friendplace` (or accept the default)
+   - "In which directory is your code located?" → **./** (just press Enter)
+   - It will auto-detect Next.js and deploy.
 
-- Vercel URL is now live (still noindex-protected)
-- Share it privately for feedback
-- When ready to launch:
-  1. Point `friendplace.com.au` DNS at Vercel:
-     - `A` record on `@` → `76.76.21.21`
-     - `CNAME` on `www` → `cname.vercel-dns.com`
-  2. In Vercel dashboard: Project → Settings → Domains → add
-     `friendplace.com.au` and `www.friendplace.com.au`
-  3. In Vercel env vars: set `FRIENDPLACE_INDEXABLE=true`
-  4. Redeploy (one click)
-  5. Submit sitemap to Google Search Console
+4. **Add the env var** (in the Vercel dashboard):
+   - Go to your new project → Settings → Environment Variables
+   - Add: `NEXT_PUBLIC_API_URL` = `https://belong-together.emergent.host`
+   - Apply to: **Production, Preview, Development** (all three)
+   - **Redeploy** (Deployments tab → click the latest → Redeploy) — this bakes the env var into the build.
+
+5. **Smoke test the Vercel preview URL** (something like `friendplace-abc123.vercel.app`):
+   ```
+   curl -sL -o /dev/null -w "%{http_code}\n" https://<your-vercel-url>/meet
+   curl -sL -o /dev/null -w "%{http_code}\n" https://<your-vercel-url>/register-interest
+   ```
+   Both should return **200**. If yes, proceed to domain attachment.
+
+## Attach `friendplace.com.au`
+
+1. In the Vercel dashboard: Project → **Settings** → **Domains**.
+2. Add `friendplace.com.au` — Vercel will show you the DNS records to add.
+3. In your domain registrar's DNS panel (wherever `friendplace.com.au` is registered — GoDaddy, Namecheap, Crazy Domains, etc.), update:
+   - `A` record on `@` → `76.76.21.21`
+   - `CNAME` on `www` → `cname.vercel-dns.com`
+4. Also add `www.friendplace.com.au` in Vercel Domains and set it to redirect to the apex.
+5. DNS propagation typically takes 5–30 minutes. Vercel auto-issues an SSL certificate once verified.
+
+## When you're ready to go public
+
+1. In Vercel env vars, set `FRIENDPLACE_INDEXABLE=true`.
+2. Redeploy.
+3. Confirm on the live domain:
+   ```
+   curl -sL -o /dev/null -w "%{http_code}\n" https://friendplace.com.au/meet
+   curl -sL -o /dev/null -w "%{http_code}\n" https://friendplace.com.au/register-interest
+   ```
+   Both must be **200**.
+4. Submit sitemap to Google Search Console: `https://friendplace.com.au/sitemap.xml`.
+5. Test end-to-end: submit the RYI form with a real email → confirm you receive the Resend welcome email.
+6. Now safe to generate iOS + Android builds — they link to routes that finally exist.
+
+## Rollback plan
+
+Vercel keeps every deployment. If anything looks wrong after publish:
+1. Deployments tab → find the previous good deployment.
+2. Click the "…" menu → **Promote to Production**.
+3. Instant rollback, no downtime.
+
+## Alternate deploy paths (if you prefer)
+
+- **GitHub import**: push `/app/website` to a private GitHub repo, then Vercel → New Project → Import. Same env var setup applies. Bonus: every future `git push` auto-deploys.
+- **Vercel Deploy Token**: create a token in Vercel (Settings → Tokens) and I can deploy for you from this environment via API.

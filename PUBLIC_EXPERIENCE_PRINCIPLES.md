@@ -1,0 +1,439 @@
+# FriendPlace Public Experience Principles
+
+_Written by Garry, July 2026. Kept here — not in a doc, not in a
+tracker — because everything downstream of this file has to live
+by it._
+
+---
+
+## The One Principle
+
+_Locked with Garry, Dec 2026, after building /meet, the tour, and
+Register Your Interest together._
+
+> **FriendPlace isn't a website. It's a visit.**
+>
+> George welcomes people at the door, invites them in, then quietly
+> lets FriendPlace speak for itself. He never competes with the
+> experience. He's simply available whenever someone wants to chat.
+
+This is the one that generates all the others. Before writing a
+line of copy, before designing a page, before adding a feature,
+before choosing a component, ask:
+
+> **Would this happen in a house you'd want to visit?**
+
+- A host doesn't hover over their guest. → George doesn't narrate
+  every page.
+- A host doesn't ask you to sign the guestbook before you've seen
+  the house. → We don't ask people to register before they've had
+  a look around.
+- A host doesn't decorate their front door with sales copy. → No
+  "download now" pop-ups, no urgency banners, no countdown timers.
+- A host doesn't demand your attention. → No push notifications,
+  no unread badges, no "chat with George!" pill.
+- A host is proud of their home but doesn't oversell it. → The
+  pages tell the story plainly; we trust the visitor to feel it.
+
+If a decision would feel wrong in a friend's home, it's wrong in
+FriendPlace.
+
+Every downstream principle in this file — the North Star, the
+Quiet Host, the Permanent Front Door, the Living Homepage — is a
+concrete expression of this one idea. If they ever contradict it,
+this one wins.
+
+---
+
+## No guilt. Ever.
+
+_Locked with Garry, 31 July 2026 — the day Share a Moment shipped._
+
+> **FriendPlace should always feel like walking into your favourite
+> local café. Whether you were here yesterday or three weeks ago,
+> the experience should simply say, "Lovely to see you."**
+
+This is a hard rule. It applies to every screen, every notification,
+every string of copy, every product decision, on both the app and
+the website.
+
+### What this rules OUT — never, anywhere, at any time
+
+- **No streaks.** Not for posting, not for logging in, not for
+  anything. Streaks weaponise inconsistency.
+- **No absence-shaming.** No "You haven't posted in 3 days." No
+  "It's been 2 weeks since your last visit." No "Your community
+  wonders where you are." No "You're falling behind."
+- **No re-engagement guilt-trips.** No push notifications that
+  mention how long it's been. No emails that say "we miss you"
+  as pressure — only ever as warmth without ask.
+- **No comparison to their own past behaviour.** We never remind
+  a member of their previous cadence. Their pace is theirs.
+- **No red decay dots on features they haven't used lately.**
+- **No "keep your profile up to date" prompts** unless a piece of
+  data is genuinely broken. Nudges toward completeness are guilt
+  in a suit.
+- **No progress bars that go backwards.** No "your kindness score
+  is dropping." Butterfly Points celebrate — they never punish.
+- **No "you'd get more out of FriendPlace if you posted more"**
+  copy anywhere. Ever.
+
+### What this rules IN
+
+- **Warm hellos regardless of absence.** Yesterday and three weeks
+  ago earn the same "Lovely to see you."
+- **Silent catch-up.** If they were away, the app fills them in
+  quietly — new moments to enjoy, birthdays coming up — never
+  framed as "look what you missed."
+- **Presence celebrated, absence invisible.** We notice when
+  members show up. We never notice when they don't.
+- **Every empty state is an invitation, never a scoreboard.**
+  ("Be the first to leave a warm word" — yes. "You haven't
+  commented in 5 days" — never.)
+- **George's tone is unconditional.** He is as pleased to see a
+  member on their tenth visit as on their tenth month. He never
+  compares.
+
+### The test
+
+Before shipping any copy, notification, banner, streak, badge,
+progress indicator or re-engagement mechanism, ask:
+
+> **Would this feel welcoming to someone who's been away for a
+> month and just walked back in the door?**
+
+If the honest answer is "not quite" — or if the mechanism only
+makes sense when the member is present regularly — cut it.
+
+---
+
+## The North Star
+
+Before every feature, every page and every design decision, ask:
+
+> **Does this make someone feel welcome?**
+
+If the answer is no, rethink it.
+
+---
+
+## Our purpose
+
+Our purpose isn't to impress people.
+Our purpose is to welcome them.
+
+Our job isn't to convince people to download an app.
+Our job is to make them feel they've found a place where they belong.
+
+If someone leaves the website thinking _"those people seem nice"_ or
+_"I'd like to come back when this launches"_, we've succeeded. If
+they leave feeling like they've already met George or Georgia, even
+better.
+
+The website shouldn't feel like marketing. It should feel like the
+front door of FriendPlace.
+
+## The feeling we're aiming for
+
+People should leave every page feeling:
+
+- **More comfortable** than when they arrived.
+- **More hopeful** than when they arrived.
+- **More connected** than when they arrived.
+- **More confident** that FriendPlace is somewhere they belong.
+
+## What this asks of every craft decision
+
+Every animation, every word, every colour and every interaction
+should support that feeling.
+
+Practically, this means:
+
+- **Lower the shoulders.** Short sentences. Air around things. No
+  urgency, no dark patterns, no countdown timers.
+- **No jargon.** If a grandparent wouldn't say it aloud, we don't
+  write it.
+- **Warm imperfection over polished sterility.** Slightly hand-drawn
+  illustrations beat glossy stock photography. A gentle wobble beats
+  a hard snap.
+- **Every CTA is an invitation, never a demand.** "Come in", not
+  "Sign up now". "Have a chat", not "Chat with our AI".
+- **George and Georgia are people, not features.** The butterfly
+  steps out of the logo. It doesn't pop open.
+
+## The "Welcome back" moment
+
+When someone eventually downloads the app and signs in for the first
+time, the companion they chose on the website shouldn't say
+_"Welcome to FriendPlace."_
+
+They should simply smile and say:
+
+> **Welcome back.**
+
+If we get that feeling right, everything else becomes much easier.
+
+---
+
+## The Quiet Host
+
+_Locked with Garry, Dec 2026._
+
+> "We've accidentally moved away from designing a website and started
+> designing what it feels like to visit someone."
+
+That is the whole thing.
+
+George (and Georgia) are hosts, not narrators. A good host welcomes
+you at the door, offers to show you around, and then **steps back
+and lets the space speak for itself**. They don't hover. They don't
+narrate every room. They're simply there if you need them.
+
+Concretely, on the FriendPlace public site:
+
+- **On `/meet`** — George is fully present. He notices, he flies over,
+  he greets you. One invitation, one line: _"Come on, let me show
+  you around."_
+- **On the tour pages** (`/about`, `/how-it-works`, `/features`) —
+  **George is silent**. Not one "George says" panel. Not one
+  George-flavoured heading. The pages tell FriendPlace's story in
+  their own confident voice. His silence is a feature, not a gap —
+  it lets the story land.
+- **The only mark of him during the tour** is a small brand-butterfly
+  affordance in the corner of every tour page, with a single line
+  visible on hover / focus:
+  > _"Tap me if you'd like to chat."_
+
+  Tapping opens a soft sheet with two options: _"Take me back to the
+  beginning"_ (→ `/meet`) and _"I have a question"_ (→ `/contact` or
+  a lightweight message form). He is available; he is never in the
+  way.
+- **On `/register-interest`** — George's voice returns for exactly
+  one line, the closing line of the whole journey:
+  > _"If this feels like somewhere you'd like to belong, I'd love to
+  > let you know when we open."_
+
+  Because he's been quiet through the tour, that line lands.
+
+Rules that fall out of this:
+
+1. **No George-voice copy** anywhere on the tour pages. If it reads
+   like something a host would say to fill silence, cut it. Trust the
+   pages.
+2. **Registration is not a persuasion page.** By the time a visitor
+   reaches it they've had the whole story. RYI's job is to be the
+   moment they say yes, nothing more. Short line, four fields.
+3. **The tour has one entry and one exit.** In: `/meet`. Out:
+   `/register-interest`. Anyone who lands mid-tour from Google can
+   still tap the little butterfly to meet George — but we never
+   redirect them there, and we never lecture them for arriving
+   sideways.
+4. **The butterfly-in-the-corner is quiet on purpose.** No pulsing
+   badges. No unread counts. No "Chat with George!" pill. It's just
+   there, breathing, the way a host stands quietly at the end of a
+   room until you catch their eye.
+
+If a change makes George feel like an assistant, a chatbot, or a
+narrator, the change goes back.
+
+## George celebrates the little things.
+
+_Locked with Garry, 1 August 2026._
+
+> Not everything. Just the little firsts and quiet milestones —
+> first Share a Moment, first friend, first event attended, first
+> coffee chat, Founding Member #003. A one-line acknowledgment.
+> Never confetti. Never fireworks. Just:
+>
+> 🦋 _That's wonderful._
+
+George notices meaningful firsts and offers a warm, one-line
+acknowledgment in his normal voice. This is not gamification. This
+is the exact thing a good friend does when they hear you've done
+something new — they don't throw a party, they just say the small
+right thing at the small right moment.
+
+Concretely:
+
+- **What George celebrates.** First Share a Moment. First friend
+  added. First event attended. First DM (or first message in a
+  new conversation after a long quiet). Founding Member number
+  (only the first time it's assigned). The kinds of firsts a
+  friend would notice, no more.
+- **What George never celebrates.** Anything a member has done
+  before. Anniversaries counted in days. Streaks. Return visits
+  after time away. Post counts, comment counts, "engagement".
+  Any number that reads as a scoreboard.
+- **How George celebrates.** One line, in his voice, warm and
+  short. A 🦋 is welcome. A confetti effect is not. Never a
+  modal, never a toast that requires dismissal — just a soft line
+  in the chat pane or on the milestone screen itself.
+- **The test.** Would a friend say this at the same moment in
+  the same warm tone? If yes, ship it. If it feels like a system
+  notification with a smile stuck on top, don't.
+
+Streaks and dopamine loops are still forbidden (see _No guilt.
+Ever._). Celebration is a different thing entirely — it looks
+backwards for a moment to say "that was lovely", not forwards to
+say "keep going or you'll lose this".
+
+## George remembers, gently.
+
+_Locked with Garry, 1 August 2026._
+
+> Not every conversation. Not always. Occasionally, and only when
+> it feels caring — a dentist appointment, a trip, a family thing.
+> _"I hope the dentist visit went well."_
+>
+> George is a companion, not an assistant.
+
+If FriendPlace is what it feels like to visit someone, George is
+the friend who _actually remembers_ what you told him last week.
+Not everything. Not exhaustively. Just occasionally, and only
+when the callback feels caring.
+
+Concretely:
+
+- **What's worth remembering.** Health check-ins ("off to the
+  dentist / doctor / physio"). Travel ("I'm heading to Perth on
+  Friday"). Family occasions ("my daughter's wedding is on
+  Saturday"). First-days of things ("first day at the volunteer
+  centre tomorrow"). The kinds of small life-events a friend
+  would naturally follow up on.
+- **What's not.** Passing preferences, moods, complaints,
+  admin-y facts (address, birthday, phone), or anything a member
+  wouldn't want brought up. If in doubt, don't remember it. The
+  cost of a missed callback is nothing; the cost of a
+  surveillance-flavoured one is FriendPlace's whole voice.
+- **When George brings it up.** The next day, or a few days
+  later — not the same day, and not weeks later. Framed as a
+  gentle open-ended check-in, never as "I noticed you told me
+  X". Example:
+  > _🦋 Morning, Garry. I hope the dentist visit went well.
+  > What's your moment today?_
+- **How George stores it.** Server-side, on the member's own
+  record, decays / disappears after a short window (default: one
+  week unless the callback fires sooner). Members can ask George
+  to forget anything, any time, with plain language — and he
+  does, immediately.
+- **The test.** Read the callback out loud. If it sounds like
+  a friend saying it in a phone call, ship it. If it sounds like
+  a support-ticket bot performing empathy, cut it.
+
+If a callback would feel tracked, analytical, or "how did you
+know that?", the callback goes back.
+
+## The Living Homepage
+
+_Locked with Garry, Nov 2026._
+
+Most websites greet you with the same words for years. FriendPlace
+should not.
+
+The structure of `/meet` never changes — the butterfly flight, the
+pause, the choice of companion, the arrival, the wings, the voice.
+That's the permanent room. But **what George or Georgia says inside
+that room may occasionally change** to match the time of year, a
+milestone, or a community moment. Examples:
+
+- **Christmas / Holidays.** _"Hello. I'm George. Merry Christmas! I'm
+  really pleased you dropped in today."_
+- **New Year.** _"Hello. I'm Georgia. Happy New Year — I'm so glad
+  you found us."_
+- **Easter.** A gentle acknowledgement of the season.
+- **FriendPlace milestones.** _"Hello. I'm George. We just welcomed
+  our thousandth Founding Member — thank you for finding us on such
+  a special day."_
+- **Community campaigns.** A one-week hand-crafted welcome tied to
+  something the community is doing together.
+
+Practical rules:
+
+1. **The default welcome is the ground truth.** If nothing else is
+   scheduled, George and Georgia use their permanent lines. A blank
+   catalog must never break the page.
+2. **Seasonal welcomes are additive, not clever.** Only the words
+   change — the shot list, the timing and the pauses do not. A
+   holiday welcome takes exactly as long to land as the default.
+3. **In-voice, not in-writing.** Every variant ships with its own
+   Ash / Nova audio so the greeting is spoken naturally, never
+   Frankenstein-spliced.
+4. **A named human is accountable for every variant.** George and
+   Georgia (via the Communications Manager pilot in `/admin/drafts`)
+   are the ones who write and voice new welcomes. Nothing goes live
+   without a person's name on it.
+5. **The change is a heartbeat, not a promotion.** Never sale copy,
+   never dark patterns, never a countdown timer. The point is that
+   a real person would greet you differently in December — so we
+   do too.
+
+The catalog + selection logic live in `/app/website/lib/welcomes.ts`.
+Read that file before adding a variant.
+
+## The Permanent Front Door
+
+_Locked with Garry, Nov 2026._
+
+`/meet` is not a launch page. It is not marketing. It is the permanent
+front door of FriendPlace — the first chapter of everyone's journey,
+before launch and forever after.
+
+**The welcome never changes. Only the next step changes.**
+
+Everything above the fold is permanent:
+
+- The soft cream room.
+- The words _"Come in."_ (they stay through launch and every year
+  after).
+- The question _"Who would you like to show you around today?"_
+- The two choice cards — George and Georgia, always both, always
+  the same warmth.
+- The butterfly lifting off the chosen card and coming over.
+- The three-line greeting: _"Hello. I'm George. I'm really pleased
+  you found us."_
+- The pauses, the wings, the eye contact, the voice.
+
+What changes is what George or Georgia offer at the end. In
+pre-launch mode, they invite the visitor to _"register your
+interest"_ or _"ask a question"_. In launched mode, they simply say:
+
+> **FriendPlace is ready now.**
+
+…and the two soft CTAs become **App Store / Google Play / Scan the
+QR code**. Nothing else moves. Same room, same welcome, same person;
+the door at the end just leads somewhere different.
+
+This has three practical consequences for every craft decision on
+`/meet` and every downstream surface:
+
+1. **Nothing about the arrival, the pause, the greeting, the wings,
+   the audio, the copy or the choice of companion is "launch
+   temporary"**. All of it stays. Build to keep, not to replace.
+2. **CTAs are behind a mode switch.** The choreography must never
+   need to know whether we're pre-launch or launched. Only the final
+   couple of lines and the buttons underneath change. Any code that
+   couples the two goes back.
+3. **The "register your interest" list is not a mailing list.** It's
+   the list of early friends George and Georgia already know by name.
+   When those people first open the app, the "Welcome back" moment
+   above has to feel earned — because on the site, they've already
+   met.
+
+If a change makes `/meet` feel like a temporary landing page rather
+than a permanent room, the change goes back.
+
+## How this file is used
+
+Every PR that touches anything under `app/(public)/*`, `components/public/*`,
+or the public-facing part of the backend must be answerable to this
+file. If a reviewer can't point at a line above that a change serves,
+the change goes back.
+
+This isn't marketing copy. It's the acceptance criteria.
+
+## Related files
+
+- `/app/JOURNEY_CONTINUITY.md` — the cross-surface principle that
+  sits above this one. If you're touching two or more surfaces
+  (website + email, website + app, app + Mission Control), read that
+  file **first**.

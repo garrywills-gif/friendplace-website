@@ -1,4 +1,6 @@
 import { cms } from '@/lib/api';
+import { TourNext } from '@/components/TourNav';
+import TapMeButterfly from '@/components/TapMeButterfly';
 
 export const metadata = { title: 'How It Works' };
 
@@ -42,6 +44,14 @@ export default async function HowPage() {
           ))}
         </div>
       </section>
+
+      {/* Tour continues \u2014 last stop is /features, which ends with
+          George's voice returning to close the journey. See
+          /app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md \u2192 "The
+          Quiet Host". */}
+      <TourNext href="/features" label="See what makes it feel like belonging" />
+
+      <TapMeButterfly />
     </>
   );
 }
@@ -58,8 +68,12 @@ const STEPS = [
     body: "Add a photo, a first name, and a few interests. We ask a couple of gentle questions so we can suggest people you'd genuinely enjoy meeting. No personality quizzes, no oversharing.",
   },
   {
-    title: 'Say hello in the Lounge',
-    body: 'Your Coffee Lounge is a soft place to think out loud. Read what other members are sharing today, reply to a thought that resonates, or share your own. The Lounge is our version of the local café counter.',
+    title: 'Share a moment from your day',
+    body: "Share a Moment is FriendPlace's most-loved feature. Add a photo, a story, or something that made you smile today. Or scroll and enjoy what your community is sharing. No pressure. No expectations. Just everyday moments worth sharing.",
+  },
+  {
+    title: 'Discover the FP Café',
+    body: "The FP Café is our virtual café — a relaxed place to drop in, read what others are sharing today, or simply enjoy the company. Join a conversation, share a thought, or sit quietly with a coffee. Come and go as you like. There's no pressure to participate.",
   },
   {
     title: 'Meet people nearby',

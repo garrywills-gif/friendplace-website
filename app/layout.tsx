@@ -3,6 +3,9 @@ import { site } from '@/lib/brand';
 import './globals.css';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
+import { CompanionProvider } from '@/lib/companion-context';
+import { ConciergeOverlay } from '@/components/site/ConciergeOverlay';
+import { LeadingButterfly } from '@/components/site/LeadingButterfly';
 
 export const metadata: Metadata = {
   metadataBase: new URL(site.urlProduction),
@@ -76,9 +79,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <SiteHeader />
-        <main>{children}</main>
-        <SiteFooter />
+        <CompanionProvider>
+          <SiteHeader />
+          <main>{children}</main>
+          <SiteFooter />
+          {/* Concierge overlay — a global welcome that any surface can
+              summon by dispatching `friendplace:meet-george`. Renders
+              nothing until invited. */}
+          <ConciergeOverlay />
+          <LeadingButterfly />
+        </CompanionProvider>
       </body>
     </html>
   );

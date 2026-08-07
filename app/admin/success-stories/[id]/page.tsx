@@ -150,7 +150,7 @@ export default function SuccessStoryEditorPage() {
               style={{ ...s.input, fontSize: 17, fontWeight: 700 }}
               value={story.title}
               onChange={e => update({ title: e.target.value })}
-              placeholder="How Margaret found her people at the Coffee Lounge"
+              placeholder="How Margaret found her people at the FP Café"
             />
           </div>
 
@@ -260,7 +260,7 @@ export default function SuccessStoryEditorPage() {
 /* ---------- Sub-components ---------- */
 
 function AvatarWell({ url, authorName }: { url: string; authorName: string }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
   const absUrl = url ? (url.startsWith('http') ? url : `${BASE}${url}`) : '';
   return (
     <div style={{

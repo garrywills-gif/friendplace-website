@@ -2,6 +2,7 @@
 
 import { AdminShell } from '@/components/admin/AdminShell';
 import Link from 'next/link';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
  * George's Workspace — landing page.
@@ -34,7 +35,7 @@ export default function GeorgeWorkspacePage() {
       <div style={container}>
         <header style={hero}>
           <div style={butterflyRow}>
-            <div style={butterflyDisc}>🦋</div>
+            <div style={butterflyDisc}><GeorgeButterflyMark size={40} /></div>
             <div>
               <div style={{ fontSize: 12, letterSpacing: '0.14em', color: '#64748B', fontWeight: 700, textTransform: 'uppercase' }}>
                 Working with George

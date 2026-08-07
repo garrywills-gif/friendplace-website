@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { rhythmsApi, type BriefingRow } from '@/lib/mcgs-api';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 interface Props {
   onAsk?: (message: string) => void;
@@ -61,7 +62,7 @@ export function MiddayPulse({ onAsk }: Props) {
   return (
     <section style={pulseCard} aria-labelledby="midday-pulse-heading">
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 22 }} aria-hidden>🦋</span>
+        <span style={{ display: 'inline-flex', width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }} aria-hidden><GeorgeButterflyMark size={22} /></span>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
             <div id="midday-pulse-heading" style={eyebrow}>{heading}</div>

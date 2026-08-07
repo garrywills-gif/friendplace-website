@@ -47,6 +47,13 @@ export function clearAuth() {
     window.localStorage.removeItem(TOKEN_KEY);
     window.localStorage.removeItem(ADMIN_KEY);
   } catch { /* storage blocked */ }
+  // Batch-3 conversation continuity: logout must clear George's
+  // per-admin conversation buckets so the next login starts clean.
+  try {
+    // Dynamic import so this module stays framework-agnostic.
+    const { clearAllGeorgeSessions } = require('./george-session');
+    clearAllGeorgeSessions();
+  } catch { /* module missing during SSR — harmless */ }
 }
 
 export function isAuthed(): boolean {

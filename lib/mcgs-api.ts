@@ -9,14 +9,17 @@
 
 import { getToken, clearAuth } from './cms-auth';
 import { API_BASE } from './api-base';
+import { fetchWithRetry } from './fetch-retry';
 
 const BASE = API_BASE;
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {};
+  // Content-Type only when a body is sent — avoids CORS preflights on GETs.
+  if (body != null) headers['Content-Type'] = 'application/json';
   const token = getToken();
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${BASE}/api${path}`, {
+  const res = await fetchWithRetry(`${BASE}/api${path}`, {
     method,
     headers,
     body: body != null ? JSON.stringify(body) : undefined,
@@ -24,8 +27,26 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   });
   if (res.status === 401) clearAuth();
   const text = await res.text();
-  const json = text ? JSON.parse(text) : {};
-  if (!res.ok) throw new Error(json?.detail || json?.error || `Request failed (${res.status})`);
+  // Safely parse — a stray HTML error page from a proxy, or a
+  // truncated payload, must not surface as a raw
+  // "Unable to parse JSON string" to the user.
+  let json: unknown = {};
+  if (text) {
+    try {
+      json = JSON.parse(text);
+    } catch {
+      if (!res.ok) {
+        throw new Error(
+          `George couldn't reach that just now (${res.status}). Please try again in a moment.`,
+        );
+      }
+      throw new Error(
+        "George's answer came back in an unexpected shape. Please try again.",
+      );
+    }
+  }
+  const j = json as { detail?: string; error?: string };
+  if (!res.ok) throw new Error(j?.detail || j?.error || `Request failed (${res.status})`);
   return json as T;
 }
 
@@ -85,22 +106,75 @@ export interface Counts {
   computed_at: string;
 }
 
+// ---------- System health ----------
+
+export type ProbeStatus = 'ok' | 'degraded' | 'unknown' | 'disabled';
+
+export interface Probe {
+  name: string;
+  status: ProbeStatus;
+  note: string;
+  response_ms: number | null;
+  last_checked: string;
+  details?: { cached?: boolean; url?: string; used_bytes?: number; free_bytes?: number; [key: string]: unknown };
+}
+
+export interface SystemHealth {
+  overall: ProbeStatus;
+  generated_at: string;
+  cached: boolean;
+  probes: Probe[];
+  counts: Record<string, number>;
+  deployment: {
+    website_version: string | null;
+    frontend_version: string | null;
+    commit_hash: string | null;
+    commit_short: string | null;
+    commit_time: string | null;
+    commit_message: string | null;
+  };
+}
+
 // ---------- API surface ----------
+
+export interface BridgeCategoryTile {
+  key: string;
+  label: string;
+  short: string;
+  producers: string[];
+  open: number;
+  oldest_waiting_seconds: number | null;
+  oldest_waiting_at: string | null;
+}
+
+export interface BridgeSummary {
+  categories: BridgeCategoryTile[];
+  milestones: { open: number };
+  total_actionable: number;
+  computed_at: string;
+}
 
 export const mcgsApi = {
   counts: () => req<Counts>('GET', '/mcgs/counts'),
-  listSignals: (params: { limit?: number; status?: string[]; priority?: Priority[] } = {}) => {
+  bridgeSummary: () => req<BridgeSummary>('GET', '/mcgs/bridge/summary'),
+  systemHealth: (opts: { fresh?: boolean } = {}) =>
+    req<SystemHealth>('GET', `/mcgs/system-health${opts.fresh ? '?fresh=1' : ''}`),
+  listSignals: (params: { limit?: number; status?: string[]; priority?: Priority[]; producer?: string[]; origin?: string[] } = {}) => {
     const q = new URLSearchParams();
     if (params.limit) q.set('limit', String(params.limit));
     (params.status || []).forEach(s => q.append('status', s));
     (params.priority || []).forEach(p => q.append('priority', p));
+    (params.producer || []).forEach(p => q.append('producer', p));
+    (params.origin || []).forEach(o => q.append('origin', o));
     return req<{ items: Signal[]; count: number }>('GET', `/mcgs/signals?${q.toString()}`);
   },
-  listCases: (params: { limit?: number; status?: string[]; priority?: Priority[] } = {}) => {
+  listCases: (params: { limit?: number; status?: string[]; priority?: Priority[]; producer?: string[]; origin?: string[] } = {}) => {
     const q = new URLSearchParams();
     if (params.limit) q.set('limit', String(params.limit));
     (params.status || []).forEach(s => q.append('status', s));
     (params.priority || []).forEach(p => q.append('priority', p));
+    (params.producer || []).forEach(p => q.append('producer', p));
+    (params.origin || []).forEach(o => q.append('origin', o));
     return req<{ items: Case[]; count: number }>('GET', `/mcgs/cases?${q.toString()}`);
   },
   getCase: (id: string) => req<Case & { signals: Signal[] }>('GET', `/mcgs/cases/${id}`),
@@ -324,12 +398,16 @@ export function subscribeToBridge(
 // ---------- George grounded chat ----------
 
 export interface GeorgeStreamEvent {
-  kind: 'session' | 'plan' | 'tools' | 'delta' | 'done' | 'action_preview';
+  kind: 'session' | 'plan' | 'tools' | 'delta' | 'done' | 'action_preview' | 'navigate' | 'error';
   text?: string;
   chat_id?: string;
   plan?: unknown;
   results?: unknown;
   reply_length?: number;
+  // navigate event: emitted by the backend when George announces
+  // "Opening the X now" and there's a matching MCGS route. Frontend
+  // consumers should `router.push(path)` to actually navigate.
+  path?: string;
   // action_preview payload arrives with the same top-level fields as
   // the /api/mcgs/proposals/* endpoint response — action_type, target,
   // what, why, sources, confidence, draft, case_id, etc.
@@ -350,32 +428,70 @@ export interface GeorgeStreamEvent {
 /**
  * POST /api/george/chat and stream events back. Returns an object
  * with an `abort` method the caller can invoke to cancel.
+ *
+ * Hardened (June 2026):
+ *   - `res.ok` is checked — a non-SSE error response (e.g. the preview
+ *     edge's plain-text "404 page not found") becomes a visible
+ *     `error` event instead of a silent stall.
+ *   - A watchdog aborts after 30s with no first byte, or 60s with no
+ *     new data mid-stream, and reports a friendly timeout.
+ *   - A `done` event is GUARANTEED exactly once via `finally`, so the
+ *     caller's busy state can never get stuck.
  */
 export function askGeorge(
   message: string,
   onEvent: (ev: GeorgeStreamEvent) => void,
   chatId?: string | null,
+  surfaceContext?: Record<string, unknown> | null,
 ): { abort: () => void } {
   const controller = new AbortController();
   const token = getToken();
+  let timedOut = false;
+  let watchdog: ReturnType<typeof setTimeout> | null = null;
+  const arm = (ms: number) => {
+    if (watchdog) clearTimeout(watchdog);
+    watchdog = setTimeout(() => { timedOut = true; controller.abort(); }, ms);
+  };
+
   (async () => {
+    let doneEmitted = false;
+    const emit = (ev: GeorgeStreamEvent) => {
+      if (ev.kind === 'done') {
+        if (doneEmitted) return;
+        doneEmitted = true;
+      }
+      onEvent(ev);
+    };
     try {
-      const res = await fetch(`${BASE}/api/george/chat`, {
+      arm(30_000); // 30s to reach the server and receive the first byte.
+      const res = await fetchWithRetry(`${BASE}/api/george/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token || ''}`,
         },
-        body: JSON.stringify({ message, chat_id: chatId || undefined, scope: 'mcgs' }),
+        body: JSON.stringify({
+          message,
+          chat_id: chatId || undefined,
+          scope: 'mcgs',
+          surface_context: surfaceContext || undefined,
+        }),
         signal: controller.signal,
       });
-      if (!res.body) throw new Error('no body');
+      if (!res.ok || !res.body) {
+        emit({
+          kind: 'error',
+          text: `George couldn\u2019t reach the server just now (${res.status}). Please try again in a moment.`,
+        });
+        return;
+      }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
+        arm(60_000); // fresh 60s allowance between chunks.
         buffer += decoder.decode(value, { stream: true });
         let idx: number;
         while ((idx = buffer.indexOf('\n\n')) !== -1) {
@@ -390,17 +506,35 @@ export function askGeorge(
           if (dataLines.length === 0) continue;
           try {
             const payload = JSON.parse(dataLines.join('\n'));
-            onEvent({ kind: evType as GeorgeStreamEvent['kind'], ...payload });
+            emit({ kind: evType as GeorgeStreamEvent['kind'], ...payload });
           } catch {
             /* ignore */
           }
         }
       }
     } catch (err) {
-      if ((err as { name?: string }).name !== 'AbortError') {
-        onEvent({ kind: 'delta', text: '\n\nSorry — something went wrong. Try again in a moment.' });
-        onEvent({ kind: 'done' });
+      if ((err as { name?: string }).name === 'AbortError') {
+        if (timedOut) {
+          emit({
+            kind: 'error',
+            text: 'That took longer than it should have, so I\u2019ve stopped waiting. Please try again.',
+          });
+        }
+        // User-initiated cancel: no error message; `finally` still
+        // delivers `done` so the composer unlocks.
+      } else {
+        console.error('[george-chat] stream failed:', err);
+        const msg = (err as Error).message || '';
+        emit({
+          kind: 'error',
+          text: /took a moment too long/i.test(msg)
+            ? 'George couldn\u2019t reach the server just now. Please try again in a moment.'
+            : 'Sorry \u2014 something went wrong. Please try again in a moment.',
+        });
       }
+    } finally {
+      if (watchdog) clearTimeout(watchdog);
+      emit({ kind: 'done' });
     }
   })();
   return { abort: () => controller.abort() };
@@ -416,24 +550,40 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
   const token = getToken();
   const form = new FormData();
   form.append('audio', blob, 'clip.webm');
-  const res = await fetch(`${BASE}/api/george/voice/transcribe`, {
+  const res = await fetchWithRetry(`${BASE}/api/george/voice/transcribe`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token || ''}` },
     body: form,
   });
-  const json = await res.json();
+  const text = await res.text();
+  let json: { detail?: string; transcript?: string } = {};
+  try { json = text ? JSON.parse(text) : {}; } catch { json = { detail: text }; }
   if (!res.ok) throw new Error(json?.detail || 'Transcription failed');
   return json.transcript || '';
 }
 
 /**
  * Fetch George's reply as an mp3 blob for playback via <audio>.
+ *
+ * Voice policy: the client sends a persona key ("george" = deep male,
+ * "georgia" = bright female). The backend resolves this to the actual
+ * OpenAI voice id so a bad client value can never leak the wrong voice.
+ * Anything other than "georgia" falls back to the established male
+ * voice server-side.
  */
-export async function speakText(text: string, voice = 'nova', speed = 0.95): Promise<Blob> {
+export async function speakText(text: string, voice: 'george' | 'georgia' = 'george', speed = 0.95): Promise<Blob> {
   const token = getToken();
-  const res = await fetch(`${BASE}/api/george/voice/speak`, {
+  // Cache-buster query param defeats any browser/edge cache that might
+  // otherwise replay a stale audio blob (e.g. a female clip after we
+  // switched George's persona to male).
+  const url = `${BASE}/api/george/voice/speak?_=${Date.now()}`;
+  const res = await fetchWithRetry(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token || ''}`,
+      'Cache-Control': 'no-cache',
+    },
     body: JSON.stringify({ text, voice, speed }),
   });
   if (!res.ok) throw new Error(`Speech failed: ${res.status}`);

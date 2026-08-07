@@ -8,6 +8,7 @@
  */
 
 import Link from 'next/link';
+import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 
 interface Props {
   href?: string;
@@ -29,7 +30,9 @@ export function GeorgeSuggestionCard({
   return (
     <div style={card}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8 }}>
-        <div style={butterflyCircle} aria-hidden>🦋</div>
+        <div style={butterflyCircle} aria-hidden>
+          <GeorgeButterflyMark size={26} />
+        </div>
         <div style={{ fontSize: 13, fontWeight: 800, color: '#0F172A' }}>{headline}</div>
       </div>
       <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.55, marginBottom: 12 }}>{body}</div>
@@ -42,23 +45,24 @@ export function GeorgeSuggestionCard({
 }
 
 const card: React.CSSProperties = {
-  background: 'linear-gradient(180deg,#F0FDFA 0%,#FFFFFF 100%)',
-  border: '1px solid #CCFBF1', borderRadius: 16,
+  background: 'linear-gradient(180deg,#EFF6FF 0%,#FFFFFF 100%)',
+  border: '1px solid #DBEAFE', borderRadius: 16,
   padding: 16, boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
 };
 const butterflyCircle: React.CSSProperties = {
   width: 34, height: 34, borderRadius: 17, flexShrink: 0,
-  background: 'linear-gradient(135deg,#14B8A6,#38BDF8)',
-  color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: 18, filter: 'drop-shadow(0 4px 8px rgba(20,184,166,0.35))',
+  background: '#FFFFFF',
+  border: '1px solid #DBEAFE',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  filter: 'drop-shadow(0 4px 8px rgba(37,99,235,0.15))',
 };
 const btn: React.CSSProperties = {
   display: 'block', textAlign: 'center', textDecoration: 'none',
   padding: '10px 14px', borderRadius: 10,
-  background: 'linear-gradient(135deg,#14B8A6,#38BDF8)',
+  background: 'linear-gradient(135deg,#0EA5E9,#1E40AF)',
   color: '#FFFFFF', fontWeight: 800, fontSize: 13,
 };
 const secondaryLink: React.CSSProperties = {
   display: 'block', textAlign: 'center', textDecoration: 'none',
-  marginTop: 8, fontSize: 12, color: '#0F766E', fontWeight: 700,
+  marginTop: 8, fontSize: 12, color: '#1D4ED8', fontWeight: 700,
 };
