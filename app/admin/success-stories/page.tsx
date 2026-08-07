@@ -132,7 +132,7 @@ function StoryListRow({
   onMoveDown: () => void;
   onDelete: () => void;
 }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || '';
   const avatarUrl = story.author_avatar_url
     ? (story.author_avatar_url.startsWith('http') ? story.author_avatar_url : `${BASE}${story.author_avatar_url}`)
     : null;

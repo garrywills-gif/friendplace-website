@@ -117,6 +117,38 @@ const ADMIN_GLOBAL_CSS = `
   /* Toolbar buttons inside the TipTap editor ------------------------ */
   .cms-tt-btn { transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease; }
   .cms-tt-btn:hover { background: #F1F5F9; border-color: #94A3B8; }
+
+  /* Responsive layout ------------------------------------------------
+     Mission Control targets serious admin work, so we optimise for
+     comfortable use on 13"–14" laptops (1366×768 and 1440×900) as well
+     as standard 1920×1080 desktops. The sidebar stays fixed, but the
+     main content column, its padding and any grid child columns all
+     breathe as the viewport narrows. min-width: 0 on grid children
+     stops long strings from forcing horizontal scroll.               */
+  .cms-main-col { flex: 1; min-width: 0; width: 100%; }
+  .cms-main-inner { padding: 24px 32px 64px; max-width: 1600px; margin: 0 auto; }
+  @media (max-width: 1400px) { .cms-main-inner { padding: 24px 28px 56px; } }
+  @media (max-width: 1280px) { .cms-main-inner { padding: 22px 22px 52px; } }
+  @media (max-width: 1160px) { .cms-main-inner { padding: 20px 18px 48px; } }
+  .cms-grid-child { min-width: 0; }
+  .cms-two-col {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+    gap: 24px;
+  }
+  @media (max-width: 1360px) {
+    .cms-two-col { grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 20px; }
+  }
+  @media (max-width: 1200px) {
+    .cms-two-col { grid-template-columns: minmax(0, 1fr) minmax(0, 280px); gap: 18px; }
+  }
+  @media (max-width: 1080px) {
+    /* Right rail moves below main content — no more cramped columns. */
+    .cms-two-col { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  }
+  /* Any table or preformatted block inside an admin card should scroll
+     inside its card rather than force the whole page wider.          */
+  .cms-scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 `;
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

@@ -23,13 +23,19 @@
  *
  * WHERE TO CHANGE
  * ---------------
- * When we cut over to api.friendplace.com.au, update
- * DEFAULT_API_BASE below and redeploy. That's the only edit.
+ * If we split the backend onto a separate host (api.friendplace.com.au),
+ * update DEFAULT_API_BASE below and redeploy. Otherwise the site and
+ * backend share the same origin (https://friendplace.com.au) and this
+ * default already Just Works via Emergent's `/api/*` rewrite.
  */
 
-const DEFAULT_API_BASE = 'https://friendplace-v1.preview.emergentagent.com';
+// Production default. Same origin as the marketing site — the FastAPI
+// backend is proxied under `/api/*` by the Emergent ingress, so a
+// same-origin URL resolves to the right service without CORS.
+const DEFAULT_API_BASE = 'https://friendplace.com.au';
 
 export const API_BASE: string =
   process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL.trim().length > 0
     ? process.env.NEXT_PUBLIC_API_URL
     : DEFAULT_API_BASE;
+

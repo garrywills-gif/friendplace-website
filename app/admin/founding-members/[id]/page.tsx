@@ -163,7 +163,7 @@ export default function FoundingMemberEditorPage() {
                   style={s.input}
                   value={member.role || ''}
                   onChange={e => update({ role: e.target.value })}
-                  placeholder="Coffee Lounge Regular"
+                  placeholder="FP Café Regular"
                 />
               </div>
               <div>
@@ -242,7 +242,7 @@ export default function FoundingMemberEditorPage() {
 /* ---------- Sub-components ---------- */
 
 function AvatarWell({ url, name }: { url: string; name: string }) {
-  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
+  const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
   const absUrl = url ? (url.startsWith('http') ? url : `${BASE}${url}`) : '';
   const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
   return (

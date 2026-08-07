@@ -47,7 +47,7 @@ export default function PrivacyPage() {
             <p>Only for the things you would expect: authenticating you, showing you people and events nearby, sending you app notifications (which you can turn off), and keeping the app safe from abuse.</p>
 
             <h2>5. Who we share data with</h2>
-            <p>Other members see what you post publicly on your profile, Coffee Lounge or events. That is the point. Beyond that:</p>
+            <p>Other members see what you post publicly on your profile, in the FP Café, or at events. That is the point. Beyond that:</p>
             <ul>
               <li><strong>Service providers:</strong> our hosting (MongoDB Atlas), email delivery (Resend), and analytics-free error tracking. All operate under strict data-processing agreements.</li>
               <li><strong>Legal:</strong> If we receive a valid Australian legal request, we may disclose data as required by law.</li>

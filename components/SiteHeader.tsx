@@ -18,6 +18,12 @@ import { brandAssets } from '@/lib/brand-assets';
  *     15% opacity — visible only if you look for them).
  *   • Teal underline on the active page, drawn with a ::after pseudo
  *     so it never affects layout, only visual state.
+ *
+ * "Meet George or Georgia" used to live here as a persistent nav CTA.
+ * That was moved into the hero (see components/site/HeroInvitation.tsx)
+ * because George is part of the FriendPlace experience, not another
+ * navigation item. This keeps the top bar quieter and lets the
+ * invitation land at the right moment in the visitor's journey.
  */
 export default function SiteHeader() {
   const [open, setOpen] = useState(false);
@@ -50,12 +56,17 @@ export default function SiteHeader() {
     >
       <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72 }}>
         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+          {/* id="fp-brand-butterfly" is the anchor point used by the
+              /meet choreography so the butterfly can "step off" the
+              logo and fly to the visitor. Do not remove without
+              coordinating a change in /app/meet/page.tsx. */}
           <img
+            id="fp-brand-butterfly"
             src={brandAssets.butterfly.src}
             alt={brandAssets.butterfly.alt}
             width={brandAssets.butterfly.width}
             height={brandAssets.butterfly.height}
-            style={{ width: 36, height: 'auto', display: 'block' }}
+            style={{ width: 40, height: 'auto', display: 'block' }}
           />
           <span style={{ fontWeight: 900, fontSize: 22, color: '#0A2540', letterSpacing: '-0.02em' }}>
             Friend<span style={{ color: '#14B8A6' }}>Place</span>
@@ -63,7 +74,9 @@ export default function SiteHeader() {
         </Link>
 
         {/* Desktop nav — gap:0 because separators are drawn between
-            items via ::before pseudo-elements. */}
+            items via ::before pseudo-elements. The "Meet George or
+            Georgia" CTA is intentionally NOT here — it lives inside
+            the hero as an invitation, not a nav item. */}
         <nav className="nav-desktop" style={{ display: 'flex', alignItems: 'center' }}>
           {NAV.map((n, i) => (
             <Link
@@ -75,9 +88,6 @@ export default function SiteHeader() {
               {n.label}
             </Link>
           ))}
-          <Link href="/#download" className="btn btn-primary" style={{ padding: '10px 20px', fontSize: 14, marginLeft: 20 }}>
-            Get the App
-          </Link>
         </nav>
 
         {/* Mobile burger */}
@@ -139,9 +149,6 @@ export default function SiteHeader() {
               ↳ {n.label}
             </Link>
           ))}
-          <Link href="/#download" onClick={() => setOpen(false)} className="btn btn-primary" style={{ marginTop: 16, width: '100%' }}>
-            Get the App
-          </Link>
         </div>
       )}
 

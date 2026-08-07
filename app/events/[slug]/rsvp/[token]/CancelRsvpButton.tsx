@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
+const BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 type Props = {
   slug: string;

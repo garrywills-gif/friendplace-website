@@ -3,6 +3,20 @@ import { site } from '@/lib/brand';
 import { cms } from '@/lib/api';
 import { brandAssets } from '@/lib/brand-assets';
 import BrandMasthead from '@/components/BrandMasthead';
+import { LaunchCountdownRibbon, type LaunchStatus } from '@/components/site/LaunchCountdownRibbon';
+import HeroInvitation from '@/components/site/HeroInvitation';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
+
+async function getLaunchStatus(): Promise<LaunchStatus | null> {
+  try {
+    const base = process.env.NEXT_PUBLIC_API_URL || '';
+    const r = await fetch(`${base}/api/public/launch-status`, { next: { revalidate: 30 } });
+    if (!r.ok) return null;
+    return (await r.json()) as LaunchStatus;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * FriendPlace Home page.
@@ -25,10 +39,11 @@ import BrandMasthead from '@/components/BrandMasthead';
  * Falls back gracefully if the backend is unreachable.
  */
 export default async function HomePage() {
-  const [features, founders, stories] = await Promise.all([
+  const [features, founders, stories, launchStatus] = await Promise.all([
     cms.features(),
     cms.founders(),
     cms.stories(),
+    getLaunchStatus(),
   ]);
 
   const featureCards = features?.features && features.features.length > 0
@@ -41,6 +56,10 @@ export default async function HomePage() {
 
   return (
     <>
+      {/* ---------- 0a. LAUNCH COUNTDOWN RIBBON ---------- */}
+      {/* Sits above everything else. Renders nothing when disabled. */}
+      <LaunchCountdownRibbon initial={launchStatus} />
+
       {/* ---------- 0. NAVY BRANDING STRIP ---------- */}
       {/* Real HTML/CSS masthead, NOT the flyer image. Slim 80 px band
           that scales gracefully on mobile — contact rail hides below
@@ -52,7 +71,7 @@ export default async function HomePage() {
         position: 'relative', overflow: 'hidden',
         background: 'linear-gradient(180deg, #0A2540 0%, #12365B 100%)',
         color: '#FFFFFF', paddingTop: 96, paddingBottom: 120,
-      }}>
+      }} className="fp-hero">
         {/* soft teal glow behind the butterfly */}
         <div aria-hidden style={{
           position: 'absolute', right: '-10%', top: '-20%',
@@ -62,26 +81,29 @@ export default async function HomePage() {
         }} />
         <div className="container" style={{ position: 'relative', zIndex: 1 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 48, alignItems: 'center' }} className="hero-grid">
-            <div>
-              <div style={{
+            <div className="hero-copy">
+              <div className="hero-founding-pill" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 padding: '6px 14px', borderRadius: 999,
                 background: 'rgba(94,234,212,0.15)', border: '1px solid rgba(94,234,212,0.35)',
                 color: '#5EEAD4', fontSize: 13, fontWeight: 700, marginBottom: 32,
               }}>
-                🦋 Now welcoming Founding Members
+                <span style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }}>
+                  <GeorgeButterflyMark size={18} />
+                </span>
+                Now welcoming Founding Members
               </div>
-              <h1 style={{ color: '#FFFFFF', marginBottom: 32, lineHeight: 1.05 }}>
+              <h1 className="hero-h1" style={{ color: '#FFFFFF', marginBottom: 32, lineHeight: 1.05 }}>
                 Find your <span style={{ color: '#5EEAD4' }}>people</span>.
               </h1>
-              <p style={{ fontSize: 22, color: '#FFFFFF', lineHeight: 1.5, marginBottom: 24, maxWidth: 560, fontWeight: 600 }}>
+              <p className="hero-short" style={{ fontSize: 22, color: '#FFFFFF', lineHeight: 1.5, marginBottom: 24, maxWidth: 560, fontWeight: 600 }}>
                 Real friendships. Real communities.<br />
                 Right where you live.
               </p>
-              <p style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.65, marginBottom: 40, maxWidth: 560 }}>
+              <p className="hero-long" style={{ fontSize: 18, color: '#CBD5E1', lineHeight: 1.65, marginBottom: 40, maxWidth: 560 }}>
                 FriendPlace is where genuine friendships begin. Meet local people, discover welcoming communities and enjoy real conversations — without swiping, followers or popularity contests.
               </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+              <div className="hero-cta-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                 <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
                   Get the App →
                 </Link>
@@ -89,8 +111,22 @@ export default async function HomePage() {
                   See how it works
                 </Link>
               </div>
+
+              {/* Hero-level invitation to meet George / Georgia. Sits ONE
+                  visual level below the primary CTAs and fades in ~1.3s
+                  after paint, so visitors get a moment to read the hero
+                  before George politely steps forward. Not another
+                  navigation item — an intentional invitation.
+
+                  On mobile we deliberately hoist this above the long
+                  descriptive paragraph and app-store CTAs (via CSS
+                  `order`) so the "Meet George or Georgia" button is
+                  visible without scrolling — it's one of FriendPlace's
+                  unique features and deserves to be seen first on
+                  small screens (Garry, iter147). */}
+              <HeroInvitation />
             </div>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div className="hero-butterfly-wrap" style={{ display: 'flex', justifyContent: 'center' }}>
               <div className="butterfly-float" style={{ position: 'relative' }}>
                 <div aria-hidden className="butterfly-glow" />
                 {/* OFFICIAL butterfly (transparent background) from the
@@ -130,6 +166,31 @@ export default async function HomePage() {
             .hero-butterfly { width: 260px !important; }
           }
 
+          /* ── Mobile hero compression (Garry, iter147) ────────────────
+             On iPhone the Meet George or Georgia invitation must be
+             visible without scrolling. We tighten paddings, compress
+             margins, and use flex order to hoist the invitation above
+             the long descriptive paragraph and app-store CTAs. DOM
+             order stays intentional for accessibility and SEO. */
+          @media (max-width: 720px) {
+            .fp-hero {
+              padding-top: 32px !important;
+              padding-bottom: 56px !important;
+            }
+            .hero-copy {
+              display: flex;
+              flex-direction: column;
+            }
+            .hero-founding-pill  { order: 1; margin-bottom: 14px !important; font-size: 12px !important; padding: 5px 12px !important; }
+            .hero-h1             { order: 2; margin-bottom: 12px !important; font-size: 40px !important; }
+            .hero-short          { order: 3; margin-bottom: 16px !important; font-size: 18px !important; }
+            .hero-copy .hero-invitation { order: 4; margin-top: 4px !important; margin-bottom: 20px !important; }
+            .hero-copy .hero-invitation-pill { padding: 13px 22px !important; font-size: 15px !important; }
+            .hero-long           { order: 5; margin-bottom: 24px !important; font-size: 16px !important; }
+            .hero-cta-row        { order: 6; }
+            .hero-butterfly-wrap { display: none !important; } /* Big brand butterfly duplicates the site-header butterfly on mobile; hide to reclaim ~260px of prime above-the-fold real estate. */
+          }
+
           /* Gentle floating animation. The butterfly hovers like it is
              thinking about landing on your finger. 6s cycle keeps it
              calming rather than distracting. Respects reduced-motion. */
@@ -158,7 +219,13 @@ export default async function HomePage() {
       </section>
 
       {/* ---------- 2. WHY FRIENDPLACE ---------- */}
-      <section style={{ padding: '96px 0', background: '#FEFCF8' }}>
+      {/* id="why-friendplace" — deep-link target for the post-
+          registration "Continue Exploring →" button. New Founding
+          Members land here (not the hero) because they've already
+          said yes; the hero has done its job. Locked with Garry
+          (iter151, June 2026). Do not rename the id without
+          updating /register-interest → the success CTA. */}
+      <section id="why-friendplace" style={{ padding: '96px 0', background: '#FEFCF8', scrollMarginTop: 80 }}>
         <div className="container">
           <div style={{ textAlign: 'center', marginBottom: 56 }}>
             <SectionEyebrow>Why FriendPlace?</SectionEyebrow>
@@ -271,6 +338,89 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* ---------- 4.5. SHARE A MOMENT ----------
+          Locked with Garry, 31 July 2026. Share a Moment has become
+          the defining feature of FriendPlace — this dedicated section
+          sits immediately after "Three Simple Steps" so prospective
+          members SEE the product, not just read about it. Uses real
+          photographic mock cards over illustrations. The guardrail
+          line is a hard rule from the "No guilt. Ever." principle
+          (`/app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md`).
+          Hero stays untouched — "Find your people." carries that job. */}
+      <section style={{
+        padding: '96px 0',
+        background: 'linear-gradient(180deg, #FEF9E4 0%, #FFFCF2 100%)',
+      }}>
+        <div className="container">
+          <div style={{ textAlign: 'center', marginBottom: 48 }}>
+            <div style={{
+              textTransform: 'uppercase', letterSpacing: '0.15em', fontSize: 12,
+              fontWeight: 800, color: '#B45309', marginBottom: 12,
+            }}>✨ Share a Moment</div>
+            <h2 style={{ margin: '0 auto 16px', maxWidth: 720, color: '#78350F' }}>
+              What&apos;s your moment today?
+            </h2>
+            <p style={{ color: '#7C5300', fontSize: 19, maxWidth: 640, margin: '0 auto', lineHeight: 1.55 }}>
+              FriendPlace is built around the little moments of everyday life. A coffee.
+              A walk. The grandkids visiting. An orchid finally flowering. Share a
+              photo and a warm word — or simply enjoy what your community is sharing.
+            </p>
+          </div>
+
+          {/* Three mock Moment cards — real photos, first-person captions,
+              no engagement counts. This is deliberately laid out to
+              mirror the app but keeps the visitor's eye on the story
+              itself, not on how many likes a moment has picked up.
+              (Guardrail from Garry, 26 June 2026: "these are showcase
+              cards, not a live feed — like/comment counts subtly
+              shift focus towards popularity.") */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 20,
+            maxWidth: 1080, margin: '0 auto',
+          }}>
+            {MOCK_MOMENTS.map((m, i) => (
+              <div key={i} style={{
+                background: '#FFFFFF',
+                borderRadius: 20,
+                border: '1px solid #FDE68A',
+                boxShadow: '0 8px 24px rgba(180,83,9,0.10)',
+                padding: 18,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <div style={{
+                    fontSize: 28,
+                  }}>{m.avatar}</div>
+                  <div>
+                    <div style={{ color: '#0A2540', fontWeight: 800, fontSize: 15 }}>{m.name}</div>
+                    <div style={{ color: '#64748B', fontSize: 12 }}>{m.when}</div>
+                  </div>
+                </div>
+                <p style={{ color: '#0A2540', fontSize: 15, lineHeight: 1.55, margin: '0 0 12px' }}>
+                  {m.caption}
+                </p>
+                <div style={{
+                  aspectRatio: '4 / 3', borderRadius: 12, overflow: 'hidden',
+                  backgroundImage: `url(${m.photo})`,
+                  backgroundSize: 'cover', backgroundPosition: 'center',
+                }} />
+              </div>
+            ))}
+          </div>
+
+          {/* Guardrail line — locked wording from Garry, 31 July 2026.
+              The public expression of the "No guilt. Ever." principle. */}
+          <p style={{
+            marginTop: 40, textAlign: 'center',
+            color: '#78350F', fontSize: 16, fontStyle: 'italic',
+            fontWeight: 600,
+          }}>
+            No pressure. No expectations. Just everyday moments worth sharing.
+          </p>
+        </div>
+      </section>
+
       {/* ---------- 5. FEATURES ---------- */}
       <section style={{ padding: '96px 0', background: '#F8FAFC' }}>
         <div className="container">
@@ -286,7 +436,9 @@ export default async function HomePage() {
                 background: '#FFFFFF', padding: 28, borderRadius: 20,
                 border: '1px solid #E2E8F0',
               }} className="lift-card">
-                <div style={{ fontSize: 32, marginBottom: 12 }}>{f.icon}</div>
+                <div style={{ fontSize: 32, marginBottom: 12, display: 'flex', alignItems: 'center' }}>
+                  {f.icon === '🦋' ? <GeorgeButterflyMark size={32} /> : f.icon}
+                </div>
                 <h3 style={{ fontSize: 18, marginBottom: 8 }}>{f.title}</h3>
                 <p style={{ color: '#475569', fontSize: 15, lineHeight: 1.6 }}>{f.body}</p>
               </div>
@@ -300,9 +452,9 @@ export default async function HomePage() {
         <div className="container">
           <div style={{ textAlign: 'center', marginBottom: 48 }}>
             <SectionEyebrow>Life at FriendPlace</SectionEyebrow>
-            <h2 style={{ margin: '0 auto 12px', maxWidth: 640 }}>Little moments, big belonging.</h2>
-            <p style={{ color: '#475569', fontSize: 18, maxWidth: 620, margin: '0 auto' }}>
-              Coffee catch-ups, community walks, backyard BBQs, gardening groups — this is what FriendPlace looks like.
+            <h2 style={{ margin: '0 auto 12px', maxWidth: 640 }}>What&apos;s your moment today?</h2>
+            <p style={{ color: '#475569', fontSize: 18, maxWidth: 640, margin: '0 auto', lineHeight: 1.55 }}>
+              Little moments, big belonging. Coffee catch-ups, community walks, backyard BBQs, gardening groups — this is what FriendPlace looks like.
             </p>
           </div>
           <div style={{
@@ -350,7 +502,9 @@ export default async function HomePage() {
               background: '#0A2540', color: '#FFFFFF',
               fontWeight: 800, fontSize: 15,
             }}>
-              <span style={{ color: '#5EEAD4' }}>🦋</span>
+              <span style={{ display: 'inline-flex', width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
+                <GeorgeButterflyMark size={20} />
+              </span>
               {/* Show a warm invitation while we're pre-launch. Once
                   people start joining the count flips to a live "N of
                   250 welcomed" pill. */}
@@ -607,11 +761,41 @@ const LIFE_PHOTOS = [
   { src: 'https://images.unsplash.com/photo-1549057446-9f5c6ac91a04?crop=entropy&cs=srgb&fm=jpg&w=800&q=80', caption: 'Walking groups' },
 ];
 
+// Three real-feeling Share a Moment mock cards for the dedicated
+// section on Home. First-person captions in the voice a member would
+// actually use. Photos reuse the site's warm Life-at-FriendPlace
+// palette so the story reads as one continuous look-and-feel.
+// Locked wording with Garry, 31 July 2026.
+const MOCK_MOMENTS = [
+  {
+    name: 'Margaret',
+    when: '2 hours ago',
+    avatar: '🌺',
+    caption: 'Had a lovely coffee with my neighbour this morning. Turns out we both grew up on the same street in Ballarat.',
+    photo: 'https://images.unsplash.com/photo-1773504356091-222ee58cfd23?crop=entropy&cs=srgb&fm=jpg&w=800&q=80',
+  },
+  {
+    name: 'David',
+    when: 'this morning',
+    avatar: '🐶',
+    caption: "Charlie discovered the beach today. I don't think he'll ever want to leave.",
+    photo: 'https://images.unsplash.com/photo-1689783553640-e8b76148fb22?crop=entropy&cs=srgb&fm=jpg&w=800&q=80',
+  },
+  {
+    name: 'Joyce',
+    when: 'yesterday',
+    avatar: '🌼',
+    caption: 'My orchid has finally flowered. Two years of patience, worth every day.',
+    photo: 'https://images.unsplash.com/photo-1781785273371-a959f34bfab0?crop=entropy&cs=srgb&fm=jpg&w=800&q=80',
+  },
+];
+
 const DEFAULT_FEATURES: { icon: string; title: string; body: string }[] = [
-  { icon: '☕', title: 'Coffee Lounge', body: 'A soft place to think out loud. Reply to a thought, share your own, or just read — no pressure.' },
+  { icon: '✨', title: 'Share a Moment', body: 'A photo, a story or something that made you smile today. Share everyday moments with your community and enjoy theirs.' },
+  { icon: '☕', title: 'FP Café', body: 'Our virtual café — a soft place to drop in, read what others are sharing, or share your own thought. No pressure.' },
   { icon: '🗓️', title: 'Local Events', body: 'Coffee catch-ups, hobby nights and community meets. RSVP with one tap and see who\'s coming.' },
   { icon: '👥', title: 'Find Friends', body: 'Discover people nearby who share your interests. Send a warm hello — never a swipe.' },
-  { icon: '🎯', title: 'Games & Groups', body: 'Solitaire, Word of the Day, book clubs, walking groups. Something for every kind of connection.' },
   { icon: '🦋', title: 'Butterfly Points', body: 'A gentle way to celebrate kindness. Earn points for warm messages, RSVPs, and helping others feel welcome.' },
   { icon: '🔒', title: 'Safe & Verified', body: 'Every member is verified. Report tools, blocking, and a real human moderating team keep it warm.' },
+  { icon: '🎯', title: 'Games & Groups', body: 'Solitaire, Word of the Day, book clubs, walking groups. Something for every kind of connection.' },
 ];

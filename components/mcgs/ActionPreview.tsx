@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { getToken } from '@/lib/cms-auth';
 import { API_BASE } from '@/lib/api-base';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 const BASE = API_BASE;
 
@@ -158,7 +159,7 @@ export function ActionPreview({ preview, onResolved }: ActionPreviewProps) {
   return (
     <div style={card}>
       <div style={header}>
-        <span style={{ fontSize: 18 }} aria-hidden>🦋</span>
+        <span style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }} aria-hidden><GeorgeButterflyMark size={18} /></span>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 800, color: '#0F766E', letterSpacing: '0.03em' }}>
             GEORGE PROPOSES

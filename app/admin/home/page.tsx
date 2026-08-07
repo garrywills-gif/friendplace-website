@@ -70,7 +70,7 @@ export default function HomeEditorPage() {
             </div>
             <div>
               <label style={s.label}>Title</label>
-              <input className="cms-input" style={s.input} value={f.title} onChange={e => update(i, { title: e.target.value })} placeholder="Coffee Lounge" />
+              <input className="cms-input" style={s.input} value={f.title} onChange={e => update(i, { title: e.target.value })} placeholder="FP Café" />
               <div style={{ height: 8 }} />
               <label style={s.label}>Body</label>
               <textarea className="cms-textarea" style={s.textarea} value={f.body} onChange={e => update(i, { body: e.target.value })} placeholder="A soft place to think out loud…" />

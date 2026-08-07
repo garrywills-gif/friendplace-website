@@ -1,12 +1,13 @@
 import { StoryCard } from '@/components/admin/StoryCard';
 import type { SuccessStory } from '@/lib/cms-api';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 // Runtime revalidation — refreshes every 60s so newly-published stories
 // appear on the site within a minute of Mission Control hitting Publish.
 export const revalidate = 60;
 
 async function fetchStories(): Promise<SuccessStory[]> {
-  const base = process.env.NEXT_PUBLIC_API_URL || 'https://friendplace-v1.preview.emergentagent.com';
+  const base = process.env.NEXT_PUBLIC_API_URL || 'https://belong-together.emergent.host';
   try {
     const res = await fetch(`${base}/api/public/stories`, { next: { revalidate: 60 } });
     if (!res.ok) return [];
@@ -54,7 +55,9 @@ export default async function SuccessStoriesPage() {
           textAlign: 'center', padding: 64, borderRadius: 20,
           border: '2px dashed #E2E8F0', background: '#F8FAFC',
         }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>🦋</div>
+          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'center' }}>
+            <GeorgeButterflyMark size={56} />
+          </div>
           <p style={{ color: '#475569', fontSize: 16, margin: 0 }}>
             The first stories are being written. Come back soon.
           </p>
