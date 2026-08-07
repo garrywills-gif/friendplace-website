@@ -124,9 +124,38 @@ function TileLink({
     ? (pathname || '/admin/bridge')
     : `${pathname || '/admin/bridge'}?category=${cat.key}`;
 
+  // iter156 drill-down (Garry, 7 Aug 2026): the tile is a real
+  // <Link> so keyboard / middle-click / open-in-new-tab all still
+  // work, but on a plain left-click we also nudge the Signal Feed
+  // into view immediately — the feed lives below Morning Briefing
+  // and the CRM card so, without this, the URL updated but the
+  // filtered result stayed off-screen and admins thought the tile
+  // was inert. `scroll={false}` disables Next's default top-scroll
+  // so our targeted scroll wins.
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Respect modifier keys and non-primary buttons — those should
+    // behave like a normal link (new tab / new window).
+    if (e.defaultPrevented) return;
+    if (e.button !== 0) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    // Defer to next tick so the client-side navigation commits
+    // first; then the feed is already re-fetching for the new
+    // category and our scroll lands on the right anchor.
+    window.setTimeout(() => {
+      const el = typeof document !== 'undefined'
+        ? document.getElementById('bridge-signal-feed')
+        : null;
+      if (!el) return;
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      catch { el.scrollIntoView(); }
+    }, 30);
+  };
+
   return (
     <Link
       href={url}
+      scroll={false}
+      onClick={handleClick}
       style={{
         ...tile,
         borderColor: active ? style.accent : '#E2E8F0',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { mcgsApi, subscribeToBridge, type Case, type Priority } from '@/lib/mcgs-api';
 import { SignalCard } from './SignalCard';
@@ -37,6 +37,21 @@ export function SignalFeed() {
   const searchParams = useSearchParams();
   const categoryKey = searchParams?.get('category') || null;
   const category = categoryKey ? CATEGORY_PRODUCERS[categoryKey] : null;
+  // iter156 drill-down fix (Garry, 7 Aug 2026): the six category
+  // tiles at the top of the Bridge link to `?category=<key>` and this
+  // feed filters accordingly — but the feed lives BELOW several other
+  // cards, so clicking a tile felt like nothing happened (the URL
+  // updated, the feed re-fetched, but it was off-screen). Now:
+  //   • When a category filter arrives (either from a tile click or a
+  //     direct URL load with `?category=…`), we smooth-scroll this
+  //     feed section into view once the drill-down result is on
+  //     screen. `sectionRef` anchors it; a small delay lets the fetch
+  //     settle so we don't scroll to a "Loading…" placeholder.
+  //   • The first case card in a drilled-down feed briefly glows so
+  //     the eye lands where the number `1` promised — makes the
+  //     drill-down feel deliberate, not accidental.
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const [highlightFirst, setHighlightFirst] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -71,6 +86,27 @@ export function SignalFeed() {
     // Re-subscribe when the category filter changes.
   }, [categoryKey]);
 
+  // Drill-down affordance — scroll the feed into view + briefly glow
+  // the first result whenever a category filter is active. Runs on
+  // both tile-click navigations and direct URL loads. Guarded by
+  // `loading` so we scroll to real content, not the loading skeleton.
+  useEffect(() => {
+    if (!categoryKey) { setHighlightFirst(false); return; }
+    if (loading) return;
+    const el = sectionRef.current;
+    if (!el) return;
+    // Small delay so the browser can lay out the freshly-rendered
+    // results before we measure their position. `block: 'start'`
+    // lines the heading up under the sticky Ask George bar.
+    const t = window.setTimeout(() => {
+      try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      catch { el.scrollIntoView(); } // older browsers
+    }, 60);
+    setHighlightFirst(true);
+    const clear = window.setTimeout(() => setHighlightFirst(false), 2200);
+    return () => { window.clearTimeout(t); window.clearTimeout(clear); };
+  }, [categoryKey, loading, cases.length]);
+
   const filtered = useMemo(() => {
     const list = filter === 'all' ? cases : cases.filter(c => c.priority === filter);
     return [...list].sort((a, b) => {
@@ -82,7 +118,7 @@ export function SignalFeed() {
   }, [cases, filter]);
 
   return (
-    <div>
+    <div ref={sectionRef} id="bridge-signal-feed" style={{ scrollMarginTop: 84 }}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', marginRight: 8 }}>
           {category ? `Signal Feed · ${category.label}` : 'Signal Feed'}
@@ -139,13 +175,24 @@ export function SignalFeed() {
           <div style={{ fontSize: 14, color: '#64748B' }}>Nicely done.</div>
         </div>
       ) : (
-        filtered.map(c => (
-          <SignalCard
-            key={c.id}
-            case_={c}
-            onChanged={(u) => setCases(prev => prev.map(x => x.id === u.id ? u : x))}
-          />
-        ))
+        filtered.map((c, idx) => {
+          const isDrillFirst = idx === 0 && highlightFirst && !!category;
+          return (
+            <div
+              key={c.id}
+              style={isDrillFirst ? {
+                borderRadius: 14,
+                boxShadow: '0 0 0 3px rgba(14,165,233,0.32)',
+                transition: 'box-shadow 260ms ease-out',
+              } : { transition: 'box-shadow 260ms ease-out' }}
+            >
+              <SignalCard
+                case_={c}
+                onChanged={(u) => setCases(prev => prev.map(x => x.id === u.id ? u : x))}
+              />
+            </div>
+          );
+        })
       )}
     </div>
   );

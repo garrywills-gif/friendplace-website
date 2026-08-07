@@ -576,13 +576,22 @@ export async function speakText(text: string, voice: 'george' | 'georgia' = 'geo
   // Cache-buster query param defeats any browser/edge cache that might
   // otherwise replay a stale audio blob (e.g. a female clip after we
   // switched George's persona to male).
+  //
+  // NOTE: We deliberately do NOT send a `Cache-Control` request header
+  // here. Doing so forces the browser to issue a CORS preflight that
+  // includes `cache-control` in `Access-Control-Request-Headers`, which
+  // the backend's allow-list (Authorization, Content-Type,
+  // X-Requested-With) rejects with 400 "Disallowed CORS headers" — the
+  // actual POST never fires and the audio button hangs on "Preparing…".
+  // The `?_=${Date.now()}` cache-buster above plus the server's own
+  // `Cache-Control: no-store` response header already prevent any
+  // stale-clip replay, so removing the request header is safe.
   const url = `${BASE}/api/george/voice/speak?_=${Date.now()}`;
   const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token || ''}`,
-      'Cache-Control': 'no-cache',
     },
     body: JSON.stringify({ text, voice, speed }),
   });

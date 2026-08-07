@@ -42,9 +42,11 @@ export default function SiteHeader() {
 
   return (
     <header
+      className="site-header-root"
       style={{
         position: 'sticky', top: 0, zIndex: 50,
         backdropFilter: 'saturate(180%) blur(12px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(12px)',
         background: 'rgba(254, 252, 248, 0.92)',
         // Subtle 1 px grey divider + soft drop shadow. Together they
         // give the header a premium lift without any single element
@@ -52,6 +54,28 @@ export default function SiteHeader() {
         // black) so it blends with the cream background.
         borderBottom: '1px solid #E5E9EF',
         boxShadow: '0 1px 4px rgba(15, 23, 42, 0.04)',
+        // iter157 Safari hardening (Garry, 7 Aug 2026): on macOS
+        // Safari, a `position: sticky` element combined with
+        // `backdrop-filter` intermittently loses its hit-test region
+        // after a few route changes — the header stays VISIBLE (its
+        // composited GPU layer is fine) but clicks land at the
+        // pre-composite layout position, which is off-screen or
+        // outside the visible header, so every nav link and the
+        // FriendPlace logo appear dead. Symptom: works right after a
+        // hard refresh, dies after 2–3 clicks. A fresh Private
+        // Browsing window works. The classic WebKit fix is to force
+        // the header into a stable, always-composited layer by
+        // giving it a 3-D transform hint. `translate3d(0,0,0)` +
+        // `will-change: transform` promote the header to its own
+        // layer permanently, and Safari keeps the hit-test region
+        // pinned to that layer instead of the pre-composite one.
+        // Both prefixed and unprefixed forms are set to cover older
+        // WebKit builds. `isolation: isolate` seals the stacking
+        // context so no descendant style change can un-composite it.
+        transform: 'translate3d(0, 0, 0)',
+        WebkitTransform: 'translate3d(0, 0, 0)',
+        willChange: 'transform',
+        isolation: 'isolate',
       }}
     >
       <div className="container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 72 }}>
