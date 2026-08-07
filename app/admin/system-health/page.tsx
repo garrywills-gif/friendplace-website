@@ -138,7 +138,25 @@ export default function SystemHealthPage() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <AskGeorgeAboutThis context="System health page — I'm looking at operational status" />
+            <AskGeorgeAboutThis
+              label="Ask George about system health"
+              contextType="system_health"
+              context={{
+                surface: 'system_health',
+                overall,
+                probe_count: health?.probes?.length ?? 0,
+                degraded_probes: (health?.probes ?? [])
+                  .filter(p => p.status === 'degraded' || p.status === 'unknown')
+                  .map(p => ({ name: p.name, status: p.status, note: p.note })),
+                generated_at: health?.generated_at ?? null,
+                cached: health?.cached ?? null,
+              }}
+              prompts={[
+                'Summarise the current system health snapshot.',
+                'Which probes are degraded or unknown right now, and what should I check first?',
+                'Have any of these probes been flapping in the last 24 hours?',
+              ]}
+            />
             <button
               type="button"
               onClick={() => void load(true)}

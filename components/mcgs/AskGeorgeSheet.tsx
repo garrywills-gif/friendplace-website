@@ -285,7 +285,7 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
                 try {
                   const failMsg = {
                     id: `nav-fail-${Date.now()}`,
-                    role: 'assistant' as const,
+                    role: 'george' as const,
                     content: note,
                     streaming: false,
                     failed: false,
