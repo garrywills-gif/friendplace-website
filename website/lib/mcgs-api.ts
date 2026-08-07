@@ -571,7 +571,7 @@ export async function transcribeAudio(blob: Blob): Promise<string> {
  * Anything other than "georgia" falls back to the established male
  * voice server-side.
  */
-export async function speakText(text: string, voice: 'george' | 'georgia' = 'george', speed = 0.95, signal?: AbortSignal): Promise<Blob> {
+export async function speakText(text: string, voice: 'george' | 'georgia' = 'george', speed = 0.95): Promise<Blob> {
   const token = getToken();
   // Cache-buster query param defeats any browser/edge cache that might
   // otherwise replay a stale audio blob (e.g. a female clip after we
@@ -585,7 +585,6 @@ export async function speakText(text: string, voice: 'george' | 'georgia' = 'geo
       'Cache-Control': 'no-cache',
     },
     body: JSON.stringify({ text, voice, speed }),
-    signal,
   });
   if (!res.ok) throw new Error(`Speech failed: ${res.status}`);
   return await res.blob();
