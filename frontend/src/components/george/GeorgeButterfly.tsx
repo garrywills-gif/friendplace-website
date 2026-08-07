@@ -706,7 +706,14 @@ const GEORGIA_HINT_FLAG = 'george.needs_georgia_hint';
 // AsyncStorage. Exported so the auth layer can clear it on every fresh
 // login — otherwise a returning member sees no welcome-back from George
 // because the gate was still set from earlier that day.
+//
+// Updated (Garry, 6 Aug 2026): also resets the in-memory session flag
+// so that on LOGOUT → LOGIN within the same app process, George greets
+// the new login session again. Welcome is once per LOGIN SESSION, not
+// once per calendar day. The auth layer calls this on both login AND
+// logout for symmetry.
 export async function clearArrivalGates(): Promise<void> {
+  _sessionGreetingConsumed = false;
   try {
     const keys = await AsyncStorage.getAllKeys();
     const ours = keys.filter(k => k.startsWith(`${STORAGE_KEY}.`));
