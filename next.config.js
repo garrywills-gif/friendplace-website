@@ -21,15 +21,41 @@ const nextConfig = {
   // discoverable. Layered defence: X-Robots-Tag header + robots.txt
   // + meta robots (in <head>).
   async headers() {
-    if (process.env.FRIENDPLACE_INDEXABLE === 'true') return [];
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive, nosnippet' },
-        ],
-      },
+    // iter157 Safari hardening (Garry, 7 Aug 2026): after a Vercel
+    // deploy, Safari sometimes serves an OLD cached HTML that still
+    // references the previous build's JS chunk hashes — those
+    // chunks still work but the sticky-header GPU composited-layer
+    // regression compounds. We hint every marketing HTML entry as
+    // `no-store` so Safari always re-fetches the HTML (which points
+    // to the correct fingerprinted chunk); the chunks themselves
+    // stay long-cached because Next.js fingerprints their filenames
+    // and Vercel serves them with `immutable` by default. Applied
+    // to top-level marketing routes only — admin/api paths keep
+    // their own semantics. `X-Accel-Buffering: no` also stops
+    // some intermediate proxies from stitching stale HTML fragments.
+    const marketingHtmlHeaders = [
+      { key: 'Cache-Control', value: 'no-store, must-revalidate' },
+      { key: 'X-Accel-Buffering', value: 'no' },
     ];
+    const marketingRoutes = [
+      '/', '/about', '/how-it-works', '/features',
+      '/events', '/events/:slug*',
+      '/success-stories', '/success-stories/:slug*',
+      '/faqs', '/contact', '/meet',
+      '/register-interest', '/list-your-event',
+      '/privacy', '/terms', '/butterfly-lab',
+    ].map((src) => ({ source: src, headers: marketingHtmlHeaders }));
+
+    const noindex = process.env.FRIENDPLACE_INDEXABLE === 'true'
+      ? []
+      : [{
+          source: '/:path*',
+          headers: [
+            { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive, nosnippet' },
+          ],
+        }];
+
+    return [...noindex, ...marketingRoutes];
   },
 };
 
