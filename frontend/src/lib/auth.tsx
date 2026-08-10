@@ -136,6 +136,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // "no user" to "user". In that case reset George's daily-arrival
     // gate so the returning-user greeting always plays on log-in.
     const isFreshLogin = !!u && !user;
+    // Batch A / iter156 (Aug 2026) fix for "George welcome sometimes
+    // doesn't appear after sign-in" (Xanda + others):
+    //   Previously the gate reset was fire-and-forget AFTER setUser(u).
+    //   Because setUser(u) synchronously triggers a re-render that mounts
+    //   the global GeorgeButterfly, GeorgeButterfly's boot effect could
+    //   read a stale `george.lastArrival.*` key from AsyncStorage before
+    //   the async removeItem finished — resulting in "gate not allowed"
+    //   for the day, so no welcome.  We now AWAIT the reset BEFORE
+    //   surfacing the user, so the boot effect always sees a clean gate.
+    if (isFreshLogin) {
+      try { await clearArrivalGates(); } catch { /* best-effort */ }
+    }
     setUser(u);
     setToken(tok);
     // Push the token into api.ts's in-memory cache so every subsequent
@@ -148,11 +160,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (tok) await AsyncStorage.setItem(TOKEN_KEY, tok);
       else await AsyncStorage.removeItem(TOKEN_KEY);
     } catch {}
-    if (isFreshLogin) {
-      // Fire-and-forget — if this fails the app still works, just no
-      // welcome-back for this session.
-      clearArrivalGates().catch(() => {});
-    }
   };
 
   return (

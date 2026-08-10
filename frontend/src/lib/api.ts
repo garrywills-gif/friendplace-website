@@ -528,13 +528,21 @@ export const api = {
     req(`/admin/users/${user_id}?admin_id=${admin_id}${reason ? `&reason=${encodeURIComponent(reason)}` : ""}`, { method: "DELETE" }),
 
   // notices
+  //
+  // Marked `silent: true` (Batch A / iter156, Aug 2026) so a transient
+  // 401 on the focus-effect listing fetch does not fire the global
+  // unauthorised handler and log the member out. That was the root cause
+  // of "Home → Notice Board → Back logs me out": a single 401 on
+  // `/notices` cleared the session, and by the time the member tapped
+  // Back they were already signed out on Home. Same posture as the
+  // other focus-effect fetches (statusMe, dmConversations, …).
   listNotices: (opts: { user_id?: string; q?: string; category?: string } = {}) => {
     const params = new URLSearchParams();
     if (opts.user_id) params.set("user_id", opts.user_id);
     if (opts.q) params.set("q", opts.q);
     if (opts.category && opts.category !== "All") params.set("category", opts.category);
     const qs = params.toString();
-    return req(`/notices${qs ? `?${qs}` : ""}`);
+    return req(`/notices${qs ? `?${qs}` : ""}`, {}, { silent: true });
   },
   createNotice: (b: any) => req("/notices", { method: "POST", body: JSON.stringify(b) }),
   editNotice: (id: string, payload: any) => req(`/notices/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),

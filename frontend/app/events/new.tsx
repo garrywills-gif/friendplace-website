@@ -349,7 +349,15 @@ export default function NewEvent() {
         transparent
         onRequestClose={() => !claiming && setBusinessModal(null)}
       >
-        <Pressable style={modalStyles.backdrop} onPress={() => !claiming && setBusinessModal(null)}>
+        {/* Batch A / iter156 (Aug 2026, Garry): wrap the organisation-details
+            sheet in a KeyboardAvoidingView so the on-screen keyboard doesn't
+            hide the Confirm button. Previously the Submit sat under the
+            keyboard on iPhone and the form couldn't be completed. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={{ flex: 1 }}
+        >
+          <Pressable style={modalStyles.backdrop} onPress={() => !claiming && setBusinessModal(null)}>
           <Pressable
             onPress={(e: any) => e.stopPropagation && e.stopPropagation()}
             style={[modalStyles.sheet, { backgroundColor: c.surface, maxHeight: "90%" }]}
@@ -517,6 +525,7 @@ export default function NewEvent() {
             </ScrollView>
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Limit-reached modal — shown when an existing business user tries

@@ -104,8 +104,10 @@ export default function MomentDetail() {
       if (!wasLiked && r.liked) {
         setFlutterKey((k) => k + 1);
       }
-    } catch (e: any) {
-      show(e?.message || "Couldn't update like.");
+    } catch {
+      // Same defensive pattern as sendComment — never surface raw
+      // response bodies to the user; a friendly fallback only.
+      show("Couldn't update like. Please try again.");
     }
   };
 
@@ -128,8 +130,12 @@ export default function MomentDetail() {
       if (cm?.first_comment_on_moment) {
         show("🦋 Thanks for leaving a warm word.");
       }
-    } catch (e: any) {
-      show(e?.message || "Couldn't send comment.");
+    } catch {
+      // Batch A / iter156: never surface raw error bodies to the user.
+      // The api layer builds e.message as `${status} ${responseBody}` which
+      // on a Cloudflare edge blip becomes a full HTML page. Show a friendly
+      // fallback instead. Garry, Aug 2026 — reported in P0 batch.
+      show("Sorry, your comment couldn't be posted. Please try again.");
     } finally {
       setSendingComment(false);
     }
