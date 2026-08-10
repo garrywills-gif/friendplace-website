@@ -469,7 +469,7 @@ export default function Profile() {
               FOUNDING MEMBERS FULL
             </Text>
             <Text numberOfLines={2} style={{ color: "#475569", fontWeight: "700", fontSize: 13 * scale, marginTop: 2 }}>
-              All {founderCap?.toLocaleString() ?? 500} places are taken — thank you for being here!
+              All {founderCap?.toLocaleString() ?? 250} places are taken — thank you for being here!
             </Text>
           </View>
         </View>
@@ -494,7 +494,7 @@ export default function Profile() {
               </Text>
               {founderRemaining != null ? (
                 <Text style={{ color: "#FDE68A", fontWeight: "800", fontSize: 13 * scale, marginTop: 4 }}>
-                  {founderRemaining.toLocaleString()} of {founderCap?.toLocaleString() ?? 500} places remaining
+                  {founderRemaining.toLocaleString()} of {founderCap?.toLocaleString() ?? 250} places remaining
                 </Text>
               ) : (
                 <Text style={{ color: "#CBD5E1", fontWeight: "700", fontSize: 13 * scale, marginTop: 4 }}>

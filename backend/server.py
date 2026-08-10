@@ -2312,6 +2312,25 @@ async def mark_all_notifications_read(user_id: str):
     return {"ok": True}
 
 
+# Batch B iter156 (Garry, Aug 2026 — P1 #5): members can now remove
+# notifications from their inbox. `DELETE /notifications/{id}` removes a
+# single notification (safe: no-op if the id is unknown), and
+# `POST /notifications/{uid}/clear-read` bulk-removes every notification
+# already flagged `read=true` for the member so tidying the list only
+# takes one tap. Unread notifications are never touched by clear-read —
+# they stay put until the member explicitly reads or deletes them.
+@api.delete("/notifications/{nid_}")
+async def delete_notification(nid_: str):
+    res = await db.notifications.delete_one({"id": nid_})
+    return {"ok": True, "deleted": res.deleted_count}
+
+
+@api.post("/notifications/{user_id}/clear-read")
+async def clear_read_notifications(user_id: str):
+    res = await db.notifications.delete_many({"user_id": user_id, "read": True})
+    return {"ok": True, "deleted": res.deleted_count}
+
+
 # ------------- Friends (full lifecycle) -------------
 @api.post("/friends/request")
 async def send_friend_request(body: FriendRequest):

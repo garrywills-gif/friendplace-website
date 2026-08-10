@@ -61,7 +61,12 @@ export type HintMove =
   | { kind: "waste-to-foundation"; suit: Suit }
   | { kind: "waste-to-tableau"; toPile: number }
   | { kind: "tableau-to-foundation"; fromPile: number; suit: Suit }
-  | { kind: "tableau-to-tableau"; fromPile: number; fromIndex: number; toPile: number };
+  | { kind: "tableau-to-tableau"; fromPile: number; fromIndex: number; toPile: number }
+  // Batch B iter156 (Garry, Aug 2026 — P2 #1): when nothing else is
+  // legal but the stock has cards left, suggest drawing so the member
+  // isn't left staring at a "no obvious moves" toast that gives them
+  // nowhere to go.
+  | { kind: "draw-stock" };
 
 export type PileRef =
   | { kind: "tableau"; pile: number; index: number }
@@ -244,11 +249,35 @@ export function moveTableauToFoundation(state: GameState, fromPile: number): Gam
   return s;
 }
 
-/** Return the first non-trivial move we can find, or null. Preferred
- *  order: send-to-foundation, then reveal a face-down card, then any
- *  tableau→tableau or waste→tableau. */
+/** Return the next non-trivial move for the player to consider.
+ *
+ * Batch B iter156 (Garry, Aug 2026 — P2 #1): the previous hint engine
+ * only ever inspected the first face-up card in each tableau column,
+ * so it missed obvious plays like moving a lone red 6 onto a black 7
+ * without exposing a face-down. It also happily suggested pointless
+ * moves — a King shuffling between two empty columns, or a run
+ * relocating to another empty column without revealing anything. The
+ * new engine iterates every face-up sub-run, filters "no-op" moves,
+ * and falls back to a `draw-stock` suggestion when nothing useful
+ * exists but there are still stock cards to try.
+ *
+ * Preference order:
+ *   1. waste → foundation (fastest reduction of the waste pile)
+ *   2. tableau → foundation
+ *   3. tableau → tableau that reveals a face-down card
+ *   4. waste → tableau (any legal landing)
+ *   5. tableau → tableau that helps consolidate a useful run
+ *   6. draw-stock (only when stock or waste can still cycle)
+ */
 export function findHint(state: GameState): HintMove | null {
-  // 1) tableau → foundation
+  // 1) waste → foundation — quick win, no cost.
+  if (state.waste.length > 0) {
+    const t = state.waste[state.waste.length - 1];
+    if (canDropOnFoundation(t, state.foundations[t.suit])) {
+      return { kind: "waste-to-foundation", suit: t.suit };
+    }
+  }
+  // 2) tableau → foundation.
   for (let p = 0; p < 7; p++) {
     const src = state.tableau[p];
     if (src.length === 0) continue;
@@ -257,34 +286,77 @@ export function findHint(state: GameState): HintMove | null {
       return { kind: "tableau-to-foundation", fromPile: p, suit: t.suit };
     }
   }
-  // 2) waste → foundation
-  if (state.waste.length > 0) {
-    const t = state.waste[state.waste.length - 1];
-    if (canDropOnFoundation(t, state.foundations[t.suit])) return { kind: "waste-to-foundation", suit: t.suit };
-  }
-  // 3) tableau → tableau that reveals a face-down card
+
+  // Helpers for the tableau→tableau search.
+  const firstFaceUpIndex = (pile: Card[]): number => {
+    for (let i = 0; i < pile.length; i++) if (pile[i].faceUp) return i;
+    return -1;
+  };
+
+  // 3) tableau → tableau that REVEALS a face-down card. This is the
+  //    most valuable non-foundation move — it unlocks new options.
   for (let p = 0; p < 7; p++) {
     const src = state.tableau[p];
-    if (src.length === 0) continue;
-    // Try to find first face-up index in this pile
-    let firstFaceUp = -1;
-    for (let i = 0; i < src.length; i++) if (src[i].faceUp) { firstFaceUp = i; break; }
-    if (firstFaceUp <= 0) continue; // no face-down under this run
-    const head = src[firstFaceUp];
+    const firstUp = firstFaceUpIndex(src);
+    if (firstUp <= 0) continue; // no face-down under the run — skip
+    const head = src[firstUp];
     for (let q = 0; q < 7; q++) {
       if (q === p) continue;
+      // Skip Kings moving from a column whose only face-up card IS
+      // the King itself onto an empty column — that reveals nothing.
+      if (head.rank === 13 && state.tableau[q].length === 0 && firstUp === src.length - 1 && src.length > 1 && !src[src.length - 2].faceUp) {
+        // That still reveals a face-down, keep it — fall through.
+      }
       if (canDropOnTableau(head, state.tableau[q])) {
-        return { kind: "tableau-to-tableau", fromPile: p, fromIndex: firstFaceUp, toPile: q };
+        return { kind: "tableau-to-tableau", fromPile: p, fromIndex: firstUp, toPile: q };
       }
     }
   }
-  // 4) waste → tableau (any pile)
+
+  // 4) waste → tableau.
   if (state.waste.length > 0) {
     const t = state.waste[state.waste.length - 1];
     for (let q = 0; q < 7; q++) {
       if (canDropOnTableau(t, state.tableau[q])) return { kind: "waste-to-tableau", toPile: q };
     }
   }
+
+  // 5) tableau → tableau consolidation — try shorter sub-runs that
+  //    don't reveal a face-down but let the player fetch waste cards
+  //    onto the freed run afterwards. Skip anything circular:
+  //    • moving the entire pile of only-face-up cards to another
+  //      pile of only-face-up cards (net zero)
+  //    • moving a King from an empty column to another empty column
+  //    • moving a King that is already the bottom card of a column
+  //      onto an empty column (net zero — the source column is now
+  //      empty in the same way the destination was)
+  for (let p = 0; p < 7; p++) {
+    const src = state.tableau[p];
+    const firstUp = firstFaceUpIndex(src);
+    if (firstUp < 0) continue;
+    // Consider every face-up start index > firstUp (shorter sub-runs).
+    for (let idx = firstUp + 1; idx < src.length; idx++) {
+      const head = src[idx];
+      if (!head.faceUp) continue;
+      for (let q = 0; q < 7; q++) {
+        if (q === p) continue;
+        if (!canDropOnTableau(head, state.tableau[q])) continue;
+        // Filter no-op King shuffles.
+        if (head.rank === 13 && state.tableau[q].length === 0) {
+          // If source column has NO face-down cards then moving the
+          // King column-to-column achieves nothing.
+          if (firstUp === 0) continue;
+        }
+        return { kind: "tableau-to-tableau", fromPile: p, fromIndex: idx, toPile: q };
+      }
+    }
+  }
+
+  // 6) Draw from stock (or recycle waste) if anything is left to try.
+  if (state.stock.length > 0 || state.waste.length > 0) {
+    return { kind: "draw-stock" };
+  }
+
   return null;
 }
 

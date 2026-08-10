@@ -11,7 +11,7 @@
  *               feed cards (Notice Board, DMs, friend chips) without crowding.
  *
  * Why a badge at all?
- *   The Founding Member cohort is capped (default 500). The badge is the
+ *   The Founding Member cohort is capped (default 250). The badge is the
  *   visible thank-you that turns "I was early" into something you can show
  *   off in the community — a clean recruiting signal too: when someone sees
  *   it on a Notice author, they instantly understand the app has a real

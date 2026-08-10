@@ -84,7 +84,7 @@ export default function FounderMark({
               {number ? `Founding Member #${number}` : "Founding Member"}
             </Text>
             <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>
-              One of the first 500 members who helped build the FriendPlace community.
+              One of the first 250 members who helped build the FriendPlace community.
             </Text>
             <Pressable
               testID="founder-mark-close"

@@ -177,6 +177,11 @@ export const api = {
   notificationCount: (uid: string) => req(`/notifications/${uid}/count`),
   readNotification: (id: string) => req(`/notifications/${id}/read`, { method: "POST" }),
   readAllNotifications: (uid: string) => req(`/notifications/${uid}/read-all`, { method: "POST" }),
+  // Batch B iter156 (Garry, Aug 2026 — P1 #5): individual delete +
+  // bulk clear of already-read notifications. Unread rows are never
+  // touched by clear-read; members must explicitly delete them.
+  deleteNotification: (id: string) => req(`/notifications/${id}`, { method: "DELETE" }),
+  clearReadNotifications: (uid: string) => req(`/notifications/${uid}/clear-read`, { method: "POST" }),
 
   // presence & privacy
   heartbeat: (uid: string) => req(`/users/${uid}/heartbeat`, { method: "POST" }),

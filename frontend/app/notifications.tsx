@@ -136,14 +136,50 @@ export default function Notifications() {
 
   const markAll = async () => { if (!user) return; await api.readAllNotifications(user.id); load(); show("Marked all as read"); };
 
+  // Batch B iter156 (Garry, Aug 2026 — P1 #5): remove a single
+  // notification (row-level trash button) and bulk-clear every read
+  // notification. Unread notifications are preserved so members
+  // never accidentally lose things they haven't seen yet.
+  const deleteOne = async (n: any) => {
+    if (!user) return;
+    // Optimistic remove — the backend is idempotent, so if it fails
+    // we simply reload to restore state.
+    setList((xs) => xs.filter((x) => x.id !== n.id));
+    try {
+      await api.deleteNotification(n.id);
+    } catch {
+      show("Could not delete. Please try again.");
+      load();
+    }
+  };
+  const clearRead = async () => {
+    if (!user) return;
+    const readCount = list.filter((n) => n.read).length;
+    if (readCount === 0) { show("Nothing to clear — no read notifications."); return; }
+    // Optimistic: keep only unread rows locally.
+    setList((xs) => xs.filter((x) => !x.read));
+    try {
+      const r: any = await api.clearReadNotifications(user.id);
+      show(r?.deleted != null ? `Cleared ${r.deleted} read notification${r.deleted === 1 ? "" : "s"}` : "Cleared read notifications");
+    } catch {
+      show("Could not clear. Please try again.");
+      load();
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Notifications" emoji="🔔" subtitle="Recent activity" />
       <View style={[styles.toolbar, { borderColor: c.border }]}>
         <Text style={{ color: c.muted, fontSize: 14 * scale, fontWeight: "700" }}>{list.filter((n) => !n.read).length} unread</Text>
-        <Pressable testID="mark-all-read" onPress={markAll} hitSlop={6}>
-          <Text style={{ color: c.brandSecondary, fontWeight: "800", fontSize: 15 * scale }}>Mark all as read</Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", gap: 14, alignItems: "center" }}>
+          <Pressable testID="mark-all-read" onPress={markAll} hitSlop={6}>
+            <Text style={{ color: c.brandSecondary, fontWeight: "800", fontSize: 15 * scale }}>Mark all read</Text>
+          </Pressable>
+          <Pressable testID="clear-all-read" onPress={clearRead} hitSlop={6}>
+            <Text style={{ color: c.muted, fontWeight: "800", fontSize: 15 * scale }}>Clear read</Text>
+          </Pressable>
+        </View>
       </View>
       <FlatList
         data={list}
@@ -183,6 +219,17 @@ export default function Notifications() {
                   <Text style={{ color: c.muted, marginTop: 4, fontSize: 12 * scale }}>{relTime(item.created_at)}</Text>
                 </View>
                 {!item.read && <View style={[styles.dot, { backgroundColor: c.brandSecondary }]} />}
+                {/* Batch B P1 #5: per-row trash. Stops propagation so
+                    the parent row doesn't route on the way through. */}
+                <Pressable
+                  testID={`delete-${item.id}`}
+                  onPress={(e) => { e.stopPropagation?.(); deleteOne(item); }}
+                  hitSlop={10}
+                  accessibilityLabel="Delete notification"
+                  style={styles.trashBtn}
+                >
+                  <Ionicons name="trash-outline" size={18} color={c.muted} />
+                </Pressable>
               </Pressable>
 
               {/* Message preview actions — only for direct messages. Chat opens the
@@ -298,6 +345,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 16, borderWidth: 1 },
   iconBox: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   dot: { width: 10, height: 10, borderRadius: 5, marginLeft: 8 },
+  trashBtn: { marginLeft: 8, padding: 6, borderRadius: 999 },
   cheerRow: { flexDirection: "row", gap: 6, padding: 8, borderTopWidth: 0, borderWidth: 1, borderRadius: 16, marginTop: -8, marginHorizontal: 4, marginBottom: 4 },
   cheerBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 10, paddingHorizontal: 4, borderRadius: 14, borderWidth: 1, minHeight: 64 },
   dmActionBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 12, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1.5 },

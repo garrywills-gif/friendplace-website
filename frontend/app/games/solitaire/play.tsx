@@ -228,13 +228,19 @@ export default function SolitairePlay() {
 
   const onHint = () => {
     const h = findHint(state);
-    if (!h) { show("No obvious moves — try the stock pile 🃏"); setHintFlash(null); return; }
+    if (!h) { show("No moves left — this deal is finished 🃏"); setHintFlash(null); return; }
     let label = "";
     let flash: any = {};
     if (h.kind === "waste-to-foundation") { label = `Move waste card to ${SUIT_SYMBOL[h.suit]} foundation`; flash = { suit: h.suit }; }
     if (h.kind === "waste-to-tableau") { label = `Move waste card to column ${h.toPile + 1}`; flash = { pile: h.toPile }; }
     if (h.kind === "tableau-to-foundation") { label = `Send column ${h.fromPile + 1} to ${SUIT_SYMBOL[h.suit]} foundation`; flash = { pile: h.fromPile, suit: h.suit }; }
     if (h.kind === "tableau-to-tableau") { label = `Move column ${h.fromPile + 1} → column ${h.toPile + 1}`; flash = { pile: h.toPile }; }
+    if (h.kind === "draw-stock") {
+      // Batch B P2 #1: guide the member towards the stock pile instead
+      // of returning a dead-end toast.
+      label = state.stock.length > 0 ? "Draw from the stock pile 🃏" : "Recycle waste back to stock 🔁";
+      flash = {};
+    }
     setHintFlash({ ...flash, label });
     show(label);
     setTimeout(() => setHintFlash(null), 2500);

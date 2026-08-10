@@ -49,7 +49,7 @@ export default function Home() {
   const [isFav, setIsFav] = useState<boolean>(false);
   const [community, setCommunity] = useState<any>(null);
   const [invitedCount, setInvitedCount] = useState<number>(0);
-  // Live "X of 500 Founding Members" counter — drives the Wall entry card
+  // Live "X of 250 Founding Members" counter — drives the Wall entry card
   // that sits just under the Butterfly Points tile. Null until the first
   // status fetch returns so the card stays hidden during the brief boot
   // window rather than flickering empty state.

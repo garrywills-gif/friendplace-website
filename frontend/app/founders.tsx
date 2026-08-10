@@ -1,7 +1,7 @@
 /**
  * /founders — the Founders Wall.
  *
- * A public celebration page listing every Founding Member (capped at 500)
+ * A public celebration page listing every Founding Member (capped at 250)
  * with their avatar, first name, founder number and suburb. Two jobs:
  *
  *   1. Recognition — Founders see their own crest sitting alongside the
@@ -159,7 +159,7 @@ export default function FoundersWall() {
               <GeorgeButterflyMark size={32} />
               <View style={{ flex: 1 }}>
                 <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 17 * scale, lineHeight: 22 }}>
-                  Become one of our first {cap?.toLocaleString() ?? 500} Founding Members
+                  Become one of our first {cap?.toLocaleString() ?? 250} Founding Members
                 </Text>
                 <Text style={{ color: "#FDE68A", fontWeight: "800", fontSize: 14 * scale, marginTop: 4, letterSpacing: 0.3 }}>
                   {remaining.toLocaleString()} places remaining
@@ -176,7 +176,7 @@ export default function FoundersWall() {
         ) : null}
 
         {/* Cohort-full state — a non-founder still gets a warm explanation
-            of what the wall is showing even after the 500 places are gone.
+            of what the wall is showing even after the 250 places are gone.
             Keeps the page feeling inclusive rather than a "you missed
             out" dead-end. */}
         {!viewerIsFounder && user?.id && remaining === 0 ? (
@@ -188,7 +188,7 @@ export default function FoundersWall() {
                   Founding Members Full
                 </Text>
                 <Text style={{ color: "#CBD5E1", fontWeight: "700", fontSize: 13 * scale, marginTop: 4, lineHeight: 18 }}>
-                  All 500 places are taken — thank you for being part of the community regardless.
+                  All {cap?.toLocaleString() ?? 250} places are taken — thank you for being part of the community regardless.
                 </Text>
               </View>
             </View>

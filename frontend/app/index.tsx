@@ -345,7 +345,7 @@ export default function Welcome() {
               style={({ pressed }) => [styles.founderBanner, { opacity: pressed ? 0.85 : 1 }]}
             >
               <Text style={[styles.founderBannerTitle, { fontSize: 16 * scale }]}>
-                🦋 Become one of our first 500 Founding Members
+                🦋 Become one of our first 250 Founding Members
               </Text>
               <Text style={[styles.founderBannerNote, { fontSize: 12 * scale }]}>
                 Join free as a Founding Member.

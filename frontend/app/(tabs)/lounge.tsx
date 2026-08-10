@@ -345,7 +345,7 @@ export default function Lounge() {
             <GeorgeButterflyMark size={56} />
             <Text style={[styles.helpTitle, { color: c.onSurface, fontSize: 22 * scale }]}>Founders Lounge</Text>
             <Text style={[styles.helpBody, { color: c.onSurface, fontSize: 16 * scale }]}>
-              This table is just for Founding Members — the first 500 people to join FriendPlace.
+              This table is just for Founding Members — the first 250 people to join FriendPlace.
               {"\n\n"}
               <Text style={{ fontWeight: "700" }}>Spots are still open.</Text> Take a peek at the Wall to see who&apos;s already inside.
             </Text>
