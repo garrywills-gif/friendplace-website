@@ -812,11 +812,29 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     cap = max(0, int(settings.founding_member_cap or 0))
     if cap <= 0:
         raise HTTPException(410, "Founding Member programme is closed")
-    current = await db.users.count_documents({"is_founder": True})
+    # Batch B iter156 (Garry, Aug 2026 — post-P2 audit): the promotion
+    # counter now excludes `is_test=true` seed rows from the cap check so
+    # test fixtures don't quietly consume real launch seats. The next
+    # founder_number is derived from the max(founder_number) already
+    # assigned + 1 — this preserves any historical numbering gaps
+    # (e.g. Alice #1 / Bob #2 as soft-flagged seeds) without colliding
+    # with genuine members who kept their original numbers, and never
+    # re-uses a number once assigned.
+    current = await db.users.count_documents({
+        "is_founder": True,
+        "is_demo": {"$ne": True},
+        "is_test": {"$ne": True},
+    })
     if current >= cap:
         raise HTTPException(410, "Founding Member cohort is full")
 
-    founder_number = current + 1
+    highest = await db.users.find_one(
+        {"is_founder": True, "founder_number": {"$exists": True, "$ne": None}},
+        {"_id": 0, "founder_number": 1},
+        sort=[("founder_number", -1)],
+    )
+    highest_num = int((highest or {}).get("founder_number") or 0)
+    founder_number = max(highest_num + 1, current + 1)
     badges = list(u.get("badges") or [])
     if "Founding Member" not in badges:
         badges.append("Founding Member")
@@ -1733,6 +1751,20 @@ async def auth_me(user=Depends(current_user)):
 
 
 # ------------- Founding Member status + Wall (public) -------------
+# Batch B iter156 (Garry, Aug 2026 — post-P2 audit): the founder queries
+# now also exclude accounts flagged `is_test=true`. Historical Founders
+# Wall seed fixtures (`fw_test_alice`, `fw_test_bob` from iter31/iter38)
+# have been soft-flagged in Mongo so they no longer inflate the public
+# `taken` counter, without deleting the underlying rows. Any future test
+# harness that promotes a user should set `is_test=true` at the same
+# time; production signups never carry the flag.
+_FOUNDER_PUBLIC_FILTER = {
+    "is_founder": True,
+    "is_demo": {"$ne": True},
+    "is_test": {"$ne": True},
+}
+
+
 @api.get("/founders")
 async def founders_wall(limit: int = 500, skip: int = 0):
     """Public Founders Wall — celebrates every Founding Member with their
@@ -1741,15 +1773,16 @@ async def founders_wall(limit: int = 500, skip: int = 0):
     page where existing members can see who else is in the cohort.
 
     Privacy: only fields that are already public on a normal profile are
-    returned. Demo accounts are excluded so the cast doesn't drown out
-    real founders. Sorted by founder_number ascending so #1 is always at
-    the top — the "history of the community" feels right that way."""
+    returned. Demo AND test-flagged accounts are excluded so the cast
+    doesn't drown out real founders. Sorted by founder_number ascending
+    so #1 is always at the top — the "history of the community" feels
+    right that way."""
     limit = max(1, min(int(limit or 500), 1000))
     skip = max(0, int(skip or 0))
     cursor = (
         db.users
         .find(
-            {"is_founder": True, "is_demo": {"$ne": True}},
+            _FOUNDER_PUBLIC_FILTER,
             {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1,
              "founder_number": 1, "suburb": 1, "created_at": 1},
         )
@@ -1758,7 +1791,7 @@ async def founders_wall(limit: int = 500, skip: int = 0):
         .limit(limit)
     )
     items = await cursor.to_list(limit)
-    total = await db.users.count_documents({"is_founder": True, "is_demo": {"$ne": True}})
+    total = await db.users.count_documents(_FOUNDER_PUBLIC_FILTER)
     return {"total": total, "items": items}
 
 
@@ -1766,10 +1799,12 @@ async def founders_wall(limit: int = 500, skip: int = 0):
 async def founders_status():
     """How many slots are left in the Founding Member cohort. Public —
     powers the marketing tile on the welcome / waitlist screens and lets
-    us run a live `247 / 500 spots claimed` counter without an admin role.
-    No personal data leaks — only aggregate counts."""
+    us run a live `247 / 250 spots claimed` counter without an admin role.
+    No personal data leaks — only aggregate counts. Test-flagged and
+    demo accounts are excluded from the `taken` count so seed data can't
+    inflate the public number."""
     cap = max(0, int(settings.founding_member_cap or 0))
-    taken = await db.users.count_documents({"is_founder": True})
+    taken = await db.users.count_documents(_FOUNDER_PUBLIC_FILTER)
     return {
         "cap": cap,
         "taken": taken,
@@ -2165,6 +2200,34 @@ async def get_inviter(user_id: str):
     if not inv:
         return {"inviter": None}
     return {"inviter": inv}
+
+
+@api.get("/users/{user_id}/public-profile")
+async def get_public_profile(user_id: str):
+    """Batch B iter156 (Garry, Aug 2026 — pre-V1): the marketing site's
+    `/invite/<id>` landing page needs to render the inviter's first name,
+    avatar, suburb and Founder badge — anonymously, before the visitor
+    signs up. The authenticated `/users/{id}` endpoint returns 401 for
+    unauthenticated callers by design; this sibling endpoint exposes
+    strictly the fields that are already public on the mobile Founders
+    Wall and profile hero, and NOTHING else (no email, no birthday, no
+    interests, no friends list, no location coordinates, no password
+    metadata). 404 when the user doesn't exist; demo accounts are
+    treated as not-found so demo ids can't be spidered for warm names.
+    """
+    u = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "id": 1, "first_name": 1, "username": 1, "avatar": 1,
+         "suburb": 1, "is_founder": 1, "founder_number": 1, "is_demo": 1,
+         "is_test": 1},
+    )
+    if not u or u.get("is_demo") or u.get("is_test"):
+        raise HTTPException(404, "User not found")
+    # Strip the guard flags before returning — they served their filter
+    # purpose above and the client has no legitimate use for them.
+    u.pop("is_demo", None)
+    u.pop("is_test", None)
+    return u
 
 
 # Invite milestone badges — order matters so the title progresses naturally.
