@@ -469,7 +469,14 @@ export function GeorgeButterfly() {
   // bubble a bit more room by pushing George a few pt further down
   // — combined with the shorter georgiaHint greeting, the bubble now
   // sits comfortably below any Dynamic Island / notch.
-  const restTop = insets.top + 116;
+  // Batch B / iter156 (Aug 2026 — P1 #1): on devices with a Dynamic
+  // Island (iPhone 14 Pro / 15 / 16 family — safe-area top ≥ 55pt)
+  // give George an extra 40pt below the top so the greeting bubble
+  // extending upward from him stays clear of the Island cutout. On
+  // notch-only or homescreen-only devices this collapses to the
+  // previous +116 offset — visually unchanged.
+  const hasDynamicIsland = insets.top >= 55;
+  const restTop = insets.top + (hasDynamicIsland ? 156 : 116);
   const restRight = 16;
 
   const canTap = phase === 'resting' || phase === 'landed';
