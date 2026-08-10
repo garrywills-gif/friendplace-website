@@ -476,7 +476,17 @@ export function GeorgeButterfly() {
   // notch-only or homescreen-only devices this collapses to the
   // previous +116 offset — visually unchanged.
   const hasDynamicIsland = insets.top >= 55;
-  const restTop = insets.top + (hasDynamicIsland ? 156 : 116);
+  // Batch B iter156 (Garry, Aug 2026 — P1 #3): on the Friends tab the
+  // header packs a title row, search field AND a horizontally-scrolling
+  // filter chip row (Near Me + km radius options). At the default rest
+  // position George was landing on top of those filter chips. Push him
+  // ~96pt further down on Friends only so his body clears the chip
+  // row without changing his position on Home / Chats / Lounge /
+  // Profile. Value chosen empirically: chip row bottom ~= safe.top +
+  // ~208 on Dynamic Island devices; George's body at safe.top + 156 +
+  // 96 = safe.top + 252 sits comfortably below.
+  const friendsExtraOffset = currentScreen === 'friends' ? 96 : 0;
+  const restTop = insets.top + (hasDynamicIsland ? 156 : 116) + friendsExtraOffset;
   const restRight = 16;
 
   const canTap = phase === 'resting' || phase === 'landed';

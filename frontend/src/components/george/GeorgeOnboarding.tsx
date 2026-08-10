@@ -277,7 +277,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
                   can't be reached. */}
               {t.role === 'george' && t.content?.trim() ? (
                 <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                  <GeorgeSpeakButton text={t.content} color="#0F766E" size={18} />
+                  <GeorgeSpeakButton text={t.content} color="#FFFFFF" size={18} />
                 </View>
               ) : null}
             </View>
@@ -466,24 +466,30 @@ const styles = StyleSheet.create({
   bubbleRowRight: { justifyContent: 'flex-end' },
   avatarSlot: { width: 32, height: 32, marginRight: 8, marginBottom: 4, alignItems: 'center', justifyContent: 'center' },
   bubble: {
-    // Matched to the website's George bubble (Garry, 31 July 2026):
-    // white + subtle teal border + soft teal glow.
-    maxWidth: 300, backgroundColor: '#FFFFFF',
-    borderColor: '#CCFBF1', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
+    // Batch B iter156 (Garry, Aug 2026 — P1 #2): George's chat bubbles
+    // were previously white with only a light-teal border, which made
+    // them read almost identical to the user's white bubbles. Return
+    // to the original FriendPlace teal fill with white text so George
+    // is instantly recognisable in the conversation.
+    maxWidth: 300, backgroundColor: '#14B8A6',
+    borderColor: '#0F766E', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14,
     ...Platform.select({
       ios: {
         shadowColor: '#14B8A6',
-        shadowOpacity: 0.14,
+        shadowOpacity: 0.18,
         shadowRadius: 10,
         shadowOffset: { width: 0, height: 6 },
       },
       android: { elevation: 3 },
     }),
   },
-  bubbleText: { fontSize: 15, color: '#0F172A', lineHeight: 22 },
+  bubbleText: { fontSize: 15, color: '#FFFFFF', lineHeight: 22 },
   userBubble: {
-    maxWidth: 300, backgroundColor: '#FFFFFF',
+    // Neutral, quieter surface so George's teal clearly leads the
+    // conversation. Slate-100 on the FAFAFA background reads as
+    // "your reply" without competing with George.
+    maxWidth: 300, backgroundColor: '#F1F5F9',
     borderColor: '#E2E8F0', borderWidth: 1,
     borderRadius: 18, borderBottomRightRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14, marginRight: 4,

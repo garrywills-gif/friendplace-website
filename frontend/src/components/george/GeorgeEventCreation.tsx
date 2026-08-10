@@ -1346,12 +1346,12 @@ function SpeakerButton({ text }: { text: string }) {
       style={({ pressed }) => [styles.speakerBtn, pressed && styles.pressed]}
     >
       {phase === 'loading' ? (
-        <ActivityIndicator size="small" color="#0F766E" />
+        <ActivityIndicator size="small" color="#FFFFFF" />
       ) : (
         <Ionicons
           name={phase === 'playing' ? 'stop-circle' : 'volume-medium'}
           size={18}
-          color="#0F766E"
+          color="#FFFFFF"
         />
       )}
     </Pressable>
@@ -1511,16 +1511,16 @@ const styles = StyleSheet.create({
   bubbleRowRight: { justifyContent: 'flex-end' },
   avatarSlot: { width: 32, height: 32, marginRight: 8, marginBottom: 4, alignItems: 'center', justifyContent: 'center' },
   bubble: {
-    // Matched to the website's George bubble (Garry, 31 July 2026).
-    // White with a light-teal outline is quieter, more elegant, and
-    // reads better as "George talking" rather than "big teal panel".
-    maxWidth: 300, backgroundColor: '#FFFFFF',
-    borderColor: '#CCFBF1', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
+    // Batch B iter156 (Garry, Aug 2026 — P1 #2): return George to
+    // FriendPlace teal fill with white text so he stands out clearly
+    // from the neutral user bubble on the right.
+    maxWidth: 300, backgroundColor: '#14B8A6',
+    borderColor: '#0F766E', borderWidth: 1, borderRadius: 18, borderBottomLeftRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14,
     ...Platform.select({
       ios: {
         shadowColor: '#14B8A6',
-        shadowOpacity: 0.14,
+        shadowOpacity: 0.18,
         shadowRadius: 10,
         shadowOffset: { width: 0, height: 6 },
       },
@@ -1529,19 +1529,21 @@ const styles = StyleSheet.create({
   },
   typingBubble: { paddingVertical: 12, paddingHorizontal: 16 },
   typingWrap: { flexDirection: 'row', gap: 5, alignItems: 'center' },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#0F766E' },
-  bubbleText: { fontSize: 15, color: '#0F172A', lineHeight: 22 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#FFFFFF' },
+  bubbleText: { fontSize: 15, color: '#FFFFFF', lineHeight: 22 },
   excitementLine: {
-    fontSize: 15, color: '#0F766E', fontWeight: '700', marginBottom: 4, lineHeight: 22,
+    fontSize: 15, color: '#FFFFFF', fontWeight: '800', marginBottom: 4, lineHeight: 22,
   },
   workingLine: {
-    fontSize: 13, color: '#475569', fontStyle: 'italic', marginBottom: 4, lineHeight: 18,
+    fontSize: 13, color: '#E0F2F1', fontStyle: 'italic', marginBottom: 4, lineHeight: 18,
   },
   warmthLine: {
-    fontSize: 13, color: '#0F766E', fontStyle: 'italic', marginBottom: 6, lineHeight: 18,
+    fontSize: 13, color: '#E0F2F1', fontStyle: 'italic', marginBottom: 6, lineHeight: 18,
   },
   userBubble: {
-    maxWidth: 300, backgroundColor: '#FFFFFF',
+    // Quieter neutral surface — Slate-100 — so George's teal
+    // clearly leads the conversation.
+    maxWidth: 300, backgroundColor: '#F1F5F9',
     borderColor: '#E2E8F0', borderWidth: 1,
     borderRadius: 18, borderBottomRightRadius: 4,
     paddingVertical: 10, paddingHorizontal: 14, marginRight: 4,

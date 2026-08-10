@@ -166,7 +166,11 @@ export default function NewMoment() {
       if (r?.first_moment) {
         setCelebrateFirst({ id: r.id });
       } else {
-        show("Moment shared 🦋");
+        // Batch B iter156 (Garry, Aug 2026 — P1 #7): surface the
+        // +8 Butterfly Points award in the toast so members see the
+        // reward tied to sharing — mirrors how games, flutters and
+        // café posts announce their points.
+        show("Moment shared 🦋 +8 Butterfly Points");
         router.replace(`/moments/${r.id}` as any);
       }
     } catch (e: any) {

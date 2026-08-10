@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
+import { shareIcs } from "@/src/lib/ics";
 
 const API_BASE = process.env.EXPO_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
 
@@ -310,6 +311,29 @@ export default function Events() {
                           </Pressable>
                         )}
                       </View>
+                      {/* Add-to-calendar for community events. Batch B
+                          iter156 (Garry, Aug 2026 — P1 #6). Builds an
+                          .ics client-side and shares to the OS so the
+                          member can save it to Apple / Google /
+                          Outlook without a backend round trip. */}
+                      <Pressable
+                        testID={`event-add-cal-${item.id}`}
+                        onPress={async () => {
+                          const ok = await shareIcs({
+                            uid: item.id,
+                            title: item.title || "FriendPlace event",
+                            description: item.description || "",
+                            location: item.location || "",
+                            date: item.date,
+                            time: item.time,
+                          });
+                          if (!ok) show("Could not open calendar");
+                        }}
+                        style={{ marginTop: 8, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: c.brandTertiary, borderWidth: 1, borderColor: c.brand }}
+                      >
+                        <Ionicons name="calendar-outline" size={14} color={c.brand} />
+                        <Text style={{ color: c.brand, fontWeight: "800", fontSize: 12 * scale }}>Add to calendar</Text>
+                      </Pressable>
                     </View>
                   );
                 })()}

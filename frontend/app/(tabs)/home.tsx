@@ -315,6 +315,11 @@ export default function Home() {
     // small tab-bar icon. Sits first so conversations are the very
     // first thing on Home — mirrors the messaging-first mental model.
     { key: "chats",   title: "My Chats",           icon: "chatbubbles",     route: "/chats",    bg: "#DBEAFE", ink: "#1E3A8A", sub: "Your ongoing conversations", badge: chatsUnread },
+    // My Friends added Batch B iter156 (Garry, Aug 2026 — P1 #4): a
+    // discoverable Home entry for the member's *accepted* friends
+    // (distinct from "Find Friends" which is discovery). Sits directly
+    // under My Chats so the two "people I know" surfaces read together.
+    { key: "my-friends", title: "My Friends",       icon: "heart",           route: "/friends/list", bg: "#FCE7F3", ink: "#9D174D", sub: (user?.friends?.length ? `${user.friends.length} friend${user.friends.length === 1 ? "" : "s"}` : "Your accepted friends") },
     { key: "lounge",  title: "FP Café",           icon: "cafe",            route: "/lounge",   bg: "#DFF2ED", ink: "#0F766E", sub: "Pull up a chair & join a chat" },
     { key: "friends", title: "Find Friends",       icon: "people",          route: "/friends",  bg: "#E0EAFB", ink: "#1E3A8A", sub: "Connect with people like you" },
     { key: "events",  title: "Local Events",       icon: "calendar",        route: "/events",   bg: "#EDE4FA", ink: "#5B21B6", sub: "See what's happening near you" },
@@ -927,6 +932,7 @@ export default function Home() {
             <View style={{ marginTop: 10, gap: 10 }}>
               {[
                 { emoji: "🦋", label: "Send a flutter", pts: "+2" },
+                { emoji: "📸", label: "Share a Moment", pts: "+8" },
                 { emoji: "☕", label: "Join or post in the FP Café", pts: "+3" },
                 { emoji: "🤝", label: "Post in a Community Group", pts: "+4" },
                 { emoji: "📅", label: "RSVP to a local event", pts: "+5" },
