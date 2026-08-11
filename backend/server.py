@@ -10471,6 +10471,84 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                         {"dm_id": conv_id, "user_id": user_id}
                     )
                     is_chat_request = sender_msg_count <= 1
+                    # ── Batch B iter157 (Garry, Aug 2026 — P0 #3) ────────
+                    # Auto-friendship after a two-way DM. If THIS is the
+                    # sender's first message in this conversation AND the
+                    # OTHER participant has at least one message here,
+                    # both people have now written to each other → treat
+                    # them as friends (bidirectional). Fires once per
+                    # conversation; a subsequent message is a no-op
+                    # because `friends` uses $addToSet and we short-
+                    # circuit when already friends.
+                    try:
+                        if sender_msg_count == 1 and others:
+                            other_id = others[0]
+                            other_msg_count = await db.messages.count_documents(
+                                {"dm_id": conv_id, "user_id": other_id}
+                            )
+                            if other_msg_count >= 1:
+                                # Are they already friends? Skip if so.
+                                me_doc = await db.users.find_one(
+                                    {"id": user_id}, {"_id": 0, "friends": 1}
+                                ) or {}
+                                already_friends = other_id in (me_doc.get("friends") or [])
+                                if not already_friends:
+                                    await db.users.update_one(
+                                        {"id": user_id},
+                                        {"$addToSet": {"friends": other_id}},
+                                    )
+                                    await db.users.update_one(
+                                        {"id": other_id},
+                                        {"$addToSet": {"friends": user_id}},
+                                    )
+                                    # Auto-resolve any pending friend request
+                                    # in either direction so the inbox
+                                    # doesn't dangle a stale "pending" row.
+                                    await db.friend_requests.update_many(
+                                        {
+                                            "status": "pending",
+                                            "$or": [
+                                                {"from_id": user_id, "to_id": other_id},
+                                                {"from_id": other_id, "to_id": user_id},
+                                            ],
+                                        },
+                                        {"$set": {"status": "accepted"}},
+                                    )
+                                    # Warm "you are now friends" notification
+                                    # to both parties so the social moment
+                                    # is visible outside of this DM.
+                                    me_prof = await db.users.find_one(
+                                        {"id": user_id},
+                                        {"_id": 0, "first_name": 1, "avatar": 1},
+                                    ) or {}
+                                    other_prof = await db.users.find_one(
+                                        {"id": other_id},
+                                        {"_id": 0, "first_name": 1, "avatar": 1},
+                                    ) or {}
+                                    me_name = me_prof.get("first_name") or "Someone"
+                                    me_av = me_prof.get("avatar") or "🦋"
+                                    other_name = other_prof.get("first_name") or "Someone"
+                                    other_av = other_prof.get("avatar") or "🦋"
+                                    try:
+                                        await push_notification(
+                                            user_id,
+                                            "friend_accepted",
+                                            f"{other_av} You and {other_name} are now friends 🦋",
+                                            "You've been chatting, so we've added each other.",
+                                            {"friend_id": other_id},
+                                        )
+                                        await push_notification(
+                                            other_id,
+                                            "friend_accepted",
+                                            f"{me_av} You and {me_name} are now friends 🦋",
+                                            "You've been chatting, so we've added each other.",
+                                            {"friend_id": user_id},
+                                        )
+                                    except Exception:
+                                        logger.exception("auto-friend notification failed")
+                    except Exception:
+                        logger.exception("auto-friend after two-way DM failed")
+
                     n_type = "dm_request" if is_chat_request else "dm"
                     title = (
                         f"{sender_avatar} {sender_name} started a chat with you"

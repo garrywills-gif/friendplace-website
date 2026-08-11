@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, ScrollView, Modal, Image, ActivityIndicator, Linking, TextInput } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, ScrollView, Modal, Image, ActivityIndicator, Linking, TextInput, Platform } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as Calendar from "expo-calendar";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
@@ -11,6 +12,79 @@ import SpeakButton from "@/src/components/SpeakButton";
 import { shareIcs } from "@/src/lib/ics";
 
 const API_BASE = process.env.EXPO_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
+
+// Batch B iter157 (Garry, Aug 2026 — P0 #6): open the OS's native
+// "add event" sheet so iOS/Android members save it straight to Apple
+// Calendar / Google Calendar / Outlook without going through .ics
+// Share Sheet friction. On web we still fall back to the .ics share.
+async function addToNativeCalendar(opts: {
+  title: string;
+  description?: string;
+  location?: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** HH:mm (24h) */
+  time: string;
+  durationMinutes?: number;
+}): Promise<"created" | "cancelled" | "web" | "error"> {
+  if (Platform.OS === "web") return "web";
+  try {
+    const perm = await Calendar.requestCalendarPermissionsAsync();
+    if (!perm.granted) return "error";
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(opts.date || "");
+    const t = /^(\d{2}):(\d{2})$/.exec(opts.time || "");
+    if (!m || !t) return "error";
+    const startDate = new Date(
+      parseInt(m[1], 10),
+      parseInt(m[2], 10) - 1,
+      parseInt(m[3], 10),
+      parseInt(t[1], 10),
+      parseInt(t[2], 10),
+      0,
+    );
+    const endDate = new Date(
+      startDate.getTime() + (opts.durationMinutes || 90) * 60_000,
+    );
+    // SDK 51+: `createEventInCalendarAsync` opens the native "New Event"
+    // UI so the member can pick which calendar to save into. We prefer
+    // this over silently writing to the default calendar — some members
+    // have multiple accounts and would be surprised.
+    const anyCal: any = Calendar as any;
+    if (typeof anyCal.createEventInCalendarAsync === "function") {
+      const res = await anyCal.createEventInCalendarAsync({
+        title: opts.title,
+        notes: opts.description || "",
+        location: opts.location || "",
+        startDate,
+        endDate,
+      });
+      // Response shape varies by platform; treat anything with an id or
+      // action === "saved" as success.
+      if (res && (res.action === "saved" || res.id)) return "created";
+      if (res && res.action === "canceled") return "cancelled";
+      return "created";
+    }
+    // Older SDKs — fall back to writing to the default calendar (still
+    // native, just no picker UI).
+    const calendars = await Calendar.getCalendarsAsync(
+      Calendar.EntityTypes.EVENT,
+    );
+    const writable = calendars.find(
+      (c: any) => c.allowsModifications && (c.source?.name || c.source?.type),
+    );
+    if (!writable) return "error";
+    await Calendar.createEventAsync(writable.id, {
+      title: opts.title,
+      notes: opts.description || "",
+      location: opts.location || "",
+      startDate,
+      endDate,
+    });
+    return "created";
+  } catch (e) {
+    return "error";
+  }
+}
 
 /** Format "YYYY-MM-DD" → "Sat 14 Jun 2026" — friendly for older eyes. */
 function formatPrettyDate(iso: string): string {
@@ -319,6 +393,28 @@ export default function Events() {
                       <Pressable
                         testID={`event-add-cal-${item.id}`}
                         onPress={async () => {
+                          // Batch B iter157 (Garry, Aug 2026 — P0 #6):
+                          // prefer the native "New Event" sheet on
+                          // iOS/Android; fall back to .ics share
+                          // (email/AirDrop/etc.) if the native path
+                          // isn't available or the user hasn't granted
+                          // Calendar access.
+                          const nativeRes = await addToNativeCalendar({
+                            title: item.title || "FriendPlace event",
+                            description: item.description || "",
+                            location: item.location || "",
+                            date: item.date,
+                            time: item.time,
+                          });
+                          if (nativeRes === "created") {
+                            show("Added to your calendar 📅");
+                            return;
+                          }
+                          if (nativeRes === "cancelled") return;
+                          // Non-native path (web) or Calendar permission
+                          // refused — fall back to the .ics share so
+                          // members can still get the event into their
+                          // calendar of choice.
                           const ok = await shareIcs({
                             uid: item.id,
                             title: item.title || "FriendPlace event",
@@ -648,7 +744,37 @@ function FpEventDetailModal({
     }
   };
 
-  const openIcs = () => {
+  const openIcs = async () => {
+    if (!event) return;
+    // Batch B iter157 P0 #6: prefer native calendar sheet on
+    // iOS/Android; fall back to the backend .ics URL on web (or if
+    // native fails). FP events store `starts_at` as an ISO datetime.
+    try {
+      const starts = event?.starts_at ? new Date(event.starts_at) : null;
+      if (starts && !Number.isNaN(starts.getTime()) && Platform.OS !== "web") {
+        const y = starts.getFullYear();
+        const mo = String(starts.getMonth() + 1).padStart(2, "0");
+        const d = String(starts.getDate()).padStart(2, "0");
+        const hh = String(starts.getHours()).padStart(2, "0");
+        const mm = String(starts.getMinutes()).padStart(2, "0");
+        const durationMs = event?.ends_at
+          ? new Date(event.ends_at).getTime() - starts.getTime()
+          : 90 * 60_000;
+        const durationMinutes = durationMs > 0 ? Math.round(durationMs / 60_000) : 90;
+        const nativeRes = await addToNativeCalendar({
+          title: event.title || "FriendPlace event",
+          description: event.description || "",
+          location: event.is_online
+            ? (event.meeting_url || "Online")
+            : [event.venue_name, event.venue_address].filter(Boolean).join(" · "),
+          date: `${y}-${mo}-${d}`,
+          time: `${hh}:${mm}`,
+          durationMinutes,
+        });
+        if (nativeRes === "created") { show("Added to your calendar 📅"); return; }
+        if (nativeRes === "cancelled") return;
+      }
+    } catch { /* fall through to .ics */ }
     if (!event?.slug) return;
     const url = `${API_BASE}/api/public/events/${encodeURIComponent(event.slug)}.ics`;
     Linking.openURL(url).catch(() => show("Could not open calendar"));

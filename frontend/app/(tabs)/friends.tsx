@@ -76,6 +76,18 @@ export default function Friends() {
   };
   useFocusEffect(useCallback(() => { load(); }, [q, user?.id, nearMe?.lat, nearMe?.lng, radius]));
 
+  // Batch B iter157 (Garry, Aug 2026 — P0 #1): re-fetch the members
+  // list whenever the user toggles Near Me on/off OR changes the radius
+  // WHILE staying on this screen. `useFocusEffect` alone only re-runs
+  // its effect on focus events, so tapping 5 → 10 → 25 km did nothing
+  // until the tab was left and re-entered. This effect keeps the list
+  // in sync with the selected radius in real time.
+  React.useEffect(() => {
+    if (!user?.id) return;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearMe?.lat, nearMe?.lng, radius]);
+
   // Hydrate the outbound-request set so previously-sent requests still
   // show "Request Sent ✓" after coming back to this tab. Best-effort —
   // we don't block the row render on it, and a failure just leaves the

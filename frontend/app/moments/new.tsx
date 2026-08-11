@@ -99,7 +99,20 @@ export default function NewMoment() {
 
   const takePhoto = async () => {
     setPhotoSheetOpen(false);
+    // iOS bug (Batch B iter157 P0 #4): launching the image picker
+    // synchronously while our Modal is still animating out can freeze
+    // the camera controller — the picker never presents and the app
+    // appears to hang. Give iOS one animation frame to finish the
+    // dismissal before we ask UIKit to present a new controller.
+    if (Platform.OS === "ios") {
+      await new Promise((r) => setTimeout(r, 350));
+    }
     setPicking(true);
+    // Watchdog: if the native picker never resolves (rare iOS edge —
+    // seen on TestFlight when Photos permission is toggled while the
+    // picker is opening), unstick the composer after 60s so the Add
+    // button becomes tappable again.
+    const watchdog = setTimeout(() => setPicking(false), 60_000);
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (!perm.granted) {
@@ -107,23 +120,38 @@ export default function NewMoment() {
         return;
       }
       const r = await ImagePicker.launchCameraAsync({
+        // Newer SDKs accept string arrays; the enum is soft-deprecated
+        // but still supported. Restrict to still images to avoid the
+        // Live Photo / video edge cases that hung the picker on iOS.
+        mediaTypes: (ImagePicker as any).MediaType?.Images
+          ? [(ImagePicker as any).MediaType.Images]
+          : ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.6,
         base64: true,
+        exif: false,
       });
       if (r.canceled || !r.assets?.[0]) return;
       commitPickedAsset(r.assets[0]);
     } catch {
       show("Couldn't open the camera — please try again.");
     } finally {
+      clearTimeout(watchdog);
       setPicking(false);
     }
   };
 
   const pickFromLibrary = async () => {
     setPhotoSheetOpen(false);
+    // Same iOS animation-frame gap as takePhoto — prevents the "picker
+    // never presents" hang when the source-picker Modal is still on
+    // screen. Batch B iter157 P0 #4.
+    if (Platform.OS === "ios") {
+      await new Promise((r) => setTimeout(r, 350));
+    }
     setPicking(true);
+    const watchdog = setTimeout(() => setPicking(false), 60_000);
     try {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
@@ -131,17 +159,21 @@ export default function NewMoment() {
         return;
       }
       const r = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: (ImagePicker as any).MediaType?.Images
+          ? [(ImagePicker as any).MediaType.Images]
+          : ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.6,
         base64: true,
+        exif: false,
       });
       if (r.canceled || !r.assets?.[0]) return;
       commitPickedAsset(r.assets[0]);
     } catch {
       show("Couldn't pick a photo — please try again.");
     } finally {
+      clearTimeout(watchdog);
       setPicking(false);
     }
   };

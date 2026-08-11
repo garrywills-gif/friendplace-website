@@ -17,7 +17,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 os.environ.setdefault(
     "EXPO_PUBLIC_BACKEND_URL",
-    "https://george-mcgs-cms.preview.emergentagent.com",
+    "https://iphone-retest-batch.preview.emergentagent.com",
 )
 
 

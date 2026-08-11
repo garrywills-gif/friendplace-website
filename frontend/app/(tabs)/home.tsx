@@ -38,6 +38,10 @@ export default function Home() {
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const [flutters, setFlutters] = useState<any[]>([]);
+  // Batch B iter157 (Garry, Aug 2026 — P0 #5): incoming friend
+  // requests surfaced ON Home so members don't miss them if they never
+  // open the notifications bell. Polled on focus + on pull-to-refresh.
+  const [pendingFriendReqs, setPendingFriendReqs] = useState<any[]>([]);
   const [unread, setUnread] = useState<number>(0);
   // DM unread total surfaces as a badge on the My Chats Home tile
   // (Garry, 4 Aug 2026 TestFlight polish — Chats needed a discoverable
@@ -216,6 +220,13 @@ export default function Home() {
     } catch {}
     try { const r: any = await api.notificationCount(user.id); setUnread(r?.unread || 0); } catch {}
     try { const r: any = await api.dmUnreadTotal(user.id); setChatsUnread(Math.max(0, Number(r?.unread) || 0)); } catch {}
+    // Batch B iter157 — poll incoming friend-request inbox for the
+    // Home card. Non-blocking; if it fails we just leave the card
+    // hidden.
+    try {
+      const inbox: any = await api.friendsInbox(user.id);
+      setPendingFriendReqs(Array.isArray(inbox?.incoming) ? inbox.incoming : []);
+    } catch { setPendingFriendReqs([]); }
     try { await api.heartbeat(user.id); } catch {}
     try { setCommunity(await api.communityToday(user.id)); } catch {}
     try {
@@ -302,6 +313,23 @@ export default function Home() {
     // Chat) leaves the card in place with a ✅ state.
     try { await api.markFlutterRead(f.id); } catch { /* non-fatal */ }
     setFlutters((arr) => arr.filter((x) => x.id !== f.id));
+  };
+
+  // ── Friend-request card actions (Batch B iter157 P0 #5) ──────────
+  const acceptFriendReq = async (r: any) => {
+    try {
+      await api.acceptReq(r.id);
+      show(`You and ${r?.other?.first_name || "your new friend"} are now friends 🦋`);
+      // Optimistically remove the card row; loadFlutters will
+      // reconcile the list on next focus / pull-to-refresh.
+      setPendingFriendReqs((arr) => arr.filter((x) => x.id !== r.id));
+    } catch { show("Could not accept — please try again."); }
+  };
+  const declineFriendReq = async (r: any) => {
+    try {
+      await api.declineReq(r.id);
+      setPendingFriendReqs((arr) => arr.filter((x) => x.id !== r.id));
+    } catch { show("Could not update — please try again."); }
   };
 
   const tiles: Tile[] = [
@@ -560,6 +588,82 @@ export default function Home() {
             follow-ups the organiser hasn't yet dismissed. Silent
             (returns null) when the inbox is empty. */}
         {user?.id ? <GeorgeRemembersBanner /> : null}
+
+        {/* Friend requests — Batch B iter157 (Garry, Aug 2026 — P0 #5).
+            Mirrors the flutter card so incoming friend requests are
+            visible on Home even if the member never opens the
+            notification bell. Shows up to 3; the CTA opens the full
+            list. */}
+        {pendingFriendReqs.length > 0 && (
+          <View style={[styles.flutterBox, { borderColor: "#0EA5E9" }]} testID="home-friend-requests-card">
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+              <Ionicons name="person-add" size={22} color="#0369A1" />
+              <Text style={{ color: "#0369A1", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>
+                {pendingFriendReqs.length === 1 ? "New friend request" : `${pendingFriendReqs.length} new friend requests`}
+              </Text>
+            </View>
+            {pendingFriendReqs.slice(0, 3).map((r) => (
+              <View key={r.id} style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#E0F2FE" }]}>
+                <Pressable
+                  testID={`friend-req-open-${r.id}`}
+                  onPress={() => router.push(`/user/${r?.other?.id}` as any)}
+                  accessibilityLabel={`View ${r?.other?.first_name}'s profile`}
+                  style={styles.flutterSenderRow}
+                  hitSlop={4}
+                >
+                  <AvatarBubble value={r?.other?.avatar} size={36} fallback="🙂" />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: "#0F172A", fontWeight: "900", fontSize: 15 * scale }} numberOfLines={1}>
+                      {r?.other?.first_name || "A member"}
+                    </Text>
+                    <Text style={{ color: "#475569", fontSize: 12 * scale, fontWeight: "600" }} numberOfLines={1}>
+                      {r?.other?.suburb ? `📍 ${r.other.suburb} · Tap to see profile` : "Tap to see their profile"}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                </Pressable>
+                <View style={styles.flutterActions}>
+                  <Pressable
+                    testID={`friend-req-accept-${r.id}`}
+                    onPress={() => acceptFriendReq(r)}
+                    style={[styles.flutterActionBtn, { backgroundColor: "#0EA5E9", borderColor: "#0EA5E9" }]}
+                  >
+                    <Ionicons name="checkmark" size={14} color="#FFF" />
+                    <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Accept</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`friend-req-later-${r.id}`}
+                    onPress={() => show("We'll keep it here for you.")}
+                    style={[styles.flutterActionBtn, { backgroundColor: "#F1F5F9", borderColor: "#CBD5E1" }]}
+                    accessibilityLabel="Decide later — request stays visible"
+                  >
+                    <Ionicons name="time-outline" size={14} color="#64748B" />
+                    <Text style={{ color: "#334155", fontWeight: "800", fontSize: 13 * scale }}>Later</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`friend-req-decline-${r.id}`}
+                    onPress={() => declineFriendReq(r)}
+                    style={styles.dismissBtn}
+                    accessibilityLabel="Decline friend request"
+                  >
+                    <Ionicons name="close" size={18} color="#94A3B8" />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+            {pendingFriendReqs.length > 3 && (
+              <Pressable
+                testID="home-friend-requests-see-all"
+                onPress={() => router.push("/friends/list" as any)}
+                style={{ alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 10, paddingVertical: 6 }}
+              >
+                <Text style={{ color: "#0369A1", fontWeight: "800", fontSize: 13 * scale }}>
+                  See all {pendingFriendReqs.length} requests →
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
 
         {flutters.length > 0 && (
           <Animated.View

@@ -37,7 +37,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 BASE_URL = os.environ.get(
-    "EXPO_PUBLIC_BACKEND_URL", "https://george-mcgs-cms.preview.emergentagent.com"
+    "EXPO_PUBLIC_BACKEND_URL", "https://iphone-retest-batch.preview.emergentagent.com"
 ).rstrip("/")
 APPLE_URL = f"{BASE_URL}/api/auth/apple"
 

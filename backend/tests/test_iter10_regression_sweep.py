@@ -41,7 +41,7 @@ import websockets
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://george-mcgs-cms.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://iphone-retest-batch.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 WS_BASE = API.replace("https://", "wss://").replace("http://", "ws://")
 

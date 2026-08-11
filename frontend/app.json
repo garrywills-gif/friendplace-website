@@ -21,6 +21,8 @@
         "NSCameraUsageDescription": "Take photos to share in chats and group posts.",
         "NSMicrophoneUsageDescription": "Talk to George using your voice.",
         "NSSpeechRecognitionUsageDescription": "Convert your spoken messages to text for George.",
+        "NSCalendarsUsageDescription": "Add FriendPlace events to your calendar.",
+        "NSCalendarsFullAccessUsageDescription": "Save FriendPlace events straight to your calendar.",
         "ITSAppUsesNonExemptEncryption": false,
         "LSApplicationCategoryType": "public.app-category.social-networking"
       },
@@ -67,7 +69,9 @@
         "READ_MEDIA_IMAGES",
         "CAMERA",
         "RECORD_AUDIO",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "READ_CALENDAR",
+        "WRITE_CALENDAR"
       ]
     },
     "web": {
@@ -89,6 +93,12 @@
       ],
       "expo-font",
       "expo-audio",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Add FriendPlace events to your calendar."
+        }
+      ],
       [
         "expo-notifications",
         {

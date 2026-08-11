@@ -10,7 +10,7 @@ import os
 import pytest
 import requests
 
-BASE = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or "https://george-mcgs-cms.preview.emergentagent.com"
+BASE = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "").rstrip("/") or "https://iphone-retest-batch.preview.emergentagent.com"
 ADMIN_EMAIL = "hello@friendplace.com.au"
 ADMIN_PASS = "TestPass2026!"
 

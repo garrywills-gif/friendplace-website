@@ -26,7 +26,7 @@ from pathlib import Path
 load_dotenv(Path("/app/backend/.env"))
 
 BASE_URL = os.environ.get(
-    "EXPO_PUBLIC_BACKEND_URL", "https://george-mcgs-cms.preview.emergentagent.com"
+    "EXPO_PUBLIC_BACKEND_URL", "https://iphone-retest-batch.preview.emergentagent.com"
 ).rstrip("/")
 
 MONGO_URL = os.environ.get("MONGO_URL")
