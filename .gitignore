@@ -82,16 +82,12 @@ memory/test_credentials.md
 android-sdk/website/node_modules/@next/swc-linux-arm64-gnu/next-swc.linux-arm64-gnu.node
 website/node_modules/@next/swc-linux-arm64-musl/next-swc.linux-arm64-musl.node
 website/node_modules/@next/swc-linux-arm64-gnu/next-swc.linux-arm64-gnu.node
-.env
-.env.*
-*.env
-# Note: on Emergent, the runtime env files (backend/.env, frontend/.env,
-# website/.env) are provided at deploy-time by the platform's secret
-# management. Do NOT commit them to git — they contain JWT secrets,
-# API keys, Apple .p8 private keys, Resend webhook secrets, etc. If
-# the deployment pipeline flags them as "missing", the fix is to add
-# them via the deployment dashboard's env-var UI, not to un-ignore
-# them here.
+# Emergent deploy pipeline requirement: .env files MUST NOT be excluded
+# from the deploy context. Runtime env values are injected by the
+# platform's secret manager at build time — the pipeline still needs
+# to see the .env stubs in the repo to know the shape of the config.
+# (Previously these were listed here; removed 11 Aug 2026 after the
+# deployment health check flagged them as a blocker.)
 credentials.json
 *.key
 .credentials

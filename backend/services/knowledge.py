@@ -3,28 +3,13 @@
 
 Six entry types: story · principle · decision · feature · roadmap · philosophy.
 
-MVP retrieval = BM25 keyword (Mongo text index) + cosine over a **local**
-384-dim embedding (`sentence-transformers/all-MiniLM-L6-v2` via the
-`fastembed` ONNX runtime), fused with Reciprocal Rank Fusion. Related
-entries and supersede chains are followed so George can *connect*
-rather than just *quote*.
+Retrieval = BM25 keyword (Mongo text index). The local ONNX embedding
+codepath was removed for the Emergent production tier — it OOM'd on
+250m CPU / 1Gi RAM, and the keyword-only path already covers our
+corpus. When we move to a bigger tier or wire a hosted embeddings
+API, we'll add semantic search back behind a feature flag.
 
-The embedding model is loaded lazily on first use and cached for the
-lifetime of the process. Weights (~90 MB ONNX) are fetched once from
-HuggingFace on cold start, then cached under `~/.cache/fastembed`.
-No API keys, no gateway dependency, no ongoing cost.
-
-Historical note (locked with Garry, 1 Aug 2026): we ran on OpenAI
-`text-embedding-3-small` via the Emergent LLM key for the first
-version of this file. That path silently 401'd for weeks because the
-Emergent gateway doesn't expose any embedding models (only chat /
-image / TTS / whisper / video). Rather than add another vendor key,
-we made George's institutional memory part of FriendPlace itself —
-see `/app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md` for the design
-intent. Swap the `_EMBED_MODEL_NAME` below to switch models later.
-
-Every function tolerates partial failure — if the embedding model
-can't be loaded, we fall back to keyword-only. If the KB is empty,
+Every function tolerates partial failure — if the KB is empty,
 retrieve returns []. George's chat always handles an empty result
 gracefully.
 """
@@ -41,10 +26,10 @@ from typing import Any, Iterable, Optional
 logger = logging.getLogger("friendplace.knowledge")
 
 COLLECTION = "knowledge_base"
-# Locked with Garry, 1 Aug 2026 — see module docstring for rationale.
-_EMBED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+# Kept as a label for the Knowledge Health card; NOT loaded at runtime.
+_EMBED_MODEL_NAME = "keyword-only"
 EMBED_MODEL = _EMBED_MODEL_NAME  # exported for the Knowledge Health card
-EMBED_DIM = 384
+EMBED_DIM = 0
 
 ALLOWED_TYPES = ("story", "principle", "decision", "feature", "roadmap", "philosophy")
 ALLOWED_VISIBILITY = ("public", "admin")
@@ -79,100 +64,23 @@ async def ensure_indexes(db: Any) -> None:
         logger.warning("KB ensure_indexes: %s", e)
 
 
-# ─── embeddings via local ONNX model (fastembed) ─────────────────────
+# ─── embeddings: keyword-only mode ────────────────────────────────────
 #
-# The encoder is loaded lazily on first use (blocking init runs on a
-# threadpool so we don't stall the event loop) and cached for the life
-# of the process. Failing loads are cached as `None` so we don't
-# hammer HuggingFace on every request if the download endpoint is
-# temporarily unavailable — the KB simply falls back to keyword-only
-# retrieval until the next process restart.
-#
-# LAUNCH GUARD (Garry, 3 Aug 2026): the local ONNX runtime + 90 MB
-# HuggingFace model can OOM on Emergent's default deployment tier
-# (250m CPU / 1Gi RAM). We now require an explicit opt-in via
-# `ENABLE_LOCAL_EMBEDDINGS=true` — production defaults to OFF so the
-# knowledge base runs pure keyword (BM25) retrieval, which is already
-# solid for our corpus and never crashes. Flip the env var back on
-# once we've migrated the backend to a bigger tier or wired a hosted
-# embeddings API. All existing "fall back to keyword" code paths are
-# unchanged; this guard just short-circuits the load attempt.
-_LOCAL_EMBEDDINGS_ENABLED = os.getenv("ENABLE_LOCAL_EMBEDDINGS", "").strip().lower() in {"1", "true", "yes", "on"}
-_embedder = None            # type: ignore[assignment]
-_embedder_ready = False     # True once we've *attempted* to load
-_embedder_lock: Optional[asyncio.Lock] = None
-
-
-def _get_embedder_lock() -> asyncio.Lock:
-    global _embedder_lock
-    if _embedder_lock is None:
-        _embedder_lock = asyncio.Lock()
-    return _embedder_lock
-
-
+# The local ONNX embedding path (fastembed + sentence-transformers) was
+# removed on 11 Aug 2026 because it OOM'd on Emergent's 250m CPU / 1Gi
+# RAM deployment tier. Retrieval now uses Mongo's BM25 text index only,
+# which is already adequate for the ~50-entry corpus. When we migrate
+# to a larger tier we can either re-introduce fastembed or wire a
+# hosted embeddings API (Voyage / Cohere / OpenAI) behind a feature
+# flag — all the existing "fall back to keyword" branches downstream
+# already handle a `None`/empty embedding correctly, which is why this
+# change is a pure code-shrink with no behaviour delta.
 async def _ensure_embedder():
-    """Load the fastembed model exactly once, in a threadpool, guarded
-    by a lock so concurrent callers don't stampede the loader.
-
-    Returns None immediately if `ENABLE_LOCAL_EMBEDDINGS` is not set —
-    the retrieval code already handles a None encoder by dropping to
-    keyword-only search, so downstream behaviour is unchanged.
-    """
-    global _embedder, _embedder_ready
-    if _embedder_ready:
-        return _embedder
-    if not _LOCAL_EMBEDDINGS_ENABLED:
-        # Short-circuit: mark ready with a None encoder so the log
-        # message appears exactly once per process instead of on every
-        # search request.
-        if not _embedder_ready:
-            logger.info(
-                "KB embedder disabled (ENABLE_LOCAL_EMBEDDINGS not set) — "
-                "using keyword-only retrieval"
-            )
-        _embedder = None
-        _embedder_ready = True
-        return None
-    async with _get_embedder_lock():
-        if _embedder_ready:
-            return _embedder
-        def _load():
-            from fastembed import TextEmbedding
-            return TextEmbedding(model_name=_EMBED_MODEL_NAME)
-        try:
-            _embedder = await asyncio.to_thread(_load)
-            logger.info("KB embedder loaded: %s (dim=%d)", _EMBED_MODEL_NAME, EMBED_DIM)
-        except Exception as e:
-            logger.warning("KB embedder load failed: %s — falling back to text search", e)
-            _embedder = None
-        _embedder_ready = True
-    return _embedder
+    return None
 
 
 async def _embed(text: str) -> Optional[list[float]]:
-    """Return an EMBED_DIM-dim embedding as a list[float], or None on failure.
-
-    Runs the ONNX inference on a threadpool so we don't block the
-    FastAPI event loop. ~9 ms per short string on modest hardware.
-    """
-    text = (text or "").strip()
-    if not text:
-        return None
-    model = await _ensure_embedder()
-    if model is None:
-        return None
-    try:
-        vecs = await asyncio.to_thread(
-            lambda: list(model.embed([text[:8000]]))
-        )
-        if not vecs:
-            return None
-        # fastembed returns numpy arrays; cast to plain floats so we can
-        # persist to Mongo cleanly.
-        return [float(x) for x in vecs[0]]
-    except Exception as e:
-        logger.warning("KB embedding failed: %s", e)
-        return None
+    return None
 
 
 def _cosine(a: list[float], b: list[float]) -> float:

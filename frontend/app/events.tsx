@@ -11,7 +11,7 @@ import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import { shareIcs } from "@/src/lib/ics";
 
-const API_BASE = process.env.EXPO_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
+const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
 
 // Batch B iter157 (Garry, Aug 2026 — P0 #6): open the OS's native
 // "add event" sheet so iOS/Android members save it straight to Apple
