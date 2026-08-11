@@ -142,39 +142,145 @@ export default function Friends() {
   );
 
   const requestNearMe = async () => {
+    // Batch B iter158 (Garry, Aug 2026 — real-iPhone Near Me hang RCA):
+    // the previous flow silently swallowed every error and used
+    // `Accuracy.Lowest`, which on iOS can spin for 30-60 s before
+    // returning (or never returning at all on a device with cellular
+    // location disabled). This rewrite:
+    //   1. Dismisses the rationale modal BEFORE prompting the OS so
+    //      the two dialogs don't collide on iOS.
+    //   2. Uses `Accuracy.Balanced` (~100 m) — much faster and enough
+    //      for suburb matching.
+    //   3. Tries `getLastKnownPositionAsync` first for a sub-second
+    //      first fix, then falls back to `getCurrentPositionAsync`
+    //      wrapped in a hard 15 s `Promise.race` timeout so the
+    //      composer can NEVER be stuck spinning forever.
+    //   4. Every failure branch shows the member a specific message
+    //      (permission denied, services off, timeout, geocode fail)
+    //      AND flips `locationDeclined` so the suburb-input hint
+    //      banner appears — never silent.
+    //   5. Logs each stage to `[friends/near-me] …` so Xcode /
+    //      Console.app pinpoints where a device stalls.
+    const N = (stage: string, extra?: any) => {
+      try { // eslint-disable-next-line no-console
+        console.log(`[friends/near-me] ${stage}`, extra ?? "");
+      } catch { /* noop */ }
+    };
+    N("tap");
     setShowRationale(false);
+    // iOS: give the rationale modal one animation frame to fully
+    // dismiss so its runtime UIViewController doesn't sit on top of
+    // the OS permission alert (which would silently no-op).
+    if (Platform.OS === "ios") {
+      await new Promise((r) => setTimeout(r, 300));
+    }
     setAskingLoc(true);
     try {
-      // Check permission state first — respect handle_permissions_contract
+      N("services:check");
+      const servicesOn = await Location.hasServicesEnabledAsync().catch(() => true);
+      N("services:result", { servicesOn });
+      if (!servicesOn) {
+        setLocationDeclined(true);
+        show("Location Services are turned off on this device. Turn them on in Settings to use Near Me, or type a suburb above.");
+        return;
+      }
+      N("perm:check");
       const current = await Location.getForegroundPermissionsAsync();
+      N("perm:current", { granted: current.granted, canAskAgain: current.canAskAgain, status: current.status });
       if (!current.granted) {
         if (!current.canAskAgain) {
+          N("perm:blocked");
           setShowDeniedHelp(true);
           setLocationDeclined(true);
           return;
         }
+        N("perm:request");
         const req = await Location.requestForegroundPermissionsAsync();
+        N("perm:requestResult", { granted: req.granted, canAskAgain: req.canAskAgain, status: req.status });
         if (!req.granted) {
           if (!req.canAskAgain) setShowDeniedHelp(true);
           setLocationDeclined(true);
+          show("Location permission is needed for Near Me. You can still find friends by typing a suburb.");
           return;
         }
       }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Lowest });
-      // Reverse-lookup to nearest known suburb (we never store the device coords)
-      const nearest: any = await api.suburbsNearest(pos.coords.latitude, pos.coords.longitude);
-      const n = nearest?.nearest;
-      if (n) {
-        setNearMe({ lat: n.lat, lng: n.lng, suburb: n.name });
+
+      // Try last-known first for a fast fix (usually sub-second on
+      // iOS when the user has recently opened Maps or another
+      // location-aware app). If it returns null we fall back to a
+      // fresh fix.
+      N("lastKnown:start");
+      let coords: { latitude: number; longitude: number } | null = null;
+      try {
+        const last = await Location.getLastKnownPositionAsync({
+          maxAge: 5 * 60_000,       // 5 min old is fine for suburb matching
+          requiredAccuracy: 500,    // metres
+        });
+        if (last?.coords) {
+          coords = { latitude: last.coords.latitude, longitude: last.coords.longitude };
+          N("lastKnown:hit", { lat: coords.latitude.toFixed(3), lng: coords.longitude.toFixed(3) });
+        } else {
+          N("lastKnown:miss");
+        }
+      } catch (e: any) {
+        N("lastKnown:error", { message: e?.message });
+      }
+
+      if (!coords) {
+        N("current:start");
+        // Hard 15 s watchdog around getCurrentPositionAsync — iOS can
+        // silently hang here forever on some devices with cellular
+        // location disabled and no recent GPS fix. `expo-location`'s
+        // built-in `timeout` option has been unreliable across SDKs,
+        // so we race it explicitly.
+        try {
+          const pos = await Promise.race<any>([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("location-timeout")), 15_000)),
+          ]);
+          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+          N("current:done", { lat: coords.latitude.toFixed(3), lng: coords.longitude.toFixed(3) });
+        } catch (e: any) {
+          N("current:error", { message: e?.message });
+          setLocationDeclined(true);
+          if (e?.message === "location-timeout") {
+            show("Couldn't get your location in time. Try again outdoors, or type a suburb above.");
+          } else {
+            show("Couldn't read your location. You can still find friends by typing a suburb.");
+          }
+          return;
+        }
+      }
+
+      // Reverse-lookup to nearest known suburb (we never store the
+      // device coords). Non-fatal if this fails — we can still use
+      // the raw coords for radius filtering.
+      N("suburb:lookup");
+      let matchedSuburb: { name: string; lat: number; lng: number } | null = null;
+      try {
+        const nearest: any = await api.suburbsNearest(coords.latitude, coords.longitude);
+        const n = nearest?.nearest;
+        if (n?.lat && n?.lng) matchedSuburb = { name: n.name, lat: n.lat, lng: n.lng };
+        N("suburb:result", { name: matchedSuburb?.name });
+      } catch (e: any) {
+        N("suburb:error", { message: e?.message });
+        // fall through — we'll just use the raw coords
+      }
+
+      if (matchedSuburb) {
+        setNearMe({ lat: matchedSuburb.lat, lng: matchedSuburb.lng, suburb: matchedSuburb.name });
         setLocationDeclined(false);
-        show(`Showing members near ${n.name}`);
+        show(`Showing members near ${matchedSuburb.name}`);
       } else {
-        setNearMe({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setNearMe({ lat: coords.latitude, lng: coords.longitude });
         setLocationDeclined(false);
         show("Showing members near you");
       }
+      N("done");
     } catch (e: any) {
+      N("fatal", { message: e?.message, name: e?.name });
       setLocationDeclined(true);
+      show(e?.message || "Couldn't turn on Near Me — please try again.");
     } finally {
       setAskingLoc(false);
     }

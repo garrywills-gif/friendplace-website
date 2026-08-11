@@ -167,6 +167,12 @@ export const api = {
     req("/friends/request", { method: "POST", body: JSON.stringify({ from_id, to_id }) }),
   myRequests: (uid: string) => req(`/friends/requests/${uid}`),
   friendsInbox: (uid: string) => req(`/friends/inbox/${uid}`),
+  // Canonical accepted-friends list for THIS user. Backed by
+  // `/api/friends/{user_id}` — the single source of truth used by
+  // BOTH the Home "My Friends" tile subtitle count AND the /friends/list
+  // screen. Filters out banned / hidden / one-way / blocked users so
+  // Home and My Friends can never disagree. Batch B iter158 fix.
+  myFriends: (uid: string) => req(`/friends/${uid}`),
   acceptReq: (rid: string) => req(`/friends/accept/${rid}`, { method: "POST" }),
   declineReq: (rid: string) => req(`/friends/decline/${rid}`, { method: "POST" }),
   cancelReq: (rid: string) => req(`/friends/cancel/${rid}`, { method: "POST" }),

@@ -62,6 +62,14 @@ export default function Home() {
   // celebrates that member's moment with a small banner just above the
   // tile grid; the feed itself still shows a "Featured" badge in place.
   const [featuredMoment, setFeaturedMoment] = useState<any>(null);
+  // Batch B iter158 (Garry, Aug 2026 — real-iPhone bug): the Home
+  // "My Friends" tile subtitle used to render `user.friends.length`
+  // from the cached auth context — which included banned / deleted /
+  // one-way / blocked entries and drifted from what /friends/list
+  // actually showed (4 vs 2 on Garry's device). We now hydrate the
+  // count from the SAME canonical endpoint `/api/friends/{uid}` that
+  // /friends/list consumes, so the two surfaces can never disagree.
+  const [myFriendsCount, setMyFriendsCount] = useState<number | null>(null);
   // Butterfly Points details modal — previously the whole tile did a hard
   // navigation to /profile, which made the Home screen "close" behind the
   // user with no context. Now the tile opens an inline modal that shows
@@ -227,6 +235,11 @@ export default function Home() {
       const inbox: any = await api.friendsInbox(user.id);
       setPendingFriendReqs(Array.isArray(inbox?.incoming) ? inbox.incoming : []);
     } catch { setPendingFriendReqs([]); }
+    // Same source of truth as /friends/list — see myFriendsCount decl.
+    try {
+      const mine: any = await api.myFriends(user.id);
+      setMyFriendsCount(typeof mine?.count === "number" ? mine.count : (Array.isArray(mine?.friends) ? mine.friends.length : 0));
+    } catch { setMyFriendsCount(null); }
     try { await api.heartbeat(user.id); } catch {}
     try { setCommunity(await api.communityToday(user.id)); } catch {}
     try {
@@ -347,7 +360,16 @@ export default function Home() {
     // discoverable Home entry for the member's *accepted* friends
     // (distinct from "Find Friends" which is discovery). Sits directly
     // under My Chats so the two "people I know" surfaces read together.
-    { key: "my-friends", title: "My Friends",       icon: "heart",           route: "/friends/list", bg: "#FCE7F3", ink: "#9D174D", sub: (user?.friends?.length ? `${user.friends.length} friend${user.friends.length === 1 ? "" : "s"}` : "Your accepted friends") },
+    { key: "my-friends", title: "My Friends",       icon: "heart",           route: "/friends/list", bg: "#FCE7F3", ink: "#9D174D", sub: (
+      // Prefer the canonical count from /api/friends/{uid} so this
+      // subtitle can NEVER disagree with /friends/list (Batch B
+      // iter158 real-iPhone fix). Fall back to the cached
+      // `user.friends.length` for the brief boot window before the
+      // hydrate call returns.
+      typeof myFriendsCount === "number"
+        ? (myFriendsCount ? `${myFriendsCount} friend${myFriendsCount === 1 ? "" : "s"}` : "Your accepted friends")
+        : (user?.friends?.length ? `${user.friends.length} friend${user.friends.length === 1 ? "" : "s"}` : "Your accepted friends")
+    ) },
     { key: "lounge",  title: "FP Café",           icon: "cafe",            route: "/lounge",   bg: "#DFF2ED", ink: "#0F766E", sub: "Pull up a chair & join a chat" },
     { key: "friends", title: "Find Friends",       icon: "people",          route: "/friends",  bg: "#E0EAFB", ink: "#1E3A8A", sub: "Connect with people like you" },
     { key: "events",  title: "Local Events",       icon: "calendar",        route: "/events",   bg: "#EDE4FA", ink: "#5B21B6", sub: "See what's happening near you" },

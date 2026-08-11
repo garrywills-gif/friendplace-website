@@ -11,9 +11,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Modal,
+  Linking,
 } from "react-native";
 import { useRouter, useLocalSearchParams, Stack } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as FileSystem from "expo-file-system/legacy";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
@@ -22,6 +25,16 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
+
+// Extensive stage-by-stage logging so we can diagnose iOS picker hangs
+// from the device console. Prefix chosen so it's easy to grep in
+// Xcode / Console.app: `moments/photo-picker: ...`.
+const P = (stage: string, extra?: any) => {
+  try {
+    // eslint-disable-next-line no-console
+    console.log(`[moments/photo-picker] ${stage}`, extra ?? "");
+  } catch { /* noop */ }
+};
 
 const CAPTION_LIMIT = 500;
 const MAX_PHOTOS = 6;
@@ -92,12 +105,61 @@ export default function NewMoment() {
 
   // Pull the picked image into our base64 preview. Shared between the
   // camera and library flows so both look identical downstream.
-  const commitPickedAsset = (asset: any) => {
-    const uri = asset?.base64 ? `data:image/jpeg;base64,${asset.base64}` : (asset?.uri || "");
-    if (uri) setPhotos((arr) => [...arr, uri]);
+  //
+  // Batch B iter158 (Garry, Aug 2026 — real-iPhone hang RCA): the
+  // previous flow asked expo-image-picker for `base64: true`. On real
+  // iPhones with 4K photos, the RN bridge stalled for 10-20 seconds
+  // shuttling that giant JS string, which looked like "the picker
+  // hung" to the member. We now:
+  //   1. Ask the picker for URI only (`base64: false`).
+  //   2. Resize/compress via expo-image-manipulator to ≤1280 px wide
+  //      at quality 0.6 (typically 60-120 KB per photo).
+  //   3. Convert THAT small file to base64 via expo-file-system, then
+  //      wrap as a `data:image/jpeg;base64,…` URI so the backend
+  //      /moments contract is unchanged.
+  // Each stage logs to `console.log("[moments/photo-picker] …")` so
+  // Xcode / Console.app shows exactly where a device hangs.
+  const commitPickedAsset = async (asset: any): Promise<boolean> => {
+    P("commitPickedAsset:start", { hasUri: !!asset?.uri, width: asset?.width, height: asset?.height });
+    const rawUri = asset?.uri;
+    if (!rawUri) {
+      P("commitPickedAsset:no-uri");
+      show("The picker returned no image — please try again.");
+      return false;
+    }
+    try {
+      P("manipulate:start");
+      const manipulated = await ImageManipulator.manipulateAsync(
+        rawUri,
+        [{ resize: { width: 1280 } }],
+        { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      P("manipulate:done", { width: manipulated.width, height: manipulated.height, uri: (manipulated.uri || "").slice(0, 40) });
+      P("base64:start");
+      const b64 = await FileSystem.readAsStringAsync(manipulated.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      P("base64:done", { bytes: b64.length });
+      const dataUri = `data:image/jpeg;base64,${b64}`;
+      setPhotos((arr) => [...arr, dataUri]);
+      P("commitPickedAsset:committed");
+      return true;
+    } catch (err: any) {
+      P("commitPickedAsset:error", { message: err?.message, name: err?.name });
+      show(err?.message || "Couldn't process that photo — please try another.");
+      return false;
+    }
   };
 
+  // Newer expo-image-picker uses a string-array mediaTypes format
+  // (`["images"]`). Older SDKs accepted the enum (`MediaTypeOptions.Images`).
+  // We try the new format first — falling back if the SDK on device
+  // is older would throw synchronously, which the outer try/catch
+  // will handle.
+  const IMAGE_ONLY_MEDIA_TYPES: any = ["images"];
+
   const takePhoto = async () => {
+    P("takePhoto:tap");
     setPhotoSheetOpen(false);
     // iOS bug (Batch B iter157 P0 #4): launching the image picker
     // synchronously while our Modal is still animating out can freeze
@@ -108,73 +170,105 @@ export default function NewMoment() {
       await new Promise((r) => setTimeout(r, 350));
     }
     setPicking(true);
-    // Watchdog: if the native picker never resolves (rare iOS edge —
-    // seen on TestFlight when Photos permission is toggled while the
-    // picker is opening), unstick the composer after 60s so the Add
-    // button becomes tappable again.
-    const watchdog = setTimeout(() => setPicking(false), 60_000);
+    // Watchdog: if the entire flow doesn't complete in 90s, force-
+    // reset the spinner so the composer isn't dead-locked. This is a
+    // last-resort safety net — every branch below already sets
+    // `picking` to false explicitly.
+    const watchdog = setTimeout(() => {
+      P("takePhoto:watchdog-fired");
+      setPicking(false);
+      show("That took longer than expected — please try again.");
+    }, 90_000);
     try {
+      P("takePhoto:requestPerm");
       const perm = await ImagePicker.requestCameraPermissionsAsync();
+      P("takePhoto:permResult", { granted: perm.granted, canAskAgain: perm.canAskAgain, status: perm.status });
       if (!perm.granted) {
-        show("Camera permission needed to take a photo.");
+        if (perm.canAskAgain === false) {
+          show("Camera access is off. Open Settings to turn it on.");
+          try { await Linking.openSettings(); } catch { /* noop */ }
+        } else {
+          show("Camera permission needed to take a photo.");
+        }
         return;
       }
+      P("takePhoto:launchCamera");
       const r = await ImagePicker.launchCameraAsync({
-        // Newer SDKs accept string arrays; the enum is soft-deprecated
-        // but still supported. Restrict to still images to avoid the
-        // Live Photo / video edge cases that hung the picker on iOS.
-        mediaTypes: (ImagePicker as any).MediaType?.Images
-          ? [(ImagePicker as any).MediaType.Images]
-          : ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: IMAGE_ONLY_MEDIA_TYPES,
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.6,
-        base64: true,
+        quality: 0.8,
+        // ⚠️ DO NOT set base64:true here — huge base64 strings from
+        // the picker are the reason the real iPhone hung. We convert
+        // to base64 ourselves AFTER downsizing.
+        base64: false,
         exif: false,
       });
+      P("takePhoto:launchResult", { canceled: r?.canceled, assets: r?.assets?.length });
       if (r.canceled || !r.assets?.[0]) return;
-      commitPickedAsset(r.assets[0]);
-    } catch {
-      show("Couldn't open the camera — please try again.");
+      await commitPickedAsset(r.assets[0]);
+    } catch (err: any) {
+      P("takePhoto:error", { message: err?.message, name: err?.name });
+      show(err?.message || "Couldn't open the camera — please try again.");
     } finally {
       clearTimeout(watchdog);
       setPicking(false);
+      P("takePhoto:done");
     }
   };
 
   const pickFromLibrary = async () => {
+    P("pickFromLibrary:tap");
     setPhotoSheetOpen(false);
-    // Same iOS animation-frame gap as takePhoto — prevents the "picker
-    // never presents" hang when the source-picker Modal is still on
-    // screen. Batch B iter157 P0 #4.
+    // Same iOS animation-frame gap as takePhoto.
     if (Platform.OS === "ios") {
       await new Promise((r) => setTimeout(r, 350));
     }
     setPicking(true);
-    const watchdog = setTimeout(() => setPicking(false), 60_000);
+    const watchdog = setTimeout(() => {
+      P("pickFromLibrary:watchdog-fired");
+      setPicking(false);
+      show("That took longer than expected — please try again.");
+    }, 90_000);
     try {
+      P("pickFromLibrary:requestPerm");
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      P("pickFromLibrary:permResult", { granted: perm.granted, canAskAgain: perm.canAskAgain, status: perm.status });
       if (!perm.granted) {
-        show("Photo permission needed to add an image.");
+        if (perm.canAskAgain === false) {
+          show("Photo access is off. Open Settings to turn it on.");
+          try { await Linking.openSettings(); } catch { /* noop */ }
+        } else {
+          show("Photo permission needed to add an image.");
+        }
         return;
       }
+      P("pickFromLibrary:launchLibrary");
       const r = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: (ImagePicker as any).MediaType?.Images
-          ? [(ImagePicker as any).MediaType.Images]
-          : ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
+        mediaTypes: IMAGE_ONLY_MEDIA_TYPES,
+        // TestFlight round-3 (Aug 2026): the iOS built-in crop editor
+        // has hung repeatedly on large/Live-photo assets. Skip it for
+        // the library flow — the moment composer already shows the
+        // full photo in the preview and the member can remove/redo.
+        // Camera flow keeps `allowsEditing: true` because the freshly-
+        // shot photo needs orientation correction on iOS.
+        allowsEditing: Platform.OS !== "ios",
         aspect: [4, 3],
-        quality: 0.6,
-        base64: true,
+        quality: 0.8,
+        base64: false,
         exif: false,
+        selectionLimit: 1,
       });
+      P("pickFromLibrary:launchResult", { canceled: r?.canceled, assets: r?.assets?.length });
       if (r.canceled || !r.assets?.[0]) return;
-      commitPickedAsset(r.assets[0]);
-    } catch {
-      show("Couldn't pick a photo — please try again.");
+      await commitPickedAsset(r.assets[0]);
+    } catch (err: any) {
+      P("pickFromLibrary:error", { message: err?.message, name: err?.name });
+      show(err?.message || "Couldn't pick a photo — please try again.");
     } finally {
       clearTimeout(watchdog);
       setPicking(false);
+      P("pickFromLibrary:done");
     }
   };
 

@@ -39,35 +39,13 @@ export default function MyFriends() {
     if (!user) return;
     setLoading(true);
     try {
-      // Re-fetch the current user so `friends` is fresh — accepts that
-      // happened on another device won't lag behind.
-      let ids: string[] = user.friends || [];
-      try {
-        const me: any = await api.getUser(user.id);
-        if (Array.isArray(me?.friends)) ids = me.friends;
-      } catch { /* fall back to closure value */ }
-
-      if (!ids.length) {
-        setFriends([]);
-        setLoading(false);
-        return;
-      }
-
-      const hydrated = await Promise.all(
-        ids.map(async (fid) => {
-          try {
-            const u: any = await api.getUser(fid);
-            return {
-              id: u.id,
-              first_name: u.first_name || u.username || "Friend",
-              username: u.username || "",
-              avatar: u.avatar || "🙂",
-              suburb: u.suburb || "",
-            } as Friend;
-          } catch { return null; }
-        })
-      );
-      setFriends(hydrated.filter(Boolean) as Friend[]);
+      // Canonical endpoint — returns already-hydrated + filtered
+      // friends so /friends/list and the Home tile share the SAME
+      // count/list. No more per-id GET loop that could silently drop
+      // entries (Batch B iter158 real-iPhone fix).
+      const res: any = await api.myFriends(user.id);
+      const list: Friend[] = Array.isArray(res?.friends) ? res.friends : [];
+      setFriends(list);
     } catch (e: any) {
       show(e?.message || "Could not load your friends.");
     } finally {

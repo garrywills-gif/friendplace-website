@@ -2429,6 +2429,72 @@ async def my_requests(user_id: str):
     return docs
 
 
+# ── Batch B iter158 (Garry, Aug 2026) ───────────────────────────────
+# Real-iPhone bug: Home tile ("N friends") disagreed with `/friends/list`
+# because Home was counting the raw `user.friends` array from the client
+# auth cache, which included banned / deleted / soft-hidden / one-way
+# entries. `/friends/list` hydrated each id via `GET /users/{id}` and
+# silently dropped the ones that failed, so the two counts drifted
+# apart (e.g. 4 vs 2). This endpoint is now the single source of truth
+# for BOTH surfaces. Applies exactly the same filters as `/users`
+# (banned/hidden), plus a "resolves both ways" sanity check so a
+# lingering one-way reference (from an old manual DB edit or a
+# half-completed migration) doesn't inflate the count.
+@api.get("/friends/{user_id}")
+async def list_accepted_friends(user_id: str, me: dict = Depends(current_user)):
+    # Only the owner or an admin may read the full accepted list. Other
+    # members should use `/friends/inbox/{uid}` or the public profile.
+    if me.get("id") != user_id and not me.get("is_admin"):
+        raise HTTPException(403, "Not permitted")
+    me_doc = await db.users.find_one(
+        {"id": user_id}, {"_id": 0, "friends": 1, "blocked": 1}
+    )
+    if not me_doc:
+        raise HTTPException(404, "User not found")
+    raw_ids: List[str] = list(dict.fromkeys([fid for fid in (me_doc.get("friends") or []) if fid]))
+    blocked_by_me: List[str] = me_doc.get("blocked") or []
+    if not raw_ids:
+        return {"user_id": user_id, "count": 0, "friends": []}
+    # Fetch all candidate friends in ONE query so we can't drift with
+    # the client-side .filter(Boolean) dance.
+    docs = await db.users.find(
+        {
+            "id": {"$in": [fid for fid in raw_ids if fid not in blocked_by_me]},
+            "banned": {"$ne": True},
+            "profile_hidden": {"$ne": True},
+            # Bidirectional sanity: I must be in their `friends` array
+            # too. This filters out stray one-way entries from manual
+            # DB edits or aborted migrations (root cause of the 4-vs-2
+            # mismatch on Garry's iPhone).
+            "friends": user_id,
+            # They must not have blocked me either.
+            "blocked": {"$ne": user_id},
+        },
+        {"_id": 0},
+    ).to_list(1000)
+    # Preserve the original ordering from `me_doc.friends` so the list
+    # feels stable — dict keys preserve insertion order in Python 3.7+.
+    by_id = {u["id"]: u for u in docs}
+    ordered = [by_id[fid] for fid in raw_ids if fid in by_id]
+    peers = [
+        _peer_user(u, viewer_is_owner=False, viewer_is_admin=bool(me.get("is_admin")))
+        for u in ordered
+    ]
+    # Slim peer projection down to what both surfaces (Home tile & My
+    # Friends list) actually render, plus `id` so the row can navigate.
+    slim = [
+        {
+            "id": p.get("id"),
+            "first_name": p.get("first_name") or p.get("username") or "Friend",
+            "username": p.get("username") or "",
+            "avatar": p.get("avatar") or "🙂",
+            "suburb": p.get("suburb") or "",
+        }
+        for p in peers
+    ]
+    return {"user_id": user_id, "count": len(slim), "friends": slim}
+
+
 @api.get("/friends/inbox/{user_id}")
 async def friends_inbox(user_id: str):
     incoming = await db.friend_requests.find({"to_id": user_id, "status": "pending"}, {"_id": 0}).sort("created_at", -1).to_list(200)
