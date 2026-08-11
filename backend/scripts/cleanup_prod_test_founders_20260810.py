@@ -214,6 +214,18 @@ async def _commit(db) -> None:
     )
     print(f"Step 2 — release founder_number on soft-archive rows: matched={r2.matched_count} modified={r2.modified_count}")
 
+    # ── Step 2c ── Unpromote archive rows: is_founder → false.
+    #    Bob (reserve) and Gaz (promote) are NOT unpromoted.
+    r2c = await db.users.update_many(
+        {"id": {"$in": archive_ids}},
+        {"$set": {
+            "is_founder": False,
+            "unpromoted_at": ts,
+            "unpromoted_reason": REASON_TAG,
+        }},
+    )
+    print(f"Step 2c — unpromote (is_founder:false) archive rows: matched={r2c.matched_count} modified={r2c.modified_count}")
+
     # ── Step 2b ── Deactivate rows flagged as `soft_archive_deactivate`
     #     by setting `banned: True`. That's the field the FastAPI login
     #     paths check (password, demo, Google, Apple) so a banned row
@@ -298,6 +310,14 @@ async def _rollback(db) -> None:
         {"$unset": {"is_test": "", "test_flagged_at": "", "test_flagged_reason": ""}},
     )
     print(f"R3 — clear is_test / audit fields: matched={r3.matched_count} modified={r3.modified_count}")
+
+    # ── R3b ── Restore is_founder=True on rows we unpromoted.
+    r3b = await db.users.update_many(
+        {"id": {"$in": ids}, "unpromoted_reason": REASON_TAG},
+        {"$set": {"is_founder": True},
+         "$unset": {"unpromoted_at": "", "unpromoted_reason": ""}},
+    )
+    print(f"R3b — restore is_founder=True on unpromoted rows: matched={r3b.matched_count} modified={r3b.modified_count}")
 
     # ── R4 ── Un-ban any rows we deactivated. Only rows tagged by us
     #     via banned_reason = REASON_TAG are touched — never any other
