@@ -91,7 +91,7 @@ TARGETS: list[dict] = [
     {"id": "17290f98-f790-4a81-a56d-b95cd424c0ea",
      "username": "garry",
      "current_number": 4,
-     "action": "soft_archive"},
+     "action": "soft_archive_deactivate"},
     {"id": "dc2191dd-0290-4a79-bed8-9d3d6733015f",
      "username": "admin",
      "current_number": 5,
@@ -106,6 +106,7 @@ REASON_TAG = "batch-b-iter156-founder-cleanup-20260810"
 SNAPSHOT_FIELDS = {
     "_id": 0, "id": 1, "username": 1, "first_name": 1,
     "is_founder": 1, "is_test": 1, "is_demo": 1, "is_admin": 1,
+    "banned": 1, "banned_reason": 1,
     "founder_number": 1, "former_founder_number": 1,
     "created_at": 1, "test_flagged_reason": 1,
 }
@@ -148,6 +149,9 @@ def _plan_summary() -> str:
         elif t["action"] == "reserve":
             lines.append(f"  @{t['username']:<16}  #{t['current_number']}   RESERVE seat as invisible  "
                          f"(keep founder_number={t['current_number']}, set is_test=True)")
+        elif t["action"] == "soft_archive_deactivate":
+            lines.append(f"  @{t['username']:<16}  #{t['current_number']} → soft-archive + DEACTIVATE  "
+                         f"($rename founder_number → former_founder_number, set is_test=True, set banned=True — login blocked)")
         else:
             lines.append(f"  @{t['username']:<16}  #{t['current_number']} → soft-archive  "
                          f"($rename founder_number → former_founder_number, set is_test=True)")
@@ -187,7 +191,8 @@ async def _commit(db) -> None:
     all_ids = [t["id"] for t in TARGETS]
     promote_targets = [t for t in TARGETS if t["action"] == "promote_to"]
     reserve_targets = [t for t in TARGETS if t["action"] == "reserve"]
-    archive_targets = [t for t in TARGETS if t["action"] == "soft_archive"]
+    archive_targets = [t for t in TARGETS if t["action"] in ("soft_archive", "soft_archive_deactivate")]
+    deactivate_targets = [t for t in TARGETS if t["action"] == "soft_archive_deactivate"]
 
     # ── Step 1 ── Soft-flag every reserve + archive row (NOT the promote row).
     flag_ids = [t["id"] for t in reserve_targets + archive_targets]
@@ -208,6 +213,24 @@ async def _commit(db) -> None:
         {"$rename": {"founder_number": "former_founder_number"}},
     )
     print(f"Step 2 — release founder_number on soft-archive rows: matched={r2.matched_count} modified={r2.modified_count}")
+
+    # ── Step 2b ── Deactivate rows flagged as `soft_archive_deactivate`
+    #     by setting `banned: True`. That's the field the FastAPI login
+    #     paths check (password, demo, Google, Apple) so a banned row
+    #     cannot start a new session. Existing sessions would expire
+    #     when their token does. We stamp the reason so the rollback
+    #     path knows this was us and can safely clear the flag.
+    if deactivate_targets:
+        deactivate_ids = [t["id"] for t in deactivate_targets]
+        r2b = await db.users.update_many(
+            {"id": {"$in": deactivate_ids}},
+            {"$set": {
+                "banned": True,
+                "banned_at": ts,
+                "banned_reason": REASON_TAG,
+            }},
+        )
+        print(f"Step 2b — deactivate (ban) login on {', '.join('@' + t['username'] for t in deactivate_targets)}: matched={r2b.matched_count} modified={r2b.modified_count}")
 
     # ── Step 3 ── Renumber the promote target(s). Each promote step is
     # a two-stage update on that specific user to guarantee we don't
@@ -275,6 +298,15 @@ async def _rollback(db) -> None:
         {"$unset": {"is_test": "", "test_flagged_at": "", "test_flagged_reason": ""}},
     )
     print(f"R3 — clear is_test / audit fields: matched={r3.matched_count} modified={r3.modified_count}")
+
+    # ── R4 ── Un-ban any rows we deactivated. Only rows tagged by us
+    #     via banned_reason = REASON_TAG are touched — never any other
+    #     genuine ban.
+    r4 = await db.users.update_many(
+        {"id": {"$in": ids}, "banned_reason": REASON_TAG},
+        {"$unset": {"banned": "", "banned_at": "", "banned_reason": ""}},
+    )
+    print(f"R4 — undo login deactivation: matched={r4.matched_count} modified={r4.modified_count}")
 
     print("")
     print("AFTER snapshot:")
