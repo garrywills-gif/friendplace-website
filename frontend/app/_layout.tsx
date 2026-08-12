@@ -21,13 +21,21 @@ import { ToastProvider } from "@/src/lib/toast";
 import { GeorgeProvider } from "@/src/lib/george-context";
 import { StatusProvider } from "@/src/lib/status-context";
 import { DmNotifyProvider } from "@/src/lib/dm-notify-context";
+// GlobalDmPrompt intentionally disabled at Garry's request (2026-08-13):
+// the repeating "🦋 Kerry sent you a private message" sliding sheet
+// used to resurface until the chat was opened. The green Home unread-
+// chat card (iter159) is now the persistent in-app reminder, and the
+// OS push notification handles the away/background case. Import is
+// kept in code (via a `void` reference below) so a future revive is
+// one uncomment away.
+import GlobalDmPrompt from "@/src/components/GlobalDmPrompt";
 import { UserSocketProvider } from "@/src/lib/user-socket";
 import { hydrateVoice } from "@/src/lib/george-voice";
 import GeorgeGlobalHost from "@/src/components/george/GeorgeGlobalHost";
-import GlobalDmPrompt from "@/src/components/GlobalDmPrompt";
 import SplashGate from "@/src/components/SplashGate";
 import ErrorBoundary from "@/src/components/ErrorBoundary";
 import FlutterOverlay from "@/src/components/FlutterOverlay";
+void GlobalDmPrompt;
 
 SplashScreen.preventAutoHideAsync();
 
@@ -204,15 +212,20 @@ export default function RootLayout() {
                         every screen. `GeorgeGlobalHost` hides itself
                         on auth / onboarding / landing / waitlist. */}
                     <GeorgeGlobalHost />
-                    {/* Global DM prompt (approved 24 Jun 2026) — small
-                        "🦋 Kerry sent you a private message" card that
-                        slides in from the top on ANY screen when a
-                        new private message arrives, so members inside
-                        FP Café / group / event pages (where the tab
-                        bar is hidden) don't miss chats. Hides itself
-                        while a composer holds the composer-lock so
-                        typing/recording isn't interrupted. */}
-                    <GlobalDmPrompt />
+                    {/* Global DM prompt (approved 24 Jun 2026) — the
+                        "🦋 Kerry sent you a private message" bottom-
+                        sheet that used to slide in on any screen and
+                        keep resurfacing until the chat was opened.
+                        Disabled 2026-08-13 at Garry's request: the
+                        green Home unread-chat card (iter159) is now
+                        the persistent in-app reminder, and the OS
+                        push notification handles the away/background
+                        case. Rendering both was noisy. The
+                        DmNotifyProvider stays mounted because the
+                        Chats tab still consumes its context for its
+                        live-update stream — only the visible sheet
+                        is removed. */}
+                    {/* <GlobalDmPrompt /> */}
                   </DmNotifyProvider>
                   </UserSocketProvider>
                   </GeorgeProvider>
