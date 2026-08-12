@@ -219,6 +219,7 @@ export default function Signup() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header
         title={headerTitle}
+        showGeorge
         // Step 2's header "back" goes to the welcome interstitial; the
         // in-page "Back to Step 1" link below the form is the primary way
         // to return — visible without scrolling on Step 2.

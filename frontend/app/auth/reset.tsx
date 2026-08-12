@@ -38,7 +38,7 @@ export default function Reset() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Reset Password" />
+      <Header title="Reset Password" showGeorge />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Username or email</Text>

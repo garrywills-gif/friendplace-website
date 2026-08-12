@@ -42,7 +42,7 @@ export default function Header({
   backHref,
   onBack,
   titleAccessory,
-  showGeorge = true,
+  showGeorge = false,
 }: {
   title: string;
   subtitle?: string;
@@ -58,10 +58,13 @@ export default function Header({
    * Batch B iter157 (Garry, Aug 2026 — P0 #2 fix for Notice Board). */
   onBack?: () => void;
   titleAccessory?: React.ReactNode;
-  /** When false, hides the inline George butterfly on the right of
-   * the banner row. Use on tab screens where the global floating
-   * butterfly is already visible, to avoid rendering two Georges
-   * (Garry, 8 Aug 2026 TestFlight polish). */
+  /** Show the inline George butterfly on the right of the banner
+   * row. Defaults to `false` because the app has a global floating
+   * `<GeorgeGlobalHost />` mounted at the root, and rendering both
+   * produces the "2 Georges" bug reported by Garry (Aug 2026).
+   * Explicitly set `showGeorge={true}` on the handful of screens
+   * where the global host is hidden — the auth flows (`/`,
+   * `/auth/*`), `/onboarding`, and `/waitlist`. */
   showGeorge?: boolean;
 }) {
   const router = useRouter();

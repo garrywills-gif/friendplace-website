@@ -142,7 +142,7 @@ export default function WaitlistScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surfaceBase }}>
-      <Header title="Friends & Family Waitlist" />
+      <Header title="Friends & Family Waitlist" showGeorge />
       <ScrollView
         contentContainerStyle={{
           padding: 18,

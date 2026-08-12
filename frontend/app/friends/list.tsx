@@ -93,7 +93,14 @@ export default function MyFriends() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="My Friends" />
+      {/* Batch B iter162 (Garry, Aug 2026 — "2 Georges" bug):
+         `Header` renders an inline `GeorgeHeaderMark` on the right of
+         the banner by default. That's fine on landing/auth flows
+         where the global `<GeorgeGlobalHost />` is hidden. On every
+         other screen (Home, Friends, /friends/list, etc.) the global
+         floating butterfly is ALREADY visible — so the header inline
+         one is a duplicate. Explicitly opt out here. */}
+      <Header title="My Friends" showGeorge={false} />
       {loading && friends.length === 0 ? (
         <View style={{ paddingTop: 60, alignItems: "center" }}>
           <ActivityIndicator color={c.brand} />

@@ -30,7 +30,7 @@ export default function Forgot() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Forgot Password" />
+      <Header title="Forgot Password" showGeorge />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={[styles.intro, { color: c.onSurfaceSecondary, fontSize: 17 * scale }]}>
