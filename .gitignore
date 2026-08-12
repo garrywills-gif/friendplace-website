@@ -101,3 +101,7 @@ JOURNEY_CONTINUITY.md
 # Emergent platform internals (cron dispatch scripts, PRD summary) — not
 # needed in a public marketing/website repo, keep them local to the pod.
 .emergent/
+
+# Founders Wall cleanup — never commit prod creds
+backend/scripts/_prod_creds.env
+backend/scripts/_run_prod_dryrun.sh
