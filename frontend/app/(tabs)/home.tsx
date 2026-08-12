@@ -70,6 +70,14 @@ export default function Home() {
   // count from the SAME canonical endpoint `/api/friends/{uid}` that
   // /friends/list consumes, so the two surfaces can never disagree.
   const [myFriendsCount, setMyFriendsCount] = useState<number | null>(null);
+  // Batch B iter159 (Garry, Aug 2026 — real-iPhone Bug 2): offline
+  // incoming chats weren't surfaced on Home if the WS wasn't running
+  // when they arrived. Poll `myConversationsSilent` on focus/app-
+  // resume so unread DMs land as a Home card the moment the user
+  // returns to the tab. Card persists until the member opens the
+  // chat (the DM screen calls `dmMarkRead` on view, which zeroes
+  // `unread_count` and drops the card on next focus).
+  const [unreadDms, setUnreadDms] = useState<any[]>([]);
   // Butterfly Points details modal — previously the whole tile did a hard
   // navigation to /profile, which made the Home screen "close" behind the
   // user with no context. Now the tile opens an inline modal that shows
@@ -240,6 +248,18 @@ export default function Home() {
       const mine: any = await api.myFriends(user.id);
       setMyFriendsCount(typeof mine?.count === "number" ? mine.count : (Array.isArray(mine?.friends) ? mine.friends.length : 0));
     } catch { setMyFriendsCount(null); }
+    // Batch B iter159 Bug 2: fetch unread DM state so the Home card
+    // covers messages that arrived while the app was closed / user
+    // was offline. `myConversationsSilent` returns rows with
+    // `{id, other:{...}, last, unread_count}`. We keep only rows
+    // with unread_count > 0 and cap at 5 on the card (with a
+    // "See all" jump to /messages if there are more).
+    try {
+      const rows: any = await api.myConversationsSilent(user.id, "active");
+      const list = Array.isArray(rows) ? rows : [];
+      const unread = list.filter((r: any) => (r?.unread_count || 0) > 0);
+      setUnreadDms(unread);
+    } catch { setUnreadDms([]); }
     try { await api.heartbeat(user.id); } catch {}
     try { setCommunity(await api.communityToday(user.id)); } catch {}
     try {
@@ -255,6 +275,24 @@ export default function Home() {
     } catch {}
   };
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
+
+  // Batch B iter159 Bug 2 support: re-run loadFlutters when the app
+  // returns from background/lock. `useFocusEffect` only fires on tab
+  // focus changes — if the user opens Home, backgrounds the app,
+  // gets a chat message, then reopens the app, the tab is still
+  // focused so useFocusEffect wouldn't fire. AppState makes sure
+  // the unread-DM card actually appears.
+  React.useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AppState } = require("react-native");
+    const sub = AppState.addEventListener("change", (state: string) => {
+      if (state === "active" && user?.id) {
+        loadFlutters();
+      }
+    });
+    return () => sub?.remove?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   /**
    * Open a DM with the person who flutter-ed us. Locked with Garry
@@ -616,6 +654,70 @@ export default function Home() {
             visible on Home even if the member never opens the
             notification bell. Shows up to 3; the CTA opens the full
             list. */}
+        {/* Batch B iter159 Bug 2 — Home unread-DM card. Shown when
+            the member has one or more DM conversations with
+            unread_count > 0 (i.e. offline chat has arrived, or an
+            online chat wasn't opened yet). Persists until the DM
+            screen calls `dmMarkRead`, which zeroes unread_count and
+            drops the card on the next focus/resume. */}
+        {unreadDms.length > 0 && (
+          <View style={[styles.flutterBox, { borderColor: "#10B981", backgroundColor: "#ECFDF5" }]} testID="home-unread-dms-card">
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+              <Ionicons name="chatbubbles" size={22} color="#047857" />
+              <Text style={{ color: "#047857", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>
+                {unreadDms.length === 1 ? "New message" : `${unreadDms.length} new chats`}
+              </Text>
+            </View>
+            {unreadDms.slice(0, 5).map((r: any) => {
+              const other = r?.other || {};
+              const lastText = (r?.last?.text || "").trim();
+              const lastPreview = lastText.length > 60 ? lastText.slice(0, 57) + "…" : lastText;
+              return (
+                <Pressable
+                  key={r.id}
+                  testID={`home-unread-dm-${r.id}`}
+                  onPress={() => router.push(`/dm/${r.id}` as any)}
+                  accessibilityLabel={`Open chat with ${other.first_name || "your friend"}`}
+                  style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#D1FAE5" }]}
+                >
+                  <View style={styles.flutterSenderRow}>
+                    <AvatarBubble value={other.avatar} size={36} fallback="🙂" />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={{ color: "#0F172A", fontWeight: "900", fontSize: 15 * scale, flex: 1 }} numberOfLines={1}>
+                          {other.first_name || "A friend"}
+                        </Text>
+                        <View style={{ backgroundColor: "#10B981", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, minWidth: 24, alignItems: "center" }}>
+                          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 12 * scale }}>
+                            {r.unread_count > 99 ? "99+" : r.unread_count}
+                          </Text>
+                        </View>
+                      </View>
+                      {!!lastPreview && (
+                        <Text style={{ color: "#475569", fontSize: 13 * scale, fontWeight: "600" }} numberOfLines={1}>
+                          {lastPreview}
+                        </Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                  </View>
+                </Pressable>
+              );
+            })}
+            {unreadDms.length > 5 && (
+              <Pressable
+                testID="home-unread-dms-see-all"
+                onPress={() => router.push("/messages" as any)}
+                style={{ alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 10, paddingVertical: 6 }}
+              >
+                <Text style={{ color: "#047857", fontWeight: "800", fontSize: 13 * scale }}>
+                  See all {unreadDms.length} chats →
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
         {pendingFriendReqs.length > 0 && (
           <View style={[styles.flutterBox, { borderColor: "#0EA5E9" }]} testID="home-friend-requests-card">
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>

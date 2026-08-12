@@ -1,6 +1,6 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
@@ -50,6 +50,52 @@ export default function Notices() {
   const { user } = useAuth();
   const { show, confirm } = useToast();
   const router = useRouter();
+  const navigation = useNavigation();
+
+  // ── Batch B iter159 (Garry, Aug 2026 — real-iPhone Bug 1) ─────
+  // RCA of the "Back → Login" bug: two paths could exit this screen
+  //   (a) our Header's back button (Pressable in <Header>) — used our
+  //       `onBack` prop.
+  //   (b) iOS's swipe-back gesture on the underlying react-navigation
+  //       Stack — bypassed our Header entirely and popped the router
+  //       stack. When Notice Board was opened from Home, the stack
+  //       underneath was `/` (Welcome), NOT `/home`. Popping landed
+  //       on Welcome, whose `useEffect` auto-redirected back to /home
+  //       — but for a split second Welcome rendered with its "Login"
+  //       button visible, which is what Garry saw.
+  //
+  // Fix (belt-and-braces so BOTH paths can only land on /home):
+  //   1. Header `onBack` now uses `router.replace("/home")` — matches
+  //      every other screen. The `/(tabs)/home` form was an outlier
+  //      and doesn't resolve consistently across expo-router
+  //      versions on iOS.
+  //   2. Intercept the react-navigation `beforeRemove` event so ANY
+  //      pop attempt (swipe-back, hardware back, programmatic) is
+  //      redirected to `/home` explicitly, cancelling the default
+  //      pop that would drop to Welcome.
+  useEffect(() => {
+    const unsub = navigation.addListener("beforeRemove", (e: any) => {
+      // If we're navigating deliberately elsewhere (e.g. router.push
+      // to open a notice detail modal), let it through. `data.action`
+      // is set for programmatic navigations we control.
+      const action = e?.data?.action;
+      const type = action?.type;
+      // Only intercept the "GO_BACK" / "POP" actions — everything
+      // else is a legitimate forward/lateral navigation we should
+      // permit.
+      if (type && type !== "GO_BACK" && type !== "POP") return;
+      // eslint-disable-next-line no-console
+      console.log("[notices/back] beforeRemove intercepted", { type });
+      e.preventDefault();
+      // Small delay so react-navigation can settle its internal
+      // beforeRemove state before we push the new route.
+      setTimeout(() => {
+        try { router.replace("/home" as any); }
+        catch { /* noop */ }
+      }, 0);
+    });
+    return unsub;
+  }, [navigation, router]);
   const [notices, setNotices] = useState<any[]>([]);
   const [category, setCategory] = useState("All");
   const [query, setQuery] = useState("");
@@ -306,7 +352,7 @@ export default function Notices() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Notice Board" backHref="/home" emoji="📋" subtitle="Local notices · Share what's on" onBack={() => router.replace("/(tabs)/home" as any)} right={(
+      <Header title="Notice Board" backHref="/home" emoji="📋" subtitle="Local notices · Share what's on" onBack={() => { console.log("[notices/back] Header onBack tapped"); router.replace("/home" as any); }} right={(
         <Pressable testID="new-notice" onPress={startCreate} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brand, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
           <Ionicons name="add" size={20} color="#FFF" />
           <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale }}>Add Post</Text>

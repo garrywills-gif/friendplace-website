@@ -171,6 +171,22 @@ export default function Welcome() {
     );
   }
 
+  // Batch B iter159 (Garry, Aug 2026 — Bug 1 supporting fix): if we
+  // land on Welcome with an authenticated user, do NOT flash the
+  // Login UI for the ~1 frame before the useEffect redirect fires.
+  // Previously the Notice-Board-back → router-pop-to-Welcome dance
+  // showed the "Login" button briefly, which Garry read as being
+  // signed out. Render the same splash the loading branch renders
+  // so the transition is seamless.
+  if (user) {
+    return (
+      <View style={[styles.full, { backgroundColor: "#0D2A57", justifyContent: "center", alignItems: "center" }]}>
+        <BrandLockup width={340} variant="dark" />
+        <ActivityIndicator size="large" color="#FFFFFF" style={{ marginTop: 28 }} />
+      </View>
+    );
+  }
+
   const handleSocial = async (provider: string) => {
     if (provider === "Google") {
       try {

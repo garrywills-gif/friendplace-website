@@ -142,50 +142,105 @@ export default function Friends() {
   );
 
   const requestNearMe = async () => {
-    // Batch B iter158 (Garry, Aug 2026 — real-iPhone Near Me hang RCA):
-    // the previous flow silently swallowed every error and used
-    // `Accuracy.Lowest`, which on iOS can spin for 30-60 s before
-    // returning (or never returning at all on a device with cellular
-    // location disabled). This rewrite:
-    //   1. Dismisses the rationale modal BEFORE prompting the OS so
-    //      the two dialogs don't collide on iOS.
-    //   2. Uses `Accuracy.Balanced` (~100 m) — much faster and enough
-    //      for suburb matching.
-    //   3. Tries `getLastKnownPositionAsync` first for a sub-second
-    //      first fix, then falls back to `getCurrentPositionAsync`
-    //      wrapped in a hard 15 s `Promise.race` timeout so the
-    //      composer can NEVER be stuck spinning forever.
-    //   4. Every failure branch shows the member a specific message
-    //      (permission denied, services off, timeout, geocode fail)
-    //      AND flips `locationDeclined` so the suburb-input hint
-    //      banner appears — never silent.
-    //   5. Logs each stage to `[friends/near-me] …` so Xcode /
-    //      Console.app pinpoints where a device stalls.
+    // Batch B iter159 (Garry, Aug 2026 — real-iPhone Bug 3 RCA)
+    // ────────────────────────────────────────────────────────────
+    // iter158 already added the `getCurrentPositionAsync` timeout,
+    // but the flow could still stall silently BEFORE ever reaching
+    // that call because:
+    //   • `Location.hasServicesEnabledAsync()` — no timeout, some
+    //     iOS builds hang for 10+ s on cold boot.
+    //   • `Location.getForegroundPermissionsAsync()` — no timeout,
+    //     seen to hang when Screen Time / MDM restrictions are on.
+    //   • `Location.requestForegroundPermissionsAsync()` — hangs
+    //     until user taps, but if the OS dialog fails to present
+    //     (bug seen when a Modal is still animating out on iOS),
+    //     it never resolves.
+    //
+    // Every silent hang killed the "Use my location" flow with no
+    // visible feedback — user tapped, modal closed, then nothing.
+    //
+    // Fix: wrap EVERY expo-location call in an explicit
+    // `withTimeout(...)` promise race, and add a single top-level
+    // 20 s watchdog that ALWAYS resets `askingLoc` and surfaces a
+    // clear toast. Location accuracy also dropped from Balanced →
+    // Low (~1 km, more than enough for suburb matching) which
+    // typically returns in 1-3 s on iOS instead of the 8-15 s
+    // Balanced sometimes needs on a device that's been indoors.
     const N = (stage: string, extra?: any) => {
       try { // eslint-disable-next-line no-console
         console.log(`[friends/near-me] ${stage}`, extra ?? "");
       } catch { /* noop */ }
     };
+    // Race any promise against a hard timeout. Rejects with the
+    // given label so we can identify which stage timed out.
+    const withTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`timeout:${label}`)), ms)),
+      ]);
+
     N("tap");
     setShowRationale(false);
-    // iOS: give the rationale modal one animation frame to fully
-    // dismiss so its runtime UIViewController doesn't sit on top of
-    // the OS permission alert (which would silently no-op).
+    // iOS animation-frame gap so the rationale modal's underlying
+    // UIViewController isn't still on-screen when the OS permission
+    // alert or Location Services call is made. Empirically 350 ms
+    // is enough on iPhone 16 across iOS 18/19.
     if (Platform.OS === "ios") {
-      await new Promise((r) => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 350));
     }
     setAskingLoc(true);
+
+    // Top-level watchdog: if we haven't returned in 20 s for ANY
+    // reason (silent expo-location hang, backend suburbs endpoint
+    // stalling, weird ANR-like state), force the loading flag off
+    // and drop a toast so the button is tappable again and the
+    // user knows what happened. This runs INDEPENDENT of the inner
+    // Promise.race timeouts.
+    let handledByFinally = false;
+    const globalWatchdog = setTimeout(() => {
+      if (handledByFinally) return;
+      N("watchdog:fired");
+      setAskingLoc(false);
+      setLocationDeclined(true);
+      show("Location took too long. Please try again or type a suburb above.");
+    }, 20_000);
+
     try {
       N("services:check");
-      const servicesOn = await Location.hasServicesEnabledAsync().catch(() => true);
+      let servicesOn = true;
+      try {
+        servicesOn = await withTimeout(
+          Location.hasServicesEnabledAsync(),
+          3_000,
+          "hasServicesEnabled",
+        );
+      } catch (e: any) {
+        // Not fatal — most devices have services on; if the check
+        // hangs, we proceed and let the permission prompt clarify.
+        N("services:timeout", { message: e?.message });
+      }
       N("services:result", { servicesOn });
       if (!servicesOn) {
         setLocationDeclined(true);
         show("Location Services are turned off on this device. Turn them on in Settings to use Near Me, or type a suburb above.");
         return;
       }
+
       N("perm:check");
-      const current = await Location.getForegroundPermissionsAsync();
+      let current: any;
+      try {
+        current = await withTimeout(
+          Location.getForegroundPermissionsAsync(),
+          3_000,
+          "getForegroundPermissions",
+        );
+      } catch (e: any) {
+        // If the permission-state check itself hangs, fall through
+        // to a fresh request — the OS will always answer the ASK
+        // path even when the QUERY path is stalling.
+        N("perm:checkTimeout", { message: e?.message });
+        current = { granted: false, canAskAgain: true, status: "undetermined" };
+      }
       N("perm:current", { granted: current.granted, canAskAgain: current.canAskAgain, status: current.status });
       if (!current.granted) {
         if (!current.canAskAgain) {
@@ -195,7 +250,19 @@ export default function Friends() {
           return;
         }
         N("perm:request");
-        const req = await Location.requestForegroundPermissionsAsync();
+        let req: any;
+        try {
+          req = await withTimeout(
+            Location.requestForegroundPermissionsAsync(),
+            60_000,       // wait up to 60s for user to tap Allow/Deny
+            "requestForegroundPermissions",
+          );
+        } catch (e: any) {
+          N("perm:requestTimeout", { message: e?.message });
+          setLocationDeclined(true);
+          show("The Location permission prompt didn't appear. Please close and reopen the app.");
+          return;
+        }
         N("perm:requestResult", { granted: req.granted, canAskAgain: req.canAskAgain, status: req.status });
         if (!req.granted) {
           if (!req.canAskAgain) setShowDeniedHelp(true);
@@ -205,17 +272,18 @@ export default function Friends() {
         }
       }
 
-      // Try last-known first for a fast fix (usually sub-second on
-      // iOS when the user has recently opened Maps or another
-      // location-aware app). If it returns null we fall back to a
-      // fresh fix.
+      // Fast path: cached last-known position.
       N("lastKnown:start");
       let coords: { latitude: number; longitude: number } | null = null;
       try {
-        const last = await Location.getLastKnownPositionAsync({
-          maxAge: 5 * 60_000,       // 5 min old is fine for suburb matching
-          requiredAccuracy: 500,    // metres
-        });
+        const last = await withTimeout(
+          Location.getLastKnownPositionAsync({
+            maxAge: 5 * 60_000,
+            requiredAccuracy: 500,
+          }),
+          3_000,
+          "getLastKnown",
+        );
         if (last?.coords) {
           coords = { latitude: last.coords.latitude, longitude: last.coords.longitude };
           N("lastKnown:hit", { lat: coords.latitude.toFixed(3), lng: coords.longitude.toFixed(3) });
@@ -228,22 +296,21 @@ export default function Friends() {
 
       if (!coords) {
         N("current:start");
-        // Hard 15 s watchdog around getCurrentPositionAsync — iOS can
-        // silently hang here forever on some devices with cellular
-        // location disabled and no recent GPS fix. `expo-location`'s
-        // built-in `timeout` option has been unreliable across SDKs,
-        // so we race it explicitly.
+        // Use `Accuracy.Low` (~1 km) — plenty precise for suburb
+        // matching, and typically returns in 1-3 s on iOS instead
+        // of the 8-15 s Balanced can take indoors. Hard 12 s cap.
         try {
-          const pos = await Promise.race<any>([
-            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("location-timeout")), 15_000)),
-          ]);
+          const pos: any = await withTimeout(
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }),
+            12_000,
+            "getCurrentPosition",
+          );
           coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
           N("current:done", { lat: coords.latitude.toFixed(3), lng: coords.longitude.toFixed(3) });
         } catch (e: any) {
           N("current:error", { message: e?.message });
           setLocationDeclined(true);
-          if (e?.message === "location-timeout") {
+          if (String(e?.message || "").startsWith("timeout:")) {
             show("Couldn't get your location in time. Try again outdoors, or type a suburb above.");
           } else {
             show("Couldn't read your location. You can still find friends by typing a suburb.");
@@ -252,19 +319,23 @@ export default function Friends() {
         }
       }
 
-      // Reverse-lookup to nearest known suburb (we never store the
-      // device coords). Non-fatal if this fails — we can still use
-      // the raw coords for radius filtering.
+      // Reverse-lookup to nearest known suburb. Non-fatal — if it
+      // fails or times out, we fall back to raw coords which
+      // /users?near_lat=&near_lng=&radius_km= handles fine.
       N("suburb:lookup");
       let matchedSuburb: { name: string; lat: number; lng: number } | null = null;
       try {
-        const nearest: any = await api.suburbsNearest(coords.latitude, coords.longitude);
+        const nearest: any = await withTimeout(
+          api.suburbsNearest(coords.latitude, coords.longitude),
+          5_000,
+          "suburbsNearest",
+        );
         const n = nearest?.nearest;
         if (n?.lat && n?.lng) matchedSuburb = { name: n.name, lat: n.lat, lng: n.lng };
         N("suburb:result", { name: matchedSuburb?.name });
       } catch (e: any) {
         N("suburb:error", { message: e?.message });
-        // fall through — we'll just use the raw coords
+        // fall through — raw coords work fine for radius filtering.
       }
 
       if (matchedSuburb) {
@@ -282,6 +353,8 @@ export default function Friends() {
       setLocationDeclined(true);
       show(e?.message || "Couldn't turn on Near Me — please try again.");
     } finally {
+      handledByFinally = true;
+      clearTimeout(globalWatchdog);
       setAskingLoc(false);
     }
   };
