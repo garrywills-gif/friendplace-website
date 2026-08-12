@@ -10553,12 +10553,35 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                                 {"dm_id": conv_id, "user_id": other_id}
                             )
                             if other_msg_count >= 1:
-                                # Are they already friends? Skip if so.
+                                # Batch B iter161 (Garry, Aug 2026 — regression fix):
+                                # the previous `already_friends` check read ONLY the
+                                # sender's friends list, so a stale one-way link
+                                # (A had B, but B never had A — possible after an
+                                # earlier unfriend where the reciprocal $pull failed
+                                # or a manual DB edit) caused the whole auto-friend
+                                # block to short-circuit when B replied, leaving the
+                                # link permanently one-way.
+                                #
+                                # Read BOTH sides, always $addToSet on both sides
+                                # (idempotent), and only suppress the notification
+                                # when the pair was already fully bidirectional
+                                # (which is a genuine no-op case) OR the pair was
+                                # already one-way (silent repair — no need to
+                                # ping a member about a friendship they thought
+                                # they already had).
                                 me_doc = await db.users.find_one(
                                     {"id": user_id}, {"_id": 0, "friends": 1}
                                 ) or {}
-                                already_friends = other_id in (me_doc.get("friends") or [])
-                                if not already_friends:
+                                other_doc = await db.users.find_one(
+                                    {"id": other_id}, {"_id": 0, "friends": 1}
+                                ) or {}
+                                me_had_other = other_id in (me_doc.get("friends") or [])
+                                other_had_me = user_id in (other_doc.get("friends") or [])
+                                was_fully_friends = me_had_other and other_had_me
+                                if not was_fully_friends:
+                                    # Ensure both sides have the link, regardless
+                                    # of prior state. `$addToSet` is idempotent, so
+                                    # this is a no-op on the side that already had it.
                                     await db.users.update_one(
                                         {"id": user_id},
                                         {"$addToSet": {"friends": other_id}},
@@ -10583,35 +10606,45 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                                     # Warm "you are now friends" notification
                                     # to both parties so the social moment
                                     # is visible outside of this DM.
-                                    me_prof = await db.users.find_one(
-                                        {"id": user_id},
-                                        {"_id": 0, "first_name": 1, "avatar": 1},
-                                    ) or {}
-                                    other_prof = await db.users.find_one(
-                                        {"id": other_id},
-                                        {"_id": 0, "first_name": 1, "avatar": 1},
-                                    ) or {}
-                                    me_name = me_prof.get("first_name") or "Someone"
-                                    me_av = me_prof.get("avatar") or "🦋"
-                                    other_name = other_prof.get("first_name") or "Someone"
-                                    other_av = other_prof.get("avatar") or "🦋"
-                                    try:
-                                        await push_notification(
-                                            user_id,
-                                            "friend_accepted",
-                                            f"{other_av} You and {other_name} are now friends 🦋",
-                                            "You've been chatting, so we've added each other.",
-                                            {"friend_id": other_id},
-                                        )
-                                        await push_notification(
-                                            other_id,
-                                            "friend_accepted",
-                                            f"{me_av} You and {me_name} are now friends 🦋",
-                                            "You've been chatting, so we've added each other.",
-                                            {"friend_id": user_id},
-                                        )
-                                    except Exception:
-                                        logger.exception("auto-friend notification failed")
+                                    #
+                                    # iter161 refinement: ONLY fire the "you
+                                    # are now friends" notification when the
+                                    # pair was genuinely fresh (neither had
+                                    # the other). If we just silently repaired
+                                    # a one-way link, don't ping the member
+                                    # about a friendship they already thought
+                                    # they had — that would be confusing.
+                                    truly_fresh = (not me_had_other) and (not other_had_me)
+                                    if truly_fresh:
+                                        me_prof = await db.users.find_one(
+                                            {"id": user_id},
+                                            {"_id": 0, "first_name": 1, "avatar": 1},
+                                        ) or {}
+                                        other_prof = await db.users.find_one(
+                                            {"id": other_id},
+                                            {"_id": 0, "first_name": 1, "avatar": 1},
+                                        ) or {}
+                                        me_name = me_prof.get("first_name") or "Someone"
+                                        me_av = me_prof.get("avatar") or "🦋"
+                                        other_name = other_prof.get("first_name") or "Someone"
+                                        other_av = other_prof.get("avatar") or "🦋"
+                                        try:
+                                            await push_notification(
+                                                user_id,
+                                                "friend_accepted",
+                                                f"{other_av} You and {other_name} are now friends 🦋",
+                                                "You've been chatting, so we've added each other.",
+                                                {"friend_id": other_id},
+                                            )
+                                            await push_notification(
+                                                other_id,
+                                                "friend_accepted",
+                                                f"{me_av} You and {me_name} are now friends 🦋",
+                                                "You've been chatting, so we've added each other.",
+                                                {"friend_id": user_id},
+                                            )
+                                        except Exception:
+                                            logger.exception("auto-friend notification failed")
                     except Exception:
                         logger.exception("auto-friend after two-way DM failed")
 
