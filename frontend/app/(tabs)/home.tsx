@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions, Image } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions, Image, AppState } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,6 +7,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import { useUserSocket } from "@/src/lib/user-socket";
 import { emitFlutter } from "@/src/lib/flutter-fx";
 import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
@@ -276,6 +277,44 @@ export default function Home() {
   };
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
 
+  // Batch B iter159→160 (Garry, Aug 2026 — Bug 2 RCA):
+  //
+  // The user's real-iPhone repro showed that iter159's card wasn't
+  // rendering even though the web preview + a backend repro both
+  // confirmed `unread_count > 0`. Digging in, the RCA was that on
+  // native iOS the first useFocusEffect can fire BEFORE the auth
+  // context has hydrated `user` — so `loadFlutters` early-returns
+  // (`if (!user) return`) and setUnreadDms is never called. The tab
+  // is then focused, `user` hydrates, and no further trigger causes
+  // a load. So the card stays hidden until the member manually
+  // pulls to refresh.
+  //
+  // Fix: run `loadFlutters` whenever `user?.id` changes AND whenever
+  // a real-time `dm_update`/`dm_read` event arrives on the per-user
+  // socket. Same pattern the Chats tab uses. This makes the Home
+  // card reflect the truth as soon as ANY of these happen:
+  //   • Tab focus (existing).
+  //   • App resume from background (iter159).
+  //   • User auth hydrates on cold boot (new — this is the iOS fix).
+  //   • Live DM arrives while on Home (new — no need to switch tabs).
+  //   • Peer marks a shared conv read on another device.
+  //   • Socket (re)connect reconciles any drift.
+  useEffect(() => {
+    if (user?.id) loadFlutters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const { subscribe } = useUserSocket();
+  useEffect(() => subscribe("dm_update", () => { loadFlutters(); }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [subscribe, user?.id]);
+  useEffect(() => subscribe("dm_read", () => { loadFlutters(); }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [subscribe, user?.id]);
+  useEffect(() => subscribe("reconnect", () => { loadFlutters(); }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [subscribe, user?.id]);
+
   // Batch B iter159 Bug 2 support: re-run loadFlutters when the app
   // returns from background/lock. `useFocusEffect` only fires on tab
   // focus changes — if the user opens Home, backgrounds the app,
@@ -283,8 +322,6 @@ export default function Home() {
   // focused so useFocusEffect wouldn't fire. AppState makes sure
   // the unread-DM card actually appears.
   React.useEffect(() => {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { AppState } = require("react-native");
     const sub = AppState.addEventListener("change", (state: string) => {
       if (state === "active" && user?.id) {
         loadFlutters();
