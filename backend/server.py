@@ -1836,6 +1836,154 @@ async def founders_claim(user=Depends(current_user)):
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# TEMPORARY (Batch B iter156 / Aug 2026): admin endpoint that runs the
+# already-validated cleanup script
+# `/app/backend/scripts/cleanup_prod_test_founders_20260810.py` against
+# the live production DB. Needed because the pod cannot reach the Atlas
+# cluster over TCP 27017 from a shell, and the Production Database
+# Manager can only pencil-edit existing fields (it cannot create the
+# `is_test` / `former_founder_number` / `banned` fields the cleanup
+# needs).
+#
+# The endpoint delegates 100% of the Mongo operations to the script's
+# `_snapshot` / `_commit` / `_rollback` / `_plan_summary` / `_pretty`
+# functions — zero logic drift from the version that was reviewed and
+# dry-run-validated. This file MUST be removed once the cleanup has
+# been committed and verified in production; see the follow-up TODO.
+# ─────────────────────────────────────────────────────────────────────
+_FOUNDER_RESET_CONFIRM_TOKEN = "batch-b-iter156-founder-cleanup-20260810"
+
+
+@api.post("/admin/founders/reset-batch-b")
+async def admin_founders_reset_batch_b(
+    payload: dict,
+    _me: dict = Depends(current_admin),
+):
+    """One-shot cleanup runner for the reserved-numbers Path B Founders Wall
+    reset. Executes exactly the script logic from
+    `/app/backend/scripts/cleanup_prod_test_founders_20260810.py`.
+
+    Body:
+        {
+            "mode": "dry_run" | "commit" | "rollback",
+            "confirm_token": "<required for commit/rollback>"
+        }
+
+    Auth: admin JWT (via `current_admin`). Client-supplied admin ids are
+    ignored — identity is taken from the signed token.
+
+    Safety rails:
+      • `dry_run` is the default and requires no confirm token — it only
+        reads. It returns the BEFORE snapshot + a plan summary.
+      • `commit` and `rollback` REQUIRE `confirm_token` to match the
+        hard-coded value below so an accidental empty POST cannot fire
+        the write path.
+      • All stdout from the script is captured and returned under `log`
+        so you have an exact copy of what the script would have printed
+        when run from a shell.
+
+    Response:
+        {
+            "ok": true,
+            "mode": "<mode>",
+            "log": "<captured stdout>",
+            "before": [<snapshot rows>],
+            "after":  [<snapshot rows>] | null,   // null on dry_run
+            "public_wall_after": {
+                "total_visible_founders": <int>,
+                "next_founder_number_estimate": <int>
+            }
+        }
+    """
+    import importlib.util
+    import io
+    from contextlib import redirect_stdout
+
+    mode = str((payload or {}).get("mode") or "dry_run").strip().lower()
+    confirm_token = str((payload or {}).get("confirm_token") or "").strip()
+
+    if mode not in {"dry_run", "commit", "rollback"}:
+        raise HTTPException(400, "mode must be one of: dry_run, commit, rollback")
+
+    if mode in {"commit", "rollback"} and confirm_token != _FOUNDER_RESET_CONFIRM_TOKEN:
+        raise HTTPException(
+            400,
+            f"confirm_token is required for mode={mode} and must match the "
+            "hard-coded batch identifier",
+        )
+
+    # Load the validated cleanup module by absolute path so we don't
+    # depend on `scripts/` being an importable package. This gives us
+    # literal code re-use — same TARGETS, same REASON_TAG, same Mongo
+    # ops that were reviewed and dry-run-validated.
+    script_path = ROOT_DIR / "scripts" / "cleanup_prod_test_founders_20260810.py"
+    if not script_path.exists():
+        raise HTTPException(500, f"cleanup script not found at {script_path}")
+
+    spec = importlib.util.spec_from_file_location(
+        "cleanup_prod_test_founders_20260810", str(script_path)
+    )
+    if not spec or not spec.loader:
+        raise HTTPException(500, "failed to load cleanup script spec")
+    cleanup_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cleanup_mod)
+
+    # BEFORE snapshot — always taken, even on dry_run, so callers have
+    # an audit trail matching the script's `_snapshot()` output.
+    before = await cleanup_mod._snapshot(db)
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        if mode == "dry_run":
+            # Mirror the script's `_dry_run` output verbatim so the
+            # captured log matches what a shell run would print.
+            print("=" * 72)
+            print("DRY RUN — no writes will be made")
+            print("=" * 72)
+            print("Plan:")
+            print(cleanup_mod._plan_summary())
+            print("")
+            print("BEFORE snapshot from production DB:")
+            print(cleanup_mod._pretty(before))
+            print("")
+            print("Predicted public outcome after --commit + backend redeploy:")
+            print("  /api/founders/status  →  {\"cap\":250,\"taken\":1,\"remaining\":249,\"open\":true}")
+            print("  /api/founders          →  1 row: Garry #1")
+            print("  Next genuine signup  →  #3   (max founder_number=2 [Bob reserved]; public count=1)")
+            print("")
+            print("Nothing was written. Re-run with mode=commit to apply.")
+        elif mode == "commit":
+            await cleanup_mod._commit(db)
+        elif mode == "rollback":
+            await cleanup_mod._rollback(db)
+
+    after = None if mode == "dry_run" else await cleanup_mod._snapshot(db)
+
+    # Also compute the public-facing predicted counts using the same
+    # server-side filter that the wall endpoints use, so the caller can
+    # cross-check without a second round trip.
+    total_visible = await db.users.count_documents(_FOUNDER_PUBLIC_FILTER)
+    highest = await db.users.find_one(
+        {"is_founder": True, "founder_number": {"$exists": True, "$ne": None}},
+        {"_id": 0, "founder_number": 1},
+        sort=[("founder_number", -1)],
+    )
+    next_est = max(int((highest or {}).get("founder_number") or 0) + 1, total_visible + 1)
+
+    return {
+        "ok": True,
+        "mode": mode,
+        "log": buf.getvalue(),
+        "before": json.loads(cleanup_mod._pretty(before)),
+        "after": (json.loads(cleanup_mod._pretty(after)) if after is not None else None),
+        "public_wall_after": {
+            "total_visible_founders": total_visible,
+            "next_founder_number_estimate": next_est,
+        },
+    }
+
+
 # ------------- Waitlist (pre-launch friends & family) -------------
 class WaitlistEntry(BaseModel):
     id: str = Field(default_factory=nid)
