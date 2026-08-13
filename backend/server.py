@@ -2313,6 +2313,28 @@ _FOUNDER_RESET_BATCH_D_CONFIRM_TOKEN = "batch-d-duplicate-cleanup-20260813"
 _BATCH_D_REASON_TAG = "Batch-D 2026-08-13"
 _BATCH_D_DUPLICATE_EMAIL = "support@friendplace.com.au"
 
+# Exact target row id captured from the production diagnose call. This
+# is hard-coded on purpose — combined with the required email + number
+# + counter checks below it forms a four-way lock so the write cannot
+# possibly land on the wrong document even if the body params drift.
+_BATCH_D_TARGET_ROW_ID = "d01087d9-7540-42df-a07d-a7852fe85e6c"
+
+# Exact identity expected on the reserved seeds — verified before EVERY
+# write and NEVER touched by this endpoint. If any of these fields
+# differ in prod at commit time, the endpoint aborts.
+_BATCH_D_EXPECTED_SEAT_1 = {
+    "first_name": "Garry",
+    "email": "garry@friendplace.com.au",
+    "is_reserved": True,
+    "founder_number_locked": True,
+}
+_BATCH_D_EXPECTED_SEAT_2 = {
+    "first_name": "George",
+    "email": "george@friendplace.com.au",
+    "is_reserved": True,
+    "founder_number_locked": True,
+}
+
 
 async def _current_cms_admin_for_reset_d(
     creds: HTTPAuthorizationCredentials = Depends(_cms_bearer_c),
@@ -2378,51 +2400,81 @@ async def _batch_d_snapshot() -> Dict[str, Any]:
 
 def _batch_d_precondition_errors(snap: Dict[str, Any]) -> list[str]:
     """Return a list of human-readable pre-condition failures. Empty
-    list means the commit is safe to run."""
+    list means the commit is safe to run.
+
+    Revised for the actual production shape (iter after 2026-08-13
+    diagnose): genuine website registrations legitimately carry
+    `founder_number_locked=True` (server.py:12475 sets that on every
+    /public/register-interest write). The correct discriminator between
+    "reserved seed" and "genuine registration" is `is_reserved` alone.
+    """
     errs: list[str] = []
 
     seat_1 = snap.get("seat_1") or {}
     seat_2 = snap.get("seat_2") or {}
     seat_3 = snap.get("seat_3") or {}
     counter = snap.get("counter") or {}
+    target_rows = snap.get("rows_with_target_email") or []
 
-    # ── Reserved seats must be intact and untouched by this op ──
+    # ── Reserved seat #1 (Garry) — exhaustively verified, never touched ──
     if not seat_1:
         errs.append("Reserved seat #1 (Garry) not found in interest_registrations")
     else:
-        if not seat_1.get("is_reserved"):
-            errs.append("seat #1 expected is_reserved=True")
-        if not seat_1.get("founder_number_locked"):
-            errs.append("seat #1 expected founder_number_locked=True")
+        for k, expected in _BATCH_D_EXPECTED_SEAT_1.items():
+            actual = seat_1.get(k)
+            if actual != expected:
+                errs.append(f"seat #1 field {k!r} expected {expected!r}, got {actual!r}")
 
+    # ── Reserved seat #2 (George) — exhaustively verified, never touched ──
     if not seat_2:
         errs.append("Reserved seat #2 (George) not found in interest_registrations")
     else:
-        if not seat_2.get("is_reserved"):
-            errs.append("seat #2 expected is_reserved=True")
-        if not seat_2.get("founder_number_locked"):
-            errs.append("seat #2 expected founder_number_locked=True")
-        if (seat_2.get("first_name") or "").strip().lower() != "george":
-            errs.append(f"seat #2 first_name expected 'George', got {seat_2.get('first_name')!r}")
+        for k, expected in _BATCH_D_EXPECTED_SEAT_2.items():
+            actual = seat_2.get(k)
+            if actual != expected:
+                errs.append(f"seat #2 field {k!r} expected {expected!r}, got {actual!r}")
 
-    # ── The target duplicate row must exist at #3 and NOT be a locked seed ──
+    # ── Target duplicate row must exist at #3 and match on all four locks ──
     if not seat_3:
         errs.append("No row found at interest_registrations.founder_number=3 — nothing to clean up")
     else:
-        if seat_3.get("is_reserved"):
+        # Lock 1: ID must match exactly the diagnosed target.
+        if seat_3.get("id") != _BATCH_D_TARGET_ROW_ID:
             errs.append(
-                "SAFETY ABORT: row at founder_number=3 has is_reserved=True — refusing to touch a locked seed"
+                f"row at founder_number=3 id={seat_3.get('id')!r}, expected {_BATCH_D_TARGET_ROW_ID!r}"
             )
-        if seat_3.get("founder_number_locked"):
+        # Lock 2: founder_number must be exactly 3 (implicit from the
+        # query, but explicit here as belt-and-braces).
+        if seat_3.get("founder_number") != 3:
             errs.append(
-                "SAFETY ABORT: row at founder_number=3 has founder_number_locked=True — refusing to touch a locked seed"
+                f"row at founder_number=3 has founder_number={seat_3.get('founder_number')!r} (expected 3)"
             )
+        # Lock 3: email must match the diagnosed duplicate email.
         if (seat_3.get("email") or "").strip().lower() != _BATCH_D_DUPLICATE_EMAIL:
             errs.append(
                 f"row at founder_number=3 email={seat_3.get('email')!r}, expected {_BATCH_D_DUPLICATE_EMAIL!r}"
             )
+        # Lock 4: must NOT be a reserved seed row.
+        if seat_3.get("is_reserved"):
+            errs.append(
+                "SAFETY ABORT: row at founder_number=3 has is_reserved=True — refusing to touch a reserved seed"
+            )
+        # NOTE: founder_number_locked=True is EXPECTED on this row
+        # because every website submission is auto-locked by design
+        # (server.py:12475). We do NOT require it to be false.
 
-    # ── Counter must be exactly 3 (nothing raced ahead) ──
+    # ── There must be exactly one row with the target email ──
+    if len(target_rows) != 1:
+        errs.append(
+            f"expected exactly 1 row with email={_BATCH_D_DUPLICATE_EMAIL!r}, found {len(target_rows)}"
+        )
+    elif target_rows[0].get("id") != _BATCH_D_TARGET_ROW_ID:
+        errs.append(
+            f"row with email={_BATCH_D_DUPLICATE_EMAIL!r} has id={target_rows[0].get('id')!r}, "
+            f"expected {_BATCH_D_TARGET_ROW_ID!r}"
+        )
+
+    # ── Counter must be exactly 3 ──
     if not counter:
         errs.append(f"counter '{_FOUNDER_NUMBER_COUNTER_ID}' not found")
     else:
@@ -2448,7 +2500,10 @@ async def admin_founders_reset_batch_d(
             "mode": "dry_run" | "commit" | "rollback" | "diagnose",
             "confirm_token": "<required for commit/rollback>",
             "expected_duplicate_email": "<required for commit; must
-                exactly match the email on the target row>"
+                exactly match the email on the target row>",
+            "expected_target_id": "<required for commit; must exactly
+                match the hard-coded diagnosed row id — belt-and-braces
+                on top of the hard-coded server constant>"
         }
 
     Auth: MCGS admin JWT.
@@ -2456,14 +2511,19 @@ async def admin_founders_reset_batch_d(
     Safety rails:
       • dry_run / diagnose NEVER write.
       • commit / rollback both require confirm_token.
-      • commit additionally requires expected_duplicate_email; refuses
-        if the row at founder_number=3 doesn't match.
-      • Commit refuses if pre-conditions fail (seats intact, counter=3,
-        target not locked/reserved).
-      • Write order: (1) update the duplicate row (soft-archive), then
-        (2) reset the counter 3→2. If (1) fails, (2) never runs. If (2)
-        fails after (1), state is safe — next $inc issues #4 (which the
-        caller can hand-fix or call rollback + retry).
+      • commit additionally requires expected_duplicate_email AND
+        expected_target_id; both must exactly match the hard-coded
+        server constants. Refuses to write if either mismatches.
+      • Commit refuses if pre-conditions fail (target row id matches,
+        founder_number=3, email matches, is_reserved=false, seats #1
+        and #2 exhaustively verified, exactly 1 row with target email,
+        counter=3).
+      • Write order: (1) update the duplicate row (soft-archive) —
+        matched on id + founder_number + email + is_reserved:{$ne:true}.
+        (2) reset the counter 3→2, guarded on value=3. Counter reset
+        runs ONLY after step (1) confirms matched=1. If (2) fails,
+        state is safe — next $inc issues #4 (which the caller can
+        hand-fix or call rollback + retry).
       • db.users is NEVER touched by this endpoint.
     """
     import io
@@ -2473,6 +2533,7 @@ async def admin_founders_reset_batch_d(
     mode = str((payload or {}).get("mode") or "dry_run").strip().lower()
     confirm_token = str((payload or {}).get("confirm_token") or "").strip()
     expected_email = str((payload or {}).get("expected_duplicate_email") or "").strip().lower()
+    expected_target_id = str((payload or {}).get("expected_target_id") or "").strip()
 
     if mode not in {"dry_run", "commit", "rollback", "diagnose"}:
         raise HTTPException(400, "mode must be one of: dry_run, commit, rollback, diagnose")
@@ -2482,12 +2543,19 @@ async def admin_founders_reset_batch_d(
             f"confirm_token is required for mode={mode} and must match the "
             "hard-coded batch identifier",
         )
-    if mode == "commit" and expected_email != _BATCH_D_DUPLICATE_EMAIL:
-        raise HTTPException(
-            400,
-            f"expected_duplicate_email is required for mode=commit and must be "
-            f"exactly {_BATCH_D_DUPLICATE_EMAIL!r}",
-        )
+    if mode == "commit":
+        if expected_email != _BATCH_D_DUPLICATE_EMAIL:
+            raise HTTPException(
+                400,
+                f"expected_duplicate_email is required for mode=commit and must be "
+                f"exactly {_BATCH_D_DUPLICATE_EMAIL!r}",
+            )
+        if expected_target_id != _BATCH_D_TARGET_ROW_ID:
+            raise HTTPException(
+                400,
+                f"expected_target_id is required for mode=commit and must be "
+                f"exactly {_BATCH_D_TARGET_ROW_ID!r}",
+            )
 
     before = await _batch_d_snapshot()
     pre_errors = _batch_d_precondition_errors(before)
@@ -2508,6 +2576,11 @@ async def admin_founders_reset_batch_d(
         for r in before.get("rows_with_target_email") or []:
             print(f"    {r}")
         print("")
+        print("Hard-coded target identity:")
+        print(f"  row id                : {_BATCH_D_TARGET_ROW_ID}")
+        print(f"  email                 : {_BATCH_D_DUPLICATE_EMAIL}")
+        print(f"  expected founder_number: 3")
+        print("")
         if pre_errors:
             print("PRE-CONDITION FAILURES:")
             for e in pre_errors:
@@ -2517,21 +2590,26 @@ async def admin_founders_reset_batch_d(
         print("")
 
         if mode == "dry_run":
-            print("Ops that would run on commit:")
-            print("  (1) interest_registrations soft-hide:")
-            print(f"        match: {{ email: {_BATCH_D_DUPLICATE_EMAIL!r}, founder_number: 3,")
-            print("                 is_reserved: {$ne: true}, founder_number_locked: {$ne: true} }")
+            print("Ops that would run on commit (in order):")
+            print("  (1) interest_registrations soft-hide — 4-way match lock:")
+            print(f"        match: {{")
+            print(f"                 id: {_BATCH_D_TARGET_ROW_ID!r},")
+            print(f"                 founder_number: 3,")
+            print(f"                 email: {_BATCH_D_DUPLICATE_EMAIL!r},")
+            print(f"                 is_reserved: {{$ne: true}}")
+            print(f"               }}")
             print("        $unset founder_number")
             print("        $set   is_test=true, status='opted_out',")
             print("               duplicate_of_founder_number=2,")
             print(f"               duplicate_of_email='george@friendplace.com.au',")
             print(f"               duplicate_flagged_at=<now>,")
             print(f"               duplicate_flagged_reason='{_BATCH_D_REASON_TAG}: duplicate George registration; canonical seat is #2',")
-            print("               former_founder_number=3")
-            print("  (2) counters reset 3 → 2 (guarded on current value = 3):")
+            print("               former_founder_number=3,")
+            print("               updated_at=<now-iso>")
+            print("  (2) counters reset 3 → 2 (ONLY if step 1 matched=1):")
             print(f"        match: {{ id: {_FOUNDER_NUMBER_COUNTER_ID!r}, value: 3 }}")
             print(f"        $set   value=2, reset_at=<now>, reset_reason='{_BATCH_D_REASON_TAG}: duplicate #3 retired'")
-            print("  (3) reserved seats #1 and #2: NOT TOUCHED (deliberately)")
+            print("  (3) reserved seats #1 and #2: NOT TOUCHED (deliberately, pre-verified above)")
             print("  (4) db.users:                 NOT TOUCHED (deliberately)")
             print("")
             print("Predicted result after commit:")
@@ -2540,7 +2618,7 @@ async def admin_founders_reset_batch_d(
             print("  Next genuine registrant on marketing site → #0003")
             print("  db.users / /api/founders / /api/founders/status → unchanged")
             print("")
-            print("Nothing written. Re-run with mode=commit + confirm_token + expected_duplicate_email to apply.")
+            print("Nothing written. Re-run with mode=commit + confirm_token + expected_duplicate_email + expected_target_id to apply.")
         elif mode == "diagnose":
             print("(diagnose = read-only same snapshot as above; no additional collections queried)")
         elif mode == "commit":
@@ -2550,16 +2628,18 @@ async def admin_founders_reset_batch_d(
                     "Cannot commit — pre-conditions failed: " + "; ".join(pre_errors),
                 )
 
-            target_id = (before.get("seat_3") or {}).get("id")
+            target_id = _BATCH_D_TARGET_ROW_ID
 
-            # (1) Retire the duplicate row FIRST. If this fails, we don't
-            # touch the counter, which keeps the state safe.
+            # (1) Retire the duplicate row FIRST — four-way match lock
+            # (id + founder_number + email + is_reserved:{$ne:true}).
+            # If this doesn't match exactly one document, we abort and
+            # never touch the counter.
             r1 = await db.interest_registrations.update_one(
                 {
-                    "email": _BATCH_D_DUPLICATE_EMAIL,
+                    "id": target_id,
                     "founder_number": 3,
+                    "email": _BATCH_D_DUPLICATE_EMAIL,
                     "is_reserved": {"$ne": True},
-                    "founder_number_locked": {"$ne": True},
                 },
                 {
                     "$unset": {"founder_number": ""},
@@ -2617,7 +2697,7 @@ async def admin_founders_reset_batch_d(
             r_row = await db.interest_registrations.update_one(
                 {"email": _BATCH_D_DUPLICATE_EMAIL, "former_founder_number": 3},
                 {
-                    "$set": {"founder_number": 3, "status": "submitted"},
+                    "$set": {"founder_number": 3, "status": "registered"},
                     "$unset": {
                         "is_test": "",
                         "duplicate_of_founder_number": "",
