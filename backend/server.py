@@ -1855,10 +1855,49 @@ async def founders_claim(user=Depends(current_user)):
 _FOUNDER_RESET_CONFIRM_TOKEN = "batch-b-iter156-founder-cleanup-20260810"
 
 
+# The endpoint below is driven from MCGS (The Bridge), so it MUST accept
+# the same MCGS admin token that every other `/api/cms/*` route accepts —
+# NOT the app-side `users.is_admin=True` JWT that `current_admin` checks.
+# MCGS stores its admins in `db.cms_admins` and issues JWTs with
+# `purpose="cms_admin"`. We reuse the exact validator helpers from
+# `cms_module.py` (they are already module-level) so behaviour is
+# bit-for-bit identical to `current_cms_admin` in that module.
+from cms_module import _decode as _cms_decode, bearer as _cms_bearer  # noqa: E402
+
+
+async def _current_cms_admin_for_reset(
+    creds: HTTPAuthorizationCredentials = Depends(_cms_bearer),
+) -> Dict[str, Any]:
+    """MCGS-compatible admin auth dependency for the one-shot founder
+    cleanup endpoint. Mirrors `cms_module.build_router.current_cms_admin`
+    verbatim (token purpose check → cms_admins lookup → session
+    revocation gate). Kept as a local helper here so we don't have to
+    refactor `cms_module.py` — the temporary endpoint is removed once
+    the cleanup is committed."""
+    if not creds or not creds.credentials:
+        raise HTTPException(401, "Not authenticated")
+    payload = _cms_decode(creds.credentials, "cms_admin")
+    admin = await db.cms_admins.find_one(
+        {"id": payload["sub"]}, {"_id": 0, "password_hash": 0}
+    )
+    if not admin:
+        raise HTTPException(401, "Admin no longer exists")
+    try:
+        from services import security as _sec  # optional dep — keep import lazy
+        if not await _sec.session_is_valid(db, payload.get("jti")):
+            raise HTTPException(401, "Session revoked")
+    except HTTPException:
+        raise
+    except Exception:
+        # Never block auth on optional-dep failure — matches cms_module behaviour.
+        pass
+    return admin
+
+
 @api.post("/admin/founders/reset-batch-b")
 async def admin_founders_reset_batch_b(
     payload: dict,
-    _me: dict = Depends(current_admin),
+    _me: dict = Depends(_current_cms_admin_for_reset),
 ):
     """One-shot cleanup runner for the reserved-numbers Path B Founders Wall
     reset. Executes exactly the script logic from
@@ -1870,8 +1909,11 @@ async def admin_founders_reset_batch_b(
             "confirm_token": "<required for commit/rollback>"
         }
 
-    Auth: admin JWT (via `current_admin`). Client-supplied admin ids are
-    ignored — identity is taken from the signed token.
+    Auth: MCGS admin JWT (`purpose=cms_admin`, subject in `cms_admins`).
+    Same auth as every other `/api/cms/*` route — the MCGS localStorage
+    token (`fp_cms_token`) is what you should send in the Bearer header.
+    Client-supplied admin ids are ignored — identity is taken from the
+    signed token.
 
     Safety rails:
       • `dry_run` is the default and requires no confirm token — it only
