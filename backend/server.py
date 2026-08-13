@@ -1836,6 +1836,356 @@ async def founders_claim(user=Depends(current_user)):
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# TEMPORARY (Batch C, 2026-08-13): admin endpoint that promotes the real
+# George member from #3 → #2, and releases @fw_test_bob's hidden
+# reservation on #2 (unsets his `founder_number` while keeping him
+# `is_test=true` so he stays out of the public wall + cap count).
+# Gaz (#1) is NOT touched.
+#
+# Same pattern / safety rails as Batch-B: dry_run default, commit and
+# rollback both require the batch-specific confirm token, MCGS admin JWT
+# auth, snapshots captured and returned. Endpoint MUST be removed once
+# the promotion has been committed and verified.
+# ─────────────────────────────────────────────────────────────────────
+_FOUNDER_RESET_BATCH_C_CONFIRM_TOKEN = "batch-c-george-promotion-20260813"
+_BATCH_C_REASON_TAG = "Batch-C 2026-08-13"
+
+# Reuse the same MCGS-admin verifier pattern from Batch-B (that helper
+# was removed with Batch-B; we re-declare it locally here so the file
+# is self-contained and cms_module.py stays untouched).
+from cms_module import _decode as _cms_decode_c, bearer as _cms_bearer_c  # noqa: E402
+
+
+async def _current_cms_admin_for_reset_c(
+    creds: HTTPAuthorizationCredentials = Depends(_cms_bearer_c),
+) -> Dict[str, Any]:
+    """MCGS-compatible admin auth dependency for the Batch-C endpoint.
+    Bit-for-bit identical to `cms_module.build_router.current_cms_admin`
+    (token purpose check → cms_admins lookup → session revocation gate)."""
+    if not creds or not creds.credentials:
+        raise HTTPException(401, "Not authenticated")
+    payload = _cms_decode_c(creds.credentials, "cms_admin")
+    admin = await db.cms_admins.find_one(
+        {"id": payload["sub"]}, {"_id": 0, "password_hash": 0}
+    )
+    if not admin:
+        raise HTTPException(401, "Admin no longer exists")
+    try:
+        from services import security as _sec  # optional dep — keep import lazy
+        if not await _sec.session_is_valid(db, payload.get("jti")):
+            raise HTTPException(401, "Session revoked")
+    except HTTPException:
+        raise
+    except Exception:
+        # Never block auth on optional-dep failure — matches cms_module behaviour.
+        pass
+    return admin
+
+
+# Fields captured in every BEFORE / AFTER snapshot — same set as the
+# script used for Batch-B, plus the two new Batch-C audit fields.
+_BATCH_C_SNAPSHOT_FIELDS = {
+    "_id": 0,
+    "id": 1,
+    "username": 1,
+    "first_name": 1,
+    "email": 1,
+    "is_founder": 1,
+    "is_test": 1,
+    "is_demo": 1,
+    "is_admin": 1,
+    "founder_number": 1,
+    "former_founder_number": 1,
+    "founder_slot_released_at": 1,
+    "founder_slot_released_reason": 1,
+    "founder_promoted_at": 1,
+    "founder_promoted_reason": 1,
+    "created_at": 1,
+}
+
+
+async def _batch_c_snapshot() -> Dict[str, Any]:
+    """Snapshot the three rows relevant to Batch-C so callers can eyeball
+    identity BEFORE and confirm state AFTER."""
+    gaz = await db.users.find_one({"username": "gaz"}, _BATCH_C_SNAPSHOT_FIELDS)
+    bob = await db.users.find_one({"username": "fw_test_bob"}, _BATCH_C_SNAPSHOT_FIELDS)
+    george = await db.users.find_one(
+        {"is_founder": True, "founder_number": 3},
+        _BATCH_C_SNAPSHOT_FIELDS,
+    )
+    return {"gaz": gaz, "bob": bob, "george_at_number_3": george}
+
+
+def _batch_c_precondition_errors(snap: Dict[str, Any]) -> list[str]:
+    """Return a list of human-readable pre-condition failures. Empty
+    list == safe to commit."""
+    errs: list[str] = []
+    gaz = snap.get("gaz")
+    bob = snap.get("bob")
+    george = snap.get("george_at_number_3")
+
+    if not gaz:
+        errs.append("gaz (username='gaz') not found")
+    else:
+        if gaz.get("founder_number") != 1:
+            errs.append(f"gaz.founder_number expected 1, got {gaz.get('founder_number')!r}")
+        if not gaz.get("is_founder"):
+            errs.append("gaz.is_founder expected True")
+
+    if not bob:
+        errs.append("bob (username='fw_test_bob') not found")
+    else:
+        if bob.get("founder_number") != 2:
+            errs.append(f"bob.founder_number expected 2, got {bob.get('founder_number')!r}")
+        if not bob.get("is_test"):
+            errs.append("bob.is_test expected True (must stay hidden)")
+        if not bob.get("is_founder"):
+            errs.append("bob.is_founder expected True")
+
+    if not george:
+        errs.append("No user found with is_founder=True and founder_number=3 (George)")
+    else:
+        if not george.get("is_founder"):
+            errs.append("george.is_founder expected True")
+        if george.get("is_test"):
+            errs.append("george.is_test must NOT be True (he is a real member)")
+
+    return errs
+
+
+@api.post("/admin/founders/reset-batch-c")
+async def admin_founders_reset_batch_c(
+    payload: dict,
+    _me: dict = Depends(_current_cms_admin_for_reset_c),
+):
+    """Promote the real George member from #3 → #2 and release
+    @fw_test_bob's hidden reservation on #2. Gaz (#1) is not touched.
+
+    Body:
+        {
+            "mode": "dry_run" | "commit" | "rollback",
+            "confirm_token": "<required for commit/rollback>",
+            "expected_george_username": "<required for commit; guards
+                against writing to the wrong row if founder_number=3 no
+                longer maps to George at the moment of commit>"
+        }
+
+    Auth: MCGS admin JWT (`purpose=cms_admin`, subject in `cms_admins`).
+    Same auth as every other `/api/cms/*` route — send the MCGS
+    localStorage token (`fp_cms_token`) as Bearer.
+
+    Safety rails:
+      • `dry_run` is default and NEVER writes. Returns BEFORE snapshot
+        and the exact ops that WOULD run.
+      • `commit` refuses to write if any pre-condition fails (Gaz not at
+        #1, Bob not at #2 with is_test=true, George not at #3, or the
+        supplied `expected_george_username` doesn't match the row at
+        #3).
+      • `rollback` reverses the two updates using `former_founder_number`
+        as the restore source.
+
+    Response:
+        {
+            "ok": true | false,
+            "mode": "<mode>",
+            "log": "<captured stdout>",
+            "before": {...},
+            "after":  {...} | null,
+            "precondition_errors": [ ... ],   // empty on happy path
+            "public_wall_after": {
+                "total_visible_founders": <int>,
+                "next_founder_number_estimate": <int>
+            }
+        }
+    """
+    import io
+    from contextlib import redirect_stdout
+    from datetime import datetime, timezone
+
+    mode = str((payload or {}).get("mode") or "dry_run").strip().lower()
+    confirm_token = str((payload or {}).get("confirm_token") or "").strip()
+    expected_george = str((payload or {}).get("expected_george_username") or "").strip()
+
+    if mode not in {"dry_run", "commit", "rollback"}:
+        raise HTTPException(400, "mode must be one of: dry_run, commit, rollback")
+    if mode in {"commit", "rollback"} and confirm_token != _FOUNDER_RESET_BATCH_C_CONFIRM_TOKEN:
+        raise HTTPException(
+            400,
+            f"confirm_token is required for mode={mode} and must match the "
+            "hard-coded batch identifier",
+        )
+    if mode == "commit" and not expected_george:
+        raise HTTPException(
+            400,
+            "expected_george_username is required for mode=commit as a "
+            "safety check — pass the exact username you saw at founder_number=3 "
+            "in the dry-run BEFORE snapshot",
+        )
+
+    before = await _batch_c_snapshot()
+    pre_errors = _batch_c_precondition_errors(before)
+
+    buf = io.StringIO()
+    now = datetime.now(timezone.utc)
+
+    with redirect_stdout(buf):
+        print("=" * 72)
+        print(f"Batch-C founder promotion — mode={mode}")
+        print("=" * 72)
+        print("BEFORE snapshot (three relevant rows):")
+        print(f"  gaz               : {before.get('gaz')}")
+        print(f"  fw_test_bob       : {before.get('bob')}")
+        print(f"  user at #3 (george candidate): {before.get('george_at_number_3')}")
+        print("")
+        if pre_errors:
+            print("PRE-CONDITION FAILURES:")
+            for e in pre_errors:
+                print(f"  ✗ {e}")
+        else:
+            print("Pre-conditions: OK ✓")
+        print("")
+
+        if mode == "dry_run":
+            print("Ops that would run on commit:")
+            print("  (1) fw_test_bob:")
+            print("        $unset founder_number")
+            print(f"        $set former_founder_number=2, founder_slot_released_at=<now>,")
+            print(f"             founder_slot_released_reason='{_BATCH_C_REASON_TAG}: George promoted; hidden reservation released'")
+            g = before.get("george_at_number_3") or {}
+            print(f"  (2) {g.get('username') or '<no-george>'} (id={g.get('id')!r}):")
+            print("        $set founder_number=2, former_founder_number=3,")
+            print(f"             founder_promoted_at=<now>,")
+            print(f"             founder_promoted_reason='{_BATCH_C_REASON_TAG}: Real George member promoted from #3 to #2'")
+            print("  (3) gaz (Gaz): NO CHANGE — deliberately untouched")
+            print("")
+            print("Predicted public outcome after commit + redeploy:")
+            print("  /api/founders/status  →  {\"cap\":250,\"taken\":2,\"remaining\":248,\"open\":true}")
+            print("  /api/founders         →  Gaz #1, George #2 (2 rows)")
+            print("  Next genuine signup   →  #3")
+            print("")
+            print("Nothing was written. Re-run with mode=commit + confirm_token + expected_george_username to apply.")
+        elif mode == "commit":
+            if pre_errors:
+                raise HTTPException(
+                    409,
+                    "Cannot commit — pre-conditions failed: " + "; ".join(pre_errors),
+                )
+            george_row = before.get("george_at_number_3") or {}
+            actual_george_username = george_row.get("username")
+            if actual_george_username != expected_george:
+                raise HTTPException(
+                    409,
+                    f"expected_george_username={expected_george!r} does not match "
+                    f"the actual row at founder_number=3 (username={actual_george_username!r}). "
+                    "Aborting write.",
+                )
+
+            # (1) Bob — release seat #2.
+            r1 = await db.users.update_one(
+                {"username": "fw_test_bob", "founder_number": 2, "is_test": True},
+                {
+                    "$unset": {"founder_number": ""},
+                    "$set": {
+                        "former_founder_number": 2,
+                        "founder_slot_released_at": now,
+                        "founder_slot_released_reason": f"{_BATCH_C_REASON_TAG}: George promoted; hidden reservation released",
+                    },
+                },
+            )
+            print(f"  bob update: matched={r1.matched_count} modified={r1.modified_count}")
+
+            # (2) George — promote 3 → 2.
+            r2 = await db.users.update_one(
+                {"id": george_row["id"], "founder_number": 3, "is_founder": True},
+                {
+                    "$set": {
+                        "founder_number": 2,
+                        "former_founder_number": 3,
+                        "founder_promoted_at": now,
+                        "founder_promoted_reason": f"{_BATCH_C_REASON_TAG}: Real George member promoted from #3 to #2",
+                    },
+                },
+            )
+            print(f"  george update: matched={r2.matched_count} modified={r2.modified_count}")
+
+            # (3) Gaz — deliberately not touched.
+            print("  gaz: not touched (by design)")
+        elif mode == "rollback":
+            # Reverse only if the current state looks like a post-commit state.
+            bob_now = await db.users.find_one({"username": "fw_test_bob"}, _BATCH_C_SNAPSHOT_FIELDS)
+            george_now = await db.users.find_one(
+                {"is_founder": True, "founder_number": 2, "is_test": {"$ne": True}},
+                _BATCH_C_SNAPSHOT_FIELDS,
+            )
+            if not bob_now or not george_now:
+                raise HTTPException(
+                    409,
+                    "Rollback pre-conditions not met — could not locate a post-commit "
+                    "state (Bob without founder_number and a non-test user at #2).",
+                )
+            if bob_now.get("former_founder_number") != 2:
+                raise HTTPException(
+                    409,
+                    f"bob.former_founder_number expected 2, got {bob_now.get('former_founder_number')!r}. "
+                    "Aborting rollback.",
+                )
+            if george_now.get("former_founder_number") != 3:
+                raise HTTPException(
+                    409,
+                    f"george.former_founder_number expected 3, got {george_now.get('former_founder_number')!r}. "
+                    "Aborting rollback.",
+                )
+
+            r1 = await db.users.update_one(
+                {"username": "fw_test_bob"},
+                {
+                    "$set": {"founder_number": 2},
+                    "$unset": {
+                        "former_founder_number": "",
+                        "founder_slot_released_at": "",
+                        "founder_slot_released_reason": "",
+                    },
+                },
+            )
+            print(f"  bob rollback: matched={r1.matched_count} modified={r1.modified_count}")
+            r2 = await db.users.update_one(
+                {"id": george_now["id"]},
+                {
+                    "$set": {"founder_number": 3},
+                    "$unset": {
+                        "former_founder_number": "",
+                        "founder_promoted_at": "",
+                        "founder_promoted_reason": "",
+                    },
+                },
+            )
+            print(f"  george rollback: matched={r2.matched_count} modified={r2.modified_count}")
+
+    after = None if mode == "dry_run" else await _batch_c_snapshot()
+
+    total_visible = await db.users.count_documents(_FOUNDER_PUBLIC_FILTER)
+    highest = await db.users.find_one(
+        {"is_founder": True, "founder_number": {"$exists": True, "$ne": None}},
+        {"_id": 0, "founder_number": 1},
+        sort=[("founder_number", -1)],
+    )
+    next_est = max(int((highest or {}).get("founder_number") or 0) + 1, total_visible + 1)
+
+    return {
+        "ok": (len(pre_errors) == 0) if mode == "dry_run" else True,
+        "mode": mode,
+        "log": buf.getvalue(),
+        "before": before,
+        "after": after,
+        "precondition_errors": pre_errors,
+        "public_wall_after": {
+            "total_visible_founders": total_visible,
+            "next_founder_number_estimate": next_est,
+        },
+    }
+
+
 # ------------- Waitlist (pre-launch friends & family) -------------
 class WaitlistEntry(BaseModel):
     id: str = Field(default_factory=nid)
