@@ -2007,8 +2007,8 @@ async def admin_founders_reset_batch_c(
     confirm_token = str((payload or {}).get("confirm_token") or "").strip()
     expected_george = str((payload or {}).get("expected_george_username") or "").strip()
 
-    if mode not in {"dry_run", "commit", "rollback"}:
-        raise HTTPException(400, "mode must be one of: dry_run, commit, rollback")
+    if mode not in {"dry_run", "commit", "rollback", "diagnose"}:
+        raise HTTPException(400, "mode must be one of: dry_run, commit, rollback, diagnose")
     if mode in {"commit", "rollback"} and confirm_token != _FOUNDER_RESET_BATCH_C_CONFIRM_TOKEN:
         raise HTTPException(
             400,
@@ -2065,6 +2065,12 @@ async def admin_founders_reset_batch_c(
             print("  Next genuine signup   →  #3")
             print("")
             print("Nothing was written. Re-run with mode=commit + confirm_token + expected_george_username to apply.")
+        elif mode == "diagnose":
+            # Read-only diagnostic — searches BOTH `db.users` and
+            # `db.interest_registrations` for anyone who might be
+            # George, cross-references the founder-number counter, and
+            # returns everything as structured data. Never writes.
+            print("(diagnose is read-only — full report is in the JSON body under `diagnosis`)")
         elif mode == "commit":
             if pre_errors:
                 raise HTTPException(
@@ -2162,7 +2168,7 @@ async def admin_founders_reset_batch_c(
             )
             print(f"  george rollback: matched={r2.matched_count} modified={r2.modified_count}")
 
-    after = None if mode == "dry_run" else await _batch_c_snapshot()
+    after = None if mode in ("dry_run", "diagnose") else await _batch_c_snapshot()
 
     total_visible = await db.users.count_documents(_FOUNDER_PUBLIC_FILTER)
     highest = await db.users.find_one(
@@ -2171,6 +2177,110 @@ async def admin_founders_reset_batch_c(
         sort=[("founder_number", -1)],
     )
     next_est = max(int((highest or {}).get("founder_number") or 0) + 1, total_visible + 1)
+
+    # ── DIAGNOSE mode: read-only cross-collection search for George ──
+    diagnosis: Optional[Dict[str, Any]] = None
+    if mode == "diagnose":
+        # Fields we surface for a users-row candidate.
+        _USER_FIELDS = {
+            "_id": 0, "id": 1, "username": 1, "first_name": 1, "email": 1,
+            "is_founder": 1, "founder_number": 1, "former_founder_number": 1,
+            "is_test": 1, "is_demo": 1, "is_admin": 1, "created_at": 1,
+            "founder_promoted_at": 1, "founder_slot_released_at": 1,
+        }
+        # Fields for an interest_registrations row.
+        _IR_FIELDS = {
+            "_id": 0, "id": 1, "first_name": 1, "email": 1,
+            "founder_number": 1, "founder_number_locked": 1,
+            "is_reserved": 1, "is_test": 1, "status": 1, "source": 1,
+            "companion_choice": 1, "created_at": 1, "updated_at": 1,
+            "state_country": 1, "heard_from": 1,
+        }
+
+        george_email_candidates = [
+            "hello@friendplace.com.au",       # the support email you mentioned
+            "george@friendplace.com.au",
+            "georgie@friendplace.com.au",
+        ]
+        george_name_regex = {"$regex": "george", "$options": "i"}
+
+        # 1) users candidates — any row that could plausibly be George.
+        users_by_email = await db.users.find(
+            {"email": {"$in": george_email_candidates}}, _USER_FIELDS
+        ).to_list(20)
+        users_by_username = await db.users.find(
+            {"username": george_name_regex}, _USER_FIELDS
+        ).to_list(20)
+        users_by_first_name = await db.users.find(
+            {"first_name": george_name_regex}, _USER_FIELDS
+        ).to_list(20)
+        users_with_founder_number_3 = await db.users.find(
+            {"founder_number": 3}, _USER_FIELDS
+        ).to_list(20)
+        users_all_founders = await db.users.find(
+            {"is_founder": True}, _USER_FIELDS
+        ).sort("founder_number", 1).to_list(50)
+
+        # 2) interest_registrations candidates — this is where MCGS reads.
+        ir_by_email = await db.interest_registrations.find(
+            {"email": {"$in": george_email_candidates}}, _IR_FIELDS
+        ).to_list(20)
+        ir_by_first_name = await db.interest_registrations.find(
+            {"first_name": george_name_regex}, _IR_FIELDS
+        ).to_list(20)
+        ir_at_number_3 = await db.interest_registrations.find(
+            {"founder_number": 3}, _IR_FIELDS
+        ).to_list(20)
+        ir_at_number_2 = await db.interest_registrations.find(
+            {"founder_number": 2}, _IR_FIELDS
+        ).to_list(20)
+        ir_at_number_1 = await db.interest_registrations.find(
+            {"founder_number": 1}, _IR_FIELDS
+        ).to_list(20)
+        ir_top_10 = await db.interest_registrations.find(
+            {}, _IR_FIELDS
+        ).sort("founder_number", 1).limit(10).to_list(10)
+
+        # 3) counter state — this is what a NEW /public/register-interest
+        #    submission would increment.
+        counter_doc = await db.counters.find_one(
+            {"id": _FOUNDER_NUMBER_COUNTER_ID}, {"_id": 0}
+        )
+
+        # 4) recent users (last 72h) — helps spot George if he was
+        #    created with an unusual username/email we didn't guess.
+        from datetime import timedelta
+        cutoff_72h = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
+        recent_users = await db.users.find(
+            {"created_at": {"$gt": cutoff_72h}},
+            {**_USER_FIELDS, "created_at": 1},
+        ).sort("created_at", -1).limit(20).to_list(20)
+
+        diagnosis = {
+            "collections_reference": {
+                "users_collection_purpose": "In-app member accounts; source of truth for is_founder, /api/founders, wall.",
+                "interest_registrations_collection_purpose": "Marketing waitlist; source of truth for MCGS Founding Members CRM.",
+                "counter_id": _FOUNDER_NUMBER_COUNTER_ID,
+                "counter_purpose": "Atomic $inc for the marketing waitlist; separate from users.founder_number.",
+            },
+            "counter_state": counter_doc,
+            "users_collection": {
+                "by_email":                    users_by_email,
+                "by_username_ilike_george":    users_by_username,
+                "by_first_name_ilike_george":  users_by_first_name,
+                "with_founder_number_eq_3":    users_with_founder_number_3,
+                "all_founders":                users_all_founders,
+                "recent_users_last_72h":       recent_users,
+            },
+            "interest_registrations_collection": {
+                "by_email":                   ir_by_email,
+                "by_first_name_ilike_george": ir_by_first_name,
+                "at_founder_number_1":        ir_at_number_1,
+                "at_founder_number_2":        ir_at_number_2,
+                "at_founder_number_3":        ir_at_number_3,
+                "top_10_by_founder_number":   ir_top_10,
+            },
+        }
 
     return {
         "ok": (len(pre_errors) == 0) if mode == "dry_run" else True,
@@ -2183,6 +2293,7 @@ async def admin_founders_reset_batch_c(
             "total_visible_founders": total_visible,
             "next_founder_number_estimate": next_est,
         },
+        "diagnosis": diagnosis,
     }
 
 
