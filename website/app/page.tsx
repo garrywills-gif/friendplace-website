@@ -179,7 +179,7 @@ export default async function HomePage() {
              width on mobile, natural width on tablet/desktop. Sits
              at the start of the existing .hero-cta-row so the button
              stays visible without scrolling on all viewports, and
-             the "Meet George or Georgia" pill below it remains
+             the Meet George or Georgia pill below it remains
              unaffected. */
           .hero-register-cta {
             background: linear-gradient(180deg, #F97316 0%, #EA580C 100%);
