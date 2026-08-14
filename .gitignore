@@ -105,3 +105,6 @@ JOURNEY_CONTINUITY.md
 # Founders Wall cleanup — never commit prod creds
 backend/scripts/_prod_creds.env
 backend/scripts/_run_prod_dryrun.sh
+.env
+.env.*
+*.env
