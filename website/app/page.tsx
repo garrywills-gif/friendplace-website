@@ -104,6 +104,19 @@ export default async function HomePage() {
                 FriendPlace is where genuine friendships begin. Meet local people, discover welcoming communities and enjoy real conversations — without swiping, followers or popularity contests.
               </p>
               <div className="hero-cta-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                {/* Primary CTA added 2026-08-14 for Facebook-referred
+                    visitors — must be visible above the fold on
+                    desktop, tablet AND mobile without redesigning the
+                    hero or hiding the "Meet George or Georgia" pill.
+                    Routes to the existing /register-interest flow —
+                    no backend change. */}
+                <Link
+                  href="/register-interest"
+                  className="btn btn-primary hero-register-cta"
+                  aria-label="Register now for FriendPlace"
+                >
+                  Register Now →
+                </Link>
                 <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
                   Get the App →
                 </Link>
@@ -159,6 +172,50 @@ export default async function HomePage() {
         </div>
 
         <style>{`
+          /* ── REGISTER NOW hero CTA (added 2026-08-14) ────────────
+             Renders as THE visual primary in the hero CTA row. Uses
+             a warm coral gradient so it stands apart from the two
+             existing teal/ghost buttons without changing them. Full-
+             width on mobile, natural width on tablet/desktop. Sits
+             at the start of the existing .hero-cta-row so the button
+             stays visible without scrolling on all viewports, and
+             the "Meet George or Georgia" pill below it remains
+             unaffected. */
+          .hero-register-cta {
+            background: linear-gradient(180deg, #F97316 0%, #EA580C 100%);
+            color: #FFFFFF !important;
+            font-size: 17px !important;
+            padding: 18px 32px !important;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            font-weight: 800 !important;
+            box-shadow: 0 12px 32px rgba(234,88,12,0.42), inset 0 0 0 1px rgba(255,255,255,0.14);
+            transition: transform 140ms ease, box-shadow 200ms ease, background 200ms ease;
+          }
+          .hero-register-cta:hover {
+            background: linear-gradient(180deg, #FB923C 0%, #F97316 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 16px 40px rgba(234,88,12,0.55), inset 0 0 0 1px rgba(255,255,255,0.22);
+          }
+          .hero-register-cta:focus-visible {
+            outline: 3px solid #FED7AA;
+            outline-offset: 3px;
+          }
+          @media (max-width: 720px) {
+            /* Full-width on phone so the button is unmissable, and
+               keeps the CTA row tight so the Meet George pill still
+               fits above the fold. */
+            .hero-register-cta {
+              width: 100%;
+              font-size: 16px !important;
+              padding: 16px 24px !important;
+            }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .hero-register-cta { transition: none; }
+            .hero-register-cta:hover { transform: none; }
+          }
+
           @media (min-width: 900px) {
             .hero-grid { grid-template-columns: 1.2fr 1fr !important; }
           }
