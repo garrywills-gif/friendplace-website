@@ -1691,8 +1691,11 @@ def build_router(db) -> APIRouter:
               george  -> ash  (warm, conversational male \u2014 the closest
                               match to a "trusted colleague" timbre)
               georgia -> nova (bright female alternative)
-        - Model is `tts-1-hd` \u2014 richer, less screen-reader-flat than
-          the standard `tts-1`.
+        - Model is `tts-1` — Batch B iter158 (Garry, Aug 2026):
+          switched from `tts-1-hd` for a substantial reduction in
+          time-to-first-audio (~50-70% faster generation). The `ash`
+          and `nova` voice IDs are identical between the two models,
+          so George/Georgia's voice character is preserved.
         - Speed 1.05 \u2014 a shade above default so George doesn\u2019t drone.
         - Unknown / missing personas fall back to the male voice so Garry
           never gets a surprise female clip.
@@ -1733,14 +1736,14 @@ def build_router(db) -> APIRouter:
         tts = OpenAITextToSpeech(api_key=key)
         try:
             audio = await tts.generate_speech(
-                text=body.text, model="tts-1-hd", voice=voice,
+                text=body.text, model="tts-1", voice=voice,
                 speed=speed, response_format="mp3",
             )
         except Exception as exc:
-            log.exception("TTS failed (voice=%s, model=tts-1-hd)", voice)
+            log.exception("TTS failed (voice=%s, model=tts-1)", voice)
             raise HTTPException(502, f"Speech generation failed: {exc}")
 
-        log.info("TTS ok (voice=%s, model=tts-1-hd, speed=%.2f, chars=%d)",
+        log.info("TTS ok (voice=%s, model=tts-1, speed=%.2f, chars=%d)",
                  voice, speed, len(body.text or ""))
         from fastapi.responses import Response as _Response
         # Disable any intermediary caching so a stale (wrong-voice) clip
@@ -1752,7 +1755,7 @@ def build_router(db) -> APIRouter:
                 "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
                 "Pragma": "no-cache",
                 "X-George-Voice": voice,
-                "X-George-Model": "tts-1-hd",
+                "X-George-Model": "tts-1",
                 "X-George-Speed": f"{speed:.2f}",
             },
         )
