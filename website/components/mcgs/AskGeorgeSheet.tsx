@@ -9,6 +9,65 @@ import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
+ * Module-level in-flight TTS dedup for the MCGS bubbles.
+ *
+ * Fixes the "Preparing…" delay when Garry taps Play while the
+ * background prefetch is still running: without this, `play()` and the
+ * prefetch effect each fired a fresh `speakText()` request against
+ * OpenAI (visible in preview backend logs as 2–3 duplicate POSTs
+ * within ~100 ms per bubble). Both paths now share the same Promise,
+ * so:
+ *
+ *   • Exactly ONE TTS request is ever in flight per (text, voice,
+ *     speed) tuple, no matter how many bubbles / callers ask for it.
+ *   • If Play is tapped mid-prefetch, play() awaits the existing
+ *     Promise instead of starting a new one — the "in-flight fallback"
+ *     the requirements call out.
+ *   • Once the Promise settles it is removed from the map so a real
+ *     network failure doesn't get stuck in a cache; a subsequent tap
+ *     retries cleanly (the Try-again path is preserved).
+ *
+ * Deliberately module-scoped (not a React ref) so two bubbles that
+ * somehow render the identical George reply also share the request.
+ * The map key is a compact string; text length is bounded by the
+ * George reply size (~1 KB) so the map footprint stays tiny.
+ *
+ * Voices ('george' → ash, 'georgia' → nova) and model (tts-1) are
+ * unchanged — this file never sends a raw OpenAI voice id.
+ */
+const _ttsInFlight = new Map<string, Promise<string>>();
+
+function _ttsKey(text: string, voice: 'george' | 'georgia', speed: number): string {
+  // Speed is quantised to two decimals so a 1.05 vs 1.0500000001 float
+  // wobble can't cause a spurious miss.
+  return `${voice}|${speed.toFixed(2)}|${text}`;
+}
+
+async function fetchOrShareTTS(
+  text: string,
+  voice: 'george' | 'georgia',
+  speed: number,
+): Promise<string> {
+  const key = _ttsKey(text, voice, speed);
+  const existing = _ttsInFlight.get(key);
+  if (existing) return existing;
+  const promise = (async () => {
+    try {
+      const blob = await speakText(text, voice, speed);
+      return URL.createObjectURL(blob);
+    } finally {
+      // Always release the slot on settle. Awaited callers already
+      // hold the resolved URL; a future tap that needs a *fresh* clip
+      // (e.g. after Try-again revoked the previous one) is free to
+      // launch a new request.
+      _ttsInFlight.delete(key);
+    }
+  })();
+  _ttsInFlight.set(key, promise);
+  return promise;
+}
+
+/**
  * The Ask George bottom-sheet. Streaming grounded chat with George.
  *
  * Batch-3 conversation continuity: the transcript is now owned by a
@@ -689,6 +748,10 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
   // Batch-3 responsiveness: quietly prefetch the mp3 as soon as George
   // has finished streaming this bubble. By the time Garry taps Play the
   // clip is almost always already in memory \u2014 tap-to-audio is instant.
+  //
+  // Aug 2026 update: routed through `fetchOrShareTTS` so a Play tap that
+  // arrives BEFORE this prefetch has resolved awaits the SAME request
+  // instead of firing a duplicate one against OpenAI.
   useEffect(() => {
     if (isUser) return;
     if (turn.streaming || turn.failed) return;
@@ -699,9 +762,9 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
     // microtask that finalises the stream \u2014 gives React a beat to paint.
     const timer = window.setTimeout(async () => {
       try {
-        const blob = await speakText(turn.content, 'george', 1.05);
+        const url = await fetchOrShareTTS(turn.content, 'george', 1.05);
         if (cancelled) return;
-        setAudioUrl(URL.createObjectURL(blob));
+        setAudioUrl(url);
       } catch {
         // Silent \u2014 the on-demand path in play() will surface the error
         // if Garry actually taps Play.
@@ -758,10 +821,16 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
           await el.play();
           el.pause();
         } catch { /* some browsers reject the silent clip; harmless */ }
-        // Persona key \u2014 backend maps "george" \u2192 ash (warm male, tts-1-hd).
+        // Persona key \u2014 backend maps "george" \u2192 ash (warm male, tts-1).
         // Never send a raw voice id from here; server enforces the map.
-        const blob = await speakText(turn.content, 'george', 1.05);
-        url = URL.createObjectURL(blob);
+        //
+        // `fetchOrShareTTS` de-duplicates against the background prefetch:
+        // if one is already in flight for this exact reply, we AWAIT it
+        // instead of firing a second OpenAI request. This is what makes
+        // "Preparing…" collapse from ~1.5 s to near-instant when the
+        // prefetch finished before the tap, and prevents duplicate calls
+        // when the tap lands mid-prefetch.
+        url = await fetchOrShareTTS(turn.content, 'george', 1.05);
         setAudioUrl(url);
       }
       el.src = url;
