@@ -201,8 +201,32 @@ export default function RootLayout() {
                           Expo Go on iOS, ~0.5 s flicker when switching
                           tabs). Same neutral surface used across the app.
                           `animation: "none"` avoids a subtle 200ms cross-
-                          fade that ALSO exposed the transparent frame. */}
-                      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#F8FAFC" }, animation: "none" }} />
+                          fade that ALSO exposed the transparent frame.
+
+                          `gestureEnabled: false` (added 2026-08-13,
+                          TestFlight launch-polish batch) disables the
+                          default iOS interactive edge-swipe-back on the
+                          ROOT stack. Rationale: on any stack child that
+                          was opened from a tab (e.g. /notices, /dm/[id],
+                          /profile/*), the underlying stack history is
+                          often just `[/]` (Welcome/Splash), so an
+                          accidental edge swipe would pop to Welcome and
+                          flash the splash — matching Garry's TestFlight
+                          report. All legitimate back navigation still
+                          works via each screen's Header back button and
+                          `router.back()` calls, and individual screens
+                          can re-enable the gesture with
+                          `<Stack.Screen options={{ gestureEnabled:
+                          true }} />` if a genuine multi-screen stack
+                          exists. */}
+                      <Stack
+                        screenOptions={{
+                          headerShown: false,
+                          contentStyle: { backgroundColor: "#F8FAFC" },
+                          animation: "none",
+                          gestureEnabled: false,
+                        }}
+                      />
                     </SplashGate>
                     {/* Global celebration overlay — mounted above every
                         screen so `emitFlutter()` can fire the butterfly

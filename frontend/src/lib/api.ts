@@ -87,9 +87,91 @@ async function req<T = any>(path: string, opts: RequestInit = {}, options: { sil
       }
     }
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${text}`);
+    throw new Error(_friendlyErrorMessage(res.status, text));
   }
-  return res.json() as Promise<T>;
+  // Success status but the body might still be non-JSON (e.g. a Cloudflare
+  // interstitial that returned 200 with an HTML challenge page, or a proxy
+  // that swallowed the FastAPI body). Read as text first so we can decide.
+  const raw = await res.text().catch(() => "");
+  if (!raw) {
+    // Some backends return 204 / empty bodies for POSTs; treat as `{}`.
+    return {} as T;
+  }
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    // Non-JSON body under a 2xx — treat identically to a Cloudflare/HTML
+    // error and raise a friendly message instead of a JSON.parse trace.
+    throw new Error(_friendlyErrorMessage(res.status, raw));
+  }
+}
+
+/**
+ * Convert an HTTP error (status + raw body) into a friendly, user-safe
+ * message. We deliberately do NOT surface raw HTML/Cloudflare response
+ * bodies to the UI — they leak infra details, look broken, and confuse
+ * end users. Backend JSON errors of the shape `{"detail": "..."}` are
+ * preserved as-is because they're written for end users.
+ *
+ * Recognises:
+ *   • Cloudflare error/challenge pages (block, 1020, "Attention Required")
+ *   • Generic HTML bodies (any `<html`, `<!doctype`)
+ *   • Empty / non-text bodies
+ *   • FastAPI JSON `{detail: "..."}` — pass through
+ *   • Anything else — best-effort truncated summary
+ */
+function _friendlyErrorMessage(status: number, body: string): string {
+  const trimmed = (body || "").trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1) FastAPI JSON detail — keep verbatim (already user-facing).
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const j = JSON.parse(trimmed);
+      const detail =
+        (typeof j?.detail === "string" && j.detail) ||
+        (typeof j?.message === "string" && j.message) ||
+        (typeof j?.error === "string" && j.error) ||
+        "";
+      if (detail) return `${status} ${detail}`;
+    } catch { /* fall through */ }
+  }
+
+  // 2) Cloudflare / generic HTML — never surface raw markup.
+  const isCloudflare =
+    lower.includes("cloudflare") ||
+    lower.includes("attention required") ||
+    lower.includes("error 1020") ||
+    lower.includes("cf-ray") ||
+    lower.includes("cf-error");
+  const isHtml =
+    lower.startsWith("<!doctype") ||
+    lower.startsWith("<html") ||
+    lower.includes("<body");
+
+  if (isCloudflare) {
+    return "We can't reach FriendPlace right now. Please check your connection and try again in a moment.";
+  }
+  if (isHtml) {
+    if (status >= 500) {
+      return "Something went wrong on our end. Please try again in a moment.";
+    }
+    if (status === 0 || status === 408) {
+      return "The connection timed out. Please check your network and try again.";
+    }
+    return "We couldn't complete that request. Please try again in a moment.";
+  }
+
+  // 3) Plain-text body from FastAPI or middleware — safe to show if short.
+  if (trimmed.length > 0 && trimmed.length <= 240) {
+    return `${status} ${trimmed}`;
+  }
+
+  // 4) Unknown / empty — status-only.
+  if (status >= 500) return "Something went wrong on our end. Please try again in a moment.";
+  if (status === 429) return "You're going a bit fast — please wait a moment and try again.";
+  if (status === 0)   return "No connection. Please check your network and try again.";
+  return `Request failed (${status}). Please try again.`;
 }
 
 export const api = {

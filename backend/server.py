@@ -1303,9 +1303,30 @@ async def auth_google(body: GoogleAuthBody):
 
 _APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
 _APPLE_ISSUER = "https://appleid.apple.com"
-_APPLE_AUDIENCES = (
-    os.getenv("APPLE_CLIENT_ID_IOS") or "au.com.friendplace.app",
-    os.getenv("APPLE_CLIENT_ID_WEB") or "au.com.friendplace.app.web",
+
+# FriendPlace's canonical Sign-in-with-Apple audiences. These are the
+# CURRENT production bundle IDs and are ALWAYS accepted — they cannot
+# be turned off by env vars. Environment overrides are treated as
+# ADDITIVE (staging / legacy / future Service IDs), never replacement.
+#
+# Historical bug this guards against: a stale `APPLE_CLIENT_ID_IOS`
+# env value on the production backend (e.g. left over from the YouBelong
+# rebrand) previously replaced the FriendPlace default via `or`,
+# causing every real FriendPlace TestFlight token to fail with
+# "aud not in allowlist". Additive semantics fix that permanently.
+_APPLE_CANONICAL_IOS_AUD = "au.com.friendplace.app"
+_APPLE_CANONICAL_WEB_AUD = "au.com.friendplace.app.web"
+
+_APPLE_AUDIENCES = tuple(
+    dict.fromkeys(  # dedupe while preserving order
+        a for a in (
+            _APPLE_CANONICAL_IOS_AUD,
+            _APPLE_CANONICAL_WEB_AUD,
+            os.getenv("APPLE_CLIENT_ID_IOS"),
+            os.getenv("APPLE_CLIENT_ID_WEB"),
+        )
+        if a and a.strip()
+    )
 )
 
 # Cache the JWK set in-memory for an hour. Apple rotates keys roughly twice a
