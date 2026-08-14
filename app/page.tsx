@@ -111,10 +111,12 @@ export default async function HomePage() {
                 >
                   Register Now →
                 </Link>              
-               <span style={{ fontSize: 12, fontWeight: 700, color: '#5EEAD4', alignSelf: 'center' }}>COMING SOON</span>
-<Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
-                 Get the App →
-                </Link>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+  <span style={{ fontSize: 12, fontWeight: 700, color: '#5EEAD4' }}>COMING SOON</span>
+  <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
+    Get the App →
+  </Link>
+</div>
                 <Link href="/how-it-works" className="btn btn-ghost">
                   See how it works
                 </Link>
