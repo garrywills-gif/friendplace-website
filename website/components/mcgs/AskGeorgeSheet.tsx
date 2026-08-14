@@ -9,65 +9,6 @@ import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
- * Module-level in-flight TTS dedup for the MCGS bubbles.
- *
- * Fixes the "Preparing…" delay when Garry taps Play while the
- * background prefetch is still running: without this, `play()` and the
- * prefetch effect each fired a fresh `speakText()` request against
- * OpenAI (visible in preview backend logs as 2–3 duplicate POSTs
- * within ~100 ms per bubble). Both paths now share the same Promise,
- * so:
- *
- *   • Exactly ONE TTS request is ever in flight per (text, voice,
- *     speed) tuple, no matter how many bubbles / callers ask for it.
- *   • If Play is tapped mid-prefetch, play() awaits the existing
- *     Promise instead of starting a new one — the "in-flight fallback"
- *     the requirements call out.
- *   • Once the Promise settles it is removed from the map so a real
- *     network failure doesn't get stuck in a cache; a subsequent tap
- *     retries cleanly (the Try-again path is preserved).
- *
- * Deliberately module-scoped (not a React ref) so two bubbles that
- * somehow render the identical George reply also share the request.
- * The map key is a compact string; text length is bounded by the
- * George reply size (~1 KB) so the map footprint stays tiny.
- *
- * Voices ('george' → ash, 'georgia' → nova) and model (tts-1) are
- * unchanged — this file never sends a raw OpenAI voice id.
- */
-const _ttsInFlight = new Map<string, Promise<string>>();
-
-function _ttsKey(text: string, voice: 'george' | 'georgia', speed: number): string {
-  // Speed is quantised to two decimals so a 1.05 vs 1.0500000001 float
-  // wobble can't cause a spurious miss.
-  return `${voice}|${speed.toFixed(2)}|${text}`;
-}
-
-async function fetchOrShareTTS(
-  text: string,
-  voice: 'george' | 'georgia',
-  speed: number,
-): Promise<string> {
-  const key = _ttsKey(text, voice, speed);
-  const existing = _ttsInFlight.get(key);
-  if (existing) return existing;
-  const promise = (async () => {
-    try {
-      const blob = await speakText(text, voice, speed);
-      return URL.createObjectURL(blob);
-    } finally {
-      // Always release the slot on settle. Awaited callers already
-      // hold the resolved URL; a future tap that needs a *fresh* clip
-      // (e.g. after Try-again revoked the previous one) is free to
-      // launch a new request.
-      _ttsInFlight.delete(key);
-    }
-  })();
-  _ttsInFlight.set(key, promise);
-  return promise;
-}
-
-/**
  * The Ask George bottom-sheet. Streaming grounded chat with George.
  *
  * Batch-3 conversation continuity: the transcript is now owned by a
@@ -732,6 +673,17 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
   );
 }
 
+// ---- helpers -----------------------------------------------------------
+//
+// Matches the end of a "complete sentence" — a sentence-final
+// punctuation followed by whitespace or end-of-string. Kept intentionally
+// simple: covers ., !, ? and their smart-quote / closing-paren companions.
+// We only need "did the model finish at least one sentence?" — not a
+// perfect NLP tokeniser. Streaming replies from George almost always land
+// clean punctuation before continuing (system prompt encourages plain
+// prose).
+const FIRST_SENTENCE_RE = /[.!?][\s"'\u201D\u2019)\]]*(\s|$)/;
+
 function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
   const isUser = turn.role === 'user';
   const [playing, setPlaying] = useState(false);
@@ -745,36 +697,125 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
   // "Try again" so Garry can recover without hunting for a control.
   const playedDurationRef = useRef<number>(0);
   const totalDurationRef  = useRef<number>(0);
-  // Batch-3 responsiveness: quietly prefetch the mp3 as soon as George
-  // has finished streaming this bubble. By the time Garry taps Play the
-  // clip is almost always already in memory \u2014 tap-to-audio is instant.
+
+  // ---- TTS PREFETCH STATE (Iter155 latency fix, Rank 1) ------------------
+  // Restored 14 Aug 2026 after the 5-minute revert on 7 Aug 2026 that
+  // rolled back the mid-stream prefetch design. All Batch 2 / 4 / 6 Safari,
+  // truncation and handler-nulling protections below are preserved.
   //
-  // Aug 2026 update: routed through `fetchOrShareTTS` so a Play tap that
-  // arrives BEFORE this prefetch has resolved awaits the SAME request
-  // instead of firing a duplicate one against OpenAI.
+  // Mirror of audioUrl usable inside async callbacks without stale closures.
+  const audioUrlRef = useRef<string | null>(null);
+  useEffect(() => { audioUrlRef.current = audioUrl; }, [audioUrl]);
+  // The currently in-flight prefetch, or null when idle. Carries the text
+  // the request was launched for AND its AbortController so we can cancel
+  // it if the LLM keeps streaming past that text (multi-sentence replies).
+  const inFlightRef = useRef<{ text: string; promise: Promise<string>; controller: AbortController } | null>(null);
+  // Text the current audioUrl blob was synthesised from — used to detect
+  // when a growing streamed reply has invalidated an earlier prefetch.
+  const prefetchedForRef = useRef<string>('');
+  // Guards against re-firing the "early during streaming" prefetch on
+  // every token that arrives. We fire at most once per bubble while the
+  // stream is still open; the stream-end path handles the "content grew
+  // after first sentence" case (early request is aborted so the late
+  // call replaces it, still satisfying "single in-flight").
+  const attemptedEarlyRef = useRef<boolean>(false);
+
+  // Iter155 latency fix (Rank 1) — kick off the TTS prefetch as soon as
+  // the FIRST complete sentence is streamed in (not 120 ms after the whole
+  // reply finishes). For the 1-sentence replies George typically produces,
+  // the early text == final text, so the audio is generated in parallel
+  // with the LLM stream and is often ready by the time the Play button
+  // appears.
+  //
+  // For rarer multi-sentence replies the early prefetch is ABORTED the
+  // moment we notice the streamed text has grown past what it was fired
+  // for, and a fresh call is issued with the full content. This keeps
+  // the "single in-flight" invariant AND avoids doing 2× TTS work.
   useEffect(() => {
-    if (isUser) return;
-    if (turn.streaming || turn.failed) return;
+    if (isUser || turn.failed) return;
     if (!turn.content) return;
-    if (audioUrl) return;
-    let cancelled = false;
-    // Small stagger so we don\u2019t launch the prefetch inside the same
-    // microtask that finalises the stream \u2014 gives React a beat to paint.
-    const timer = window.setTimeout(async () => {
-      try {
-        const url = await fetchOrShareTTS(turn.content, 'george', 1.05);
-        if (cancelled) return;
-        setAudioUrl(url);
-      } catch {
-        // Silent \u2014 the on-demand path in play() will surface the error
-        // if Garry actually taps Play.
+    // Fast path: we already have a blob that matches the current text.
+    if (audioUrl && prefetchedForRef.current === turn.content) return;
+
+    // If an earlier "early" prefetch is running for a shorter text, and
+    // the LLM has now produced more content, cancel it so we can refire
+    // with the correct text. This is what stops multi-sentence replies
+    // from spending two full TTS budgets serially.
+    const cur = inFlightRef.current;
+    if (cur && cur.text !== turn.content) {
+      // Abort only when the streamed text has grown past what the
+      // in-flight was fired for. Length is a cheap heuristic; the full
+      // streaming pattern is monotonic-append so length strictly grows.
+      if (turn.content.length > cur.text.length) {
+        try { cur.controller.abort(); } catch { /* noop */ }
+        inFlightRef.current = null;
       }
-    }, 120);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+    }
+    // Something is already generating for the exact text we'd request —
+    // do not fire a duplicate.
+    if (inFlightRef.current && inFlightRef.current.text === turn.content) return;
+    // A stale in-flight (shorter text) is still running AND we haven't
+    // decided to abort yet (see the guard above). Wait for it to finish
+    // before firing a new call.
+    if (inFlightRef.current) return;
+
+    // Decide whether to fire, and with what text.
+    let candidate: string | null = null;
+    if (!turn.streaming) {
+      // Stream just ended (or was already ended). Fire with full content.
+      candidate = turn.content;
+    } else if (!attemptedEarlyRef.current && FIRST_SENTENCE_RE.test(turn.content)) {
+      // First complete sentence has arrived — fire early with what we
+      // have so far. Mark so subsequent token arrivals don't re-trigger.
+      candidate = turn.content;
+      attemptedEarlyRef.current = true;
+    }
+    if (!candidate) return;
+
+    const forText = candidate;
+    const controller = new AbortController();
+    // Kick off the actual request. speakText uses the same fetchWithRetry
+    // path — nothing about the request shape changes (tts-1, ash,
+    // speed 1.05, mp3, /api/george/voice/speak).
+    const promise = (async () => {
+      const blob = await speakText(forText, 'george', 1.05, controller.signal);
+      return URL.createObjectURL(blob);
+    })();
+    inFlightRef.current = { text: forText, promise, controller };
+
+    promise
+      .then((url) => {
+        // If a fresher blob has been stored while we were in flight
+        // (shouldn't happen given the single-in-flight guard, but be
+        // defensive), revoke ours to avoid leaking.
+        if (audioUrlRef.current && audioUrlRef.current !== url) {
+          try { URL.revokeObjectURL(audioUrlRef.current); } catch { /* noop */ }
+        }
+        setAudioUrl(url);
+        prefetchedForRef.current = forText;
+      })
+      .catch((err) => {
+        // Aborted (because the stream extended past our input) — swallow
+        // silently, the follow-up prefetch or the play() path will surface
+        // any real error. Any other error is also silent by design; play()
+        // is the user-visible failure point.
+        void err;
+      })
+      .finally(() => {
+        if (inFlightRef.current?.promise === promise) {
+          inFlightRef.current = null;
+        }
+      });
   }, [isUser, turn.streaming, turn.failed, turn.content, audioUrl]);
+
+  // Free the last blob URL when the bubble unmounts so long conversations
+  // don't accumulate object URLs. (Previously we only revoked on truncation
+  // recovery; the prefetch rewrite means we can leak more of these.)
+  useEffect(() => () => {
+    if (audioUrlRef.current) {
+      try { URL.revokeObjectURL(audioUrlRef.current); } catch { /* noop */ }
+    }
+  }, []);
 
   async function play() {
     if (playing) {
@@ -815,23 +856,44 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
     el.onplaying = null;
     try {
       let url = audioUrl;
+      // A cached blob may cover only the first-sentence prefetch text
+      // if this bubble is a multi-sentence reply and the late prefetch
+      // hasn't landed yet. Treat that as "no blob" so we don't play a
+      // truncated clip. prefetchedForRef is the text the current blob
+      // was synthesised from.
+      if (url && prefetchedForRef.current !== turn.content) {
+        url = null;
+      }
       if (!url) {
         try {
           el.src = SILENT_WAV;
           await el.play();
           el.pause();
         } catch { /* some browsers reject the silent clip; harmless */ }
-        // Persona key \u2014 backend maps "george" \u2192 ash (warm male, tts-1).
-        // Never send a raw voice id from here; server enforces the map.
-        //
-        // `fetchOrShareTTS` de-duplicates against the background prefetch:
-        // if one is already in flight for this exact reply, we AWAIT it
-        // instead of firing a second OpenAI request. This is what makes
-        // "Preparing…" collapse from ~1.5 s to near-instant when the
-        // prefetch finished before the tap, and prevents duplicate calls
-        // when the tap lands mid-prefetch.
-        url = await fetchOrShareTTS(turn.content, 'george', 1.05);
-        setAudioUrl(url);
+        // Rank 1 dedup: if a prefetch is already in flight for the
+        // current turn text, join it rather than firing a second
+        // request. If it's in flight for a shorter (early) text we do
+        // NOT join — that would give Garry a truncated clip. We
+        // fire a fresh call in that rare case; the "single in-flight"
+        // invariant is preserved on the prefetch side and this Play
+        // path may legitimately overlap once, to guarantee full-text
+        // playback.
+        const inflight = inFlightRef.current;
+        if (inflight && inflight.text === turn.content) {
+          try {
+            url = await inflight.promise;
+          } catch {
+            url = null;
+          }
+        }
+        if (!url) {
+          // Persona key — backend maps "george" → ash (warm male, tts-1).
+          // Never send a raw voice id from here; server enforces the map.
+          const blob = await speakText(turn.content, 'george', 1.05);
+          url = URL.createObjectURL(blob);
+          setAudioUrl(url);
+          prefetchedForRef.current = turn.content;
+        }
       }
       el.src = url;
       // Batch-4: instrument every playback so we can catch truncation.
