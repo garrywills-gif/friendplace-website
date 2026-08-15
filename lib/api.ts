@@ -23,7 +23,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     method,
     headers,
     body: body != null ? JSON.stringify(body) : undefined,
-    cache: 'no-store',
+    cache: method === 'GET' && path.startsWith('/public/') ? 'force-cache' : 'no-store',
   });
   if (res.status === 401) clearAuth();
   const text = await res.text();
