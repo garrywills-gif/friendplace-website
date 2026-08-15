@@ -50,6 +50,33 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return json as T;
 }
 
+
+export type FAQ = { q: string; a: string };
+export type FeatureCard = { icon: string; title: string; body: string };
+export type FoundingMember = { name: string; number: number; avatar?: string };
+export type SuccessStory = { name: string; title: string; body: string; avatar?: string };
+
+export const cms = {
+  about: () => req<any>('GET', '/public/about'),
+  features: () => req<{ features: FeatureCard[] }>('GET', '/public/features'),
+  faqs: () => req<{ faqs: FAQ[] }>('GET', '/public/faqs'),
+  founders: () => req<{ members: FoundingMember[]; count: number; cap: number }>('GET', '/public/founders'),
+  stories: () => req<{ stories: SuccessStory[] }>('GET', '/public/stories'),
+};
+
+export async function submitContact(payload: {
+  name: string;
+  email: string;
+  message: string;
+  reason?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await req('POST', '/public/contact', payload);
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Network error' };
+  }
+}
 // ---------- Types ----------
 
 export type Priority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4';
