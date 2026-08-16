@@ -1,38 +1,103 @@
-import type { MetadataRoute } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { site } from '@/lib/brand';
+import './globals.css';
+import SiteHeader from '@/components/SiteHeader';
+import SiteFooter from '@/components/SiteFooter';
+import { CompanionProvider } from '@/lib/companion-context';
+import { ConciergeOverlay } from '@/components/site/ConciergeOverlay';
+import { LeadingButterfly } from '@/components/site/LeadingButterfly';
 
-/**
- * Programmatic robots.txt.
- *
- * Production is indexable by default.
- * Preview/development builds remain blocked from search engines.
- *
- * FRIENDPLACE_INDEXABLE=true  forces indexing.
- * FRIENDPLACE_INDEXABLE=false blocks indexing as an emergency override.
- */
-export default function robots(): MetadataRoute.Robots {
-  const flag = process.env.FRIENDPLACE_INDEXABLE;
-  const indexable =
-    flag === 'true' ||
-    (flag !== 'false' && process.env.VERCEL_ENV === 'production');
+export const metadata: Metadata = {
+  metadataBase: new URL(site.urlProduction),
+  title: {
+    default: `${site.name} — ${site.tagline}`,
+    template: `%s — ${site.name}`,
+  },
+  description: site.description,
+  keywords: [
+    'FriendPlace',
+    'friendship app Australia',
+    'community app',
+    'make new friends',
+    'local meetups',
+    'belonging',
+    'social community',
+  ],
+  authors: [{ name: 'FriendPlace' }],
+  // Post-launch (Aug 2026): default to index/follow on Vercel production.
+  // Preview and development deploys stay noindex automatically because
+  // VERCEL_ENV is 'preview' or 'development' on those. The admin section
+  // has its own unconditional noindex override in app/admin/layout.tsx,
+  // so /admin/* stays private no matter what we do here. Explicit
+  // FRIENDPLACE_INDEXABLE=true forces indexable anywhere; explicit
+  // =false is the emergency killswitch for prod.
+  robots: (() => {
+    const flag = process.env.FRIENDPLACE_INDEXABLE;
+    const indexable =
+      flag === 'true' ||
+      (flag !== 'false' && process.env.VERCEL_ENV === 'production');
+    return indexable
+      ? { index: true, follow: true }
+      : {
+          index: false,
+          follow: false,
+          nocache: true,
+          googleBot: { index: false, follow: false, noimageindex: true },
+        };
+  })(),
+  openGraph: {
+    title: `${site.name} — ${site.tagline}`,
+    description: site.description,
+    url: site.urlProduction,
+    siteName: site.name,
+    locale: 'en_AU',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${site.name} — ${site.tagline}`,
+    description: site.description,
+  },
+  icons: {
+    icon: '/brand-assets/favicon.png',
+    apple: '/brand-assets/favicon.png',
+  },
+};
 
-  const base = site.urlProduction.replace(/\/$/, '');
+// Next.js 14 wants viewport-related fields in a separate `viewport`
+// export (rather than the deprecated position inside `metadata`). Kept
+// here so the browser tab colour matches our navy brand.
+export const viewport: Viewport = {
+  themeColor: '#0A2540',
+  width: 'device-width',
+  initialScale: 1,
+};
 
-  if (!indexable) {
-    return {
-      rules: [{ userAgent: '*', disallow: '/' }],
-    };
-  }
-
-  return {
-    rules: [
-      {
-        userAgent: '*',
-        allow: '/',
-        disallow: ['/admin', '/admin/*'],
-      },
-    ],
-    sitemap: `${base}/sitemap.xml`,
-    host: base,
-  };
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en-AU">
+      <head>
+        {/* Public Sans — our closest free web equivalent of the mobile
+            app's Plus Jakarta Sans. Preconnect keeps first paint fast. */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800;900&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body>
+        <CompanionProvider>
+          <SiteHeader />
+          <main>{children}</main>
+          <SiteFooter />
+          {/* Concierge overlay — a global welcome that any surface can
+              summon by dispatching `friendplace:meet-george`. Renders
+              nothing until invited. */}
+          <ConciergeOverlay />
+          <LeadingButterfly />
+        </CompanionProvider>
+      </body>
+    </html>
+  );
 }
