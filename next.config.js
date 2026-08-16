@@ -46,14 +46,19 @@ const nextConfig = {
       '/privacy', '/terms', '/butterfly-lab',
     ].map((src) => ({ source: src, headers: marketingHtmlHeaders }));
 
-    const noindex = process.env.FRIENDPLACE_INDEXABLE === 'true'
-      ? []
-      : [{
-          source: '/:path*',
-          headers: [
-            { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive, nosnippet' },
-          ],
-        }];
+    const flag = process.env.FRIENDPLACE_INDEXABLE;
+const indexable =
+  flag === 'true' ||
+  (flag !== 'false' && process.env.VERCEL_ENV === 'production');
+
+const noindex = indexable
+  ? []
+  : [{
+      source: '/:path*',
+      headers: [
+        { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive, nosnippet' },
+      ],
+    }];
 
     return [...noindex, ...marketingRoutes];
   },
