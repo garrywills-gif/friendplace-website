@@ -14,7 +14,7 @@ import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
  * Batch-3 conversation continuity: the transcript is now owned by a
  * session-scoped store (see /app/website/lib/george-session.ts) so
  * Close (\u00D7), page navigation and minimise all preserve the working
- * conversation. Only explicit \"New conversation\" or logout wipes it.
+ * conversation. Only explicit "New conversation" or logout wipes it.
  */
 interface AskGeorgeSheetProps {
   open: boolean;
