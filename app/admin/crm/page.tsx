@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import AdminShell from '../../../components/admin/AdminShell';
+import { AdminShell } from '../../../components/admin/AdminShell';
 
 const workspaces = [
   {
