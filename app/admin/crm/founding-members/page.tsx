@@ -789,7 +789,7 @@ const [deleting, setDeleting] = useState(false);
           }}
           disabled={deleting}
           style={{
-            ...s.secondaryBtn,
+           ...s.ghostBtn,
             padding: '7px 14px',
             fontSize: 12,
           }}
