@@ -571,6 +571,7 @@ isReserved={Boolean(row.is_reserved)}
                   onUpdate(row.id, { status: newStatus }, { status: newStatus })
                
                 }
+                onDelete={deleteRow}
               />
             </div>
           </div>
