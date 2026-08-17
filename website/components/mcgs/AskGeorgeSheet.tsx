@@ -919,9 +919,6 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
     autoPlayFiredRef.current = true;
     // Fire and forget — play() handles its own error state.
     void play();
-    // NOTE: intentionally not depending on `play` (redeclared each
-    // render); the ref guard prevents double-fires either way.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoSpeak, audioUrl, turn.content, turn.streaming, turn.failed, isUser, playing, preparing]);
 
   async function play() {

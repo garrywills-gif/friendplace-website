@@ -36,6 +36,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Community',
     items: [
+      { href: '/admin/crm',              label: 'CRM Navigator',    icon: '🧭' },
       { href: '/admin/members',          label: 'Members',          icon: '👤' },
       { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥' },
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
