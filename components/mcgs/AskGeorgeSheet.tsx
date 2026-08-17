@@ -97,6 +97,27 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     return null;
   });
   const dragRef = useRef<{ dx: number; dy: number; active: boolean }>({ dx: 0, dy: 0, active: false });
+  const [autoSpeak, setAutoSpeak] = useState(false);
+
+useEffect(() => {
+  try {
+    setAutoSpeak(window.localStorage.getItem('fp:mcgs:auto-speak') === '1');
+  } catch {
+    // localStorage unavailable — leave auto-speak off
+  }
+}, []);
+
+const toggleAutoSpeak = () => {
+  setAutoSpeak(current => {
+    const next = !current;
+    try {
+      window.localStorage.setItem('fp:mcgs:auto-speak', next ? '1' : '0');
+    } catch {
+      // localStorage unavailable
+    }
+    return next;
+  });
+};
 
   const savePos = (p: Position) => {
     try { window.sessionStorage.setItem('ask-george-sheet:pos', JSON.stringify(p)); } catch { /* noop */ }
@@ -607,7 +628,7 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
             </div>
           )}
           {turns.map((t, i) => (
-            <ChatBubble key={i} turn={t as Turn} onRetry={retryLast} />
+            <ChatBubble key={i} turn={t as Turn} onRetry={retryLast} autoSpeak={autoSpeak}/>
           ))}
         </div>
 
@@ -653,6 +674,24 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
             >Send</button>
           )}
         </div>
+            <label
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 12px',
+          fontSize: 12,
+          color: '#64748B',
+          cursor: 'pointer',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={autoSpeak}
+          onChange={toggleAutoSpeak}
+        />
+        Speak replies automatically
+      </label>
         {micError && (
           <div style={micErrorPop} role="alert">{micError}</div>
         )}
@@ -684,7 +723,7 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
 // prose).
 const FIRST_SENTENCE_RE = /[.!?][\s"'\u201D\u2019)\]]*(\s|$)/;
 
-function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
+function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => void; autoSpeak: boolean }) {
   const isUser = turn.role === 'user';
   const [playing, setPlaying] = useState(false);
   const [preparing, setPreparing] = useState(false);
@@ -954,6 +993,23 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
       }
     }
   }
+   const autoPlayedRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      !autoSpeak ||
+      isUser ||
+      autoPlayedRef.current ||
+      playing ||
+      preparing ||
+      !audioUrl
+    ) {
+      return;
+    }
+
+    autoPlayedRef.current = true;
+    void play();
+  }, [autoSpeak, isUser, audioUrl, playing, preparing]);
   return (
     <div style={{
       display: 'flex', gap: 12, padding: '14px 24px',
