@@ -830,6 +830,15 @@ export const foundingMembersCrmApi = {
     id: string,
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
   ) => req<CRMFoundingMember>('PATCH', `/cms/crm/founding-members/${id}`, patch),
+    remove: (id: string) =>
+    req<{
+      ok: true;
+      deleted_id: string;
+      founder_number: number | null;
+      email: string;
+      first_name: string;
+      deleted_by: string;
+    }>('DELETE', `/cms/crm/founding-members/${encodeURIComponent(id)}`),
   timeline: (id: string) =>
     req<{ count: number; events: CRMTimelineEvent[] }>(
       'GET', `/cms/crm/founding-members/${id}/timeline`,

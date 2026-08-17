@@ -98,6 +98,32 @@ export default function FoundingMembersCRMPage() {
     }
   };
 
+   // ── Delete registration ────────────────────────────────────────
+  // Two-step confirm handled in-panel (see AdminOverridePanel below).
+  // This function only runs after the operator has typed the founder
+  // number into the confirmation input. Removes the row from local
+  // state on success and refreshes stats. Server rejects reserved
+  // slots with a 403; the UI mirrors that check but the server is the
+  // source of truth.
+  const deleteRow = async (id: string): Promise<boolean> => {
+    const prev = rows;
+    try {
+      const res = await foundingMembersCrmApi.remove(id);
+      setRows(cur => cur.filter(r => r.id !== id));
+      setExpandedId(cur => (cur === id ? null : cur));
+      try { setStats(await foundingMembersCrmApi.stats()); } catch { /* non-fatal */ }
+      const label = res.founder_number
+        ? `#${String(res.founder_number).padStart(4, '0')} ${res.first_name || ''}`.trim()
+        : (res.first_name || 'registration');
+      showToast(`Deleted ${label}`);
+      return true;
+    } catch (e: any) {
+      setRows(prev);
+      showToast(e?.message || 'Delete failed');
+      return false;
+    }
+  };
+
   const activeFilterMeta = FILTERS.find(f => f.key === filter);
   const emptyMessage = activeFilterMeta?.emptyLabel || 'No Founding Members yet.';
   const emptySubline = filter === 'all'
@@ -221,6 +247,7 @@ export default function FoundingMembersCRMPage() {
               expanded={expandedId === r.id}
               onToggle={() => setExpandedId(cur => (cur === r.id ? null : r.id))}
               onUpdate={applyPatch}
+              onDelete={deleteRow}
             />
           ))
         )}
@@ -298,7 +325,7 @@ function StatCard({
 // ─── Row ──────────────────────────────────────────────────────
 
 function MemberRow({
-  row, expanded, onToggle, onUpdate,
+row, expanded, onToggle, onUpdate, onDelete,
 }: {
   row: CRMFoundingMember;
   expanded: boolean;
@@ -308,6 +335,7 @@ function MemberRow({
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
     optimistic?: Partial<CRMFoundingMember>,
   ) => void;
+  onDelete: (id: string) => Promise<boolean>;
 }) {
   const [notesDraft, setNotesDraft] = useState(row.admin_notes || '');
   const [tagInput, setTagInput] = useState('');
@@ -536,8 +564,12 @@ function MemberRow({
 
               <AdminOverridePanel
                 currentStatus={status}
+               rowId={row.id}
+founderNumber={row.founder_number}
+isReserved={Boolean(row.is_reserved)}          
                 onOverride={(newStatus) =>
                   onUpdate(row.id, { status: newStatus }, { status: newStatus })
+               
                 }
               />
             </div>
@@ -555,14 +587,24 @@ function MemberRow({
 // created, unsubscribe clicked).
 function AdminOverridePanel({
   currentStatus,
+  rowId,
+  founderNumber,
+  isReserved,
   onOverride,
+  onDelete,
 }: {
   currentStatus: CRMFoundingMemberStatus;
+  rowId: string;
+  founderNumber?: number | null;
+  isReserved: boolean;
   onOverride: (s: CRMFoundingMemberStatus) => void;
+  onDelete: (id: string) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<CRMFoundingMemberStatus | null>(null);
-
+const [deleteOpen, setDeleteOpen] = useState(false);
+const [deleteConfirm, setDeleteConfirm] = useState('');
+const [deleting, setDeleting] = useState(false);
   return (
     <div style={{
       marginTop: 22, paddingTop: 16,
@@ -650,6 +692,119 @@ function AdminOverridePanel({
               Apply override
             </button>
           </div>
+          {/* Permanent delete — deliberately inside Advanced Admin Override */}
+<div
+  style={{
+    marginTop: 18,
+    paddingTop: 16,
+    borderTop: '1px solid #FECACA',
+  }}
+>
+  {!deleteOpen ? (
+    <button
+      type="button"
+      onClick={() => {
+        setDeleteOpen(true);
+        setDeleteConfirm('');
+      }}
+      disabled={isReserved}
+      style={{
+        ...s.dangerBtn,
+        opacity: isReserved ? 0.45 : 1,
+        cursor: isReserved ? 'not-allowed' : 'pointer',
+      }}
+    >
+      Delete registration
+    </button>
+  ) : (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 800, color: '#B91C1C' }}>
+        Permanently delete this registration?
+      </div>
+
+      <div style={{ ...s.helper, marginTop: 6 }}>
+        This cannot be undone. Type the founder number to confirm.
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <input
+          value={deleteConfirm}
+          onChange={e => setDeleteConfirm(e.target.value)}
+          placeholder={founderNumber ? String(founderNumber) : 'Founder number'}
+          style={{
+            ...s.input,
+            padding: '7px 10px',
+            fontSize: 12,
+            maxWidth: 180,
+          }}
+        />
+
+        <button
+          type="button"
+          disabled={
+            deleting ||
+            !founderNumber ||
+            deleteConfirm.trim() !== String(founderNumber)
+          }
+          onClick={async () => {
+            if (
+              !founderNumber ||
+              deleteConfirm.trim() !== String(founderNumber)
+            ) {
+              return;
+            }
+
+            setDeleting(true);
+            try {
+              const deleted = await onDelete(rowId);
+              if (deleted) {
+                setDeleteOpen(false);
+                setDeleteConfirm('');
+              }
+            } finally {
+              setDeleting(false);
+            }
+          }}
+          style={{
+            ...s.dangerBtn,
+            padding: '7px 14px',
+            fontSize: 12,
+            opacity:
+              deleting ||
+              !founderNumber ||
+              deleteConfirm.trim() !== String(founderNumber)
+                ? 0.5
+                : 1,
+          }}
+        >
+          {deleting ? 'Deleting…' : 'Delete permanently'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setDeleteOpen(false);
+            setDeleteConfirm('');
+          }}
+          disabled={deleting}
+          style={{
+            ...s.secondaryBtn,
+            padding: '7px 14px',
+            fontSize: 12,
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+
+      {isReserved && (
+        <div style={{ ...s.helper, marginTop: 8 }}>
+          Reserved founder seats cannot be deleted.
+        </div>
+      )}
+    </div>
+  )}
+</div>
         </div>
       )}
     </div>
