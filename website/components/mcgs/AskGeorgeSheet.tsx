@@ -98,6 +98,29 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
   });
   const dragRef = useRef<{ dx: number; dy: number; active: boolean }>({ dx: 0, dy: 0, active: false });
 
+  // ── "Speak replies automatically" toggle (Rank 3, 2026-08-16) ──
+  // When ON, George auto-plays each finished reply using the existing
+  // Read-Aloud pipeline (same tts-1 route, same prefetch, same Play
+  // element). Manual Play remains available in both modes. Preference
+  // persists across sessions / reloads via localStorage. Safari
+  // autoplay policy: if the browser refuses to auto-start (no active
+  // user gesture by the time the reply finishes), the Play button
+  // stays visible — the user simply presses it, exactly like today.
+  const AUTO_SPEAK_KEY = 'fp:mcgs:auto-speak';
+  const [autoSpeak, setAutoSpeak] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem(AUTO_SPEAK_KEY) === '1'; }
+    catch { return false; }
+  });
+  const toggleAutoSpeak = () => {
+    setAutoSpeak(v => {
+      const next = !v;
+      try { window.localStorage.setItem(AUTO_SPEAK_KEY, next ? '1' : '0'); }
+      catch { /* noop */ }
+      return next;
+    });
+  };
+
   const savePos = (p: Position) => {
     try { window.sessionStorage.setItem('ask-george-sheet:pos', JSON.stringify(p)); } catch { /* noop */ }
   };
@@ -607,7 +630,7 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
             </div>
           )}
           {turns.map((t, i) => (
-            <ChatBubble key={i} turn={t as Turn} onRetry={retryLast} />
+            <ChatBubble key={i} turn={t as Turn} onRetry={retryLast} autoSpeak={autoSpeak} />
           ))}
         </div>
 
@@ -653,6 +676,60 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
             >Send</button>
           )}
         </div>
+        {/* Speak-replies-automatically toggle — persists across sessions.
+            Placed under the composer so it doesn't crowd the drag handle
+            or the mic. Uses the existing Read-Aloud pipeline; when off,
+            behaviour is exactly the same as before (manual Play). */}
+        <button
+          type="button"
+          onClick={toggleAutoSpeak}
+          role="switch"
+          aria-checked={autoSpeak}
+          title={autoSpeak
+            ? 'George will read each reply aloud automatically. Click to turn off.'
+            : 'George will only read replies when you press Play. Click to turn on.'}
+          style={{
+            marginTop: 8,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '6px 12px',
+            borderRadius: 999,
+            border: `1px solid ${autoSpeak ? '#5EEAD4' : '#E2E8F0'}`,
+            background: autoSpeak ? '#F0FDFA' : '#FFFFFF',
+            color: autoSpeak ? '#0F766E' : '#64748B',
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: 'pointer',
+            alignSelf: 'flex-start',
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              display: 'inline-block',
+              width: 26,
+              height: 14,
+              borderRadius: 999,
+              background: autoSpeak ? '#14B8A6' : '#CBD5E1',
+              position: 'relative',
+              transition: 'background 0.15s',
+            }}
+          >
+            <span style={{
+              position: 'absolute',
+              top: 1,
+              left: autoSpeak ? 13 : 1,
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              background: '#FFFFFF',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+              transition: 'left 0.15s',
+            }} />
+          </span>
+          <span>{autoSpeak ? '🔊' : '🔈'} Speak replies automatically</span>
+        </button>
         {micError && (
           <div style={micErrorPop} role="alert">{micError}</div>
         )}
@@ -684,7 +761,7 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
 // prose).
 const FIRST_SENTENCE_RE = /[.!?][\s"'\u201D\u2019)\]]*(\s|$)/;
 
-function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
+function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?: () => void; autoSpeak?: boolean }) {
   const isUser = turn.role === 'user';
   const [playing, setPlaying] = useState(false);
   const [preparing, setPreparing] = useState(false);
@@ -816,6 +893,36 @@ function ChatBubble({ turn, onRetry }: { turn: Turn; onRetry?: () => void }) {
       try { URL.revokeObjectURL(audioUrlRef.current); } catch { /* noop */ }
     }
   }, []);
+
+  // ── Auto-speak (Rank 3, 2026-08-16) ─────────────────────────────
+  // Fire play() exactly once per bubble when:
+  //   • autoSpeak preference is ON
+  //   • this bubble is a completed (non-streaming) George reply
+  //   • the prefetched audio for the FULL final text is ready
+  // The prefetch effect above already synthesises the clip in
+  // parallel with streaming, so by the time this condition is true
+  // there's normally no perceptible latency between reply-finish
+  // and speech-start.
+  //
+  // Safari autoplay caveat: play() may reject silently if the tab
+  // has no active user gesture (i.e. Garry sent a message > ~30s
+  // ago). We swallow that — the Play button stays available so he
+  // can trigger playback manually, exactly like today. No new UI
+  // state, no error toast.
+  const autoPlayFiredRef = useRef(false);
+  useEffect(() => {
+    if (isUser || turn.failed || turn.streaming || !turn.content) return;
+    if (!autoSpeak) return;
+    if (autoPlayFiredRef.current) return;
+    if (!audioUrl || prefetchedForRef.current !== turn.content) return;
+    if (playing || preparing) return;
+    autoPlayFiredRef.current = true;
+    // Fire and forget — play() handles its own error state.
+    void play();
+    // NOTE: intentionally not depending on `play` (redeclared each
+    // render); the ref guard prevents double-fires either way.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSpeak, audioUrl, turn.content, turn.streaming, turn.failed, isUser, playing, preparing]);
 
   async function play() {
     if (playing) {

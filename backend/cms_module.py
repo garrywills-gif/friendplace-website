@@ -956,6 +956,54 @@ def build_router(db) -> APIRouter:
         return _normalise_fm_row(row) if row else row
 
 
+    @router.delete("/crm/founding-members/{member_id}")
+    async def crm_founding_members_delete(
+        member_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Permanently delete a Founding Member registration.
+
+        Admin-only, destructive, no soft-delete. Rules:
+          • Refuses when ``is_reserved`` is truthy — reserved slots
+            (#0001 Garry, #0002 George, #0003 Neo, and any future
+            honorary insert) must remain protected. No override
+            mechanism today; the deliberate escape hatch is direct
+            DB Viewer access via the Emergent production console.
+          • Does NOT rewind the ``counters/founder_number`` document.
+            Founding numbers are monotonic by design — a gap in the
+            sequence is preferred over reuse. Reclaiming a specific
+            number requires a separate, deliberate counter edit
+            (which the DB Viewer supports).
+          • Deletes exactly one row from ``interest_registrations``.
+            No cascade to ``users``, ``events``, or any other
+            collection.
+          • Returns the founder_number and email of the deleted row
+            so the client can render a truthful confirmation and
+            audit line.
+        """
+        row = await db.interest_registrations.find_one({"id": member_id}, {"_id": 0})
+        if not row:
+            raise HTTPException(404, "Founding member not found")
+        if bool(row.get("is_reserved")):
+            raise HTTPException(
+                403,
+                "This is a reserved Founding Member slot and cannot be deleted "
+                "from the CRM. If you truly need to remove it, use the "
+                "Emergent Production Database Viewer.",
+            )
+        res = await db.interest_registrations.delete_one({"id": member_id})
+        if res.deleted_count == 0:
+            # Raced with another delete — treat as already gone.
+            raise HTTPException(404, "Founding member not found")
+        return {
+            "ok":              True,
+            "deleted_id":      member_id,
+            "founder_number":  row.get("founder_number"),
+            "email":           row.get("email"),
+            "first_name":      row.get("first_name"),
+            "deleted_by":      admin.get("id"),
+        }
+
 
     from fastapi.responses import HTMLResponse as _HTMLResponse  # noqa: WPS433
 

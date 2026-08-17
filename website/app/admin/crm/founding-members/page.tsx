@@ -98,6 +98,32 @@ export default function FoundingMembersCRMPage() {
     }
   };
 
+  // ── Delete registration ────────────────────────────────────────
+  // Two-step confirm handled in-panel (see AdminOverridePanel below).
+  // This function only runs after the operator has typed the founder
+  // number into the confirmation input. Removes the row from local
+  // state on success and refreshes stats. Server rejects reserved
+  // slots with a 403; the UI mirrors that check but the server is the
+  // source of truth.
+  const deleteRow = async (id: string): Promise<boolean> => {
+    const prev = rows;
+    try {
+      const res = await foundingMembersCrmApi.remove(id);
+      setRows(cur => cur.filter(r => r.id !== id));
+      setExpandedId(cur => (cur === id ? null : cur));
+      try { setStats(await foundingMembersCrmApi.stats()); } catch { /* non-fatal */ }
+      const label = res.founder_number
+        ? `#${String(res.founder_number).padStart(4, '0')} ${res.first_name || ''}`.trim()
+        : (res.first_name || 'registration');
+      showToast(`Deleted ${label}`);
+      return true;
+    } catch (e: any) {
+      setRows(prev);
+      showToast(e?.message || 'Delete failed');
+      return false;
+    }
+  };
+
   const activeFilterMeta = FILTERS.find(f => f.key === filter);
   const emptyMessage = activeFilterMeta?.emptyLabel || 'No Founding Members yet.';
   const emptySubline = filter === 'all'
@@ -221,6 +247,7 @@ export default function FoundingMembersCRMPage() {
               expanded={expandedId === r.id}
               onToggle={() => setExpandedId(cur => (cur === r.id ? null : r.id))}
               onUpdate={applyPatch}
+              onDelete={deleteRow}
             />
           ))
         )}
@@ -298,7 +325,7 @@ function StatCard({
 // ─── Row ──────────────────────────────────────────────────────
 
 function MemberRow({
-  row, expanded, onToggle, onUpdate,
+  row, expanded, onToggle, onUpdate, onDelete,
 }: {
   row: CRMFoundingMember;
   expanded: boolean;
@@ -308,6 +335,7 @@ function MemberRow({
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
     optimistic?: Partial<CRMFoundingMember>,
   ) => void;
+  onDelete: (id: string) => Promise<boolean>;
 }) {
   const [notesDraft, setNotesDraft] = useState(row.admin_notes || '');
   const [tagInput, setTagInput] = useState('');
@@ -539,6 +567,11 @@ function MemberRow({
                 onOverride={(newStatus) =>
                   onUpdate(row.id, { status: newStatus }, { status: newStatus })
                 }
+                memberId={row.id}
+                memberDisplayName={displayName}
+                memberFounderNumber={row.founder_number ?? null}
+                memberIsReserved={!!row.is_reserved}
+                onDelete={onDelete}
               />
             </div>
           </div>
@@ -556,12 +589,36 @@ function MemberRow({
 function AdminOverridePanel({
   currentStatus,
   onOverride,
+  memberId,
+  memberDisplayName,
+  memberFounderNumber,
+  memberIsReserved,
+  onDelete,
 }: {
   currentStatus: CRMFoundingMemberStatus;
   onOverride: (s: CRMFoundingMemberStatus) => void;
+  memberId: string;
+  memberDisplayName: string;
+  memberFounderNumber: number | null;
+  memberIsReserved: boolean;
+  onDelete: (id: string) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<CRMFoundingMemberStatus | null>(null);
+  // Delete registration — two-step confirm. Kept in a dedicated
+  // sub-section below the status override so it can never be reached
+  // by accident. The operator must (1) expand Advanced/Admin, (2) click
+  // "Delete registration", (3) type the founder number to confirm.
+  // Reserved slots (Neo, Garry, George honorary rows) are gated out
+  // client-side AND server-side.
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteInput, setDeleteInput] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const expectedConfirm = memberFounderNumber != null
+    ? String(memberFounderNumber).padStart(4, '0')
+    : '';
+  const canDelete = !memberIsReserved && !!expectedConfirm;
+  const confirmMatches = deleteInput.trim().replace(/^#/, '') === expectedConfirm;
 
   return (
     <div style={{
@@ -649,6 +706,133 @@ function AdminOverridePanel({
             >
               Apply override
             </button>
+          </div>
+
+          {/* ── Delete registration ─────────────────────────────
+              Separated from status controls with a divider + red
+              accent so it's visually and semantically distinct.
+              Two-step: click the button, then type the founder
+              number (e.g. "0007") to confirm. Reserved slots show
+              a locked explanation instead of a working button. */}
+          <div style={{
+            marginTop: 18, paddingTop: 14,
+            borderTop: '1px dashed #FCA5A5',
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontSize: 11, fontWeight: 800, letterSpacing: '0.06em',
+              textTransform: 'uppercase', color: '#991B1B',
+              marginBottom: 8,
+            }}>
+              <span style={{ fontSize: 12 }}>⚠</span>
+              Danger zone — Delete registration
+            </div>
+
+            {memberIsReserved ? (
+              <p style={{
+                margin: 0, fontSize: 12, color: '#92400E',
+                background: '#FEF3C7', border: '1px solid #FDE68A',
+                padding: '10px 12px', borderRadius: 8, lineHeight: 1.5,
+              }}>
+                <strong>🔒 Reserved slot — cannot be deleted from the CRM.</strong>
+                {' '}Founding Member #{expectedConfirm || '—'} ({memberDisplayName}) is a
+                reserved honorary record. If you truly need to remove it, use the
+                Emergent Production Database Viewer directly.
+              </p>
+            ) : !confirmingDelete ? (
+              <button
+                type="button"
+                onClick={() => { setConfirmingDelete(true); setDeleteInput(''); }}
+                disabled={!canDelete}
+                style={{
+                  ...s.dangerBtn,
+                  padding: '8px 14px',
+                  fontSize: 12,
+                  opacity: canDelete ? 1 : 0.5,
+                  cursor: canDelete ? 'pointer' : 'not-allowed',
+                }}
+              >
+                🗑️ Delete registration…
+              </button>
+            ) : (
+              <div style={{
+                padding: 12,
+                background: '#FEF2F2',
+                border: '1px solid #FCA5A5',
+                borderRadius: 10,
+              }}>
+                <p style={{ margin: 0, fontSize: 13, color: '#7F1D1D', lineHeight: 1.55 }}>
+                  You are about to <strong>permanently delete</strong> Founding
+                  Member <strong>#{expectedConfirm} {memberDisplayName}</strong>.
+                  This cannot be undone. The founder-number counter is <em>not</em> rewound,
+                  so this number will remain a gap in the sequence.
+                </p>
+                <p style={{ margin: '10px 0 6px', fontSize: 12, color: '#7F1D1D' }}>
+                  Type <strong>{expectedConfirm}</strong> to confirm:
+                </p>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input
+                    value={deleteInput}
+                    onChange={e => setDeleteInput(e.target.value)}
+                    placeholder={expectedConfirm}
+                    autoFocus
+                    disabled={deleteBusy}
+                    style={{
+                      ...s.input,
+                      padding: '7px 10px',
+                      fontSize: 13,
+                      fontWeight: 700,
+                      fontVariantNumeric: 'tabular-nums',
+                      maxWidth: 140,
+                      borderColor: confirmMatches ? '#059669' : '#FCA5A5',
+                    }}
+                    aria-label={`Type ${expectedConfirm} to confirm deletion`}
+                  />
+                  <button
+                    type="button"
+                    disabled={!confirmMatches || deleteBusy}
+                    onClick={async () => {
+                      if (!confirmMatches || deleteBusy) return;
+                      setDeleteBusy(true);
+                      const ok = await onDelete(memberId);
+                      setDeleteBusy(false);
+                      if (ok) {
+                        // Row is being removed from the table; no need to
+                        // reset local state — the panel will unmount.
+                      } else {
+                        setConfirmingDelete(false);
+                        setDeleteInput('');
+                      }
+                    }}
+                    style={{
+                      ...s.dangerBtn,
+                      padding: '7px 14px',
+                      fontSize: 12,
+                      opacity: (confirmMatches && !deleteBusy) ? 1 : 0.5,
+                      cursor: (confirmMatches && !deleteBusy) ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    {deleteBusy ? 'Deleting…' : 'Permanently delete'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setConfirmingDelete(false); setDeleteInput(''); }}
+                    disabled={deleteBusy}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#64748B',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: deleteBusy ? 'not-allowed' : 'pointer',
+                      padding: '7px 8px',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

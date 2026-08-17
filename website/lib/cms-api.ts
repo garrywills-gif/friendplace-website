@@ -830,6 +830,17 @@ export const foundingMembersCrmApi = {
     id: string,
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
   ) => req<CRMFoundingMember>('PATCH', `/cms/crm/founding-members/${id}`, patch),
+  // Permanently delete a registration. Refuses reserved slots (server
+  // returns 403). Does NOT rewind the founder_number counter — that
+  // is a deliberate separate operation. See backend for full rules.
+  remove: (id: string) =>
+    req<{
+      ok: true;
+      deleted_id: string;
+      founder_number: number | null;
+      email: string | null;
+      first_name: string | null;
+    }>('DELETE', `/cms/crm/founding-members/${id}`),
   timeline: (id: string) =>
     req<{ count: number; events: CRMTimelineEvent[] }>(
       'GET', `/cms/crm/founding-members/${id}/timeline`,
