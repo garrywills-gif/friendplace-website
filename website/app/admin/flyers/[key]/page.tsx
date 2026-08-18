@@ -29,6 +29,48 @@ export default function FlyerDetailPage() {
   const [busy, setBusy] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
+  // Deep-link support (Garry, iter158): when George drafts a flyer and
+  // Garry approves the preview, we open here with ?open=preview and
+  // optional ?layout=…&fields=<base64 JSON>. We capture the initial
+  // values ONCE at mount into local state — pulling them via useMemo(
+  // searchParams) is fragile because history.replaceState (used below
+  // to strip the query string) can cause searchParams to re-emit as
+  // empty before <FlyerPrintModal /> mounts, blanking the props out.
+  const [initialLayout] = useState<string | undefined>(() => {
+    if (typeof window === 'undefined') return undefined;
+    const sp = new URLSearchParams(window.location.search);
+    return sp.get('layout') || undefined;
+  });
+  const [initialFields] = useState<Record<string, string> | undefined>(() => {
+    if (typeof window === 'undefined') return undefined;
+    const sp = new URLSearchParams(window.location.search);
+    const raw = sp.get('fields');
+    if (!raw) return undefined;
+    try {
+      // urlsafe base64 without padding — restore it.
+      const padded = raw + '='.repeat((4 - (raw.length % 4)) % 4);
+      const normalised = padded.replace(/-/g, '+').replace(/_/g, '/');
+      const decoded = window.atob(normalised);
+      const parsed = JSON.parse(decoded);
+      if (parsed && typeof parsed === 'object') {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (v == null) continue;
+          out[String(k)] = String(v);
+        }
+        return out;
+      }
+    } catch {
+      // Ignore malformed payloads — fall back to empty defaults.
+    }
+    return undefined;
+  });
+  const [shouldAutoOpenPreview] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const sp = new URLSearchParams(window.location.search);
+    return sp.get('open') === 'preview';
+  });
+
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [supported, setSupported] = useState<string[]>([]);
@@ -59,6 +101,28 @@ export default function FlyerDetailPage() {
       }
     })();
   }, [key]);
+
+  // Auto-open the print modal when arriving via George's flyer-draft
+  // deep link (?open=preview). Runs once after the template loads so
+  // the modal has the layout catalogue ready. We then strip the query
+  // params from the URL so page reloads don't re-open the modal on
+  // every refresh — the pre-populated state remains in the modal's
+  // local component state (initial values were captured at mount).
+  useEffect(() => {
+    if (!template) return;
+    if (!shouldAutoOpenPreview) return;
+    setShowPreview(true);
+    // Clean up the URL — keep the path, drop the query string.
+    try {
+      if (typeof window !== 'undefined') {
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, '', cleanUrl);
+      }
+    } catch {
+      // History API blocked (very rare) — modal still opens correctly.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [template]);
 
   const allLayouts = useMemo(
     () => layoutCats.flatMap((c) => c.layouts.map((l) => ({ ...l, category_label: c.label }))),
@@ -268,6 +332,8 @@ export default function FlyerDetailPage() {
           template={template}
           layoutCategories={layoutCats}
           onClose={() => setShowPreview(false)}
+          initialLayout={initialLayout}
+          initialFields={initialFields}
         />
       )}
     </AdminShell>

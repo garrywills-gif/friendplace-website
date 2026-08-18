@@ -731,6 +731,256 @@ async def _propose_submission_decision(db: Any, args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Flyer authoring tools (Garry, iter158 launch polish)
+# ---------------------------------------------------------------------------
+# Two tools so George can help Garry set up a flyer conversationally:
+#
+#   list_flyer_templates  \u2014 read-only browse of the published catalogue.
+#                            George uses this to suggest a starting
+#                            template that fits the admin's request
+#                            (e.g. "I need a poster for the Kellyville
+#                            Library"). Returns the compact metadata
+#                            the LLM needs to reason about fit:
+#                            key, name, description, category, engine,
+#                            supported layouts, default layout, and the
+#                            template's own `george_hint` field.
+#
+#   draft_flyer           \u2014 write-proposal tool. Given a template key,
+#                            an optional layout, and an optional
+#                            field_values dict, it composes an
+#                            ``action_preview`` payload the admin can
+#                            review and \u2014 by pressing "Open in Flyer
+#                            Publishing Centre" \u2014 open on the flyer
+#                            detail page with the print modal
+#                            pre-populated. It NEVER prints, downloads,
+#                            or publishes on its own \u2014 the admin's
+#                            manual click in the modal remains the only
+#                            way to ship a flyer.
+
+@register(
+    "list_flyer_templates",
+    "Browse the Flyer Publishing Centre catalogue. Returns published "
+    "templates with their category, description, supported layouts, "
+    "default layout, editable fields and the template's own george_hint "
+    "so you can suggest the best starting point. Use this whenever Garry "
+    "asks for help creating a flyer, a poster, a noticeboard invite, or "
+    "wants to see what templates are available. Read-only.",
+    args={},
+)
+async def _list_flyer_templates(db: Any, args: dict) -> list[dict]:
+    from services import flyers as _flyers
+    rows = await _flyers.list_templates(db, status="published")
+    out: list[dict] = []
+    for r in rows:
+        out.append({
+            "key":               r.get("key"),
+            "name":              r.get("name"),
+            "description":       r.get("description"),
+            "category":          r.get("category"),
+            "engine":            r.get("engine"),
+            "supported_layouts": r.get("supported_layouts") or [],
+            "default_layout":    r.get("default_layout"),
+            "fields": [
+                {
+                    "key":      f.get("key"),
+                    "label":    f.get("label"),
+                    "type":     f.get("type"),
+                    "required": bool(f.get("required")),
+                    "help":     f.get("help"),
+                }
+                for f in (r.get("fields") or [])
+                if f.get("type") != "hidden"
+            ],
+            "george_hint":  r.get("george_hint"),
+        })
+    return out
+
+
+# Human-readable labels for layout keys. Kept in lock-step with
+# ``services/flyers/registry.LAYOUTS`` \u2014 imported lazily inside the
+# tool so registry import failures don't break the whole module load.
+def _flyer_layout_label(layout_key: str) -> str:
+    try:
+        from services.flyers import layout as _layout_lookup
+        spec = _layout_lookup(layout_key)
+        if spec is not None:
+            return getattr(spec, "label", None) or layout_key
+    except Exception:
+        pass
+    return layout_key
+
+
+@register(
+    "draft_flyer",
+    "Set up a flyer draft (template + layout + optional field values) "
+    "and hand Garry an Action Preview he can open in the Flyer "
+    "Publishing Centre. Use this after `list_flyer_templates` when Garry "
+    "asks you to create / draft / prepare / set up a flyer. Requires "
+    "template_key. Optional: layout (must be one the template supports "
+    "\u2014 defaults to the template's default_layout), field_values "
+    "(dict of field_key -> string). This NEVER prints, downloads or "
+    "publishes on its own \u2014 the admin taps Print in the Publishing "
+    "Centre to actually ship a flyer.",
+    args={
+        "template_key":  {"type": "str",  "required": True},
+        "layout":        {"type": "str",  "required": False},
+        "field_values":  {"type": "dict", "required": False},
+        "notes":         {"type": "str",  "required": False},
+    },
+    min_role="moderator",
+)
+async def _draft_flyer(db: Any, args: dict) -> dict:
+    import json as _json
+    import base64 as _b64
+    from services import flyers as _flyers
+
+    tpl_key = str(args.get("template_key") or "").strip()
+    tpl = await _flyers.get_template(db, tpl_key)
+    if not tpl:
+        return {
+            "kind": "action_preview",
+            "action_type": "flyer_draft",
+            "error": f"I couldn't find a flyer template named '{tpl_key}'. "
+                     "Would you like me to list what's available?",
+            "target": {"kind": "flyer_template", "id": tpl_key},
+            "what": "Draft flyer",
+            "why": "Template not found.",
+            "sources": [],
+            "confidence": "low",
+            "draft": "",
+        }
+
+    if str(tpl.get("status")) != "published":
+        return {
+            "kind": "action_preview",
+            "action_type": "flyer_draft",
+            "error": (
+                f"The '{tpl.get('name') or tpl_key}' template isn't published, "
+                "so it can't be drafted from chat. Publish it first from the "
+                "Flyer Publishing Centre."
+            ),
+            "target": {"kind": "flyer_template", "id": tpl_key},
+            "what": "Draft flyer",
+            "why": "Template not published.",
+            "sources": [],
+            "confidence": "low",
+            "draft": "",
+        }
+
+    supported = list(tpl.get("supported_layouts") or [])
+    default_layout = tpl.get("default_layout") or (supported[0] if supported else None)
+    layout_key = str(args.get("layout") or "").strip() or default_layout
+    if not layout_key:
+        return {
+            "kind": "action_preview",
+            "action_type": "flyer_draft",
+            "error": f"The '{tpl.get('name')}' template has no supported layouts configured.",
+            "target": {"kind": "flyer_template", "id": tpl_key},
+            "what": "Draft flyer",
+            "why": "No layout available.",
+            "sources": [],
+            "confidence": "low",
+            "draft": "",
+        }
+    if supported and layout_key not in supported:
+        return {
+            "kind": "action_preview",
+            "action_type": "flyer_draft",
+            "error": (
+                f"'{layout_key}' isn't one of the '{tpl.get('name')}' template's "
+                f"supported layouts. Try one of: {', '.join(supported)}."
+            ),
+            "target": {"kind": "flyer_template", "id": tpl_key},
+            "what": "Draft flyer",
+            "why": "Requested layout is not supported by this template.",
+            "sources": [],
+            "confidence": "low",
+            "draft": "",
+        }
+
+    # Filter field_values to KNOWN field keys the template declares, so
+    # George can't smuggle unknown params through the URL. Values are
+    # coerced to strings (the flyer render endpoint expects strings).
+    template_field_keys = {
+        f.get("key") for f in (tpl.get("fields") or []) if f.get("key")
+    }
+    incoming = args.get("field_values") or {}
+    field_values: dict[str, str] = {}
+    for k, v in incoming.items():
+        if k in template_field_keys and v is not None:
+            field_values[str(k)] = str(v)
+
+    # Build the deep-link URL that opens the Flyer Publishing Centre's
+    # print modal with the layout + fields pre-populated. Query params
+    # keep the state fully client-visible so the admin can see exactly
+    # what George set up before doing anything with it.
+    fields_b64 = ""
+    if field_values:
+        try:
+            fields_b64 = _b64.urlsafe_b64encode(
+                _json.dumps(field_values, ensure_ascii=False, sort_keys=True).encode("utf-8"),
+            ).decode("ascii").rstrip("=")
+        except Exception:
+            fields_b64 = ""
+
+    from urllib.parse import urlencode
+    qs_parts: list[tuple[str, str]] = [
+        ("open", "preview"),
+        ("layout", layout_key),
+    ]
+    if fields_b64:
+        qs_parts.append(("fields", fields_b64))
+    edit_url = f"/admin/flyers/{tpl_key}?{urlencode(qs_parts)}"
+
+    layout_label = _flyer_layout_label(layout_key)
+
+    # Human-readable summary for the draft body \u2014 shown in the
+    # ActionPreview card so the admin can eyeball what George set up.
+    summary_lines: list[str] = [
+        f"Template: {tpl.get('name')} ({tpl_key})",
+        f"Layout:   {layout_label}",
+    ]
+    if field_values:
+        summary_lines.append("Fields:")
+        for k in sorted(field_values.keys()):
+            summary_lines.append(f"  \u2022 {k}: {field_values[k]}")
+    else:
+        summary_lines.append("Fields:   (none pre-filled \u2014 use the defaults)")
+    if args.get("notes"):
+        summary_lines += ["", f"Note: {args['notes']}"]
+
+    return {
+        "kind": "action_preview",
+        "action_type": "flyer_draft",
+        "target": {"kind": "flyer_template", "id": tpl_key},
+        "what": f"Draft a \u201c{tpl.get('name')}\u201d flyer ({layout_label})",
+        "why": (
+            args.get("notes")
+            or tpl.get("george_hint")
+            or "Set up the flyer with your chosen layout and fields ready for preview."
+        ),
+        "sources": [
+            {"label": tpl.get("name") or tpl_key,
+             "kind": "flyer_template", "id": tpl_key},
+        ],
+        "confidence": "high",
+        "confidence_reason": (
+            "This preview only sets up the flyer state \u2014 nothing prints "
+            "or publishes until you tap Print in the Publishing Centre."
+        ),
+        "draft": "\n".join(summary_lines),
+        "flyer": {
+            "template_key":   tpl_key,
+            "template_name":  tpl.get("name"),
+            "layout":         layout_key,
+            "layout_label":   layout_label,
+            "field_values":   field_values,
+            "edit_url":       edit_url,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Campaign tools \u2014 CRM Phase 2B (Delivery & Engagement)
 # ---------------------------------------------------------------------------
 # Teaching George to reason over Resend webhook data. Locked with Garry
