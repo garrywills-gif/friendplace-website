@@ -65,10 +65,11 @@ export default function NewFlyerPage() {
   />
 ) : (
   <AuthedFlyerImage
-    src={flyersApi.renderUrl(tpl.key, { layout: tpl.default_layout })}
-    alt={tpl.name}
-    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-  />
+  templateKey={tpl.key}
+  layout={tpl.default_layout}
+  alt={tpl.name}
+  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+/>
 )}
               </div>
               <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
