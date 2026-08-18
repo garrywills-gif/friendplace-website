@@ -23,6 +23,8 @@ import { AuthedFlyerImage } from '@/components/admin/AuthedFlyerImage';
 type Props = {
   template: FlyerTemplate;
   layoutCategories: FlyerLayoutCategory[];
+initialLayout?: string;
+initialFields?: Record<string, string>;  
   onClose: () => void;
 };
 
