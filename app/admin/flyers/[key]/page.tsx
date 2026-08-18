@@ -12,7 +12,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { flyersApi, type FlyerLayoutCategory, type FlyerTemplate, type FlyerField } from '@/lib/cms-api';
 import { FlyerPrintModal } from '@/components/admin/FlyerPrintModal';
@@ -20,8 +20,13 @@ import { FlyerPrintModal } from '@/components/admin/FlyerPrintModal';
 export default function FlyerDetailPage() {
   const params = useParams<{ key: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const key = params.key;
-
+const initialLayout = searchParams.get('layout') || undefined;
+const initialFields = searchParams.get('fields')
+  ? JSON.parse(atob(searchParams.get('fields')!))
+  : undefined;
+const shouldOpenPreview = searchParams.get('open') === 'preview';  
   const [template, setTemplate] = useState<FlyerTemplate | null>(null);
   const [layoutCats, setLayoutCats] = useState<FlyerLayoutCategory[]>([]);
   const [fieldLibrary, setFieldLibrary] = useState<FlyerField[]>([]);
@@ -59,7 +64,11 @@ export default function FlyerDetailPage() {
       }
     })();
   }, [key]);
-
+useEffect(() => {
+  if (shouldOpenPreview && template) {
+    setShowPreview(true);
+  }
+}, [shouldOpenPreview, template]);  
   const allLayouts = useMemo(
     () => layoutCats.flatMap((c) => c.layouts.map((l) => ({ ...l, category_label: c.label }))),
     [layoutCats],
