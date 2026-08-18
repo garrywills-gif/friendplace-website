@@ -52,6 +52,7 @@ const CONFIDENCE_STYLES: Record<string, { bg: string; color: string; label: stri
  * is the voice-safeguard gate applied uniformly regardless of channel.
  */
 export function ActionPreview({ preview, onResolved }: ActionPreviewProps) {
+    const router = useRouter();
   // Defensive guard (Issue 3): only render for action_type values we
   // know how to present as a proper UI card. If a read-only tool
   // result (e.g. list_signals, describe_bridge_state) accidentally
