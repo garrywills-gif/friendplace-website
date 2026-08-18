@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { flyersApi, type FlyerTemplate } from '@/lib/cms-api';
-
+import { AuthedFlyerImage } from '@/components/admin/AuthedFlyerImage';
 export default function NewFlyerPage() {
   const [templates, setTemplates] = useState<FlyerTemplate[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -56,12 +56,20 @@ export default function NewFlyerPage() {
               style={{ ...s.card, textDecoration: 'none', color: 'inherit', display: 'flex', flexDirection: 'column', gap: 12, padding: 0, overflow: 'hidden' }}
             >
               <div style={{ aspectRatio: '210 / 297', background: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid #E2E8F0' }}>
-                <img
-                  src={tpl.preview_image || flyersApi.renderUrl(tpl.key, { layout: tpl.default_layout })}
-                  alt={tpl.name}
-                  loading="lazy"
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                />
+               {tpl.preview_image ? (
+  <img
+    src={tpl.preview_image}
+    alt={tpl.name}
+    loading="lazy"
+    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+  />
+) : (
+  <AuthedFlyerImage
+    src={flyersApi.renderUrl(tpl.key, { layout: tpl.default_layout })}
+    alt={tpl.name}
+    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+  />
+)}
               </div>
               <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <strong style={{ fontSize: 16 }}>{tpl.name}</strong>
