@@ -6337,13 +6337,25 @@ async def admin_invite_flyer(
                     condensed: bool = False) -> tuple[int, int]:
         """Pick the largest font size in [min_size .. start_size] that fits
         `text` within `max_w`, then draw it centred. Returns (bottom_y, size_used).
+
+        Safety: `min_size` is only a *preferred* floor. If the loaded font
+        is wider than expected (e.g. the K8s image lacks DejaVu Condensed /
+        Liberation Sans Narrow and falls back to regular Sans-Bold), we
+        keep shrinking below `min_size` down to a hard 12pt floor instead
+        of drawing a wider-than-canvas glyph run with a negative x offset
+        — which is what caused the "IND YOUR PEOPLE" clip in prod
+        (2026-08-18). Slightly smaller type is always preferable to a
+        headline that literally hangs off the flyer.
         """
         size = start_size
-        while size > min_size:
+        hard_floor = 12
+        while size > hard_floor:
             f = font(size, bold=bold, condensed=condensed)
             if text_w(text, f) <= max_w:
                 break
-            size -= 6
+            # Slow the shrink once we cross the preferred min_size so
+            # we don't overshoot by much.
+            size -= 4 if size <= min_size else 6
         f = font(size, bold=bold, condensed=condensed)
         bottom = centre(text, y, f, fill)
         return bottom, size
