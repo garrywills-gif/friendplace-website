@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { getToken } from '@/lib/cms-auth';
 import { API_BASE } from '@/lib/api-base';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
@@ -9,7 +10,7 @@ const BASE = API_BASE;
 
 export interface ActionPreviewPayload {
   kind: 'action_preview';
-  action_type: 'ticket_reply' | 'submission_decision';
+  action_type: 'ticket_reply' | 'submission_decision' | 'flyer_draft';
   target: { kind: string; id: string };
   what: string;
   why: string;
@@ -22,7 +23,14 @@ export interface ActionPreviewPayload {
   generated_at?: string;
   generated_by?: { kind: string; model: string };
   error?: string;
-}
+  flyer?: {
+  template_key: string;
+  template_name: string;
+  layout: string;
+  layout_label: string;
+  field_values: Record<string, string>;
+  edit_url: string;
+};}
 
 interface ActionPreviewProps {
   preview: ActionPreviewPayload;
@@ -54,7 +62,7 @@ export function ActionPreview({ preview, onResolved }: ActionPreviewProps) {
   const KNOWN_ACTION_TYPES: Array<ActionPreviewPayload['action_type']> = [
     'ticket_reply',
     'submission_decision',
-  ];
+ 'flyer_draft',  ];
   if (!preview || !KNOWN_ACTION_TYPES.includes(preview.action_type)) {
     if (typeof console !== 'undefined') {
       // eslint-disable-next-line no-console
@@ -155,8 +163,33 @@ export function ActionPreview({ preview, onResolved }: ActionPreviewProps) {
       </div>
     );
   }
-
+if (preview.action_type === 'flyer_draft' && preview.flyer) {
   return (
+    <div style={card}>
+      <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 8 }}>
+        Flyer ready to edit
+      </div>
+
+      <div style={{ fontSize: 13, marginBottom: 12 }}>
+        <strong>{preview.flyer.template_name}</strong>
+        {' · '}
+        {preview.flyer.layout_label}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => router.push(preview.flyer!.edit_url)}
+        style={btnSend}
+      >
+        Open in Flyer Publishing Centre
+      </button>
+
+      <div style={{ fontSize: 11, color: '#64748B', marginTop: 10 }}>
+        Nothing prints until you tap Print.
+      </div>
+    </div>
+  );
+}  return (
     <div style={card}>
       <div style={header}>
         <span style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }} aria-hidden><GeorgeButterflyMark size={18} /></span>
