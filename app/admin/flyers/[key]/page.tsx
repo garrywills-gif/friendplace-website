@@ -276,6 +276,8 @@ useEffect(() => {
         <FlyerPrintModal
           template={template}
           layoutCategories={layoutCats}
+initialLayout={initialLayout}
+initialFields={initialFields}          
           onClose={() => setShowPreview(false)}
         />
       )}
