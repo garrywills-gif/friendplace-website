@@ -27,7 +27,7 @@ type Props = {
 };
 
 export function FlyerPrintModal({ template, layoutCategories, onClose, initialLayout, initialFields }: Props) {
-  const [selectconst [selectedLayoutKey, setSelectedLayoutKey] = useState<string>(initialLayout || template.default_layout);
+ const [selectedLayoutKey, setSelectedLayoutKey] = useState<string>(initialLayout || template.default_layout);
   // Field values keyed by field.key. Auto-initialised from any
   // defaults on the template so the preview reflects the current
   // saved wording the moment the modal opens.
