@@ -35,9 +35,9 @@ const ACTION_URL_BUILDERS: Record<string, (params: URLSearchParams) => string | 
   open_send_email: (p) => {
     const qs = new URLSearchParams();
 
-    for (const [k, v] of p.entries()) {
-      qs.set(k, v);
-    }
+   p.forEach((v, k) => {
+  qs.set(k, v);
+});
 
     const s = qs.toString();
 
