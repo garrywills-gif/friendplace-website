@@ -6,6 +6,7 @@ import { askGeorge, speakText, transcribeAudio, type GeorgeStreamEvent } from '@
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
 import { useGeorgeSession, type GeorgeTurn } from '@/lib/george-session';
 import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
+import { ChatText } from './ChatText';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
 /**
@@ -1079,7 +1080,11 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
         fontSize: 15, lineHeight: 1.55, color: '#0F172A',
         whiteSpace: 'pre-wrap', wordBreak: 'break-word',
       }}>
-        {turn.content || (turn.streaming ? <em style={{ color: '#64748B' }}>George is thinking…</em> : null)}
+        {turn.content
+          ? (isUser
+              ? turn.content
+              : <ChatText content={turn.content} />)
+          : (turn.streaming ? <em style={{ color: '#64748B' }}>George is thinking\u2026</em> : null)}
         {!isUser && turn.streaming && turn.content && (
           <span style={{ display: 'inline-block', width: 6, height: 14, background: '#14B8A6', marginLeft: 4, verticalAlign: '-2px', animation: 'blink 1s steps(2, start) infinite' }} />
         )}

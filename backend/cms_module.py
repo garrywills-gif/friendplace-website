@@ -4969,6 +4969,7 @@ def build_router(db) -> APIRouter:
         key: str,
         request: Request,
         layout: str = "poster_a4",
+        format: str = "png",
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
         """Render a flyer for print / preview.
@@ -4982,6 +4983,11 @@ def build_router(db) -> APIRouter:
         Returns raw bytes (PNG or PDF) with `inline` disposition so
         the Mission Control print modal can embed via <iframe> and
         trigger `window.print()` without a download step.
+
+        Set ``?format=pdf`` to receive a single-page PDF sized to the
+        layout's real paper size (iter159 marketing launch — used by
+        outbound email attachments). PNG remains the default so the
+        Mission Control iframe preview keeps working unchanged.
 
         Attribution note (Garry, 3 Aug 2026): the founding-flyer engine
         embeds a QR that credits an *app admin* from `users`. CMS
@@ -5018,12 +5024,34 @@ def build_router(db) -> APIRouter:
             )
         except (ValueError, KeyError, FileNotFoundError) as e:
             raise HTTPException(400, str(e))
+
+        # iter159: transparent PDF conversion for outbound email
+        # attachments. We only convert when the underlying render was
+        # a PNG (founding engine). Static-PDF templates already return
+        # `application/pdf` so we pass them through untouched.
+        want_pdf = (format or "").strip().lower() == "pdf"
+        if want_pdf and result.media_type == "image/png":
+            try:
+                from services.flyers.pdf_export import png_bytes_to_pdf_bytes
+                pdf_bytes, _ext = png_bytes_to_pdf_bytes(result.content, layout)
+                content_out = pdf_bytes
+                media_out = "application/pdf"
+                filename_out = result.filename.rsplit(".", 1)[0] + ".pdf"
+            except Exception as exc:  # noqa: BLE001
+                import logging as _logging
+                _logging.getLogger("friendplace.flyers").exception("PDF conversion failed for %s/%s", key, layout)
+                raise HTTPException(500, f"PDF conversion failed: {exc}")
+        else:
+            content_out = result.content
+            media_out = result.media_type
+            filename_out = result.filename
+
         from fastapi.responses import Response  # local import to match cms_module.py pattern
         return Response(
-            content=result.content,
-            media_type=result.media_type,
+            content=content_out,
+            media_type=media_out,
             headers={
-                "Content-Disposition": f'inline; filename="{result.filename}"',
+                "Content-Disposition": f'inline; filename="{filename_out}"',
                 "Cache-Control": "no-store",
                 "X-Content-Type-Options": "nosniff",
                 # A tiny audit breadcrumb — visible in the browser
@@ -5037,6 +5065,37 @@ def build_router(db) -> APIRouter:
         _asyncio.get_event_loop().create_task(_flyers.seed_flyer_templates(db))
     except Exception:
         pass
+
+    # ------------------------------------------------------------------
+    # iter159 — Marketing sub-router (Send Email, preview, sends
+    # history, contacts). Mounted here so it inherits the /cms prefix
+    # AND the same admin auth dependency as every other CMS route.
+    # Effective URLs: /api/cms/marketing/*
+    # ------------------------------------------------------------------
+    try:
+        from services.marketing.router import build_marketing_router as _build_mkt_router
+        from services.marketing.sends import ensure_indexes as _mkt_sends_indexes
+        from services.marketing.contacts import ensure_indexes as _mkt_contacts_indexes
+
+        router.include_router(_build_mkt_router(db, current_cms_admin))
+
+        async def _bootstrap_marketing_indexes():
+            try:
+                await _mkt_sends_indexes(db)
+                await _mkt_contacts_indexes(db)
+            except Exception:  # noqa: BLE001
+                import logging as _logging
+                _logging.getLogger("friendplace.marketing").exception("marketing index bootstrap failed")
+
+        try:
+            _asyncio.get_event_loop().create_task(_bootstrap_marketing_indexes())
+        except Exception:
+            pass
+    except Exception:  # noqa: BLE001
+        # Never crash CMS boot because marketing failed to import —
+        # log and continue with the rest of the admin surface.
+        import logging as _logging
+        _logging.getLogger("friendplace.marketing").exception("marketing router mount failed")
 
     return router
 
