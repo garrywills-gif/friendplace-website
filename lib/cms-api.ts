@@ -1323,3 +1323,143 @@ export async function downloadFoundingMembersCsv(opts: { status?: string; q?: st
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// ============================================================================
+// Marketing (iter159 launch) — Send Email, preview, history, contacts.
+// All endpoints mounted under /api/cms/marketing/* so they inherit the same
+// admin JWT auth as the rest of the CMS.
+// ============================================================================
+
+export type MarketingTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  audience: 'person' | 'organisation' | 'any';
+  supports_flyer: boolean;
+  default_greeting_prefix: string;
+};
+
+export type MarketingFlyerAttach = {
+  template_key: string;
+  layout: string;
+  field_values?: Record<string, string>;
+  filename?: string | null;
+};
+
+export type MarketingPreviewIn = {
+  template_id: string;
+  recipient_email?: string;
+  recipient_name?: string;
+  recipient_type?: 'person' | 'organisation';
+  organisation_name?: string;
+  suburb?: string;
+  subject_override?: string | null;
+  additional_message?: string;
+  flyer?: MarketingFlyerAttach | null;
+};
+
+export type MarketingPreviewOut = {
+  subject: string;
+  html: string;
+  text: string;
+  flyer: {
+    filename: string;
+    size_bytes: number;
+    template_key: string;
+    layout: string;
+  } | null;
+};
+
+export type MarketingSendIn = MarketingPreviewIn & {
+  recipient_email: string;
+  campaign_id?: string | null;
+  tags?: string[];
+};
+
+export type MarketingSendOut = {
+  ok: boolean;
+  send_id: string;
+  message_id: string | null;
+  error: string | null;
+  error_code: string | null;
+  recipient_email: string;
+  template_id: string;
+};
+
+export type MarketingSendRow = {
+  id: string;
+  created_at: string;
+  campaign_id: string | null;
+  template_id: string;
+  recipient_email: string;
+  recipient_name: string;
+  recipient_type: string;
+  organisation_name: string;
+  suburb: string;
+  subject: string;
+  flyer_template: string | null;
+  flyer_layout: string | null;
+  flyer_filename: string | null;
+  flyer_size_bytes: number | null;
+  status: 'sent' | 'failed';
+  message_id: string | null;
+  error: string | null;
+  error_code: string | null;
+  http_status: number | null;
+  initiator: string | null;
+  tags: string[];
+};
+
+export type MarketingContactRow = {
+  id: string;
+  email: string;
+  name?: string;
+  recipient_type: 'person' | 'organisation';
+  organisation_name?: string;
+  suburb?: string;
+  notes?: string;
+  tags?: string[];
+  created_at: string;
+  updated_at: string;
+  send_count?: number;
+  last_send_id?: string;
+  last_send_at?: string;
+  last_send_status?: 'sent' | 'failed';
+};
+
+export const marketingApi = {
+  listTemplates: (audience?: 'person' | 'organisation') =>
+    req<{ templates: MarketingTemplate[] }>(
+      'GET',
+      `/cms/marketing/templates${audience ? `?audience=${audience}` : ''}`,
+    ),
+
+  preview: (body: MarketingPreviewIn) =>
+    req<MarketingPreviewOut>('POST', '/cms/marketing/preview', body),
+
+  send: (body: MarketingSendIn) =>
+    req<MarketingSendOut>('POST', '/cms/marketing/send', body),
+
+  listSends: (params?: { limit?: number; campaign_id?: string; recipient_email?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.campaign_id) qs.set('campaign_id', params.campaign_id);
+    if (params?.recipient_email) qs.set('recipient_email', params.recipient_email);
+    const s = qs.toString();
+    return req<{ sends: MarketingSendRow[] }>('GET',
+      `/cms/marketing/sends${s ? `?${s}` : ''}`);
+  },
+
+  listContacts: (params?: { q?: string; recipient_type?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.q) qs.set('q', params.q);
+    if (params?.recipient_type) qs.set('recipient_type', params.recipient_type);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const s = qs.toString();
+    return req<{ contacts: MarketingContactRow[] }>('GET',
+      `/cms/marketing/contacts${s ? `?${s}` : ''}`);
+  },
+
+  getContact: (email: string) =>
+    req<MarketingContactRow>('GET', `/cms/marketing/contacts/${encodeURIComponent(email)}`),
+};
