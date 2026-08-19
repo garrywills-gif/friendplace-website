@@ -1033,7 +1033,7 @@ function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => v
         whiteSpace: 'pre-wrap', wordBreak: 'break-word',
       }}>
     {turn.content ? (
-  isUser ? turn.content : <ChatText text={turn.content} />
+  isUser ? turn.content : <ChatText content={turn.content} />
 ) : (
   turn.streaming ? <em style={{ color: '#64748B' }}>George is thinking…</em> : null
 )}
