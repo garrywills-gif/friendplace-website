@@ -100,9 +100,9 @@ export default function SendMarketingEmailPage() {
           ? {
               template_key: form.flyer_key,
               layout: form.flyer_layout || 'poster_a4',
-              field_values: form.flyer_venue
-                ? { venue: form.flyer_venue }
-                : {},
+             field_values: form.flyer_venue
+  ? { venue: form.flyer_venue }
+  : undefined,
             }
           : null;
 
@@ -161,7 +161,7 @@ export default function SendMarketingEmailPage() {
             layout: form.flyer_layout || 'poster_a4',
             field_values: form.flyer_venue
               ? { venue: form.flyer_venue }
-              : {},
+         : undefined,
           }
         : null;
 
