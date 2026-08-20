@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { AdminShell } from '@/components/admin/AdminShell';
 import {
   marketingApi,
@@ -40,6 +41,8 @@ const INITIAL_STATE: FormState = {
 };
 
 export default function SendMarketingEmailPage() {
+  const searchParams = useSearchParams();
+  
   const [templates, setTemplates] = useState<MarketingTemplate[]>([]);
   const [flyerTpls, setFlyerTpls] = useState<FlyerTemplate[]>([]);
   const [form, setForm] = useState<FormState>(INITIAL_STATE);
@@ -51,7 +54,22 @@ export default function SendMarketingEmailPage() {
     kind: 'ok' | 'err';
     msg: string;
   } | null>(null);
+  useEffect(() => {
+    const email = searchParams?.get('email') || '';
+    const name = searchParams?.get('name') || '';
+    const subject = searchParams?.get('subject') || '';
+    const templateId = searchParams?.get('template_id') || '';
 
+    if (!email && !name && !subject && !templateId) return;
+
+    setForm((prev) => ({
+      ...prev,
+      recipient_email: email || prev.recipient_email,
+      recipient_name: name || prev.recipient_name,
+      subject_override: subject || prev.subject_override,
+      template_id: templateId || prev.template_id,
+    }));
+  }, [searchParams]);  
   useEffect(() => {
     (async () => {
       try {
