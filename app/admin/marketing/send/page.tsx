@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { AdminShell } from '@/components/admin/AdminShell';
@@ -41,6 +41,14 @@ const INITIAL_STATE: FormState = {
 };
 
 export default function SendMarketingEmailPage() {
+  return (
+    <Suspense fallback={<div>Loading…</div>}>
+      <SendMarketingEmailContent />
+    </Suspense>
+  );
+}
+
+function SendMarketingEmailContent() {
   const searchParams = useSearchParams();
   
   const [templates, setTemplates] = useState<MarketingTemplate[]>([]);
