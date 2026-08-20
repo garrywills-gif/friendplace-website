@@ -117,12 +117,46 @@ function ComposePanel() {
         const st = (c.audience_filter?.statuses || []) as any;
         setStatuses(st.length ? st : ['registered', 'invited']);
         setTagsAny(c.audience_filter?.tags_any || []);
-        // CRM Phase 2C — restore segment mode if this draft was saved
-        // with a segment_id.
-        const sid = c.audience_filter?.segment_id;
-        if (sid) {
-          setSegmentId(sid);
+
+        // iter160a — restore ALL five audience modes so reopening a
+        // draft doesn't silently downgrade an Outreach/manual/individual
+        // campaign back to "Custom filter (Founding Members)".
+        //
+        // Precedence:
+        //   1. audience_kind (canonical since iter160a)
+        //   2. segment_id fallback (drafts from Phase 2C before kind
+        //      existed)
+        //   3. default -> 'custom'
+        const af: any = c.audience_filter || {};
+        const kind: string | undefined = af.audience_kind;
+        if (kind === 'outreach_contacts') {
+          setRecipientMode('outreach');
+          setOutreachCategory(af.outreach?.category || '');
+          setOutreachStatus(af.outreach?.status || '');
+        } else if (kind === 'manual_list') {
+          setRecipientMode('manual');
+          // The API may return either the raw string the admin pasted
+          // OR a normalised array of {email,name} — support both.
+          if (typeof af.manual_recipients === 'string') {
+            setManualList(af.manual_recipients);
+          } else if (Array.isArray(af.manual_recipients)) {
+            setManualList(af.manual_recipients.map((r: any) => (
+              typeof r === 'string' ? r
+                : r?.name ? `${r.name} | ${r.email || ''}`
+                : (r?.email || '')
+            )).filter(Boolean).join('\n'));
+          }
+        } else if (kind === 'individual') {
+          setRecipientMode('individual');
+          setIndividualEmail(af.recipient_email || '');
+          setIndividualName(af.recipient_name || '');
+        } else if (af.segment_id) {
+          setSegmentId(af.segment_id);
           setRecipientMode('segment');
+        } else {
+          // Explicit fallback so re-opening a plain FM draft keeps
+          // showing the Custom filter panel.
+          setRecipientMode('custom');
         }
       } catch (e: any) {
         showToast(e?.message || 'Could not load campaign');
