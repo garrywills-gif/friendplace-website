@@ -1463,3 +1463,293 @@ export const marketingApi = {
   getContact: (email: string) =>
     req<MarketingContactRow>('GET', `/cms/marketing/contacts/${encodeURIComponent(email)}`),
 };
+export type OutreachStatus =
+  | 'not_contacted'
+  | 'contacted'
+  | 'awaiting_reply'
+  | 'replied'
+  | 'joined'
+  | 'declined'
+  | 'bounced'
+  | 'unsubscribed';
+
+export type OutreachOrg = {
+  id: string;
+  organisation_name: string;
+  email: string;
+  contact_name: string;
+  phone: string;
+  category: string;
+  tags: string[];
+  suburb: string;
+  state: string;
+  notes: string;
+  status: OutreachStatus;
+  last_contact_at: string | null;
+  last_reply_at: string | null;
+  communications: Array<{
+    kind: string;
+    at: string;
+    body?: string;
+    [key: string]: any;
+  }>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OutreachOrgIn = {
+  organisation_name: string;
+  email: string;
+  contact_name?: string;
+  phone?: string;
+  category?: string;
+  tags?: string[];
+  suburb?: string;
+  state?: string;
+  notes?: string;
+  status?: OutreachStatus;
+};
+
+export const outreachApi = {
+  meta: () =>
+    req<{
+      statuses: OutreachStatus[];
+      categories: string[];
+    }>('GET', '/cms/outreach/meta'),
+
+  list: (params?: {
+    q?: string;
+    category?: string;
+    status?: OutreachStatus;
+    limit?: number;
+  }) => {
+    const qs = new URLSearchParams();
+
+    if (params?.q) qs.set('q', params.q);
+    if (params?.category) qs.set('category', params.category);
+    if (params?.status) qs.set('status', params.status);
+    if (params?.limit) qs.set('limit', String(params.limit));
+
+    const query = qs.toString();
+
+    return req<{ organisations: OutreachOrg[] }>(
+      'GET',
+      `/cms/outreach/organisations${query ? `?${query}` : ''}`,
+    );
+  },
+
+  get: (id: string) =>
+    req<OutreachOrg>(
+      'GET',
+      `/cms/outreach/organisations/${id}`,
+    ),
+
+  create: (body: OutreachOrgIn) =>
+    req<OutreachOrg>(
+      'POST',
+      '/cms/outreach/organisations',
+      body,
+    ),
+
+  update: (id: string, body: OutreachOrgIn) =>
+    req<OutreachOrg>(
+      'PATCH',
+      `/cms/outreach/organisations/${id}`,
+      body,
+    ),
+
+  del: (id: string) =>
+    req<{ ok: true }>(
+      'DELETE',
+      `/cms/outreach/organisations/${id}`,
+    ),
+
+  markReplied: (
+    id: string,
+    body: {
+      subject?: string;
+      body?: string;
+      direction?: 'inbound' | 'outbound';
+      campaign_id?: string;
+    },
+  ) =>
+    req<OutreachOrg>(
+      'POST',
+      `/cms/outreach/organisations/${id}/mark-replied`,
+      body,
+    ),
+
+  log: (
+    id: string,
+    body: {
+      kind: string;
+      body?: string;
+    },
+  ) =>
+    req<OutreachOrg>(
+      'POST',
+      `/cms/outreach/organisations/${id}/log`,
+      body,
+    ),
+};
+
+export type CrmStatus = {
+  email: string;
+  status: OutreachStatus;
+  reason: string;
+  last_outbound_at: string | null;
+  last_inbound_at: string | null;
+  last_our_reply_at: string | null;
+  sources: {
+    founding_member: boolean;
+    outreach_org: boolean;
+    campaign_recipients_count: number;
+    marketing_sends_count: number;
+    inbound_replies_count: number;
+  };
+  founding_member_status: string | null;
+  outreach_status: string | null;
+};
+
+export const crmApi = {
+  statusFor: (email: string) =>
+    req<CrmStatus>(
+      'GET',
+      `/cms/crm/status-for/${encodeURIComponent(email)}`,
+    ),
+
+  awaitingReply: (limit = 200) =>
+    req<{ rows: Array<any> }>(
+      'GET',
+      `/cms/crm/awaiting-reply?limit=${limit}`,
+    ),
+
+  needsFollowUp: (days = 7, limit = 200) =>
+    req<{ rows: Array<any> }>(
+      'GET',
+      `/cms/crm/needs-follow-up?days=${days}&limit=${limit}`,
+    ),
+};
+
+export type ReplyChannel =
+  | 'email'
+  | 'phone'
+  | 'in_person'
+  | 'sms'
+  | 'other';
+
+export type InboundReply = {
+  id: string;
+  from_email: string;
+  from_name: string;
+  subject: string;
+  body: string;
+  channel: ReplyChannel;
+  campaign_id: string | null;
+  campaign_name: string | null;
+  related_send_id: string | null;
+  outreach_id: string | null;
+  founder_id: string | null;
+  received_at: string;
+  created_at: string;
+  created_by: string | null;
+  read: boolean;
+  resolved: boolean;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  notes: string;
+};
+
+export type ReplyIn = {
+  from_email: string;
+  from_name?: string;
+  subject?: string;
+  body?: string;
+  channel?: ReplyChannel;
+  campaign_id?: string;
+  related_send_id?: string;
+  received_at?: string;
+  notes?: string;
+};
+
+export const repliesApi = {
+  list: (params?: {
+    read?: boolean;
+    resolved?: boolean;
+    campaign_id?: string;
+    q?: string;
+    limit?: number;
+  }) => {
+    const qs = new URLSearchParams();
+
+    if (params?.read !== undefined) {
+      qs.set('read', String(params.read));
+    }
+
+    if (params?.resolved !== undefined) {
+      qs.set('resolved', String(params.resolved));
+    }
+
+    if (params?.campaign_id) {
+      qs.set('campaign_id', params.campaign_id);
+    }
+
+    if (params?.q) {
+      qs.set('q', params.q);
+    }
+
+    if (params?.limit) {
+      qs.set('limit', String(params.limit));
+    }
+
+    const query = qs.toString();
+
+    return req<{
+      replies: InboundReply[];
+      unread_count: number;
+      awaiting_count: number;
+    }>(
+      'GET',
+      `/cms/replies${query ? `?${query}` : ''}`,
+    );
+  },
+
+  unreadCount: () =>
+    req<{
+      unread_count: number;
+      awaiting_count: number;
+    }>('GET', '/cms/replies/unread-count'),
+
+  get: (id: string) =>
+    req<InboundReply>(
+      'GET',
+      `/cms/replies/${id}`,
+    ),
+
+  create: (body: ReplyIn) =>
+    req<InboundReply>(
+      'POST',
+      '/cms/replies',
+      body,
+    ),
+
+  markRead: (id: string, read = true) =>
+    req<InboundReply>(
+      'PATCH',
+      `/cms/replies/${id}/read`,
+      { read },
+    ),
+
+  markResolved: (id: string, resolved = true) =>
+    req<InboundReply>(
+      'PATCH',
+      `/cms/replies/${id}/resolve`,
+      { resolved },
+    ),
+
+  del: (id: string) =>
+    req<{ ok: true }>(
+      'DELETE',
+      `/cms/replies/${id}`,
+    ),
+};
