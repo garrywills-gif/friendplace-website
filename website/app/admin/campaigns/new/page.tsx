@@ -247,7 +247,12 @@ function ComposePanel() {
     setSending(true);
     try {
       const r = await campaignsApi.send(campaignId!);
-      showToast(`Sending to ${r.targeted} Founding Member(s)…`);
+      const noun =
+        recipientMode === 'individual' ? (r.targeted === 1 ? 'recipient' : 'recipients') :
+        recipientMode === 'outreach'   ? (r.targeted === 1 ? 'organisation' : 'organisations') :
+        recipientMode === 'manual'     ? (r.targeted === 1 ? 'address' : 'addresses') :
+                                         (r.targeted === 1 ? 'Founding Member' : 'Founding Members');
+      showToast(`Sending to ${r.targeted} ${noun}…`);
       setConfirmOpen(false);
       setTimeout(() => router.push(`/admin/campaigns/${campaignId}`), 1200);
     } catch (e: any) {
@@ -647,6 +652,11 @@ function ComposePanel() {
             : null}
           statuses={statuses}
           tagsAny={tagsAny}
+          outreachCategory={outreachCategory}
+          outreachStatus={outreachStatus}
+          manualList={manualList}
+          individualEmail={individualEmail}
+          individualName={individualName}
           sending={sending}
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => void doSend()}
@@ -657,6 +667,7 @@ function ComposePanel() {
         <ScheduleModal
           name={name || 'Untitled campaign'}
           audienceCount={audienceCount ?? 0}
+          recipientMode={recipientMode}
           sending={sending}
           onCancel={() => setScheduleOpen(false)}
           onConfirm={doSchedule}
@@ -684,14 +695,32 @@ function SectionCard({ title, children }: { title: string; children: React.React
 }
 
 function ConfirmModal({
-  name, templateLabel, companion, audienceCount, recipientMode, segment, statuses, tagsAny, sending, onCancel, onConfirm,
+  name, templateLabel, companion, audienceCount, recipientMode, segment,
+  statuses, tagsAny,
+  outreachCategory, outreachStatus, manualList, individualEmail, individualName,
+  sending, onCancel, onConfirm,
 }: {
   name: string; templateLabel: string; companion: string; audienceCount: number;
-  recipientMode: 'segment' | 'custom';
+  recipientMode: 'segment' | 'custom' | 'outreach' | 'manual' | 'individual';
   segment: { id: string; name: string; emoji?: string | null; last_count?: number; description?: string | null } | null;
-  statuses: string[]; tagsAny: string[]; sending: boolean;
+  statuses: string[]; tagsAny: string[];
+  outreachCategory: string; outreachStatus: string;
+  manualList: string;
+  individualEmail: string; individualName: string;
+  sending: boolean;
   onCancel: () => void; onConfirm: () => void;
 }) {
+  // Noun used for the recipient count + warning line. Keeps the copy
+  // truthful for every audience mode instead of always saying
+  // "Founding Member(s)".
+  const noun =
+    recipientMode === 'individual' ? { one: 'recipient',    many: 'recipients'    } :
+    recipientMode === 'outreach'   ? { one: 'organisation', many: 'organisations' } :
+    recipientMode === 'manual'     ? { one: 'address',      many: 'addresses'     } :
+                                     { one: 'email',        many: 'emails'        };
+  const manualPreview = (manualList || '')
+    .split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
@@ -711,7 +740,7 @@ function ConfirmModal({
 
         <div style={rowLabel}>Audience</div>
         <div style={rowValue}>
-          {recipientMode === 'segment' ? (
+          {recipientMode === 'segment' && (
             segment ? (
               <div>
                 {segment.emoji ? `${segment.emoji} ` : ''}Saved segment: <strong>{segment.name}</strong>
@@ -724,7 +753,9 @@ function ConfirmModal({
             ) : (
               <div style={{ color: '#B91C1C' }}>⚠ No segment chosen</div>
             )
-          ) : (
+          )}
+
+          {recipientMode === 'custom' && (
             <>
               {statuses.length === 0 ? (
                 <div>✓ All Founding Members</div>
@@ -734,6 +765,47 @@ function ConfirmModal({
                 ))
               )}
               {tagsAny.map(t => <div key={t}>✓ Tag: {t}</div>)}
+            </>
+          )}
+
+          {recipientMode === 'outreach' && (
+            <>
+              <div>🏢 Outreach organisations</div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#64748B', marginTop: 4 }}>
+                {outreachCategory
+                  ? <>Category: <strong>{outreachCategory.replace(/_/g, ' ')}</strong></>
+                  : <>Any category</>}
+                {' · '}
+                {outreachStatus
+                  ? <>Status: <strong>{outreachStatus.replace(/_/g, ' ')}</strong></>
+                  : <>Any status</>}
+              </div>
+            </>
+          )}
+
+          {recipientMode === 'manual' && (
+            <>
+              <div>📋 Manual list</div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#64748B', marginTop: 4 }}>
+                {manualPreview.length === 0
+                  ? <span style={{ color: '#B91C1C' }}>⚠ List is empty</span>
+                  : <>{manualPreview.length} {manualPreview.length === 1 ? 'address' : 'addresses'} pasted
+                      {manualPreview.length <= 3 && (
+                        <> · {manualPreview.join(', ')}</>
+                      )}
+                    </>}
+              </div>
+            </>
+          )}
+
+          {recipientMode === 'individual' && (
+            <>
+              <div>👤 Individual recipient</div>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#64748B', marginTop: 4 }}>
+                {individualEmail
+                  ? <><strong>{individualName || '(no name)'}</strong> · {individualEmail}</>
+                  : <span style={{ color: '#B91C1C' }}>⚠ No recipient set</span>}
+              </div>
             </>
           )}
         </div>
@@ -754,7 +826,7 @@ function ConfirmModal({
           background: '#FEF3C7', borderRadius: 12,
           fontSize: 13, color: '#92400E', fontWeight: 700,
         }}>
-          This action will immediately send {audienceCount} {audienceCount === 1 ? 'email' : 'emails'}.
+          This action will immediately send {audienceCount} {audienceCount === 1 ? noun.one : noun.many}.
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
@@ -770,9 +842,11 @@ function ConfirmModal({
 }
 
 function ScheduleModal({
-  name, audienceCount, sending, onCancel, onConfirm,
+  name, audienceCount, recipientMode, sending, onCancel, onConfirm,
 }: {
-  name: string; audienceCount: number; sending: boolean;
+  name: string; audienceCount: number;
+  recipientMode: 'segment' | 'custom' | 'outreach' | 'manual' | 'individual';
+  sending: boolean;
   onCancel: () => void;
   onConfirm: (localValue: string) => void;
 }) {
@@ -784,6 +858,12 @@ function ScheduleModal({
     const pad = (n: number) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   });
+  const recipientLabel =
+    recipientMode === 'individual' ? (audienceCount === 1 ? 'recipient'    : 'recipients')    :
+    recipientMode === 'outreach'   ? (audienceCount === 1 ? 'organisation' : 'organisations') :
+    recipientMode === 'manual'     ? (audienceCount === 1 ? 'address'      : 'addresses')     :
+    recipientMode === 'segment'    ? (audienceCount === 1 ? 'recipient'    : 'recipients')    :
+                                     (audienceCount === 1 ? 'Founding Member' : 'Founding Members');
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)',
@@ -815,7 +895,7 @@ function ScheduleModal({
           background: '#EEF2FF', borderRadius: 12,
           fontSize: 13, color: '#3730A3', fontWeight: 700,
         }}>
-          When the time arrives, this will send to {audienceCount} {audienceCount === 1 ? 'Founding Member' : 'Founding Members'}.
+          When the time arrives, this will send to {audienceCount} {recipientLabel}.
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 22, justifyContent: 'flex-end' }}>
