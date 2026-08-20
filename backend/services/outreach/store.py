@@ -205,12 +205,16 @@ async def mark_replied(
     campaign_id: Optional[str] = None,
     direction: str = "inbound",   # "inbound" = they replied to us
     logged_by: Optional[str] = None,
+    at: Optional[str] = None,     # override timestamp (e.g. backdated inbound)
 ) -> Optional[Dict[str, Any]]:
     """Log a reply from (or to) an outreach org.
 
     direction="inbound"  -> status becomes "awaiting_reply", last_reply_at bumps.
     direction="outbound" -> we sent a reply; status becomes "replied".
     Returns the updated org (or None if org not found).
+
+    ``at`` lets callers backdate the timestamp (used when manually
+    logging a reply that arrived earlier — see iter160b Replies inbox).
     """
     query: Dict[str, Any] = {}
     if org_id:
@@ -224,9 +228,10 @@ async def mark_replied(
     if not org:
         return None
     now = _iso_now()
+    stamp = at or now
     entry = {
         "kind":        f"reply_{direction}",
-        "at":          now,
+        "at":          stamp,
         "subject":     subject,
         "body":        body,
         "campaign_id": campaign_id,
@@ -234,10 +239,10 @@ async def mark_replied(
     }
     set_doc: Dict[str, Any] = {"updated_at": now}
     if direction == "inbound":
-        set_doc["last_reply_at"] = now
+        set_doc["last_reply_at"] = stamp
         set_doc["status"] = "awaiting_reply"
     else:  # outbound reply from us
-        set_doc["last_contact_at"] = now
+        set_doc["last_contact_at"] = stamp
         set_doc["status"] = "replied"
     await db[COLL_ORGS].update_one(query, {"$set": set_doc, "$push": {"communications": entry}})
     return await db[COLL_ORGS].find_one(query, {"_id": 0})

@@ -5228,6 +5228,28 @@ def build_router(db) -> APIRouter:
         _logging.getLogger("friendplace.outreach").exception("outreach router mount failed")
 
     # ------------------------------------------------------------------
+    # iter160b — Replies inbox sub-router (manual "Log a reply" flow).
+    # Effective URLs: /api/cms/replies/*
+    # ------------------------------------------------------------------
+    try:
+        from services.replies.router import build_replies_router as _build_replies_router
+        from services.replies.store  import ensure_indexes as _replies_indexes
+        router.include_router(_build_replies_router(db, current_cms_admin))
+        async def _bootstrap_replies_indexes():
+            try:
+                await _replies_indexes(db)
+            except Exception:
+                import logging as _logging
+                _logging.getLogger("friendplace.replies").exception("replies index bootstrap failed")
+        try:
+            _asyncio.get_event_loop().create_task(_bootstrap_replies_indexes())
+        except Exception:
+            pass
+    except Exception:
+        import logging as _logging
+        _logging.getLogger("friendplace.replies").exception("replies router mount failed")
+
+    # ------------------------------------------------------------------
     # iter160a — CRM unified-status endpoints (compute-on-the-fly).
     # ------------------------------------------------------------------
     @router.get("/crm/status-for/{email}")

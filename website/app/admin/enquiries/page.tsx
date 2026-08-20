@@ -162,20 +162,38 @@ function EnquiryRow({ r }: { r: Enquiry }) {
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>{when}</div>
           {r.id && <div style={{ fontSize: 10, color: '#CBD5E1', marginTop: 3, fontFamily: '"SF Mono", Menlo, monospace' }}>{r.id}</div>}
           {r.email && (
-            <a
-              href={`/admin/marketing/send?${new URLSearchParams({
-                email: r.email,
-                name:  r.name || '',
-                template_id: 'enquiry_reply',
-                subject: r.subject ? `Re: ${r.subject}` : '',
-              }).toString()}`}
-              style={{
-                display: 'inline-block', marginTop: 8, padding: '4px 12px',
-                background: '#0D9488', color: '#FFFFFF', borderRadius: 8,
-                fontSize: 12, fontWeight: 700, textDecoration: 'none',
-              }}
-              data-testid={`enquiry-reply-${r.kind}-${r.id ?? ''}`}
-            >Reply →</a>
+            <>
+              <a
+                href={`/admin/marketing/send?${new URLSearchParams({
+                  email: r.email,
+                  name:  r.name || '',
+                  template_id: 'enquiry_reply',
+                  subject: r.subject ? `Re: ${r.subject}` : '',
+                }).toString()}`}
+                style={{
+                  display: 'inline-block', marginTop: 8, padding: '4px 12px',
+                  background: '#0D9488', color: '#FFFFFF', borderRadius: 8,
+                  fontSize: 12, fontWeight: 700, textDecoration: 'none',
+                }}
+                data-testid={`enquiry-reply-${r.kind}-${r.id ?? ''}`}
+              >Reply →</a>
+              <a
+                href={`/admin/replies?${new URLSearchParams({
+                  log:   '1',
+                  email: r.email,
+                  name:  r.name || '',
+                  subject: r.subject ? `Re: ${r.subject}` : '',
+                }).toString()}`}
+                style={{
+                  display: 'inline-block', marginTop: 8, marginLeft: 6, padding: '4px 10px',
+                  background: '#FFFFFF', color: '#0D9488', borderRadius: 8,
+                  fontSize: 11, fontWeight: 700, textDecoration: 'none',
+                  border: '1.5px solid #0D9488',
+                }}
+                data-testid={`enquiry-log-reply-${r.kind}-${r.id ?? ''}`}
+                title="Log a reply we've already received"
+              >Log reply</a>
+            </>
           )}
         </div>
       </div>

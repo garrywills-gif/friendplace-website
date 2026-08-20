@@ -19,7 +19,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: string;
-  badgeKey?: 'submissions';
+  badgeKey?: 'submissions' | 'replies';
   soon?: boolean;
 };
 
@@ -39,7 +39,9 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/crm',              label: 'CRM Navigator',    icon: '🧭' },
       { href: '/admin/members',          label: 'Members',          icon: '👤' },
       { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥' },
+      { href: '/admin/replies',          label: 'Replies',          icon: '💌', badgeKey: 'replies' },
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
+      { href: '/admin/outreach',         label: 'Outreach',         icon: '🏘️' },
       { href: '/admin/campaigns',        label: 'Campaigns',        icon: '📮' },
       { href: '/admin/segments',         label: 'Segments',         icon: '🦋' },
       { href: '/admin/moments',          label: 'Moments',          icon: '✨' },
@@ -99,6 +101,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   const [ready, setReady] = useState(false);
   const [admin, setLocalAdmin] = useState<CmsAdmin | null>(null);
   const [pendingSubmissions, setPendingSubmissions] = useState<number>(0);
+  const [unreadReplies, setUnreadReplies] = useState<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -123,10 +126,16 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
     let cancelled = false;
     (async () => {
       try {
-        const res = await cmsApi.listEventSubmissions('pending');
-        if (!cancelled) setPendingSubmissions(res.counts?.pending ?? 0);
+        const [subs, reps] = await Promise.all([
+          cmsApi.listEventSubmissions('pending').catch(() => null),
+          // iter160b: reply badge in CRM nav
+          (await import('@/lib/cms-api')).repliesApi.unreadCount().catch(() => null),
+        ]);
+        if (cancelled) return;
+        if (subs) setPendingSubmissions(subs.counts?.pending ?? 0);
+        if (reps) setUnreadReplies(reps.unread_count ?? 0);
       } catch {
-        // Silent fail — badge just stays at last known value.
+        // Silent fail — badges just stay at last known value.
       }
     })();
     return () => { cancelled = true; };
@@ -177,7 +186,10 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                 const active =
                   pathname === item.href ||
                   (pathname?.startsWith(item.href + '/') ?? false);
-                const badgeCount = item.badgeKey === 'submissions' ? pendingSubmissions : 0;
+                const badgeCount =
+                  item.badgeKey === 'submissions' ? pendingSubmissions :
+                  item.badgeKey === 'replies'     ? unreadReplies      :
+                  0;
                 return (
                   <Link
                     key={item.href}

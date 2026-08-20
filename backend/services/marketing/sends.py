@@ -292,6 +292,24 @@ async def send_marketing_email(db, req: SendRequest) -> SendOutcome:
         except Exception:
             logger.exception("outreach touch_last_contact failed (email=%s)", recipient_email)
 
+    # iter160b: if this send is a reply to an outstanding inbound_reply
+    # (either because template_id='enquiry_reply' or the caller flagged
+    # it), auto-mark those replies resolved so the badge count drops.
+    if send_result.ok:
+        try:
+            from services.replies.store import resolve_replies_for_email as _rre
+            treat_as_reply = (
+                req.template_id == "enquiry_reply"
+                or "reply" in [str(t).lower() for t in (req.tags or [])]
+            )
+            if treat_as_reply:
+                await _rre(
+                    db, from_email=recipient_email,
+                    resolved_by=req.initiator, send_id=send_id,
+                )
+        except Exception:
+            logger.exception("resolve_replies_for_email failed (email=%s)", recipient_email)
+
     return SendOutcome(
         ok=send_result.ok,
         send_id=send_id,

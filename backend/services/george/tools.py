@@ -1376,3 +1376,173 @@ async def _run_analytics_query(db: Any, args: dict) -> dict:
         ]
     return envelope
 
+
+
+# ---------------------------------------------------------------------------
+# iter160c — Unified CRM tools (Outreach + Replies + Awaiting)
+# ---------------------------------------------------------------------------
+#
+# These tools give George the ability to see the WHOLE contact-status
+# picture in one glance — Founding Members, Enquiries, Outreach
+# organisations, and manually-logged Replies — so that when Garry asks
+# *"who's waiting on us?"* George prioritises OUTSTANDING INBOUND
+# REPLIES first (people who wrote in and haven't heard back), then
+# outreach organisations we've contacted but not heard from.
+#
+# All three tools are read-only. They cite the unified status service
+# in `services/crm/status.py` and the outreach store in
+# `services/outreach/store.py`.
+
+@register(
+    "list_awaiting_reply",
+    "The single source of truth for 'who's waiting on us'. Returns EVERY "
+    "contact we owe a response to across the CRM: outreach organisations "
+    "explicitly in 'awaiting_reply' state PLUS unresolved inbound replies "
+    "from the Replies inbox. Ordered oldest-first so genuinely stale "
+    "threads surface at the top. USE THIS FIRST whenever Garry asks "
+    "'who's waiting on me?', 'who owes a reply?', 'any outstanding "
+    "responses?', 'who should I contact next?', or similar. Empty list "
+    "means everyone we've heard from has been answered.",
+    args={"limit": {"type": "int", "required": False}},
+)
+async def _list_awaiting_reply(db: Any, args: dict) -> list[dict]:
+    from services.crm.status import list_awaiting_reply
+    limit = int(args.get("limit") or 20)
+    rows = await list_awaiting_reply(db, limit=min(limit, 200))
+    # Compact the rows for the LLM — drop empty fields, keep the
+    # oldest inbound at the top so George naturally leads with them.
+    out: list[dict] = []
+    for r in rows:
+        item = {
+            "email":            r.get("email"),
+            "name":             r.get("name"),
+            "organisation":     r.get("organisation"),
+            "source":           r.get("source"),        # "outreach_organisation" | "inbound_reply"
+            "last_inbound_at":  r.get("last_inbound_at"),
+            "last_outbound_at": r.get("last_outbound_at"),
+        }
+        if r.get("subject"):     item["subject"] = r["subject"]
+        if r.get("campaign_id"): item["campaign_id"] = r["campaign_id"]
+        out.append({k: v for k, v in item.items() if v is not None})
+    return out
+
+
+@register(
+    "count_replies",
+    "Count inbound replies in the Replies inbox. Returns "
+    "{unread, awaiting_our_reply, total}. Use when Garry asks how many "
+    "replies are outstanding, how many are unread, or how big the "
+    "inbox is right now.",
+    args={},
+)
+async def _count_replies(db: Any, args: dict) -> dict:  # noqa: ARG001
+    from services.replies.store import unread_count, awaiting_count
+    total = await db.inbound_replies.count_documents({})
+    return {
+        "unread":              await unread_count(db),
+        "awaiting_our_reply":  await awaiting_count(db),
+        "total":               int(total),
+    }
+
+
+@register(
+    "list_outreach_organisations",
+    "List external outreach organisations (retirement villages, "
+    "community centres, libraries, clubs, councils, etc.) from the "
+    "Outreach CRM. Filter by status (not_contacted | contacted | "
+    "awaiting_reply | replied | joined | declined | bounced | "
+    "unsubscribed), by category, or by free-text query. Ordered "
+    "most-recently-updated first.",
+    args={
+        "status":   {"type": "str", "required": False,
+                     "enum": {"not_contacted", "contacted", "awaiting_reply",
+                              "replied", "joined", "declined", "bounced",
+                              "unsubscribed"}},
+        "category": {"type": "str", "required": False},
+        "q":        {"type": "str", "required": False},
+        "limit":    {"type": "int", "required": False},
+    },
+)
+async def _list_outreach_organisations(db: Any, args: dict) -> list[dict]:
+    from services.outreach.store import list_orgs
+    limit = int(args.get("limit") or 25)
+    rows = await list_orgs(
+        db, status=args.get("status"), category=args.get("category"),
+        q=args.get("q"), limit=min(limit, 200),
+    )
+    return [{
+        "id":                r.get("id"),
+        "organisation_name": r.get("organisation_name"),
+        "contact_name":      r.get("contact_name"),
+        "email":             r.get("email"),
+        "status":            r.get("status"),
+        "category":          r.get("category"),
+        "suburb":            r.get("suburb"),
+        "state":             r.get("state"),
+        "last_contact_at":   r.get("last_contact_at"),
+        "last_reply_at":     r.get("last_reply_at"),
+    } for r in rows]
+
+
+@register(
+    "count_outreach_organisations",
+    "Count outreach organisations in the CRM. Optional status/category "
+    "filter. Handy for questions like 'how many retirement villages "
+    "have we contacted?' or 'how many outreach orgs are awaiting our "
+    "reply?'.",
+    args={
+        "status":   {"type": "str", "required": False,
+                     "enum": {"not_contacted", "contacted", "awaiting_reply",
+                              "replied", "joined", "declined", "bounced",
+                              "unsubscribed"}},
+        "category": {"type": "str", "required": False},
+    },
+)
+async def _count_outreach_organisations(db: Any, args: dict) -> int:
+    q: dict[str, Any] = {"is_test": {"$ne": True}}
+    if args.get("status"):   q["status"] = args["status"]
+    if args.get("category"): q["category"] = args["category"]
+    return await db.outreach_organisations.count_documents(q)
+
+
+@register(
+    "list_needs_follow_up",
+    "Outreach organisations we contacted N or more days ago and have "
+    "NOT heard back from. Different from list_awaiting_reply — those "
+    "are people we OWE a reply. This is the reverse: people who owe US "
+    "a reply and are going cold. Ordered oldest-first.",
+    args={
+        "days":  {"type": "int", "required": False},
+        "limit": {"type": "int", "required": False},
+    },
+)
+async def _list_needs_follow_up(db: Any, args: dict) -> list[dict]:
+    from services.crm.status import list_needs_follow_up
+    days = int(args.get("days") or 7)
+    limit = int(args.get("limit") or 20)
+    rows = await list_needs_follow_up(
+        db, days_since_last_contact=days, limit=min(limit, 200),
+    )
+    return [{
+        "email":            r.get("email"),
+        "name":             r.get("name"),
+        "organisation":     r.get("organisation"),
+        "last_outbound_at": r.get("last_outbound_at"),
+        "source":           r.get("source"),
+    } for r in rows]
+
+
+@register(
+    "get_contact_status",
+    "Return the unified CRM status for a single email — checks "
+    "founding_members, outreach_organisations, marketing sends, and "
+    "inbound replies simultaneously. Returns {status, reason, "
+    "last_outbound_at, last_inbound_at, sources}. Use this when Garry "
+    "asks about ONE specific person ('what's the story with jane@…?', "
+    "'where are we with Elizabeth?').",
+    args={"email": {"type": "str", "required": True}},
+)
+async def _get_contact_status(db: Any, args: dict) -> dict:
+    from services.crm.status import status_for_email
+    return await status_for_email(db, args["email"])
+
