@@ -1467,3 +1467,89 @@ export const marketingApi = {
     req<MarketingContactRow>('GET', `/cms/marketing/contacts/${encodeURIComponent(email)}`),
 };
 
+
+// ============================================================================
+// iter160a — Outreach organisations + unified CRM status.
+// ============================================================================
+
+export type OutreachStatus =
+  | 'not_contacted' | 'contacted' | 'awaiting_reply' | 'replied'
+  | 'joined' | 'declined' | 'bounced' | 'unsubscribed';
+
+export type OutreachOrg = {
+  id: string;
+  organisation_name: string;
+  email: string;
+  contact_name: string;
+  phone: string;
+  category: string;
+  tags: string[];
+  suburb: string;
+  state: string;
+  notes: string;
+  status: OutreachStatus;
+  last_contact_at: string | null;
+  last_reply_at: string | null;
+  communications: Array<{ kind: string; at: string; [k: string]: any }>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OutreachOrgIn = {
+  organisation_name: string;
+  email: string;
+  contact_name?: string;
+  phone?: string;
+  category?: string;
+  tags?: string[];
+  suburb?: string;
+  state?: string;
+  notes?: string;
+  status?: OutreachStatus;
+};
+
+export const outreachApi = {
+  meta: () => req<{ statuses: OutreachStatus[]; categories: string[] }>('GET', '/cms/outreach/meta'),
+  list: (params?: { q?: string; category?: string; status?: OutreachStatus; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.q) qs.set('q', params.q);
+    if (params?.category) qs.set('category', params.category);
+    if (params?.status) qs.set('status', params.status);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const s = qs.toString();
+    return req<{ organisations: OutreachOrg[] }>('GET', `/cms/outreach/organisations${s ? `?${s}` : ''}`);
+  },
+  get: (id: string) => req<OutreachOrg>('GET', `/cms/outreach/organisations/${id}`),
+  create: (body: OutreachOrgIn) => req<OutreachOrg>('POST', '/cms/outreach/organisations', body),
+  update: (id: string, body: OutreachOrgIn) => req<OutreachOrg>('PATCH', `/cms/outreach/organisations/${id}`, body),
+  del: (id: string) => req<{ ok: true }>('DELETE', `/cms/outreach/organisations/${id}`),
+  markReplied: (id: string, body: { subject?: string; body?: string; direction?: 'inbound' | 'outbound'; campaign_id?: string }) =>
+    req<OutreachOrg>('POST', `/cms/outreach/organisations/${id}/mark-replied`, body),
+  log: (id: string, body: { kind: string; body?: string }) =>
+    req<OutreachOrg>('POST', `/cms/outreach/organisations/${id}/log`, body),
+};
+
+export type CrmStatus = {
+  email: string;
+  status: OutreachStatus;
+  reason: string;
+  last_outbound_at: string | null;
+  last_inbound_at: string | null;
+  last_our_reply_at: string | null;
+  sources: {
+    founding_member: boolean;
+    outreach_org: boolean;
+    campaign_recipients_count: number;
+    marketing_sends_count: number;
+    inbound_replies_count: number;
+  };
+  founding_member_status: string | null;
+  outreach_status: string | null;
+};
+
+export const crmApi = {
+  statusFor: (email: string) => req<CrmStatus>('GET', `/cms/crm/status-for/${encodeURIComponent(email)}`),
+  awaitingReply: (limit = 200) => req<{ rows: Array<any> }>('GET', `/cms/crm/awaiting-reply?limit=${limit}`),
+  needsFollowUp: (days = 7, limit = 200) => req<{ rows: Array<any> }>('GET', `/cms/crm/needs-follow-up?days=${days}&limit=${limit}`),
+};
+

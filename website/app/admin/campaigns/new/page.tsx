@@ -75,12 +75,19 @@ function ComposePanel() {
   const [tagInput, setTagInput] = useState('');
   // CRM Phase 2C \u2014 recipient mode toggle. `segment` uses a saved
   // segment; `custom` falls back to the classic statuses + tags builder.
-  const [recipientMode, setRecipientMode] = useState<'segment' | 'custom'>(
+  const [recipientMode, setRecipientMode] = useState<'segment' | 'custom' | 'outreach' | 'manual' | 'individual'>(
     (searchParams?.get('segment_id') ? 'segment' : 'custom'),
   );
   const [segmentId, setSegmentId] = useState<string>(searchParams?.get('segment_id') || '');
   const [segments, setSegments] = useState<Array<{ id: string; name: string; emoji?: string | null; last_count?: number; description?: string | null }> | null>(null);
   const [suggestions, setSuggestions] = useState<Array<{ id: string; name: string; emoji?: string | null; count?: number; confidence: number }>>([]);
+
+  // iter160a — new audience modes: outreach, manual list, individual.
+  const [outreachCategory, setOutreachCategory] = useState('');
+  const [outreachStatus,   setOutreachStatus]   = useState('');
+  const [manualList,       setManualList]       = useState('');
+  const [individualEmail,  setIndividualEmail]  = useState('');
+  const [individualName,   setIndividualName]   = useState('');
 
   const [campaignId, setCampaignId] = useState<string | null>(editId);
   const [saving, setSaving] = useState(false);
@@ -124,8 +131,31 @@ function ComposePanel() {
   }, [editId]);
 
   // Debounced auto-save-as-draft, and auto-refresh audience count + preview
-  const audienceFilter: CampaignAudienceFilter = useMemo(() => (
-    recipientMode === 'segment'
+  const audienceFilter: CampaignAudienceFilter = useMemo(() => {
+    // iter160a — 5 audience kinds sent as `audience_kind` on the filter.
+    if (recipientMode === 'outreach') {
+      return {
+        audience_kind: 'outreach_contacts',
+        outreach: {
+          category: outreachCategory || undefined,
+          status:   outreachStatus || undefined,
+        },
+      } as any;
+    }
+    if (recipientMode === 'manual') {
+      return {
+        audience_kind: 'manual_list',
+        manual_recipients: manualList,
+      } as any;
+    }
+    if (recipientMode === 'individual') {
+      return {
+        audience_kind: 'individual',
+        recipient_email: individualEmail,
+        recipient_name:  individualName,
+      } as any;
+    }
+    return recipientMode === 'segment'
       ? {
           segment_id: segmentId || undefined,
           exclude_reserved: true,
@@ -136,8 +166,9 @@ function ComposePanel() {
           tags_any: tagsAny,
           exclude_reserved: true,
           exclude_opted_out: true,
-        }
-  ), [recipientMode, segmentId, statuses, tagsAny]);
+        };
+  }, [recipientMode, segmentId, statuses, tagsAny,
+      outreachCategory, outreachStatus, manualList, individualEmail, individualName]);
 
   // Load saved segments once (for the picker) and refresh George's
   // suggestions as the draft's copy changes.
@@ -334,31 +365,86 @@ function ComposePanel() {
         <SectionCard title="Audience">
           {/* CRM Phase 2C — Recipient mode toggle */}
           <label style={s.label}>Recipient</label>
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
             {([
-              { key: 'segment', label: 'Saved segment', hint: 'Pick a group you have already defined' },
-              { key: 'custom',  label: 'Custom filter', hint: 'Build a one-off filter with statuses + tags' },
+              { key: 'segment',    label: 'Saved segment',      hint: 'Pick a group you have already defined' },
+              { key: 'custom',     label: 'Custom filter',      hint: 'Filter Founding Members by status + tags' },
+              { key: 'outreach',   label: 'Outreach contacts',  hint: 'External orgs from Outreach CRM' },
+              { key: 'manual',     label: 'Manual list',        hint: 'Paste addresses one per line' },
+              { key: 'individual', label: 'Individual',         hint: 'One recipient only' },
             ] as const).map(opt => {
               const on = recipientMode === opt.key;
               return (
                 <button key={opt.key} type="button" onClick={() => setRecipientMode(opt.key)}
+                  data-testid={`audience-mode-${opt.key}`}
                   style={{
-                    ...s.ghostBtn, flex: 1, padding: '10px 12px', textAlign: 'left',
+                    ...s.ghostBtn, flex: '1 1 180px', padding: '10px 12px', textAlign: 'left',
                     background: on ? '#F0FDFA' : '#FFFFFF',
                     color:      on ? '#0F766E' : '#0A2540',
                     borderColor: on ? '#0F766E' : '#CBD5E1', fontWeight: 700,
                     display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
                   }}>
-                  <span style={{ fontSize: 13 }}>
-                    {on ? '●' : '○'} {opt.label}
-                  </span>
-                  <span style={{ fontSize: 11, fontWeight: 500, color: on ? '#0F766E' : '#64748B' }}>
-                    {opt.hint}
-                  </span>
+                  <span style={{ fontSize: 13 }}>{on ? '●' : '○'} {opt.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: on ? '#0F766E' : '#64748B' }}>{opt.hint}</span>
                 </button>
               );
             })}
           </div>
+
+          {/* iter160a — Outreach contacts mode */}
+          {recipientMode === 'outreach' && (
+            <div style={{ marginTop: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 14 }}>
+              <label style={s.label}>Category (optional)</label>
+              <input style={s.input} value={outreachCategory}
+                onChange={(e) => setOutreachCategory(e.target.value)}
+                placeholder="e.g. retirement_village — leave blank for all" />
+              <label style={s.label}>Status (optional)</label>
+              <select style={s.input} value={outreachStatus} onChange={(e) => setOutreachStatus(e.target.value)}>
+                <option value="">— any status —</option>
+                <option value="not_contacted">Not contacted</option>
+                <option value="contacted">Contacted</option>
+                <option value="awaiting_reply">Awaiting our reply</option>
+                <option value="replied">Replied</option>
+                <option value="declined">Declined</option>
+              </select>
+              <p style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
+                Sends one personalised email to each organisation matching the filter. Manage the list under <a href="/admin/outreach" style={{ color: '#0F766E', fontWeight: 700 }}>Outreach</a>.
+              </p>
+            </div>
+          )}
+
+          {/* iter160a — Manual list mode */}
+          {recipientMode === 'manual' && (
+            <div style={{ marginTop: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 14 }}>
+              <label style={s.label}>Recipients — one per line</label>
+              <textarea
+                style={{ ...s.input, minHeight: 160, fontFamily: 'inherit', resize: 'vertical' }}
+                value={manualList}
+                onChange={(e) => setManualList(e.target.value)}
+                placeholder={"jane@example.com\nJohn Smith | john@example.com\nHillside Village <reception@hillside.example.com>"}
+                data-testid="manual-recipients-textarea"
+              />
+              <p style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
+                Each recipient gets a <strong>separate</strong> email — nobody sees anyone else&rsquo;s address.
+                Formats: <code>email</code>, <code>Name | email</code>, or <code>Name &lt;email&gt;</code>.
+              </p>
+            </div>
+          )}
+
+          {/* iter160a — Individual mode */}
+          {recipientMode === 'individual' && (
+            <div style={{ marginTop: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 14 }}>
+              <label style={s.label}>Recipient name</label>
+              <input style={s.input} value={individualName}
+                onChange={(e) => setIndividualName(e.target.value)} placeholder="Jane Smith" />
+              <label style={s.label}>Recipient email</label>
+              <input style={s.input} type="email" value={individualEmail}
+                onChange={(e) => setIndividualEmail(e.target.value)} placeholder="jane@example.com" />
+              <p style={{ fontSize: 12, color: '#64748B', marginTop: 8 }}>
+                Tip: for a quick 1:1 reply from an enquiry, use the Reply button on the Enquiries page instead — it opens the simpler Send Email screen.
+              </p>
+            </div>
+          )}
 
           {/* George's segment suggestions (only in segment mode & only when George found ideas) */}
           {recipientMode === 'segment' && suggestions.length > 0 && (

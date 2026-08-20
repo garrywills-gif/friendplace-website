@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { AdminShell } from '@/components/admin/AdminShell';
 import {
   marketingApi,
@@ -57,9 +58,23 @@ const INITIAL_STATE: FormState = {
 };
 
 export default function SendMarketingEmailPage() {
+  const searchParams = useSearchParams();
+  const initialFromQuery: Partial<FormState> = useMemo(() => {
+    if (!searchParams) return {};
+    const p: Partial<FormState> = {};
+    const email = searchParams.get('email'); if (email) p.recipient_email = email;
+    const name  = searchParams.get('name');  if (name)  p.recipient_name = name;
+    const kind  = searchParams.get('kind');  if (kind === 'organisation' || kind === 'person') p.recipient_type = kind;
+    const org   = searchParams.get('organisation_name'); if (org) p.organisation_name = org;
+    const suburb = searchParams.get('suburb'); if (suburb) p.suburb = suburb;
+    const tpl   = searchParams.get('template_id'); if (tpl) p.template_id = tpl;
+    const subj  = searchParams.get('subject'); if (subj) p.subject_override = subj;
+    return p;
+  }, [searchParams]);
+
   const [templates, setTemplates] = useState<MarketingTemplate[]>([]);
   const [flyerTpls, setFlyerTpls] = useState<FlyerTemplate[]>([]);
-  const [form, setForm] = useState<FormState>(INITIAL_STATE);
+  const [form, setForm] = useState<FormState>({ ...INITIAL_STATE, ...initialFromQuery });
   const [preview, setPreview] = useState<MarketingPreviewOut | null>(null);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);

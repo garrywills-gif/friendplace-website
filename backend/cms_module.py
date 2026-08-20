@@ -1725,11 +1725,106 @@ def build_router(db) -> APIRouter:
         }
 
     async def _resolve_audience(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
+        """iter160a: dispatch across five audience kinds.
+
+        f.audience_kind can be:
+          - 'founding_members' (default; original behaviour)
+          - 'saved_segment'    -> uses f.segment_id
+          - 'custom_filter'    -> uses f.filter (a segment-shape filter, not saved)
+          - 'outreach_contacts' -> f.outreach.{category, tags_any, status, ids}
+          - 'manual_list'      -> f.manual_recipients: list of {name, email}
+                                                       OR one-per-line strings
+          - 'individual'       -> f.recipient_email + f.recipient_name
+
+        Returns a normalised list of {id, first_name, email, companion_choice,
+        founder_number, status, tags, organisation_name?} so the rest of the
+        send pipeline is agnostic to the source.
+        """
+        kind = str((f or {}).get("audience_kind") or "").strip().lower()
+
+        # -- 5) Individual send --
+        if kind == "individual":
+            addr = str(f.get("recipient_email") or "").strip()
+            if not addr:
+                return []
+            return [{
+                "id": None,
+                "first_name": (f.get("recipient_name") or "").split(" ", 1)[0],
+                "email": addr,
+                "companion_choice": None,
+                "founder_number": None,
+                "status": None,
+                "tags": [],
+            }][:limit]
+
+        # -- 4) Manual list (pasted addresses) --
+        if kind == "manual_list":
+            raw = f.get("manual_recipients") or []
+            parsed: list[dict] = []
+            if isinstance(raw, str):
+                raw = raw.splitlines()
+            seen: set = set()
+            for item in raw:
+                if isinstance(item, dict):
+                    e = str(item.get("email") or "").strip().lower()
+                    n = str(item.get("name") or "").strip()
+                elif isinstance(item, str):
+                    line = item.strip()
+                    if not line: continue
+                    # Support "Name <email>" and "Name | email" and bare "email"
+                    if "|" in line:
+                        n, e = [p.strip() for p in line.split("|", 1)]
+                        e = e.lower()
+                    elif "<" in line and line.endswith(">"):
+                        n, rest = line.split("<", 1)
+                        n, e = n.strip(), rest[:-1].strip().lower()
+                    else:
+                        n, e = "", line.lower()
+                else:
+                    continue
+                if not e or "@" not in e or e in seen: continue
+                seen.add(e)
+                parsed.append({
+                    "id": None,
+                    "first_name": n.split(" ", 1)[0] if n else "",
+                    "email": e,
+                    "companion_choice": None,
+                    "founder_number": None,
+                    "status": None,
+                    "tags": [],
+                    "recipient_name": n,
+                })
+            return parsed[:limit]
+
+        # -- 3) Outreach contacts --
+        if kind == "outreach_contacts":
+            from services.outreach.store import COLL_ORGS
+            oq: Dict[str, Any] = {"is_test": {"$ne": True}}
+            spec = f.get("outreach") or {}
+            if spec.get("category"): oq["category"] = spec["category"]
+            if spec.get("status"):   oq["status"] = spec["status"]
+            if spec.get("tags_any"): oq["tags"] = {"$in": list(spec["tags_any"])}
+            if spec.get("ids"):      oq["id"] = {"$in": list(spec["ids"])}
+            cur = db[COLL_ORGS].find(oq, {"_id": 0}).sort("updated_at", -1).limit(limit)
+            out: list[dict] = []
+            async for org in cur:
+                out.append({
+                    "id":               org.get("id"),
+                    "first_name":       (org.get("contact_name") or "").split(" ", 1)[0],
+                    "email":            org.get("email"),
+                    "companion_choice": None,
+                    "founder_number":   None,
+                    "status":           org.get("status"),
+                    "tags":             org.get("tags") or [],
+                    "recipient_name":   org.get("contact_name"),
+                    "organisation_name": org.get("organisation_name"),
+                    "outreach_id":      org.get("id"),
+                })
+            return out
+
+        # -- Default & 2) Founding-member-shaped (original behaviour) --
         q = _build_audience_query(f)
-        # CRM Phase 2C — segment integration. If the audience_filter
-        # names a saved segment, resolve it to a set of emails and
-        # intersect. Locked with Garry, 1 Aug 2026: campaigns can be
-        # targeted by segment OR by classic filter, never both required.
+        # Saved segment intersection (existing behaviour preserved).
         segment_id = (f or {}).get("segment_id")
         if segment_id:
             from services import segments as _segments
@@ -1969,6 +2064,19 @@ def build_router(db) -> APIRouter:
                     {"id": campaign_id},
                     {"$inc": {("stats.accepted" if result.ok else "stats.failed"): 1}},
                 )
+                # iter160a: if this recipient is an outreach organisation,
+                # bump their last_contact_at and log the send in their
+                # timeline. Idempotent on the per-recipient row id.
+                if result.ok:
+                    try:
+                        from services.outreach.store import touch_last_contact as _tlc
+                        await _tlc(
+                            db, email=r["email"], campaign_id=campaign_id,
+                            subject=subject,
+                            send_id=str(r.get("id") or r["email"]) + "@" + campaign_id,
+                        )
+                    except Exception:
+                        pass
                 if result.ok and result.message_id:
                     try:
                         await db.email_test_log.insert_one({
@@ -5096,6 +5204,50 @@ def build_router(db) -> APIRouter:
         # log and continue with the rest of the admin surface.
         import logging as _logging
         _logging.getLogger("friendplace.marketing").exception("marketing router mount failed")
+
+    # ------------------------------------------------------------------
+    # iter160a — Outreach sub-router (organisations CRUD + timeline).
+    # Effective URLs: /api/cms/outreach/*
+    # ------------------------------------------------------------------
+    try:
+        from services.outreach.router import build_outreach_router as _build_outreach_router
+        from services.outreach.store  import ensure_indexes as _outreach_indexes
+        router.include_router(_build_outreach_router(db, current_cms_admin))
+        async def _bootstrap_outreach_indexes():
+            try:
+                await _outreach_indexes(db)
+            except Exception:
+                import logging as _logging
+                _logging.getLogger("friendplace.outreach").exception("outreach index bootstrap failed")
+        try:
+            _asyncio.get_event_loop().create_task(_bootstrap_outreach_indexes())
+        except Exception:
+            pass
+    except Exception:
+        import logging as _logging
+        _logging.getLogger("friendplace.outreach").exception("outreach router mount failed")
+
+    # ------------------------------------------------------------------
+    # iter160a — CRM unified-status endpoints (compute-on-the-fly).
+    # ------------------------------------------------------------------
+    @router.get("/crm/status-for/{email}")
+    async def _crm_status_for(email: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        from services.crm.status import status_for_email
+        return await status_for_email(db, email)
+
+    @router.get("/crm/awaiting-reply")
+    async def _crm_awaiting_reply(
+        limit: int = 200, admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        from services.crm.status import list_awaiting_reply
+        return {"rows": await list_awaiting_reply(db, limit=limit)}
+
+    @router.get("/crm/needs-follow-up")
+    async def _crm_needs_follow_up(
+        days: int = 7, limit: int = 200, admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        from services.crm.status import list_needs_follow_up
+        return {"rows": await list_needs_follow_up(db, days_since_last_contact=days, limit=limit)}
 
     return router
 

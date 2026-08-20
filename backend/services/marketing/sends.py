@@ -280,6 +280,18 @@ async def send_marketing_email(db, req: SendRequest) -> SendOutcome:
     except Exception:
         logger.exception("failed to upsert marketing_contact (email=%s)", recipient_email)
 
+    # iter160a: if this email is a known outreach org, also update THEIR
+    # timeline + last_contact_at. Silently no-op if not an outreach org.
+    if send_result.ok:
+        try:
+            from services.outreach.store import touch_last_contact as _tlc
+            await _tlc(
+                db, email=recipient_email, campaign_id=req.campaign_id,
+                subject=rendered.subject, send_id=send_id,
+            )
+        except Exception:
+            logger.exception("outreach touch_last_contact failed (email=%s)", recipient_email)
+
     return SendOutcome(
         ok=send_result.ok,
         send_id=send_id,

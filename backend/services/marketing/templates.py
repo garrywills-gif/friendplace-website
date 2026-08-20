@@ -347,6 +347,44 @@ def _rv_body_text(ctx: TemplateContext) -> str:
 
 # ------- Registry ---------------------------------------------------------
 
+# ---- Template: enquiry_reply (iter160a) -----------------------------------
+# One-off personal reply to somebody who contacted us via the website
+# enquiry forms. Deliberately plain and warm - NO Founding Member
+# number/badge, NO founding-member-specific copy - because this template
+# is used for members of the public who may or may not be founders.
+
+def _reply_subject(ctx: TemplateContext) -> str:
+    if ctx.subject_override:
+        return ctx.subject_override
+    return "Thanks for getting in touch"
+
+
+def _reply_body_html(ctx: TemplateContext) -> str:
+    intro = (
+        '<p style="margin:0 0 12px;">Thanks so much for reaching out. '
+        'I wanted to reply personally rather than send a template.</p>'
+    )
+    extra = _paragraph_html(ctx.additional_message)
+    if not extra:
+        extra = ('<p style="margin:0 0 12px;">'
+                 "Feel free to reply straight back to this email - it comes through to me directly."
+                 '</p>')
+    close = (
+        '<p style="margin:12px 0 0;">Warm wishes,</p>'
+    )
+    return intro + extra + close
+
+
+def _reply_body_text(ctx: TemplateContext) -> str:
+    lines = ["Thanks so much for reaching out. I wanted to reply personally rather than send a template.", ""]
+    if ctx.additional_message:
+        lines += [ctx.additional_message.strip(), ""]
+    else:
+        lines += ["Feel free to reply straight back to this email - it comes through to me directly.", ""]
+    lines += ["Warm wishes,"]
+    return "\n".join(lines)
+
+
 MARKETING_TEMPLATES: Dict[str, MarketingTemplate] = {
     "friendplace_intro": MarketingTemplate(
         id="friendplace_intro",
@@ -370,6 +408,19 @@ MARKETING_TEMPLATES: Dict[str, MarketingTemplate] = {
         build_body_html=_rv_body_html,
         build_body_text=_rv_body_text,
         default_greeting_prefix="Hello",
+    ),
+    "enquiry_reply": MarketingTemplate(
+        id="enquiry_reply",
+        name="Enquiry Reply (personal)",
+        description="A warm personal reply to somebody who contacted us via the website. "
+                    "No Founding Member number/badge - suitable for the general public. "
+                    "Attach a flyer only if it fits their question.",
+        audience="any",
+        build_subject=_reply_subject,
+        build_body_html=_reply_body_html,
+        build_body_text=_reply_body_text,
+        default_greeting_prefix="Hi",
+        supports_flyer=True,
     ),
 }
 

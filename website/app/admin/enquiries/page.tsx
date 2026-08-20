@@ -161,6 +161,22 @@ function EnquiryRow({ r }: { r: Enquiry }) {
           }}>{r.status}</div>
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>{when}</div>
           {r.id && <div style={{ fontSize: 10, color: '#CBD5E1', marginTop: 3, fontFamily: '"SF Mono", Menlo, monospace' }}>{r.id}</div>}
+          {r.email && (
+            <a
+              href={`/admin/marketing/send?${new URLSearchParams({
+                email: r.email,
+                name:  r.name || '',
+                template_id: 'enquiry_reply',
+                subject: r.subject ? `Re: ${r.subject}` : '',
+              }).toString()}`}
+              style={{
+                display: 'inline-block', marginTop: 8, padding: '4px 12px',
+                background: '#0D9488', color: '#FFFFFF', borderRadius: 8,
+                fontSize: 12, fontWeight: 700, textDecoration: 'none',
+              }}
+              data-testid={`enquiry-reply-${r.kind}-${r.id ?? ''}`}
+            >Reply →</a>
+          )}
         </div>
       </div>
     </div>
