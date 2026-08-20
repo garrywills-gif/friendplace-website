@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
-import { cmsApi } from '@/lib/cms-api';
+import { cmsApi, repliesApi } from '@/lib/cms-api';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
@@ -19,7 +19,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: string;
-  badgeKey?: 'submissions';
+  badgeKey?: 'submissions' | 'replies';
   soon?: boolean;
 };
 
@@ -39,6 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
 { href: '/admin/crm', label: 'CRM Navigator', icon: '🧭' },
       { href: '/admin/members',          label: 'Members',          icon: '👤' },
       { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥' },
+      { href: '/admin/replies',          label: 'Replies',          icon: '💌', badgeKey: 'replies' },     
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
       { href: '/admin/campaigns',        label: 'Campaigns',        icon: '📮' },
       { href: '/admin/segments',         label: 'Segments',         icon: '🦋' },
@@ -99,8 +100,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   const [ready, setReady] = useState(false);
   const [admin, setLocalAdmin] = useState<CmsAdmin | null>(null);
   const [pendingSubmissions, setPendingSubmissions] = useState<number>(0);
-
-  useEffect(() => {
+const [unreadReplies, setUnreadReplies] = useState<number>(0);  useEffect(() => {
     (async () => {
       if (!isAuthed()) { router.replace('/admin/login'); return; }
       try {
@@ -128,7 +128,13 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
       } catch {
         // Silent fail — badge just stays at last known value.
       }
-    })();
+try {
+  const res = await repliesApi.unreadCount();
+  if (!cancelled) setUnreadReplies(res.unread_count ?? 0);
+} catch {
+  // Silent fail — replies badge stays at last known value.
+}
+})();
     return () => { cancelled = true; };
   }, [ready, pathname]);
 
@@ -177,7 +183,12 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                 const active =
                   pathname === item.href ||
                   (pathname?.startsWith(item.href + '/') ?? false);
-                const badgeCount = item.badgeKey === 'submissions' ? pendingSubmissions : 0;
+               const badgeCount =
+  item.badgeKey === 'submissions'
+    ? pendingSubmissions
+    : item.badgeKey === 'replies'
+      ? unreadReplies
+      : 0;
                 return (
                   <Link
                     key={item.href}
