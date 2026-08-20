@@ -88,11 +88,11 @@ const SECTIONS: Section[] = [
         description: 'Compose, preview and send emails to Founding Members and any saved Segment.',
       },
       {
-        href: '/admin/marketing/outreach',
+        href: '/admin/outreach',
         icon: '🏢',
         label: 'Organisation Outreach',
         description: 'Retirement villages, community centres, libraries, councils, clubs — track outreach and share flyers.',
-        soon: true,
+        
       },
       {
         href: '/admin/flyers',
