@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { AdminShell } from '@/components/admin/AdminShell';
 import { enquiriesApi, type Enquiry } from '@/lib/cms-api';
 
@@ -161,8 +162,31 @@ function EnquiryRow({ r }: { r: Enquiry }) {
           }}>{r.status}</div>
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>{when}</div>
           {r.id && <div style={{ fontSize: 10, color: '#CBD5E1', marginTop: 3, fontFamily: '"SF Mono", Menlo, monospace' }}>{r.id}</div>}
-        </div>
-      </div>
+        </div>{r.email && (
+  <div
+    style={{
+      display: 'flex',
+      gap: 6,
+      justifyContent: 'flex-end',
+      marginTop: 10,
+      flexWrap: 'wrap',
+    }}
+  >
+    <Link
+      href={`/admin/marketing/send?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject ? `Re: ${r.subject}` : '')}&template_id=enquiry_reply&in_reply_to=${encodeURIComponent(r.id || '')}`}
+      style={replyButton}
+    >
+      Reply
+    </Link>
+
+    <Link
+      href={`/admin/replies?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject || '')}`}
+      style={logReplyButton}
+    >
+      Log reply
+    </Link>
+  </div>
+)}      </div>
     </div>
   );
 }
@@ -174,4 +198,26 @@ const rowCard: React.CSSProperties = { ...card, padding: 14 };
 const rationaleStrip: React.CSSProperties = {
   background: '#F0FDFA', border: '1px solid #99F6E4', borderRadius: 12,
   padding: '10px 14px', fontSize: 13, color: '#0F766E',
+};
+const replyButton: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '6px 10px',
+  borderRadius: 8,
+  background: '#0F766E',
+  color: '#FFFFFF',
+  textDecoration: 'none',
+  fontSize: 11,
+  fontWeight: 800,
+};
+
+const logReplyButton: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '6px 10px',
+  borderRadius: 8,
+  background: '#FFFFFF',
+  color: '#0F766E',
+  border: '1px solid #99F6E4',
+  textDecoration: 'none',
+  fontSize: 11,
+  fontWeight: 800,
 };
