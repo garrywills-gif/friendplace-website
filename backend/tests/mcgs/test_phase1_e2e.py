@@ -20,7 +20,7 @@ import pytest
 import requests
 
 BASE_URL = (os.environ.get("EXPO_PUBLIC_BACKEND_URL")
-            or "https://george-mcgs-cms.preview.emergentagent.com").rstrip("/")
+            or "https://outreach-campaigns.preview.emergentagent.com").rstrip("/")
 
 ADMIN_EMAIL = "hello@friendplace.com.au"
 ADMIN_PASSWORD = "TestPass2026!"

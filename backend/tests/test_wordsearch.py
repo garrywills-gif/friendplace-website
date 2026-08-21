@@ -32,7 +32,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 BASE_URL = (os.environ.get("EXPO_PUBLIC_BACKEND_URL")
             or os.environ.get("EXPO_BACKEND_URL")
-            or "https://george-mcgs-cms.preview.emergentagent.com").rstrip("/")
+            or "https://outreach-campaigns.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
 # Demo accounts used for context tests (no password — /auth/demo-login).

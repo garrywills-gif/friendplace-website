@@ -25,7 +25,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL") or os.environ.get("EXPO_BACKEND_URL")
 if not BASE_URL:
     # Fallback to the same URL the website uses — same preview host.
-    BASE_URL = "https://george-mcgs-cms.preview.emergentagent.com"
+    BASE_URL = "https://outreach-campaigns.preview.emergentagent.com"
 BASE_URL = BASE_URL.rstrip("/")
 
 ADMIN_EMAIL = "hello@friendplace.com.au"

@@ -30,7 +30,7 @@ if BACKEND_DIR not in sys.path:
 
 BASE_URL = (
     os.environ.get("EXPO_PUBLIC_BACKEND_URL")
-    or "https://george-mcgs-cms.preview.emergentagent.com"
+    or "https://outreach-campaigns.preview.emergentagent.com"
 ).rstrip("/")
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")

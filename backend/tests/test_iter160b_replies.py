@@ -12,7 +12,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://george-mcgs-cms.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://outreach-campaigns.preview.emergentagent.com").rstrip("/")
 ADMIN_EMAIL = "hello@friendplace.com.au"
 ADMIN_PASSWORD = "TestPass2026!"
 

@@ -29,7 +29,7 @@ from pymongo import MongoClient
 BASE_URL = (
     os.environ.get("EXPO_BACKEND_URL")
     or os.environ.get("EXPO_PUBLIC_BACKEND_URL")
-    or "https://george-mcgs-cms.preview.emergentagent.com"
+    or "https://outreach-campaigns.preview.emergentagent.com"
 ).rstrip("/")
 
 ADMIN_EMAIL = "hello@friendplace.com.au"

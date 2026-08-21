@@ -27,7 +27,7 @@ from services.replies.store import create_reply  # noqa: E402
 from services.outreach.store import upsert_org  # noqa: E402
 
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://george-mcgs-cms.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://outreach-campaigns.preview.emergentagent.com").rstrip("/")
 MONGO_URL = os.environ.get("MONGO_URL") or "mongodb://localhost:27017"
 DB_NAME = os.environ.get("DB_NAME") or "test_database"
 

@@ -14,7 +14,7 @@ import pytest
 import requests
 from PIL import Image
 
-BASE_URL = "https://george-mcgs-cms.preview.emergentagent.com"
+BASE_URL = "https://outreach-campaigns.preview.emergentagent.com"
 FLYER_PATH = "/flyer-mockups"
 
 # (filename, expected_content_type_prefix, expected_size_min_bytes)

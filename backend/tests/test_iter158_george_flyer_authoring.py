@@ -21,7 +21,7 @@ import pytest
 import pytest_asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 
-BASE_URL = "https://george-mcgs-cms.preview.emergentagent.com"
+BASE_URL = "https://outreach-campaigns.preview.emergentagent.com"
 MONGO_URL = os.environ.get("MONGO_URL") or "mongodb://localhost:27017"
 DB_NAME = os.environ.get("DB_NAME") or "test_database"
 

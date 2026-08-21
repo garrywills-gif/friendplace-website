@@ -37,7 +37,7 @@ load_dotenv("/app/backend/.env")
 
 from cms_module import _make_admin_token  # noqa: E402
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL") or "https://george-mcgs-cms.preview.emergentagent.com"
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL") or "https://outreach-campaigns.preview.emergentagent.com"
 BASE_URL = BASE_URL.rstrip("/")
 
 ADMIN_EMAIL = "hello@friendplace.com.au"

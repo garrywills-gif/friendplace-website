@@ -11,7 +11,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = "https://george-mcgs-cms.preview.emergentagent.com"
+BASE_URL = "https://outreach-campaigns.preview.emergentagent.com"
 
 
 # ---------------- Flyer mockup PNG routing (the fix) ----------------
