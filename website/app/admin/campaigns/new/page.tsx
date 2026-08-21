@@ -257,11 +257,23 @@ function ComposePanel() {
   }, [campaignId, name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, audienceFilter]);
 
   // Refresh preview + audience count whenever the important fields change.
+  // iter161 bug: the outreach / manual / individual selectors were missing
+  // from this dependency array, so switching Outreach category or status
+  // (or editing the manual list / individual email) never re-fired the
+  // draft save + preview. The audience count would freeze on whatever
+  // was computed the first time the effect ran (Garry, 25 Feb 2026:
+  // "40 retirement villages imported, filter still shows 6").
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
-      const id = campaignId || await saveDraft(true);
+      // iter161 bug: previously this was `campaignId || await saveDraft(true)`
+      // which short-circuited AFTER the first save — so subsequent
+      // outreach/manual/individual edits never PATCHed the draft to the
+      // backend, and `preview-audience` kept reading the stale filter.
+      // Always save first (create OR update), then preview so the count
+      // reflects the current in-memory filter.
+      const id = await saveDraft(true);
       if (!id) return;
       try {
         const a = await campaignsApi.previewAudience(id);
@@ -271,7 +283,18 @@ function ComposePanel() {
       } catch { /* ignore transient errors */ }
     }, 500);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, statuses, tagsAny, recipientMode, segmentId, campaignId, saveDraft]);
+  }, [
+    name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl,
+    // Founding-Member custom filter
+    statuses, tagsAny,
+    // Mode + saved segment
+    recipientMode, segmentId,
+    // iter161: Outreach / Manual / Individual selectors (previously missing)
+    outreachCategory, outreachStatus,
+    manualList,
+    individualEmail, individualName,
+    campaignId, saveDraft,
+  ]);
 
   const doSend = async () => {
     if (!campaignId) {

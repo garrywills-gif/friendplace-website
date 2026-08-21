@@ -197,6 +197,103 @@ def _detect_navigation(reply: str) -> str | None:
 
 
 
+# ---------------------------------------------------------------------------
+# Reply scrubbers (module-level so tests can exercise them cheaply)
+# ---------------------------------------------------------------------------
+
+_KB_TAG_RE = re.compile(r"\s*\[KB-[A-Z0-9-]+\]\s*")
+
+# Tool-call XML scrub (Garry, 25 Feb 2026 production bug). Claude
+# occasionally emits its internal tool-call markup as literal text
+# inside the assistant reply, e.g.:
+#   <tool_call>{"name":"list_outreach_organisations","limit":50}</tool_call>
+# That plumbing should never reach the chat UI. Strip both the
+# container tags and any JSON body they wrap. DOTALL so newlines
+# inside the JSON payload don't stop the match.
+_TOOL_CALL_RE = re.compile(
+    r"(?is)<\s*tool[_-]?(?:call|use|invocation|result|response)\s*[^>]*>"
+    r".*?<\s*/\s*tool[_-]?(?:call|use|invocation|result|response)\s*>",
+)
+# Bare opening or closing tag on its own (e.g. mid-stream cut-off).
+_TOOL_CALL_STRAY_RE = re.compile(
+    r"(?is)<\s*/?\s*tool[_-]?(?:call|use|invocation|result|response)\s*[^>]*/?>",
+)
+# Regex used by the streaming buffer to detect if a partial tool_call
+# is still hanging open — used to hold back deltas until the close
+# arrives so the scrubber sees the whole block.
+_TOOL_CALL_OPEN_RE = re.compile(
+    r"(?is)<\s*tool[_-]?(?:call|use|invocation|result|response)\b",
+)
+_TOOL_CALL_CLOSE_RE = re.compile(
+    r"(?is)<\s*/\s*tool[_-]?(?:call|use|invocation|result|response)\s*>",
+)
+
+# Banned "let me try that again" style follow-up promises
+# (OPERATING_RULES §8/§9/§12 already forbid these but Claude slips).
+# We strip the offending clause; George's proper "I couldn't retrieve
+# X — want me to try again?" pattern is a question, so ends with `?`
+# and does NOT match this pattern.
+_BANNED_TRY_AGAIN_RE = re.compile(
+    r"(?i)(?:—|-|\.|,|:)?\s*"
+    r"(?:let me (?:try (?:that|it|again|once more)|check (?:again|that|now)|look (?:that )?up|refresh|re-?run|retry)\b"
+    r"|i(?:'?ll| will) (?:try (?:that|it|again|once more)|check (?:that|again|back)|get back to you|follow up|circle back|keep an eye)\b"
+    r"|(?:one|hang on a) (?:sec|second|moment|minute)\b"
+    r"|give me (?:a moment|a sec|one second)\b"
+    r"|hold on (?:a moment|while)\b)"
+    r"[^.!?\n]*?[.!?\n]?",
+)
+
+# Grounding-footer scrub (Garry, 5 Aug 2026 launch polish).
+_FOOTER_RE = re.compile(
+    r"(?im)^[\s\-\*\u2022]*"
+    r"(?:grounded (?:in|via)|based on the tool (?:output|results?)"
+    r"|verified (?:via|by) [\d]+ (?:sources?|tools?)"
+    r"|from (?:the )?tool_results?"
+    r"|source[s]?:\s*\d+ tool result[s]?)"
+    r"[^\n]*\n?",
+)
+_FOOTER_INLINE_RE = re.compile(
+    r"(?i)\s*(?:\(|—|-\s+)?\s*grounded (?:in|via)\s+\d+\s+tool result[s]?\.?\s*(?:\)|—)?",
+)
+
+
+def scrub_reply(text: str, *, show_kb_tags: bool = False) -> str:
+    """Strip plumbing that must never reach the chat UI.
+
+    Kept module-level so unit tests can exercise it directly. The
+    scrubs are intentionally defensive — the prompt already forbids
+    all of these patterns; this is belt-and-braces for the times the
+    LLM slips.
+    """
+    if not text:
+        return text
+    cleaned = text
+    if not show_kb_tags:
+        cleaned = _KB_TAG_RE.sub(" ", cleaned)
+    # Strip any tool-call XML markup that leaked into the prose.
+    cleaned = _TOOL_CALL_RE.sub("", cleaned)
+    cleaned = _TOOL_CALL_STRAY_RE.sub("", cleaned)
+    # Rewrite banned "let me try that again"-style future-promises.
+    cleaned = _BANNED_TRY_AGAIN_RE.sub(" ", cleaned)
+    # Strip grounding-footer lines and inline mentions.
+    cleaned = _FOOTER_RE.sub("", cleaned)
+    cleaned = _FOOTER_INLINE_RE.sub("", cleaned)
+    # Collapse any double spaces we introduced.
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return cleaned
+
+
+def has_unclosed_tool_call(text: str) -> bool:
+    """True when text has more tool-call opening tags than closing.
+
+    Used by the streaming buffer to hold back deltas until the
+    closing tag arrives, so ``scrub_reply`` always sees a complete
+    tool-call block.
+    """
+    if not text:
+        return False
+    return len(list(_TOOL_CALL_OPEN_RE.finditer(text))) > len(list(_TOOL_CALL_CLOSE_RE.finditer(text)))
+
 
 # ---------------------------------------------------------------------------
 # Planner
@@ -743,36 +840,10 @@ async def grounded_chat_stream(
     # keep the tags visible for debugging / development.
     _show_kb = os.environ.get("GEORGE_SHOW_KB_CITATIONS", "").lower() in {"1", "true", "yes"}
     import re as _re
-    _KB_TAG_RE = _re.compile(r"\s*\[KB-[A-Z0-9-]+\]\s*")
-    # Grounding-footer scrub (Garry, 5 Aug 2026 launch polish). The
-    # prompt already forbids meta-commentary about grounding, but LLMs
-    # occasionally slip a "Grounded in 3 tool results" style footer.
-    # We strip any such phrase from the streamed deltas so admins never
-    # see the plumbing. Case-insensitive; matches common variants.
-    _FOOTER_RE = _re.compile(
-        r"(?im)^[\s\-\*\u2022]*"                                      # optional bullet / whitespace
-        r"(?:grounded (?:in|via)|based on the tool (?:output|results?)"
-        r"|verified (?:via|by) [\d]+ (?:sources?|tools?)"
-        r"|from (?:the )?tool_results?"
-        r"|source[s]?:\s*\d+ tool result[s]?)"
-        r"[^\n]*\n?",
-    )
-    # Also catch the phrase mid-line (e.g. after a period, no newline).
-    _FOOTER_INLINE_RE = _re.compile(
-        r"(?i)\s*(?:\(|—|-\s+)?\s*grounded (?:in|via)\s+\d+\s+tool result[s]?\.?\s*(?:\)|—)?",
-    )
+
     def _scrub(text: str) -> str:
-        if not text:
-            return text
-        cleaned = text
-        if not _show_kb:
-            cleaned = _KB_TAG_RE.sub(" ", cleaned)
-        # Strip grounding-footer lines and inline mentions.
-        cleaned = _FOOTER_RE.sub("", cleaned)
-        cleaned = _FOOTER_INLINE_RE.sub("", cleaned)
-        # Collapse any double spaces we introduced.
-        cleaned = _re.sub(r"[ \t]{2,}", " ", cleaned)
-        return cleaned
+        return scrub_reply(text, show_kb_tags=_show_kb)
+
     # Keep the legacy alias so nothing else in this function breaks.
     _scrub_kb = _scrub
     # Streaming buffer for scrubbing (Garry, 5 Aug 2026). We can't run
@@ -790,6 +861,12 @@ async def grounded_chat_stream(
         When ``final`` is True, whatever remains is flushed. Otherwise
         we only release text up to the last sentence boundary so we
         can rescan the same sentence with more context if needed.
+
+        Belt-and-braces: if a ``<tool_...`` opening tag has appeared
+        in the buffer without a matching close, we hold back
+        everything until the close arrives — otherwise the closing
+        ``</tool_call>`` could stream after we've already released
+        the opening tag to the UI, defeating the scrubber.
         """
         nonlocal _pending
         if not _pending:
@@ -798,6 +875,10 @@ async def grounded_chat_stream(
             out = _scrub(_pending)
             _pending = ""
             return out
+        # If an open tool-call-style tag exists without its matching
+        # close, wait for more data.
+        if has_unclosed_tool_call(_pending):
+            return ""
         # Split at the last sentence terminator we've seen.
         matches = list(_FLUSH_RE.finditer(_pending))
         if not matches:

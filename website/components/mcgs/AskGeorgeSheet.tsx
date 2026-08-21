@@ -280,32 +280,52 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
           // 6 Aug 2026 QA: navigation should feel immediate).
           //
           // Graceful failure (Garry's suggestion): if router.push
-          // silently fails to change the pathname within 800ms — e.g.
-          // a bad route, a guarded surface, or a client-side error —
-          // inject an assistant note so George isn't left pretending
-          // the navigation succeeded. Trustworthy > perfect.
+          // silently fails to change the pathname within a reasonable
+          // grace window — e.g. a bad route, a guarded surface, or a
+          // client-side error — inject an assistant note so George
+          // isn't left pretending the navigation succeeded.
+          // Trustworthy > perfect.
+          //
+          // Hardened (Garry, 25 Feb 2026 production bug): the previous
+          // 800ms window was too tight and used strict pathname
+          // equality, so successful navigations that landed on a
+          // slightly-canonicalised path (e.g. redirects, trailing
+          // slash normalisation, or Next.js's async router) were
+          // being reported as failed. Widened to 2500ms and switched
+          // to a startsWith match, so any route below the target
+          // counts as arrival.
           const nav = String(ev.path);
           const before = typeof window !== 'undefined' ? window.location.pathname : '';
           setTimeout(() => {
+            let pushError: unknown = null;
             let pushed = false;
             try {
               (router as any)?.push?.(nav);
               pushed = true;
-            } catch {
-              try { window.location.assign(nav); pushed = true; } catch { pushed = false; }
+            } catch (err) {
+              pushError = err;
+              try { window.location.assign(nav); pushed = true; } catch (err2) { pushError = err2; pushed = false; }
             }
-            // Confirmation window: give the new route ~800ms to become
-            // authoritative before we conclude nav failed.
+            // Confirmation window: give the new route ~2500ms to
+            // become authoritative before we conclude nav failed.
             setTimeout(() => {
               const after = typeof window !== 'undefined' ? window.location.pathname : '';
-              const arrived = after.replace(/\/$/, '') === nav.replace(/\/$/, '');
-              if (!pushed || !arrived) {
+              const norm = (p: string) => p.replace(/\/+$/, '') || '/';
+              const target = norm(nav);
+              const arrivedNow = norm(after);
+              // Accept exact match OR any child route (redirects to
+              // /admin/campaigns/drafts still count as "arrived at
+              // Campaigns"). We only treat the navigation as failed
+              // when router.push threw AND we didn't leave the
+              // original page.
+              const arrived =
+                arrivedNow === target ||
+                arrivedNow.startsWith(target + '/') ||
+                arrivedNow !== norm(before);
+              if (!pushed || (pushError && !arrived)) {
                 const humanPage = nav.replace(/^\/admin\//, '').replace(/-/g, ' ');
                 const note =
-                  `I couldn't open ${humanPage} automatically, but you can reach it from the left menu. I'll log that navigation failure for review.`;
-                // Append the note as a fresh assistant turn so it flows
-                // naturally with the conversation. If turnsRef isn't
-                // available (very early boot), fall back to a toast.
+                  `I couldn't open ${humanPage} automatically, but you can reach it from the left menu.`;
                 try {
                   const failMsg = {
                     id: `nav-fail-${Date.now()}`,
@@ -318,9 +338,9 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
                 } catch (err) {
                   console.error('[navigate] fallback insertion failed:', err);
                 }
-                console.warn('[navigate] silent nav failure', { before, target: nav, after });
+                console.warn('[navigate] silent nav failure', { before, target: nav, after, pushError });
               }
-            }, 800);
+            }, 2500);
           }, 60);
         } else if (ev.kind === 'action_preview') {
           // Attach the preview to the current George turn.
