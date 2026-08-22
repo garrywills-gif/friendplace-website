@@ -991,6 +991,201 @@ def build_router(db) -> APIRouter:
         }
 
 
+    @router.post("/crm/founding-members/retire-duplicate")
+    async def crm_founding_members_retire_duplicate(
+        payload: Dict[str, Any],
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Admin-only cleanup endpoint (iter164).
+
+        Retires a single duplicate Founding-Member registration
+        (created before the iter164 email-uniqueness fix landed) by
+        moving it into ``retired_registrations`` and removing it from
+        the live collection.
+
+        The mirror of ``backend/scripts/retire_duplicate_founding_members.py``,
+        exposed over the CMS API so an admin can trigger it from a
+        deployed environment without needing a production shell.
+
+        Contract:
+          - Requires a valid admin JWT (``current_cms_admin`` dep).
+          - Body must be ``{"founder_number": <int>}``.
+          - Refuses unless the target row has a NORMALISED duplicate
+            (same lowercased/trimmed email as another row that is
+            neither test-flagged nor reserved). The oldest row
+            (lowest founder_number, else earliest created_at) is
+            treated as the keeper and NEVER retired.
+          - Refuses reserved (``is_reserved:true``) rows outright.
+          - Refuses test-flagged (``is_test:true``) rows outright.
+          - Writes an audit row into ``retired_registrations`` with
+            ``retire_keeper_id``, ``retire_keeper_founder_number``,
+            ``retire_reason`` and ``retired_at`` before deleting.
+          - Idempotent: if the founder number is already in
+            ``retired_registrations`` (previously retired), returns
+            ``{"ok": true, "already_retired": true, ...}`` with the
+            recorded keeper — no error, no re-write.
+          - Does NOT rewind ``counters/founder_number``. Founding
+            numbers are monotonic; a gap after retire is intentional.
+          - Never touches any other row.
+        """
+        # ── Validate input ────────────────────────────────────────────
+        raw_num = payload.get("founder_number")
+        try:
+            target_num = int(raw_num)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                400,
+                "founder_number is required and must be an integer.",
+            )
+        if target_num < 3:
+            # #0001/#0002 are always reserved; #0003+ are the only
+            # candidates for retirement.
+            raise HTTPException(
+                400,
+                "Reserved founder numbers (#0001, #0002) cannot be retired.",
+            )
+
+        # ── Idempotency: already retired? ─────────────────────────────
+        prior = await db.retired_registrations.find_one(
+            {"founder_number": target_num},
+            {"_id": 0},
+        )
+        if prior:
+            return {
+                "ok":                True,
+                "already_retired":   True,
+                "retired_founder_number": target_num,
+                "keeper_founder_number":  prior.get("retire_keeper_founder_number"),
+                "keeper_id":         prior.get("retire_keeper_id"),
+                "retired_at":        prior.get("retired_at"),
+                "retire_reason":     prior.get("retire_reason"),
+                "retired_by":        prior.get("retire_admin_id"),
+                "note": "This founder number was already retired on a "
+                        "previous call. No changes made.",
+            }
+
+        # ── Locate the target row ─────────────────────────────────────
+        target = await db.interest_registrations.find_one(
+            {"founder_number": target_num},
+            {"_id": 0},
+        )
+        if not target:
+            raise HTTPException(
+                404,
+                f"No Founding Member with number #{target_num:04d} in the "
+                "live collection. If you already retired it, that action "
+                "is recorded in retired_registrations.",
+            )
+        if bool(target.get("is_reserved")):
+            raise HTTPException(
+                403,
+                f"#{target_num:04d} is a reserved slot and cannot be retired.",
+            )
+        if bool(target.get("is_test")):
+            raise HTTPException(
+                403,
+                f"#{target_num:04d} is a test-flagged row — the retire "
+                "endpoint is for real duplicates only.",
+            )
+
+        # ── Normalise email + find genuine duplicate ─────────────────
+        email_norm = str(target.get("email") or "").strip().lower()
+        if not email_norm:
+            raise HTTPException(
+                422,
+                f"#{target_num:04d} has no email — cannot verify duplicate "
+                "status. Use the DB Viewer if this row needs manual removal.",
+            )
+
+        # Fetch every candidate keeper for this email — same normalised
+        # address, not reserved, not test-flagged, and NOT the target
+        # itself. If none exists, the target is unique — refuse.
+        cohort = await db.interest_registrations.find(
+            {
+                "email":       email_norm,
+                "is_test":     {"$ne": True},
+                "is_reserved": {"$ne": True},
+            },
+            {"_id": 0},
+        ).to_list(None)
+        others = [r for r in cohort if r.get("founder_number") != target_num]
+        if not others:
+            raise HTTPException(
+                409,
+                f"#{target_num:04d} ({email_norm}) is NOT a duplicate — no "
+                "other live row shares that email. Refusing to retire.",
+            )
+
+        # Keeper = lowest founder_number (else earliest created_at).
+        def _sort_key(r):
+            fn = r.get("founder_number")
+            fn_key = fn if isinstance(fn, int) else 10**9
+            return (fn_key, r.get("created_at") or "")
+
+        candidates = sorted(cohort, key=_sort_key)
+        keeper = candidates[0]
+
+        if keeper.get("founder_number") == target_num:
+            # Target IS the oldest row — retiring it would orphan the
+            # duplicate(s). Refuse; caller should ask us to retire the
+            # newer number instead.
+            other_numbers = sorted(
+                r.get("founder_number") for r in others
+                if isinstance(r.get("founder_number"), int)
+            )
+            raise HTTPException(
+                409,
+                f"#{target_num:04d} is the OLDEST row for {email_norm} and "
+                f"must be preserved as the keeper. Retire one of the newer "
+                f"duplicates instead: {[f'#{n:04d}' for n in other_numbers]}.",
+            )
+
+        # ── Write audit row, then delete live row ────────────────────
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        audit = dict(target)
+        audit.pop("_id", None)
+        audit["retired_at"]                    = now
+        audit["retire_reason"]                 = (
+            f"iter164 admin retire via CMS API of duplicate "
+            f"#{target_num:04d} (keeper #{keeper.get('founder_number'):04d})"
+        )
+        audit["retire_keeper_id"]              = keeper.get("id")
+        audit["retire_keeper_founder_number"]  = keeper.get("founder_number")
+        audit["retire_admin_id"]               = admin.get("id")
+        audit["retire_admin_email"]            = admin.get("email")
+
+        await db.retired_registrations.insert_one(audit)
+        del_res = await db.interest_registrations.delete_one(
+            {"founder_number": target_num, "email": email_norm},
+        )
+        if del_res.deleted_count == 0:
+            # Somebody else raced us — the audit row we just inserted
+            # is still valid (it records what would have been retired),
+            # but flag it so admins know.
+            return {
+                "ok":                True,
+                "already_retired":   True,
+                "retired_founder_number": target_num,
+                "keeper_founder_number":  keeper.get("founder_number"),
+                "keeper_id":         keeper.get("id"),
+                "note": "Row was already gone at delete time (racy). "
+                        "Audit row still written for the trail.",
+            }
+
+        return {
+            "ok":                     True,
+            "retired_founder_number": target_num,
+            "retired_id":             target.get("id"),
+            "retired_email":          email_norm,
+            "keeper_founder_number":  keeper.get("founder_number"),
+            "keeper_id":              keeper.get("id"),
+            "keeper_created_at":      keeper.get("created_at"),
+            "retired_at":             now,
+            "retired_by":             admin.get("id"),
+        }
+
+
     from fastapi.responses import HTMLResponse as _HTMLResponse  # noqa: WPS433
 
     _EMAIL_PREVIEW_TEMPLATES = [
