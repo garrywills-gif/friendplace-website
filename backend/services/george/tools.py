@@ -464,9 +464,13 @@ async def _count_organisations(db: Any, args: dict) -> int:
     "Count website visitors who Registered their Interest (a.k.a. Founding Members). "
     "Filter by status (registered/invited/joined/opted_out — 'registered' also matches "
     "the legacy 'new' status i.e. anyone awaiting contact), companion_choice (george/georgia), "
-    "state_country (case-insensitive substring, e.g. 'Sydney', 'NSW', 'Melbourne'), or "
-    "since_days for a rolling window (use since_days=1 for 'today', 7 for 'this week'). "
-    "Test-flagged rows are excluded by default.",
+    "state_country (case-insensitive substring, e.g. 'Sydney', 'NSW', 'Melbourne'), "
+    "since_days for a rolling window (e.g. since_days=7 for a rolling week), or "
+    "today=true for the *Sydney calendar-day* boundary (matches the dashboard's "
+    "'New today' card exactly — use this when the admin asks 'how many registered "
+    "today?'; never use since_days=1 for that, it's a rolling 24-hour window and "
+    "will drift from the card). Test-flagged rows and reserved slots (#0001 Garry, "
+    "#0002 George) are excluded from public-facing counts.",
     args={
         "status": {"type": "str", "required": False,
                    "enum": {"registered", "invited", "joined", "opted_out"}},
@@ -474,11 +478,22 @@ async def _count_organisations(db: Any, args: dict) -> int:
                              "enum": {"george", "georgia"}},
         "state_country": {"type": "str", "required": False},
         "since_days": {"type": "int", "required": False},
+        "today": {"type": "bool", "required": False},
         "include_test_data": {"type": "bool", "required": False},
     },
 )
 async def _count_interest_registrations(db: Any, args: dict) -> int:
     q: dict = {}
+    # iter163: `today=true` matches the dashboard's "New today" — Sydney
+    # calendar boundary, reserved slots excluded. `joined` intentionally
+    # keeps reserved rows because Garry & George count as joined founders
+    # in the card, so mirror that.
+    if args.get("today") is True:
+        from ..time_boundaries import sydney_today_start_iso
+        q["created_at"] = {"$gte": sydney_today_start_iso()}
+        # Only exclude reserved for public statuses (matches card).
+        if args.get("status") != "joined":
+            q["is_reserved"] = {"$ne": True}
     if "status" in args:
         if args["status"] == "registered":
             q["$or"] = [
@@ -493,7 +508,7 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
     if "state_country" in args:
         rx = re.compile(re.escape(args["state_country"]), re.IGNORECASE)
         q["state_country"] = rx
-    if "since_days" in args:
+    if "since_days" in args and args.get("today") is not True:
         cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
         q["created_at"] = {"$gte": cutoff.isoformat()}
     if not _should_include_test_data(args):
@@ -571,59 +586,12 @@ async def _list_interest_registrations(db: Any, args: dict) -> list:
     args={},
 )
 async def _founding_members_summary(db: Any, args: dict) -> dict:
-    base = {"is_test": {"$ne": True}}
-    total = await db.interest_registrations.count_documents(base)
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    new_today = await db.interest_registrations.count_documents({
-        **base, "created_at": {"$gte": today_start.isoformat()},
-    })
-    awaiting = await db.interest_registrations.count_documents({
-        **base,
-        "$or": [
-            {"status": {"$exists": False}},
-            {"status": None},
-            {"status": {"$in": ["registered", "new"]}},
-        ],
-    })
-    invited = await db.interest_registrations.count_documents({**base, "status": "invited"})
-    joined  = await db.interest_registrations.count_documents({**base, "status": "joined"})
-    opted   = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
-    latest = await db.interest_registrations.find_one(
-        base,
-        {"_id": 0, "first_name": 1, "email": 1, "state_country": 1, "created_at": 1},
-        sort=[("created_at", -1)],
-    )
-    return {
-        "total":            total,
-        "new_today":        new_today,
-        "awaiting_contact": awaiting,
-        # iter161c (25 Feb 2026): expose the correct semantics as a
-        # first-class field so George doesn't have to infer it from
-        # tone. `awaiting_invitation` and `awaiting_contact` are the
-        # SAME number — the second name is preserved for API back-
-        # compat with existing consumers.
-        "awaiting_invitation": awaiting,
-        "invited":          invited,
-        "joined":           joined,
-        "opted_out":        opted,
-        "latest":           latest,
-        # Ground-truth semantic note George can quote verbatim. Comes
-        # from the CRM/tool layer, not the prompt — so it stays in
-        # sync with the actual behaviour of the registration flow.
-        "_semantics": {
-            "awaiting_contact_meaning": (
-                "These members registered their interest and received the "
-                "automatic registration acknowledgement email at signup. "
-                "They are now awaiting the personal FriendPlace invitation "
-                "email — this is what admins send from the Founding Members "
-                "page or via a campaign. Do NOT say these people have not "
-                "been emailed."
-            ),
-            "preferred_label": "awaiting invitation",
-            "auto_registration_email_sent": True,
-            "personal_invitation_sent":     False,
-        },
-    }
+    # iter163: delegate to the shared canonical stats function so this
+    # tool can never drift from the dashboard's counting rules.
+    # "Today" is Sydney-calendar-day, reserved slots are excluded from
+    # every headline metric except total/joined — same as the card.
+    from ..crm.founding_stats import compute_founding_members_stats
+    return await compute_founding_members_stats(db)
 
 
 @register(

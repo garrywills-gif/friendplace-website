@@ -426,6 +426,19 @@ _TOPIC_TO_TOOL = [
     ("who was the latest",  {"name": "list_interest_registrations", "args": {"limit": 1}}),
     ("latest registration", {"name": "list_interest_registrations", "args": {"limit": 1}}),
     ("latest founder",      {"name": "list_interest_registrations", "args": {"limit": 1}}),
+    # iter163: "registered today", "signed up today", "new today" must
+    # match the Founding Members dashboard card exactly. Route straight
+    # to founding_members_summary so George reads the same Sydney-boundary
+    # `new_today` number the card shows, not a rolling 24h count.
+    ("registered today",   {"name": "founding_members_summary", "args": {}}),
+    ("registered so far today", {"name": "founding_members_summary", "args": {}}),
+    ("registered so far", {"name": "founding_members_summary", "args": {}}),
+    ("signed up today",    {"name": "founding_members_summary", "args": {}}),
+    ("sign ups today",     {"name": "founding_members_summary", "args": {}}),
+    ("signups today",      {"name": "founding_members_summary", "args": {}}),
+    ("new today",          {"name": "founding_members_summary", "args": {}}),
+    ("new sign",           {"name": "founding_members_summary", "args": {}}),
+    ("how many new",       {"name": "founding_members_summary", "args": {}}),
     ("founding member",  {"name": "founding_members_summary", "args": {}}),
     ("founding members", {"name": "founding_members_summary", "args": {}}),
     ("hasn't been contacted",  {"name": "list_interest_registrations", "args": {"status": "registered"}}),
@@ -439,7 +452,8 @@ _TOPIC_TO_TOOL = [
     ("not been invited",   {"name": "list_interest_registrations",  "args": {"status": "registered"}}),
     ("haven't been invited",{"name":"list_interest_registrations",  "args": {"status": "registered"}}),
     ("joined this week",  {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 7}}),
-    ("joined today",      {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 1}}),
+    ("joined today",      {"name": "count_interest_registrations", "args": {"status": "joined",  "today": True}}),
+    ("invited today",     {"name": "count_interest_registrations", "args": {"status": "invited", "today": True}}),
     ("invited this week", {"name": "count_interest_registrations", "args": {"status": "invited", "since_days": 7}}),
     ("been invited",      {"name": "count_interest_registrations", "args": {"status": "invited"}}),
     ("have been invited", {"name": "count_interest_registrations", "args": {"status": "invited"}}),

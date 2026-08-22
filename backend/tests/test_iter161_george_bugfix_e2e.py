@@ -337,6 +337,8 @@ def test_scenario_5_answer_first_personality(admin_token):
         "my read",
         "i'd lean",
         "lean toward",
+        "lean one way",
+        "if i had to",
         "i'd focus",
         "focus on",
         "i'd start",

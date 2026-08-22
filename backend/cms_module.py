@@ -870,29 +870,15 @@ def build_router(db) -> APIRouter:
         `total` — they are Founding Members — but excluded from
         `new_today` and `awaiting_contact` because they don't need
         an invite. Their status is always `joined`.
+
+        iter163: The counting rules now live in
+        ``services/crm/founding_stats.py`` so this endpoint and
+        George's ``founding_members_summary`` tool share ONE source
+        of truth. "Today" is a Sydney calendar day (Australia/Sydney).
         """
-        from datetime import datetime, timezone
-        base = {"is_test": {"$ne": True}}
-        base_public = {**base, "is_reserved": {"$ne": True}}
-        total = await db.interest_registrations.count_documents(base)
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        new_today = await db.interest_registrations.count_documents({
-            **base_public, "created_at": {"$gte": today_start.isoformat()},
-        })
-        awaiting = await db.interest_registrations.count_documents({
-            **base_public,
-            "$or": [
-                {"status": {"$exists": False}},
-                {"status": None},
-                {"status": {"$in": _AWAITING_STATUSES}},
-            ],
-        })
-        invited = await db.interest_registrations.count_documents({**base_public, "status": "invited"})
-        joined  = await db.interest_registrations.count_documents({**base, "status": "joined"})
-        opted   = await db.interest_registrations.count_documents({**base_public, "status": "opted_out"})
-        latest = await db.interest_registrations.find_one(
-            base_public, {"_id": 0}, sort=[("created_at", -1)],
-        )
+        from services.crm.founding_stats import compute_founding_members_stats
+        stats = await compute_founding_members_stats(db)
+        latest = stats.get("latest")
         latest_summary = None
         if latest:
             latest_summary = {
@@ -904,12 +890,12 @@ def build_router(db) -> APIRouter:
                 "founder_number":  latest.get("founder_number"),
             }
         return {
-            "total":            total,
-            "new_today":        new_today,
-            "awaiting_contact": awaiting,
-            "invited":          invited,
-            "joined":           joined,
-            "opted_out":        opted,
+            "total":            stats["total"],
+            "new_today":        stats["new_today"],
+            "awaiting_contact": stats["awaiting_contact"],
+            "invited":          stats["invited"],
+            "joined":           stats["joined"],
+            "opted_out":        stats["opted_out"],
             "latest":           latest_summary,
         }
 
