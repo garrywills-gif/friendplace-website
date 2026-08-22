@@ -27,7 +27,6 @@ import {
 } from '@/lib/cms-api';
 
 type Template = 'announcement' | 'invitation' | 'welcome';
-type RecipientMode = 'segment' | 'custom' | 'outreach' | 'manual' | 'individual';
 
 const TEMPLATE_META: Record<Template, { label: string; description: string; needsBody: boolean }> = {
   announcement: {
@@ -74,9 +73,9 @@ function ComposePanel() {
   const [statuses, setStatuses] = useState<Array<'registered' | 'invited' | 'joined'>>(['registered', 'invited']);
   const [tagsAny, setTagsAny] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
-  // CRM Phase 2C — recipient mode toggle. `segment` uses a saved
+  // CRM Phase 2C \u2014 recipient mode toggle. `segment` uses a saved
   // segment; `custom` falls back to the classic statuses + tags builder.
-  const [recipientMode, setRecipientMode] = useState<RecipientMode>(
+  const [recipientMode, setRecipientMode] = useState<'segment' | 'custom' | 'outreach' | 'manual' | 'individual'>(
     (searchParams?.get('segment_id') ? 'segment' : 'custom'),
   );
   const [segmentId, setSegmentId] = useState<string>(searchParams?.get('segment_id') || '');
@@ -258,11 +257,23 @@ function ComposePanel() {
   }, [campaignId, name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, audienceFilter]);
 
   // Refresh preview + audience count whenever the important fields change.
+  // iter161 bug: the outreach / manual / individual selectors were missing
+  // from this dependency array, so switching Outreach category or status
+  // (or editing the manual list / individual email) never re-fired the
+  // draft save + preview. The audience count would freeze on whatever
+  // was computed the first time the effect ran (Garry, 25 Feb 2026:
+  // "40 retirement villages imported, filter still shows 6").
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
-      const id = campaignId || await saveDraft(true);
+      // iter161 bug: previously this was `campaignId || await saveDraft(true)`
+      // which short-circuited AFTER the first save — so subsequent
+      // outreach/manual/individual edits never PATCHed the draft to the
+      // backend, and `preview-audience` kept reading the stale filter.
+      // Always save first (create OR update), then preview so the count
+      // reflects the current in-memory filter.
+      const id = await saveDraft(true);
       if (!id) return;
       try {
         const a = await campaignsApi.previewAudience(id);
@@ -272,7 +283,18 @@ function ComposePanel() {
       } catch { /* ignore transient errors */ }
     }, 500);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, statuses, tagsAny, recipientMode, segmentId, campaignId, saveDraft]);
+  }, [
+    name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl,
+    // Founding-Member custom filter
+    statuses, tagsAny,
+    // Mode + saved segment
+    recipientMode, segmentId,
+    // iter161: Outreach / Manual / Individual selectors (previously missing)
+    outreachCategory, outreachStatus,
+    manualList,
+    individualEmail, individualName,
+    campaignId, saveDraft,
+  ]);
 
   const doSend = async () => {
     if (!campaignId) {
@@ -301,6 +323,9 @@ function ComposePanel() {
       if (!id) return;
     }
     if (!localValue) { showToast('Pick a date and time'); return; }
+    // datetime-local returns YYYY-MM-DDTHH:MM in the user's local
+    // timezone. Convert to a proper ISO string so the backend can
+    // parse it unambiguously.
     let iso: string;
     try {
       iso = new Date(localValue).toISOString();
@@ -432,11 +457,31 @@ function ComposePanel() {
           {recipientMode === 'outreach' && (
             <div style={{ marginTop: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 14 }}>
               <label style={s.label}>Category (optional)</label>
-              <input style={s.input} value={outreachCategory}
+              {/*
+                iter161b: category is a labelled dropdown with human-friendly
+                labels ("Retirement village") that stores the canonical
+                snake_case key ("retirement_village"). Backend also
+                normalises free-form input, so future clients typing
+                "retirement village" still match — this UI just avoids
+                typing altogether.
+              */}
+              <select style={s.input} value={outreachCategory}
                 onChange={(e) => setOutreachCategory(e.target.value)}
-                placeholder="e.g. retirement_village — leave blank for all" />
+                data-testid="outreach-category-select">
+                <option value="">— any category —</option>
+                <option value="retirement_village">Retirement village</option>
+                <option value="community_centre">Community centre</option>
+                <option value="library">Library</option>
+                <option value="council">Council</option>
+                <option value="club">Club</option>
+                <option value="church">Church</option>
+                <option value="aged_care">Aged care</option>
+                <option value="advocacy_group">Advocacy group</option>
+                <option value="other">Other</option>
+              </select>
               <label style={s.label}>Status (optional)</label>
-              <select style={s.input} value={outreachStatus} onChange={(e) => setOutreachStatus(e.target.value)}>
+              <select style={s.input} value={outreachStatus} onChange={(e) => setOutreachStatus(e.target.value)}
+                data-testid="outreach-status-select">
                 <option value="">— any status —</option>
                 <option value="not_contacted">Not contacted</option>
                 <option value="contacted">Contacted</option>
@@ -553,7 +598,7 @@ function ComposePanel() {
               <label style={{ ...s.label, marginTop: 14 }}>Status</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {([
-                  { key: 'registered', label: 'Registered (awaiting contact)' },
+                  { key: 'registered', label: 'Registered (awaiting invitation)' },
                   { key: 'invited',    label: 'Invited' },
                   { key: 'joined',     label: 'Joined' },
                 ] as const).map(sv => {
@@ -733,7 +778,7 @@ function ConfirmModal({
   sending, onCancel, onConfirm,
 }: {
   name: string; templateLabel: string; companion: string; audienceCount: number;
-  recipientMode: RecipientMode;
+  recipientMode: 'segment' | 'custom' | 'outreach' | 'manual' | 'individual';
   segment: { id: string; name: string; emoji?: string | null; last_count?: number; description?: string | null } | null;
   statuses: string[]; tagsAny: string[];
   outreachCategory: string; outreachStatus: string;
@@ -805,7 +850,7 @@ function ConfirmModal({
               <div>🏢 Outreach organisations</div>
               <div style={{ fontSize: 12, fontWeight: 500, color: '#64748B', marginTop: 4 }}>
                 {outreachCategory
-                  ? <>Category: <strong>{outreachCategory.replace(/_/g, ' ')}</strong></>
+                  ? <>Category: <strong>{humanCategoryLabel(outreachCategory)}</strong></>
                   : <>Any category</>}
                 {' · '}
                 {outreachStatus
@@ -877,7 +922,7 @@ function ScheduleModal({
   name, audienceCount, recipientMode, sending, onCancel, onConfirm,
 }: {
   name: string; audienceCount: number;
-  recipientMode: RecipientMode;
+  recipientMode: 'segment' | 'custom' | 'outreach' | 'manual' | 'individual';
   sending: boolean;
   onCancel: () => void;
   onConfirm: (localValue: string) => void;
@@ -949,3 +994,15 @@ const rowLabel: React.CSSProperties = {
 const rowValue: React.CSSProperties = {
   fontSize: 15, fontWeight: 700, color: '#0A2540', marginTop: 4, lineHeight: 1.6,
 };
+
+// iter161b (25 Feb 2026): show human-friendly labels in the confirm
+// modal ("Retirement village") rather than the raw snake_case key.
+// The backend still stores/queries the canonical key.
+function humanCategoryLabel(key: string): string {
+  if (!key) return '';
+  const parts = key.replace(/-/g, '_').split('_').filter(Boolean);
+  if (parts.length === 0) return '';
+  const [first, ...rest] = parts;
+  return [first.charAt(0).toUpperCase() + first.slice(1).toLowerCase(),
+          ...rest.map(p => p.toLowerCase())].join(' ');
+}
