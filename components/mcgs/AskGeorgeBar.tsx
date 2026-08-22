@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { AskGeorgeSheet } from './AskGeorgeSheet';
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
 import { transcribeAudio } from '@/lib/mcgs-api';
@@ -13,8 +14,14 @@ import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
  * silence auto-stop, 60s cap, and transcript review before send.
  *
  * Keyboard: ⌘K / Ctrl+K focuses the bar from anywhere.
+ *
+ * George also receives lightweight page context with every new prompt
+ * started from this bar. That lets him understand natural references
+ * like "this page", "this member" or "what should I do here?" without
+ * asking the admin to repeat where they are in Mission Control.
  */
 export function AskGeorgeBar() {
+  const pathname = usePathname();
   const [input, setInput] = useState('');
   const [open, setOpen] = useState(false);
   const [initialMessage, setInitialMessage] = useState<string | undefined>(undefined);
@@ -54,14 +61,16 @@ export function AskGeorgeBar() {
     };
     window.addEventListener('mcgs:ask-george', onAsk as EventListener);
     return () => window.removeEventListener('mcgs:ask-george', onAsk as EventListener);
-     
-  }, []);
+  }, [pathname]);
 
   function submit(msg?: string, ctx?: Record<string, unknown>) {
     const message = (msg ?? input).trim();
     if (!message) return;
     setInitialMessage(message);
-    setInitialContext(ctx);
+    setInitialContext({
+      ...buildMissionControlContext(pathname || '/admin'),
+      ...(ctx || {}),
+    });
     setInput('');
     setOpen(true);
   }
@@ -72,14 +81,14 @@ export function AskGeorgeBar() {
       // Second tap → stop and transcribe.
       const blob = await rec.stop();
       if (!blob) {
-        setMicError("Nothing recorded yet \u2014 give it another go when you\u2019re ready.");
+        setMicError("Nothing recorded yet — give it another go when you’re ready.");
         return;
       }
       try {
         setTranscribing(true);
         const transcript = await transcribeAudio(blob);
         if (!transcript || !transcript.trim()) {
-          setMicError("I couldn\u2019t quite catch that. Try again in a quieter spot, or type instead.");
+          setMicError("I couldn’t quite catch that. Try again in a quieter spot, or type instead.");
           return;
         }
         setInput(prev => (prev ? prev.trim() + ' ' : '') + transcript);
@@ -90,9 +99,9 @@ export function AskGeorgeBar() {
         console.error('[voice] transcription failed:', err);
         const msg = (err as Error).message || '';
         if (/took a moment too long|network|fetch|failed to fetch/i.test(msg)) {
-          setMicError("The connection hiccupped while I was listening \u2014 please try that again.");
+          setMicError("The connection hiccupped while I was listening — please try that again.");
         } else if (/permission|denied/i.test(msg)) {
-          setMicError("I need microphone access to hear you \u2014 please allow it in your browser.");
+          setMicError("I need microphone access to hear you — please allow it in your browser.");
         } else {
           setMicError("Something got in the way while I was listening. You can try again or type instead.");
         }
@@ -104,8 +113,8 @@ export function AskGeorgeBar() {
       if (rec.error) {
         setMicError(
           rec.error.toLowerCase().includes('permission')
-            ? "I need microphone access to hear you \u2014 please allow it in your browser."
-            : "I couldn\u2019t open the microphone just now. You can type instead, or try again in a moment."
+            ? "I need microphone access to hear you — please allow it in your browser."
+            : "I couldn’t open the microphone just now. You can type instead, or try again in a moment."
         );
       }
     }
@@ -144,7 +153,7 @@ export function AskGeorgeBar() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={rec.recording ? 'Listening… tap the mic again when you\u2019re done.' : 'Ask George anything…'}
+            placeholder={rec.recording ? 'Listening… tap the mic again when you’re done.' : 'Ask George anything…'}
             style={input_}
             aria-label="Ask George"
             disabled={rec.recording}
@@ -197,7 +206,7 @@ export function AskGeorgeBar() {
         {/*
          * Continue-conversation affordance. Appears when the sheet is
          * closed but there's a preserved conversation for this admin
-         * session \u2014 so accidentally hitting \u00D7 doesn\u2019t leave Garry
+         * session — so accidentally hitting × doesn’t leave Garry
          * stranded with no visible way to bring George back.
          */}
         {!open && hasConversation && (
@@ -209,14 +218,14 @@ export function AskGeorgeBar() {
               aria-label={`Continue conversation with George (${turns.length} messages)`}
               title="Reopen your George conversation"
             >
-              <span aria-hidden>{'\uD83E\uDD8B'}</span>
+              <span aria-hidden>{'🦋'}</span>
               <span style={{ fontWeight: 800 }}>Continue with George</span>
               <span style={{ color: '#64748B', fontSize: 12 }}>
                 &middot; {turns.length} message{turns.length === 1 ? '' : 's'}
               </span>
               {lastGeorge?.content && (
                 <span style={continuePreview} aria-hidden>
-                  &ldquo;{lastGeorge.content.slice(0, 60)}{lastGeorge.content.length > 60 ? '\u2026' : ''}&rdquo;
+                  &ldquo;{lastGeorge.content.slice(0, 60)}{lastGeorge.content.length > 60 ? '…' : ''}&rdquo;
                 </span>
               )}
             </button>
@@ -248,6 +257,68 @@ export function AskGeorgeBar() {
       />
     </>
   );
+}
+
+function buildMissionControlContext(pathname: string): Record<string, unknown> {
+  const clean = pathname.split('?')[0].replace(/\/$/, '') || '/admin';
+  const parts = clean.split('/').filter(Boolean);
+  const adminIndex = parts.indexOf('admin');
+  const routeParts = adminIndex >= 0 ? parts.slice(adminIndex + 1) : parts;
+  const pageKey = routeParts[0] || 'bridge';
+  const entityId = routeParts.length > 1 && !['new', 'pending'].includes(routeParts[1])
+    ? routeParts[1]
+    : undefined;
+
+  const labels: Record<string, string> = {
+    bridge: 'The Bridge',
+    george: "George's Workspace",
+    crm: 'CRM Navigator',
+    members: 'Members',
+    enquiries: 'Enquiries',
+    replies: 'Replies',
+    campaigns: 'Campaigns',
+    segments: 'Segments',
+    moments: 'Moments',
+    reports: 'Reports',
+    support: 'Support',
+    groups: 'Groups',
+    events: 'Events',
+    'event-submissions': 'Event submissions',
+    announcements: 'Announcements',
+    flyers: 'Flyers',
+    home: 'Home page',
+    about: 'About page',
+    faqs: 'FAQs',
+    'success-stories': 'Success stories',
+    media: 'Media library',
+    emails: 'Email templates',
+    marketing: 'Marketing',
+    outreach: 'Organisation Outreach',
+    analytics: 'Analytics',
+    'system-health': 'System health',
+    'audit-log': 'Audit log',
+    knowledge: 'Knowledge',
+    launch: 'Launch',
+    security: 'Security',
+    admins: 'Admins',
+    settings: 'Settings',
+    account: 'Account',
+  };
+
+  return {
+    surface: 'mission_control',
+    current_path: clean,
+    current_page_key: pageKey,
+    current_page_label: labels[pageKey] || humaniseRoute(pageKey),
+    current_subpage: routeParts.slice(1).join('/') || undefined,
+    current_entity_id: entityId,
+  };
+}
+
+function humaniseRoute(value: string): string {
+  return value
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
 // ---- styles ----
