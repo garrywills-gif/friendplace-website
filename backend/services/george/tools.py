@@ -1573,3 +1573,92 @@ async def _get_contact_status(db: Any, args: dict) -> dict:
     from services.crm.status import status_for_email
     return await status_for_email(db, args["email"])
 
+
+
+# ---------------------------------------------------------------------------
+# iter162 — Mission Control Reminders (V1, launch-safe)
+# ---------------------------------------------------------------------------
+# Guardrails:
+#  - Reminders NEVER send emails, publish content, or trigger any
+#    moderation/action. They are DB rows only.
+#  - Only call `create_reminder` after an EXPLICIT admin request such
+#    as "remind me to X on Y". Never speculatively create one.
+#  - Never claim a reminder exists until the tool returns a stored
+#    document with an `id` — that's the save-succeeded signal. If the
+#    tool raises or returns nothing, admit it in this turn.
+
+@register(
+    "create_reminder",
+    "Save a single reminder to Mission Control. Only call this after "
+    "Garry has explicitly asked for a reminder ('remind me to X on Y', "
+    "'set a weekly reminder for Z'). Do NOT create reminders "
+    "speculatively. Reminders never send emails or trigger any "
+    "moderation — they are notes in Mission Control. Returns the "
+    "persisted document (with `id`) only after the Mongo write "
+    "succeeds. If this tool errors or the returned doc is missing, "
+    "tell Garry the reminder was not saved — never pretend it exists.",
+    args={
+        "title":      {"type": "str", "required": True},
+        "due_at":     {"type": "str", "required": True,
+                       "description": "ISO 8601 UTC (e.g. '2026-03-01T09:00:00Z')"},
+        "recurrence": {"type": "str", "required": False,
+                       "description": "one of none, daily, weekly, monthly"},
+        "note":       {"type": "str", "required": False},
+    },
+)
+async def _create_reminder(db: Any, args: dict) -> dict:
+    from services.reminders.store import create_reminder
+    return await create_reminder(
+        db,
+        title=args.get("title", ""),
+        due_at=args.get("due_at"),
+        recurrence=args.get("recurrence") or "none",
+        note=args.get("note") or "",
+        created_by="george",
+    )
+
+
+@register(
+    "list_reminders",
+    "List reminders in Mission Control, oldest-due first. Optional "
+    "status filter (pending / completed / cancelled). Use when Garry "
+    "asks 'what reminders do I have?' or similar.",
+    args={
+        "status": {"type": "str", "required": False},
+        "limit":  {"type": "int", "required": False},
+    },
+)
+async def _list_reminders(db: Any, args: dict) -> list[dict]:
+    from services.reminders.store import list_reminders
+    status = args.get("status")
+    limit = int(args.get("limit") or 50)
+    return await list_reminders(db, status=status, limit=min(limit, 200))
+
+
+@register(
+    "complete_reminder",
+    "Mark a reminder as completed. For one-off reminders this closes "
+    "them. For recurring reminders (daily/weekly/monthly) the due_at "
+    "rolls forward by one period so the next occurrence is queued. "
+    "Requires the reminder's `id`.",
+    args={"id": {"type": "str", "required": True}},
+)
+async def _complete_reminder(db: Any, args: dict) -> dict:
+    from services.reminders.store import complete_reminder
+    doc = await complete_reminder(db, args["id"])
+    if not doc:
+        return {"error": "not_found", "id": args.get("id")}
+    return doc
+
+
+@register(
+    "delete_reminder",
+    "Delete a reminder from Mission Control. Irreversible. Requires "
+    "the reminder's `id`.",
+    args={"id": {"type": "str", "required": True}},
+)
+async def _delete_reminder(db: Any, args: dict) -> dict:
+    from services.reminders.store import delete_reminder
+    ok = await delete_reminder(db, args["id"])
+    return {"deleted": bool(ok), "id": args.get("id")}
+

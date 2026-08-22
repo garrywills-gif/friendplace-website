@@ -5300,6 +5300,28 @@ def build_router(db) -> APIRouter:
         _logging.getLogger("friendplace.replies").exception("replies router mount failed")
 
     # ------------------------------------------------------------------
+    # iter162 — Reminders (Mission Control small V1).
+    # Effective URLs: /api/cms/reminders/*
+    # ------------------------------------------------------------------
+    try:
+        from services.reminders.router import build_reminders_router as _build_reminders_router
+        from services.reminders.store  import ensure_indexes as _reminders_indexes
+        router.include_router(_build_reminders_router(db, current_cms_admin))
+        async def _bootstrap_reminders_indexes():
+            try:
+                await _reminders_indexes(db)
+            except Exception:
+                import logging as _logging
+                _logging.getLogger("friendplace.reminders").exception("reminders index bootstrap failed")
+        try:
+            _asyncio.get_event_loop().create_task(_bootstrap_reminders_indexes())
+        except Exception:
+            pass
+    except Exception:
+        import logging as _logging
+        _logging.getLogger("friendplace.reminders").exception("reminders router mount failed")
+
+    # ------------------------------------------------------------------
     # iter160a — CRM unified-status endpoints (compute-on-the-fly).
     # ------------------------------------------------------------------
     @router.get("/crm/status-for/{email}")
