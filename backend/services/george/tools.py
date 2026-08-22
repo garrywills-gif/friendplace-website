@@ -560,9 +560,14 @@ async def _list_interest_registrations(db: Any, args: dict) -> list:
 @register(
     "founding_members_summary",
     "One-shot dashboard summary of the Founding Members CRM: total registered, new today, "
-    "awaiting contact, invited, joined, opted out, plus the most-recent registration. "
-    "Use this when the admin asks for a general overview (e.g. 'how are Founding Members "
-    "doing?') rather than a specific slice. Test-flagged rows are excluded.",
+    "awaiting invitation (people who registered and already received the automatic "
+    "registration email but are still waiting for the personal invitation), invited, "
+    "joined, opted out, plus the most-recent registration. "
+    "IMPORTANT: `awaiting_contact` in the response is a legacy field name — it means "
+    "'awaiting personal invitation'. These members HAVE received the auto-registration "
+    "email at signup. Never say they have not been emailed. Use this when the admin asks "
+    "for a general overview (e.g. 'how are Founding Members doing?') rather than a "
+    "specific slice. Test-flagged rows are excluded.",
     args={},
 )
 async def _founding_members_summary(db: Any, args: dict) -> dict:
@@ -592,10 +597,32 @@ async def _founding_members_summary(db: Any, args: dict) -> dict:
         "total":            total,
         "new_today":        new_today,
         "awaiting_contact": awaiting,
+        # iter161c (25 Feb 2026): expose the correct semantics as a
+        # first-class field so George doesn't have to infer it from
+        # tone. `awaiting_invitation` and `awaiting_contact` are the
+        # SAME number — the second name is preserved for API back-
+        # compat with existing consumers.
+        "awaiting_invitation": awaiting,
         "invited":          invited,
         "joined":           joined,
         "opted_out":        opted,
         "latest":           latest,
+        # Ground-truth semantic note George can quote verbatim. Comes
+        # from the CRM/tool layer, not the prompt — so it stays in
+        # sync with the actual behaviour of the registration flow.
+        "_semantics": {
+            "awaiting_contact_meaning": (
+                "These members registered their interest and received the "
+                "automatic registration acknowledgement email at signup. "
+                "They are now awaiting the personal FriendPlace invitation "
+                "email — this is what admins send from the Founding Members "
+                "page or via a campaign. Do NOT say these people have not "
+                "been emailed."
+            ),
+            "preferred_label": "awaiting invitation",
+            "auto_registration_email_sent": True,
+            "personal_invitation_sent":     False,
+        },
     }
 
 

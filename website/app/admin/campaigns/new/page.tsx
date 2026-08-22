@@ -457,11 +457,31 @@ function ComposePanel() {
           {recipientMode === 'outreach' && (
             <div style={{ marginTop: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12, padding: 14 }}>
               <label style={s.label}>Category (optional)</label>
-              <input style={s.input} value={outreachCategory}
+              {/*
+                iter161b: category is a labelled dropdown with human-friendly
+                labels ("Retirement village") that stores the canonical
+                snake_case key ("retirement_village"). Backend also
+                normalises free-form input, so future clients typing
+                "retirement village" still match — this UI just avoids
+                typing altogether.
+              */}
+              <select style={s.input} value={outreachCategory}
                 onChange={(e) => setOutreachCategory(e.target.value)}
-                placeholder="e.g. retirement_village — leave blank for all" />
+                data-testid="outreach-category-select">
+                <option value="">— any category —</option>
+                <option value="retirement_village">Retirement village</option>
+                <option value="community_centre">Community centre</option>
+                <option value="library">Library</option>
+                <option value="council">Council</option>
+                <option value="club">Club</option>
+                <option value="church">Church</option>
+                <option value="aged_care">Aged care</option>
+                <option value="advocacy_group">Advocacy group</option>
+                <option value="other">Other</option>
+              </select>
               <label style={s.label}>Status (optional)</label>
-              <select style={s.input} value={outreachStatus} onChange={(e) => setOutreachStatus(e.target.value)}>
+              <select style={s.input} value={outreachStatus} onChange={(e) => setOutreachStatus(e.target.value)}
+                data-testid="outreach-status-select">
                 <option value="">— any status —</option>
                 <option value="not_contacted">Not contacted</option>
                 <option value="contacted">Contacted</option>
@@ -578,7 +598,7 @@ function ComposePanel() {
               <label style={{ ...s.label, marginTop: 14 }}>Status</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {([
-                  { key: 'registered', label: 'Registered (awaiting contact)' },
+                  { key: 'registered', label: 'Registered (awaiting invitation)' },
                   { key: 'invited',    label: 'Invited' },
                   { key: 'joined',     label: 'Joined' },
                 ] as const).map(sv => {
@@ -830,7 +850,7 @@ function ConfirmModal({
               <div>🏢 Outreach organisations</div>
               <div style={{ fontSize: 12, fontWeight: 500, color: '#64748B', marginTop: 4 }}>
                 {outreachCategory
-                  ? <>Category: <strong>{outreachCategory.replace(/_/g, ' ')}</strong></>
+                  ? <>Category: <strong>{humanCategoryLabel(outreachCategory)}</strong></>
                   : <>Any category</>}
                 {' · '}
                 {outreachStatus
@@ -974,3 +994,15 @@ const rowLabel: React.CSSProperties = {
 const rowValue: React.CSSProperties = {
   fontSize: 15, fontWeight: 700, color: '#0A2540', marginTop: 4, lineHeight: 1.6,
 };
+
+// iter161b (25 Feb 2026): show human-friendly labels in the confirm
+// modal ("Retirement village") rather than the raw snake_case key.
+// The backend still stores/queries the canonical key.
+function humanCategoryLabel(key: string): string {
+  if (!key) return '';
+  const parts = key.replace(/-/g, '_').split('_').filter(Boolean);
+  if (parts.length === 0) return '';
+  const [first, ...rest] = parts;
+  return [first.charAt(0).toUpperCase() + first.slice(1).toLowerCase(),
+          ...rest.map(p => p.toLowerCase())].join(' ');
+}

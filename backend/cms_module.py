@@ -1742,6 +1742,50 @@ def build_router(db) -> APIRouter:
         """
         kind = str((f or {}).get("audience_kind") or "").strip().lower()
 
+        # iter161 defensive auto-detect (25 Feb 2026 production regression):
+        # A draft saved by pre-iter161 frontend code could end up with
+        # outreach/manual/individual data in its filter but no
+        # audience_kind marker — the resolver would then silently fall
+        # through to the founding_members query, returning a count that
+        # tracks Founding Member registrations rather than the audience
+        # Garry actually chose. Guard against that here by inferring the
+        # kind from the filter's shape when the marker is absent AND the
+        # shape is unambiguous. We refuse to guess when the filter is
+        # empty or founding-member-shaped — those correctly default to
+        # the historical founding_members path.
+        if not kind:
+            _outreach_spec = f.get("outreach") if isinstance(f, dict) else None
+            _has_outreach = (
+                isinstance(_outreach_spec, dict)
+                and any(_outreach_spec.get(k) for k in ("category", "status", "tags_any", "ids"))
+            )
+            _has_manual = bool((f or {}).get("manual_recipients"))
+            _has_individual = bool((f or {}).get("recipient_email"))
+            # Founding-member shape has none of these three, so we only
+            # override the default when one of them is present.
+            import logging as _logging
+            _log = _logging.getLogger("friendplace.campaigns")
+            if _has_outreach and not (_has_manual or _has_individual):
+                _log.warning(
+                    "audience resolver: missing audience_kind, auto-routing to "
+                    "outreach_contacts based on filter shape: %r",
+                    _outreach_spec,
+                )
+                kind = "outreach_contacts"
+            elif _has_manual and not (_has_outreach or _has_individual):
+                _log.warning(
+                    "audience resolver: missing audience_kind, auto-routing to "
+                    "manual_list based on filter shape",
+                )
+                kind = "manual_list"
+            elif _has_individual and not (_has_outreach or _has_manual):
+                _log.warning(
+                    "audience resolver: missing audience_kind, auto-routing to "
+                    "individual based on filter shape",
+                )
+                kind = "individual"
+            # else: safely fall through to founding_members (original behaviour).
+
         # -- 5) Individual send --
         if kind == "individual":
             addr = str(f.get("recipient_email") or "").strip()
@@ -1798,10 +1842,16 @@ def build_router(db) -> APIRouter:
 
         # -- 3) Outreach contacts --
         if kind == "outreach_contacts":
-            from services.outreach.store import COLL_ORGS
+            from services.outreach.store import COLL_ORGS, normalise_category
             oq: Dict[str, Any] = {"is_test": {"$ne": True}}
             spec = f.get("outreach") or {}
-            if spec.get("category"): oq["category"] = spec["category"]
+            # iter161b (25 Feb 2026): normalise the category so a user
+            # typing "retirement village" or "Retirement Village" also
+            # matches the stored "retirement_village" key. Stored
+            # values are never rewritten — only the query is
+            # canonicalised. Empty / None passes through untouched.
+            _cat = normalise_category(spec.get("category"))
+            if _cat:                 oq["category"] = _cat
             if spec.get("status"):   oq["status"] = spec["status"]
             if spec.get("tags_any"): oq["tags"] = {"$in": list(spec["tags_any"])}
             if spec.get("ids"):      oq["id"] = {"$in": list(spec["ids"])}

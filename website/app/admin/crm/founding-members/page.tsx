@@ -29,18 +29,23 @@ import {
 const STATUS_ORDER: CRMFoundingMemberStatus[] = ['registered', 'invited', 'joined', 'opted_out'];
 
 const STATUS_META: Record<CRMFoundingMemberStatus, { label: string; tone: string; bg: string; fg: string }> = {
-  registered: { label: 'Registered', tone: 'Awaiting contact',        bg: '#FEF3C7', fg: '#92400E' },
+  // iter161c (25 Feb 2026): "Awaiting Contact" → "Awaiting Invitation".
+  // Rationale: members with status="registered" have already received
+  // the automatic registration acknowledgement email; they're now
+  // waiting for the personal FriendPlace invitation, not first
+  // contact. Stored status value stays "registered" — display only.
+  registered: { label: 'Registered', tone: 'Awaiting invitation',      bg: '#FEF3C7', fg: '#92400E' },
   invited:    { label: 'Invited',    tone: 'Invite sent',             bg: '#DBEAFE', fg: '#1E40AF' },
   joined:     { label: 'Joined',     tone: 'Signed up to FriendPlace', bg: '#DCFCE7', fg: '#166534' },
   opted_out:  { label: 'Opted out',  tone: 'Asked to be removed',     bg: '#F1F5F9', fg: '#475569' },
 };
 
 const FILTERS: Array<{ key: 'all' | CRMFoundingMemberStatus; label: string; emptyLabel: string }> = [
-  { key: 'all',        label: 'All',              emptyLabel: 'No Founding Members yet.' },
-  { key: 'registered', label: 'Awaiting Contact', emptyLabel: 'No Founding Members are awaiting contact.' },
-  { key: 'invited',    label: 'Invited',          emptyLabel: 'No Founding Members have been invited yet.' },
-  { key: 'joined',     label: 'Joined',           emptyLabel: 'No Founding Members have joined FriendPlace yet.' },
-  { key: 'opted_out',  label: 'Opted Out',        emptyLabel: 'No Founding Members have opted out.' },
+  { key: 'all',        label: 'All',                  emptyLabel: 'No Founding Members yet.' },
+  { key: 'registered', label: 'Awaiting Invitation',  emptyLabel: 'No Founding Members are awaiting invitation. (They\'ve already received the automatic registration email — this list shows who\'s waiting for their personal invitation.)' },
+  { key: 'invited',    label: 'Invited',              emptyLabel: 'No Founding Members have been invited yet.' },
+  { key: 'joined',     label: 'Joined',               emptyLabel: 'No Founding Members have joined FriendPlace yet.' },
+  { key: 'opted_out',  label: 'Opted Out',            emptyLabel: 'No Founding Members have opted out.' },
 ];
 
 export default function FoundingMembersCRMPage() {
@@ -267,7 +272,7 @@ function StatsRow({ stats, loading }: { stats: CRMFoundingMembersStats | null; l
     <div style={statsGrid}>
       <StatCard tone="teal" emoji="🌟" label="Total Founding Members" value={stats?.total} loading={loading} />
       <StatCard tone="teal" emoji="✨" label="New today"              value={stats?.new_today} loading={loading} />
-      <StatCard tone="amber" emoji="📮" label="Awaiting contact"       value={stats?.awaiting_contact} loading={loading} />
+      <StatCard tone="amber" emoji="📮" label="Awaiting invitation"    value={stats?.awaiting_contact} loading={loading} />
       <StatCard
         tone="navy" emoji="🕓"
         label="Latest registration"

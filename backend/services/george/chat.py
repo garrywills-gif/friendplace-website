@@ -407,7 +407,7 @@ _STATE_QUESTION_RE = re.compile(
     r"who (?:is|was) the (?:latest|last|most recent|newest)|"
     r"show me (?:everyone|all|the)|"
     r"conversion|funnel|how are we tracking|"
-    r"awaiting contact|hasn(?:'|�)?t been contacted|haven(?:'|�)?t been contacted|not (?:yet )?contacted|"
+    r"awaiting contact|awaiting invitation|hasn(?:'|�)?t been (?:contacted|invited)|haven(?:'|�)?t been (?:contacted|invited)|not (?:yet )?(?:contacted|invited)|"
     r"joined (?:today|this week|this month)|invited (?:today|this week|this month)|"
     r"from (?:sydney|melbourne|brisbane|perth|adelaide|hobart|canberra|darwin)|"
     r"any (tickets|signals|cases|events|reports|submissions|registrations|founding members)"
@@ -433,8 +433,11 @@ _TOPIC_TO_TOOL = [
     ("not been contacted",     {"name": "list_interest_registrations", "args": {"status": "registered"}}),
     ("not contacted yet",      {"name": "list_interest_registrations", "args": {"status": "registered"}}),
     ("everyone who hasn't",    {"name": "list_interest_registrations", "args": {"status": "registered"}}),
-    ("still registered",  {"name": "count_interest_registrations", "args": {"status": "registered"}}),
-    ("awaiting contact",  {"name": "count_interest_registrations", "args": {"status": "registered"}}),
+    ("still registered",   {"name": "count_interest_registrations", "args": {"status": "registered"}}),
+    ("awaiting contact",   {"name": "count_interest_registrations", "args": {"status": "registered"}}),
+    ("awaiting invitation",{"name": "count_interest_registrations", "args": {"status": "registered"}}),
+    ("not been invited",   {"name": "list_interest_registrations",  "args": {"status": "registered"}}),
+    ("haven't been invited",{"name":"list_interest_registrations",  "args": {"status": "registered"}}),
     ("joined this week",  {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 7}}),
     ("joined today",      {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 1}}),
     ("invited this week", {"name": "count_interest_registrations", "args": {"status": "invited", "since_days": 7}}),

@@ -9,6 +9,8 @@ from .store import (
     COLL_ORGS,
     OUTREACH_STATUSES,
     OUTREACH_CATEGORIES,
+    normalise_category,
+    category_label,
     upsert_org,
     get_org,
     list_orgs,
@@ -21,6 +23,7 @@ from .store import (
 
 __all__ = [
     "COLL_ORGS", "OUTREACH_STATUSES", "OUTREACH_CATEGORIES",
+    "normalise_category", "category_label",
     "upsert_org", "get_org", "list_orgs", "delete_org",
     "touch_last_contact", "log_communication", "mark_replied",
     "ensure_indexes",

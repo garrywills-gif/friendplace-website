@@ -48,6 +48,51 @@ OUTREACH_CATEGORIES = [
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def normalise_category(raw: str | None) -> str | None:
+    """iter161b (25 Feb 2026): free-form category matching.
+
+    Users shouldn't have to type underscores. "Retirement village",
+    "retirement village", "RETIREMENT_VILLAGE" and "retirement_village"
+    all mean the same category. This helper canonicalises any input
+    to the snake_case form used as the stored value, so filters match
+    reliably regardless of how the admin typed the category.
+
+    Rules:
+      - lower-case
+      - trim outer whitespace
+      - collapse runs of whitespace and dashes into a single underscore
+      - strip punctuation other than underscore
+
+    Passes through None / empty untouched.
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip().lower()
+    if not s:
+        return None
+    # Collapse any run of whitespace / hyphen / underscore into a single `_`.
+    s = re.sub(r"[\s\-_]+", "_", s)
+    # Drop any character that isn't a-z, 0-9 or underscore.
+    s = re.sub(r"[^a-z0-9_]", "", s)
+    # Trim leading/trailing underscores that punctuation stripping may leave.
+    s = s.strip("_")
+    return s or None
+
+
+def category_label(key: str | None) -> str:
+    """Human-friendly label for an outreach category key.
+
+    e.g. "retirement_village" → "Retirement village",
+    "aged_care" → "Aged care", "other" → "Other".
+    """
+    if not key:
+        return ""
+    parts = str(key).replace("-", "_").split("_")
+    if not parts:
+        return ""
+    return " ".join([parts[0].capitalize()] + [p.lower() for p in parts[1:]])
+
+
 def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -278,6 +323,7 @@ async def ensure_indexes(db) -> None:
 
 __all__ = [
     "COLL_ORGS", "OUTREACH_STATUSES", "OUTREACH_CATEGORIES",
+    "normalise_category", "category_label",
     "upsert_org", "get_org", "list_orgs", "delete_org",
     "touch_last_contact", "log_communication", "mark_replied",
     "ensure_indexes",
