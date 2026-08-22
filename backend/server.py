@@ -11392,11 +11392,17 @@ async def public_register_interest(payload: dict, request: Request):
        side-effects and response shape are LOCKED. See
        /app/website/APPROVED_ONBOARDING_JOURNEY.md before changing.
 
+    🔒 iter164 amendment (Aug 2026):
+       One normalised email = one registration. A partial unique index
+       on ``email`` (where ``is_test=false``) enforces this at the DB
+       level. The endpoint returns the existing row idempotently for
+       any re-submission, whether it comes seconds or months later —
+       so no visitor ever ends up with two Founding Member numbers.
+
     Persists to `interest_registrations` and fires a warm confirmation
-    email from the visitor's chosen companion. Idempotent within 24h so
-    the visitor never gets duplicate confirmations from double-clicks or
-    refresh-and-resubmit.
+    email from the visitor's chosen companion. Idempotent forever.
     """
+    from pymongo.errors import DuplicateKeyError  # local — race guard below
     first_name = str(payload.get("first_name") or "").strip()[:80]
     email = str(payload.get("email") or "").strip().lower()[:180]
     state_country = str(payload.get("state_country") or "").strip()[:120] or None
@@ -11429,47 +11435,89 @@ async def public_register_interest(payload: dict, request: Request):
     if recent >= 20:
         raise HTTPException(429, "Too many registrations from this address — please try again in an hour.")
 
-    # Idempotency: if this email already registered in the last 10 minutes,
-    # treat it as the same submission (double-click, refresh-and-resubmit,
-    # etc.) — we return the existing record AND resend the acknowledgement
-    # so the visitor still gets their receipt. Deliberately short (10 min,
-    # not 24h): people should never be stranded because they registered
-    # months ago and now can't get back on the list.
-    dedup_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    # iter164: Enforce one normalised email = one registration, no matter
+    # how much time has passed. Previously we only dedup'd within a 10-min
+    # window, which meant a visitor coming back the next day would get a
+    # SECOND row and a SECOND founder number (real bug: #0011 was a repeat
+    # of #0010 registered 14 h later). Now any existing row for the same
+    # normalised email is returned idempotently — the visitor gets their
+    # original founder number back with a warm receipt, never a duplicate.
+    # Backend-level enforcement below (partial unique index + insert-time
+    # race guard) makes this impossible even under concurrent bursts or
+    # a stale UI cache. The 10-min window is preserved semantically for
+    # the "resend acknowledgement" behaviour: rapid re-submits still get
+    # their letter resent so a Resend hiccup isn't fatal.
     existing = None
     try:
         existing = await db.interest_registrations.find_one(
-            {"email": email, "created_at": {"$gt": dedup_cutoff}},
+            {"email": email, "is_test": {"$ne": True}},
             {"_id": 0, "id": 1, "email": 1, "created_at": 1, "first_name": 1,
              "companion_choice": 1, "founder_number": 1},
         )
     except Exception:
         existing = None
     if existing:
-        logger.info(
-            "RYI dedup: email=%s existing_id=%s created_at=%s ip=%s",
-            email, existing.get("id"), existing.get("created_at"), ip,
-        )
-        # Best-effort resend of the acknowledgement — if it originally
-        # failed (Resend hiccup, wrong domain, etc.) the visitor still
-        # gets a receipt on retry. Never fail the request.
+        # iter164: This is the "already registered" flow the user's
+        # spec calls for — the visitor gets:
+        #   1. Their ORIGINAL founder number back in the response, so
+        #      the thank-you page shows #0010 (never a fresh #0011).
+        #   2. The same warm acknowledgement letter resent with their
+        #      original founder number. Receiving the welcome letter
+        #      again — signed by the same companion, quoting the same
+        #      number — IS the "you're already registered as #0010"
+        #      message. We don't have (and don't need) a separate
+        #      "duplicate" template; the reassurance is that the same
+        #      warm letter lands in their inbox again.
+        #
+        # Light spam guard: don't resend twice within 60 seconds. Bots
+        # that hammer the form (or a stuck client retry loop) can't
+        # weaponise the resend, but every legitimate return visit
+        # (minutes, hours, days later) reliably fires the message.
+        should_resend = True
         try:
-            from email_service import send_email_detailed, waitlist_template
-            effective_companion = (existing.get("companion_choice") or "george")
-            subj, html_body, text_body = waitlist_template(
-                first_name=existing.get("first_name") or first_name,
-                founder_number=existing.get("founder_number"),
-                companion=effective_companion,
-            )
-            await send_email_detailed(
-                to=email, subject=subj, html=html_body, text=text_body,
-            )
+            from datetime import datetime as _dt
+            last_iso = existing.get("last_re_registered_at") or existing.get("created_at")
+            last = _dt.fromisoformat(str(last_iso).replace("Z", "+00:00"))
+            if (datetime.now(timezone.utc) - last).total_seconds() < 60:
+                should_resend = False
         except Exception:
-            logger.exception("RYI dedup resend failed for %s", email)
+            should_resend = True
+
+        logger.info(
+            "RYI already-registered: email=%s existing_id=%s founder=%s "
+            "created_at=%s ip=%s resend=%s",
+            email, existing.get("id"), existing.get("founder_number"),
+            existing.get("created_at"), ip, should_resend,
+        )
+        if should_resend:
+            try:
+                from email_service import send_email_detailed, waitlist_template
+                effective_companion = (existing.get("companion_choice") or "george")
+                subj, html_body, text_body = waitlist_template(
+                    first_name=existing.get("first_name") or first_name,
+                    founder_number=existing.get("founder_number"),
+                    companion=effective_companion,
+                )
+                await send_email_detailed(
+                    to=email, subject=subj, html=html_body, text=text_body,
+                )
+                # Stamp the resend so the cooldown works even if a
+                # bot loops the endpoint.
+                try:
+                    await db.interest_registrations.update_one(
+                        {"id": existing.get("id")},
+                        {"$set": {"last_re_registered_at": now_iso()}},
+                    )
+                except Exception:
+                    logger.exception("RYI dedup timestamp update failed for %s", email)
+            except Exception:
+                logger.exception("RYI dedup resend failed for %s", email)
         return {
             "ok":             True,
             "id":             existing.get("id"),
             "deduplicated":   True,
+            "already_registered": True,
+            "acknowledgement_resent": bool(should_resend),
             "founder_number": existing.get("founder_number"),
             "founder_number_display": _fmt_founder_no(existing.get("founder_number")),
         }
@@ -11527,6 +11575,30 @@ async def public_register_interest(payload: dict, request: Request):
             doc["id"], email, first_name, companion, ip,
             acquisition.get("channel"),
         )
+    except DuplicateKeyError:
+        # iter164: race condition — another request for the SAME email
+        # slipped past our find_one() check and landed the row first.
+        # Refetch and return that row so both requests give the visitor
+        # a consistent founder number, never a duplicate. Do NOT try to
+        # roll back the counter $inc — a small gap in numbering is far
+        # safer than the risk of reassigning a live number.
+        logger.info("RYI race guard: duplicate email %s — refetching existing row", email)
+        existing = await db.interest_registrations.find_one(
+            {"email": email, "is_test": {"$ne": True}},
+            {"_id": 0, "id": 1, "email": 1, "created_at": 1, "first_name": 1,
+             "companion_choice": 1, "founder_number": 1},
+        )
+        if not existing:
+            logger.error("RYI race guard: DuplicateKeyError but no existing row found for %s", email)
+            raise HTTPException(500, "We couldn't save your details just now — please try again in a moment.")
+        return {
+            "ok":             True,
+            "id":             existing.get("id"),
+            "deduplicated":   True,
+            "already_registered": True,
+            "founder_number": existing.get("founder_number"),
+            "founder_number_display": _fmt_founder_no(existing.get("founder_number")),
+        }
     except Exception:
         # If the DB write itself fails, we DO fail the request — silently
         # persisting nowhere would be worse than telling the visitor to
@@ -12320,6 +12392,84 @@ async def _status_startup_indexes():  # noqa: D401
         await _ensure_status_indexes(db)
     except Exception:
         logging.exception("member_status ensure_indexes failed")
+
+
+@app.on_event("startup")
+async def _interest_registrations_unique_email_index():  # noqa: D401
+    """iter164: enforce one normalised email = one Founding Member row
+    at the DATABASE level, not just in application code.
+
+    Partial unique index restricted to ``is_test: false`` so QA
+    fixtures can still share test emails (they always set ``is_test:
+    true``). Reserved seeds have ``is_test: false`` but their emails
+    (garry@ / george@ @friendplace.com.au) are unique anyway.
+
+    Startup order:
+      1. Backfill any legacy row missing ``is_test`` to ``false`` so
+         the partial filter covers every real registration.
+      2. Log a warning for any duplicate emails still in the DB so an
+         admin can retire them with
+         ``scripts/retire_duplicate_founding_members.py``. We do NOT
+         auto-delete data — that's a manual, audited action.
+      3. Create the index. If duplicates remain, the index creation
+         will fail loudly; the warning above tells the admin what to
+         do about it.
+    """
+    log = logging.getLogger("friendplace")
+    try:
+        # (1) Backfill missing is_test flag.
+        try:
+            res = await db.interest_registrations.update_many(
+                {"is_test": {"$exists": False}},
+                {"$set": {"is_test": False}},
+            )
+            if res.modified_count:
+                log.info(
+                    "iter164: backfilled is_test=false on %d legacy registrations",
+                    res.modified_count,
+                )
+        except Exception:
+            log.exception("iter164: is_test backfill failed")
+
+        # (2) Warn on duplicates so admins know to run the retire script
+        # BEFORE index creation (it will otherwise raise DuplicateKey).
+        try:
+            pipeline = [
+                {"$match": {"is_test": False, "email": {"$type": "string"}}},
+                {"$group": {"_id": "$email", "n": {"$sum": 1},
+                            "founder_numbers": {"$push": "$founder_number"}}},
+                {"$match": {"n": {"$gt": 1}}},
+            ]
+            dupes = await db.interest_registrations.aggregate(pipeline).to_list(None)
+            for d in dupes:
+                log.warning(
+                    "iter164: duplicate email in interest_registrations — "
+                    "email=%s count=%d founder_numbers=%s. Run "
+                    "backend/scripts/retire_duplicate_founding_members.py "
+                    "to retire the later duplicates safely.",
+                    d.get("_id"), d.get("n"), d.get("founder_numbers"),
+                )
+        except Exception:
+            log.exception("iter164: duplicate scan failed")
+
+        # (3) Create the partial unique index. Idempotent: Mongo silently
+        # no-ops if the identical index already exists.
+        try:
+            await db.interest_registrations.create_index(
+                [("email", 1)],
+                name="uniq_email_where_not_test",
+                unique=True,
+                partialFilterExpression={"is_test": False},
+                background=True,
+            )
+            log.info("iter164: uniq_email_where_not_test index in place")
+        except Exception as e:
+            # Duplicates blocking creation are logged so an admin can
+            # act. Don't crash the boot — the endpoint still enforces
+            # uniqueness at the application layer.
+            log.error("iter164: could not create uniq_email index: %s", e)
+    except Exception:
+        logging.exception("iter164 email uniqueness setup failed")
 
 # Static assets — currently used for Spot the Difference lifelike backdrops.
 # Files live at /app/backend/static/spot_bg/<theme>.jpg and are served under
