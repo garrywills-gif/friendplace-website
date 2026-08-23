@@ -709,8 +709,8 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
             <button
               type="button"
               onClick={() => send(input)}
-              disabled={!input.trim() || rec.recording || transcribing}
-              style={{ ...sendBtn, opacity: (!input.trim() || rec.recording || transcribing) ? 0.5 : 1 }}
+              disabled={!input.trim() || transcribing}
+              style={{ ...sendBtn, opacity: (!input.trim() || transcribing) ? 0.5 : 1 }}
             >Send</button>
           )}
         </div>

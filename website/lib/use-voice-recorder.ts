@@ -221,6 +221,19 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
         if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
+        // iter164g Mac WebApp production bug: Safari WKWebView is
+        // known (per WebKit developer forums + open bugs.webkit.org
+        // reports) to fire `stop` twice under some conditions — most
+        // reproducibly when we call `requestData()` immediately
+        // before `stop()`, which iter164f added to flush the final
+        // MP4 chunk. Without this idempotency guard the second fire
+        // could re-schedule a stale `setRecording(false)` from a
+        // nulled-out recorderRef and confuse React's scheduler in
+        // the WKWebView runtime (which was the cascading cause of
+        // the Ask button staying stuck-disabled after transcription).
+        // Once cleanup() has nulled `recorderRef.current`, any
+        // subsequent onstop is a no-op.
+        if (!recorderRef.current) return;
         setRecording(false);
         cleanup();
         const cancelled = cancelledRef.current;
