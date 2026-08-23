@@ -5503,6 +5503,43 @@ def build_router(db) -> APIRouter:
         _logging.getLogger("friendplace.reminders").exception("reminders router mount failed")
 
     # ------------------------------------------------------------------
+    # iter164h — Butterfly Points manual recognition (Mission Control).
+    # Effective URLs:
+    #   POST /api/cms/members/{id}/butterfly-points/award
+    #   POST /api/cms/members/{id}/butterfly-points/{ledger_id}/reverse
+    #   GET  /api/cms/members/{id}/butterfly-points
+    #   GET  /api/cms/members/butterfly-points/policy
+    #   POST /api/cms/members/butterfly-points/preview
+    # ------------------------------------------------------------------
+    try:
+        from services.butterfly_points.router import build_points_router as _build_points_router
+        from services.butterfly_points.store  import ensure_indexes as _points_indexes
+        # server.py owns the running-balance + notification helpers we
+        # must delegate to; lazy-import to avoid a circular dep at
+        # module load time.
+        import server as _srv
+        router.include_router(
+            _build_points_router(
+                db, current_cms_admin,
+                award_points_impl=_srv.award_points,
+                push_notification_impl=_srv.push_notification,
+            ),
+        )
+        async def _bootstrap_points_indexes():
+            try:
+                await _points_indexes(db)
+            except Exception:
+                import logging as _logging
+                _logging.getLogger("friendplace.butterfly_points").exception("butterfly_points index bootstrap failed")
+        try:
+            _asyncio.get_event_loop().create_task(_bootstrap_points_indexes())
+        except Exception:
+            pass
+    except Exception:
+        import logging as _logging
+        _logging.getLogger("friendplace.butterfly_points").exception("butterfly_points router mount failed")
+
+    # ------------------------------------------------------------------
     # iter160a — CRM unified-status endpoints (compute-on-the-fly).
     # ------------------------------------------------------------------
     @router.get("/crm/status-for/{email}")

@@ -1714,3 +1714,63 @@ export const remindersApi = {
   complete: (id: string) => req<Reminder>('POST', `/cms/reminders/${id}/complete`),
   del: (id: string) => req<{ ok: true }>('DELETE', `/cms/reminders/${id}`),
 };
+
+
+// ============================================================================
+// Butterfly Points — manual recognition (iter164h)
+// ============================================================================
+
+export type BpPersona = 'george' | 'georgia';
+export type BpLedgerKind = 'award' | 'reversal';
+
+export type BpLedgerEntry = {
+  id: string;
+  user_id: string;
+  amount: number;
+  reason: string;
+  persona: BpPersona | null;
+  kind: BpLedgerKind;
+  reverses_id: string | null;
+  reversed_at: string | null;
+  reversed_by_ledger_id: string | null;
+  admin_id: string | null;
+  admin_email: string | null;
+  admin_name: string | null;
+  notification_id: string | null;
+  created_at: string;
+};
+
+export type BpPolicy = {
+  amount_min: number;
+  amount_max: number;
+  amount_soft_warn: number;
+  reason_min: number;
+  reason_max: number;
+  personas: BpPersona[];
+};
+
+export type BpPreview = {
+  title: string;
+  body: string;
+  persona_name: string;
+  persona_avatar: string;
+};
+
+export const butterflyPointsApi = {
+  policy: () =>
+    req<BpPolicy>('GET', '/cms/members/butterfly-points/policy'),
+  preview: (body: { amount: number; reason: string; persona: BpPersona }) =>
+    req<BpPreview>('POST', '/cms/members/butterfly-points/preview', body),
+  list: (userId: string) =>
+    req<{ user_id: string; points: number; badges: string[]; ledger: BpLedgerEntry[] }>(
+      'GET', `/cms/members/${userId}/butterfly-points`,
+    ),
+  award: (userId: string, body: { amount: number; reason: string; persona: BpPersona }) =>
+    req<BpLedgerEntry>(
+      'POST', `/cms/members/${userId}/butterfly-points/award`, body,
+    ),
+  reverse: (userId: string, ledgerId: string, body: { reason: string }) =>
+    req<{ original: BpLedgerEntry; reversal: BpLedgerEntry }>(
+      'POST', `/cms/members/${userId}/butterfly-points/${ledgerId}/reverse`, body,
+    ),
+};

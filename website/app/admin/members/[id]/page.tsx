@@ -24,6 +24,8 @@ import { cmsApi, type MemberProfile, type MemberRow, type MemberModerationLogEnt
 import { MemberIdentityHeader } from '@/components/members/MemberIdentityHeader';
 import { ModerationSummaryCard } from '@/components/members/ModerationSummaryCard';
 import { ModerationTimeline } from '@/components/members/ModerationTimeline';
+import { AwardPointsModal, ReverseAwardModal } from '@/components/members/AwardPointsModal';
+import { butterflyPointsApi, type BpLedgerEntry } from '@/lib/cms-api';
 
 export default function MemberProfilePage() {
   const params = useParams<{ id: string }>();
@@ -43,6 +45,23 @@ export default function MemberProfilePage() {
 
   const [noteDraft, setNoteDraft] = useState('');
   const [savingNote, setSavingNote] = useState(false);
+
+  // iter164h — Butterfly Points recognition (Mission Control).
+  const [pointsLedger, setPointsLedger] = useState<BpLedgerEntry[]>([]);
+  const [pointsBalance, setPointsBalance] = useState<number>(0);
+  const [showAwardModal, setShowAwardModal] = useState(false);
+  const [reverseTarget, setReverseTarget] = useState<BpLedgerEntry | null>(null);
+
+  const loadPoints = useCallback(async () => {
+    if (!userId) return;
+    try {
+      const p = await butterflyPointsApi.list(userId);
+      setPointsLedger(p.ledger);
+      setPointsBalance(p.points);
+    } catch { /* silent — section is optional data */ }
+  }, [userId]);
+
+  useEffect(() => { void loadPoints(); }, [loadPoints]);
 
   const reload = useCallback(async () => {
     if (!userId) return;
@@ -292,6 +311,79 @@ export default function MemberProfilePage() {
             <kbd style={kbd}>W</kbd> warn · <kbd style={kbd}>S</kbd> suspend · <kbd style={kbd}>B</kbd> ban · <kbd style={kbd}>R</kbd> restore · <kbd style={kbd}>N</kbd> note
           </div>
 
+          {/* iter164h — Butterfly Points recognition (Mission Control) */}
+          <section style={pointsCard} data-testid="butterfly-points-section">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ fontSize: 22 }}>🦋</div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 800, color: '#0F766E' }}>
+                  Butterfly Points
+                </div>
+                <div style={{ fontSize: 18, color: '#0A2540', fontWeight: 800, marginTop: 2 }}>
+                  {pointsBalance} {pointsBalance === 1 ? 'point' : 'points'} on the balance
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAwardModal(true)}
+                data-testid="award-points-btn"
+                style={{ ...actionBtn, background: '#0D9488', color: '#FFFFFF', borderColor: '#0D9488' }}
+              >
+                🦋 Award Butterfly Points
+              </button>
+            </div>
+            {pointsLedger.length > 0 && (
+              <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {pointsLedger.slice(0, 8).map((row) => {
+                  const isReversed = !!row.reversed_at;
+                  const isReversal = row.kind === 'reversal';
+                  return (
+                    <div key={row.id}
+                      data-testid={`points-ledger-${row.id}`}
+                      style={{
+                        border: '1px solid #E2E8F0', borderRadius: 12,
+                        padding: '10px 12px', background: isReversed ? '#F8FAFC' : '#FFFFFF',
+                        display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap',
+                      }}>
+                      <div style={{
+                        width: 46, textAlign: 'center', fontWeight: 900,
+                        fontSize: 15,
+                        color: isReversal ? '#B91C1C' : '#0F766E',
+                      }}>
+                        {isReversal ? row.amount : `+${row.amount}`}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ fontSize: 14, color: '#0A2540', fontWeight: isReversed ? 500 : 700, textDecoration: isReversed && !isReversal ? 'line-through' : 'none' }}>
+                          {isReversal ? 'Reversal — ' : ''}{row.reason}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>
+                          {isReversal ? '↩ ' : `🦋 ${row.persona === 'georgia' ? 'Georgia' : 'George'} · `}
+                          {row.admin_email || row.admin_name || 'admin'} ·{' '}
+                          {new Date(row.created_at).toLocaleString()}
+                          {isReversed && !isReversal && ' · reversed'}
+                        </div>
+                      </div>
+                      {!isReversed && !isReversal && (
+                        <button
+                          type="button"
+                          onClick={() => setReverseTarget(row)}
+                          data-testid={`reverse-btn-${row.id}`}
+                          style={{
+                            background: 'transparent', border: '1px solid #FCA5A5',
+                            color: '#B91C1C', borderRadius: 8, padding: '4px 10px',
+                            fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                          }}
+                        >
+                          Reverse
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
           {/* Add note composer */}
           <section style={noteCard}>
             <label style={noteLabel}>Add a moderator note</label>
@@ -368,6 +460,35 @@ export default function MemberProfilePage() {
 
           {/* Busy overlay while an action is landing (very short) */}
           {busy && <div style={busyOverlay}>Applying…</div>}
+
+          {/* iter164h — Butterfly Points modals */}
+          {showAwardModal && (
+            <AwardPointsModal
+              memberId={memberRow.id}
+              memberFirstName={memberRow.first_name}
+              onClose={() => setShowAwardModal(false)}
+              onAwarded={(msg) => {
+                setShowAwardModal(false);
+                setBanner({ tone: 'ok', text: msg });
+                void loadPoints();
+                void reload();
+              }}
+            />
+          )}
+          {reverseTarget && (
+            <ReverseAwardModal
+              memberId={memberRow.id}
+              ledgerId={reverseTarget.id}
+              ledgerSummary={`+${reverseTarget.amount} awarded ${new Date(reverseTarget.created_at).toLocaleString()} — "${reverseTarget.reason}"`}
+              onClose={() => setReverseTarget(null)}
+              onReversed={(msg) => {
+                setReverseTarget(null);
+                setBanner({ tone: 'ok', text: msg });
+                void loadPoints();
+                void reload();
+              }}
+            />
+          )}
         </>
       )}
     </AdminShell>
@@ -410,6 +531,13 @@ const deleteBtn: React.CSSProperties  = { background: '#FFFFFF', color: '#7F1D1D
 const shortcutsRow: React.CSSProperties = { display: 'flex', gap: 6, alignItems: 'center', color: '#94A3B8', fontSize: 12, marginTop: 8 };
 const kbd: React.CSSProperties = { background: '#F1F5F9', color: '#0F172A', padding: '1px 6px', borderRadius: 4, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 11, fontWeight: 700, border: '1px solid #E2E8F0' };
 const noteCard: React.CSSProperties = { marginTop: 20, background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 12, padding: 14 };
+const pointsCard: React.CSSProperties = {
+  marginTop: 20,
+  background: 'linear-gradient(140deg, #F0FDFA 0%, #ECFEFF 100%)',
+  border: '1px solid rgba(20,184,166,0.35)',
+  borderRadius: 14,
+  padding: 16,
+};
 const noteLabel: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 6 };
 const noteInput: React.CSSProperties = { width: '100%', minHeight: 88, padding: 10, border: '1px solid #CBD5E1', borderRadius: 8, fontSize: 14, fontFamily: 'inherit', lineHeight: 1.45, background: '#FFFFFF', boxSizing: 'border-box' };
 const notePrimary: React.CSSProperties = { padding: '8px 14px', background: '#0F172A', color: '#FFFFFF', border: 0, borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' };

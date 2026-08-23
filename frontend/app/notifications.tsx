@@ -24,6 +24,8 @@ const ICON: Record<string, { name: keyof typeof Ionicons.glyphMap; tint: string 
   notice_comment: { name: "newspaper", tint: "#7C3AED" },
   flutter: { name: "sparkles", tint: "#DB2777" },
   achievement: { name: "trophy", tint: "#B45309" },
+  // iter164h — Butterfly Points recognition (admin-awarded via MCGS).
+  recognition: { name: "ribbon", tint: "#0F766E" },
   cheer: { name: "heart", tint: "#DB2777" },
 };
 
