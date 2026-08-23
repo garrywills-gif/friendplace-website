@@ -103,9 +103,10 @@ def test_endpoint_requires_admin_auth():
 # ─────────────────────────────────────────────────────────────────────
 
 def test_endpoint_locks_language_to_english_source():
-    """The endpoint MUST hard-lock Whisper to English and pass a
-    FriendPlace-domain prompt. Verify by inspecting the source so
-    the guarantee stays visible to future refactors."""
+    """The endpoint MUST hard-lock Whisper to English. The old
+    domain ``prompt`` was REMOVED in iter164c because Whisper is
+    documented to echo the prompt string verbatim on ambiguous
+    audio — turning a defensive bias into a new hallucination source."""
     import mcgs_module
     import inspect
     src = inspect.getsource(mcgs_module)
@@ -113,8 +114,39 @@ def test_endpoint_locks_language_to_english_source():
         "STT endpoint must lock language='en' to prevent Whisper's "
         "silence-hallucination fallback into Korean/Japanese."
     )
-    assert "friendplace" in src.lower()
-    assert "prompt=" in src
+
+
+def test_endpoint_does_not_pass_a_prompt():
+    """Whisper echoes the ``prompt=`` argument as a transcript when
+    the audio is too quiet/ambiguous — regression from earlier
+    iter164c that we caught in preview browser testing. The
+    ``prompt=`` kwarg must NOT be passed to the transcribe call."""
+    import mcgs_module
+    import inspect
+    # Grab the source of the actual endpoint function within
+    # build_router — search for the transcribe call block.
+    src = inspect.getsource(mcgs_module.build_router)
+    # Find the stt.transcribe(...) call and inspect its args.
+    idx = src.find("stt.transcribe(")
+    assert idx != -1, "transcribe call not found in build_router source"
+    # Grab the call arguments until the closing paren of the call.
+    depth = 0
+    start = idx + len("stt.transcribe")
+    end = start
+    for i in range(start, len(src)):
+        c = src[i]
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    call_src = src[start:end]
+    assert "prompt=" not in call_src, (
+        "iter164c regression: transcribe() must NOT pass a `prompt=` "
+        "argument — Whisper echoes it on ambiguous audio."
+    )
 
 
 def test_module_documents_the_hallucination_guard():
@@ -209,10 +241,92 @@ def test_guard_accepts_empty_string():
 
 def test_guard_accepts_punctuation_and_numbers():
     """Punctuation, digits, whitespace, ASCII symbols are all Latin
-    and must pass."""
+    and must pass the non-Latin guard."""
     from mcgs_module import stt_transcript_looks_hallucinated
     for s in ("...", "123 456", "  ", "hello — world!", "$5.99 (2 for 1)"):
         assert stt_transcript_looks_hallucinated(s) is False, s
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  Layer 3b: known-English silence hallucinations
+#  (Whisper's YouTube-subtitle sign-off pool)
+# ─────────────────────────────────────────────────────────────────────
+
+def test_english_guard_drops_thanks_for_watching():
+    from mcgs_module import stt_transcript_is_known_english_hallucination
+    for s in (
+        "Thanks for watching.",
+        "Thanks for watching!",
+        "Thanks for watching",
+        "THANKS FOR WATCHING",
+        "thanks for watching this video",
+        "Thank you for watching.",
+    ):
+        assert stt_transcript_is_known_english_hallucination(s) is True, s
+
+
+def test_english_guard_drops_subscribe_prompts():
+    from mcgs_module import stt_transcript_is_known_english_hallucination
+    for s in (
+        "Please subscribe.",
+        "Please subscribe to my channel.",
+        "Please like and subscribe!",
+        "Like and subscribe.",
+        "Don't forget to subscribe!",
+    ):
+        assert stt_transcript_is_known_english_hallucination(s) is True, s
+
+
+def test_english_guard_drops_signoff_phrases():
+    from mcgs_module import stt_transcript_is_known_english_hallucination
+    for s in (
+        "See you next time!",
+        "See you in the next video.",
+        "Bye.", "Goodbye!", "Bye bye.",
+        "The end.",
+    ):
+        assert stt_transcript_is_known_english_hallucination(s) is True, s
+
+
+def test_english_guard_drops_notorious_you():
+    """Whisper's most notorious 1-word English silence output."""
+    from mcgs_module import stt_transcript_is_known_english_hallucination
+    assert stt_transcript_is_known_english_hallucination("You") is True
+    assert stt_transcript_is_known_english_hallucination("You.") is True
+    assert stt_transcript_is_known_english_hallucination(" you ") is True
+
+
+def test_english_guard_passes_real_admin_questions():
+    """Genuine admin queries to George must NOT be flagged.
+
+    Note: bare single-word "Thanks." IS in the drop list — it's a
+    documented Whisper silence output and an admin wouldn't dictate
+    a naked "Thanks." to a mic that's for asking questions. Longer
+    natural sentences that happen to include "thanks" (e.g. "Thanks
+    Dora for joining") are safe because the exact-match check
+    doesn't match them."""
+    from mcgs_module import stt_transcript_is_known_english_hallucination
+    for s in (
+        "George, any new registrations overnight?",
+        "How many founding members joined this week?",
+        "Draft a reply to Dora.",
+        "Show me the campaigns.",
+        "Thank you, George.",                    # legit with George's name
+        "Please subscribe Dora to the newsletter.",  # 'subscribe' embedded
+        "Yes we should proceed.",
+        "No that's not right.",
+        "Bye for now, will check back.",
+        "Thanks Dora for joining today.",
+    ):
+        assert stt_transcript_is_known_english_hallucination(s) is False, (
+            f"Legitimate admin utterance wrongly flagged: {s!r}"
+        )
+
+
+def test_english_guard_passes_empty_and_none():
+    from mcgs_module import stt_transcript_is_known_english_hallucination
+    assert stt_transcript_is_known_english_hallucination("") is False
+    assert stt_transcript_is_known_english_hallucination(None) is False  # type: ignore[arg-type]
 
 
 # ─────────────────────────────────────────────────────────────────────

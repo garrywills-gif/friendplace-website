@@ -89,6 +89,73 @@ def stt_transcript_looks_hallucinated(text: str) -> bool:
     return any(_stt_is_non_latin_script_char(ch) for ch in text)
 
 
+# ─────────────────────────────────────────────────────────────────────
+#  iter164c: known-English Whisper silence hallucinations.
+#
+#  OpenAI Whisper is trained heavily on YouTube subtitle data and
+#  when fed silence / near-silence returns a small pool of stock
+#  video sign-off phrases. This is documented in the community
+#  (see https://github.com/openai/whisper/discussions/928 and many
+#  others). We match a curated set of these on the normalised
+#  transcript so they can't leak into the Ask George input.
+#
+#  This is a curated CLASS filter — not a single-phrase filter —
+#  and every entry is a phrase Whisper is documented to emit on
+#  silence, not a phrase a real admin would say to George.
+# ─────────────────────────────────────────────────────────────────────
+
+# Normalised (lower-cased, punctuation-stripped) phrases Whisper is
+# known to emit on silence when language='en'. Keep this list narrow
+# and specific to sign-off / caption-drift patterns — do not add
+# phrases that a genuine admin could plausibly say.
+_STT_KNOWN_ENGLISH_HALLUCINATIONS = frozenset({
+    "thank you",
+    "thanks",
+    "thanks for watching",
+    "thank you for watching",
+    "thanks for watching this video",
+    "thank you for watching this video",
+    "thanks for watching everyone",
+    "thanks so much for watching",
+    "please subscribe",
+    "please subscribe to my channel",
+    "please like and subscribe",
+    "like and subscribe",
+    "dont forget to subscribe",
+    "see you next time",
+    "see you in the next video",
+    "see you next video",
+    "bye",
+    "goodbye",
+    "bye bye",
+    "the end",
+    "music",
+    "applause",
+    "you",  # Notorious 1-word Whisper silence output
+})
+
+
+def _stt_normalise_for_hallucination_check(text: str) -> str:
+    """Lowercase, strip punctuation and collapse whitespace so
+    'Thanks for watching.' and 'thanks for watching!' both match."""
+    import re
+    return re.sub(r"[^a-z\s]", "", text.lower()).strip()
+
+
+def stt_transcript_is_known_english_hallucination(text: str) -> bool:
+    """True if the transcript matches a curated set of well-documented
+    Whisper silence-hallucination phrases (YouTube sign-offs etc)."""
+    if not text:
+        return False
+    normalised = _stt_normalise_for_hallucination_check(text)
+    if not normalised:
+        return False
+    # Collapse multi-space so "thanks  for   watching" matches too.
+    import re
+    normalised = re.sub(r"\s+", " ", normalised)
+    return normalised in _STT_KNOWN_ENGLISH_HALLUCINATIONS
+
+
 from services.mcgs.rhythms import (
     get_rhythm_settings,
     update_rhythm_settings,
@@ -1750,17 +1817,19 @@ def build_router(db) -> APIRouter:
         stt = OpenAISpeechToText(api_key=key)
         try:
             with open(path, "rb") as fh:
+                # iter164c: we deliberately do NOT pass a ``prompt``
+                # here. Whisper is known to echo the prompt string
+                # verbatim when the audio is too ambiguous to
+                # transcribe, so a domain-biasing prompt becomes its
+                # own hallucination source. Language is still locked
+                # to English so the model can't fall back to Korean
+                # / Japanese / etc. Real audio still transcribes
+                # correctly (verified via TTS round-trip).
                 resp = await stt.transcribe(
                     file=fh,
                     model="whisper-1",
                     response_format="json",
                     language="en",
-                    prompt=(
-                        "This is Mission Control, the admin surface of "
-                        "the FriendPlace community app in Australia. The "
-                        "admin is asking about members, campaigns, replies, "
-                        "outreach, reminders, Founding Members, or events."
-                    ),
                 )
         except Exception as exc:
             log.exception("STT failed")
@@ -1772,7 +1841,7 @@ def build_router(db) -> APIRouter:
         text = getattr(resp, "text", None) or (resp.get("text") if isinstance(resp, dict) else None) or ""
         text = str(text).strip()
 
-        # iter164c: hallucination guard. Whisper is known to emit
+        # iter164c: hallucination guards. Whisper is known to emit
         # canned phrases in Korean / Japanese / Vietnamese etc when
         # fed silence, even with language="en". Non-Latin scripts
         # (CJK, Hangul, Cyrillic, Thai, Arabic, Devanagari) under a
@@ -1784,6 +1853,17 @@ def build_router(db) -> APIRouter:
                 "STT hallucination guard: dropping non-Latin transcript "
                 "for language=en request (len=%d, preview=%r)",
                 len(text), text[:80],
+            )
+            return {"transcript": ""}
+
+        # iter164c: also drop the well-documented Whisper English
+        # silence-fallback phrases (YouTube sign-offs the model
+        # learned from subtitle data). These aren't phrases an admin
+        # would say to George.
+        if text and stt_transcript_is_known_english_hallucination(text):
+            log.warning(
+                "STT known-English hallucination: dropping (preview=%r)",
+                text[:80],
             )
             return {"transcript": ""}
 
