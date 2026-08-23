@@ -472,7 +472,9 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     if (rec.recording) {
       const blob = await rec.stop();
       if (!blob) {
-        setMicError("Nothing recorded yet \u2014 give it another go when you\u2019re ready.");
+        // iter164c: null blob = no speech detected (silence-only clip
+        // rejected by the recorder). Warm nudge, input stays intact.
+        setMicError("I didn\u2019t catch any speech — the input stays as it was. Try again a little closer to the mic.");
         return;
       }
       try {

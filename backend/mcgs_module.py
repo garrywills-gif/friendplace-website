@@ -35,6 +35,60 @@ from services.mcgs import (
     assign_case,
 )
 from services.mcgs.events import signal_events
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  iter164c: STT hallucination guard.
+#
+#  Whisper is known to emit canned phrases in Korean / Japanese /
+#  Vietnamese etc when fed silence or near-silence, even with
+#  language="en" set. If a language-locked English request produces
+#  ANY character in a non-Latin script (CJK / Hangul / Cyrillic /
+#  Thai / Arabic / Devanagari), the transcript is not trustworthy.
+#
+#  This is a GENERAL rule keyed on Unicode block, not a specific
+#  phrase filter — future hallucinations in the same scripts will
+#  be caught automatically.
+#
+#  Latin-Extended / Latin-1 Supplement is NOT considered non-Latin,
+#  so accented text ("café", "naïve", "résumé") passes cleanly.
+# ─────────────────────────────────────────────────────────────────────
+
+def _stt_is_non_latin_script_char(ch: str) -> bool:
+    cp = ord(ch)
+    # CJK Unified Ideographs + extensions
+    if 0x3400 <= cp <= 0x4DBF: return True
+    if 0x4E00 <= cp <= 0x9FFF: return True
+    if 0x20000 <= cp <= 0x2A6DF: return True
+    # Hiragana + Katakana (Japanese)
+    if 0x3040 <= cp <= 0x30FF: return True
+    # Hangul (Korean)
+    if 0xAC00 <= cp <= 0xD7AF: return True
+    if 0x1100 <= cp <= 0x11FF: return True
+    # Cyrillic
+    if 0x0400 <= cp <= 0x04FF: return True
+    # Thai
+    if 0x0E00 <= cp <= 0x0E7F: return True
+    # Arabic
+    if 0x0600 <= cp <= 0x06FF: return True
+    # Devanagari
+    if 0x0900 <= cp <= 0x097F: return True
+    return False
+
+
+def stt_transcript_looks_hallucinated(text: str) -> bool:
+    """True if a Whisper transcript from a language='en' request
+    contains any character in a non-Latin script — a strong signal
+    it's a silence-hallucination (e.g. "시청해 주셔서 감사합니다")
+    rather than genuine English speech.
+
+    Latin-1 Supplement / Latin Extended (accented characters like
+    "é", "ñ", "ü") are considered Latin and pass cleanly."""
+    if not text:
+        return False
+    return any(_stt_is_non_latin_script_char(ch) for ch in text)
+
+
 from services.mcgs.rhythms import (
     get_rhythm_settings,
     update_rhythm_settings,
@@ -1648,7 +1702,19 @@ def build_router(db) -> APIRouter:
         admin: dict = Depends(current_admin),
     ):
         """Transcribe an audio clip via Whisper-1. The transcript
-        returns for review \u2014 nothing sent to George automatically."""
+        returns for review — nothing sent to George automatically.
+
+        iter164c: three-layer defence against Whisper hallucinations
+        on silence/near-silence:
+          1. Lock ``language='en'`` so Whisper doesn't auto-detect
+             into Korean / Japanese / etc when fed silence.
+          2. Pass a domain ``prompt`` biasing the model toward
+             FriendPlace vocabulary (member names, "flutter", etc).
+          3. Post-transcription guard: if language=en was requested
+             but the response is dominated by non-Latin characters,
+             it's almost certainly a hallucination — return empty.
+             This is a GENERAL rule, not a phrase filter.
+        """
         from emergentintegrations.llm.openai.speech_to_text import OpenAISpeechToText
         import os as _os, io, tempfile
         key = _os.environ.get("EMERGENT_LLM_KEY")
@@ -1656,6 +1722,21 @@ def build_router(db) -> APIRouter:
             raise HTTPException(500, "EMERGENT_LLM_KEY missing")
 
         data = await audio.read()
+        # iter164c: reject clips that are almost certainly silence
+        # before we spend an LLM call on them. Opus-encoded silence
+        # compresses to ~800-1200 bytes/second; a 1-second silent
+        # clip lands well under 2 KB. Real speech at 24-32 kbps opus
+        # is ~3-4 KB/second, so 2 KB comfortably rejects silence
+        # while never blocking a genuine short utterance.
+        if not data:
+            return {"transcript": ""}
+        if len(data) < 2048:
+            log.info(
+                "STT: rejecting %d-byte clip as silence "
+                "(under 2 KB threshold)", len(data),
+            )
+            return {"transcript": ""}
+
         # Whisper expects a file-like with .name.
         ext = (audio.filename or "clip.webm").rsplit(".", 1)[-1].lower()
         if ext not in {"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"}:
@@ -1669,7 +1750,18 @@ def build_router(db) -> APIRouter:
         stt = OpenAISpeechToText(api_key=key)
         try:
             with open(path, "rb") as fh:
-                resp = await stt.transcribe(file=fh, model="whisper-1", response_format="json")
+                resp = await stt.transcribe(
+                    file=fh,
+                    model="whisper-1",
+                    response_format="json",
+                    language="en",
+                    prompt=(
+                        "This is Mission Control, the admin surface of "
+                        "the FriendPlace community app in Australia. The "
+                        "admin is asking about members, campaigns, replies, "
+                        "outreach, reminders, Founding Members, or events."
+                    ),
+                )
         except Exception as exc:
             log.exception("STT failed")
             raise HTTPException(502, f"Transcription failed: {exc}")
@@ -1678,6 +1770,23 @@ def build_router(db) -> APIRouter:
             except Exception: pass
 
         text = getattr(resp, "text", None) or (resp.get("text") if isinstance(resp, dict) else None) or ""
+        text = str(text).strip()
+
+        # iter164c: hallucination guard. Whisper is known to emit
+        # canned phrases in Korean / Japanese / Vietnamese etc when
+        # fed silence, even with language="en". Non-Latin scripts
+        # (CJK, Hangul, Cyrillic, Thai, Arabic, Devanagari) under a
+        # language-locked English request are treated as hallucinated
+        # output and dropped. See ``stt_transcript_looks_hallucinated``
+        # at module scope for the shared implementation.
+        if text and stt_transcript_looks_hallucinated(text):
+            log.warning(
+                "STT hallucination guard: dropping non-Latin transcript "
+                "for language=en request (len=%d, preview=%r)",
+                len(text), text[:80],
+            )
+            return {"transcript": ""}
+
         return {"transcript": text}
 
     @router.post("/george/voice/speak")

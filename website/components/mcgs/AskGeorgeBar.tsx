@@ -72,7 +72,10 @@ export function AskGeorgeBar() {
       // Second tap → stop and transcribe.
       const blob = await rec.stop();
       if (!blob) {
-        setMicError("Nothing recorded yet \u2014 give it another go when you\u2019re ready.");
+        // iter164c: null blob = no speech detected (silence-only clip
+        // rejected by the recorder). Show a warm nudge and DO NOT
+        // touch the input — the previous typed content stays intact.
+        setMicError("I didn\u2019t catch any speech — the input stays as it was. Try again a little closer to the mic.");
         return;
       }
       try {

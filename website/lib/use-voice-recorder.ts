@@ -6,6 +6,18 @@ export interface UseVoiceRecorderOptions {
   maxSeconds?: number;         // hard cap, default 60
   silenceSeconds?: number;     // auto-stop after N seconds of silence, default 3
   silenceThreshold?: number;   // 0-1 RMS threshold, default 0.02
+  /**
+   * RMS threshold above which we consider a frame "genuine speech"
+   * (as opposed to background noise / silence). If the whole clip
+   * stayed below this, the recorder returns ``null`` from ``stop()``
+   * so the caller never uploads a silence-only blob (which Whisper
+   * would otherwise hallucinate into a "Thank you for watching"
+   * type phrase — iter164c).
+   *
+   * 0.05 sits comfortably above typical room noise on a laptop mic
+   * but well below normal speaking level.
+   */
+  speechThreshold?: number;
 }
 
 export interface VoiceRecorderState {
@@ -31,6 +43,7 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
   const maxSeconds = opts.maxSeconds ?? 60;
   const silenceSeconds = opts.silenceSeconds ?? 3;
   const silenceThreshold = opts.silenceThreshold ?? 0.02;
+  const speechThreshold = opts.speechThreshold ?? 0.05;
 
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -47,6 +60,14 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
   const rafRef = useRef<number | null>(null);
   const stopResolverRef = useRef<((blob: Blob | null) => void) | null>(null);
   const cancelledRef = useRef(false);
+  // iter164c: peak RMS observed during the current recording. Used
+  // to decide whether the clip contained any *genuine* speech — if
+  // every frame stayed below ``speechThreshold`` we're almost
+  // certainly holding a silence-only blob and MUST NOT upload it
+  // (Whisper hallucinates known phrases from silence, e.g. the
+  // Korean "Thank you for watching"). Reset on every ``start``.
+  const peakRmsRef = useRef<number>(0);
+  const hadSpeechRef = useRef<boolean>(false);
 
   const cleanup = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -104,6 +125,11 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
         }
         const rms = Math.sqrt(sumSq / buf.length);
         setLevel(rms);
+        // iter164c: track peak + speech-detection. A single frame
+        // over the speech threshold flips ``hadSpeech`` — after that
+        // the flag is sticky for the rest of the clip.
+        if (rms > peakRmsRef.current) peakRmsRef.current = rms;
+        if (rms >= speechThreshold) hadSpeechRef.current = true;
 
         const now = performance.now();
         if (rms < silenceThreshold) {
@@ -145,12 +171,26 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
           resolver?.(null);
           return;
         }
+        // iter164c: reject silence-only recordings. If no frame ever
+        // exceeded the speech threshold, the clip is background noise
+        // — uploading it to Whisper produces a hallucinated phrase
+        // (e.g. Korean "Thank you for watching"). Return null so the
+        // caller shows "no speech detected" and never touches the input.
+        if (!hadSpeechRef.current) {
+          resolver?.(null);
+          return;
+        }
         const blob = new Blob(chunksRef.current, { type: mime });
         resolver?.(blob);
       };
 
       startTsRef.current = performance.now();
       silenceStartRef.current = null;
+      // iter164c: reset speech-detection state for THIS recording so
+      // stale peaks from a previous tap can't misclassify silence as
+      // speech.
+      peakRmsRef.current = 0;
+      hadSpeechRef.current = false;
       setSeconds(0);
       recorder.start();
       setRecording(true);
@@ -160,7 +200,7 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
       setError(msg.includes('Permission') ? 'Microphone permission needed' : msg);
       cleanup();
     }
-  }, [maxSeconds, silenceSeconds, silenceThreshold, cleanup, stop]);
+  }, [maxSeconds, silenceSeconds, silenceThreshold, speechThreshold, cleanup, stop]);
 
   // Second-level tick for the timer.
   useEffect(() => {
