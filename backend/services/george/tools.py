@@ -1441,6 +1441,37 @@ async def _count_replies(db: Any, args: dict) -> dict:  # noqa: ARG001
 
 
 @register(
+    "list_stale_replies",
+    "List inbound replies that are unresolved AND older than `days` days "
+    "(default 7). Returns {days, count, replies:[{id, from_email, from_name, "
+    "subject, channel, campaign_name, received_at, read}]}. Use this when "
+    "Garry asks about stale replies, the reply backlog, replies sitting for "
+    "a week, unanswered replies, or 'anything I'm dropping the ball on?'. "
+    "Oldest first so the most urgent are at the top. Nothing is auto-sent; "
+    "this is a read-only nudge. Cite the Mission Control Replies page as "
+    "the place to open them.",
+    args={
+        "days":  {"type": "int", "required": False},
+        "limit": {"type": "int", "required": False},
+    },
+)
+async def _list_stale_replies(db: Any, args: dict) -> dict:
+    from services.replies.store import (
+        stale_reply_count as _srcount,
+        list_stale_replies as _lsr,
+    )
+    days = int(args.get("days") or 7)
+    limit = int(args.get("limit") or 20)
+    days = max(1, min(days, 90))
+    limit = max(1, min(limit, 200))
+    return {
+        "days":    days,
+        "count":   await _srcount(db, days=days),
+        "replies": await _lsr(db, days=days, limit=limit),
+    }
+
+
+@register(
     "list_outreach_organisations",
     "List external outreach organisations (retirement villages, "
     "community centres, libraries, clubs, councils, etc.) from the "

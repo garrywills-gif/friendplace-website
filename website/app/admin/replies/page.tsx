@@ -69,8 +69,13 @@ export default function RepliesPage() {
     subject: searchParams?.get('subject') || '',
   }), [searchParams]);
   const autoOpenLog = searchParams?.get('log') === '1';
+  // iter164g: allow ?filter=awaiting from the Mission Control stale
+  // nudge card to open the Replies inbox pre-filtered.
+  const urlFilter = (searchParams?.get('filter') as Filter | null) || null;
 
-  const [filter, setFilter] = useState<Filter>('all');
+  const [filter, setFilter] = useState<Filter>(
+    urlFilter && ['all', 'unread', 'awaiting'].includes(urlFilter) ? urlFilter : 'all',
+  );
   const [rows, setRows] = useState<InboundReply[]>([]);
   const [unread, setUnread] = useState(0);
   const [awaiting, setAwaiting] = useState(0);
@@ -79,6 +84,8 @@ export default function RepliesPage() {
   const [showLog, setShowLog] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // iter164g: modal target for "Resolve without sending".
+  const [resolveWithoutSend, setResolveWithoutSend] = useState<InboundReply | null>(null);
 
   useEffect(() => {
     if (autoOpenLog && (prefill.email || prefill.name)) setShowLog(true);
@@ -115,9 +122,26 @@ export default function RepliesPage() {
   };
   const flipResolved = async (r: InboundReply) => {
     try {
+      // iter164g: unchanged "toggle" behaviour — used ONLY by the
+      // "Reopen" case in the UI now. Explicit resolution actions
+      // (Resolved via reply / Resolve without sending) provide the
+      // kind + note through the dedicated modal below.
       await repliesApi.markResolved(r.id, !r.resolved);
       await load();
     } catch (e: any) { setToast(`Couldn’t update: ${e?.message || e}`); }
+  };
+  const submitResolveWithoutSend = async (
+    r: InboundReply, note: string,
+  ) => {
+    try {
+      await repliesApi.markResolved(r.id, true, {
+        resolution_kind: 'no_reply_needed',
+        resolution_note: note,
+      });
+      setResolveWithoutSend(null);
+      setToast('Resolved without sending — kept in the audit trail.');
+      await load();
+    } catch (e: any) { setToast(`Couldn’t resolve: ${e?.message || e}`); }
   };
   const del = async (r: InboundReply) => {
     if (!confirm(`Delete reply from ${r.from_name || r.from_email}? This can't be undone.`)) return;
@@ -280,20 +304,44 @@ export default function RepliesPage() {
                 )}
                 {selected.resolved && selected.resolved_at && (
                   <div style={{ ...metaLine, color: '#166534' }}>
-                    <strong>✓ Resolved</strong> {fmtWhen(selected.resolved_at)}
+                    <strong>✓ Resolved</strong>{' '}
+                    {selected.resolution_kind === 'no_reply_needed'
+                      ? '(without sending) '
+                      : selected.resolution_kind === 'replied'
+                      ? '(replied) '
+                      : ''}
+                    {fmtWhen(selected.resolved_at)}
                     {selected.resolved_by && ` by ${selected.resolved_by}`}
+                  </div>
+                )}
+                {selected.resolved && selected.resolution_note && (
+                  <div style={{ ...metaLine, color: '#475569' }}>
+                    <strong>Reason:</strong>{' '}
+                    <span style={{ fontStyle: 'italic' }}>{selected.resolution_note}</span>
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
                   <Link href={replyHref(selected)} style={{ ...adminStyles.primaryBtn, textDecoration: 'none', display: 'inline-block' }} data-testid="reply-action-btn">
                     Reply →
                   </Link>
+                  {!selected.resolved && (
+                    <button
+                      onClick={() => setResolveWithoutSend(selected)}
+                      style={adminStyles.ghostBtn}
+                      data-testid="reply-resolve-without-send"
+                      title="Close this reply without sending an outbound response. Kept in history."
+                    >
+                      Resolve without sending
+                    </button>
+                  )}
                   <button onClick={() => flipRead(selected)} style={adminStyles.ghostBtn} data-testid="reply-toggle-read">
                     {selected.read ? 'Mark unread' : 'Mark read'}
                   </button>
-                  <button onClick={() => flipResolved(selected)} style={adminStyles.ghostBtn} data-testid="reply-toggle-resolved">
-                    {selected.resolved ? 'Reopen' : 'Mark resolved'}
-                  </button>
+                  {selected.resolved && (
+                    <button onClick={() => flipResolved(selected)} style={adminStyles.ghostBtn} data-testid="reply-reopen">
+                      Reopen
+                    </button>
+                  )}
                   <button onClick={() => del(selected)} style={adminStyles.dangerBtn} data-testid="reply-delete-btn">Delete</button>
                 </div>
               </>
@@ -314,6 +362,14 @@ export default function RepliesPage() {
         />
       )}
 
+      {resolveWithoutSend && (
+        <ResolveWithoutSendModal
+          reply={resolveWithoutSend}
+          onClose={() => setResolveWithoutSend(null)}
+          onConfirm={(note) => submitResolveWithoutSend(resolveWithoutSend, note)}
+        />
+      )}
+
       {toast && (
         <div
           onClick={() => setToast(null)}
@@ -321,6 +377,93 @@ export default function RepliesPage() {
         >{toast}</div>
       )}
     </AdminShell>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Resolve-without-sending modal (iter164g)
+// ---------------------------------------------------------------------------
+
+function ResolveWithoutSendModal({
+  reply, onClose, onConfirm,
+}: {
+  reply: InboundReply;
+  onClose: () => void;
+  onConfirm: (note: string) => void | Promise<void>;
+}) {
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const canSave = !saving; // note is optional but strongly encouraged
+  const submit = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try { await onConfirm(note.trim()); }
+    finally { setSaving(false); }
+  };
+  const suggestions = [
+    'Spam — no action needed',
+    'Thank-you, no reply required',
+    'Handled offline / by phone',
+    'Wrong recipient — ignore',
+    'Already replied outside FriendPlace',
+  ];
+  return (
+    <div style={modalBackdrop} onClick={onClose}>
+      <div style={modalCard} onClick={(e) => e.stopPropagation()} data-testid="resolve-without-send-modal">
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0, color: '#0A2540', fontSize: 20, fontWeight: 900 }}>
+            Resolve without sending
+          </h3>
+          <button onClick={onClose} style={closeBtn} aria-label="Close">✕</button>
+        </div>
+
+        <p style={{ margin: 0, color: '#475569', fontSize: 14, lineHeight: 1.55 }}>
+          Close this reply from{' '}
+          <strong>{reply.from_name || reply.from_email}</strong> without
+          sending an outbound response. The reply stays in history with
+          your reason attached — nothing is emailed, nothing is deleted.
+        </p>
+
+        <label style={{ ...adminStyles.label, marginTop: 16 }}>
+          Reason (recommended)
+        </label>
+        <textarea
+          data-testid="resolve-without-send-note"
+          style={{ ...adminStyles.textarea, minHeight: 80 }}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Why doesn’t this need a reply? e.g. Spam, thank-you, handled by phone…"
+        />
+
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setNote(s)}
+              style={{
+                ...pill,
+                padding: '4px 10px',
+                fontSize: 12,
+                background: '#F1F5F9',
+              }}
+            >{s}</button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20 }}>
+          <button onClick={onClose} style={adminStyles.ghostBtn}>Cancel</button>
+          <button
+            onClick={submit}
+            disabled={!canSave}
+            data-testid="resolve-without-send-confirm"
+            style={{ ...adminStyles.primaryBtn, opacity: canSave ? 1 : 0.5 }}
+          >
+            {saving ? 'Resolving…' : 'Resolve without sending'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

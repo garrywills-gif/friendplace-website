@@ -553,7 +553,10 @@ _STATE_QUESTION_RE = re.compile(
     r"awaiting contact|awaiting invitation|hasn(?:'|�)?t been (?:contacted|invited)|haven(?:'|�)?t been (?:contacted|invited)|not (?:yet )?(?:contacted|invited)|"
     r"joined (?:today|this week|this month)|invited (?:today|this week|this month)|"
     r"from (?:sydney|melbourne|brisbane|perth|adelaide|hobart|canberra|darwin)|"
-    r"any (tickets|signals|cases|events|reports|submissions|registrations|founding members)"
+    r"any (tickets|signals|cases|events|reports|submissions|registrations|founding members)|"
+    r"stale (?:repl(?:y|ies))|repl(?:y|ies) backlog|unanswered repl(?:y|ies)|"
+    r"old repl(?:y|ies)|sitting (?:for|around)|dropping the ball|"
+    r"waiting (?:on us|for us) (?:for )?(?:a week|\d+\s*days?)"
     r")\b",
     re.IGNORECASE,
 )
@@ -648,6 +651,25 @@ _TOPIC_TO_TOOL = [
     ("member",       {"name": "count_members",         "args": {}}),
     ("organisation", {"name": "count_organisations",   "args": {}}),
     ("org",          {"name": "count_organisations",   "args": {}}),
+    # iter164g: stale-reply nudges. When Garry asks about the reply
+    # backlog, unanswered replies, or "anything sitting for a week?",
+    # route to list_stale_replies so George can name the oldest ones
+    # and offer to open the Replies inbox. MUST come BEFORE the generic
+    # "reply" catch-all-that-doesn't-exist (there isn't one, so it's
+    # safe here, but keeping the pattern for future changes).
+    ("stale reply",         {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("stale replies",       {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("reply backlog",       {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("replies backlog",     {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("unanswered replies",  {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("unanswered reply",    {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("old replies",         {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("sitting for a week",  {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("dropping the ball",   {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("waiting for a week",  {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("waiting on us for",   {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("been waiting a week", {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("been waiting for a week", {"name": "list_stale_replies", "args": {"days": 7}}),
 ]
 
 

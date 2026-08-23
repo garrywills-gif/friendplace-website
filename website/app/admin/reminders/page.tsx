@@ -6,44 +6,20 @@
  * A quiet page for reminders created by George or by hand. No emails,
  * no publishing, no moderation actions — this is a personal-note
  * surface for Garry inside Mission Control.
+ *
+ * iter164g: migrated from a local ``apiFetch`` helper to the shared
+ * ``remindersApi`` client in ``@/lib/cms-api``. Same behaviour, plus
+ * fetchWithRetry + 401 auto-clear that every other admin surface has.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
-import { API_BASE } from '@/lib/api-base';
-import { getToken } from '@/lib/cms-auth';
-
-type Recurrence = 'none' | 'daily' | 'weekly' | 'monthly';
-type Status = 'pending' | 'completed' | 'cancelled';
-
-interface Reminder {
-  id: string;
-  title: string;
-  note: string;
-  due_at: string;
-  recurrence: Recurrence;
-  status: Status;
-  created_at: string;
-  completed_at: string | null;
-  created_by?: string | null;
-}
-
-// iter162 auth fix (25 Feb 2026): CMS admin auth is a Bearer JWT
-// stored in localStorage under fp_cms_token — cookies are not used.
-// Every admin fetch must attach that token or the API returns 401.
-async function apiFetch(path: string, init?: RequestInit) {
-  const token = getToken();
-  const r = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers || {}),
-    },
-  });
-  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
-  return r.json();
-}
+import {
+  remindersApi,
+  type Reminder,
+  type ReminderRecurrence as Recurrence,
+  type ReminderStatus as Status,
+} from '@/lib/cms-api';
 
 export default function RemindersPage() {
   return (
@@ -68,8 +44,7 @@ function RemindersPanel() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = filter === 'all' ? '' : `?status=${filter}`;
-      const r = await apiFetch(`/api/cms/reminders${params}`);
+      const r = await remindersApi.list(filter);
       setItems(r.items || []);
     } catch (e: any) {
       showToast(e?.message || 'Could not load reminders');
@@ -82,7 +57,7 @@ function RemindersPanel() {
 
   const doComplete = async (id: string) => {
     try {
-      await apiFetch(`/api/cms/reminders/${id}/complete`, { method: 'POST' });
+      await remindersApi.complete(id);
       showToast('Marked complete');
       void load();
     } catch (e: any) { showToast(e?.message || 'Could not complete'); }
@@ -91,7 +66,7 @@ function RemindersPanel() {
   const doDelete = async (id: string) => {
     if (!confirm('Delete this reminder? This cannot be undone.')) return;
     try {
-      await apiFetch(`/api/cms/reminders/${id}`, { method: 'DELETE' });
+      await remindersApi.del(id);
       showToast('Deleted');
       void load();
     } catch (e: any) { showToast(e?.message || 'Could not delete'); }
@@ -208,12 +183,12 @@ function ReminderModal({ initial, onCancel, onSaved }: {
     setSaving(true); setErr(null);
     try {
       const iso = new Date(dueLocal).toISOString();
-      const body = JSON.stringify({ title, note, recurrence, due_at: iso });
+      const body = { title, note, recurrence, due_at: iso };
       if (initial?.id) {
-        await apiFetch(`/api/cms/reminders/${initial.id}`, { method: 'PATCH', body });
+        await remindersApi.patch(initial.id, body);
         onSaved('Reminder updated');
       } else {
-        await apiFetch(`/api/cms/reminders`, { method: 'POST', body });
+        await remindersApi.create(body);
         onSaved('Reminder created');
       }
     } catch (e: any) { setErr(e?.message || 'Save failed'); }

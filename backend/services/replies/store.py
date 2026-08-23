@@ -203,32 +203,60 @@ async def mark_read(db, reply_id: str, *, read: bool = True) -> Optional[Dict[st
 async def mark_resolved(
     db, reply_id: str, *,
     resolved: bool = True, resolved_by: Optional[str] = None,
+    resolution_kind: Optional[str] = None,
+    resolution_note: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
+    """Toggle resolved state, optionally recording HOW it was resolved.
+
+    iter164g: two new fields make the audit trail meaningful when the
+    admin closes a reply *without* sending an outbound response:
+
+    - ``resolution_kind`` — free-form label. We standardise on:
+        * ``"replied"``            — outbound reply sent (default when
+          the marketing send worker auto-resolves via
+          ``resolve_replies_for_email``).
+        * ``"no_reply_needed"``    — admin resolved without sending
+          (thank-you, spam, out-of-office, handled offline, etc).
+        * ``None``                 — legacy behaviour / re-open.
+    - ``resolution_note``   — short admin note captured at the time of
+      resolution so the item can be re-audited later. Kept alongside
+      the pre-existing ``notes`` field (which is for context BEFORE
+      the resolution decision).
+
+    On re-open (``resolved=False``) all three fields (kind, note,
+    resolved_by, resolved_at) are cleared, so a reopen followed by a
+    fresh resolve doesn't leak the previous resolution's audit data.
+    """
     now = _iso_now() if resolved else None
+    _set: Dict[str, Any] = {
+        "resolved":         bool(resolved),
+        "resolved_at":      now,
+        "resolved_by":      resolved_by if resolved else None,
+        "read":             True if resolved else False,  # resolving implies read
+        "resolution_kind":  (resolution_kind or None) if resolved else None,
+        "resolution_note":  ((resolution_note or "").strip() or None) if resolved else None,
+    }
     await db[COLL_REPLIES].update_one(
-        {"id": reply_id},
-        {"$set": {
-            "resolved":    bool(resolved),
-            "resolved_at": now,
-            "resolved_by": resolved_by if resolved else None,
-            "read":        True if resolved else False,  # resolving implies read
-        }},
+        {"id": reply_id}, {"$set": _set},
     )
     row = await get_reply(db, reply_id)
-    # Nudge the matching outreach org to "replied" when marked resolved.
+    # Nudge the matching outreach org to "replied" ONLY when we actually
+    # replied. "no_reply_needed" resolutions must NOT flip the outreach
+    # status to replied — the org didn't receive anything.
     if row and resolved and row.get("outreach_id"):
-        try:
-            from services.outreach.store import mark_replied as _mr
-            await _mr(
-                db, org_id=row["outreach_id"],
-                subject=row.get("subject") or "",
-                body="(marked resolved from Replies inbox)",
-                campaign_id=row.get("campaign_id"),
-                direction="outbound",
-                logged_by=resolved_by,
-            )
-        except Exception:
-            pass
+        if (resolution_kind or "replied") == "replied":
+            try:
+                from services.outreach.store import mark_replied as _mr
+                await _mr(
+                    db, org_id=row["outreach_id"],
+                    subject=row.get("subject") or "",
+                    body="(marked resolved from Replies inbox)",
+                    campaign_id=row.get("campaign_id"),
+                    direction="outbound",
+                    logged_by=resolved_by,
+                )
+            except Exception:
+                pass
     return row
 
 
@@ -274,6 +302,55 @@ async def awaiting_count(db) -> int:
     return int(await db[COLL_REPLIES].count_documents({"resolved": {"$ne": True}}))
 
 
+def _stale_cutoff_iso(days: int) -> str:
+    """ISO cutoff for "older than ``days`` days ago"."""
+    from datetime import timedelta
+    return (datetime.now(timezone.utc) - timedelta(days=int(max(days, 0)))).isoformat()
+
+
+async def stale_reply_count(db, days: int = 7) -> int:
+    """Number of unresolved replies whose ``received_at`` is older than
+    ``days`` days. Powers the Mission Control 7-day nudge card.
+
+    Deleted / test-tagged rows are naturally excluded — nothing here
+    stores those.
+    """
+    cutoff = _stale_cutoff_iso(days)
+    return int(await db[COLL_REPLIES].count_documents({
+        "resolved":    {"$ne": True},
+        "received_at": {"$lt": cutoff},
+    }))
+
+
+async def list_stale_replies(
+    db, *,
+    days: int = 7,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    """Return unresolved replies older than ``days`` days, oldest first.
+
+    Includes only the fields George / the nudge card actually need so
+    the payload stays small enough to embed in a tool result.
+    """
+    cutoff = _stale_cutoff_iso(days)
+    cur = (
+        db[COLL_REPLIES]
+        .find(
+            {"resolved": {"$ne": True}, "received_at": {"$lt": cutoff}},
+            {
+                "_id": 0,
+                "id": 1, "from_email": 1, "from_name": 1,
+                "subject": 1, "channel": 1,
+                "campaign_id": 1, "campaign_name": 1,
+                "received_at": 1, "read": 1,
+            },
+        )
+        .sort("received_at", 1)  # oldest first — most urgent
+        .limit(int(limit))
+    )
+    return [row async for row in cur]
+
+
 async def ensure_indexes(db) -> None:
     await db[COLL_REPLIES].create_index("from_email")
     await db[COLL_REPLIES].create_index("received_at")
@@ -287,5 +364,6 @@ __all__ = [
     "create_reply", "list_replies", "get_reply",
     "mark_read", "mark_resolved", "resolve_replies_for_email",
     "delete_reply", "unread_count", "awaiting_count",
+    "stale_reply_count", "list_stale_replies",
     "ensure_indexes",
 ]

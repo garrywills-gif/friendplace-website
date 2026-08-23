@@ -1561,6 +1561,8 @@ export const crmApi = {
 
 export type ReplyChannel = 'email' | 'phone' | 'in_person' | 'sms' | 'other';
 
+export type ReplyResolutionKind = 'replied' | 'no_reply_needed';
+
 export type InboundReply = {
   id: string;
   from_email: string;
@@ -1580,7 +1582,26 @@ export type InboundReply = {
   resolved: boolean;
   resolved_at: string | null;
   resolved_by: string | null;
+  /**
+   * iter164g: resolution audit fields. Populated when the reply is
+   * closed. ``resolution_kind === "no_reply_needed"`` means the admin
+   * used the "Resolve without sending" action — no outbound email was
+   * sent, but the row stays in history with the reason preserved on
+   * ``resolution_note``.
+   */
+  resolution_kind: ReplyResolutionKind | null;
+  resolution_note: string | null;
   notes: string;
+};
+
+export type StaleRepliesResponse = {
+  days: number;
+  count: number;
+  replies: Array<Pick<
+    InboundReply,
+    'id' | 'from_email' | 'from_name' | 'subject' | 'channel' |
+    'campaign_id' | 'campaign_name' | 'received_at' | 'read'
+  >>;
 };
 
 export type ReplyIn = {
@@ -1618,8 +1639,78 @@ export const repliesApi = {
   markRead: (id: string, read = true) => req<InboundReply>(
     'PATCH', `/cms/replies/${id}/read`, { read },
   ),
-  markResolved: (id: string, resolved = true) => req<InboundReply>(
-    'PATCH', `/cms/replies/${id}/resolve`, { resolved },
+  /**
+   * iter164g: pass an optional resolution kind + note when closing a
+   * reply. When ``resolved === true`` and no ``resolution_kind`` is
+   * given, the backend leaves it null (legacy path, treated as an
+   * outbound reply for outreach-status purposes). Explicit
+   * ``"no_reply_needed"`` marks the item as resolved without sending
+   * any outbound email — the note is retained on the reply document
+   * for audit.
+   */
+  markResolved: (
+    id: string,
+    resolved = true,
+    opts?: { resolution_kind?: ReplyResolutionKind; resolution_note?: string },
+  ) => req<InboundReply>(
+    'PATCH', `/cms/replies/${id}/resolve`,
+    {
+      resolved,
+      ...(opts?.resolution_kind ? { resolution_kind: opts.resolution_kind } : {}),
+      ...(opts?.resolution_note ? { resolution_note: opts.resolution_note } : {}),
+    },
   ),
+  stale: (params?: { days?: number; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.days)  qs.set('days',  String(params.days));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const s = qs.toString();
+    return req<StaleRepliesResponse>('GET', `/cms/replies/stale${s ? `?${s}` : ''}`);
+  },
   del: (id: string) => req<{ ok: true }>('DELETE', `/cms/replies/${id}`),
+};
+
+
+// ============================================================================
+// Reminders (iter162; api-client migration iter164g)
+// ============================================================================
+
+export type ReminderRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
+export type ReminderStatus = 'pending' | 'completed' | 'cancelled';
+
+export type Reminder = {
+  id: string;
+  title: string;
+  note: string;
+  due_at: string;
+  recurrence: ReminderRecurrence;
+  status: ReminderStatus;
+  created_at: string;
+  completed_at: string | null;
+  created_by?: string | null;
+};
+
+export type ReminderIn = {
+  title: string;
+  note?: string;
+  due_at: string;
+  recurrence?: ReminderRecurrence;
+};
+
+/**
+ * iter164g: routed through the shared ``req`` client so reminders
+ * gain the same retry + 401 auto-clear behaviour every other admin
+ * surface already has. Behaviour identical to the previous inline
+ * ``apiFetch`` used by ``/admin/reminders``.
+ */
+export const remindersApi = {
+  list: (status?: ReminderStatus | 'all') => {
+    const s = status && status !== 'all' ? `?status=${status}` : '';
+    return req<{ items: Reminder[] }>('GET', `/cms/reminders${s}`);
+  },
+  create: (body: ReminderIn) => req<Reminder>('POST', '/cms/reminders', body),
+  patch:  (id: string, body: Partial<ReminderIn>) =>
+    req<Reminder>('PATCH', `/cms/reminders/${id}`, body),
+  complete: (id: string) => req<Reminder>('POST', `/cms/reminders/${id}/complete`),
+  del: (id: string) => req<{ ok: true }>('DELETE', `/cms/reminders/${id}`),
 };
