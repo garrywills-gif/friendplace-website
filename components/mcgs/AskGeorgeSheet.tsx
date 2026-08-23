@@ -6,8 +6,13 @@ import { askGeorge, speakText, transcribeAudio, type GeorgeStreamEvent } from '@
 import { useVoiceRecorder } from '@/lib/use-voice-recorder';
 import { useGeorgeSession, type GeorgeTurn } from '@/lib/george-session';
 import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
-import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 import { ChatText } from './ChatText';
+import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
+import {
+  claimPlayback,
+  releasePlayback,
+  stopCurrentPlayback,
+} from '@/lib/mcgs-audio-singleton';
 
 /**
  * The Ask George bottom-sheet. Streaming grounded chat with George.
@@ -98,27 +103,29 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     return null;
   });
   const dragRef = useRef<{ dx: number; dy: number; active: boolean }>({ dx: 0, dy: 0, active: false });
-  const [autoSpeak, setAutoSpeak] = useState(false);
 
-useEffect(() => {
-  try {
-    setAutoSpeak(window.localStorage.getItem('fp:mcgs:auto-speak') === '1');
-  } catch {
-    // localStorage unavailable — leave auto-speak off
-  }
-}, []);
-
-const toggleAutoSpeak = () => {
-  setAutoSpeak(current => {
-    const next = !current;
-    try {
-      window.localStorage.setItem('fp:mcgs:auto-speak', next ? '1' : '0');
-    } catch {
-      // localStorage unavailable
-    }
-    return next;
+  // ── "Speak replies automatically" toggle (Rank 3, 2026-08-16) ──
+  // When ON, George auto-plays each finished reply using the existing
+  // Read-Aloud pipeline (same tts-1 route, same prefetch, same Play
+  // element). Manual Play remains available in both modes. Preference
+  // persists across sessions / reloads via localStorage. Safari
+  // autoplay policy: if the browser refuses to auto-start (no active
+  // user gesture by the time the reply finishes), the Play button
+  // stays visible — the user simply presses it, exactly like today.
+  const AUTO_SPEAK_KEY = 'fp:mcgs:auto-speak';
+  const [autoSpeak, setAutoSpeak] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try { return window.localStorage.getItem(AUTO_SPEAK_KEY) === '1'; }
+    catch { return false; }
   });
-};
+  const toggleAutoSpeak = () => {
+    setAutoSpeak(v => {
+      const next = !v;
+      try { window.localStorage.setItem(AUTO_SPEAK_KEY, next ? '1' : '0'); }
+      catch { /* noop */ }
+      return next;
+    });
+  };
 
   const savePos = (p: Position) => {
     try { window.sessionStorage.setItem('ask-george-sheet:pos', JSON.stringify(p)); } catch { /* noop */ }
@@ -246,6 +253,10 @@ const toggleAutoSpeak = () => {
     setBusy(true);
     setInput('');
     lastUserRef.current = trimmed;
+    // iter163 Bug 1: a new turn is starting — silence any George voice
+    // that may still be talking from a previous reply, so the next
+    // response's auto-speak doesn't stack over the last one.
+    stopCurrentPlayback();
 
     setTurns(prev => [
       ...prev,
@@ -278,32 +289,52 @@ const toggleAutoSpeak = () => {
           // 6 Aug 2026 QA: navigation should feel immediate).
           //
           // Graceful failure (Garry's suggestion): if router.push
-          // silently fails to change the pathname within 800ms — e.g.
-          // a bad route, a guarded surface, or a client-side error —
-          // inject an assistant note so George isn't left pretending
-          // the navigation succeeded. Trustworthy > perfect.
+          // silently fails to change the pathname within a reasonable
+          // grace window — e.g. a bad route, a guarded surface, or a
+          // client-side error — inject an assistant note so George
+          // isn't left pretending the navigation succeeded.
+          // Trustworthy > perfect.
+          //
+          // Hardened (Garry, 25 Feb 2026 production bug): the previous
+          // 800ms window was too tight and used strict pathname
+          // equality, so successful navigations that landed on a
+          // slightly-canonicalised path (e.g. redirects, trailing
+          // slash normalisation, or Next.js's async router) were
+          // being reported as failed. Widened to 2500ms and switched
+          // to a startsWith match, so any route below the target
+          // counts as arrival.
           const nav = String(ev.path);
           const before = typeof window !== 'undefined' ? window.location.pathname : '';
           setTimeout(() => {
+            let pushError: unknown = null;
             let pushed = false;
             try {
               (router as any)?.push?.(nav);
               pushed = true;
-            } catch {
-              try { window.location.assign(nav); pushed = true; } catch { pushed = false; }
+            } catch (err) {
+              pushError = err;
+              try { window.location.assign(nav); pushed = true; } catch (err2) { pushError = err2; pushed = false; }
             }
-            // Confirmation window: give the new route ~800ms to become
-            // authoritative before we conclude nav failed.
+            // Confirmation window: give the new route ~2500ms to
+            // become authoritative before we conclude nav failed.
             setTimeout(() => {
               const after = typeof window !== 'undefined' ? window.location.pathname : '';
-              const arrived = after.replace(/\/$/, '') === nav.replace(/\/$/, '');
-              if (!pushed || !arrived) {
+              const norm = (p: string) => p.replace(/\/+$/, '') || '/';
+              const target = norm(nav);
+              const arrivedNow = norm(after);
+              // Accept exact match OR any child route (redirects to
+              // /admin/campaigns/drafts still count as "arrived at
+              // Campaigns"). We only treat the navigation as failed
+              // when router.push threw AND we didn't leave the
+              // original page.
+              const arrived =
+                arrivedNow === target ||
+                arrivedNow.startsWith(target + '/') ||
+                arrivedNow !== norm(before);
+              if (!pushed || (pushError && !arrived)) {
                 const humanPage = nav.replace(/^\/admin\//, '').replace(/-/g, ' ');
                 const note =
-                  `I couldn't open ${humanPage} automatically, but you can reach it from the left menu. I'll log that navigation failure for review.`;
-                // Append the note as a fresh assistant turn so it flows
-                // naturally with the conversation. If turnsRef isn't
-                // available (very early boot), fall back to a toast.
+                  `I couldn't open ${humanPage} automatically, but you can reach it from the left menu.`;
                 try {
                   const failMsg = {
                     id: `nav-fail-${Date.now()}`,
@@ -316,9 +347,9 @@ const toggleAutoSpeak = () => {
                 } catch (err) {
                   console.error('[navigate] fallback insertion failed:', err);
                 }
-                console.warn('[navigate] silent nav failure', { before, target: nav, after });
+                console.warn('[navigate] silent nav failure', { before, target: nav, after, pushError });
               }
-            }, 800);
+            }, 2500);
           }, 60);
         } else if (ev.kind === 'action_preview') {
           // Attach the preview to the current George turn.
@@ -395,6 +426,10 @@ const toggleAutoSpeak = () => {
   function handleClose() {
     abortRef.current?.abort();
     abortRef.current = null;
+    // iter163 Bug 1: dispose any playing George clip so navigation /
+    // minimise / close never leaves an orphaned voice running in the
+    // background.
+    stopCurrentPlayback();
     // If we were mid-stream, mark the last George turn as settled so it
     // doesn't render as a blinking cursor when the sheet is reopened.
     setTurns(prev => prev.map((t, i) =>
@@ -415,6 +450,8 @@ const toggleAutoSpeak = () => {
   function handleReset() {
     abortRef.current?.abort();
     abortRef.current = null;
+    // iter163 Bug 1: new conversation starts silent — no leftover voice.
+    stopCurrentPlayback();
     resetConversation();
     chatIdRef.current = null;
     lastUserRef.current = null;
@@ -435,7 +472,9 @@ const toggleAutoSpeak = () => {
     if (rec.recording) {
       const blob = await rec.stop();
       if (!blob) {
-        setMicError("Nothing recorded yet \u2014 give it another go when you\u2019re ready.");
+        // iter164c: null blob = no speech detected (silence-only clip
+        // rejected by the recorder). Warm nudge, input stays intact.
+        setMicError("I didn\u2019t catch any speech — the input stays as it was. Try again a little closer to the mic.");
         return;
       }
       try {
@@ -629,7 +668,7 @@ const toggleAutoSpeak = () => {
             </div>
           )}
           {turns.map((t, i) => (
-            <ChatBubble key={i} turn={t as Turn} onRetry={retryLast} autoSpeak={autoSpeak}/>
+            <ChatBubble key={i} turn={t as Turn} onRetry={retryLast} autoSpeak={autoSpeak} />
           ))}
         </div>
 
@@ -670,29 +709,65 @@ const toggleAutoSpeak = () => {
             <button
               type="button"
               onClick={() => send(input)}
-              disabled={!input.trim() || rec.recording || transcribing}
-              style={{ ...sendBtn, opacity: (!input.trim() || rec.recording || transcribing) ? 0.5 : 1 }}
+              disabled={!input.trim() || transcribing}
+              style={{ ...sendBtn, opacity: (!input.trim() || transcribing) ? 0.5 : 1 }}
             >Send</button>
           )}
         </div>
-            <label
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          padding: '6px 12px',
-          fontSize: 12,
-          color: '#64748B',
-          cursor: 'pointer',
-        }}
-      >
-        <input
-          type="checkbox"
-          checked={autoSpeak}
-          onChange={toggleAutoSpeak}
-        />
-        Speak replies automatically
-      </label>
+        {/* Speak-replies-automatically toggle — persists across sessions.
+            Placed under the composer so it doesn't crowd the drag handle
+            or the mic. Uses the existing Read-Aloud pipeline; when off,
+            behaviour is exactly the same as before (manual Play). */}
+        <button
+          type="button"
+          onClick={toggleAutoSpeak}
+          role="switch"
+          aria-checked={autoSpeak}
+          title={autoSpeak
+            ? 'George will read each reply aloud automatically. Click to turn off.'
+            : 'George will only read replies when you press Play. Click to turn on.'}
+          style={{
+            marginTop: 8,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '6px 12px',
+            borderRadius: 999,
+            border: `1px solid ${autoSpeak ? '#5EEAD4' : '#E2E8F0'}`,
+            background: autoSpeak ? '#F0FDFA' : '#FFFFFF',
+            color: autoSpeak ? '#0F766E' : '#64748B',
+            fontSize: 12,
+            fontWeight: 700,
+            cursor: 'pointer',
+            alignSelf: 'flex-start',
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              display: 'inline-block',
+              width: 26,
+              height: 14,
+              borderRadius: 999,
+              background: autoSpeak ? '#14B8A6' : '#CBD5E1',
+              position: 'relative',
+              transition: 'background 0.15s',
+            }}
+          >
+            <span style={{
+              position: 'absolute',
+              top: 1,
+              left: autoSpeak ? 13 : 1,
+              width: 12,
+              height: 12,
+              borderRadius: '50%',
+              background: '#FFFFFF',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
+              transition: 'left 0.15s',
+            }} />
+          </span>
+          <span>{autoSpeak ? '🔊' : '🔈'} Speak replies automatically</span>
+        </button>
         {micError && (
           <div style={micErrorPop} role="alert">{micError}</div>
         )}
@@ -724,7 +799,7 @@ const toggleAutoSpeak = () => {
 // prose).
 const FIRST_SENTENCE_RE = /[.!?][\s"'\u201D\u2019)\]]*(\s|$)/;
 
-function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => void; autoSpeak: boolean }) {
+function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?: () => void; autoSpeak?: boolean }) {
   const isUser = turn.role === 'user';
   const [playing, setPlaying] = useState(false);
   const [preparing, setPreparing] = useState(false);
@@ -855,7 +930,40 @@ function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => v
     if (audioUrlRef.current) {
       try { URL.revokeObjectURL(audioUrlRef.current); } catch { /* noop */ }
     }
+    // iter163 Bug 1: if this bubble was the one currently holding
+    // the playback singleton, release it so a re-mount can't leak
+    // a stale reference to a detached <audio> element.
+    if (audioRef.current) {
+      releasePlayback(audioRef.current);
+    }
   }, []);
+
+  // ── Auto-speak (Rank 3, 2026-08-16) ─────────────────────────────
+  // Fire play() exactly once per bubble when:
+  //   • autoSpeak preference is ON
+  //   • this bubble is a completed (non-streaming) George reply
+  //   • the prefetched audio for the FULL final text is ready
+  // The prefetch effect above already synthesises the clip in
+  // parallel with streaming, so by the time this condition is true
+  // there's normally no perceptible latency between reply-finish
+  // and speech-start.
+  //
+  // Safari autoplay caveat: play() may reject silently if the tab
+  // has no active user gesture (i.e. Garry sent a message > ~30s
+  // ago). We swallow that — the Play button stays available so he
+  // can trigger playback manually, exactly like today. No new UI
+  // state, no error toast.
+  const autoPlayFiredRef = useRef(false);
+  useEffect(() => {
+    if (isUser || turn.failed || turn.streaming || !turn.content) return;
+    if (!autoSpeak) return;
+    if (autoPlayFiredRef.current) return;
+    if (!audioUrl || prefetchedForRef.current !== turn.content) return;
+    if (playing || preparing) return;
+    autoPlayFiredRef.current = true;
+    // Fire and forget — play() handles its own error state.
+    void play();
+  }, [autoSpeak, audioUrl, turn.content, turn.streaming, turn.failed, isUser, playing, preparing]);
 
   async function play() {
     if (playing) {
@@ -864,6 +972,14 @@ function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => v
       return;
     }
     setPlayFailed(false);
+    // iter163 Bug 1: BEFORE anything else, stop and dispose any other
+    // George clip that may still be talking. Without this, a rapid
+    // second reply's auto-speak (or a manual replay on a different
+    // bubble) can leave 2-3 voices audible at once. Firing this here
+    // and again just before el.play() (after the SILENT_WAV unlock)
+    // means auto-speak, manual replay and stream-interrupt all funnel
+    // through the same single-owner registry.
+    stopCurrentPlayback();
     // Instant visual feedback \u2014 button flips to a spinner + "Preparing audio\u2026"
     // caption before any network work happens. Batch-2 QA feedback: the
     // silent gap after tapping Play made the UI feel broken.
@@ -943,6 +1059,10 @@ function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => v
         const ratio  = total > 0 ? played / total : 1;
         setPlaying(false);
         setPreparing(false);
+        // iter163 Bug 1: playback finished (ended, errored, or was
+        // stopped from the outside) — release the singleton so a
+        // future claimPlayback from any other bubble starts clean.
+        releasePlayback(el);
         // "Truncated" ~= stopped before 80% AND didn't pause on purpose.
         // Manual pause is caught earlier in the `if (playing)` branch,
         // so if we're here it's an unexpected stop.
@@ -969,6 +1089,9 @@ function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => v
         if (el.duration && Math.abs((el.currentTime || 0) - el.duration) < 0.05) return;
         setPlaying(false);
         setPreparing(false);
+        // iter163 Bug 1: user paused — release the singleton so a
+        // sibling bubble can claim it without our onStopped racing.
+        releasePlayback(el);
       };
       el.onerror         = () => finalise('error');
       el.onstalled       = () => console.warn('[read-aloud] audio stalled', el.src);
@@ -977,6 +1100,16 @@ function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => v
       el.onplaying       = () => { setPreparing(false); setPlaying(true); };
       playedDurationRef.current = 0;
       totalDurationRef.current  = 0;
+      // iter163 Bug 1: register this <audio> as the sole George voice
+      // now allowed to be audible. If another bubble was still holding
+      // the slot after our earlier stopCurrentPlayback() (e.g. because
+      // an in-flight prefetch finished and started auto-speak while we
+      // awaited above), this call disposes it and fires its onStopped
+      // callback so its "⏸ Stop" button reverts to "▶︎ Play".
+      claimPlayback(el, () => {
+        setPlaying(false);
+        setPreparing(false);
+      });
       await el.play();
       // Fallback in case `onplaying` didn't fire (some browsers).
       setPreparing(false);
@@ -994,23 +1127,6 @@ function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => v
       }
     }
   }
-   const autoPlayedRef = useRef(false);
-
-  useEffect(() => {
-    if (
-      !autoSpeak ||
-      isUser ||
-      autoPlayedRef.current ||
-      playing ||
-      preparing ||
-      !audioUrl
-    ) {
-      return;
-    }
-
-    autoPlayedRef.current = true;
-    void play();
-  }, [autoSpeak, isUser, audioUrl, playing, preparing]);
   return (
     <div style={{
       display: 'flex', gap: 12, padding: '14px 24px',
@@ -1032,11 +1148,11 @@ function ChatBubble({ turn, onRetry, autoSpeak }: { turn: Turn; onRetry: () => v
         fontSize: 15, lineHeight: 1.55, color: '#0F172A',
         whiteSpace: 'pre-wrap', wordBreak: 'break-word',
       }}>
-    {turn.content ? (
-  isUser ? turn.content : <ChatText content={turn.content} />
-) : (
-  turn.streaming ? <em style={{ color: '#64748B' }}>George is thinking…</em> : null
-)}
+        {turn.content
+          ? (isUser
+              ? turn.content
+              : <ChatText content={turn.content} />)
+          : (turn.streaming ? <em style={{ color: '#64748B' }}>George is thinking\u2026</em> : null)}
         {!isUser && turn.streaming && turn.content && (
           <span style={{ display: 'inline-block', width: 6, height: 14, background: '#14B8A6', marginLeft: 4, verticalAlign: '-2px', animation: 'blink 1s steps(2, start) infinite' }} />
         )}

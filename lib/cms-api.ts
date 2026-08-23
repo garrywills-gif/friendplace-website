@@ -830,15 +830,17 @@ export const foundingMembersCrmApi = {
     id: string,
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
   ) => req<CRMFoundingMember>('PATCH', `/cms/crm/founding-members/${id}`, patch),
-    remove: (id: string) =>
+  // Permanently delete a registration. Refuses reserved slots (server
+  // returns 403). Does NOT rewind the founder_number counter — that
+  // is a deliberate separate operation. See backend for full rules.
+  remove: (id: string) =>
     req<{
       ok: true;
       deleted_id: string;
       founder_number: number | null;
-      email: string;
-      first_name: string;
-      deleted_by: string;
-    }>('DELETE', `/cms/crm/founding-members/${encodeURIComponent(id)}`),
+      email: string | null;
+      first_name: string | null;
+    }>('DELETE', `/cms/crm/founding-members/${id}`),
   timeline: (id: string) =>
     req<{ count: number; events: CRMTimelineEvent[] }>(
       'GET', `/cms/crm/founding-members/${id}/timeline`,
@@ -1324,6 +1326,7 @@ export async function downloadFoundingMembersCsv(opts: { status?: string; q?: st
   URL.revokeObjectURL(url);
 }
 
+
 // ============================================================================
 // Marketing (iter159 launch) — Send Email, preview, history, contacts.
 // All endpoints mounted under /api/cms/marketing/* so they inherit the same
@@ -1371,7 +1374,7 @@ export type MarketingPreviewOut = {
 };
 
 export type MarketingSendIn = MarketingPreviewIn & {
-  recipient_email: string;
+  recipient_email: string;         // required for send
   campaign_id?: string | null;
   tags?: string[];
 };
@@ -1463,15 +1466,15 @@ export const marketingApi = {
   getContact: (email: string) =>
     req<MarketingContactRow>('GET', `/cms/marketing/contacts/${encodeURIComponent(email)}`),
 };
+
+
+// ============================================================================
+// iter160a — Outreach organisations + unified CRM status.
+// ============================================================================
+
 export type OutreachStatus =
-  | 'not_contacted'
-  | 'contacted'
-  | 'awaiting_reply'
-  | 'replied'
-  | 'joined'
-  | 'declined'
-  | 'bounced'
-  | 'unsubscribed';
+  | 'not_contacted' | 'contacted' | 'awaiting_reply' | 'replied'
+  | 'joined' | 'declined' | 'bounced' | 'unsubscribed';
 
 export type OutreachOrg = {
   id: string;
@@ -1487,12 +1490,7 @@ export type OutreachOrg = {
   status: OutreachStatus;
   last_contact_at: string | null;
   last_reply_at: string | null;
-  communications: Array<{
-    kind: string;
-    at: string;
-    body?: string;
-    [key: string]: any;
-  }>;
+  communications: Array<{ kind: string; at: string; [k: string]: any }>;
   created_at: string;
   updated_at: string;
 };
@@ -1511,86 +1509,24 @@ export type OutreachOrgIn = {
 };
 
 export const outreachApi = {
-  meta: () =>
-    req<{
-      statuses: OutreachStatus[];
-      categories: string[];
-    }>('GET', '/cms/outreach/meta'),
-
-  list: (params?: {
-    q?: string;
-    category?: string;
-    status?: OutreachStatus;
-    limit?: number;
-  }) => {
+  meta: () => req<{ statuses: OutreachStatus[]; categories: string[] }>('GET', '/cms/outreach/meta'),
+  list: (params?: { q?: string; category?: string; status?: OutreachStatus; limit?: number }) => {
     const qs = new URLSearchParams();
-
     if (params?.q) qs.set('q', params.q);
     if (params?.category) qs.set('category', params.category);
     if (params?.status) qs.set('status', params.status);
     if (params?.limit) qs.set('limit', String(params.limit));
-
-    const query = qs.toString();
-
-    return req<{ organisations: OutreachOrg[] }>(
-      'GET',
-      `/cms/outreach/organisations${query ? `?${query}` : ''}`,
-    );
+    const s = qs.toString();
+    return req<{ organisations: OutreachOrg[] }>('GET', `/cms/outreach/organisations${s ? `?${s}` : ''}`);
   },
-
-  get: (id: string) =>
-    req<OutreachOrg>(
-      'GET',
-      `/cms/outreach/organisations/${id}`,
-    ),
-
-  create: (body: OutreachOrgIn) =>
-    req<OutreachOrg>(
-      'POST',
-      '/cms/outreach/organisations',
-      body,
-    ),
-
-  update: (id: string, body: OutreachOrgIn) =>
-    req<OutreachOrg>(
-      'PATCH',
-      `/cms/outreach/organisations/${id}`,
-      body,
-    ),
-
-  del: (id: string) =>
-    req<{ ok: true }>(
-      'DELETE',
-      `/cms/outreach/organisations/${id}`,
-    ),
-
-  markReplied: (
-    id: string,
-    body: {
-      subject?: string;
-      body?: string;
-      direction?: 'inbound' | 'outbound';
-      campaign_id?: string;
-    },
-  ) =>
-    req<OutreachOrg>(
-      'POST',
-      `/cms/outreach/organisations/${id}/mark-replied`,
-      body,
-    ),
-
-  log: (
-    id: string,
-    body: {
-      kind: string;
-      body?: string;
-    },
-  ) =>
-    req<OutreachOrg>(
-      'POST',
-      `/cms/outreach/organisations/${id}/log`,
-      body,
-    ),
+  get: (id: string) => req<OutreachOrg>('GET', `/cms/outreach/organisations/${id}`),
+  create: (body: OutreachOrgIn) => req<OutreachOrg>('POST', '/cms/outreach/organisations', body),
+  update: (id: string, body: OutreachOrgIn) => req<OutreachOrg>('PATCH', `/cms/outreach/organisations/${id}`, body),
+  del: (id: string) => req<{ ok: true }>('DELETE', `/cms/outreach/organisations/${id}`),
+  markReplied: (id: string, body: { subject?: string; body?: string; direction?: 'inbound' | 'outbound'; campaign_id?: string }) =>
+    req<OutreachOrg>('POST', `/cms/outreach/organisations/${id}/mark-replied`, body),
+  log: (id: string, body: { kind: string; body?: string }) =>
+    req<OutreachOrg>('POST', `/cms/outreach/organisations/${id}/log`, body),
 };
 
 export type CrmStatus = {
@@ -1612,31 +1548,20 @@ export type CrmStatus = {
 };
 
 export const crmApi = {
-  statusFor: (email: string) =>
-    req<CrmStatus>(
-      'GET',
-      `/cms/crm/status-for/${encodeURIComponent(email)}`,
-    ),
-
-  awaitingReply: (limit = 200) =>
-    req<{ rows: Array<any> }>(
-      'GET',
-      `/cms/crm/awaiting-reply?limit=${limit}`,
-    ),
-
-  needsFollowUp: (days = 7, limit = 200) =>
-    req<{ rows: Array<any> }>(
-      'GET',
-      `/cms/crm/needs-follow-up?days=${days}&limit=${limit}`,
-    ),
+  statusFor: (email: string) => req<CrmStatus>('GET', `/cms/crm/status-for/${encodeURIComponent(email)}`),
+  awaitingReply: (limit = 200) => req<{ rows: Array<any> }>('GET', `/cms/crm/awaiting-reply?limit=${limit}`),
+  needsFollowUp: (days = 7, limit = 200) => req<{ rows: Array<any> }>('GET', `/cms/crm/needs-follow-up?days=${days}&limit=${limit}`),
 };
 
-export type ReplyChannel =
-  | 'email'
-  | 'phone'
-  | 'in_person'
-  | 'sms'
-  | 'other';
+
+
+// ============================================================================
+// iter160b — Inbound replies inbox.
+// ============================================================================
+
+export type ReplyChannel = 'email' | 'phone' | 'in_person' | 'sms' | 'other';
+
+export type ReplyResolutionKind = 'replied' | 'no_reply_needed';
 
 export type InboundReply = {
   id: string;
@@ -1657,7 +1582,26 @@ export type InboundReply = {
   resolved: boolean;
   resolved_at: string | null;
   resolved_by: string | null;
+  /**
+   * iter164g: resolution audit fields. Populated when the reply is
+   * closed. ``resolution_kind === "no_reply_needed"`` means the admin
+   * used the "Resolve without sending" action — no outbound email was
+   * sent, but the row stays in history with the reason preserved on
+   * ``resolution_note``.
+   */
+  resolution_kind: ReplyResolutionKind | null;
+  resolution_note: string | null;
   notes: string;
+};
+
+export type StaleRepliesResponse = {
+  days: number;
+  count: number;
+  replies: Array<Pick<
+    InboundReply,
+    'id' | 'from_email' | 'from_name' | 'subject' | 'channel' |
+    'campaign_id' | 'campaign_name' | 'received_at' | 'read'
+  >>;
 };
 
 export type ReplyIn = {
@@ -1674,82 +1618,159 @@ export type ReplyIn = {
 
 export const repliesApi = {
   list: (params?: {
-    read?: boolean;
-    resolved?: boolean;
-    campaign_id?: string;
-    q?: string;
-    limit?: number;
+    read?: boolean; resolved?: boolean; campaign_id?: string; q?: string; limit?: number;
   }) => {
     const qs = new URLSearchParams();
-
-    if (params?.read !== undefined) {
-      qs.set('read', String(params.read));
-    }
-
-    if (params?.resolved !== undefined) {
-      qs.set('resolved', String(params.resolved));
-    }
-
-    if (params?.campaign_id) {
-      qs.set('campaign_id', params.campaign_id);
-    }
-
-    if (params?.q) {
-      qs.set('q', params.q);
-    }
-
-    if (params?.limit) {
-      qs.set('limit', String(params.limit));
-    }
-
-    const query = qs.toString();
-
-    return req<{
-      replies: InboundReply[];
-      unread_count: number;
-      awaiting_count: number;
-    }>(
-      'GET',
-      `/cms/replies${query ? `?${query}` : ''}`,
+    if (params?.read !== undefined) qs.set('read', String(params.read));
+    if (params?.resolved !== undefined) qs.set('resolved', String(params.resolved));
+    if (params?.campaign_id) qs.set('campaign_id', params.campaign_id);
+    if (params?.q) qs.set('q', params.q);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const s = qs.toString();
+    return req<{ replies: InboundReply[]; unread_count: number; awaiting_count: number }>(
+      'GET', `/cms/replies${s ? `?${s}` : ''}`,
     );
   },
+  unreadCount: () => req<{ unread_count: number; awaiting_count: number }>(
+    'GET', '/cms/replies/unread-count',
+  ),
+  get: (id: string) => req<InboundReply>('GET', `/cms/replies/${id}`),
+  create: (body: ReplyIn) => req<InboundReply>('POST', '/cms/replies', body),
+  markRead: (id: string, read = true) => req<InboundReply>(
+    'PATCH', `/cms/replies/${id}/read`, { read },
+  ),
+  /**
+   * iter164g: pass an optional resolution kind + note when closing a
+   * reply. When ``resolved === true`` and no ``resolution_kind`` is
+   * given, the backend leaves it null (legacy path, treated as an
+   * outbound reply for outreach-status purposes). Explicit
+   * ``"no_reply_needed"`` marks the item as resolved without sending
+   * any outbound email — the note is retained on the reply document
+   * for audit.
+   */
+  markResolved: (
+    id: string,
+    resolved = true,
+    opts?: { resolution_kind?: ReplyResolutionKind; resolution_note?: string },
+  ) => req<InboundReply>(
+    'PATCH', `/cms/replies/${id}/resolve`,
+    {
+      resolved,
+      ...(opts?.resolution_kind ? { resolution_kind: opts.resolution_kind } : {}),
+      ...(opts?.resolution_note ? { resolution_note: opts.resolution_note } : {}),
+    },
+  ),
+  stale: (params?: { days?: number; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.days)  qs.set('days',  String(params.days));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const s = qs.toString();
+    return req<StaleRepliesResponse>('GET', `/cms/replies/stale${s ? `?${s}` : ''}`);
+  },
+  del: (id: string) => req<{ ok: true }>('DELETE', `/cms/replies/${id}`),
+};
 
-  unreadCount: () =>
-    req<{
-      unread_count: number;
-      awaiting_count: number;
-    }>('GET', '/cms/replies/unread-count'),
 
-  get: (id: string) =>
-    req<InboundReply>(
-      'GET',
-      `/cms/replies/${id}`,
+// ============================================================================
+// Reminders (iter162; api-client migration iter164g)
+// ============================================================================
+
+export type ReminderRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
+export type ReminderStatus = 'pending' | 'completed' | 'cancelled';
+
+export type Reminder = {
+  id: string;
+  title: string;
+  note: string;
+  due_at: string;
+  recurrence: ReminderRecurrence;
+  status: ReminderStatus;
+  created_at: string;
+  completed_at: string | null;
+  created_by?: string | null;
+};
+
+export type ReminderIn = {
+  title: string;
+  note?: string;
+  due_at: string;
+  recurrence?: ReminderRecurrence;
+};
+
+/**
+ * iter164g: routed through the shared ``req`` client so reminders
+ * gain the same retry + 401 auto-clear behaviour every other admin
+ * surface already has. Behaviour identical to the previous inline
+ * ``apiFetch`` used by ``/admin/reminders``.
+ */
+export const remindersApi = {
+  list: (status?: ReminderStatus | 'all') => {
+    const s = status && status !== 'all' ? `?status=${status}` : '';
+    return req<{ items: Reminder[] }>('GET', `/cms/reminders${s}`);
+  },
+  create: (body: ReminderIn) => req<Reminder>('POST', '/cms/reminders', body),
+  patch:  (id: string, body: Partial<ReminderIn>) =>
+    req<Reminder>('PATCH', `/cms/reminders/${id}`, body),
+  complete: (id: string) => req<Reminder>('POST', `/cms/reminders/${id}/complete`),
+  del: (id: string) => req<{ ok: true }>('DELETE', `/cms/reminders/${id}`),
+};
+
+
+// ============================================================================
+// Butterfly Points — manual recognition (iter164h)
+// ============================================================================
+
+export type BpPersona = 'george' | 'georgia';
+export type BpLedgerKind = 'award' | 'reversal';
+
+export type BpLedgerEntry = {
+  id: string;
+  user_id: string;
+  amount: number;
+  reason: string;
+  persona: BpPersona | null;
+  kind: BpLedgerKind;
+  reverses_id: string | null;
+  reversed_at: string | null;
+  reversed_by_ledger_id: string | null;
+  admin_id: string | null;
+  admin_email: string | null;
+  admin_name: string | null;
+  notification_id: string | null;
+  created_at: string;
+};
+
+export type BpPolicy = {
+  amount_min: number;
+  amount_max: number;
+  amount_soft_warn: number;
+  reason_min: number;
+  reason_max: number;
+  personas: BpPersona[];
+};
+
+export type BpPreview = {
+  title: string;
+  body: string;
+  persona_name: string;
+  persona_avatar: string;
+};
+
+export const butterflyPointsApi = {
+  policy: () =>
+    req<BpPolicy>('GET', '/cms/members/butterfly-points/policy'),
+  preview: (body: { amount: number; reason: string; persona: BpPersona }) =>
+    req<BpPreview>('POST', '/cms/members/butterfly-points/preview', body),
+  list: (userId: string) =>
+    req<{ user_id: string; points: number; badges: string[]; ledger: BpLedgerEntry[] }>(
+      'GET', `/cms/members/${userId}/butterfly-points`,
     ),
-
-  create: (body: ReplyIn) =>
-    req<InboundReply>(
-      'POST',
-      '/cms/replies',
-      body,
+  award: (userId: string, body: { amount: number; reason: string; persona: BpPersona }) =>
+    req<BpLedgerEntry>(
+      'POST', `/cms/members/${userId}/butterfly-points/award`, body,
     ),
-
-  markRead: (id: string, read = true) =>
-    req<InboundReply>(
-      'PATCH',
-      `/cms/replies/${id}/read`,
-      { read },
-    ),
-
-  markResolved: (id: string, resolved = true) =>
-    req<InboundReply>(
-      'PATCH',
-      `/cms/replies/${id}/resolve`,
-      { resolved },
-    ),
-
-  del: (id: string) =>
-    req<{ ok: true }>(
-      'DELETE',
-      `/cms/replies/${id}`,
+  reverse: (userId: string, ledgerId: string, body: { reason: string }) =>
+    req<{ original: BpLedgerEntry; reversal: BpLedgerEntry }>(
+      'POST', `/cms/members/${userId}/butterfly-points/${ledgerId}/reverse`, body,
     ),
 };

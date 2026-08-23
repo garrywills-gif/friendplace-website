@@ -464,7 +464,21 @@ export function askGeorge(
     };
     try {
       arm(30_000); // 30s to reach the server and receive the first byte.
-      const res = await fetchWithRetry(`${BASE}/api/george/chat`, {
+      // iter164d: use plain fetch() here, NOT fetchWithRetry. The
+      // retry wrapper enforces a 10s per-attempt timeout that races
+      // against fetch()'s response-arrival — fine for JSON endpoints,
+      // fatal for SSE streaming. Safari's installed web-app (macOS
+      // PWA / "Add to Dock") buffers streaming responses more
+      // aggressively than Safari's normal window, so the first byte
+      // frequently lands >10s after the request while GPT composes
+      // its opening tokens. The 10s abort was silently killing every
+      // George reply in the PWA even though the backend was responding
+      // correctly (proven by Safari working fine on the same origin).
+      // askGeorge has its OWN watchdog (30s to first byte, 60s between
+      // chunks) which is the right shape for streaming; retries for
+      // this endpoint would be user-facing double replies, not a
+      // desirable behaviour, so we skip the retry loop entirely.
+      const res = await fetch(`${BASE}/api/george/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -477,6 +491,11 @@ export function askGeorge(
           surface_context: surfaceContext || undefined,
         }),
         signal: controller.signal,
+        cache: 'no-store',
+        // Preserve cookies / auth in standalone PWA mode where some
+        // WKWebView contexts default to omit; explicit same-origin
+        // matches the JWT-in-Authorization-header pattern above.
+        credentials: 'same-origin',
       });
       if (!res.ok || !res.body) {
         emit({
@@ -543,13 +562,34 @@ export function askGeorge(
 // ---------- Voice ----------
 
 /**
- * POST a webm audio blob to the transcription endpoint. Returns the
+ * POST an audio blob to the transcription endpoint. Returns the
  * transcript text so the caller can prefill an editable input.
+ *
+ * iter164e: the filename we send must match the actual container
+ * inside the blob. Chrome/Firefox produce audio/webm (opus); Safari
+ * — including the macOS installed WebApp / WKWebView — produces
+ * audio/mp4 (AAC). If we always sent "clip.webm" the backend saved
+ * the temp file with a .webm extension and Whisper 502'd because
+ * the bytes inside were actually MP4/AAC. We now derive the file
+ * extension from ``blob.type``.
  */
+function _extForBlob(blob: Blob): string {
+  const t = (blob.type || '').toLowerCase();
+  if (t.startsWith('audio/webm')) return 'webm';
+  if (t.startsWith('audio/mp4') || t === 'audio/aac' || t === 'audio/x-m4a') return 'm4a';
+  if (t === 'audio/mpeg' || t === 'audio/mp3') return 'mp3';
+  if (t === 'audio/wav' || t === 'audio/x-wav') return 'wav';
+  if (t === 'audio/ogg' || t.startsWith('audio/ogg')) return 'ogg';
+  // Fallback: whatever the browser gave us — the backend has its
+  // own allow-list and will reset to 'webm' if this looks unusable.
+  return 'webm';
+}
+
 export async function transcribeAudio(blob: Blob): Promise<string> {
   const token = getToken();
   const form = new FormData();
-  form.append('audio', blob, 'clip.webm');
+  const ext = _extForBlob(blob);
+  form.append('audio', blob, `clip.${ext}`);
   const res = await fetchWithRetry(`${BASE}/api/george/voice/transcribe`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token || ''}` },
@@ -576,25 +616,16 @@ export async function speakText(text: string, voice: 'george' | 'georgia' = 'geo
   // Cache-buster query param defeats any browser/edge cache that might
   // otherwise replay a stale audio blob (e.g. a female clip after we
   // switched George's persona to male).
-  //
-  // NOTE: We deliberately do NOT send a `Cache-Control` request header
-  // here. Doing so forces the browser to issue a CORS preflight that
-  // includes `cache-control` in `Access-Control-Request-Headers`, which
-  // the backend's allow-list (Authorization, Content-Type,
-  // X-Requested-With) rejects with 400 "Disallowed CORS headers" — the
-  // actual POST never fires and the audio button hangs on "Preparing…".
-  // The `?_=${Date.now()}` cache-buster above plus the server's own
-  // `Cache-Control: no-store` response header already prevent any
-  // stale-clip replay, so removing the request header is safe.
   const url = `${BASE}/api/george/voice/speak?_=${Date.now()}`;
   const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token || ''}`,
+      'Cache-Control': 'no-cache',
     },
     body: JSON.stringify({ text, voice, speed }),
-signal,
+    signal,
   });
   if (!res.ok) throw new Error(`Speech failed: ${res.status}`);
   return await res.blob();

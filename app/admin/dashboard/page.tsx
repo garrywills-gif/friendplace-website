@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { AdminShell, adminStyles } from '@/components/admin/AdminShell';
-import { cmsApi } from '@/lib/cms-api';
+import { cmsApi, repliesApi, type StaleRepliesResponse } from '@/lib/cms-api';
 import { getAdmin } from '@/lib/cms-auth';
 
 type Stats = Awaited<ReturnType<typeof cmsApi.stats>>;
@@ -42,6 +42,7 @@ const MODULE_CARDS = [
 export default function DashboardPage() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
+  const [stale, setStale] = useState<StaleRepliesResponse | null>(null);
   const admin = typeof window !== 'undefined' ? getAdmin() : null;
   const firstName =
     admin?.display_name && admin.display_name.trim()
@@ -51,6 +52,11 @@ export default function DashboardPage() {
   useEffect(() => {
     (async () => {
       try { setStats(await cmsApi.stats()); } catch { /* silent — dashboard still renders */ }
+    })();
+    // iter164g: fetch the 7-day stale-reply count. Non-blocking — if
+    // the endpoint fails we simply don't show the card.
+    (async () => {
+      try { setStale(await repliesApi.stale({ days: 7, limit: 5 })); } catch { /* silent */ }
     })();
   }, []);
 
@@ -99,6 +105,15 @@ export default function DashboardPage() {
           );
         })}
       </div>
+
+      {/* iter164g: Stale replies nudge — shown ONLY when the 7-day
+          reply backlog is non-empty. George's quiet reminder, never
+          nagging, never auto-sending anything. Non-empty count → a
+          soft amber card; empty state → nothing (the dashboard should
+          not shout when the inbox is clear). */}
+      {stale && stale.count > 0 && (
+        <StaleRepliesCard stale={stale} />
+      )}
 
       {/* Live summary strip */}
       <div style={summaryGrid}>
@@ -242,6 +257,7 @@ function StatusRow({ icon, label, value, dotColor, tint }: {
 }
 
 /** ISO → "2 minutes ago" / "just now" / "3 days ago". */
+/** ISO → "2 minutes ago" / "just now" / "3 days ago". */
 function relativeTime(iso?: string): string {
   if (!iso) return 'Never';
   const then = new Date(iso).getTime();
@@ -257,6 +273,86 @@ function relativeTime(iso?: string): string {
   const d = Math.round(h / 24);
   if (d < 30) return `${d} day${d === 1 ? '' : 's'} ago`;
   return new Date(iso).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+// ---------------------------------------------------------------------------
+// iter164g: Stale-replies nudge card
+// ---------------------------------------------------------------------------
+//
+// Rendered on the Mission Control dashboard when the 7-day reply
+// backlog is non-empty. Warm amber card, oldest three sender names,
+// single primary link to the Replies inbox. Nothing auto-sends;
+// George's role is to remind, not to act.
+
+function daysSince(iso: string): number {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return 0;
+  const diffMs = Date.now() - then;
+  return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+}
+
+function StaleRepliesCard({ stale }: { stale: StaleRepliesResponse }) {
+  const preview = stale.replies.slice(0, 3);
+  const remainder = Math.max(0, stale.count - preview.length);
+  return (
+    <div
+      data-testid="stale-replies-card"
+      style={{
+        marginTop: 4,
+        marginBottom: 20,
+        padding: 20,
+        borderRadius: 18,
+        border: '1px solid rgba(245,158,11,0.35)',
+        background: 'linear-gradient(140deg, #FFFBEB 0%, #FEF3C7 100%)',
+        display: 'flex',
+        gap: 16,
+        alignItems: 'flex-start',
+        flexWrap: 'wrap',
+      }}
+    >
+      <div style={{ fontSize: 28, lineHeight: 1 }}>⏰</div>
+      <div style={{ flex: 1, minWidth: 240 }}>
+        <div style={{ fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 800, color: '#92400E' }}>
+          Stale replies · {stale.days}-day nudge
+        </div>
+        <div style={{ marginTop: 4, color: '#0A2540', fontSize: 17, fontWeight: 800, lineHeight: 1.35 }}>
+          {stale.count} {stale.count === 1 ? 'reply has' : 'replies have'}
+          {' '}been waiting on you for more than {stale.days} days.
+        </div>
+        <ul style={{ marginTop: 10, marginBottom: 0, paddingLeft: 20, color: '#475569', fontSize: 14, lineHeight: 1.6 }}>
+          {preview.map((r) => {
+            const d = daysSince(r.received_at);
+            return (
+              <li key={r.id} data-testid={`stale-row-${r.id}`}>
+                <strong style={{ color: '#0A2540' }}>{r.from_name || r.from_email}</strong>
+                {r.subject ? <> — <em>{r.subject}</em></> : null}
+                <span style={{ color: '#92400E', fontWeight: 700 }}> · {d}d</span>
+              </li>
+            );
+          })}
+          {remainder > 0 && (
+            <li style={{ color: '#64748B' }}>
+              …and {remainder} more waiting.
+            </li>
+          )}
+        </ul>
+      </div>
+      <Link
+        href="/admin/replies?filter=awaiting"
+        data-testid="stale-replies-open-link"
+        style={{
+          ...adminStyles.primaryBtn,
+          background: '#B45309',
+          borderColor: '#B45309',
+          textDecoration: 'none',
+          display: 'inline-block',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        Open Replies inbox →
+      </Link>
+    </div>
+  );
 }
 
 // ---------- Style objects -------------------------------------------------
