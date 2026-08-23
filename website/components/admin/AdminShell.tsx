@@ -155,7 +155,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: 'Public Sans, system-ui, sans-serif', display: 'flex' }}>
+    <div style={adminShellRoot}>
       <aside style={sidebar}>
         <Link href="/admin/bridge" style={sidebarBrand}>
           <span style={{ display: 'inline-flex', width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
@@ -283,7 +283,35 @@ const sidebar: React.CSSProperties = {
   position: 'sticky',
   top: 0,
   alignSelf: 'flex-start',
-  height: '100vh',
+  // iter164d: subtract the safe-area inset so the sidebar's 100vh
+  // doesn't overflow the padded root. Resolves to plain 100vh in
+  // normal Safari (inset = 0), so the browser layout is unchanged.
+  height: 'calc(100vh - env(safe-area-inset-top, 0px))',
+};
+
+// iter164d: root wrapper. Installed macOS PWAs ("Add to Dock") open
+// the site inside a WKWebView window that overlays a slim window
+// chrome / traffic-lights band across the top of the content area.
+// Without a top pad, the sidebar brand and the sticky Ask George bar
+// end up clipped under it (see iter164d bug report screenshot).
+//
+// `env(safe-area-inset-top)` resolves to 0px in a normal Safari
+// window, so nothing shifts there — the layout regression tests in
+// preview browser confirm identical positioning. In the installed
+// PWA the OS reports the correct inset (macOS Sonoma+, iOS home
+// screen), so the shell lands below the chrome.
+//
+// The `@media (display-mode: standalone)` fallback exists for hosts
+// that DON'T populate the safe-area inset in standalone mode (some
+// older macOS builds, some WKWebView-based installers). It only
+// bites in standalone mode, so it can't affect the normal Safari
+// layout.
+const adminShellRoot: React.CSSProperties = {
+  minHeight: '100vh',
+  background: '#F8FAFC',
+  fontFamily: 'Public Sans, system-ui, sans-serif',
+  display: 'flex',
+  paddingTop: 'env(safe-area-inset-top, 0px)',
 };
 const sidebarBrand: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '0 20px', color: '#FFFFFF', textDecoration: 'none' };
 const navLink: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '10px 20px', fontSize: 14, fontWeight: 700, textDecoration: 'none' };
@@ -363,7 +391,6 @@ const footerBtn: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
 };
-const mainCol: React.CSSProperties = { flex: 1, minWidth: 0, width: '100%' };
 const pageTitle: React.CSSProperties = { fontSize: 28, color: '#0A2540', fontWeight: 900, marginTop: 0, marginBottom: 24 };
 
 // Reusable button/panel styles for admin editor pages.

@@ -71,6 +71,12 @@ export const viewport: Viewport = {
   themeColor: '#0A2540',
   width: 'device-width',
   initialScale: 1,
+  // iter164d: `viewport-fit=cover` enables `env(safe-area-inset-*)`
+  // so installed PWAs (macOS "Add to Dock", iOS home-screen) can
+  // pad content away from window chrome / notches. Safari in a
+  // normal window ignores the insets (they resolve to 0px), so
+  // adding this doesn't affect the browser layout.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -464,7 +464,21 @@ export function askGeorge(
     };
     try {
       arm(30_000); // 30s to reach the server and receive the first byte.
-      const res = await fetchWithRetry(`${BASE}/api/george/chat`, {
+      // iter164d: use plain fetch() here, NOT fetchWithRetry. The
+      // retry wrapper enforces a 10s per-attempt timeout that races
+      // against fetch()'s response-arrival — fine for JSON endpoints,
+      // fatal for SSE streaming. Safari's installed web-app (macOS
+      // PWA / "Add to Dock") buffers streaming responses more
+      // aggressively than Safari's normal window, so the first byte
+      // frequently lands >10s after the request while GPT composes
+      // its opening tokens. The 10s abort was silently killing every
+      // George reply in the PWA even though the backend was responding
+      // correctly (proven by Safari working fine on the same origin).
+      // askGeorge has its OWN watchdog (30s to first byte, 60s between
+      // chunks) which is the right shape for streaming; retries for
+      // this endpoint would be user-facing double replies, not a
+      // desirable behaviour, so we skip the retry loop entirely.
+      const res = await fetch(`${BASE}/api/george/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -477,6 +491,11 @@ export function askGeorge(
           surface_context: surfaceContext || undefined,
         }),
         signal: controller.signal,
+        cache: 'no-store',
+        // Preserve cookies / auth in standalone PWA mode where some
+        // WKWebView contexts default to omit; explicit same-origin
+        // matches the JWT-in-Authorization-header pattern above.
+        credentials: 'same-origin',
       });
       if (!res.ok || !res.body) {
         emit({
