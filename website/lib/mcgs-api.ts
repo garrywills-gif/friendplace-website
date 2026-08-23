@@ -562,13 +562,34 @@ export function askGeorge(
 // ---------- Voice ----------
 
 /**
- * POST a webm audio blob to the transcription endpoint. Returns the
+ * POST an audio blob to the transcription endpoint. Returns the
  * transcript text so the caller can prefill an editable input.
+ *
+ * iter164e: the filename we send must match the actual container
+ * inside the blob. Chrome/Firefox produce audio/webm (opus); Safari
+ * — including the macOS installed WebApp / WKWebView — produces
+ * audio/mp4 (AAC). If we always sent "clip.webm" the backend saved
+ * the temp file with a .webm extension and Whisper 502'd because
+ * the bytes inside were actually MP4/AAC. We now derive the file
+ * extension from ``blob.type``.
  */
+function _extForBlob(blob: Blob): string {
+  const t = (blob.type || '').toLowerCase();
+  if (t.startsWith('audio/webm')) return 'webm';
+  if (t.startsWith('audio/mp4') || t === 'audio/aac' || t === 'audio/x-m4a') return 'm4a';
+  if (t === 'audio/mpeg' || t === 'audio/mp3') return 'mp3';
+  if (t === 'audio/wav' || t === 'audio/x-wav') return 'wav';
+  if (t === 'audio/ogg' || t.startsWith('audio/ogg')) return 'ogg';
+  // Fallback: whatever the browser gave us — the backend has its
+  // own allow-list and will reset to 'webm' if this looks unusable.
+  return 'webm';
+}
+
 export async function transcribeAudio(blob: Blob): Promise<string> {
   const token = getToken();
   const form = new FormData();
-  form.append('audio', blob, 'clip.webm');
+  const ext = _extForBlob(blob);
+  form.append('audio', blob, `clip.${ext}`);
   const res = await fetchWithRetry(`${BASE}/api/george/voice/transcribe`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token || ''}` },

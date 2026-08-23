@@ -390,7 +390,150 @@ async def plan_tool_calls(
             plan["_forced_fresh_call"] = True
             # Clear any "insufficient_data" so the synth doesn't hedge.
             plan.pop("insufficient_data", None)
+
+    # ─── iter164e: operational-richness upgrade ──────────────────────────
+    # When Garry asks a Founding-Members state question with a phrase that
+    # implies he wants more than a bare number ("any new registrations
+    # overnight?", "who's registered today?", "new sign-ups today"), the
+    # planner LLM's default preference for `count_*` tools returns only an
+    # integer — leaving George unable to name the latest person or their
+    # time. Swap the count call for `founding_members_summary`, which
+    # returns count + latest + timestamps in one shot, so the ANSWER_STYLE
+    # "operational richness" rule has the data it needs. Idempotent, and
+    # only fires when there is an obvious matching richer tool.
+    _upgrade_count_to_summary_for_richness(plan, user_message)
     return plan
+
+
+# Phrases that make it clear Garry wants more than a bare number for a
+# Founding-Members question — either a temporal window ("overnight",
+# "today", "last night"), an explicit "any new / new registrations", or
+# a general "how are we going with registrations" style question. When
+# any of these fire and the planner picked the bare-count tool with no
+# specific filter, we upgrade to founding_members_summary so George can
+# name the latest person + time and offer to open the page.
+_RICHNESS_PHRASES = (
+    # Temporal windows / novelty
+    "overnight",
+    "last night",
+    "any new registrations",
+    "new registrations",
+    "any registrations",
+    "any new sign",
+    "any new members",
+    "signed up today",
+    "sign ups today",
+    "signups today",
+    "new today",
+    "how many new",
+    # Latest-person questions
+    "who registered",
+    "who signed up",
+    "who's the latest",
+    "who is the latest",
+    "latest registration",
+    # iter164f: general "how are we going" / plain count questions on
+    # Founding Members. Previously these hit `count_interest_registrations`
+    # and returned a bare integer, so George could not name the latest
+    # member or offer to open the page — the exact regression Garry
+    # flagged. Any unfiltered count on registrations now gets richness.
+    "how many registered",
+    "how many have registered",
+    "how many people registered",
+    "how many registrations",
+    "how many signed up",
+    "how many have signed up",
+    "how are registrations",
+    "how's registrations",
+    "how's founding",
+    "how are founding",
+    "how's the founding",
+    "how are the founding",
+    "founding members going",
+    "registrations going",
+    "registrations doing",
+    "registrations look",
+    "registrations status",
+    "how are we tracking on registrations",
+    "how are we tracking on founding",
+    "state of registrations",
+    "state of founding",
+)
+
+
+# iter164f: regex fallback for the naturally-worded "how many …" and
+# "any … " questions about registrations / sign-ups / founding members
+# that we can't enumerate exhaustively as static substrings.
+_REG_RICHNESS_RE = re.compile(
+    r"\b("
+    r"how (?:many|much) (?:people |folks |members |women |women's )?"
+    r"(?:have |has |had )?(?:register|registered|registering|"
+    r"sign(?:ed|ing)?[- ]?up|signed[- ]?up)|"
+    r"(?:any|got any|have any) (?:new )?(?:registrations|sign[- ]?ups|"
+    r"founding members)|"
+    r"(?:how|hows|how's) (?:are |'s )?"
+    r"(?:the )?(?:registrations|sign[- ]?ups|founding members) "
+    r"(?:going|tracking|doing|looking)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _upgrade_count_to_summary_for_richness(plan: dict, user_message: str) -> None:
+    """Swap `count_interest_registrations` for `founding_members_summary`
+    when the message asks a question that needs the latest person's
+    name / time, not just a bare count. See iter164e / iter164f."""
+    calls = plan.get("tool_calls") or []
+    if not calls:
+        return
+    lowered = (user_message or "").lower()
+    matches_phrase = any(phrase in lowered for phrase in _RICHNESS_PHRASES)
+    # iter164f: a lightweight regex fallback catches the many natural
+    # phrasings we can't feasibly enumerate as static substrings — e.g.
+    # "how many people have registered?" or "how many have signed up
+    # this year?". Any "how many …" question that clearly names the
+    # registration surface (register/sign-up/founding member) is treated
+    # as a richness question. Targeted status filters below still gate
+    # the upgrade, so "how many joined?" stays a bare count.
+    matches_regex = bool(_REG_RICHNESS_RE.search(lowered))
+    if not (matches_phrase or matches_regex):
+        return
+    upgraded = False
+    new_calls = []
+    for c in calls:
+        if isinstance(c, dict) and c.get("name") == "count_interest_registrations":
+            # Only upgrade the plain "how many registered?" case; leave
+            # filtered counts (status=invited, since_days=…) alone —
+            # those are targeted questions where a bare number is fine.
+            #
+            # iter164f: also upgrade when the ONLY filter is
+            # `status=registered`, because the planner defaults to
+            # that filter for plain "how many registered?" style
+            # questions — leaving the reply as a bare integer even
+            # though the message clearly wants richness. Genuinely
+            # targeted status filters (invited/joined/opted_out) stay
+            # bare so "how many opted out?" still returns a clean count.
+            args = c.get("args") or {}
+            targeted_filters = any(
+                k in args for k in ("companion_choice",
+                                    "state_country", "since_days")
+            )
+            status = args.get("status")
+            targeted_status = (
+                status in ("invited", "joined", "opted_out")
+            )
+            has_targeted_filter = targeted_filters or targeted_status
+            if not has_targeted_filter or args.get("today") is True:
+                new_calls.append({"name": "founding_members_summary", "args": {}})
+                upgraded = True
+                continue
+        new_calls.append(c)
+    if upgraded:
+        log.info(
+            "iter164e: upgraded count_interest_registrations → "
+            "founding_members_summary for operational-richness phrasing",
+        )
+        plan["tool_calls"] = new_calls
 
 
 # ---------------------------------------------------------------------------
@@ -439,8 +582,26 @@ _TOPIC_TO_TOOL = [
     ("new today",          {"name": "founding_members_summary", "args": {}}),
     ("new sign",           {"name": "founding_members_summary", "args": {}}),
     ("how many new",       {"name": "founding_members_summary", "args": {}}),
-    ("founding member",  {"name": "founding_members_summary", "args": {}}),
-    ("founding members", {"name": "founding_members_summary", "args": {}}),
+    # iter164e: "overnight" / "last night" / "any new registrations"
+    # phrases were previously mapping either to nothing (LLM guessed
+    # a tool) or to count-only tools, which meant George could report
+    # the number but not the latest person's name or timestamp — the
+    # exact gap the user flagged. Route these to founding_members_summary,
+    # which returns count + latest + timestamps so the ANSWER_STYLE
+    # "operational richness" rule has something to work with.
+    ("overnight",              {"name": "founding_members_summary", "args": {}}),
+    ("last night",             {"name": "founding_members_summary", "args": {}}),
+    ("any new registrations",  {"name": "founding_members_summary", "args": {}}),
+    ("new registrations",      {"name": "founding_members_summary", "args": {}}),
+    ("any registrations",      {"name": "founding_members_summary", "args": {}}),
+    ("any new sign",           {"name": "founding_members_summary", "args": {}}),
+    ("any new members",        {"name": "founding_members_summary", "args": {}}),
+    # iter164f: specific status-filtered questions must resolve to
+    # count/list_interest_registrations BEFORE the generic
+    # "founding member" fallback below — otherwise "How many founding
+    # members have joined?" collapses to the summary route and George
+    # answers with the whole dashboard when Garry only asked for the
+    # joined count.
     ("hasn't been contacted",  {"name": "list_interest_registrations", "args": {"status": "registered"}}),
     ("haven't been contacted", {"name": "list_interest_registrations", "args": {"status": "registered"}}),
     ("not been contacted",     {"name": "list_interest_registrations", "args": {"status": "registered"}}),
@@ -451,6 +612,8 @@ _TOPIC_TO_TOOL = [
     ("awaiting invitation",{"name": "count_interest_registrations", "args": {"status": "registered"}}),
     ("not been invited",   {"name": "list_interest_registrations",  "args": {"status": "registered"}}),
     ("haven't been invited",{"name":"list_interest_registrations",  "args": {"status": "registered"}}),
+    ("hasn't been invited", {"name":"list_interest_registrations",  "args": {"status": "registered"}}),
+    ("not invited yet",    {"name": "list_interest_registrations",  "args": {"status": "registered"}}),
     ("joined this week",  {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 7}}),
     ("joined today",      {"name": "count_interest_registrations", "args": {"status": "joined",  "today": True}}),
     ("invited today",     {"name": "count_interest_registrations", "args": {"status": "invited", "today": True}}),
@@ -461,11 +624,16 @@ _TOPIC_TO_TOOL = [
     ("have joined",       {"name": "count_interest_registrations", "args": {"status": "joined"}}),
     ("who joined",        {"name": "list_interest_registrations",  "args": {"status": "joined"}}),
     ("joined friendplace",{"name": "count_interest_registrations", "args": {"status": "joined"}}),
+    ("opted out",         {"name": "count_interest_registrations", "args": {"status": "opted_out"}}),
     ("conversion rate",      {"name": "founding_members_conversion", "args": {}}),
     ("conversion",           {"name": "founding_members_conversion", "args": {}}),
     ("funnel",               {"name": "founding_members_conversion", "args": {}}),
     ("registered to joined", {"name": "founding_members_conversion", "args": {}}),
     ("how are we tracking",  {"name": "founding_members_conversion", "args": {}}),
+    # Generic Founding Members fallbacks — MUST stay AFTER the specific
+    # status filters above so those win first-match-wins.
+    ("founding member",  {"name": "founding_members_summary", "args": {}}),
+    ("founding members", {"name": "founding_members_summary", "args": {}}),
     ("register interest",   {"name": "count_interest_registrations", "args": {}}),
     ("registered interest", {"name": "count_interest_registrations", "args": {}}),
     ("registrations", {"name": "count_interest_registrations", "args": {}}),
@@ -837,8 +1005,17 @@ async def grounded_chat_stream(
         "auditing.\n\n"
         "Only if NEITHER tool_results NOR the KB block covers what he "
         "asked, say: 'I don't have enough information to answer that yet.'\n\n"
-        "Keep it warm, short, and useful. Do not restate the tool call "
-        "names or JSON — speak in plain English."
+        "Match the length to the question. For casual chat, stay warm and "
+        "brief. For operational status questions (registrations, tickets, "
+        "signals, workload) where the tool_results include supporting "
+        "context like `latest`, timestamps, or `_semantics`, follow the "
+        "ANSWER STYLE rule for operational richness in your system prompt: "
+        "lead with the headline number/name, then in the SAME turn add the "
+        "latest relevant person, the time (relative when useful), and — "
+        "when there's an obvious matching Mission Control page — close "
+        "with a natural, single navigation offer (e.g. 'Would you like me "
+        "to open the Founding Members page?'). Never restate raw tool "
+        "call names or JSON — speak in plain English."
     )
 
     chat = (

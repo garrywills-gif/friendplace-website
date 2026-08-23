@@ -68,6 +68,11 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
   // Korean "Thank you for watching"). Reset on every ``start``.
   const peakRmsRef = useRef<number>(0);
   const hadSpeechRef = useRef<boolean>(false);
+  // iter164e: which mime the browser actually chose for this
+  // recording, e.g. "audio/webm;codecs=opus" in Chrome, "audio/mp4"
+  // in Safari. Captured so the caller can derive the correct file
+  // extension for upload.
+  const mimeRef = useRef<string>('audio/webm');
 
   const cleanup = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -86,6 +91,27 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
     }
     return new Promise<Blob | null>((resolve) => {
       stopResolverRef.current = resolve;
+      // iter164f: Safari WKWebView (installed Mac PWA) needs an
+      // explicit requestData() before stop() to flush the final
+      // segment. Its MP4 audio-only recorder holds accumulated
+      // samples in an internal buffer and does NOT reliably emit
+      // them from the implicit dataavailable fired inside stop().
+      // Without this call the resulting chunks array is empty and
+      // the recorder resolves null — visible to the user as the
+      // "Recording" UI ending with no transcript. Guarded because
+      // requestData() only exists on active recorders. Safe on
+      // Chrome/Firefox too.
+      try {
+        if (
+          recorderRef.current!.state === 'recording' &&
+          typeof recorderRef.current!.requestData === 'function'
+        ) {
+          recorderRef.current!.requestData();
+        }
+      } catch {
+        // Non-fatal: fall through to stop() and rely on the implicit
+        // dataavailable event.
+      }
       recorderRef.current!.stop();
     });
   }, []);
@@ -152,9 +178,43 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
         rafRef.current = requestAnimationFrame(tickLevel);
       };
 
-      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus' : 'audio/webm';
-      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      // iter164e: pick the best mime the browser supports. Safari
+      // WKWebView (Mac installed PWA, some iOS versions) does NOT
+      // support audio/webm at all — its MediaRecorder produces
+      // audio/mp4 (AAC) instead. If we force 'audio/webm' here Safari
+      // WKWebView either throws OR silently records an unusable
+      // stream, and then the upload arrives labelled as .webm with
+      // MP4/AAC bytes inside → Whisper 502.
+      //
+      // Priority order: opus-in-webm (Chrome/Firefox best), then
+      // plain webm, then mp4 (Safari native), then an empty string
+      // which lets the browser pick its own default. Whichever we
+      // end up with is stored in ``mimeRef`` so the caller can
+      // derive the correct filename extension for upload.
+      const preferred = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4;codecs=mp4a.40.2', // AAC-LC, Safari's default
+        'audio/mp4',
+      ];
+      let mime = '';
+      for (const candidate of preferred) {
+        if (
+          typeof MediaRecorder.isTypeSupported === 'function' &&
+          MediaRecorder.isTypeSupported(candidate)
+        ) {
+          mime = candidate;
+          break;
+        }
+      }
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      // Some browsers change the effective mime once the recorder
+      // is constructed (e.g. Safari falls back to audio/mp4). Trust
+      // the recorder's own mimeType attribute from here on.
+      const effectiveMime = recorder.mimeType || mime || 'audio/webm';
+      mimeRef.current = effectiveMime;
       recorderRef.current = recorder;
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
@@ -180,7 +240,7 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
           resolver?.(null);
           return;
         }
-        const blob = new Blob(chunksRef.current, { type: mime });
+        const blob = new Blob(chunksRef.current, { type: effectiveMime });
         resolver?.(blob);
       };
 
@@ -192,7 +252,17 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
       peakRmsRef.current = 0;
       hadSpeechRef.current = false;
       setSeconds(0);
-      recorder.start();
+      // iter164f: pass a timeslice so Safari WKWebView emits chunks
+      // periodically instead of holding everything until stop(). The
+      // installed Mac PWA otherwise ends the recording with an empty
+      // chunks array on some macOS builds — the same phone/hardware
+      // works in plain Safari because the browser process handles the
+      // implicit final-chunk emission that WKWebView does not.
+      //
+      // 1000ms is a compromise: small enough that Safari always has
+      // encoded audio to emit, large enough that Chrome/Firefox don't
+      // pay any real perf cost from extra Blob allocations.
+      recorder.start(1000);
       setRecording(true);
       rafRef.current = requestAnimationFrame(tickLevel);
     } catch (err) {
