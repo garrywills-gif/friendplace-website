@@ -87,10 +87,26 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
 
   const stop = useCallback(async (): Promise<Blob | null> => {
     if (!recorderRef.current || recorderRef.current.state === 'inactive') {
+      // iter164h defensive: even when there's nothing to stop, make
+      // sure the exposed `recording` state is unambiguously false.
+      // This ensures a caller checking `rec.recording` after `stop()`
+      // can never see a phantom-true state that would gate other UI
+      // (e.g. the Ask button) into a stuck-disabled position.
+      setRecording(false);
       return null;
     }
     return new Promise<Blob | null>((resolve) => {
-      stopResolverRef.current = resolve;
+      // Wrap the resolver so the exposed `recording` state is
+      // guaranteed false the instant `stop()` completes, regardless
+      // of whether React has flushed the setRecording(false) queued
+      // inside `onstop`. WKWebView's async event scheduling has
+      // been observed to leave the state briefly stale; this belt-
+      // and-braces makes downstream UI (Ask button, etc.) robust
+      // even without a re-render round-trip.
+      stopResolverRef.current = (blob) => {
+        setRecording(false);
+        resolve(blob);
+      };
       // iter164f: Safari WKWebView (installed Mac PWA) needs an
       // explicit requestData() before stop() to flush the final
       // segment. Its MP4 audio-only recorder holds accumulated
@@ -126,6 +142,14 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
   const start = useCallback(async () => {
     setError(null);
     cancelledRef.current = false;
+    // iter164h "2-3 pushes to listen" bug: if a previous session left
+    // any state behind (stream still open, audio context still active,
+    // recorder ref not nulled) it can silently break the new start() —
+    // WKWebView especially is prone to this because its MediaRecorder
+    // fires `onstop` asynchronously well after `stop()` returns, so
+    // stale events can land during a fresh session. Force a synchronous
+    // teardown here so every `start()` begins on a clean slate.
+    cleanup();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -221,19 +245,30 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
         if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
-        // iter164g Mac WebApp production bug: Safari WKWebView is
-        // known (per WebKit developer forums + open bugs.webkit.org
-        // reports) to fire `stop` twice under some conditions — most
-        // reproducibly when we call `requestData()` immediately
-        // before `stop()`, which iter164f added to flush the final
-        // MP4 chunk. Without this idempotency guard the second fire
-        // could re-schedule a stale `setRecording(false)` from a
-        // nulled-out recorderRef and confuse React's scheduler in
-        // the WKWebView runtime (which was the cascading cause of
-        // the Ask button staying stuck-disabled after transcription).
-        // Once cleanup() has nulled `recorderRef.current`, any
-        // subsequent onstop is a no-op.
-        if (!recorderRef.current) return;
+        // iter164g Mac WebApp production bug PLUS iter164h "2-3
+        // pushes to listen" bug: Safari WKWebView (installed Mac web
+        // apps) fires `stop` asynchronously well after `stop()`
+        // returns, and can also fire the same event twice (see
+        // bugs.webkit.org + Apple Dev Forums thread 694207). Two
+        // failure modes cascade from that:
+        //   (a) Double-fire on the SAME recorder → the second call
+        //       reschedules stale `setRecording(false)` from a
+        //       cleaned-up recorder and confuses React's scheduler,
+        //       which was the cascading cause of the Ask button
+        //       staying stuck-disabled after transcription.
+        //   (b) DELAYED fire from a PREVIOUS recorder → after the
+        //       user has already tapped the mic to start a new
+        //       recording session, an old session's onstop lands
+        //       and clobbers the new session's `recording=true`
+        //       state (visible to Garry as "it takes 2 or 3 pushes
+        //       of the microphone to get George to listen").
+        // The identity check below defends against both cases: we
+        // only proceed if this event is for the recorder currently
+        // considered active. On the first legitimate fire cleanup()
+        // nulls `recorderRef.current`, so any duplicate is a no-op.
+        // On a delayed fire from a superseded recorder, `!==` short-
+        // circuits before we touch any shared state.
+        if (recorderRef.current !== recorder) return;
         setRecording(false);
         cleanup();
         const cancelled = cancelledRef.current;
