@@ -828,13 +828,17 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     if current >= cap:
         raise HTTPException(410, "Founding Member cohort is full")
 
-    highest = await db.users.find_one(
-        {"is_founder": True, "founder_number": {"$exists": True, "$ne": None}},
-        {"_id": 0, "founder_number": 1},
-        sort=[("founder_number", -1)],
+    # iter164n: Unified allocator. Previously this call site had its
+    # own max(highest+1, current+1) logic that could collide with the
+    # public-registration counter under mixed traffic. The shared
+    # allocator consults the same counter document AND performs a
+    # cross-collection uniqueness check before returning, so an
+    # in-app founder claim can never receive the same number as an
+    # in-flight public registration.
+    founder_number = await _allocate_founder_number(
+        email=u.get("email"),
+        source="founders_claim",
     )
-    highest_num = int((highest or {}).get("founder_number") or 0)
-    founder_number = max(highest_num + 1, current + 1)
     badges = list(u.get("badges") or [])
     if "Founding Member" not in badges:
         badges.append("Founding Member")
@@ -844,15 +848,26 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     # claims is acceptable at MVP traffic — the count is rechecked next
     # time and self-corrects to "at most cap + a few", same as the old
     # auto-assignment flow).
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {
-            "is_founder": True,
-            "founder_number": founder_number,
-            "badges": badges,
-            "points": new_points,
-        }},
-    )
+    # iter164n: if the primary promotion write fails after the shared
+    # allocator has already handed us a number, release the one-time
+    # #0011 override so a subsequent successful claim can still take
+    # it. Best-effort side effects below (lounge, table, notification)
+    # do NOT release — by then the founder_number is committed to the
+    # user and the number is legitimately spent.
+    try:
+        await db.users.update_one(
+            {"id": user_id},
+            {"$set": {
+                "is_founder": True,
+                "founder_number": founder_number,
+                "badges": badges,
+                "points": new_points,
+            }},
+        )
+    except Exception:
+        await _release_founder_override_if_consumed_for(founder_number)
+        logger.exception("founders/claim: primary promotion write failed for %s", user_id)
+        raise HTTPException(500, "We couldn't save your Founding Member status — please try again in a moment.")
 
     # Add to the private Founders Lounge group.
     fl = await _ensure_founders_lounge()
@@ -11527,7 +11542,9 @@ async def public_register_interest(payload: dict, request: Request):
     # Numbers 1 and 2 are reserved for Garry / George — the counter
     # was rebased on startup so this returns 3+ for the first public
     # registration.
-    founder_number = await _next_founder_number()
+    # iter164n: email passed so the shared allocator can identify a
+    # test/demo email pattern and skip the one-time #0011 override.
+    founder_number = await _next_founder_number(email=email)
 
     # Acquisition attribution (Commit-2 rollout). Captures which flyer /
     # QR / campaign brought this visitor here. Best-effort — historical
@@ -11582,6 +11599,11 @@ async def public_register_interest(payload: dict, request: Request):
         # a consistent founder number, never a duplicate. Do NOT try to
         # roll back the counter $inc — a small gap in numbering is far
         # safer than the risk of reassigning a live number.
+        # iter164n: the one-time #0011 override, however, IS releasable
+        # — if that's the number we just allocated and the insert
+        # failed for ANY reason, restore it so a genuine subsequent
+        # registration can still receive it.
+        await _release_founder_override_if_consumed_for(founder_number)
         logger.info("RYI race guard: duplicate email %s — refetching existing row", email)
         existing = await db.interest_registrations.find_one(
             {"email": email, "is_test": {"$ne": True}},
@@ -11604,6 +11626,10 @@ async def public_register_interest(payload: dict, request: Request):
         # persisting nowhere would be worse than telling the visitor to
         # try again. Contact form does the opposite; here we're stricter
         # because the visitor is explicitly leaving contact details.
+        # iter164n: same override release semantics as the DuplicateKey
+        # branch — a failed insert must never permanently consume the
+        # one-time #0011 slot.
+        await _release_founder_override_if_consumed_for(founder_number)
         logger.exception("failed to persist interest_registration")
         raise HTTPException(500, "We couldn't save your details just now — please try again in a moment.")
 
@@ -12298,22 +12324,145 @@ def _fmt_founder_no(n: Optional[int]) -> str:
         return ""
     return f"#{n:04d}"
 
-async def _next_founder_number() -> int:
-    """Atomically get the next Founding Member Number.
+async def _founder_number_in_use(candidate: int) -> bool:
+    """Cross-collection presence check for a candidate Founding Member
+    Number. Returns True if the number is already assigned to a
+    non-test row in EITHER ``interest_registrations`` or ``users``.
 
-    Uses find_one_and_update with $inc + upsert=True so it's safe
-    under concurrent registration bursts. The counter is initialised
-    to 2 (after the reserved seeds) so the first public registration
-    receives #0003 as requested.
+    iter164n hard uniqueness guard. Called by
+    :func:`_allocate_founder_number` BEFORE the number is returned,
+    so a caller can never receive a value that already belongs to a
+    different identity. Test/demo rows (``is_test: true``,
+    ``is_demo: true``) do not count — they are allowed to share
+    numbers freely because they never touch production allocation.
+    """
+    ir_count = await db.interest_registrations.count_documents({
+        "founder_number": candidate,
+        "is_test": {"$ne": True},
+    })
+    if ir_count:
+        return True
+    usr_count = await db.users.count_documents({
+        "founder_number": candidate,
+        "is_test": {"$ne": True},
+        "is_demo": {"$ne": True},
+    })
+    return bool(usr_count)
+
+
+async def _allocate_founder_number(email: Optional[str] = None,
+                                   source: str = "public_registration") -> int:
+    """Unified atomic allocator used by BOTH founder-number code paths
+    (public interest_registrations and in-app founders/claim).
+
+    Guarantees under concurrent registrations + retries:
+      1. Atomic override claim — only one caller wins #0011.
+      2. Atomic $inc on the shared counter — no two callers can
+         receive the same $inc value.
+      3. Cross-collection uniqueness check BEFORE returning — even if
+         a legacy row somehow ended up carrying counter+1, the
+         allocator advances past it. Bounded to 20 iterations so
+         a catastrophic misalignment fails fast instead of looping.
+      4. Test/demo emails skip the override entirely.
+
+    The returned number is guaranteed unused across both
+    ``interest_registrations`` (non-test) and ``users`` (non-test,
+    non-demo) at the instant of return. Partial unique indexes
+    installed by :func:`_ensure_founder_number_unique_indexes`
+    provide a second layer of DB-level enforcement.
     """
     from pymongo import ReturnDocument
-    doc = await db.counters.find_one_and_update(
-        {"id": _FOUNDER_NUMBER_COUNTER_ID},
-        {"$inc": {"value": 1}},
-        upsert=True,
+    log = logging.getLogger("friendplace")
+
+    # --- Step 1: try the one-time #0011 override, but only for
+    # genuine registrations. Test/demo emails NEVER consume it.
+    if not _looks_like_test_email(email):
+        override = await db.counters.find_one_and_update(
+            {"id": _FOUNDER_OVERRIDE_ID, "consumed": False},
+            {"$set": {"consumed": True, "consumed_at": now_iso(),
+                      "consumed_by_source": source}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if override:
+            candidate = int(override["value"])
+            # Even the override must clear the cross-collection guard —
+            # if #0011 has SOMEHOW been assigned since seeding, back out
+            # and fall through to the normal $inc.
+            if not await _founder_number_in_use(candidate):
+                log.info(
+                    "iter164n: allocated override #%04d via %s (email=%s)",
+                    candidate, source, email or "?",
+                )
+                return candidate
+            # Slot just got taken — release the override and log clearly.
+            await db.counters.update_one(
+                {"id": _FOUNDER_OVERRIDE_ID},
+                {"$set": {"consumed": False}, "$unset": {"consumed_at": 1,
+                                                        "consumed_by_source": 1}},
+            )
+            log.error(
+                "iter164n: override #%04d found in use at claim time — "
+                "released marker and falling through to $inc",
+                candidate,
+            )
+
+    # --- Step 2: normal $inc path with cross-collection retry.
+    for _attempt in range(20):
+        doc = await db.counters.find_one_and_update(
+            {"id": _FOUNDER_NUMBER_COUNTER_ID},
+            {"$inc": {"value": 1}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        candidate = int(doc.get("value") or 3)
+        if not await _founder_number_in_use(candidate):
+            return candidate
+        # Extremely rare: counter drifted behind a legacy row. Advance.
+        log.warning(
+            "founder-allocator: counter value #%04d already in use "
+            "cross-collection; advancing counter",
+            candidate,
+        )
+    # If we still can't find a free number after 20 tries, something is
+    # deeply wrong with the data. Fail loudly rather than hand out a
+    # dupe.
+    raise RuntimeError(
+        "founder-allocator: could not find a free founder_number after "
+        "20 counter advances — manual intervention required"
+    )
+
+
+async def _next_founder_number(email: Optional[str] = None) -> int:
+    """Thin wrapper preserved for existing call sites. Delegates to
+    :func:`_allocate_founder_number` which is the unified atomic
+    allocator with the cross-collection uniqueness guard.
+    """
+    return await _allocate_founder_number(email=email,
+                                          source="public_registration")
+
+
+async def _release_founder_override_if_consumed_for(num: int) -> None:
+    """Undo a consumption of the one-time #0011 override when the
+    downstream registration failed. Safe no-op for any other value
+    (i.e. the normal $inc path). Atomic under concurrency: the filter
+    ``consumed: True`` + ``value: num`` ensures we only touch our own
+    consumption, never one belonging to a subsequent successful
+    registration.
+    """
+    if num != _FOUNDER_OVERRIDE_VALUE:
+        return
+    from pymongo import ReturnDocument
+    result = await db.counters.find_one_and_update(
+        {"id": _FOUNDER_OVERRIDE_ID, "consumed": True, "value": num},
+        {"$set": {"consumed": False},
+         "$unset": {"consumed_at": 1, "consumed_by_source": 1}},
         return_document=ReturnDocument.AFTER,
     )
-    return int(doc.get("value") or 3)
+    if result:
+        logging.getLogger("friendplace").info(
+            "iter164n: released override #%04d back to available "
+            "(downstream registration failed)", num,
+        )
 
 @app.on_event("startup")
 async def _seed_founder_numbers():  # noqa: D401
@@ -12417,6 +12566,137 @@ async def _seed_founder_numbers():  # noqa: D401
             )
     except Exception:
         logging.exception("Founder number seeding failed — will retry on next boot")
+
+
+@app.on_event("startup")
+async def _seed_founder_override_0011():  # noqa: D401
+    """iter164n one-time correction: reserve #0011 for the next
+    GENUINE public registration because the original #0011 (a Dora
+    duplicate) was retired via the retire-duplicate endpoint. After
+    #0011 is successfully consumed the normal $inc counter (at 20
+    in production) picks up naturally with #0021.
+
+    Fully idempotent — safe on every boot. HARD REFUSES to seed the
+    override if #0011 is currently in use in either
+    ``interest_registrations`` or ``users`` (both non-test, non-demo).
+    """
+    log = logging.getLogger("friendplace")
+    try:
+        existing = await db.counters.find_one({"id": _FOUNDER_OVERRIDE_ID})
+        if existing:
+            # Already seeded (consumed or still available) — do nothing.
+            return
+        # Verify #0011 genuinely unused before we create the marker.
+        if await _founder_number_in_use(_FOUNDER_OVERRIDE_VALUE):
+            log.error(
+                "iter164n: refusing to seed override — #%04d is already "
+                "in use in interest_registrations or users. No change made.",
+                _FOUNDER_OVERRIDE_VALUE,
+            )
+            return
+        await db.counters.insert_one({
+            "id":         _FOUNDER_OVERRIDE_ID,
+            "value":      _FOUNDER_OVERRIDE_VALUE,
+            "consumed":   False,
+            "note":       _FOUNDER_OVERRIDE_NOTE,
+            "created_at": now_iso(),
+        })
+        log.info(
+            "iter164n: seeded one-time override — next GENUINE public "
+            "registration will be assigned Founding Member #%04d.",
+            _FOUNDER_OVERRIDE_VALUE,
+        )
+    except Exception:
+        log.exception("iter164n: override seeding failed — will retry next boot")
+
+
+@app.on_event("startup")
+async def _ensure_founder_number_unique_indexes():  # noqa: D401
+    """iter164n defense-in-depth: partial unique indexes on
+    ``founder_number`` in both ``interest_registrations`` and
+    ``users``, so a hypothetical allocator bug can never persist a
+    duplicate number.
+
+    Partial filters (MongoDB partial indexes only allow equality /
+    $exists / $type / range, NOT $ne — same constraint the existing
+    email-unique index handles by backfilling ``is_test: false`` for
+    legacy rows before building the index):
+      - interest_registrations: ``founder_number: {$type: 'int'}``
+        AND ``is_test: false``.
+      - users: ``founder_number: {$type: 'int'}`` AND
+        ``is_test: false`` AND ``is_demo: false``.
+
+    Non-fatal on failure — if an index refuses to build because of
+    existing dupes we LOG which numbers are duplicated and continue
+    startup; the allocator's runtime cross-collection check is still
+    protective.
+    """
+    log = logging.getLogger("friendplace")
+    # (a) Backfill legacy rows missing the flag so equality-based
+    # partial filters cover them. Idempotent — sets only if unset.
+    try:
+        await db.interest_registrations.update_many(
+            {"is_test": {"$exists": False}},
+            {"$set": {"is_test": False}},
+        )
+    except Exception:
+        log.exception("iter164n: interest_registrations is_test backfill failed")
+    try:
+        await db.users.update_many(
+            {"is_test": {"$exists": False}},
+            {"$set": {"is_test": False}},
+        )
+        await db.users.update_many(
+            {"is_demo": {"$exists": False}},
+            {"$set": {"is_demo": False}},
+        )
+    except Exception:
+        log.exception("iter164n: users is_test/is_demo backfill failed")
+
+    plans = [
+        {
+            "coll":   "interest_registrations",
+            "name":   "ix_ir_founder_number_unique",
+            "filter": {"founder_number": {"$type": "int"},
+                       "is_test": False},
+        },
+        {
+            "coll":   "users",
+            "name":   "ix_users_founder_number_unique",
+            "filter": {"founder_number": {"$type": "int"},
+                       "is_test": False,
+                       "is_demo": False},
+        },
+    ]
+    for plan in plans:
+        try:
+            await db[plan["coll"]].create_index(
+                [("founder_number", 1)],
+                name=plan["name"],
+                unique=True,
+                partialFilterExpression=plan["filter"],
+            )
+            log.info(
+                "iter164n: created partial unique index %s on %s",
+                plan["name"], plan["coll"],
+            )
+        except Exception as e:
+            try:
+                pipeline = [
+                    {"$match": plan["filter"]},
+                    {"$group": {"_id": "$founder_number",
+                                "count": {"$sum": 1}}},
+                    {"$match": {"count": {"$gt": 1}}},
+                    {"$sort":  {"_id": 1}},
+                ]
+                dupes = await db[plan["coll"]].aggregate(pipeline).to_list(None)
+            except Exception:
+                dupes = None
+            log.error(
+                "iter164n: could not create %s on %s (dupes=%s): %s. "
+                "Startup continues; runtime cross-collection guard remains active.",
+                plan["name"], plan["coll"], dupes, e,
+            )
 
 
 @app.on_event("startup")
