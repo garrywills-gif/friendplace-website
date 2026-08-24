@@ -629,6 +629,66 @@ def _letter_button_html(*, label: str, url: str) -> str:
 """
 
 
+# iter164o duplicate-signoff guarantee. Compiled once, module-level, so
+# it isn't rebuilt on every render call. The pattern is deliberately
+# conservative: it only strips a closing that appears at the END of the
+# body, on its own line, with a signature line (or two) after it. That
+# way an in-body phrase like "we send our warm regards to everyone"
+# is untouched but a proper closing like:
+#     Warm regards,
+#     The FriendPlace Team
+# is removed so the renderer's own signer block is the one and only
+# closing on the sent email.
+import re as _re
+
+_TRAILING_SIGNOFF_RE = _re.compile(
+    # 1) One or two blank-line paragraph break OR just a newline before
+    #    the closing (people sometimes put the closing on the very next
+    #    line without a blank line above it).
+    r"(?:\n\s*\n|\n)"
+    # 2) The closing word / phrase, on its own visual line. Accept a
+    #    trailing punctuation mark (usually comma) and optional trailing
+    #    whitespace.
+    r"[ \t]*"
+    r"(?:"
+        r"warmly|warm\s+regards|"
+        r"best\s+regards|kind\s+regards|"
+        r"sincerely|regards|cheers|"
+        r"yours\s+truly|yours\s+sincerely|"
+        r"best,?|kindly,?|"
+        # covers e.g. "Thanks," used as a closing at the tail
+        r"thanks|thank\s+you"
+    r")"
+    r"[ \t]*[,.]?[ \t]*\n"
+    # 3) Signer line — up to ~80 chars, must contain SOMETHING visible.
+    r"[ \t]*\S[^\n]{0,79}"
+    # 4) Optional second signer/title line (e.g. "Your friend at
+    #    FriendPlace"). Also up to ~80 chars.
+    r"(?:\n[ \t]*\S[^\n]{0,79})?"
+    # 5) Trailing whitespace / blank lines up to end of body.
+    r"\s*$",
+    _re.IGNORECASE,
+)
+
+
+def _strip_trailing_signoff(body_md: str) -> str:
+    """Remove a recognisable trailing sign-off block from an authored
+    body, so the renderer's own signer block can be appended without
+    producing a duplicate closing.
+
+    Only strips when a closing sits at the tail of the body — an
+    in-body phrase like "regards" is left alone.
+
+    Idempotent — applying twice is the same as once.
+    """
+    if not body_md:
+        return body_md
+    stripped = _TRAILING_SIGNOFF_RE.sub("", body_md).rstrip()
+    return stripped
+
+
+
+
 def _letter_signature_html(*, signer: str = "george") -> str:
     """Signature block. Warm sign-off for personal/community emails,
     a plain team signature for operational/security emails.
@@ -1880,8 +1940,22 @@ def announcement_template(
         )
         founder_pill_text = f"[Founding Member {fno}]\n\n"
 
+    # iter164o duplicate-signoff guarantee:
+    # If the composer body ends with its own closing (e.g. "Warm regards,
+    # The FriendPlace Team"), we must NOT append a second closing. The
+    # renderer strips a recognisable trailing sign-off block whenever the
+    # selected signer will render one — so the pipeline produces exactly
+    # one closing regardless of what the author typed.
+    #   signer='team'    -> strip trailing signoff, then append Team block
+    #   signer='george'  -> strip trailing signoff, then append George block
+    #   signer='georgia' -> strip trailing signoff, then append Georgia block
+    #   signer='none'    -> KEEP whatever closing the body owns; append nothing
+    body_md_effective = body_md or ""
+    if signer_norm != "none":
+        body_md_effective = _strip_trailing_signoff(body_md_effective)
+
     # Paragraph split on blank lines, escaping each and wrapping in <p>.
-    paragraphs = [p.strip() for p in (body_md or "").split("\n\n") if p.strip()]
+    paragraphs = [p.strip() for p in body_md_effective.split("\n\n") if p.strip()]
     body_html_parts = [
         f"<p style=\"margin:0 0 20px 0;\">{_esc(p).replace(chr(10), '<br>')}</p>"
         for p in paragraphs

@@ -475,9 +475,10 @@ function ComposePanel() {
             ))}
           </div>
           <p style={{ fontSize: 12, color: '#64748B', marginTop: 8, lineHeight: 1.4 }}>
-            The template appends this closing under your body. If your
-            body already ends with "Warm regards, …", choose <b>No
-            additional sign-off</b> to avoid a duplicate.
+            The renderer appends the selected closing under your body.
+            If your body already ends with its own closing (e.g. "Warm
+            regards, …"), it will be replaced automatically so recipients
+            see exactly one sign-off.
           </p>
         </SectionCard>
 
