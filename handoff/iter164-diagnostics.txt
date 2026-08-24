@@ -1,9 +1,22 @@
 ================================================================================
-iter164-diagnostics — Diagnostic Console-Log Bundle
-Branch: iter164-diagnostics    Commit: c736a5b
+iter164-diagnostics — Diagnostic Console-Log Bundle (LOGGING ONLY)
+Branch: iter164-diagnostics    Commit: d7ce9f4
 Repo: garrywills-gif/friendplace-website
-Files: 3   (diagnostic instrumentation ONLY, no logic changes)
+Files: 3
+Total additions: +31 lines (all console.log / comments)  Deletions: -2 (onClick wrapping)
 ================================================================================
+
+NO LOGIC CHANGES — confirmed via `git diff HEAD~1 HEAD --stat`:
+  - stopCurrentPlayback()                     UNTOUCHED
+  - MediaRecorder cleanup / start / stop      UNTOUCHED
+  - AskGeorgeBar submit() resolution          (msg ?? input).trim()  UNCHANGED
+  - Ask button `disabled` prop                UNCHANGED
+  - Silent-WAV unlock flow                    UNTOUCHED
+  - speakText() invocation                    UNTOUCHED
+
+The onClick handler was wrapped from `() => submit()` to a block that logs
+`[ask-submit] click fired ...` and then calls the same `submit()`. It performs
+no behavioural change — it still invokes submit() with no arguments.
 
 HOW TO APPLY
 ------------
@@ -21,6 +34,7 @@ Safari TTS stuck on "Preparing…" (Issue 1):
      • '[tts] silent-WAV unlock rejected: ...'  -> gesture consumed
      • '[tts] speakText resolved; blob size=0'  -> server returned empty
      • '[tts] awaiting real el.play(); ...'     -> WKWebView blocked play
+     • '[tts] play() threw: NotAllowedError'    -> user-activation lost
 
 Mac PWA Mic needs 3–4 taps (Issue 2):
    Filter by [voice]. Report the sequence across 3-4 taps and note whether:
@@ -31,9 +45,10 @@ Mac PWA Mic needs 3–4 taps (Issue 2):
 Mac PWA Ask button "does nothing" after transcription (Issue 3):
    Filter by [ask-submit]. Report:
      • '[ask-submit] click fired; disabled(computed)=true'  -> button greyed
-     • '[ask-submit] submit() entered; stateInput="" domVal="hello …"'
-       -> stale closure confirmed, domVal fallback should still resolve source
-     • 'earlyReturn? true' with non-empty domVal  -> deeper closure bug
+     • '[ask-submit] submit() entered; stateInput="" domVal="hello ..."'
+       -> stale closure confirmed; note that submit() still uses stateInput,
+          so 'earlyReturn? true' is EXPECTED — that is the bug reproduced,
+          not masked.
 
 ================================================================================
 
@@ -443,15 +458,14 @@ export function AskGeorgeBar() {
   }, []);
 
   function submit(msg?: string, ctx?: Record<string, unknown>) {
+    // iter164-diagnostics: LOGGING ONLY — do NOT use domVal to alter the
+    // submitted message. Production resolution is preserved exactly as
+    // `(msg ?? input).trim()`. We log msg / React input / DOM value
+    // separately so we can compare them without masking the failure.
     const domVal = inputRef.current?.value ?? '';
     console.log('[ask-submit] submit() entered; msg=', JSON.stringify(msg), 'stateInput=', JSON.stringify(input), 'stateLen=', input.length, 'domVal=', JSON.stringify(domVal), 'domLen=', domVal.length);
-    // iter164-diagnostics: use DOM value as fallback when state closure is stale
-    // (WKWebView batched updates on installed Mac PWA). This makes the diagnostic
-    // useful — logs reveal the closure gap, and the fallback lets us confirm
-    // that domVal is the correct source.
-    const source = msg ?? (input.trim() ? input : domVal);
-    const message = source.trim();
-    console.log('[ask-submit] resolved source=', JSON.stringify(source), 'message len=', message.length, 'earlyReturn?', !message);
+    const message = (msg ?? input).trim();
+    console.log('[ask-submit] resolved message len=', message.length, 'earlyReturn?', !message);
     if (!message) return;
     setInitialMessage(message);
     setInitialContext(ctx);
