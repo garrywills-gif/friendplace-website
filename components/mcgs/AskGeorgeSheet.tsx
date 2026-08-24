@@ -516,7 +516,11 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     // Enter sends. Shift+Enter for a newline.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      send(input);
+      // iter164k: read the current DOM value so a WKWebView (installed
+      // Mac web app) stale-render closure after voice transcription
+      // can't strand the send. `?? input` keeps the value a string for
+      // send(message: string) when the ref is momentarily null.
+      send(inputRef.current?.value ?? input);
     }
   }
 
@@ -708,7 +712,11 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
           ) : (
             <button
               type="button"
-              onClick={() => send(input)}
+              /* iter164k: read the DOM value first (state fallback for
+               * type safety). Matches the iter164i fix applied to
+               * AskGeorgeBar — same WKWebView stale-render closure
+               * that stranded submit after voice transcription. */
+              onClick={() => send(inputRef.current?.value ?? input)}
               disabled={!input.trim() || transcribing}
               style={{ ...sendBtn, opacity: (!input.trim() || transcribing) ? 0.5 : 1 }}
             >Send</button>
