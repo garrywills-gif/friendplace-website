@@ -1,0 +1,49 @@
+name: George iter164q exact apply
+
+on:
+  push:
+    branches:
+      - george-iter164q-helper
+    paths:
+      - .github/workflows/george-iter164q-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Reconstruct and verify Neo patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main george-iter164q-helper
+          test "$(git rev-parse origin/main)" = "041d2434f2a1e4132f352b8a52ee3914b4ba4bdd"
+          for n in 00 01 02 03 04; do
+            git show "origin/george-iter164q-helper:.github/iter164q-chunks/chunk-$n"
+          done | tr -d '\n' | base64 -d > /tmp/iter164q.patch
+          echo "237c894f52e3c71e9ca03664285cce68520b35cf75048dacfba00a85caf236fa  /tmp/iter164q.patch" | sha256sum -c -
+
+      - name: Apply exact patch and verify scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "garrywills-gif"
+          git config user.email "garry.wills@ymail.com"
+          git am /tmp/iter164q.patch
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD | sort | tr '\n' ' ')" = "app/admin/campaigns/new/page.tsx lib/cms-api.ts "
+          test "$(git hash-object app/admin/campaigns/new/page.tsx)" = "103df0a7c61c1d4a4e18985def594c9efd475ab6"
+          test "$(git hash-object lib/cms-api.ts)" = "1bd884ccdf77383bc2f2ca619ed7b3985d2f13c4"
+
+      - name: Push guarded fast-forward to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin HEAD:main
