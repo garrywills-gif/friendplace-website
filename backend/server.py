@@ -12231,6 +12231,40 @@ async def _ensure_segment_indexes():
 
 _FOUNDER_NUMBER_COUNTER_ID = "founder_number"
 
+# iter164n: one-time correction. #0011 originally belonged to a
+# duplicate Dora record that was retired via the retire-duplicate
+# endpoint. This override reserves #0011 for the next GENUINE public
+# registration, then transparently steps aside so #0021 → #0022 → …
+# resumes via the normal $inc counter (which is at 20 in production
+# right now). Fully documented on the counter document itself so it's
+# self-describing to any future admin who pokes at Mongo.
+_FOUNDER_OVERRIDE_ID = "founder_number_next_override"
+_FOUNDER_OVERRIDE_VALUE = 11
+_FOUNDER_OVERRIDE_NOTE = (
+    "iter164n: Dora duplicate retired, #0011 slot restored to allocation queue"
+)
+
+
+def _looks_like_test_email(email: Optional[str]) -> bool:
+    """Return True if the email pattern indicates a test / QA / demo
+    registration that must NOT consume the one-time #0011 override.
+    Genuine visitors will never match these patterns; every automated
+    test fixture in this codebase does.
+    """
+    if not email or "@" not in email:
+        # No email or malformed — definitely not a genuine reg. Skip
+        # the override so a broken client can't burn #0011 by accident.
+        return True
+    local, _, domain = email.lower().partition("@")
+    if any(marker in local for marker in ("+iter", "+test", "+qa", "+demo")):
+        return True
+    if domain in {"example.com", "example.org", "example.net", "example"}:
+        return True
+    if domain.endswith((".test", ".invalid", ".example")):
+        return True
+    return False
+
+
 _RESERVED_FOUNDERS: list[dict] = [
     {
         "founder_number": 1,
