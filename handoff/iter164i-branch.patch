@@ -1,7 +1,7 @@
 From 6e467f52a0ddd83ff6a20f3a222796a36b009271 Mon Sep 17 00:00:00 2001
 From: Diagnostics <diag@friendplace.local>
 Date: Mon, 24 Aug 2026 02:52:47 +0000
-Subject: [PATCH 1/2] iter164i: pass DOM input value to submit() on Ask click
+Subject: [PATCH 1/3] iter164i: pass DOM input value to submit() on Ask click
  and Enter key
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -69,7 +69,7 @@ index 9edc096..cea2267 100644
 From 100c1768f7b7fbfbec2290973f8a2e77c5513519 Mon Sep 17 00:00:00 2001
 From: Diagnostics <diag@friendplace.local>
 Date: Mon, 24 Aug 2026 03:21:34 +0000
-Subject: [PATCH 2/2] iter164j: relocate SILENT_WAV audio priming out of the
+Subject: [PATCH 2/3] iter164j: relocate SILENT_WAV audio priming out of the
  '!url' branch
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -147,6 +147,82 @@ index 30b5d59..82761a4 100644
          // Rank 1 dedup: if a prefetch is already in flight for the
          // current turn text, join it rather than firing a second
          // request. If it's in flight for a shorter (early) text we do
+-- 
+2.39.5
+
+
+From b784f1b72b60fe4e5a386b6ed64f235f1318afa4 Mon Sep 17 00:00:00 2001
+From: Diagnostics <diag@friendplace.local>
+Date: Mon, 24 Aug 2026 03:57:20 +0000
+Subject: [PATCH 3/3] iter164k: apply iter164i DOM-value pattern to the sheet
+ composer
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fixes installed Mac web app (WKWebView, display-mode: standalone)
+sheet-composer submit path: after voice transcription lands in the
+textarea, tapping Send or pressing Enter did nothing because the
+inline onClick / onKeyDown closures captured a stale React 'input'
+state from a pre-transcript render (WKWebView's render commit lags
+the paint on that surface).
+
+The same bug was fixed in AskGeorgeBar (iter164i). The sheet
+composer path was overlooked and is the common Mac PWA reproduction
+now that the sheet stays open across submits (iter164h).
+
+Fix: at both the Enter-key and Send-button call sites, read
+inputRef.current?.value first and fall back to React 'input' only
+if the ref is momentarily null (keeps the type 'string' for
+send(message: string)). The 'send' guard still runs message.trim()
++ if (!trimmed || busy) return.
+
+Behavioural delta:
+  - Mac PWA sheet composer: Send after transcription now reliably
+    reaches send() with the transcript. Enter key too.
+  - Safari-browser: unchanged in effect — inputRef.current?.value
+    already equals React state on that surface.
+  - Chrome / Firefox: unchanged in effect — same reason.
+
+Scope discipline:
+  - Only components/mcgs/AskGeorgeSheet.tsx touched.
+  - Zero brace / paren / send-call-count delta vs HEAD.
+  - Not touched: mic (toggleComposerMic), transcription,
+    TTS pipeline, audio singleton, backend, CORS, retry logic.
+---
+ components/mcgs/AskGeorgeSheet.tsx | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/components/mcgs/AskGeorgeSheet.tsx b/components/mcgs/AskGeorgeSheet.tsx
+index 82761a4..2caf0ab 100644
+--- a/components/mcgs/AskGeorgeSheet.tsx
++++ b/components/mcgs/AskGeorgeSheet.tsx
+@@ -516,7 +516,11 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
+     // Enter sends. Shift+Enter for a newline.
+     if (e.key === 'Enter' && !e.shiftKey) {
+       e.preventDefault();
+-      send(input);
++      // iter164k: read the current DOM value so a WKWebView (installed
++      // Mac web app) stale-render closure after voice transcription
++      // can't strand the send. `?? input` keeps the value a string for
++      // send(message: string) when the ref is momentarily null.
++      send(inputRef.current?.value ?? input);
+     }
+   }
+ 
+@@ -708,7 +712,11 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
+           ) : (
+             <button
+               type="button"
+-              onClick={() => send(input)}
++              /* iter164k: read the DOM value first (state fallback for
++               * type safety). Matches the iter164i fix applied to
++               * AskGeorgeBar — same WKWebView stale-render closure
++               * that stranded submit after voice transcription. */
++              onClick={() => send(inputRef.current?.value ?? input)}
+               disabled={!input.trim() || transcribing}
+               style={{ ...sendBtn, opacity: (!input.trim() || transcribing) ? 0.5 : 1 }}
+             >Send</button>
 -- 
 2.39.5
 
