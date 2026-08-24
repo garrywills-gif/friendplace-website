@@ -12512,6 +12512,16 @@ _CORS_DEFAULT = (
 _cors_env = os.getenv("CORS_ORIGINS", _CORS_DEFAULT)
 _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
 _cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"^https://[a-z0-9-]+\.emergentagent\.com$")
+# iter164l TEMPORARY: also allow FriendPlace's Vercel preview deployments
+# so the TTS diagnostic branch preview can reach the admin API. Narrowly
+# scoped to the friendplace-website project on vercel.app only — any
+# other Vercel project cannot exploit this. Union with the env-configured
+# regex above so the Emergent preview allowance is preserved.
+# Remove this block once iter164l diagnostics are complete.
+_FRIENDPLACE_VERCEL_PREVIEW = (
+    r"^https://friendplace-website(?:-[a-z0-9-]+)*\.vercel\.app$"
+)
+_cors_regex = f"({_cors_regex})|({_FRIENDPLACE_VERCEL_PREVIEW})"
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
