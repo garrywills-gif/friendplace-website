@@ -126,7 +126,12 @@ export default function CampaignDetailPage() {
           <div style={{ marginTop: 6, color: '#475569', fontSize: 14 }}>
             {campaign.template === 'announcement' ? 'Founding Member update' :
               campaign.template === 'invitation' ? 'Invitation' : 'Welcome letter'}
-            {' · '}signed by {campaign.companion === 'georgia' ? 'Georgia' : 'George'}
+            {' · '}signed by {
+              campaign.companion === 'team'    ? 'The FriendPlace Team' :
+              campaign.companion === 'georgia' ? 'Georgia' :
+              campaign.companion === 'none'    ? 'no additional sign-off' :
+                                                 'George'
+            }
             {campaign.sent_at && (
               <> · sent {new Date(campaign.sent_at).toLocaleString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</>
             )}

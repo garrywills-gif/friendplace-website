@@ -26,25 +26,65 @@ import {
   type Segment,
 } from '@/lib/cms-api';
 
-type Template = 'announcement' | 'invitation' | 'welcome';
+type Template = 'announcement' | 'community_outreach' | 'invitation' | 'welcome';
 
-const TEMPLATE_META: Record<Template, { label: string; description: string; needsBody: boolean }> = {
+// iter164o: `community_outreach` is a UI-only variant. It shares the
+// backend `announcement` template rendering, but the composer defaults
+// change (team sign-off, no Founding-Member framing) so an outreach
+// campaign isn't mislabelled as "Founding Member update". Server-side
+// nothing new to teach — the renderer already omits the Founder pill
+// when the recipient has no founder_number.
+const TEMPLATE_META: Record<Template, {
+  label: string; description: string; needsBody: boolean;
+  serverTemplate: 'announcement' | 'invitation' | 'welcome';
+  defaultSigner: 'george' | 'georgia' | 'team' | 'none';
+  defaultTitle: string;
+}> = {
   announcement: {
-    label:       'Founding Member update',
-    description: 'A general-purpose letter for keeping Founding Members in the loop.',
-    needsBody:   true,
+    label:         'Founding Member update',
+    description:   'A general-purpose letter for keeping Founding Members in the loop.',
+    needsBody:     true,
+    serverTemplate:'announcement',
+    defaultSigner: 'george',
+    defaultTitle:  'A note from FriendPlace',
+  },
+  community_outreach: {
+    label:         'Community / Outreach update',
+    description:   'Business/community outreach — retirement villages, partners, and non-member contacts. Signed by The FriendPlace Team.',
+    needsBody:     true,
+    serverTemplate:'announcement',
+    defaultSigner: 'team',
+    defaultTitle:  'A note from FriendPlace',
   },
   invitation: {
     label:       'Invitation',
     description: 'Personal invitation to join FriendPlace. Auto-advances recipient status to Invited.',
     needsBody:   false,
+    serverTemplate:'invitation',
+    defaultSigner: 'george',
+    defaultTitle:  '',
   },
   welcome: {
     label:       'Welcome',
     description: 'First-time welcome letter — usually sent automatically when someone joins.',
     needsBody:   false,
+    serverTemplate:'welcome',
+    defaultSigner: 'george',
+    defaultTitle:  '',
   },
 };
+
+// iter164o: signer options. `team` is the default for
+// community/outreach; `none` is available for campaigns whose body
+// already contains its own closing (prevents the duplicate-sign-off
+// bug where "Warm regards, The FriendPlace Team" appeared twice).
+type Signer = 'team' | 'george' | 'georgia' | 'none';
+const SIGNER_OPTIONS: { value: Signer; label: string }[] = [
+  { value: 'team',    label: 'The FriendPlace Team' },
+  { value: 'george',  label: '🦋 George' },
+  { value: 'georgia', label: '🦋 Georgia' },
+  { value: 'none',    label: 'No additional sign-off' },
+];
 
 export default function NewCampaignPage() {
   return (
@@ -63,10 +103,20 @@ function ComposePanel() {
 
   const [name, setName] = useState('');
   const [template, setTemplate] = useState<Template>('announcement');
-  const [companion, setCompanion] = useState<'george' | 'georgia'>('george');
+  // iter164o: signer expanded from {george, georgia} to
+  // {team, george, georgia, none}. `team` is the default for
+  // community/outreach; `none` skips any trailing sign-off so a body
+  // that already contains its own closing isn't followed by a
+  // duplicate boilerplate.
+  const [companion, setCompanion] = useState<Signer>('george');
   const [subject, setSubject] = useState('');
   const [preheader, setPreheader] = useState('');
-  const [title, setTitle] = useState('');
+  // iter164o: initial title default is the friendly headline the
+  // renderer used to silently insert. Placing the default in the field
+  // makes it visible and editable; clearing the field now genuinely
+  // means "no headline" instead of quietly restoring the default at
+  // preview / send time.
+  const [title, setTitle] = useState('A note from FriendPlace');
   const [bodyMd, setBodyMd] = useState('');
   const [ctaLabel, setCtaLabel] = useState('');
   const [ctaUrl, setCtaUrl] = useState('');
@@ -106,11 +156,24 @@ function ComposePanel() {
       try {
         const c = await campaignsApi.get(editId);
         setName(c.name || '');
-        setTemplate((c.template || 'announcement') as Template);
-        setCompanion((c.companion || 'george') as any);
+        // iter164o: `announcement` is the backend template shared by
+        // the Founding-Member and Community/Outreach UI variants.
+        // Choose the UI variant by the saved signer OR by audience —
+        // outreach audiences bias toward the Community label.
+        const backendT = (c.template || 'announcement') as string;
+        const savedSigner = (c.companion || 'george') as Signer;
+        const savedKindHint = (c.audience_filter as any)?.audience_kind || '';
+        let uiT: Template = (backendT === 'announcement' ? 'announcement' : (backendT as Template));
+        if (backendT === 'announcement' && (savedSigner === 'team' || savedKindHint === 'outreach')) {
+          uiT = 'community_outreach';
+        }
+        setTemplate(uiT);
+        setCompanion(savedSigner);
         setSubject(c.subject || '');
         setPreheader(c.preheader || '');
-        setTitle(c.title || '');
+        // iter164o: honour the saved title verbatim (empty means the
+        // author cleared it — do NOT silently substitute the default).
+        setTitle(c.title ?? '');
         setBodyMd(c.body_md || '');
         setCtaLabel(c.cta_label || '');
         setCtaUrl(c.cta_url || '');
@@ -234,9 +297,13 @@ function ComposePanel() {
   const saveDraft = useCallback(async (silent = false): Promise<string | null> => {
     setSaving(true);
     try {
+      // iter164o: `template` in state is the UI variant. Map to the
+      // backend template key here so the server (which knows nothing
+      // about `community_outreach`) sees a value it already renders.
+      const serverTemplate = TEMPLATE_META[template]?.serverTemplate || 'announcement';
       const payload: Partial<Campaign> = {
         name: name || 'Untitled campaign',
-        template, subject, preheader, companion,
+        template: serverTemplate, subject, preheader, companion,
         title, body_md: bodyMd,
         cta_label: ctaLabel, cta_url: ctaUrl,
         audience_filter: audienceFilter,
@@ -368,7 +435,19 @@ function ComposePanel() {
         </SectionCard>
 
         <SectionCard title="Template">
-          <select value={template} onChange={e => setTemplate(e.target.value as Template)}
+          <select value={template} onChange={e => {
+            const next = e.target.value as Template;
+            setTemplate(next);
+            // iter164o: switching template resets the sign-off to the
+            // template's default (george for founder, team for outreach)
+            // AND pre-fills the title if the field is empty. Explicit
+            // user edits are preserved.
+            const meta = TEMPLATE_META[next];
+            if (meta) {
+              setCompanion(meta.defaultSigner);
+              if (!title.trim() && meta.defaultTitle) setTitle(meta.defaultTitle);
+            }
+          }}
             style={{ ...s.input, width: '100%' }}>
             {Object.entries(TEMPLATE_META).map(([k, m]) => (
               <option key={k} value={k}>{m.label}</option>
@@ -378,19 +457,29 @@ function ComposePanel() {
         </SectionCard>
 
         <SectionCard title="Signed by">
-          <div style={{ display: 'flex', gap: 8 }}>
-            {(['george', 'georgia'] as const).map(c => (
-              <button key={c} type="button" onClick={() => setCompanion(c)}
+          {/* iter164o: 4 signer options. `team` is the friendly default
+              for community/outreach campaigns; `none` lets a body that
+              already contains its own closing avoid the duplicate
+              boilerplate that appeared previously. */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {SIGNER_OPTIONS.map(opt => (
+              <button key={opt.value} type="button" onClick={() => setCompanion(opt.value)}
                 style={{
-                  ...s.ghostBtn, flex: 1,
-                  background: companion === c ? '#0F766E' : '#FFFFFF',
-                  color:      companion === c ? '#FFFFFF' : '#0A2540',
-                  borderColor: companion === c ? '#0F766E' : '#CBD5E1',
+                  ...s.ghostBtn,
+                  background:  companion === opt.value ? '#0F766E' : '#FFFFFF',
+                  color:       companion === opt.value ? '#FFFFFF' : '#0A2540',
+                  borderColor: companion === opt.value ? '#0F766E' : '#CBD5E1',
                 }}>
-                {c === 'george' ? '🦋 George' : '🦋 Georgia'}
+                {opt.label}
               </button>
             ))}
           </div>
+          <p style={{ fontSize: 12, color: '#64748B', marginTop: 8, lineHeight: 1.4 }}>
+            The renderer appends the selected closing under your body.
+            If your body already ends with its own closing (e.g. "Warm
+            regards, …"), it will be replaced automatically so recipients
+            see exactly one sign-off.
+          </p>
         </SectionCard>
 
         <SectionCard title="Subject & preheader">
@@ -404,11 +493,11 @@ function ComposePanel() {
             style={{ ...s.input, width: '100%' }} maxLength={200} />
         </SectionCard>
 
-        {template === 'announcement' && (
+        {(template === 'announcement' || template === 'community_outreach') && (
           <SectionCard title="Letter contents">
             <label style={s.label}>Headline (h1 in the letter)</label>
             <input value={title} onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. A gentle update from FriendPlace"
+              placeholder="Leave blank for no headline"
               style={{ ...s.input, width: '100%' }} maxLength={200} />
             <label style={{ ...s.label, marginTop: 10 }}>Body</label>
             <textarea value={bodyMd} onChange={e => setBodyMd(e.target.value)}
@@ -895,8 +984,13 @@ function ConfirmModal({
         <div style={rowLabel}>Template</div>
         <div style={rowValue}>{templateLabel}</div>
 
-        <div style={rowLabel}>Companion</div>
-        <div style={rowValue}>{companion === 'georgia' ? 'Georgia' : 'George'}</div>
+        <div style={rowLabel}>Signed by</div>
+        <div style={rowValue}>{
+          companion === 'team'    ? 'The FriendPlace Team' :
+          companion === 'georgia' ? 'Georgia' :
+          companion === 'none'    ? 'No additional sign-off' :
+                                    'George'
+        }</div>
 
         <div style={{
           marginTop: 20, padding: 14,
