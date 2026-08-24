@@ -1,0 +1,152 @@
+From 6e467f52a0ddd83ff6a20f3a222796a36b009271 Mon Sep 17 00:00:00 2001
+From: Diagnostics <diag@friendplace.local>
+Date: Mon, 24 Aug 2026 02:52:47 +0000
+Subject: [PATCH 1/2] iter164i: pass DOM input value to submit() on Ask click
+ and Enter key
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fixes the installed Mac web app (WKWebView) bug where a successful voice
+transcription lands in the Ask field visibly, but tapping the Ask button
+does nothing. WKWebView's microtask/render batching leaves the React
+onClick closure holding a stale (empty) 'input' state at click time, so
+submit()'s 'msg ?? input' resolves to empty and the early-return fires.
+
+Fix: at the two USER-driven call sites (Ask button onClick and Enter
+key in onKeyDown), pass inputRef.current?.value explicitly. submit()
+already prefers 'msg' over 'input', so a defined DOM value wins over
+any stale React state. Programmatic submits from the 'openAskGeorge'
+custom event (line 53) remain unchanged — they already pass an
+explicit message string.
+
+No behavioural change for:
+  - typed messages (DOM value always matches state during typing)
+  - programmatic submits (still pass explicit msg)
+  - button disabled state (unchanged, still gated on state.input)
+
+Scope: single file, 2 call-site edits, added comments only.
+Not touched: MediaRecorder, transcribe pipeline, TTS, audio singleton,
+retry logic, backend, unrelated files.
+---
+ components/mcgs/AskGeorgeBar.tsx | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/components/mcgs/AskGeorgeBar.tsx b/components/mcgs/AskGeorgeBar.tsx
+index 9edc096..cea2267 100644
+--- a/components/mcgs/AskGeorgeBar.tsx
++++ b/components/mcgs/AskGeorgeBar.tsx
+@@ -117,7 +117,9 @@ export function AskGeorgeBar() {
+   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+     if (e.key === 'Enter') {
+       e.preventDefault();
+-      submit();
++      // iter164i: pass the DOM value explicitly to bypass any stale
++      // React-state/closure in WKWebView (installed Mac web app).
++      submit(inputRef.current?.value);
+     }
+   }
+ 
+@@ -212,7 +214,13 @@ export function AskGeorgeBar() {
+            */}
+           <button
+             type="button"
+-            onClick={() => submit()}
++            /* iter164i: pass the DOM value explicitly so that on WKWebView
++             * (installed Mac web app) a stale React-state closure after
++             * voice transcription can't strand the submit. Normal typed
++             * input and programmatic submits still work because submit()
++             * resolves `msg ?? input` — a defined DOM value simply wins
++             * over the (possibly-stale) React state. */
++            onClick={() => submit(inputRef.current?.value)}
+             disabled={!input.trim()}
+             style={{ ...askBtn, opacity: input.trim() ? 1 : 0.5 }}
+           >Ask</button>
+-- 
+2.39.5
+
+
+From 100c1768f7b7fbfbec2290973f8a2e77c5513519 Mon Sep 17 00:00:00 2001
+From: Diagnostics <diag@friendplace.local>
+Date: Mon, 24 Aug 2026 03:21:34 +0000
+Subject: [PATCH 2/2] iter164j: relocate SILENT_WAV audio priming out of the
+ '!url' branch
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fixes installed Mac web app (WKWebView, display-mode: standalone) TTS
+stalling on 'Preparing…' after a text reply arrives.
+
+Root cause: WKWebView-standalone hangs HTMLAudioElement.play() with
+no resolve and no reject when the element has never been primed by a
+play inside a live user gesture. The current code primes the element
+with SILENT_WAV only inside the 'if (!url)' branch — meaning the
+priming is skipped whenever the prefetch effect has already resolved
+by the time the user taps Play (the common Mac PWA case). Safari
+proper is lenient about this and plays cached blobs without priming;
+WKWebView-standalone is not.
+
+Fix: move the identical priming try/catch block up one nesting level
+so it runs before both the cached-blob and uncached-blob paths.
+
+Behavioural delta:
+  - Mac PWA (standalone): el.play() no longer hangs; UI transitions
+    from 'Preparing…' to 'Playing' as it does in Safari browser.
+  - Safari browser: unchanged in effect (silent WAV plays for <5 ms
+    then real clip plays; the block was already run in the uncached
+    path there).
+  - Chrome / Firefox: unchanged in effect (try/catch swallows any
+    refusal of the silent clip; no impact on cached playback).
+
+Scope discipline:
+  - Only components/mcgs/AskGeorgeSheet.tsx touched.
+  - Zero brace / paren / try / catch count delta vs HEAD.
+  - Not touched: MediaRecorder, use-voice-recorder, transcribe pipeline,
+    Ask submit, audio singleton (claimPlayback / releasePlayback),
+    retry logic, backend.
+---
+ components/mcgs/AskGeorgeSheet.tsx | 20 +++++++++++++++-----
+ 1 file changed, 15 insertions(+), 5 deletions(-)
+
+diff --git a/components/mcgs/AskGeorgeSheet.tsx b/components/mcgs/AskGeorgeSheet.tsx
+index 30b5d59..82761a4 100644
+--- a/components/mcgs/AskGeorgeSheet.tsx
++++ b/components/mcgs/AskGeorgeSheet.tsx
+@@ -1010,6 +1010,21 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
+     el.ontimeupdate = null;
+     el.onloadedmetadata = null;
+     el.onplaying = null;
++    // iter164j: WKWebView (installed Mac web app, display-mode:
++    // standalone) hangs el.play() with no resolve and no reject when the
++    // <audio> element has never been primed by a play inside a user
++    // gesture. That strands the UI on "Preparing…". Safari-browser is
++    // lenient and doesn't strictly need this on cached blobs, but the
++    // priming is idempotent and costs <5 ms of silent audio there.
++    // Previously the priming was gated by `if (!url)` below and missed
++    // the cached-blob path — which is the common Mac PWA case because
++    // the prefetch effect resolves before the user taps Play. Relocate
++    // the block; no other logic changes.
++    try {
++      el.src = SILENT_WAV;
++      await el.play();
++      el.pause();
++    } catch { /* browsers that reject the silent clip: harmless */ }
+     try {
+       let url = audioUrl;
+       // A cached blob may cover only the first-sentence prefetch text
+@@ -1021,11 +1036,6 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
+         url = null;
+       }
+       if (!url) {
+-        try {
+-          el.src = SILENT_WAV;
+-          await el.play();
+-          el.pause();
+-        } catch { /* some browsers reject the silent clip; harmless */ }
+         // Rank 1 dedup: if a prefetch is already in flight for the
+         // current turn text, join it rather than firing a second
+         // request. If it's in flight for a shorter (early) text we do
+-- 
+2.39.5
+
