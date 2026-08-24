@@ -966,7 +966,9 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
   }, [autoSpeak, audioUrl, turn.content, turn.streaming, turn.failed, isUser, playing, preparing]);
 
   async function play() {
+    console.log('[tts] play() called; playing=', playing, 'preparing=', preparing, 'hasAudioUrl?', !!audioUrl, 'prefetchedFor===content?', prefetchedForRef.current === turn.content, 'contentLen=', turn.content?.length);
     if (playing) {
+      console.log('[tts] play() short-circuit: already playing → pause');
       audioRef.current?.pause();
       setPlaying(false);
       return;
@@ -979,7 +981,9 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
     // and again just before el.play() (after the SILENT_WAV unlock)
     // means auto-speak, manual replay and stream-interrupt all funnel
     // through the same single-owner registry.
+    console.log('[tts] calling stopCurrentPlayback() BEFORE unlock');
     stopCurrentPlayback();
+    console.log('[tts] stopCurrentPlayback() returned; setPreparing(true) next');
     // Instant visual feedback \u2014 button flips to a spinner + "Preparing audio\u2026"
     // caption before any network work happens. Batch-2 QA feedback: the
     // silent gap after tapping Play made the UI feel broken.
@@ -1022,10 +1026,12 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
       }
       if (!url) {
         try {
+          console.log('[tts] silent-WAV unlock: setting src and awaiting play()');
           el.src = SILENT_WAV;
           await el.play();
           el.pause();
-        } catch { /* some browsers reject the silent clip; harmless */ }
+          console.log('[tts] silent-WAV unlock: OK');
+        } catch (err) { console.warn('[tts] silent-WAV unlock rejected:', (err as Error).name, (err as Error).message); }
         // Rank 1 dedup: if a prefetch is already in flight for the
         // current turn text, join it rather than firing a second
         // request. If it's in flight for a shorter (early) text we do
@@ -1042,10 +1048,12 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
             url = null;
           }
         }
+        console.log('[tts] no cached blob for full content; calling speakText()');
         if (!url) {
           // Persona key — backend maps "george" → ash (warm male, tts-1).
           // Never send a raw voice id from here; server enforces the map.
           const blob = await speakText(turn.content, 'george', 1.05);
+          console.log('[tts] speakText resolved; blob size=', blob.size, 'type=', blob.type);
           url = URL.createObjectURL(blob);
           setAudioUrl(url);
           prefetchedForRef.current = turn.content;
@@ -1110,11 +1118,14 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
         setPlaying(false);
         setPreparing(false);
       });
+      console.log('[tts] awaiting real el.play(); src length=', el.src.length, 'readyState=', el.readyState);
       await el.play();
+      console.log('[tts] real el.play() returned; el.paused=', el.paused, 'currentTime=', el.currentTime, 'duration=', el.duration);
       // Fallback in case `onplaying` didn't fire (some browsers).
       setPreparing(false);
       setPlaying(true);
     } catch (err) {
+      console.error('[tts] play() threw:', (err as Error).name, (err as Error).message);
       console.error('[read-aloud] failed:', err);
       setPreparing(false);
       setPlaying(false);

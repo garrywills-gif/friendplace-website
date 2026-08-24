@@ -58,7 +58,14 @@ export function AskGeorgeBar() {
   }, []);
 
   function submit(msg?: string, ctx?: Record<string, unknown>) {
+    // iter164-diagnostics: LOGGING ONLY — do NOT use domVal to alter the
+    // submitted message. Production resolution is preserved exactly as
+    // `(msg ?? input).trim()`. We log msg / React input / DOM value
+    // separately so we can compare them without masking the failure.
+    const domVal = inputRef.current?.value ?? '';
+    console.log('[ask-submit] submit() entered; msg=', JSON.stringify(msg), 'stateInput=', JSON.stringify(input), 'stateLen=', input.length, 'domVal=', JSON.stringify(domVal), 'domLen=', domVal.length);
     const message = (msg ?? input).trim();
+    console.log('[ask-submit] resolved message len=', message.length, 'earlyReturn?', !message);
     if (!message) return;
     setInitialMessage(message);
     setInitialContext(ctx);
@@ -212,7 +219,11 @@ export function AskGeorgeBar() {
            */}
           <button
             type="button"
-            onClick={() => submit()}
+            onClick={(e) => {
+              const domVal = inputRef.current?.value ?? '';
+              console.log('[ask-submit] click fired; disabled(computed)=', !input.trim(), 'stateInput=', JSON.stringify(input), 'domVal=', JSON.stringify(domVal), 'rec.recording=', rec.recording, 'transcribing=', transcribing);
+              submit();
+            }}
             disabled={!input.trim()}
             style={{ ...askBtn, opacity: input.trim() ? 1 : 0.5 }}
           >Ask</button>

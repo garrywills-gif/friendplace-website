@@ -140,6 +140,7 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
   }, []);
 
   const start = useCallback(async () => {
+    console.log('[voice] start() called; recording=', recording, 'recorderRef?', !!recorderRef.current);
     setError(null);
     cancelledRef.current = false;
     // iter164h "2-3 pushes to listen" bug: if a previous session left
@@ -150,8 +151,10 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
     // stale events can land during a fresh session. Force a synchronous
     // teardown here so every `start()` begins on a clean slate.
     cleanup();
+    console.log('[voice] top-of-start cleanup done; requesting getUserMedia');
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('[voice] getUserMedia OK; tracks=', stream.getTracks().length);
       streamRef.current = stream;
 
       // Audio analysis for silence detection.
@@ -245,6 +248,7 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
         if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
+        console.log('[voice] onstop fired; ref===this?', recorderRef.current === recorder, 'chunks=', chunksRef.current.length, 'hadSpeech?', hadSpeechRef.current);
         // iter164g Mac WebApp production bug PLUS iter164h "2-3
         // pushes to listen" bug: Safari WKWebView (installed Mac web
         // apps) fires `stop` asynchronously well after `stop()`
@@ -310,10 +314,13 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
       // 1000ms is a compromise: small enough that Safari always has
       // encoded audio to emit, large enough that Chrome/Firefox don't
       // pay any real perf cost from extra Blob allocations.
+      console.log('[voice] calling recorder.start(1000); pre-state=', recorder.state, 'mime=', effectiveMime);
       recorder.start(1000);
+      console.log('[voice] recorder.start returned; post-state=', recorder.state);
       setRecording(true);
       rafRef.current = requestAnimationFrame(tickLevel);
     } catch (err) {
+      console.warn('[voice] start() threw:', (err as Error).name, (err as Error).message);
       const msg = (err as Error).message || 'Microphone unavailable';
       setError(msg.includes('Permission') ? 'Microphone permission needed' : msg);
       cleanup();
