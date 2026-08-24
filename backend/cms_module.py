@@ -1336,6 +1336,16 @@ def build_router(db) -> APIRouter:
             for k, v in data_overrides.items():
                 if k in kwargs and v not in (None, ""):
                     kwargs[k] = v
+        # iter164p: fields whose "" value is meaningful (blank greeting ==
+        # render no greeting line) must bypass the None/"" guard above.
+        # `show_founder_badge` accepts explicit True/False — including
+        # False, which the general guard would treat as truthy anyway,
+        # but keeping the passthrough uniform here.
+        if data_overrides is not None:
+            if "greeting" in data_overrides:
+                kwargs["greeting"] = data_overrides["greeting"]
+            if "show_founder_badge" in data_overrides:
+                kwargs["show_founder_badge"] = data_overrides["show_founder_badge"]
         # Only pass overrides that are actually set — passing None
         # explicitly would fight the templates' internal defaults.
         if subject_override is not None:
@@ -1891,6 +1901,10 @@ def build_router(db) -> APIRouter:
             "body_md":         c.get("body_md"),
             "cta_label":       c.get("cta_label"),
             "cta_url":         c.get("cta_url"),
+            # iter164p — surface the new editable fields on read so the
+            # composer can hydrate its greeting + founder-badge controls.
+            "greeting":            c.get("greeting"),
+            "show_founder_badge":  c.get("show_founder_badge"),
             "audience_filter": c.get("audience_filter") or {},
             "status":          c.get("status") or "draft",
             "stats":           c.get("stats") or {
@@ -2101,6 +2115,17 @@ def build_router(db) -> APIRouter:
             "body_md":         str(payload.get("body_md") or "")[:20000],
             "cta_label":       str(payload.get("cta_label") or "")[:60],
             "cta_url":         str(payload.get("cta_url") or "")[:500],
+            # iter164p: new fields. `greeting` is a literal template string
+            # (may contain the "[Contact name]" placeholder that gets
+            # substituted per-recipient at render time). Storing None means
+            # "unset -> fall back to the legacy Dear {first_name}, greeting".
+            # Storing "" means "no greeting line".
+            # `show_founder_badge` toggles the Founding Member pill. None
+            # means "legacy behaviour (show if founder_number is set)".
+            "greeting":        (payload["greeting"][:200]
+                                if isinstance(payload.get("greeting"), str) else None),
+            "show_founder_badge": (payload["show_founder_badge"]
+                                if isinstance(payload.get("show_founder_badge"), bool) else None),
             "audience_filter": payload.get("audience_filter") or {},
             "status":          "draft",
             "stats":           {"targeted": 0, "accepted": 0, "failed": 0,
@@ -2167,9 +2192,20 @@ def build_router(db) -> APIRouter:
             raise HTTPException(400, "Only drafts can be edited")
         updates: Dict[str, Any] = {}
         for key in ("name", "template", "subject", "preheader", "companion",
-                    "title", "body_md", "cta_label", "cta_url", "audience_filter"):
+                    "title", "body_md", "cta_label", "cta_url", "audience_filter",
+                    # iter164p — accept new editable fields on PATCH.
+                    "greeting", "show_founder_badge"):
             if key in payload:
                 updates[key] = payload[key]
+        # iter164p normalisation. Accept:
+        #   greeting            : str | null   (null == "unset")
+        #   show_founder_badge  : bool | null  (null == "unset")
+        if "greeting" in updates and updates["greeting"] is not None:
+            updates["greeting"] = str(updates["greeting"])[:200]
+        if "show_founder_badge" in updates and updates["show_founder_badge"] is not None:
+            if not isinstance(updates["show_founder_badge"], bool):
+                # Coerce loosely-typed clients (e.g. checkbox strings).
+                updates["show_founder_badge"] = str(updates["show_founder_badge"]).lower() in ("true", "1", "yes", "on")
         if "template" in updates and updates["template"] not in _CAMPAIGN_TEMPLATES:
             raise HTTPException(400, "Unknown template")
         from datetime import datetime, timezone
@@ -2223,6 +2259,13 @@ def build_router(db) -> APIRouter:
         else:
             # Bulk (or empty) — placeholder so no real name leaks.
             overrides["first_name"] = "[Contact name]"
+            # iter164p: also neutralise the sample `founder_number=42`
+            # from _preview_sample so a bulk preview doesn't display a
+            # fake Founding Member pill (real bulk recipients — e.g. 40
+            # Outreach contacts — have no founder_number). The
+            # show_founder_badge toggle can further suppress this when
+            # a legitimate founder_number is present.
+            overrides["founder_number"] = 0
         if c.get("template") == "announcement":
             # iter164o: pass title through raw — no silent
             # `or "A note from FriendPlace"` fallback. If the composer
@@ -2233,6 +2276,14 @@ def build_router(db) -> APIRouter:
             overrides["body_md"]   = c.get("body_md") or ""
             overrides["cta_label"] = c.get("cta_label") or None
             overrides["cta_url"]   = c.get("cta_url")   or None
+            # iter164p: forward the new editable fields. `greeting` and
+            # `show_founder_badge` are only overridden when explicitly
+            # set on the campaign; unset (None) leaves the template on
+            # its back-compat default.
+            if c.get("greeting") is not None:
+                overrides["greeting"] = c.get("greeting")
+            if c.get("show_founder_badge") is not None:
+                overrides["show_founder_badge"] = c.get("show_founder_badge")
         subject, html, text = _preview_render(
             c["template"],
             companion=c.get("companion") or "george",
@@ -2284,6 +2335,16 @@ def build_router(db) -> APIRouter:
                     overrides["body_md"]   = c.get("body_md") or ""
                     overrides["cta_label"] = c.get("cta_label") or None
                     overrides["cta_url"]   = c.get("cta_url")   or None
+                    # iter164p: forward the new editable fields per
+                    # recipient. The template does the "[Contact name]"
+                    # -> first_name substitution internally, using the
+                    # first_name we set above from r["first_name"], so
+                    # each recipient sees "Dear <their name>," even
+                    # though the composer stored a single string.
+                    if c.get("greeting") is not None:
+                        overrides["greeting"] = c.get("greeting")
+                    if c.get("show_founder_badge") is not None:
+                        overrides["show_founder_badge"] = c.get("show_founder_badge")
                 subject, html, text = _preview_render(
                     c["template"], companion=companion,
                     subject_override=(c.get("subject") or None),

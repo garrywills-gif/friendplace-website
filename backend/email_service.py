@@ -1874,6 +1874,8 @@ def announcement_template(
     companion: str = "george",
     subject_override: str | None = None,
     preheader_override: str | None = None,
+    greeting: str | None = None,
+    show_founder_badge: bool | None = None,
 ) -> tuple[str, str, str]:
     """The Founding Member Update template — used by campaigns.
 
@@ -1924,11 +1926,39 @@ def announcement_template(
     else:
         preheader = "An update from FriendPlace."
 
+    # iter164p greeting resolution.
+    # `greeting` accepts:
+    #   • None (unset, back-compat) -> "Dear <first_name>,"
+    #   • ""   (explicitly blank)   -> render no greeting line
+    #   • any string with the literal token "[Contact name]" ->
+    #     substituted per-recipient at render time (bulk preview keeps
+    #     the placeholder unchanged because `first_name` is set to
+    #     "[Contact name]" by the composer's bulk preview path)
+    #   • any other string          -> rendered verbatim (e.g. "Hi there,")
+    CONTACT_TOKEN = "[Contact name]"
+    if greeting is None:
+        greeting_rendered = f"Dear {name},"
+    elif greeting == "":
+        greeting_rendered = ""
+    else:
+        greeting_rendered = greeting.replace(CONTACT_TOKEN, name)
+
+    # iter164p Founder-badge toggle. Back-compat semantics:
+    #   • None  (unset)  -> render iff founder_number is a positive int
+    #                       (previous behaviour)
+    #   • True           -> render iff founder_number is a positive int
+    #   • False          -> suppress even when founder_number is present
+    show_pill = (
+        (show_founder_badge is not False)
+        and bool(founder_number)
+        and int(founder_number) > 0
+    )
+
     # Founder number pill — smaller than the waitlist hero, just a
     # gentle reminder of their permanent identity.
     founder_pill_html = ""
     founder_pill_text = ""
-    if founder_number and founder_number > 0:
+    if show_pill:
         fno = f"#{int(founder_number):04d}"
         founder_pill_html = (
             f"<p style=\"margin:0 0 20px 0;\">"
@@ -1979,7 +2009,10 @@ def announcement_template(
             f"<h1 style=\"margin:0 0 20px 0;font-family:'Georgia','Times New Roman',serif;color:#0A2540;font-size:26px;line-height:1.3;font-weight:700;\">{_esc(heading)}</h1>"
             if has_heading else ""
         )
-        + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
+        + (
+            f"<p style=\"margin:0 0 20px 0;\">{_esc(greeting_rendered)}</p>"
+            if greeting_rendered else ""
+        )
         + founder_pill_html
         + body_html_joined
         + cta_html
@@ -2010,7 +2043,7 @@ def announcement_template(
         closing_signoff = f"Warmly,\n{display}\nYour friend at FriendPlace"
     text = (
         heading_text
-        + f"Dear {name},\n\n"
+        + (f"{greeting_rendered}\n\n" if greeting_rendered else "")
         + founder_pill_text
         + text_paragraphs + "\n"
         + cta_text
