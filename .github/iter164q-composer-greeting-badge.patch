@@ -1,0 +1,253 @@
+From ccfbe56fe609aa9b0906c707ba2ef1ea8c045ee0 Mon Sep 17 00:00:00 2001
+From: emergent-agent-e1 <github@emergent.sh>
+Date: Mon, 24 Aug 2026 09:12:58 +0000
+Subject: [PATCH] iter164q: wire Campaign Composer to iter164p greeting +
+ founder-badge fields
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Frontend-only. Backend iter164p already published (adds accepted campaign
+fields `greeting: string | null` and `show_founder_badge: boolean | null`).
+
+Composer changes (app/admin/campaigns/new/page.tsx):
+
+  1. Editable Greeting / Addressee field
+     - New input under Letter contents. Default value:
+         'Dear [Contact name],'
+     - Users can edit to anything ('Dear John,', 'Hello Mary,',
+       'Hi there,') or clear the field entirely.
+     - Empty string is a first-class value and means 'no greeting line'.
+     - Hint text explains the [Contact name] placeholder semantics.
+
+  2. Show Founding Member badge checkbox
+     - New toggle under Letter contents.
+     - Community / Outreach update default: OFF
+     - Founding Member update default: ON
+
+  3. Template switching updates BOTH defaults, but only when the
+     current value still equals the *previous* template's default.
+     A deliberately-edited greeting or a manually-flipped badge is
+     preserved across a template switch.
+
+  4. Draft load respects saved values verbatim, including saved
+     empty greeting ("") and false badge — no silent restore of
+     defaults on reopen.
+
+  5. Save payload always forwards both fields (greeting always a
+     string in state; showFounderBadge always a boolean).
+
+  6. useEffect debounced-save deps updated so an edit to either
+     new field triggers a draft save just like the existing fields.
+
+Campaign type widened in lib/cms-api.ts to expose:
+  greeting?:            string  | null
+  show_founder_badge?:  boolean | null
+
+Scope:
+  - Only 2 files touched (app/admin/campaigns/new/page.tsx, lib/cms-api.ts).
+  - No backend changes.
+  - No changes to preview/send behaviour (backend iter164p handles
+    both consistently already).
+  - No changes to Campaign Composer edit-page details view or any
+    other campaign / audience code path.
+
+Build/typecheck: tsc --noEmit clean, next build ✓ Compiled successfully.
+---
+ app/admin/campaigns/new/page.tsx | 101 ++++++++++++++++++++++++++++++-
+ lib/cms-api.ts                   |  10 +++
+ 2 files changed, 110 insertions(+), 1 deletion(-)
+
+diff --git a/app/admin/campaigns/new/page.tsx b/app/admin/campaigns/new/page.tsx
+index 248eee6..103df0a 100644
+--- a/app/admin/campaigns/new/page.tsx
++++ b/app/admin/campaigns/new/page.tsx
+@@ -39,6 +39,9 @@ const TEMPLATE_META: Record<Template, {
+   serverTemplate: 'announcement' | 'invitation' | 'welcome';
+   defaultSigner: 'george' | 'georgia' | 'team' | 'none';
+   defaultTitle: string;
++  // iter164q wiring for iter164p backend fields.
++  defaultGreeting: string;
++  defaultShowBadge: boolean;
+ }> = {
+   announcement: {
+     label:         'Founding Member update',
+@@ -47,6 +50,8 @@ const TEMPLATE_META: Record<Template, {
+     serverTemplate:'announcement',
+     defaultSigner: 'george',
+     defaultTitle:  'A note from FriendPlace',
++    defaultGreeting: 'Dear [Contact name],',
++    defaultShowBadge: true,
+   },
+   community_outreach: {
+     label:         'Community / Outreach update',
+@@ -55,6 +60,8 @@ const TEMPLATE_META: Record<Template, {
+     serverTemplate:'announcement',
+     defaultSigner: 'team',
+     defaultTitle:  'A note from FriendPlace',
++    defaultGreeting: 'Dear [Contact name],',
++    defaultShowBadge: false,
+   },
+   invitation: {
+     label:       'Invitation',
+@@ -63,6 +70,8 @@ const TEMPLATE_META: Record<Template, {
+     serverTemplate:'invitation',
+     defaultSigner: 'george',
+     defaultTitle:  '',
++    defaultGreeting: 'Dear [Contact name],',
++    defaultShowBadge: true,
+   },
+   welcome: {
+     label:       'Welcome',
+@@ -71,6 +80,8 @@ const TEMPLATE_META: Record<Template, {
+     serverTemplate:'welcome',
+     defaultSigner: 'george',
+     defaultTitle:  '',
++    defaultGreeting: 'Dear [Contact name],',
++    defaultShowBadge: true,
+   },
+ };
+@@ -118,6 +129,19 @@ function ComposePanel() {
+   // preview / send time.
+   const [title, setTitle] = useState('A note from FriendPlace');
+   const [bodyMd, setBodyMd] = useState('');
++  // iter164q wiring for iter164p backend fields.
++  //
++  // greeting is a nullable string:
++  //   null      -> field never touched by user; the payload passes
++  //                the composer's default (see TEMPLATE_META) on save,
++  //                which mirrors what the backend would render anyway.
++  //   ""        -> user deliberately cleared the field. Empty greeting.
++  //   any text  -> literal greeting; "[Contact name]" is substituted
++  //                per-recipient by the backend at send time.
++  const [greeting, setGreeting] = useState<string>('Dear [Contact name],');
++  // showFounderBadge is initialised to the announcement default (ON).
++  // The template <select> onChange below flips it for outreach.
++  const [showFounderBadge, setShowFounderBadge] = useState<boolean>(true);
+   const [ctaLabel, setCtaLabel] = useState('');
+   const [ctaUrl, setCtaUrl] = useState('');
+   const [statuses, setStatuses] = useState<Array<'registered' | 'invited' | 'joined'>>(['registered', 'invited']);
+@@ -175,6 +199,25 @@ function ComposePanel() {
+         // author cleared it — do NOT silently substitute the default).
+         setTitle(c.title ?? '');
+         setBodyMd(c.body_md || '');
++        // iter164q: hydrate the new fields.
++        //   • saved `greeting` may be null (legacy) or "" (deliberately
++        //     cleared) — both must survive round-trip. If undefined
++        //     (older payload with no field), fall back to the template
++        //     default so the composer still shows something.
++        if (typeof c.greeting === 'string') {
++          setGreeting(c.greeting);
++        } else if (c.greeting === null) {
++          setGreeting('');
++        } else {
++          setGreeting(TEMPLATE_META[uiT]?.defaultGreeting ?? 'Dear [Contact name],');
++        }
++        //   • saved `show_founder_badge` may be true/false/null.
++        //     null (legacy) -> use template default.
++        if (typeof c.show_founder_badge === 'boolean') {
++          setShowFounderBadge(c.show_founder_badge);
++        } else {
++          setShowFounderBadge(TEMPLATE_META[uiT]?.defaultShowBadge ?? true);
++        }
+         setCtaLabel(c.cta_label || '');
+         setCtaUrl(c.cta_url || '');
+         const st = (c.audience_filter?.statuses || []) as any;
+@@ -307,6 +350,12 @@ function ComposePanel() {
+         title, body_md: bodyMd,
+         cta_label: ctaLabel, cta_url: ctaUrl,
+         audience_filter: audienceFilter,
++        // iter164q: forward the new editable fields. `greeting` is
++        // always a string (state has a default) — even the empty
++        // string is meaningful to the backend ("no greeting line").
++        // `show_founder_badge` is always a boolean.
++        greeting: greeting,
++        show_founder_badge: showFounderBadge,
+       };
+       let c: Campaign;
+       if (campaignId) {
+@@ -321,7 +370,7 @@ function ComposePanel() {
+       showToast(e?.message || 'Save failed');
+       return null;
+     } finally { setSaving(false); }
+-  }, [campaignId, name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, audienceFilter]);
++  }, [campaignId, name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge]);
+@@ -352,6 +401,8 @@ function ComposePanel() {
+     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+   }, [
+     name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl,
++    // iter164q: new editable fields must retrigger the debounced save.
++    greeting, showFounderBadge,
+@@ -437,15 +488,29 @@ function ComposePanel() {
+         <SectionCard title="Template">
+           <select value={template} onChange={e => {
+             const next = e.target.value as Template;
++            const prev = template;
+             setTemplate(next);
+@@
+             const meta = TEMPLATE_META[next];
++            const prevMeta = TEMPLATE_META[prev];
+             if (meta) {
+               setCompanion(meta.defaultSigner);
+               if (!title.trim() && meta.defaultTitle) setTitle(meta.defaultTitle);
++              if (prevMeta && greeting === prevMeta.defaultGreeting) {
++                setGreeting(meta.defaultGreeting);
++              }
++              if (prevMeta && showFounderBadge === prevMeta.defaultShowBadge) {
++                setShowFounderBadge(meta.defaultShowBadge);
++              }
+             }
+@@ -499,6 +564,40 @@ function ComposePanel() {
+             <input value={title} onChange={e => setTitle(e.target.value)}
+               placeholder="Leave blank for no headline"
+               style={{ ...s.input, width: '100%' }} maxLength={200} />
++
++            <label style={{ ...s.label, marginTop: 10 }}>Greeting / Addressee</label>
++            <input value={greeting} onChange={e => setGreeting(e.target.value)}
++              placeholder='e.g. "Dear [Contact name]," or leave blank for no greeting'
++              style={{ ...s.input, width: '100%' }} maxLength={200} />
++            <p style={{ fontSize: 12, color: '#64748B', marginTop: 4, lineHeight: 1.4 }}>
++              Use <code>[Contact name]</code> to auto-fill each recipient's first
++              name. Leave blank to send with no greeting line at all.
++            </p>
++
++            <label style={{
++              display: 'inline-flex', alignItems: 'center', gap: 8,
++              marginTop: 12, cursor: 'pointer', userSelect: 'none',
++              fontSize: 14, color: '#0A2540',
++            }}>
++              <input type="checkbox" checked={showFounderBadge}
++                onChange={e => setShowFounderBadge(e.target.checked)}
++                style={{ width: 16, height: 16 }} />
++              <span>Show <b>Founding Member #xxxx</b> badge</span>
++            </label>
++            <p style={{ fontSize: 12, color: '#64748B', marginTop: 4, lineHeight: 1.4 }}>
++              When on, recipients who have a Founding Member number see a small badge
++              under the greeting. Turn off for community / outreach where recipients
++              aren't Founding Members yet.
++            </p>
++
+             <label style={{ ...s.label, marginTop: 10 }}>Body</label>
+diff --git a/lib/cms-api.ts b/lib/cms-api.ts
+index 71efcc6..1bd884c 100644
+--- a/lib/cms-api.ts
++++ b/lib/cms-api.ts
+@@ -945,6 +945,16 @@ export type Campaign = {
+   body_md?: string;
+   cta_label?: string;
+   cta_url?: string;
++  // iter164q composer wiring for iter164p backend fields:
++  //   greeting == null     -> legacy "Dear <first_name>," greeting
++  //   greeting == ""       -> no greeting line at all
++  //   greeting == "Dear [Contact name]," -> per-recipient substitution
++  //   greeting == any other string       -> rendered verbatim
++  greeting?: string | null;
++  //   show_founder_badge == null  -> legacy (show pill iff founder_number)
++  //   true                        -> show pill iff founder_number set
++  //   false                       -> hard-suppress even when set
++  show_founder_badge?: boolean | null;
+   audience_filter: CampaignAudienceFilter;
+   status: CampaignStatus;
+   stats: CampaignStats;
+-- 
+2.39.5
