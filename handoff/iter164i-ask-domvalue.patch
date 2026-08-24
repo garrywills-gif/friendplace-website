@@ -1,0 +1,67 @@
+From 6e467f52a0ddd83ff6a20f3a222796a36b009271 Mon Sep 17 00:00:00 2001
+From: Diagnostics <diag@friendplace.local>
+Date: Mon, 24 Aug 2026 02:52:47 +0000
+Subject: [PATCH] iter164i: pass DOM input value to submit() on Ask click and
+ Enter key
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fixes the installed Mac web app (WKWebView) bug where a successful voice
+transcription lands in the Ask field visibly, but tapping the Ask button
+does nothing. WKWebView's microtask/render batching leaves the React
+onClick closure holding a stale (empty) 'input' state at click time, so
+submit()'s 'msg ?? input' resolves to empty and the early-return fires.
+
+Fix: at the two USER-driven call sites (Ask button onClick and Enter
+key in onKeyDown), pass inputRef.current?.value explicitly. submit()
+already prefers 'msg' over 'input', so a defined DOM value wins over
+any stale React state. Programmatic submits from the 'openAskGeorge'
+custom event (line 53) remain unchanged — they already pass an
+explicit message string.
+
+No behavioural change for:
+  - typed messages (DOM value always matches state during typing)
+  - programmatic submits (still pass explicit msg)
+  - button disabled state (unchanged, still gated on state.input)
+
+Scope: single file, 2 call-site edits, added comments only.
+Not touched: MediaRecorder, transcribe pipeline, TTS, audio singleton,
+retry logic, backend, unrelated files.
+---
+ components/mcgs/AskGeorgeBar.tsx | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/components/mcgs/AskGeorgeBar.tsx b/components/mcgs/AskGeorgeBar.tsx
+index 9edc096..cea2267 100644
+--- a/components/mcgs/AskGeorgeBar.tsx
++++ b/components/mcgs/AskGeorgeBar.tsx
+@@ -117,7 +117,9 @@ export function AskGeorgeBar() {
+   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+     if (e.key === 'Enter') {
+       e.preventDefault();
+-      submit();
++      // iter164i: pass the DOM value explicitly to bypass any stale
++      // React-state/closure in WKWebView (installed Mac web app).
++      submit(inputRef.current?.value);
+     }
+   }
+ 
+@@ -212,7 +214,13 @@ export function AskGeorgeBar() {
+            */}
+           <button
+             type="button"
+-            onClick={() => submit()}
++            /* iter164i: pass the DOM value explicitly so that on WKWebView
++             * (installed Mac web app) a stale React-state closure after
++             * voice transcription can't strand the submit. Normal typed
++             * input and programmatic submits still work because submit()
++             * resolves `msg ?? input` — a defined DOM value simply wins
++             * over the (possibly-stale) React state. */
++            onClick={() => submit(inputRef.current?.value)}
+             disabled={!input.trim()}
+             style={{ ...askBtn, opacity: input.trim() ? 1 : 0.5 }}
+           >Ask</button>
+-- 
+2.39.5
+
