@@ -39,6 +39,9 @@ const TEMPLATE_META: Record<Template, {
   serverTemplate: 'announcement' | 'invitation' | 'welcome';
   defaultSigner: 'george' | 'georgia' | 'team' | 'none';
   defaultTitle: string;
+  // iter164q wiring for iter164p backend fields.
+  defaultGreeting: string;
+  defaultShowBadge: boolean;
 }> = {
   announcement: {
     label:         'Founding Member update',
@@ -47,6 +50,8 @@ const TEMPLATE_META: Record<Template, {
     serverTemplate:'announcement',
     defaultSigner: 'george',
     defaultTitle:  'A note from FriendPlace',
+    defaultGreeting: 'Dear [Contact name],',
+    defaultShowBadge: true,
   },
   community_outreach: {
     label:         'Community / Outreach update',
@@ -55,6 +60,8 @@ const TEMPLATE_META: Record<Template, {
     serverTemplate:'announcement',
     defaultSigner: 'team',
     defaultTitle:  'A note from FriendPlace',
+    defaultGreeting: 'Dear [Contact name],',
+    defaultShowBadge: false,
   },
   invitation: {
     label:       'Invitation',
@@ -63,6 +70,8 @@ const TEMPLATE_META: Record<Template, {
     serverTemplate:'invitation',
     defaultSigner: 'george',
     defaultTitle:  '',
+    defaultGreeting: 'Dear [Contact name],',
+    defaultShowBadge: true,
   },
   welcome: {
     label:       'Welcome',
@@ -71,6 +80,8 @@ const TEMPLATE_META: Record<Template, {
     serverTemplate:'welcome',
     defaultSigner: 'george',
     defaultTitle:  '',
+    defaultGreeting: 'Dear [Contact name],',
+    defaultShowBadge: true,
   },
 };
 
@@ -118,6 +129,19 @@ function ComposePanel() {
   // preview / send time.
   const [title, setTitle] = useState('A note from FriendPlace');
   const [bodyMd, setBodyMd] = useState('');
+  // iter164q wiring for iter164p backend fields.
+  //
+  // greeting is a nullable string:
+  //   null      -> field never touched by user; the payload passes
+  //                the composer's default (see TEMPLATE_META) on save,
+  //                which mirrors what the backend would render anyway.
+  //   ""        -> user deliberately cleared the field. Empty greeting.
+  //   any text  -> literal greeting; "[Contact name]" is substituted
+  //                per-recipient by the backend at send time.
+  const [greeting, setGreeting] = useState<string>('Dear [Contact name],');
+  // showFounderBadge is initialised to the announcement default (ON).
+  // The template <select> onChange below flips it for outreach.
+  const [showFounderBadge, setShowFounderBadge] = useState<boolean>(true);
   const [ctaLabel, setCtaLabel] = useState('');
   const [ctaUrl, setCtaUrl] = useState('');
   const [statuses, setStatuses] = useState<Array<'registered' | 'invited' | 'joined'>>(['registered', 'invited']);
@@ -175,6 +199,25 @@ function ComposePanel() {
         // author cleared it — do NOT silently substitute the default).
         setTitle(c.title ?? '');
         setBodyMd(c.body_md || '');
+        // iter164q: hydrate the new fields.
+        //   • saved `greeting` may be null (legacy) or "" (deliberately
+        //     cleared) — both must survive round-trip. If undefined
+        //     (older payload with no field), fall back to the template
+        //     default so the composer still shows something.
+        if (typeof c.greeting === 'string') {
+          setGreeting(c.greeting);
+        } else if (c.greeting === null) {
+          setGreeting('');
+        } else {
+          setGreeting(TEMPLATE_META[uiT]?.defaultGreeting ?? 'Dear [Contact name],');
+        }
+        //   • saved `show_founder_badge` may be true/false/null.
+        //     null (legacy) -> use template default.
+        if (typeof c.show_founder_badge === 'boolean') {
+          setShowFounderBadge(c.show_founder_badge);
+        } else {
+          setShowFounderBadge(TEMPLATE_META[uiT]?.defaultShowBadge ?? true);
+        }
         setCtaLabel(c.cta_label || '');
         setCtaUrl(c.cta_url || '');
         const st = (c.audience_filter?.statuses || []) as any;
@@ -307,6 +350,12 @@ function ComposePanel() {
         title, body_md: bodyMd,
         cta_label: ctaLabel, cta_url: ctaUrl,
         audience_filter: audienceFilter,
+        // iter164q: forward the new editable fields. `greeting` is
+        // always a string (state has a default) — even the empty
+        // string is meaningful to the backend ("no greeting line").
+        // `show_founder_badge` is always a boolean.
+        greeting: greeting,
+        show_founder_badge: showFounderBadge,
       };
       let c: Campaign;
       if (campaignId) {
@@ -321,7 +370,7 @@ function ComposePanel() {
       showToast(e?.message || 'Save failed');
       return null;
     } finally { setSaving(false); }
-  }, [campaignId, name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, audienceFilter]);
+  }, [campaignId, name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge]);
 
   // Refresh preview + audience count whenever the important fields change.
   // iter161 bug: the outreach / manual / individual selectors were missing
@@ -352,6 +401,8 @@ function ComposePanel() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [
     name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl,
+    // iter164q: new editable fields must retrigger the debounced save.
+    greeting, showFounderBadge,
     // Founding-Member custom filter
     statuses, tagsAny,
     // Mode + saved segment
@@ -437,15 +488,29 @@ function ComposePanel() {
         <SectionCard title="Template">
           <select value={template} onChange={e => {
             const next = e.target.value as Template;
+            const prev = template;
             setTemplate(next);
             // iter164o: switching template resets the sign-off to the
             // template's default (george for founder, team for outreach)
             // AND pre-fills the title if the field is empty. Explicit
             // user edits are preserved.
             const meta = TEMPLATE_META[next];
+            const prevMeta = TEMPLATE_META[prev];
             if (meta) {
               setCompanion(meta.defaultSigner);
               if (!title.trim() && meta.defaultTitle) setTitle(meta.defaultTitle);
+              // iter164q: apply the new template's greeting/badge
+              // defaults, but only when the current values still match
+              // the previous template's defaults (i.e. the user hasn't
+              // deliberately overridden them). This prevents an
+              // accidental switch from wiping a hand-crafted greeting
+              // or a manually-flipped badge choice.
+              if (prevMeta && greeting === prevMeta.defaultGreeting) {
+                setGreeting(meta.defaultGreeting);
+              }
+              if (prevMeta && showFounderBadge === prevMeta.defaultShowBadge) {
+                setShowFounderBadge(meta.defaultShowBadge);
+              }
             }
           }}
             style={{ ...s.input, width: '100%' }}>
@@ -499,6 +564,40 @@ function ComposePanel() {
             <input value={title} onChange={e => setTitle(e.target.value)}
               placeholder="Leave blank for no headline"
               style={{ ...s.input, width: '100%' }} maxLength={200} />
+
+            {/* iter164q: Greeting / Addressee. Users can edit or clear
+                completely (empty string means "no greeting line"). The
+                literal token [Contact name] is substituted per-recipient
+                at send time by the backend. */}
+            <label style={{ ...s.label, marginTop: 10 }}>Greeting / Addressee</label>
+            <input value={greeting} onChange={e => setGreeting(e.target.value)}
+              placeholder='e.g. "Dear [Contact name]," or leave blank for no greeting'
+              style={{ ...s.input, width: '100%' }} maxLength={200} />
+            <p style={{ fontSize: 12, color: '#64748B', marginTop: 4, lineHeight: 1.4 }}>
+              Use <code>[Contact name]</code> to auto-fill each recipient's first
+              name. Leave blank to send with no greeting line at all.
+            </p>
+
+            {/* iter164q: Show Founding Member badge. Community/Outreach
+                defaults to OFF; Founding Member update defaults to ON.
+                Template switching updates this only when the current
+                value still matches the previous template's default. */}
+            <label style={{
+              display: 'inline-flex', alignItems: 'center', gap: 8,
+              marginTop: 12, cursor: 'pointer', userSelect: 'none',
+              fontSize: 14, color: '#0A2540',
+            }}>
+              <input type="checkbox" checked={showFounderBadge}
+                onChange={e => setShowFounderBadge(e.target.checked)}
+                style={{ width: 16, height: 16 }} />
+              <span>Show <b>Founding Member #xxxx</b> badge</span>
+            </label>
+            <p style={{ fontSize: 12, color: '#64748B', marginTop: 4, lineHeight: 1.4 }}>
+              When on, recipients who have a Founding Member number see a small badge
+              under the greeting. Turn off for community / outreach where recipients
+              aren't Founding Members yet.
+            </p>
+
             <label style={{ ...s.label, marginTop: 10 }}>Body</label>
             <textarea value={bodyMd} onChange={e => setBodyMd(e.target.value)}
               placeholder="Write the letter. Blank lines start new paragraphs."

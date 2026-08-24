@@ -945,6 +945,16 @@ export type Campaign = {
   body_md?: string;
   cta_label?: string;
   cta_url?: string;
+  // iter164q composer wiring for iter164p backend fields:
+  //   greeting == null     -> legacy "Dear <first_name>," greeting
+  //   greeting == ""       -> no greeting line at all
+  //   greeting == "Dear [Contact name]," -> per-recipient substitution
+  //   greeting == any other string       -> rendered verbatim
+  greeting?: string | null;
+  //   show_founder_badge == null  -> legacy (show pill iff founder_number)
+  //   true                        -> show pill iff founder_number set
+  //   false                       -> hard-suppress even when set
+  show_founder_badge?: boolean | null;
   audience_filter: CampaignAudienceFilter;
   status: CampaignStatus;
   stats: CampaignStats;
