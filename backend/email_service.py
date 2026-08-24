@@ -638,8 +638,14 @@ def _letter_signature_html(*, signer: str = "george") -> str:
       • "georgia" — personal emails signed by Georgia (same voice,
                     different companion — the visitor's original pick
                     on the marketing page).
-      • "team"    — operational (support, password reset).
+      • "team"    — operational (support, password reset). Also the
+                    default for Community / Outreach campaigns.
+      • "none"    — iter164o: append no closing at all. Used when the
+                    body already contains its own sign-off, so we don't
+                    render a duplicate.
     """
+    if signer == "none":
+        return ""
     if signer == "team":
         return """\
 <p style="margin:36px 0 0 0;">
@@ -1834,13 +1840,29 @@ def announcement_template(
     """
     from html import escape as _esc
     name = (first_name or "there").strip()
-    display = "Georgia" if str(companion).lower() == "georgia" else "George"
-    heading = (title or "").strip() or "A note from FriendPlace"
-    subject = subject_override or heading
-    preheader = (
-        preheader_override
-        or f"An update from {display} at FriendPlace."
-    )
+    # iter164o: signer resolution.
+    # `companion` on this endpoint accepts:
+    #   • "george" / "georgia" — personal companion signature
+    #   • "team"               — The FriendPlace Team closing
+    #   • "none"               — no closing appended (body owns it)
+    signer_norm = str(companion or "george").lower().strip()
+    if signer_norm not in {"george", "georgia", "team", "none"}:
+        signer_norm = "george"
+    is_personal = signer_norm in {"george", "georgia"}
+    display = "Georgia" if signer_norm == "georgia" else "George"
+    # iter164o: honour explicitly-empty title. Blank means "no headline",
+    # not "silently restore the default". Preview and worker both pass
+    # title through raw now.
+    raw_title = (title or "").strip()
+    has_heading = bool(raw_title)
+    heading = raw_title  # empty allowed — used only when has_heading
+    subject = subject_override or heading or "A note from FriendPlace"
+    if preheader_override:
+        preheader = preheader_override
+    elif is_personal:
+        preheader = f"An update from {display} at FriendPlace."
+    else:
+        preheader = "An update from FriendPlace."
 
     # Founder number pill — smaller than the waitlist hero, just a
     # gentle reminder of their permanent identity.
@@ -1879,29 +1901,47 @@ def announcement_template(
 
     body = (
         _letter_body_open()
-        + f"<h1 style=\"margin:0 0 20px 0;font-family:'Georgia','Times New Roman',serif;color:#0A2540;font-size:26px;line-height:1.3;font-weight:700;\">{_esc(heading)}</h1>"
+        + (
+            f"<h1 style=\"margin:0 0 20px 0;font-family:'Georgia','Times New Roman',serif;color:#0A2540;font-size:26px;line-height:1.3;font-weight:700;\">{_esc(heading)}</h1>"
+            if has_heading else ""
+        )
         + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
         + founder_pill_html
         + body_html_joined
         + cta_html
-        + "<p style=\"margin:24px 0 0 0;\">Thank you, as always, for being here from the start.</p>"
-        + _letter_signature_html(signer=companion)
+        + (
+            "<p style=\"margin:24px 0 0 0;\">Thank you, as always, for being here from the start.</p>"
+            if is_personal else ""
+        )
+        + _letter_signature_html(signer=signer_norm)
         + _letter_body_close()
     )
     html = _letter_shell(preheader=preheader, body_html=body)
 
     text_paragraphs = "\n\n".join(paragraphs) if paragraphs else "(No body content yet.)"
+    # iter164o: conditional heading + signer-aware plain-text closing.
+    heading_text = (
+        f"{heading}\n{'=' * min(len(heading), 60)}\n\n"
+        if has_heading else ""
+    )
+    closing_intro = (
+        "\nThank you, as always, for being here from the start.\n\n"
+        if is_personal else "\n"
+    )
+    if signer_norm == "none":
+        closing_signoff = ""
+    elif signer_norm == "team":
+        closing_signoff = "Warmly,\nThe FriendPlace Team"
+    else:
+        closing_signoff = f"Warmly,\n{display}\nYour friend at FriendPlace"
     text = (
-        f"{heading}\n"
-        + ("=" * min(len(heading), 60)) + "\n\n"
+        heading_text
         + f"Dear {name},\n\n"
         + founder_pill_text
         + text_paragraphs + "\n"
         + cta_text
-        + "\nThank you, as always, for being here from the start.\n\n"
-        "Warmly,\n"
-        f"{display}\n"
-        "Your friend at FriendPlace"
+        + closing_intro
+        + closing_signoff
         + _letter_footer_text()
     )
     return subject, html, text

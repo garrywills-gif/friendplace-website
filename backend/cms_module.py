@@ -2203,16 +2203,33 @@ def build_router(db) -> APIRouter:
         c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
         if not c:
             raise HTTPException(404, "Campaign not found")
-        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=1)
-        recipient = recipients[0] if recipients else None
+        # iter164o preview privacy fix: previously we peeked at the FIRST
+        # recipient and used their real first_name in the preview, which
+        # leaked (e.g. "Dear Shelly,") when the audience was 40 Outreach
+        # contacts. For any bulk audience the preview must render with a
+        # neutral placeholder — the actual sent emails still personalise
+        # each recipient in _campaign_send_worker unchanged.
+        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=2)
         overrides: Dict[str, Any] = {}
-        if recipient:
-            if recipient.get("first_name"):
-                overrides["first_name"] = recipient["first_name"]
-            if recipient.get("founder_number"):
-                overrides["founder_number"] = recipient["founder_number"]
+        if len(recipients) == 1:
+            # A truly single-recipient campaign — safe to show that
+            # recipient's real data in the preview (it's the one they'll
+            # get regardless).
+            r = recipients[0]
+            if r.get("first_name"):
+                overrides["first_name"] = r["first_name"]
+            if r.get("founder_number"):
+                overrides["founder_number"] = r["founder_number"]
+        else:
+            # Bulk (or empty) — placeholder so no real name leaks.
+            overrides["first_name"] = "[Contact name]"
         if c.get("template") == "announcement":
-            overrides["title"]     = c.get("title") or "A note from FriendPlace"
+            # iter164o: pass title through raw — no silent
+            # `or "A note from FriendPlace"` fallback. If the composer
+            # cleared the field, that means "no headline". The
+            # announcement_template renderer handles the empty case by
+            # omitting the h1 entirely.
+            overrides["title"]     = c.get("title") or ""
             overrides["body_md"]   = c.get("body_md") or ""
             overrides["cta_label"] = c.get("cta_label") or None
             overrides["cta_url"]   = c.get("cta_url")   or None
@@ -2223,7 +2240,10 @@ def build_router(db) -> APIRouter:
             preheader_override=(c.get("preheader") or None),
             data_overrides=overrides or None,
         )
-        return {"subject": subject, "html": html, "text": text, "recipient": recipient}
+        preview_recipient = recipients[0] if len(recipients) == 1 else None
+        return {"subject": subject, "html": html, "text": text,
+                "recipient": preview_recipient,
+                "audience_size": len(recipients) if len(recipients) < 2 else None}
 
     async def _campaign_send_worker(campaign_id: str):
         """Background — send the campaign in batches of 5 with 500ms delay."""
@@ -2257,7 +2277,10 @@ def build_router(db) -> APIRouter:
                     companion = r["companion_choice"]
                     overrides["companion"] = companion
                 if c.get("template") == "announcement":
-                    overrides["title"]     = c.get("title") or "A note from FriendPlace"
+                    # iter164o: pass title through raw — the composer's
+                    # cleared-field intent must be respected. Renderer
+                    # omits the h1 when title is empty.
+                    overrides["title"]     = c.get("title") or ""
                     overrides["body_md"]   = c.get("body_md") or ""
                     overrides["cta_label"] = c.get("cta_label") or None
                     overrides["cta_url"]   = c.get("cta_url")   or None
