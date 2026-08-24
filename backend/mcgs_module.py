@@ -1763,6 +1763,36 @@ def build_router(db) -> APIRouter:
     # /api/george/voice/*  \u2014 STT + TTS via Emergent LLM key
     # =====================================================================
 
+    def _sniff_audio_ext(data: bytes) -> "str | None":
+        """Detect audio container from magic bytes and return an
+        extension Whisper accepts, or None if unknown.
+
+        iter164i: Safari/WKWebView on installed Mac WebApps has been
+        observed to report a ``blob.type`` that disagrees with the
+        actual recorded container (e.g. reports webm but produces
+        fragmented MP4). The frontend then picks the wrong extension,
+        Whisper 400s with "Invalid file format", and we bubble that up
+        as HTTP 502 — surfaced to Safari as a CORS-flavoured error.
+        Sniff server-side so the extension always matches the bytes.
+        """
+        if not data or len(data) < 12:
+            return None
+        if data[:4] == b"\x1a\x45\xdf\xa3":                  # EBML / WebM / MKV
+            return "webm"
+        if data[4:8] == b"ftyp":                              # ISO BMFF (MP4 / M4A)
+            return "m4a"
+        if data[:4] == b"OggS":                               # OGG (opus / vorbis)
+            return "ogg"
+        if data[:4] == b"RIFF" and data[8:12] == b"WAVE":     # WAV
+            return "wav"
+        if data[:4] == b"fLaC":                               # FLAC
+            return "flac"
+        if data[:3] == b"ID3":                                # MP3 with ID3 tag
+            return "mp3"
+        if data[0] == 0xFF and (data[1] & 0xE0) == 0xE0:      # MP3 raw sync frame
+            return "mp3"
+        return None
+
     @router.post("/george/voice/transcribe")
     async def api_george_transcribe(
         audio: UploadFile = File(...),
@@ -1804,10 +1834,24 @@ def build_router(db) -> APIRouter:
             )
             return {"transcript": ""}
 
-        # Whisper expects a file-like with .name.
-        ext = (audio.filename or "clip.webm").rsplit(".", 1)[-1].lower()
-        if ext not in {"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"}:
+        # iter164i: prefer the container detected from magic bytes over
+        # the client-hinted filename. Safari/WKWebView (installed Mac
+        # WebApp) occasionally reports a mismatched blob.type, so the
+        # client-side chooser picks .webm for what is actually fragmented
+        # MP4, and Whisper then 400s with "Invalid file format" — which
+        # we bubble as 502 and Safari surfaces as a CORS complaint.
+        # Sniffing here makes the fix immune to any future browser quirk.
+        sniffed = _sniff_audio_ext(data)
+        hinted = (audio.filename or "clip.webm").rsplit(".", 1)[-1].lower()
+        ext = sniffed or hinted
+        if ext not in {"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm", "flac", "ogg", "oga"}:
             ext = "webm"
+        if sniffed and hinted and sniffed != hinted:
+            log.info(
+                "STT: container sniff overrode client filename "
+                "(hinted=%s, sniffed=%s, bytes=%d)",
+                hinted, sniffed, len(data),
+            )
 
         # Wrap bytes in a temp file so litellm has a real path.
         with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
