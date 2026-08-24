@@ -1,0 +1,270 @@
+From 3c4bb08e2c16fa1fa22f5f9eb5534ab94b9ff806 Mon Sep 17 00:00:00 2001
+From: Diagnostics <diag@friendplace.local>
+Date: Mon, 24 Aug 2026 04:15:44 +0000
+Subject: [PATCH] iter164l: stage-by-stage TTS diagnostic instrumentation
+ (LOGGING ONLY)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Adds [tts-diag] console.log timestamps to the shared TTS playback path
+so Safari's ~40 s startup gap and the Mac installed-app Preparing…
+stall can be attributed to a specific segment.
+
+Zero logic changes:
+  - speakText() body unchanged (fetch, retry, blob) — added timing logs
+    at three phases: START fetch, RESPONSE headers received, BLOB complete
+  - ChatBubble.play() flow unchanged — added timing logs at:
+      * play() entered (with UA and standalone-mode flag)
+      * silent-wav prime: calling / RESOLVED / REJECTED
+      * speakText() calling / RESOLVED / blob created
+      * blob URL created
+      * assigning el.src / el.src assigned (readyState + networkState)
+      * onloadedmetadata / onplaying / onpause / onended / onerror /
+        onstalled all now log with dt and state
+      * main el.play(): calling, hang-detector at 5 s, RESOLVED,
+        outer catch REJECTED
+  - Not touched: mic, transcription, Ask/Send, backend STT, CORS,
+    fetch-retry logic, unrelated files.
+
+Same [tts-diag] tag on every log so DevTools filtering is a single
+substring. Every log carries dt=Nms measured from play() entry so the
+Safari vs Mac timing comparison is a direct diff between the two logs
+for identical checkpoints.
+---
+ components/mcgs/AskGeorgeSheet.tsx | 127 +++++++++++++++++++++++++++--
+ lib/mcgs-api.ts                    |  21 ++++-
+ 2 files changed, 140 insertions(+), 8 deletions(-)
+
+diff --git a/components/mcgs/AskGeorgeSheet.tsx b/components/mcgs/AskGeorgeSheet.tsx
+index 2caf0ab..26fd24e 100644
+--- a/components/mcgs/AskGeorgeSheet.tsx
++++ b/components/mcgs/AskGeorgeSheet.tsx
+@@ -980,6 +980,24 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
+       return;
+     }
+     setPlayFailed(false);
++    // iter164l DIAGNOSTIC: monotonic timing anchor for the Mac PWA
++    // TTS stall investigation. Every downstream [tts-diag] log includes
++    // dt=elapsed-since-play-entered so the exact stall point is provable
++    // in the console. Diagnostic-only; no behavioural change.
++    const _ttsT0 = performance.now();
++    const _ttsDt = () => (performance.now() - _ttsT0).toFixed(1) + 'ms';
++    console.log('[tts-diag] play() entered', {
++      dt: _ttsDt(),
++      hasCachedUrl: !!audioUrl,
++      prefetchedMatches: prefetchedForRef.current === turn.content,
++      playing, preparing,
++      contentChars: turn.content.length,
++      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '?',
++      standalone: typeof window !== 'undefined' && (
++        window.matchMedia?.('(display-mode: standalone)').matches ||
++        (window.navigator as { standalone?: boolean }).standalone === true
++      ),
++    });
+     // iter163 Bug 1: BEFORE anything else, stop and dispose any other
+     // George clip that may still be talking. Without this, a rapid
+     // second reply's auto-speak (or a manual replay on a different
+@@ -1028,11 +1046,20 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
+     // the cached-blob path — which is the common Mac PWA case because
+     // the prefetch effect resolves before the user taps Play. Relocate
+     // the block; no other logic changes.
++    console.log('[tts-diag] silent-wav prime: calling el.play()', { dt: _ttsDt() });
+     try {
+       el.src = SILENT_WAV;
+       await el.play();
+       el.pause();
+-    } catch { /* browsers that reject the silent clip: harmless */ }
++      console.log('[tts-diag] silent-wav prime: RESOLVED', { dt: _ttsDt() });
++    } catch (e) {
++      console.log('[tts-diag] silent-wav prime: REJECTED', {
++        dt: _ttsDt(),
++        name: (e as Error)?.name,
++        msg: (e as Error)?.message,
++      });
++      /* browsers that reject the silent clip: harmless */
++    }
+     try {
+       let url = audioUrl;
+       // A cached blob may cover only the first-sentence prefetch text
+@@ -1063,13 +1090,30 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
+         if (!url) {
+           // Persona key — backend maps "george" → ash (warm male, tts-1).
+           // Never send a raw voice id from here; server enforces the map.
++          console.log('[tts-diag] speakText() calling', { dt: _ttsDt(), chars: turn.content.length });
+           const blob = await speakText(turn.content, 'george', 1.05);
++          console.log('[tts-diag] speakText() RESOLVED / blob created', {
++            dt: _ttsDt(), blobSize: blob.size, blobType: blob.type,
++          });
+           url = URL.createObjectURL(blob);
++          console.log('[tts-diag] blob URL created', { dt: _ttsDt(), urlPrefix: url.slice(0, 60) });
+           setAudioUrl(url);
+           prefetchedForRef.current = turn.content;
+         }
+       }
++      console.log('[tts-diag] assigning el.src', {
++        dt: _ttsDt(),
++        readyStateBefore: el.readyState,
++        networkStateBefore: el.networkState,
++        pausedBefore: el.paused,
++        urlPrefix: url.slice(0, 60),
++      });
+       el.src = url;
++      console.log('[tts-diag] el.src assigned', {
++        dt: _ttsDt(),
++        readyStateAfter: el.readyState,
++        networkStateAfter: el.networkState,
++      });
+       // Batch-4: instrument every playback so we can catch truncation.
+       const finalise = (reason: string) => {
+         const played = playedDurationRef.current;
+@@ -1099,8 +1143,17 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
+           }
+         }
+       };
+-      el.onended    = () => finalise('ended');
++      el.onended    = () => {
++        console.log('[tts-diag] onended fired', {
++          dt: _ttsDt(), currentTime: el.currentTime, duration: el.duration,
++        });
++        finalise('ended');
++      };
+       el.onpause    = () => {
++        console.log('[tts-diag] onpause fired', {
++          dt: _ttsDt(), currentTime: el.currentTime, duration: el.duration,
++          readyState: el.readyState, ended: el.ended,
++        });
+         // A pause with (currentTime === duration) is really an "ended"
+         // (already handled by onended). Only treat it as user pause
+         // when we haven't reached the end.
+@@ -1111,11 +1164,36 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
+         // sibling bubble can claim it without our onStopped racing.
+         releasePlayback(el);
+       };
+-      el.onerror         = () => finalise('error');
+-      el.onstalled       = () => console.warn('[read-aloud] audio stalled', el.src);
++      el.onerror         = () => {
++        console.log('[tts-diag] onerror fired', {
++          dt: _ttsDt(),
++          errCode: el.error?.code,
++          errMsg: el.error?.message,
++          networkState: el.networkState,
++          readyState: el.readyState,
++        });
++        finalise('error');
++      };
++      el.onstalled       = () => {
++        console.log('[tts-diag] onstalled fired', {
++          dt: _ttsDt(), readyState: el.readyState, networkState: el.networkState,
++        });
++        console.warn('[read-aloud] audio stalled', el.src);
++      };
+       el.ontimeupdate    = () => { playedDurationRef.current = el.currentTime || 0; };
+-      el.onloadedmetadata = () => { totalDurationRef.current = el.duration || 0; };
+-      el.onplaying       = () => { setPreparing(false); setPlaying(true); };
++      el.onloadedmetadata = () => {
++        console.log('[tts-diag] onloadedmetadata fired', {
++          dt: _ttsDt(), duration: el.duration, readyState: el.readyState,
++        });
++        totalDurationRef.current = el.duration || 0;
++      };
++      el.onplaying       = () => {
++        console.log('[tts-diag] onplaying fired', {
++          dt: _ttsDt(), currentTime: el.currentTime, duration: el.duration,
++        });
++        setPreparing(false);
++        setPlaying(true);
++      };
+       playedDurationRef.current = 0;
+       totalDurationRef.current  = 0;
+       // iter163 Bug 1: register this <audio> as the sole George voice
+@@ -1128,11 +1206,46 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
+         setPlaying(false);
+         setPreparing(false);
+       });
+-      await el.play();
++      console.log('[tts-diag] main: calling el.play()', {
++        dt: _ttsDt(),
++        src: el.src.slice(0, 60),
++        readyState: el.readyState,
++        networkState: el.networkState,
++        paused: el.paused,
++      });
++      // Hang-detector: if the play() promise hasn't settled after 5s,
++      // log a snapshot so we know the stall is on el.play() itself.
++      let _ttsHangTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
++        console.warn('[tts-diag] main: el.play() STILL PENDING after 5000ms', {
++          dt: _ttsDt(),
++          readyState: el.readyState,
++          networkState: el.networkState,
++          paused: el.paused,
++          currentTime: el.currentTime,
++          duration: el.duration,
++        });
++        _ttsHangTimer = null;
++      }, 5000);
++      try {
++        await el.play();
++        console.log('[tts-diag] main: el.play() RESOLVED', {
++          dt: _ttsDt(),
++          readyState: el.readyState,
++          paused: el.paused,
++          currentTime: el.currentTime,
++        });
++      } finally {
++        if (_ttsHangTimer) { clearTimeout(_ttsHangTimer); _ttsHangTimer = null; }
++      }
+       // Fallback in case `onplaying` didn't fire (some browsers).
+       setPreparing(false);
+       setPlaying(true);
+     } catch (err) {
++      console.log('[tts-diag] outer catch (main path REJECTED)', {
++        dt: _ttsDt(),
++        name: (err as Error)?.name,
++        msg: (err as Error)?.message,
++      });
+       console.error('[read-aloud] failed:', err);
+       setPreparing(false);
+       setPlaying(false);
+diff --git a/lib/mcgs-api.ts b/lib/mcgs-api.ts
+index a7bbec3..a6648e6 100644
+--- a/lib/mcgs-api.ts
++++ b/lib/mcgs-api.ts
+@@ -617,6 +617,14 @@ export async function speakText(text: string, voice: 'george' | 'georgia' = 'geo
+   // otherwise replay a stale audio blob (e.g. a female clip after we
+   // switched George's persona to male).
+   const url = `${BASE}/api/george/voice/speak?_=${Date.now()}`;
++  // iter164l DIAGNOSTIC: split the "speakText took N seconds" into
++  // its constituent phases so Safari's 40 s gap and the Mac PWA
++  // stall become attributable to a specific segment. Diagnostic-only.
++  const _stT0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
++  const _stDt = () => ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _stT0).toFixed(1) + 'ms';
++  console.log('[tts-diag] speakText: START fetch', {
++    dt: _stDt(), chars: text.length, voice, speed,
++  });
+   const res = await fetchWithRetry(url, {
+     method: 'POST',
+     headers: {
+@@ -627,7 +635,18 @@ export async function speakText(text: string, voice: 'george' | 'georgia' = 'geo
+     body: JSON.stringify({ text, voice, speed }),
+     signal,
+   });
++  console.log('[tts-diag] speakText: RESPONSE headers received', {
++    dt: _stDt(),
++    status: res.status,
++    ok: res.ok,
++    contentType: res.headers.get('content-type'),
++    contentLength: res.headers.get('content-length'),
++  });
+   if (!res.ok) throw new Error(`Speech failed: ${res.status}`);
+-  return await res.blob();
++  const blob = await res.blob();
++  console.log('[tts-diag] speakText: BLOB complete', {
++    dt: _stDt(), blobSize: blob.size, blobType: blob.type,
++  });
++  return blob;
+ }
+ 
+-- 
+2.39.5
+
