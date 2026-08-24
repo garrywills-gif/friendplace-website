@@ -117,7 +117,9 @@ export function AskGeorgeBar() {
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      submit();
+      // iter164i: pass the DOM value explicitly to bypass any stale
+      // React-state/closure in WKWebView (installed Mac web app).
+      submit(inputRef.current?.value);
     }
   }
 
@@ -212,7 +214,13 @@ export function AskGeorgeBar() {
            */}
           <button
             type="button"
-            onClick={() => submit()}
+            /* iter164i: pass the DOM value explicitly so that on WKWebView
+             * (installed Mac web app) a stale React-state closure after
+             * voice transcription can't strand the submit. Normal typed
+             * input and programmatic submits still work because submit()
+             * resolves `msg ?? input` — a defined DOM value simply wins
+             * over the (possibly-stale) React state. */
+            onClick={() => submit(inputRef.current?.value)}
             disabled={!input.trim()}
             style={{ ...askBtn, opacity: input.trim() ? 1 : 0.5 }}
           >Ask</button>
