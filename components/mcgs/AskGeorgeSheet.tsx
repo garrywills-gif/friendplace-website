@@ -1010,6 +1010,21 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
     el.ontimeupdate = null;
     el.onloadedmetadata = null;
     el.onplaying = null;
+    // iter164j: WKWebView (installed Mac web app, display-mode:
+    // standalone) hangs el.play() with no resolve and no reject when the
+    // <audio> element has never been primed by a play inside a user
+    // gesture. That strands the UI on "Preparing…". Safari-browser is
+    // lenient and doesn't strictly need this on cached blobs, but the
+    // priming is idempotent and costs <5 ms of silent audio there.
+    // Previously the priming was gated by `if (!url)` below and missed
+    // the cached-blob path — which is the common Mac PWA case because
+    // the prefetch effect resolves before the user taps Play. Relocate
+    // the block; no other logic changes.
+    try {
+      el.src = SILENT_WAV;
+      await el.play();
+      el.pause();
+    } catch { /* browsers that reject the silent clip: harmless */ }
     try {
       let url = audioUrl;
       // A cached blob may cover only the first-sentence prefetch text
@@ -1021,11 +1036,6 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
         url = null;
       }
       if (!url) {
-        try {
-          el.src = SILENT_WAV;
-          await el.play();
-          el.pause();
-        } catch { /* some browsers reject the silent clip; harmless */ }
         // Rank 1 dedup: if a prefetch is already in flight for the
         // current turn text, join it rather than firing a second
         // request. If it's in flight for a shorter (early) text we do
