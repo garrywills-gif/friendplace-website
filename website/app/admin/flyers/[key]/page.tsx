@@ -252,7 +252,7 @@ export default function FlyerDetailPage() {
                 Any field ticked here appears in the Print &amp; Preview modal so admins can change the wording without rebuilding the template.
                 {template?.engine === 'founding_flyer_v1' && (
                   <span style={{ display: 'block', marginTop: 4, color: '#92400E' }}>
-                    ⚠️ The Founding Member Invite uses the existing PIL renderer — it honours <code>admin_id</code>, <code>venue</code> and <code>url</code> only. Other fields will be surfaced in the editor but won&apos;t change the rendered image until the engine adopts them.
+                    ⚠️ The Founding Member Invite uses the existing PIL renderer — it honours <code>admin_id</code>, <code>venue</code>, <code>url</code>, <code>headline</code> and <code>supporting_text</code>. Other fields will be surfaced in the editor but won&apos;t change the rendered image until the engine adopts them.
                   </span>
                 )}
               </div>

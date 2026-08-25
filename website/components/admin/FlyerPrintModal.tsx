@@ -228,7 +228,7 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
         }}
       >
         {/* Preview pane */}
-        <div style={{ padding: 20, background: '#F8FAFC', overflow: 'auto' }}>
+        <div style={{ padding: 20, background: '#F8FAFC', overflow: 'auto', minHeight: 0, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ margin: 0, fontSize: 20 }}>{template.name}</h2>
             <button
@@ -259,7 +259,7 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
         </div>
 
         {/* Controls pane */}
-        <div style={{ padding: 20, borderLeft: '1px solid #E2E8F0', overflow: 'auto' }}>
+        <div style={{ padding: 20, borderLeft: '1px solid #E2E8F0', overflow: 'auto', minHeight: 0, minWidth: 0 }}>
           <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>
             Layout
           </div>

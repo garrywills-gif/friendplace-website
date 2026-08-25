@@ -6209,6 +6209,8 @@ async def admin_invite_flyer(
     flyer_id: str = "",
     qr_code_id: str = "",
     campaign_id: str = "",
+    headline: str = "",
+    supporting_text: str = "",
 ):
     """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
     for printing and pinning up at noticeboards. The layout is intentionally
@@ -6224,6 +6226,13 @@ async def admin_invite_flyer(
       contains only public info (app name, QR code, admin's referral id)
       so treating the admin_id as a capability token is acceptable —
       guessing a UUID v4 is cryptographically infeasible.
+
+    iter164t (Garry, 24 Aug 2026): ``headline`` and ``supporting_text``
+    are optional overrides so the Flyer Publishing Centre editor can
+    live-preview per-flyer wording (e.g. "REGISTER YOUR INTEREST" with
+    a matching sub-line for RYI). When empty, the historic defaults
+    ("FIND YOUR PEOPLE." + the four-icon lead line) render exactly as
+    before — no visual regression for existing prints.
     """
     await _require_admin(admin_id)
     import io
@@ -6485,13 +6494,29 @@ async def admin_invite_flyer(
     # a room). 170pt condensed bold lets the line fit within the side
     # margins of a 1240px-wide page. Extra breathing room below the taller
     # branded banner keeps the whole layout balanced.
+    #
+    # iter164t: honour a per-flyer `headline` override so the Publishing
+    # Centre editor can retitle the poster (e.g. "REGISTER YOUR
+    # INTEREST"). We uppercase for consistent visual weight with the
+    # legacy default and cap the length so `fit_centred` still lands in
+    # a readable size range.
+    _headline_override = (headline or "").strip()
+    _headline_text = (_headline_override.upper()[:60] if _headline_override
+                      else "FIND YOUR PEOPLE.")
     HEAD_Y = BANNER_H + 35
-    fit_centred("FIND YOUR PEOPLE.", HEAD_Y, W - 2 * SIDE,
+    fit_centred(_headline_text, HEAD_Y, W - 2 * SIDE,
                 start_size=180, min_size=130, fill=NAVY, bold=True,
                 condensed=True)
 
     # ─── Short tagline (single line — readable from ~2m). 38pt slate. ────
-    lead = "Meet new friends. Join local events. Feel connected."
+    # iter164t: honour a per-flyer `supporting_text` override. Whitespace
+    # is collapsed so a multi-line textarea input still renders as one
+    # readable line at 38pt.
+    _support_override = (supporting_text or "").strip()
+    if _support_override:
+        lead = " ".join(_support_override.split())[:200]
+    else:
+        lead = "Meet new friends. Join local events. Feel connected."
     wrap_centre(lead, HEAD_Y + 185, font(38, bold=False), SLATE,
                 max_w=W - 2 * SIDE, line_gap=10)
 

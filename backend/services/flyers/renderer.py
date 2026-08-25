@@ -170,6 +170,11 @@ async def _render_founding_base_a4(db, params: Dict[str, Any]) -> Image.Image:
     flyer_id = str(params.get("flyer_id") or params.get("template_key") or "").strip()
     qr_code_id = str(params.get("qr_code_id") or "").strip() or f"qr_{_uuid.uuid4().hex[:12]}"
     campaign_id = str(params.get("campaign_id") or "").strip()
+    # iter164t: pipe the editable content overrides through to the
+    # base PIL renderer so the Publishing Centre preview reflects
+    # per-flyer headline / supporting text edits in real time.
+    headline = str(params.get("headline") or "").strip()
+    supporting_text = str(params.get("supporting_text") or "").strip()
     resp = await admin_invite_flyer(
         admin_id=admin_id,
         venue=venue,
@@ -177,6 +182,8 @@ async def _render_founding_base_a4(db, params: Dict[str, Any]) -> Image.Image:
         flyer_id=flyer_id,
         qr_code_id=qr_code_id,
         campaign_id=campaign_id,
+        headline=headline,
+        supporting_text=supporting_text,
     )
     # `resp` is a FastAPI Response; the raw PNG bytes are on `.body`.
     return Image.open(io.BytesIO(resp.body)).convert("RGB")
