@@ -1211,7 +1211,7 @@ export const flyersApi = {
     const token = getToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(
+    const res = await fetchWithRetry(
       `${BASE}/api/cms/flyer-templates/${key}/render?${q.toString()}`,
       { headers, cache: 'no-store' },
     );
