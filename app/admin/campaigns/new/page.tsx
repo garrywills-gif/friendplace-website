@@ -17,6 +17,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { API_BASE } from '@/lib/api-base';
+import { clearAuth, getToken } from '@/lib/cms-auth';
 import {
   campaignsApi,
   emailPreviewsApi,
@@ -97,6 +98,105 @@ const SIGNER_OPTIONS: { value: Signer; label: string }[] = [
   { value: 'none',    label: 'No additional sign-off' },
 ];
 
+// iter164r: real Campaign Composer PDF attachments. The backend stores one
+// PDF on the draft and keeps `attach_file` as a separate, explicit send flag.
+// Keeping those two ideas separate is deliberate: uploading a flyer does NOT
+// mean it will automatically be attached to outgoing mail.
+type CampaignAttachmentMeta = {
+  filename: string;
+  content_type?: string;
+  size?: number;
+  uploaded_at?: string;
+};
+
+const CAMPAIGN_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
+
+function attachmentMetaFrom(value: any): CampaignAttachmentMeta | null {
+  const a = value?.attachment ?? value;
+  if (!a || !a.filename) return null;
+  return {
+    filename: String(a.filename),
+    content_type: a.content_type || a.mime_type || 'application/pdf',
+    size: Number(a.size ?? a.size_bytes ?? 0) || 0,
+    uploaded_at: a.uploaded_at || undefined,
+  };
+}
+
+function formatAttachmentSize(bytes?: number): string {
+  const n = Number(bytes || 0);
+  if (!n) return '';
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function attachmentRequest(
+  campaignId: string,
+  suffix = '',
+  init: RequestInit = {},
+): Promise<Response> {
+  const headers = new Headers(init.headers || {});
+  const token = getToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(
+    `${API_BASE}/api/cms/campaigns/${encodeURIComponent(campaignId)}/attachment${suffix}`,
+    { ...init, headers, cache: 'no-store' },
+  );
+  if (res.status === 401) clearAuth();
+  return res;
+}
+
+async function attachmentError(res: Response, fallback: string): Promise<Error> {
+  const text = await res.text().catch(() => '');
+  if (!text) return new Error(fallback);
+  try {
+    const parsed = JSON.parse(text);
+    return new Error(parsed?.detail || parsed?.error || fallback);
+  } catch {
+    return new Error(text || fallback);
+  }
+}
+
+async function getCampaignAttachment(campaignId: string): Promise<CampaignAttachmentMeta | null> {
+  const res = await attachmentRequest(campaignId);
+  if (res.status === 404) return null;
+  if (!res.ok) throw await attachmentError(res, `Could not load attachment (${res.status})`);
+  return attachmentMetaFrom(await res.json());
+}
+
+async function uploadCampaignAttachment(campaignId: string, file: File): Promise<CampaignAttachmentMeta> {
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await attachmentRequest(campaignId, '', { method: 'POST', body: fd });
+  if (!res.ok) throw await attachmentError(res, `Upload failed (${res.status})`);
+  const meta = attachmentMetaFrom(await res.json().catch(() => ({})));
+  return meta || {
+    filename: file.name,
+    content_type: file.type || 'application/pdf',
+    size: file.size,
+  };
+}
+
+async function deleteCampaignAttachment(campaignId: string): Promise<void> {
+  const res = await attachmentRequest(campaignId, '', { method: 'DELETE' });
+  if (!res.ok) throw await attachmentError(res, `Could not remove attachment (${res.status})`);
+}
+
+async function openCampaignAttachment(campaignId: string, filename: string): Promise<void> {
+  const res = await attachmentRequest(campaignId, '/download');
+  if (!res.ok) throw await attachmentError(res, `Could not download attachment (${res.status})`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  a.download = filename || 'campaign-attachment.pdf';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export default function NewCampaignPage() {
   return (
     <AdminShell title="Compose campaign">
@@ -170,6 +270,10 @@ function ComposePanel() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [attachment, setAttachment] = useState<CampaignAttachmentMeta | null>(null);
+  const [attachFile, setAttachFile] = useState(false);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const showToast = (m: string, ms = 2400) => { setToast(m); setTimeout(() => setToast(null), ms); };
 
@@ -220,6 +324,16 @@ function ComposePanel() {
         }
         setCtaLabel(c.cta_label || '');
         setCtaUrl(c.cta_url || '');
+        setAttachFile(Boolean((c as any).attach_file));
+        try {
+          const savedAttachment = await getCampaignAttachment(editId);
+          setAttachment(savedAttachment);
+          if (!savedAttachment) setAttachFile(false);
+        } catch {
+          // Attachment metadata is non-fatal to opening the composer.
+          // Keep the campaign's saved attach_file flag intact so a
+          // temporary metadata request failure never silently changes it.
+        }
         const st = (c.audience_filter?.statuses || []) as any;
         setStatuses(st.length ? st : ['registered', 'invited']);
         setTagsAny(c.audience_filter?.tags_any || []);
@@ -344,7 +458,7 @@ function ComposePanel() {
       // backend template key here so the server (which knows nothing
       // about `community_outreach`) sees a value it already renders.
       const serverTemplate = TEMPLATE_META[template]?.serverTemplate || 'announcement';
-      const payload: Partial<Campaign> = {
+      const payload: Partial<Campaign> & { attach_file?: boolean } = {
         name: name || 'Untitled campaign',
         template: serverTemplate, subject, preheader, companion,
         title, body_md: bodyMd,
@@ -356,6 +470,9 @@ function ComposePanel() {
         // `show_founder_badge` is always a boolean.
         greeting: greeting,
         show_founder_badge: showFounderBadge,
+        // iter164r: independently controls whether a saved PDF is sent.
+        // Uploading the file alone never turns this on.
+        attach_file: attachFile,
       };
       let c: Campaign;
       if (campaignId) {
@@ -370,7 +487,7 @@ function ComposePanel() {
       showToast(e?.message || 'Save failed');
       return null;
     } finally { setSaving(false); }
-  }, [campaignId, name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge]);
+  }, [campaignId, name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge, attachFile]);
 
   // Refresh preview + audience count whenever the important fields change.
   // iter161 bug: the outreach / manual / individual selectors were missing
@@ -403,6 +520,8 @@ function ComposePanel() {
     name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl,
     // iter164q: new editable fields must retrigger the debounced save.
     greeting, showFounderBadge,
+    // iter164r: persist the explicit send-attachment flag with the draft.
+    attachFile,
     // Founding-Member custom filter
     statuses, tagsAny,
     // Mode + saved segment
@@ -460,6 +579,69 @@ function ComposePanel() {
     } catch (e: any) {
       showToast(e?.message || 'Schedule failed');
     } finally { setSending(false); }
+  };
+
+  const handleAttachmentUpload = async (file: File | null) => {
+    if (!file) return;
+    const looksPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!looksPdf) {
+      showToast('Please choose a PDF file');
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+      return;
+    }
+    if (file.size > CAMPAIGN_ATTACHMENT_MAX_BYTES) {
+      showToast('PDF must be 5 MB or smaller');
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+      return;
+    }
+
+    const id = await saveDraft(true);
+    if (!id) return;
+    setAttachmentBusy(true);
+    try {
+      const saved = await uploadCampaignAttachment(id, file);
+      setAttachment(saved);
+      showToast(
+        attachFile
+          ? 'PDF replaced — it will remain attached when sent'
+          : 'PDF saved with draft — sending it is still OFF',
+        3200,
+      );
+    } catch (e: any) {
+      showToast(e?.message || 'PDF upload failed');
+    } finally {
+      setAttachmentBusy(false);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+    }
+  };
+
+  const handleAttachmentRemove = async () => {
+    if (!campaignId || !attachment) return;
+    setAttachmentBusy(true);
+    try {
+      await deleteCampaignAttachment(campaignId);
+      // Be explicit even if the backend delete route also clears it.
+      await campaignsApi.update(campaignId, { attach_file: false } as any);
+      setAttachment(null);
+      setAttachFile(false);
+      showToast('PDF removed from draft');
+    } catch (e: any) {
+      showToast(e?.message || 'Could not remove PDF');
+    } finally {
+      setAttachmentBusy(false);
+    }
+  };
+
+  const handleAttachmentOpen = async () => {
+    if (!campaignId || !attachment) return;
+    setAttachmentBusy(true);
+    try {
+      await openCampaignAttachment(campaignId, attachment.filename);
+    } catch (e: any) {
+      showToast(e?.message || 'Could not open PDF');
+    } finally {
+      setAttachmentBusy(false);
+    }
   };
 
   const toggleStatus = (s: 'registered' | 'invited' | 'joined') => {
@@ -611,6 +793,90 @@ function ComposePanel() {
             </div>
           </SectionCard>
         )}
+
+        <SectionCard title="PDF attachment (optional)">
+          <p style={{ fontSize: 13, color: '#475569', margin: '0 0 12px', lineHeight: 1.5 }}>
+            Upload one PDF up to 5 MB. It is saved with this campaign draft, but
+            <strong> it will not be attached to outgoing emails unless you turn that on below.</strong>
+          </p>
+
+          <label style={s.label}>{attachment ? 'Replace PDF' : 'Choose PDF'}</label>
+          <input
+            ref={attachmentInputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            disabled={attachmentBusy}
+            onChange={e => void handleAttachmentUpload(e.target.files?.[0] || null)}
+            data-testid="campaign-attachment-input"
+            style={{ ...s.input, width: '100%', padding: 10 }}
+          />
+
+          {attachmentBusy && (
+            <div style={{ ...s.helper, marginTop: 6 }}>Working with PDF…</div>
+          )}
+
+          {attachment && (
+            <div style={{
+              marginTop: 12, padding: 12,
+              background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 12,
+            }}>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#0A2540' }}>
+                    📄 {attachment.filename}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                    {formatAttachmentSize(attachment.size) || 'PDF'}
+                    {attachment.uploaded_at ? ` · saved ${new Date(attachment.uploaded_at).toLocaleString()}` : ''}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button type="button" onClick={() => void handleAttachmentOpen()}
+                    disabled={attachmentBusy} style={{ ...s.ghostBtn, padding: '6px 10px', fontSize: 12 }}>
+                    Open PDF
+                  </button>
+                  <button type="button" onClick={() => void handleAttachmentRemove()}
+                    disabled={attachmentBusy} style={{ ...s.ghostBtn, padding: '6px 10px', fontSize: 12, color: '#B91C1C' }}>
+                    Remove
+                  </button>
+                </div>
+              </div>
+
+              <label style={{
+                display: 'flex', alignItems: 'flex-start', gap: 9,
+                marginTop: 14, cursor: attachmentBusy ? 'not-allowed' : 'pointer',
+                fontSize: 13, color: '#0A2540', fontWeight: 700,
+              }}>
+                <input
+                  type="checkbox"
+                  checked={attachFile}
+                  disabled={attachmentBusy}
+                  onChange={e => setAttachFile(e.target.checked)}
+                  data-testid="campaign-attach-file-toggle"
+                  style={{ width: 17, height: 17, marginTop: 1 }}
+                />
+                <span>Attach this PDF to outgoing emails</span>
+              </label>
+
+              <div style={{
+                marginTop: 8, padding: '9px 11px', borderRadius: 10,
+                background: attachFile ? '#FEF3C7' : '#ECFDF5',
+                color: attachFile ? '#92400E' : '#166534',
+                fontSize: 12, lineHeight: 1.45, fontWeight: 650,
+              }}>
+                {attachFile
+                  ? 'ON — each recipient will receive this PDF as an attachment. Attachments can slightly affect deliverability.'
+                  : 'OFF — the PDF stays saved with the draft but will not be sent. This is the default.'}
+              </div>
+            </div>
+          )}
+
+          {!attachment && (
+            <div style={{ ...s.helper, marginTop: 7 }}>
+              PDF only · maximum 5 MB · sending as an attachment stays OFF until you choose otherwise.
+            </div>
+          )}
+        </SectionCard>
 
         <SectionCard title="Audience">
           {/* CRM Phase 2C — Recipient mode toggle */}
@@ -922,6 +1188,8 @@ function ComposePanel() {
           manualList={manualList}
           individualEmail={individualEmail}
           individualName={individualName}
+          attachment={attachment}
+          attachFile={attachFile}
           sending={sending}
           onCancel={() => setConfirmOpen(false)}
           onConfirm={() => void doSend()}
@@ -963,6 +1231,7 @@ function ConfirmModal({
   name, templateLabel, companion, audienceCount, recipientMode, segment,
   statuses, tagsAny,
   outreachCategory, outreachStatus, manualList, individualEmail, individualName,
+  attachment, attachFile,
   sending, onCancel, onConfirm,
 }: {
   name: string; templateLabel: string; companion: string; audienceCount: number;
@@ -972,6 +1241,8 @@ function ConfirmModal({
   outreachCategory: string; outreachStatus: string;
   manualList: string;
   individualEmail: string; individualName: string;
+  attachment: CampaignAttachmentMeta | null;
+  attachFile: boolean;
   sending: boolean;
   onCancel: () => void; onConfirm: () => void;
 }) {
@@ -1090,6 +1361,15 @@ function ConfirmModal({
           companion === 'none'    ? 'No additional sign-off' :
                                     'George'
         }</div>
+
+        <div style={rowLabel}>PDF attachment</div>
+        <div style={rowValue}>
+          {!attachment
+            ? 'None'
+            : attachFile
+              ? `📎 ${attachment.filename} — WILL be attached`
+              : `📄 ${attachment.filename} — saved only, NOT attached`}
+        </div>
 
         <div style={{
           marginTop: 20, padding: 14,
