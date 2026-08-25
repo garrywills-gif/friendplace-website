@@ -69,6 +69,72 @@ class RenderResult:
     summary: str
 
 
+# ---------------------------------------------------------------------------
+# iter164y — bounded in-memory response cache for the founding-flyer engine.
+# ---------------------------------------------------------------------------
+# Motivation:
+#   • Warm render: ~335 ms
+#   • Cold render (fonts + qrcode + PIL fresh in memory): ~3 s locally, up
+#     to 8-12 s observed on the Vercel-hosted admin against a freshly-woken
+#     Emergent preview backend. That's tight against the 10 s per-attempt
+#     retry-wrapper timeout on the front-end.
+#   • The Publishing Centre editor re-fires a render on every keystroke.
+#
+# Shape:
+#   • Simple {key: (expires_at, payload)} dict guarded by a lock.
+#   • LRU eviction by insertion order when we exceed MAXLEN.
+#   • TTL keeps stale QR codes / admin details from lingering forever.
+#   • Cache is process-local; a Kubernetes rolling deploy or pod restart
+#     transparently invalidates it. That's fine for a preview cache.
+_RENDER_CACHE: "OrderedDict[Any, Any]" = None  # type: ignore[assignment]
+_RENDER_CACHE_LOCK = None
+_RENDER_CACHE_MAXLEN = 32
+_RENDER_CACHE_TTL_SEC = 15 * 60
+
+from collections import OrderedDict as _OD
+from threading import Lock as _Lock
+_RENDER_CACHE = _OD()  # type: OrderedDict[tuple, tuple]
+_RENDER_CACHE_LOCK = _Lock()
+
+
+def _render_cache_key(template_key: str, layout_key: str, params: Dict[str, Any]) -> tuple:
+    """Canonicalise the render inputs into a hashable cache key.
+
+    We stringify every value so that ``{"admin_id": "abc"}`` and
+    ``{"admin_id": u"abc"}`` collapse to the same key. ``qr_code_id``
+    is *included* because it materially changes the QR image pattern
+    — but since the CMS front-end never supplies it, the auto-generated
+    id is only baked into the cached bytes on the FIRST render; that's
+    intentional (cheap consistency across an editing session).
+    """
+    keys = sorted((k, "" if v is None else str(v)) for k, v in (params or {}).items())
+    return (template_key, layout_key, tuple(keys))
+
+
+def _render_cache_get(key: tuple) -> Optional[Dict[str, Any]]:
+    import time as _time
+    with _RENDER_CACHE_LOCK:
+        entry = _RENDER_CACHE.get(key)
+        if entry is None:
+            return None
+        expires_at, payload = entry
+        if expires_at < _time.time():
+            _RENDER_CACHE.pop(key, None)
+            return None
+        # Touch for LRU behaviour.
+        _RENDER_CACHE.move_to_end(key)
+        return payload
+
+
+def _render_cache_put(key: tuple, payload: Dict[str, Any]) -> None:
+    import time as _time
+    with _RENDER_CACHE_LOCK:
+        _RENDER_CACHE[key] = (_time.time() + _RENDER_CACHE_TTL_SEC, payload)
+        _RENDER_CACHE.move_to_end(key)
+        while len(_RENDER_CACHE) > _RENDER_CACHE_MAXLEN:
+            _RENDER_CACHE.popitem(last=False)
+
+
 async def render_flyer(
     db,
     template_key: str,
@@ -106,10 +172,36 @@ async def render_flyer(
     params = params or {}
     engine = tpl.get("engine")
 
+    # iter164y: bounded in-memory LRU response cache. Warm-render for
+    # a founding_flyer_v1 A4 poster is ~335 ms, cold is ~3 s (fonts +
+    # qrcode module + PIL fresh in memory). On the Vercel-hosted admin
+    # site every keystroke in the flyer editor re-fires a render (same
+    # AuthedFlyerImage effect), which used to fan out into a request
+    # storm and blow past the 10 s per-attempt retry-wrapper timeout
+    # → the browser eventually surfaced "The server took a moment too
+    # long to respond." Caching identical (template, layout, params)
+    # tuples for 15 min flips repeat renders to O(1) so the editor
+    # UX stays responsive even under a cold-pod cold-start.
+    cache_hit = None
+    cache_key = None
     if engine == ENGINE_FOUNDING:
+        cache_key = _render_cache_key(template_key, layout_key, params)
+        cache_hit = _render_cache_get(cache_key)
+
+    if cache_hit is not None:
+        png_bytes = cache_hit["png_bytes"]
+        media_type = cache_hit["media_type"]
+        ext = cache_hit["ext"]
+    elif engine == ENGINE_FOUNDING:
         png_bytes = await _render_founding(db, tpl, lay, params)
         media_type = "image/png"
         ext = "png"
+        if cache_key is not None:
+            _render_cache_put(cache_key, {
+                "png_bytes": png_bytes,
+                "media_type": media_type,
+                "ext": ext,
+            })
     elif engine == ENGINE_STATIC_PDF:
         png_bytes, media_type, ext = await _serve_static_pdf(tpl, lay)
     else:

@@ -57,28 +57,38 @@ export function AuthedFlyerImage({
     setUrl(null);
     setErrorMsg('');
 
-    (async () => {
-      try {
-        const res = await flyersApi.renderBlob(templateKey, { layout, fields });
-        if (cancelled) {
-          URL.revokeObjectURL(res.url);
-          return;
+    // iter164y: debounce the actual render request by ~350 ms so a
+    // burst of keystrokes in the editor collapses into a single
+    // fetch. Each backend render is ~500 ms even warm — without the
+    // debounce, five quick keystrokes queue five renders and the
+    // last correct image lags 2-3 s behind the input. The trailing
+    // edge is what matters: we always send the render for the
+    // *latest* set of fields, never for a stale mid-typing state.
+    const timer = setTimeout(() => {
+      (async () => {
+        try {
+          const res = await flyersApi.renderBlob(templateKey, { layout, fields });
+          if (cancelled) {
+            URL.revokeObjectURL(res.url);
+            return;
+          }
+          current = res.url;
+          setUrl(res.url);
+          setStatus('ready');
+        } catch (e: any) {
+          if (!cancelled) {
+            setStatus('error');
+            const msg = e?.message || 'Preview could not be loaded';
+            setErrorMsg(msg);
+            onError?.(msg);
+          }
         }
-        current = res.url;
-        setUrl(res.url);
-        setStatus('ready');
-      } catch (e: any) {
-        if (!cancelled) {
-          setStatus('error');
-          const msg = e?.message || 'Preview could not be loaded';
-          setErrorMsg(msg);
-          onError?.(msg);
-        }
-      }
-    })();
+      })();
+    }, 350);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
       if (current) URL.revokeObjectURL(current);
     };
     // Rebuild whenever the identity of the render changes. Serialising
