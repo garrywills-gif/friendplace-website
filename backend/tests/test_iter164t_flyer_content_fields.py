@@ -55,14 +55,19 @@ def test_content_field_overrides_change_the_render():
             baseline = await render_flyer(
                 db, "founding_member_invite", "poster_a4", pinned,
             )
+            # iter164z: default headline changed from "FIND YOUR PEOPLE."
+            # to "REGISTER YOUR INTEREST", so the override we test with
+            # must be *different* from the default — otherwise the two
+            # renders would be byte-identical by design and the assertion
+            # would fire on a false positive.
             headline_only = await render_flyer(
                 db, "founding_member_invite", "poster_a4",
-                {**pinned, "headline": "REGISTER YOUR INTEREST"},
+                {**pinned, "headline": "CHANGE OF PLAN"},
             )
             with_support = await render_flyer(
                 db, "founding_member_invite", "poster_a4",
                 {**pinned,
-                 "headline": "REGISTER YOUR INTEREST",
+                 "headline": "CHANGE OF PLAN",
                  "supporting_text": "Leave your name at the door."},
             )
             empty_overrides = await render_flyer(

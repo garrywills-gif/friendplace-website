@@ -6523,33 +6523,49 @@ async def admin_invite_flyer(
     # branded banner keeps the whole layout balanced.
     #
     # iter164t: honour a per-flyer `headline` override so the Publishing
-    # Centre editor can retitle the poster (e.g. "REGISTER YOUR
-    # INTEREST"). We uppercase for consistent visual weight with the
-    # legacy default and cap the length so `fit_centred` still lands in
-    # a readable size range.
+    # Centre editor can retitle the poster. We uppercase for consistent
+    # visual weight with the legacy default and cap the length so
+    # `fit_centred` still lands in a readable size range.
+    #
+    # iter164z: new pre-launch default is "REGISTER YOUR INTEREST" — the
+    # Founding Member Invite doubles as the Register-Your-Interest flyer
+    # until the app is live, so the default matches the primary use case.
     _headline_override = (headline or "").strip()
     _headline_text = (_headline_override.upper()[:60] if _headline_override
-                      else "FIND YOUR PEOPLE.")
+                      else "REGISTER YOUR INTEREST")
     HEAD_Y = BANNER_H + 35
     fit_centred(_headline_text, HEAD_Y, W - 2 * SIDE,
                 start_size=180, min_size=130, fill=NAVY, bold=True,
                 condensed=True)
 
-    # ─── Short tagline (single line — readable from ~2m). 38pt slate. ────
+    # ─── Supporting text ─────────────────────────────────────────────────
     # iter164t: honour a per-flyer `supporting_text` override. Whitespace
-    # is collapsed so a multi-line textarea input still renders as one
-    # readable line at 38pt.
+    # is collapsed so a multi-line textarea input still renders cleanly.
+    #
+    # iter164z: new pre-launch default explains what people are signing
+    # up FOR. Slightly smaller (36pt) so the two-line version fits above
+    # the feature row without crowding; `wrap_centre` returns the final
+    # y-coordinate so the feature row below can start UNDER the actual
+    # supporting-text block — no more overlap when the text runs long.
     _support_override = (supporting_text or "").strip()
     if _support_override:
-        lead = " ".join(_support_override.split())[:200]
+        lead = " ".join(_support_override.split())[:400]
     else:
-        lead = "Meet new friends. Join local events. Feel connected."
-    wrap_centre(lead, HEAD_Y + 185, font(38, bold=False), SLATE,
-                max_w=W - 2 * SIDE, line_gap=10)
+        lead = (
+            "FriendPlace is launching soon. Register your interest to be "
+            "among the first to know when the app is ready."
+        )
+    _support_top = HEAD_Y + 185
+    _support_end_y = wrap_centre(lead, _support_top, font(36, bold=False),
+                                 SLATE, max_w=W - 2 * SIDE, line_gap=10)
 
-    # ─── Four feature icons. Slightly tighter to make room for the ribbon
-    # immediately below them; circles still big enough to read at a glance.
-    ICON_Y = HEAD_Y + 250
+    # ─── Four feature icons. Vertical origin flows from the actual
+    # supporting-text block height rather than a fixed offset, so a
+    # 2- or 3-line supporting line never collides with the icon row.
+    # iter164z: floor of HEAD_Y + 250 keeps the layout identical for
+    # the short single-line legacy tagline; the `max()` only kicks in
+    # when the supporting text is genuinely tall.
+    ICON_Y = max(HEAD_Y + 250, _support_end_y + 30)
     ICON_SIZE = 105
     LABEL_Y = ICON_Y + ICON_SIZE + 12
     cols = 4
@@ -6574,12 +6590,6 @@ async def admin_invite_flyer(
             b = d.textbbox((0, 0), label, font=fnt)
             d.text((cx - (b[2] - b[0]) / 2, LABEL_Y), label, font=fnt, fill=INK)
 
-    def icon_coffee(cx, cy):
-        d.rounded_rectangle([cx - 28, cy - 16, cx + 18, cy + 24], radius=8, fill="#FFFFFF")
-        d.ellipse([cx + 12, cy - 6, cx + 32, cy + 16], outline="#FFFFFF", width=5)
-        for off in (-14, -2, 10):
-            d.line([cx + off, cy - 30, cx + off + 3, cy - 18], fill="#FFFFFF", width=3)
-
     def icon_calendar(cx, cy):
         d.rounded_rectangle([cx - 28, cy - 22, cx + 28, cy + 24], radius=7, fill="#FFFFFF")
         d.rectangle([cx - 28, cy - 22, cx + 28, cy - 10], fill="#DC2626")
@@ -6602,9 +6612,29 @@ async def admin_invite_flyer(
         d.arc([cx - 12, cy - 30, cx + 12, cy + 30], 0, 360, fill="#10B981", width=3)
         d.line([cx, cy - 28, cx, cy + 28], fill="#10B981", width=3)
 
-    draw_chip(0, "#92400E", "FP Café", icon_coffee)
+    # iter164z: "Share a Moment" icon — a simple camera. Same white-fill
+    # style as the other three so the row reads as a consistent set.
+    # The "lens" is a small dark disc so the icon doesn't look like a
+    # solid brick from a distance; small viewfinder square is included
+    # for the classic camera silhouette.
+    def icon_camera(cx, cy):
+        d.rounded_rectangle([cx - 32, cy - 18, cx + 32, cy + 22], radius=7, fill="#FFFFFF")
+        # viewfinder bump on top
+        d.rounded_rectangle([cx - 12, cy - 26, cx + 12, cy - 14], radius=3, fill="#FFFFFF")
+        # lens outer ring
+        d.ellipse([cx - 15, cy - 9, cx + 15, cy + 21], fill="#0F172A")
+        # lens inner highlight
+        d.ellipse([cx - 9, cy - 3, cx + 9, cy + 15], fill="#FFFFFF")
+        # tiny shutter LED dot
+        d.ellipse([cx + 22, cy - 12, cx + 27, cy - 7], fill="#DC2626")
+
+    # iter164z: feature row is now Make Friends · Local Events ·
+    # Share a Moment · Community Groups. FP Café removed — it's not
+    # a headline pre-launch feature. Palette rebalanced so warm/cool
+    # alternate along the row.
+    draw_chip(0, "#7C3AED", "Make Friends", icon_people)
     draw_chip(1, "#0369A1", "Local Events", icon_calendar)
-    draw_chip(2, "#7C3AED", "Make Friends", icon_people)
+    draw_chip(2, "#E11D48", "Share a Moment", icon_camera)
     draw_chip(3, "#0F766E", "Community Groups", icon_globe)
 
     # ─── "Become a Founding Member" gold ribbon ───────────────────────────
@@ -6779,14 +6809,20 @@ async def admin_invite_flyer(
 
     # ─── CTA stack ────────────────────────────────────────────────────────
     # Layout budget from qr_y+qr_size onward:
-    #   +22px gap → SCAN TO JOIN FREE (~78pt / 82px)
+    #   +22px gap → SCAN TO REGISTER YOUR INTEREST (~72pt / auto-shrinks)
     #   +82px → Because You Belong Too. (~34pt / 42px)
     # Total: ~146px trailing content. Page height 1754, so we need
     # qr_y + qr_size ≤ ~1580. With qr_y ≈ 1077 and qr_size = 520 we sit
     # at 1597 — leaving 157px for the CTA + tagline which fits neatly.
+    #
+    # iter164z: CTA copy shifted from "SCAN TO JOIN FREE" to
+    # "SCAN TO REGISTER YOUR INTEREST" to match the flyer's pre-launch
+    # purpose. The line is longer so `fit_centred`'s min_size now goes
+    # down to 44pt to keep the whole phrase on a single line without
+    # cropping the page margins.
     cta_y = qr_y + qr_size + 22
-    fit_centred("SCAN TO JOIN FREE", cta_y, W - 2 * SIDE,
-                start_size=72, min_size=56, fill=NAVY, bold=True,
+    fit_centred("SCAN TO REGISTER YOUR INTEREST", cta_y, W - 2 * SIDE,
+                start_size=72, min_size=44, fill=NAVY, bold=True,
                 condensed=True)
     centre("Because You Belong Too.", cta_y + 78, font(30, italic=True), TEAL)
 
