@@ -223,12 +223,27 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
         onClick={(e) => e.stopPropagation()}
         style={{
           background: '#FFFFFF', borderRadius: 20, boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
-          width: 'min(1080px, 100%)', maxHeight: '92vh', overflow: 'hidden',
-          display: 'grid', gridTemplateColumns: '1fr 320px',
+          // iter164u: **definite** height (not `max-height`) is the key
+          // to making the panes' `overflow: auto` actually engage.
+          //
+          // Why: flex/grid children's `min-height: 0 + overflow: auto`
+          // only produces a scrollbar when the parent has a *definite*
+          // block-size. `max-height: 92vh` alone leaves the parent's
+          // block-size indefinite (auto), the flex algorithm falls back
+          // to content sizing, and the child pane grows past the
+          // clipped modal — buttons at the bottom stay off-screen with
+          // no scrollbar. Locking the modal at `min(920px, 92vh)`
+          // gives it a real, resolvable height (never taller than 92%
+          // of the viewport, never taller than 920px on very tall
+          // monitors) and the panes scroll internally as intended.
+          width: 'min(1080px, 100%)',
+          height: 'min(920px, 92vh)',
+          overflow: 'hidden',
+          display: 'flex', flexDirection: 'row', alignItems: 'stretch',
         }}
       >
         {/* Preview pane */}
-        <div style={{ padding: 20, background: '#F8FAFC', overflow: 'auto', minHeight: 0, minWidth: 0 }}>
+        <div style={{ flex: '1 1 0', padding: 20, background: '#F8FAFC', overflow: 'auto', minHeight: 0, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ margin: 0, fontSize: 20 }}>{template.name}</h2>
             <button
@@ -259,7 +274,7 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
         </div>
 
         {/* Controls pane */}
-        <div style={{ padding: 20, borderLeft: '1px solid #E2E8F0', overflow: 'auto', minHeight: 0, minWidth: 0 }}>
+        <div style={{ flex: '0 0 320px', padding: 20, borderLeft: '1px solid #E2E8F0', overflow: 'auto', minHeight: 0, minWidth: 0 }}>
           <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>
             Layout
           </div>
