@@ -296,6 +296,115 @@ def has_unclosed_tool_call(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# iter164s — Inline action_preview interceptor (Garry, 24 Aug 2026)
+# ---------------------------------------------------------------------------
+# Bug: sometimes Claude decides to *illustrate* an Action Preview inline —
+# either by wrapping the JSON payload in a ```json ... ``` markdown fence
+# or, more rarely, by dropping the raw JSON straight into prose — rather
+# than actually invoking the corresponding tool (draft_flyer, etc.). That
+# left admins staring at a wall of JSON instead of the interactive card.
+#
+# Two-pronged defence:
+#   1. The system prompt now forbids it outright (see prompt.py).
+#   2. Belt-and-braces: this extractor scans arbitrary text for embedded
+#      action_preview payloads, yields them as proper SSE events, and
+#      strips them from the delta the UI renders. If Claude ever slips,
+#      the admin still sees the card — not the raw markup.
+#
+# Kept module-level so unit tests can drive it directly.
+
+_ACTION_PREVIEW_MARKER_RE = re.compile(
+    r'"kind"\s*:\s*"action_preview"',
+    re.IGNORECASE,
+)
+_TRAILING_FENCE_OPEN_RE = re.compile(
+    r"```(?:json|JSON)?\s*\n?\s*$",
+)
+_LEADING_FENCE_CLOSE_RE = re.compile(
+    r"\s*```\s*",
+)
+
+
+def has_unclosed_code_fence(text: str) -> bool:
+    """True when text contains an odd number of ``` fences.
+
+    Used by the streaming buffer to hold back deltas until the fence
+    closes, so the action_preview extractor sees the complete block
+    before deciding whether to strip it.
+    """
+    if not text:
+        return False
+    return text.count("```") % 2 == 1
+
+
+def extract_action_previews(text: str) -> tuple[str, list[dict]]:
+    """Pull any embedded ``action_preview`` JSON payloads out of ``text``.
+
+    Returns ``(cleaned_text, previews)``. Handles two shapes:
+
+      1. Markdown-fenced code blocks around a JSON object whose ``kind``
+         is ``action_preview`` (the common case — Claude loves to reach
+         for a ```json fence).
+      2. Bare JSON objects with the same marker (rarer; catches the
+         "no fence" slip too).
+
+    The extractor is intentionally conservative: it never removes text
+    unless it successfully parsed a JSON object AND that object has
+    ``kind == "action_preview"``. Anything ambiguous is left alone so
+    ordinary code blocks the admin actually wants to see (SQL, YAML,
+    example config, etc.) pass through unchanged.
+    """
+    if not text or '"action_preview"' not in text:
+        return text, []
+
+    decoder = json.JSONDecoder()
+    previews: list[dict] = []
+    out_parts: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        brace_idx = text.find("{", i)
+        if brace_idx == -1:
+            out_parts.append(text[i:])
+            break
+        # Cheap window check — is the marker anywhere close by? If not,
+        # skip this ``{`` and keep scanning. Keeps the scanner O(n).
+        peek_end = min(brace_idx + 2000, n)
+        if not _ACTION_PREVIEW_MARKER_RE.search(text, brace_idx, peek_end):
+            out_parts.append(text[i:brace_idx + 1])
+            i = brace_idx + 1
+            continue
+        try:
+            obj, end = decoder.raw_decode(text, brace_idx)
+        except json.JSONDecodeError:
+            out_parts.append(text[i:brace_idx + 1])
+            i = brace_idx + 1
+            continue
+        if not (isinstance(obj, dict) and obj.get("kind") == "action_preview"):
+            out_parts.append(text[i:brace_idx + 1])
+            i = brace_idx + 1
+            continue
+
+        # Landed a preview. Nibble away any wrapping ``` fence markers.
+        pre = text[i:brace_idx]
+        pre = _TRAILING_FENCE_OPEN_RE.sub("", pre)
+        post_start = end
+        close_match = _LEADING_FENCE_CLOSE_RE.match(text, post_start)
+        if close_match:
+            post_start = close_match.end()
+        out_parts.append(pre)
+        previews.append(obj)
+        i = post_start
+
+    cleaned = "".join(out_parts)
+    if previews:
+        # Collapse the paragraph gap the removed block leaves behind
+        # so the prose flows naturally.
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, previews
+
+
+# ---------------------------------------------------------------------------
 # Planner
 # ---------------------------------------------------------------------------
 
@@ -1082,7 +1191,11 @@ async def grounded_chat_stream(
         in the buffer without a matching close, we hold back
         everything until the close arrives — otherwise the closing
         ``</tool_call>`` could stream after we've already released
-        the opening tag to the UI, defeating the scrubber.
+        the opening tag to the UI, defeating the scrubber. Same rule
+        applies to unclosed ``` code fences (iter164s): once one
+        opens we hold everything back until it closes so the
+        action_preview extractor sees a complete block before
+        deciding whether to strip it.
         """
         nonlocal _pending
         if not _pending:
@@ -1094,6 +1207,10 @@ async def grounded_chat_stream(
         # If an open tool-call-style tag exists without its matching
         # close, wait for more data.
         if has_unclosed_tool_call(_pending):
+            return ""
+        # If a ``` code fence is open, wait for its close so the
+        # action_preview extractor can see the whole block.
+        if has_unclosed_code_fence(_pending):
             return ""
         # Split at the last sentence terminator we've seen.
         matches = list(_FLUSH_RE.finditer(_pending))
@@ -1114,13 +1231,27 @@ async def grounded_chat_stream(
                     _pending += text
                     out = _drain_buffer(final=False)
                     if out:
-                        yield {"kind": "delta", "text": out}
+                        # iter164s: intercept any inline action_preview
+                        # JSON payloads Claude may have printed instead
+                        # of actually calling the tool. We yield them
+                        # as proper SSE events and drop the raw markup
+                        # from the delta so the admin sees the card,
+                        # not the JSON.
+                        cleaned, inline_previews = extract_action_previews(out)
+                        for _p in inline_previews:
+                            yield {"kind": "action_preview", "preview": _p}
+                        if cleaned:
+                            yield {"kind": "delta", "text": cleaned}
             elif isinstance(event, StreamDone):
                 break
         # Flush any remaining buffered text.
         tail = _drain_buffer(final=True)
         if tail:
-            yield {"kind": "delta", "text": tail}
+            cleaned_tail, inline_previews = extract_action_previews(tail)
+            for _p in inline_previews:
+                yield {"kind": "action_preview", "preview": _p}
+            if cleaned_tail:
+                yield {"kind": "delta", "text": cleaned_tail}
     except Exception as exc:
         log.exception("synthesizer stream failed")
         yield {"kind": "delta", "text": (
@@ -1135,6 +1266,12 @@ async def grounded_chat_stream(
     # gets footer-free text.
     _full_reply = "".join(reply_parts)
     _clean_reply = _scrub(_full_reply)
+    # iter164s: strip any inline action_preview payloads from the
+    # `done` reply for the same reason we strip them from the live
+    # deltas — the transcript we persist and the reply length we
+    # report should reflect what the admin actually saw, not the
+    # raw markup we intercepted upstream.
+    _clean_reply, _ = extract_action_previews(_clean_reply)
 
     # Navigation intent detection (Garry, 5 Aug 2026 launch polish).
     # When George says *"Opening the System Health Dashboard now"* he
