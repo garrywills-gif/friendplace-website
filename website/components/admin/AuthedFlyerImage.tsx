@@ -46,12 +46,16 @@ export function AuthedFlyerImage({
 }: Props) {
   const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  // iter164x: keep the actual error message so QA can see WHY the
+  // preview failed instead of the generic "Preview unavailable".
+  const [errorMsg, setErrorMsg] = useState<string>('');
 
   useEffect(() => {
     let cancelled = false;
     let current: string | null = null;
     setStatus('loading');
     setUrl(null);
+    setErrorMsg('');
 
     (async () => {
       try {
@@ -66,7 +70,9 @@ export function AuthedFlyerImage({
       } catch (e: any) {
         if (!cancelled) {
           setStatus('error');
-          onError?.(e?.message || 'Preview could not be loaded');
+          const msg = e?.message || 'Preview could not be loaded';
+          setErrorMsg(msg);
+          onError?.(msg);
         }
       }
     })();
@@ -89,6 +95,7 @@ export function AuthedFlyerImage({
           width: '100%',
           height: '100%',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           background: '#FEF2F2',
@@ -97,11 +104,31 @@ export function AuthedFlyerImage({
           fontWeight: 600,
           padding: 12,
           textAlign: 'center',
+          gap: 6,
           ...style,
         }}
         className={className}
       >
-        Preview unavailable
+        <div>Preview unavailable</div>
+        {errorMsg && (
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 500,
+              color: '#991B1B',
+              maxWidth: '100%',
+              wordBreak: 'break-word',
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.4,
+              // iter164x: expose the underlying error so QA can copy it
+              // rather than screenshot a generic message. See the
+              // browser console (`__fpFlyerLastError`) for the full
+              // diagnostic (url, status, response headers, body).
+            }}
+          >
+            {errorMsg}
+          </div>
+        )}
       </div>
     );
   }
