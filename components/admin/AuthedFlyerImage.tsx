@@ -55,29 +55,35 @@ export function AuthedFlyerImage({
     setUrl(null);
     setErrorMessage('');
 
-    (async () => {
-      try {
-        const res = await flyersApi.renderBlob(templateKey, { layout, fields });
-        if (cancelled) {
-          URL.revokeObjectURL(res.url);
-          return;
+    // Trailing-edge debounce: rapid editor changes collapse into one
+    // render request using the latest field values instead of queuing a
+    // full backend image generation for every keystroke.
+    const timer = window.setTimeout(() => {
+      (async () => {
+        try {
+          const res = await flyersApi.renderBlob(templateKey, { layout, fields });
+          if (cancelled) {
+            URL.revokeObjectURL(res.url);
+            return;
+          }
+          current = res.url;
+          setUrl(res.url);
+          setStatus('ready');
+        } catch (e: any) {
+          if (!cancelled) {
+            const message = e?.message || 'Preview could not be loaded';
+            setErrorMessage(message);
+            setStatus('error');
+            onError?.(message);
+            console.error('[FlyerPreview] render failed', e);
+          }
         }
-        current = res.url;
-        setUrl(res.url);
-        setStatus('ready');
-      } catch (e: any) {
-        if (!cancelled) {
-          const message = e?.message || 'Preview could not be loaded';
-          setErrorMessage(message);
-          setStatus('error');
-          onError?.(message);
-          console.error('[FlyerPreview] render failed', e);
-        }
-      }
-    })();
+      })();
+    }, 350);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       if (current) URL.revokeObjectURL(current);
     };
     // Rebuild whenever the identity of the render changes. Serialising
