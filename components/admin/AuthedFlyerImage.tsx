@@ -46,12 +46,14 @@ export function AuthedFlyerImage({
 }: Props) {
   const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     let current: string | null = null;
     setStatus('loading');
     setUrl(null);
+    setErrorMessage('');
 
     (async () => {
       try {
@@ -65,8 +67,11 @@ export function AuthedFlyerImage({
         setStatus('ready');
       } catch (e: any) {
         if (!cancelled) {
+          const message = e?.message || 'Preview could not be loaded';
+          setErrorMessage(message);
           setStatus('error');
-          onError?.(e?.message || 'Preview could not be loaded');
+          onError?.(message);
+          console.error('[FlyerPreview] render failed', e);
         }
       }
     })();
@@ -84,11 +89,13 @@ export function AuthedFlyerImage({
     return (
       <div
         role="img"
-        aria-label={`${alt} — preview unavailable`}
+        aria-label={`${alt} — preview unavailable${errorMessage ? `: ${errorMessage}` : ''}`}
         style={{
           width: '100%',
           height: '100%',
           display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
           alignItems: 'center',
           justifyContent: 'center',
           background: '#FEF2F2',
@@ -101,7 +108,12 @@ export function AuthedFlyerImage({
         }}
         className={className}
       >
-        Preview unavailable
+        <div>Preview unavailable</div>
+        {errorMessage && (
+          <div style={{ fontSize: 11, fontWeight: 500, maxWidth: 420, wordBreak: 'break-word' }}>
+            {errorMessage}
+          </div>
+        )}
       </div>
     );
   }
