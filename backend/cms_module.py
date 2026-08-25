@@ -1889,6 +1889,42 @@ def build_router(db) -> APIRouter:
             q["$and"] = existing_and + or_clauses
         return q
 
+    # ─── iter164r: campaign attachment helpers ─────────────────────
+    # Per Garry (24 Aug 2026): "Real file attachments on outreach
+    # campaigns — PDFs first, so we can send retirement-village
+    # flyers to Outreach contacts without leaving the composer."
+    #
+    # Scope for the MVP:
+    #   • PDFs only (application/pdf)
+    #   • 5 MB hard cap per attachment
+    #   • Base64 content stored inline on the campaign document
+    #     (single ~5 MB PDF stays well within Mongo's 16 MB doc limit)
+    #   • Mutation only while the campaign is still a draft
+    #   • Attach behaviour is gated by an explicit boolean flag
+    #     (`attach_file`, default OFF) so an uploaded file can be
+    #     staged without automatically going out on the next send.
+    _CAMPAIGN_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+    _CAMPAIGN_ATTACHMENT_ALLOWED_TYPES = {"application/pdf"}
+
+    def _attachment_meta(att: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Return the public-facing subset of an attachment record.
+
+        Callers get ``filename``, ``content_type``, ``size`` and
+        ``uploaded_at`` — never the base64 bytes — so list/detail
+        response payloads stay small and the composer can render a
+        chip like "flyer.pdf · 214 KB" without a second round-trip.
+        """
+        if not isinstance(att, dict):
+            return None
+        if not att.get("filename"):
+            return None
+        return {
+            "filename":     att.get("filename"),
+            "content_type": att.get("content_type"),
+            "size":         att.get("size"),
+            "uploaded_at":  att.get("uploaded_at"),
+        }
+
     def _campaign_summary(c: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id":              c.get("id"),
@@ -1905,6 +1941,15 @@ def build_router(db) -> APIRouter:
             # composer can hydrate its greeting + founder-badge controls.
             "greeting":            c.get("greeting"),
             "show_founder_badge":  c.get("show_founder_badge"),
+            # iter164r — attachment metadata only (never `content_b64`);
+            # composers show the filename+size, the send worker reads the
+            # full document to pull the base64 bytes.
+            "attachment":      _attachment_meta(c.get("attachment")),
+            # iter164r — explicit boolean flag deciding whether the
+            # uploaded attachment (if any) is actually included with
+            # the outgoing email. Defaults False so an admin can stage
+            # a file without it going out on the next Send.
+            "attach_file":     bool(c.get("attach_file")),
             "audience_filter": c.get("audience_filter") or {},
             "status":          c.get("status") or "draft",
             "stats":           c.get("stats") or {
@@ -2126,6 +2171,18 @@ def build_router(db) -> APIRouter:
                                 if isinstance(payload.get("greeting"), str) else None),
             "show_founder_badge": (payload["show_founder_badge"]
                                 if isinstance(payload.get("show_founder_badge"), bool) else None),
+            # iter164r: attachment metadata. Populated by the dedicated
+            # upload endpoint (POST /campaigns/{id}/attachment). Storing
+            # base64 content inline keeps the model self-contained for
+            # the MVP (single ~5 MB PDF is well within Mongo's 16 MB
+            # document limit); projections in list/detail responses
+            # strip `content_b64` so response payloads stay small.
+            "attachment":      None,
+            # iter164r: explicit include-in-outgoing-email flag. Kept
+            # separate from `attachment` so admins can upload/stage a
+            # file without automatically shipping it on the next send.
+            # Accepted on create for symmetry with PATCH; defaults False.
+            "attach_file":     bool(payload.get("attach_file")) if "attach_file" in payload else False,
             "audience_filter": payload.get("audience_filter") or {},
             "status":          "draft",
             "stats":           {"targeted": 0, "accepted": 0, "failed": 0,
@@ -2194,7 +2251,11 @@ def build_router(db) -> APIRouter:
         for key in ("name", "template", "subject", "preheader", "companion",
                     "title", "body_md", "cta_label", "cta_url", "audience_filter",
                     # iter164p — accept new editable fields on PATCH.
-                    "greeting", "show_founder_badge"):
+                    "greeting", "show_founder_badge",
+                    # iter164r — accept the include-in-outgoing-email flag.
+                    # The attachment bytes themselves are only mutated via
+                    # POST/DELETE /campaigns/{id}/attachment.
+                    "attach_file"):
             if key in payload:
                 updates[key] = payload[key]
         # iter164p normalisation. Accept:
@@ -2206,6 +2267,14 @@ def build_router(db) -> APIRouter:
             if not isinstance(updates["show_founder_badge"], bool):
                 # Coerce loosely-typed clients (e.g. checkbox strings).
                 updates["show_founder_badge"] = str(updates["show_founder_badge"]).lower() in ("true", "1", "yes", "on")
+        # iter164r: `attach_file` is strictly boolean. Coerce loose
+        # truthy strings/ints for the same reason we coerce
+        # `show_founder_badge` — some form serialisers ship checkboxes
+        # as "on"/"1"/"true" rather than a JSON bool.
+        if "attach_file" in updates:
+            v = updates["attach_file"]
+            if not isinstance(v, bool):
+                updates["attach_file"] = str(v).lower() in ("true", "1", "yes", "on")
         if "template" in updates and updates["template"] not in _CAMPAIGN_TEMPLATES:
             raise HTTPException(400, "Unknown template")
         from datetime import datetime, timezone
@@ -2296,6 +2365,145 @@ def build_router(db) -> APIRouter:
                 "recipient": preview_recipient,
                 "audience_size": len(recipients) if len(recipients) < 2 else None}
 
+    # ─── iter164r: campaign attachment endpoints ───────────────────
+    # Contract locked with Garry (24 Aug 2026):
+    #   • Mutation only while the campaign is a draft.
+    #   • PDFs only, 5 MB cap.
+    #   • Base64 content stored inline on the campaign doc.
+    #   • Presence of an attachment does NOT auto-send it — that's
+    #     gated by the separate `attach_file` boolean on the campaign
+    #     (see PATCH /campaigns/{id}).
+    @router.post("/campaigns/{campaign_id}/attachment")
+    async def campaigns_attachment_upload(
+        campaign_id: str,
+        file: UploadFile = File(...),
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("status") != "draft":
+            raise HTTPException(400, "Only drafts can have their attachment changed")
+        content_type = (file.content_type or "").lower().split(";")[0].strip()
+        if content_type not in _CAMPAIGN_ATTACHMENT_ALLOWED_TYPES:
+            raise HTTPException(
+                415,
+                "Only PDF attachments are supported (application/pdf).",
+            )
+        # Read the whole file but bail as soon as we cross the size
+        # cap to avoid buffering huge uploads into memory. Also do
+        # a magic-byte sniff so a mislabelled non-PDF can't slip in
+        # under a doctored Content-Type header.
+        raw = await file.read(_CAMPAIGN_ATTACHMENT_MAX_BYTES + 1)
+        try:
+            await file.close()
+        except Exception:
+            pass
+        if not raw:
+            raise HTTPException(400, "Uploaded file is empty")
+        if len(raw) > _CAMPAIGN_ATTACHMENT_MAX_BYTES:
+            raise HTTPException(
+                413,
+                f"Attachment exceeds the {_CAMPAIGN_ATTACHMENT_MAX_BYTES // (1024 * 1024)} MB limit",
+            )
+        if not raw.startswith(b"%PDF"):
+            raise HTTPException(400, "Uploaded file does not appear to be a valid PDF")
+        import base64 as _b64
+        b64 = _b64.b64encode(raw).decode("ascii")
+        filename = (file.filename or "attachment.pdf").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        filename = filename[:200] or "attachment.pdf"
+        now = datetime.now(timezone.utc).isoformat()
+        attachment_doc = {
+            "filename":     filename,
+            "content_type": "application/pdf",
+            "size":         len(raw),
+            "content_b64":  b64,
+            "uploaded_at":  now,
+        }
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$set": {"attachment": attachment_doc, "updated_at": now}},
+        )
+        return {"ok": True, "attachment": _attachment_meta(attachment_doc)}
+
+    @router.get("/campaigns/{campaign_id}/attachment")
+    async def campaigns_attachment_meta(
+        campaign_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        c = await db.campaigns.find_one(
+            {"id": campaign_id},
+            {"_id": 0, "attachment": 1, "attach_file": 1, "status": 1},
+        )
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        return {
+            "attachment":  _attachment_meta(c.get("attachment")),
+            "attach_file": bool(c.get("attach_file")),
+        }
+
+    @router.get("/campaigns/{campaign_id}/attachment/download")
+    async def campaigns_attachment_download(
+        campaign_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        c = await db.campaigns.find_one(
+            {"id": campaign_id},
+            {"_id": 0, "attachment": 1},
+        )
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        att = c.get("attachment") or {}
+        if not att.get("content_b64") or not att.get("filename"):
+            raise HTTPException(404, "This campaign has no attachment")
+        import base64 as _b64
+        from fastapi.responses import Response
+        try:
+            payload = _b64.b64decode(att["content_b64"])
+        except Exception:
+            raise HTTPException(500, "Stored attachment is corrupted")
+        return Response(
+            content=payload,
+            media_type=att.get("content_type") or "application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{att["filename"]}"',
+            },
+        )
+
+    @router.delete("/campaigns/{campaign_id}/attachment")
+    async def campaigns_attachment_delete(
+        campaign_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("status") != "draft":
+            raise HTTPException(400, "Only drafts can have their attachment removed")
+        if not c.get("attachment"):
+            # Idempotent: removing an already-absent attachment is a no-op.
+            # Force attach_file back to False so the response is
+            # internally consistent with the has-attachment branch and
+            # a stale `attach_file=true, attachment=null` combo can't
+            # linger on the doc.
+            if c.get("attach_file"):
+                now = datetime.now(timezone.utc).isoformat()
+                await db.campaigns.update_one(
+                    {"id": campaign_id},
+                    {"$set": {"attach_file": False, "updated_at": now}},
+                )
+            return {"ok": True, "attachment": None, "attach_file": False}
+        now = datetime.now(timezone.utc).isoformat()
+        # Also flip attach_file back to False so a stale toggle
+        # doesn't cause an empty attachment list to sneak into the
+        # next send (Resend would reject an empty attachment entry,
+        # but this keeps the audit trail sensible either way).
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$set": {"attachment": None, "attach_file": False, "updated_at": now}},
+        )
+        return {"ok": True, "attachment": None, "attach_file": False}
+
     async def _campaign_send_worker(campaign_id: str):
         """Background — send the campaign in batches of 5 with 500ms delay."""
         import asyncio
@@ -2357,8 +2565,25 @@ def build_router(db) -> APIRouter:
                         {"$set": {"sample_html": html, "sample_subject": subject}},
                     )
                     sample_html_saved = True
+                # iter164r: attach the staged PDF *only* when the
+                # explicit `attach_file` flag is ON. The flag is
+                # evaluated per-send (not per-recipient) but we
+                # rebuild the attachments list here so an in-flight
+                # toggle can't accidentally desync one batch from the
+                # next. `content` is already base64 on disk, which is
+                # exactly the shape Resend's Emails.send expects.
+                attachments = None
+                if c.get("attach_file") and isinstance(c.get("attachment"), dict):
+                    _att = c["attachment"]
+                    if _att.get("content_b64") and _att.get("filename"):
+                        attachments = [{
+                            "filename":     _att["filename"],
+                            "content":      _att["content_b64"],
+                            "content_type": _att.get("content_type") or "application/pdf",
+                        }]
                 result = await send_email_detailed(
                     to=r["email"], subject=subject, html=html, text=text,
+                    attachments=attachments,
                 )
                 now = datetime.now(timezone.utc).isoformat()
                 await db.campaign_recipients.insert_one({
