@@ -5652,6 +5652,14 @@ def build_router(db) -> APIRouter:
             if v is not None and v != "":
                 params[fkey] = v
 
+        # iter164aa: `show_founding_member` is a per-render *toggle*
+        # (not a content field), so it lives outside FIELD_LIBRARY.
+        # The Publishing Centre editor's dedicated switch sends this
+        # as ``true``/``false``; missing → renderer default (True).
+        _sfm = qp.get("show_founding_member")
+        if _sfm is not None and _sfm != "":
+            params["show_founding_member"] = _sfm
+
         # admin_id fallback so previews always work from Mission Control
         # without asking the CMS admin to pick someone.
         if not params.get("admin_id"):

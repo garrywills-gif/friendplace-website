@@ -6282,6 +6282,7 @@ async def admin_invite_flyer(
     campaign_id: str = "",
     headline: str = "",
     supporting_text: str = "",
+    show_founding_member: bool = True,
 ):
     """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
     for printing and pinning up at noticeboards. The layout is intentionally
@@ -6647,18 +6648,30 @@ async def admin_invite_flyer(
     # regardless of whether it rendered or was hidden. This is the key
     # to avoiding the earlier bug where a hardcoded qr_y=960 overlapped
     # the ribbon at ~y=1050.
+    #
+    # iter164aa: opt-out flag. The pre-launch Register Your Interest
+    # flow doesn't want the "Founding Member" call-to-action on the
+    # flyer (people are being asked to register interest, not claim
+    # a founding-member seat). Setting `show_founding_member=False`
+    # hides the whole ribbon and lets the QR block flow up cleanly
+    # via the same `ribbon_bottom_y = LABEL_Y + 60` default we
+    # already use when the cohort programme is closed.
     ribbon_bottom_y = LABEL_Y + 60  # sensible default when ribbon is hidden
-    try:
-        cohort_cap = int(settings.founding_member_cap or 0)
-    except Exception:
-        cohort_cap = 500
-    try:
-        founder_count = await db.users.count_documents(
-            {"is_founder": True, "is_demo": {"$ne": True}}
-        )
-    except Exception:
+    if show_founding_member:
+        try:
+            cohort_cap = int(settings.founding_member_cap or 0)
+        except Exception:
+            cohort_cap = 500
+        try:
+            founder_count = await db.users.count_documents(
+                {"is_founder": True, "is_demo": {"$ne": True}}
+            )
+        except Exception:
+            founder_count = 0
+    else:
+        cohort_cap = 0
         founder_count = 0
-    if cohort_cap > 0 and founder_count < cohort_cap:
+    if show_founding_member and cohort_cap > 0 and founder_count < cohort_cap:
         remaining = max(0, cohort_cap - founder_count)
         GOLD_FILL = "#FBBF24"
         GOLD_DARK = "#7C5300"

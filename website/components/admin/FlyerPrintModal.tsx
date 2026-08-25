@@ -35,7 +35,19 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
   // Field values keyed by field.key. Auto-initialised from any
   // defaults on the template so the preview reflects the current
   // saved wording the moment the modal opens.
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>(initialFields || {});
+  //
+  // iter164aa: for the founding_flyer_v1 engine the ribbon is now an
+  // explicit toggle (default OFF, matching the pre-launch Register
+  // Your Interest use case). Storing it in the same fieldValues bag
+  // means it rides through `renderBlob` alongside the content
+  // overrides with no plumbing changes.
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => {
+    const seed: Record<string, string> = { ...(initialFields || {}) };
+    if (template.engine === 'founding_flyer_v1' && seed.show_founding_member === undefined) {
+      seed.show_founding_member = 'false';
+    }
+    return seed;
+  });
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   // Only show layouts THIS template actually supports.
@@ -358,6 +370,42 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* iter164aa: Founding-Member ribbon toggle. Only shown for
+              the founding_flyer_v1 engine (the only engine that renders
+              a ribbon). Default OFF for the pre-launch Register Your
+              Interest flow — flip ON to bring back the yellow ribbon
+              exactly as it renders today. Stored as a string in
+              `fieldValues` so it rides through the same query-string
+              plumbing as the content overrides. */}
+          {template.engine === 'founding_flyer_v1' && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>
+                Options
+              </div>
+              <label
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 12px', borderRadius: 10,
+                  border: '1.5px solid #CBD5E1', background: '#FFFFFF',
+                  cursor: 'pointer', fontSize: 14, fontWeight: 600, color: '#334155',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={(fieldValues.show_founding_member ?? 'false') === 'true'}
+                  onChange={(e) => setFieldValues((prev) => ({
+                    ...prev, show_founding_member: e.target.checked ? 'true' : 'false',
+                  }))}
+                  style={{ width: 18, height: 18, cursor: 'pointer' }}
+                />
+                <span style={{ flex: 1 }}>Show Founding Member section</span>
+              </label>
+              <div style={{ fontSize: 11, color: '#64748B', marginTop: 4, lineHeight: 1.4 }}>
+                Toggles the yellow &ldquo;Become a Founding Member&rdquo; ribbon on the flyer. Off for Register Your Interest; on for founding-member outreach.
               </div>
             </div>
           )}

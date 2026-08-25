@@ -267,6 +267,21 @@ async def _render_founding_base_a4(db, params: Dict[str, Any]) -> Image.Image:
     # per-flyer headline / supporting text edits in real time.
     headline = str(params.get("headline") or "").strip()
     supporting_text = str(params.get("supporting_text") or "").strip()
+    # iter164aa: `show_founding_member` toggles the yellow "BECOME A
+    # FOUNDING MEMBER" ribbon at the bottom of the poster. Default
+    # True at the renderer level preserves every existing legacy
+    # caller (mobile app /admin/invite-flyer download link, invite
+    # emails, etc.); the Publishing Centre editor overrides to False
+    # for the pre-launch Register-Your-Interest flow. FastAPI's usual
+    # bool coercion recognises "true"/"false"/"1"/"0"/"yes"/"no"; we
+    # replicate it here for the internal callers.
+    _sfm_raw = params.get("show_founding_member")
+    if _sfm_raw is None or (isinstance(_sfm_raw, str) and not _sfm_raw.strip()):
+        show_founding_member = True
+    elif isinstance(_sfm_raw, bool):
+        show_founding_member = _sfm_raw
+    else:
+        show_founding_member = str(_sfm_raw).strip().lower() in ("true", "1", "yes", "on")
     resp = await admin_invite_flyer(
         admin_id=admin_id,
         venue=venue,
@@ -276,6 +291,7 @@ async def _render_founding_base_a4(db, params: Dict[str, Any]) -> Image.Image:
         campaign_id=campaign_id,
         headline=headline,
         supporting_text=supporting_text,
+        show_founding_member=show_founding_member,
     )
     # `resp` is a FastAPI Response; the raw PNG bytes are on `.body`.
     return Image.open(io.BytesIO(resp.body)).convert("RGB")
