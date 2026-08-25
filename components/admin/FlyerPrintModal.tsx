@@ -33,7 +33,12 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
   // Field values keyed by field.key. Auto-initialised from any
   // defaults on the template so the preview reflects the current
   // saved wording the moment the modal opens.
-const [fieldValues, setFieldValues] = useState<Record<string, string>>(initialFields || {});
+const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => ({
+  ...(initialFields || {}),
+  ...(template.engine === 'founding_flyer_v1' && initialFields?.show_founding_member === undefined
+    ? { show_founding_member: 'false' }
+    : {}),
+}));
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   // Only show layouts THIS template actually supports.
@@ -301,6 +306,25 @@ const [fieldValues, setFieldValues] = useState<Record<string, string>>(initialFi
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {template.engine === 'founding_flyer_v1' && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>
+                Options
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#334155', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={fieldValues.show_founding_member === 'true'}
+                  onChange={(e) => setFieldValues((prev) => ({
+                    ...prev,
+                    show_founding_member: e.target.checked ? 'true' : 'false',
+                  }))}
+                />
+                <span>Show Founding Member section</span>
+              </label>
             </div>
           )}
 
