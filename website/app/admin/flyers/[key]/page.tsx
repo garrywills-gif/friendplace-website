@@ -183,7 +183,7 @@ export default function FlyerDetailPage() {
           <Link href="/admin/flyers" style={{ ...s.ghostBtn, textDecoration: 'none' }}>← Library</Link>
           {template && (
             <button onClick={() => setShowPreview(true)} style={s.primaryBtn}>
-              👁 Preview &amp; Print
+              👁 Preview &amp; Edit
             </button>
           )}
         </div>
