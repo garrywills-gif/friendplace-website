@@ -1201,7 +1201,16 @@ export const flyersApi = {
     const token = getToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(
+    // iter164w: use `fetchWithRetry` (not plain `fetch`) so a cold-start
+    // pod hibernation / preview edge route-refresh blip is retried
+    // instead of stalling forever. Every other CMS API call (login,
+    // members, campaigns, etc.) uses the retry wrapper; the flyer
+    // render endpoint was the last plain-fetch holdout, which is why
+    // the modal preview would "load for a very long time then show
+    // Preview unavailable" on the Vercel-hosted admin site whenever
+    // the preview backend had a transient blip. Body stays streamed
+    // (retry wrapper returns the Response with the body unconsumed).
+    const res = await fetchWithRetry(
       `${BASE}/api/cms/flyer-templates/${key}/render?${q.toString()}`,
       { headers, cache: 'no-store' },
     );
