@@ -2458,6 +2458,7 @@ def build_router(db) -> APIRouter:
         # each recipient in _campaign_send_worker unchanged.
         recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=2)
         overrides: Dict[str, Any] = {}
+        is_outreach = _is_outreach_campaign(c)
         if len(recipients) == 1:
             # A truly single-recipient campaign — safe to show that
             # recipient's real data in the preview (it's the one they'll
@@ -2495,6 +2496,17 @@ def build_router(db) -> APIRouter:
                 overrides["greeting"] = c.get("greeting")
             if c.get("show_founder_badge") is not None:
                 overrides["show_founder_badge"] = c.get("show_founder_badge")
+        # iter164af — outreach safety envelope for the preview path.
+        # Single-recipient outreach: force first_name / greeting /
+        # founder pill using the actual recipient. Bulk outreach:
+        # keep the "[Contact name]" placeholder but still kill the
+        # founder pill and default the greeting to "Hi …,".
+        if is_outreach:
+            _apply_outreach_safety(
+                overrides, c,
+                (recipients[0] if len(recipients) == 1 else None),
+                bulk_preview=(len(recipients) != 1),
+            )
         subject, html, text = _preview_render(
             c["template"],
             companion=c.get("companion") or "george",
@@ -2505,7 +2517,8 @@ def build_router(db) -> APIRouter:
         preview_recipient = recipients[0] if len(recipients) == 1 else None
         return {"subject": subject, "html": html, "text": text,
                 "recipient": preview_recipient,
-                "audience_size": len(recipients) if len(recipients) < 2 else None}
+                "audience_size": len(recipients) if len(recipients) < 2 else None,
+                "is_outreach": is_outreach}
 
     # ─── iter164ab: campaign preview + test-send helper ────────────
     # Shared render pipeline so the render-preview, render-recipient,
@@ -2513,6 +2526,87 @@ def build_router(db) -> APIRouter:
     # for the same (campaign, recipient) pair. Keeping this in one
     # place is what lets George promise the composer preview matches
     # exactly what lands in an inbox.
+    #
+    # ─── iter164af: outreach personalisation safety envelope ───────
+    # Contract with Garry (26 Aug 2026, P0):
+    #   • Outreach campaigns must NEVER render a Founding Member
+    #     badge/pill, regardless of any stale sample data or
+    #     recipient-level founder_number.
+    #   • Outreach greeting is "Hi <first_name>," when the contact
+    #     has a name, otherwise "Hi friend,". The "Sarah" sample
+    #     first-name from _preview_sample must NEVER survive into an
+    #     outreach render for a contact who happens to have no name.
+    #   • Outreach is determined from the campaign's audience
+    #     (audience_filter.audience_kind ∈ {outreach, outreach_contacts}) —
+    #     NOT from whether a recipient happens to have a founder
+    #     number. This prevents a Founding Member who is also listed
+    #     as an Outreach contact from silently getting the founder
+    #     treatment.
+    #   • Founding Member campaign behaviour is preserved unchanged.
+    _OUTREACH_AUDIENCE_KINDS = {"outreach", "outreach_contacts"}
+
+    def _is_outreach_campaign(c: Dict[str, Any]) -> bool:
+        """True when the campaign's audience is an Outreach contact
+        list. Single source of truth for the outreach safety envelope.
+        """
+        f = c.get("audience_filter") or {}
+        kind = str(f.get("audience_kind") or "").strip().lower()
+        return kind in _OUTREACH_AUDIENCE_KINDS
+
+    def _resolve_outreach_first_name(r: Optional[Dict[str, Any]]) -> str:
+        """Per-recipient first-name resolution for outreach renders.
+
+        Empty, whitespace-only, or missing names collapse to
+        ``"friend"`` so the greeting reads "Hi friend,". Never returns
+        the empty string.
+        """
+        fn = (r or {}).get("first_name") if r else None
+        fn = str(fn or "").strip()
+        return fn or "friend"
+
+    def _apply_outreach_safety(
+        overrides: Dict[str, Any],
+        c: Dict[str, Any],
+        r: Optional[Dict[str, Any]],
+        *,
+        bulk_preview: bool = False,
+    ) -> None:
+        """Enforce the outreach safety envelope on a render context.
+
+        Idempotent — safe to call from any render path. Does nothing
+        on non-outreach campaigns so Founding Member behaviour is
+        preserved untouched.
+
+        For outreach:
+          • ``first_name``          = recipient's first_name (or
+                                      ``"friend"``); ``"[Contact name]"``
+                                      when ``bulk_preview=True``.
+          • ``founder_number``      = 0 (kills the sample "#0042"
+                                      pill defensively, even if some
+                                      caller forgot to override).
+          • ``show_founder_badge``  = False (template-level safety
+                                      invariant — always suppresses
+                                      the pill for outreach).
+          • ``greeting``            = ``"Hi [Contact name],"`` when
+                                      the composer left it unset;
+                                      an explicit composer greeting
+                                      is honoured verbatim.
+        """
+        if not _is_outreach_campaign(c):
+            return
+        if bulk_preview:
+            overrides["first_name"] = "[Contact name]"
+        else:
+            overrides["first_name"] = _resolve_outreach_first_name(r)
+        overrides["founder_number"]     = 0
+        overrides["show_founder_badge"] = False
+        # Only inject the outreach default greeting when the composer
+        # hasn't asked for a specific one on the campaign doc AND no
+        # earlier layer has already written one into `overrides`.
+        composer_greeting = c.get("greeting")
+        if composer_greeting is None and "greeting" not in overrides:
+            overrides["greeting"] = "Hi [Contact name],"
+
     def _campaign_overrides_for_recipient(c: Dict[str, Any],
                                           r: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         overrides: Dict[str, Any] = {}
@@ -2532,6 +2626,10 @@ def build_router(db) -> APIRouter:
                 overrides["greeting"] = c.get("greeting")
             if c.get("show_founder_badge") is not None:
                 overrides["show_founder_badge"] = c.get("show_founder_badge")
+        # iter164af — apply outreach safety envelope LAST so it wins
+        # over any stale composer/recipient state (esp. missing
+        # first_name / stray founder_number).
+        _apply_outreach_safety(overrides, c, r)
         return overrides
 
     def _campaign_attachments_payload(c: Dict[str, Any]) -> Optional[list]:
@@ -2902,6 +3000,11 @@ def build_router(db) -> APIRouter:
                         overrides["greeting"] = c.get("greeting")
                     if c.get("show_founder_badge") is not None:
                         overrides["show_founder_badge"] = c.get("show_founder_badge")
+                # iter164af — outreach safety envelope for the real
+                # send worker. Applied LAST so it wins over any stale
+                # recipient state (esp. missing first_name → "friend"
+                # fallback and forced show_founder_badge=False).
+                _apply_outreach_safety(overrides, c, r)
                 subject, html, text = _preview_render(
                     c["template"], companion=companion,
                     subject_override=(c.get("subject") or None),
