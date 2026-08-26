@@ -30,6 +30,18 @@ type ImportRow = OutreachOrgIn & {
   issue?: string;
 };
 
+type ImportSkip = {
+  rowNumber: number;
+  organisation_name: string;
+  email: string;
+  issue: string;
+};
+
+type ImportResult = {
+  imported: number;
+  skipped: ImportSkip[];
+};
+
 type RawSheetRow = Record<string, unknown>;
 
 function text(value: unknown): string {
@@ -114,7 +126,8 @@ export default function OutreachPage() {
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
   const [importFileName, setImportFileName] = useState('');
   const [importing, setImporting] = useState(false);
-  const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [showSkippedContacts, setShowSkippedContacts] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = async () => {
@@ -156,7 +169,8 @@ export default function OutreachPage() {
 
   const handleSpreadsheet = async (file: File) => {
     setError(null);
-    setImportMessage(null);
+    setImportResult(null);
+    setShowSkippedContacts(false);
     setImportRows([]);
     setImportFileName(file.name);
 
@@ -221,10 +235,18 @@ export default function OutreachPage() {
 
     setImporting(true);
     setError(null);
-    setImportMessage(null);
+    setImportResult(null);
+    setShowSkippedContacts(false);
 
     let created = 0;
-    let failed = 0;
+    const skipped: ImportSkip[] = importRows
+      .filter((row) => !row.valid || row.duplicate)
+      .map((row) => ({
+        rowNumber: row.rowNumber,
+        organisation_name: row.organisation_name || `Spreadsheet row ${row.rowNumber}`,
+        email: row.email || '',
+        issue: row.issue || 'Skipped',
+      }));
 
     for (const row of validImportRows) {
       try {
@@ -238,7 +260,12 @@ export default function OutreachPage() {
         await outreachApi.create(payload);
         created += 1;
       } catch {
-        failed += 1;
+        skipped.push({
+          rowNumber: row.rowNumber,
+          organisation_name: row.organisation_name || `Spreadsheet row ${row.rowNumber}`,
+          email: row.email || '',
+          issue: 'Import failed',
+        });
       }
     }
 
@@ -246,12 +273,7 @@ export default function OutreachPage() {
     setImportRows([]);
     setImportFileName('');
     setImporting(false);
-
-    if (failed) {
-      setImportMessage(`Imported ${created} organisation${created === 1 ? '' : 's'}; ${failed} failed.`);
-    } else {
-      setImportMessage(`Imported ${created} retirement village${created === 1 ? '' : 's'} successfully.`);
-    }
+    setImportResult({ imported: created, skipped });
   };
 
   return (
@@ -367,7 +389,38 @@ export default function OutreachPage() {
         </div>
       )}
 
-      {importMessage && <div style={successBox}>{importMessage}</div>}
+      {importResult && (
+        <div style={successBox}>
+          <div style={{ fontWeight: 900 }}>
+            Import complete: {importResult.imported} imported · {importResult.skipped.length} skipped
+          </div>
+
+          {importResult.skipped.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowSkippedContacts((open) => !open)}
+                style={skippedToggle}
+              >
+                {showSkippedContacts ? 'Hide skipped contacts ↑' : 'View skipped contacts →'}
+              </button>
+
+              {showSkippedContacts && (
+                <div style={skippedList}>
+                  {importResult.skipped.map((row) => (
+                    <div key={`${row.rowNumber}-${row.email}-${row.issue}`} style={skippedRow}>
+                      <div style={{ fontWeight: 800, color: '#0A2540' }}>
+                        {row.organisation_name}
+                      </div>
+                      <div style={{ color: '#92400E' }}>{row.issue}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div style={filters}>
         <input
@@ -643,6 +696,32 @@ const successBox: React.CSSProperties = {
   color: '#047857',
   fontSize: 13,
   fontWeight: 700,
+};
+
+const skippedToggle: React.CSSProperties = {
+  marginTop: 8,
+  padding: 0,
+  border: 'none',
+  background: 'transparent',
+  color: '#0F766E',
+  fontSize: 12,
+  fontWeight: 900,
+  cursor: 'pointer',
+};
+
+const skippedList: React.CSSProperties = {
+  marginTop: 10,
+  borderTop: '1px solid #A7F3D0',
+};
+
+const skippedRow: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '9px 0',
+  borderBottom: '1px solid #D1FAE5',
+  fontSize: 12,
+  lineHeight: 1.4,
 };
 
 const errorBox: React.CSSProperties = {
