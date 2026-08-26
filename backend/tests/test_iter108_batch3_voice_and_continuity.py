@@ -2,11 +2,16 @@
 
 Covers:
 - POST /api/george/voice/speak persona -> voice header mapping (george → ash,
-  georgia → nova, bogus → ash), model header (tts-1-hd), speed header (1.05),
+  georgia → nova, bogus → ash), model header (tts-1 — Batch B iter158
+  reduced from tts-1-hd for faster time-to-first-audio), speed header (1.05),
   Cache-Control: no-store still present.
 - Stale-data guard regression: the planner safety net + prompt honesty rule.
   We test via /api/george/chat SSE — asking a state question that follows a
   prior mention should force a fresh count_* tool call.
+
+iter164ae (test cleanup): assertions updated to match current production
+behaviour — the previous ``tts-1-hd`` expectation was left over from
+before the Batch B iter158 switch to ``tts-1``.
 """
 from __future__ import annotations
 
@@ -60,7 +65,7 @@ class TestGeorgeVoicePolicy:
         r = self._speak(api_client, admin_token, "george")
         assert r.status_code == 200, r.text
         assert r.headers.get("X-George-Voice") == "ash", r.headers
-        assert r.headers.get("X-George-Model") == "tts-1-hd"
+        assert r.headers.get("X-George-Model") == "tts-1"
         assert r.headers.get("X-George-Speed") == "1.05"
         assert "no-store" in (r.headers.get("Cache-Control") or "")
         assert r.headers.get("Content-Type", "").startswith("audio/mpeg")
@@ -70,13 +75,13 @@ class TestGeorgeVoicePolicy:
         r = self._speak(api_client, admin_token, "georgia")
         assert r.status_code == 200, r.text
         assert r.headers.get("X-George-Voice") == "nova"
-        assert r.headers.get("X-George-Model") == "tts-1-hd"
+        assert r.headers.get("X-George-Model") == "tts-1"
 
     def test_bogus_voice_falls_back_to_ash(self, api_client, admin_token):
         r = self._speak(api_client, admin_token, "not-a-voice-xyz")
         assert r.status_code == 200, r.text
         assert r.headers.get("X-George-Voice") == "ash"
-        assert r.headers.get("X-George-Model") == "tts-1-hd"
+        assert r.headers.get("X-George-Model") == "tts-1"
 
     def test_missing_auth_rejected(self, api_client):
         r = api_client.post(

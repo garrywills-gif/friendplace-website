@@ -30,7 +30,16 @@ def api_client():
 
 @pytest.fixture(scope="module")
 def fresh_user(api_client):
-    """Sign up a unique fresh account. Returns dict with access_token, user, id."""
+    """Sign up a unique fresh account. Returns dict with access_token, user, id.
+
+    iter164ae (test cleanup): the auto-founder enrolment step was
+    removed at iter38 — founder status is now opt-in via
+    ``POST /api/founders/claim``. To keep the downstream cascade
+    tests exercising the Founders Lounge purge on delete, we perform
+    the claim here immediately after signup. If the founder cap is
+    already reached the test suite marks itself skipped (the cascade
+    can't be exercised without a founder token).
+    """
     suffix = uuid.uuid4().hex[:10]
     username = f"TEST_iter34_{suffix}"
     payload = {
@@ -44,11 +53,31 @@ def fresh_user(api_client):
     assert r.status_code == 200, f"signup failed: {r.status_code} {r.text}"
     data = r.json()
     assert "access_token" in data and "user" in data
+    token = data["access_token"]
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
+    # iter164ae: claim Founding Member status so the cascade tests
+    # (Founders Lounge group / table membership + purge-on-delete)
+    # still exercise the auto-seated code paths.
+    claim = api_client.post(
+        f"{API}/founders/claim", headers=auth_headers, json={},
+    )
+    if claim.status_code == 400:
+        # Cap reached (250) — cascade path can't be exercised.
+        pytest.skip(f"founder cap reached; cannot claim: {claim.text}")
+    assert claim.status_code == 200, (
+        f"founder claim failed: {claim.status_code} {claim.text}"
+    )
+    # Refresh user snapshot so downstream tests see is_founder=True.
+    r2 = api_client.get(f"{API}/users/{data['user']['id']}", headers=auth_headers)
+    if r2.status_code == 200:
+        data["user"] = r2.json()
     return {
-        "access_token": data["access_token"],
+        "access_token": token,
         "user": data["user"],
         "id": data["user"]["id"],
         "username": username,
+        "auth_headers": auth_headers,
     }
 
 
@@ -56,13 +85,18 @@ class TestSignupSideEffects:
     """Step 1: signup must populate user, founders-lounge membership, and notifications."""
 
     def test_user_exists_in_get(self, api_client, fresh_user):
-        r = api_client.get(f"{API}/users/{fresh_user['id']}")
+        r = api_client.get(
+            f"{API}/users/{fresh_user['id']}",
+            headers=fresh_user["auth_headers"],
+        )
         assert r.status_code == 200
         assert r.json()["id"] == fresh_user["id"]
 
     def test_user_in_founders_lounge_group(self, api_client, fresh_user):
         # Find the Founders Lounge group via /groups and assert membership.
-        r = api_client.get(f"{API}/groups")
+        # iter164ae: Founders Lounge is now is_system=True — pass
+        # include_system=true to keep it visible in the listing.
+        r = api_client.get(f"{API}/groups", params={"include_system": "true"})
         assert r.status_code == 200
         groups = r.json()
         fl = next((g for g in groups if g.get("name") == "Founders Lounge"), None)
@@ -174,9 +208,15 @@ class TestContentCreationThenSelfDelete:
         body = r.json()
         assert body.get("ok") is True
 
-        # --- 3a. User gone (404) ---
-        r = api_client.get(f"{API}/users/{uid}")
-        assert r.status_code == 404, f"user should be 404, got {r.status_code}"
+        # --- 3a. User gone (404) or auth invalidated (401) ---
+        # iter164ae: /users/{id} now requires auth. Using the stale
+        # token proves the token is invalidated (401); without auth
+        # the endpoint reports 401 too. Either signal confirms the
+        # deleted-user cascade.
+        r = api_client.get(f"{API}/users/{uid}", headers=auth_headers)
+        assert r.status_code in (401, 404), (
+            f"user should be 401 or 404, got {r.status_code}"
+        )
 
         # --- 3b. Notice gone from /api/notices ---
         r = api_client.get(f"{API}/notices")
@@ -220,7 +260,8 @@ class TestContentCreationThenSelfDelete:
             )
 
         # --- 3f. Founders Lounge group.members cleaned ---
-        r = api_client.get(f"{API}/groups")
+        # iter164ae: include_system=true so Founders Lounge is visible.
+        r = api_client.get(f"{API}/groups", params={"include_system": "true"})
         fl_clean = next(g for g in r.json() if g["id"] == fl_group_id)
         assert uid not in (fl_clean.get("members") or []), (
             "deleted user still in Founders Lounge members"

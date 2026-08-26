@@ -8,8 +8,9 @@ Verifies:
 3. /api/george/chat streams the correct SSE frames for "how many open support
    tickets" and "any active signals" — planner emits count_* tool calls whose
    results are 0 on a cleaned system.
-4. /api/george/voice/speak headers (X-George-Voice=ash, X-George-Model=tts-1-hd,
-   X-George-Speed=1.05, Cache-Control no-store).
+4. /api/george/voice/speak headers (X-George-Voice=ash, X-George-Model=tts-1,
+   X-George-Speed=1.05, Cache-Control no-store). (Batch B iter158 dropped
+   the ``-hd`` suffix for a substantial reduction in time-to-first-audio.)
 5. Stale-data guard still forces fresh count_* on state questions like
    "still 23 tickets?" and "what about now?".
 """
@@ -80,12 +81,20 @@ def _run_async(coro):
 
 class TestIsTestFilter:
     def test_support_ticket_is_test_flag_filters_out(self):
+        """iter164ae (test cleanup): support-ticket counts now source
+        from the Bridge (``mcgs_cases`` with ``case_key`` prefix
+        ``support_ticket:``) — the raw ``support_tickets`` collection
+        drifted from what admins see on /admin/bridge. The probe here
+        exercises the same is_test / environment filter, but on the
+        new source-of-truth collection.
+        """
         from services.george.tools import _count_support_tickets
 
         probe_id = f"BATCH4_PROBE_{uuid.uuid4()}"
         doc = {
             "id": probe_id,
-            "status": "open",
+            "case_key": f"support_ticket:{probe_id}",
+            "status": "NEW",
             "subject": "Batch4 filter probe",
             "is_test": True,
             "environment": "test",
@@ -94,7 +103,7 @@ class TestIsTestFilter:
         }
 
         async def _do(db):
-            await db.support_tickets.insert_one(doc)
+            await db.mcgs_cases.insert_one(doc)
             try:
                 filtered = await _count_support_tickets(db, {"status": "open"})
                 unfiltered = await _count_support_tickets(
@@ -102,7 +111,7 @@ class TestIsTestFilter:
                 )
                 return filtered, unfiltered
             finally:
-                await db.support_tickets.delete_one({"id": probe_id})
+                await db.mcgs_cases.delete_one({"id": probe_id})
 
         filtered, unfiltered = _run_async(_do)
         assert unfiltered - filtered >= 1, (
@@ -151,19 +160,24 @@ class TestIsTestFilter:
 
 class TestLegacyRegexFallback:
     def test_ticket_with_legacy_test_subject_but_no_flag(self):
+        """iter164ae (test cleanup): legacy regex fallback now runs on
+        the ``mcgs_cases.subject`` field, since support-ticket counts
+        moved to the Bridge collection in iter141.
+        """
         from services.george.tools import _count_support_tickets
 
         probe_id = f"BATCH4_LEGACY_{uuid.uuid4()}"
         doc = {
             "id": probe_id,
-            "status": "open",
+            "case_key": f"support_ticket:{probe_id}",
+            "status": "NEW",
             "subject": "TEST_batch4_legacy_probe",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
         async def _do(db):
-            await db.support_tickets.insert_one(doc)
+            await db.mcgs_cases.insert_one(doc)
             try:
                 filtered = await _count_support_tickets(db, {"status": "open"})
                 unfiltered = await _count_support_tickets(
@@ -171,7 +185,7 @@ class TestLegacyRegexFallback:
                 )
                 return filtered, unfiltered
             finally:
-                await db.support_tickets.delete_one({"id": probe_id})
+                await db.mcgs_cases.delete_one({"id": probe_id})
 
         filtered, unfiltered = _run_async(_do)
         assert unfiltered - filtered >= 1, (
@@ -195,7 +209,7 @@ class TestVoiceHeaders:
         )
         assert r.status_code == 200, r.text
         assert r.headers.get("X-George-Voice") == "ash"
-        assert r.headers.get("X-George-Model") == "tts-1-hd"
+        assert r.headers.get("X-George-Model") == "tts-1"
         assert r.headers.get("X-George-Speed") == "1.05"
         cc = r.headers.get("Cache-Control") or ""
         assert "no-store" in cc

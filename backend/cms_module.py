@@ -1962,6 +1962,15 @@ def build_router(db) -> APIRouter:
             "sent_at":         c.get("sent_at"),
             "finished_at":     c.get("finished_at"),
             "sample_html":     c.get("sample_html"),
+            # iter164ac — soft-archive metadata. Sent campaigns are
+            # permanent (never hard-deleted); an admin can archive
+            # them to hide from the default list while preserving
+            # every recipient row, delivery record, message-id and
+            # rendered sample HTML for audit + recovery.
+            "is_archived":     bool(c.get("archived_at")),
+            "archived_at":     c.get("archived_at"),
+            "archived_by":     c.get("archived_by"),
+            "archived_by_email": c.get("archived_by_email"),
         }
 
     async def _resolve_audience(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
@@ -2137,8 +2146,36 @@ def build_router(db) -> APIRouter:
         ).sort([("founder_number", 1)]).to_list(limit)
 
     @router.get("/campaigns")
-    async def campaigns_list(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
-        rows = await db.campaigns.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    async def campaigns_list(
+        include_archived: bool = False,
+        archived: bool = False,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """List campaigns.
+
+        iter164ac — soft-archive filter:
+          • Default (`include_archived=false`, `archived=false`) →
+            only non-archived campaigns. This is what the composer's
+            Campaigns list has always shown.
+          • `?include_archived=true` → non-archived AND archived
+            (union — full audit view).
+          • `?archived=true` → archived campaigns ONLY (recovery /
+            audit page).
+
+        Archived campaigns are never hard-deleted; their `_id`,
+        `recipients` sub-collection rows, message-ids, delivery
+        history, stats, and `sample_html` are all preserved
+        untouched — only the top-level `archived_at` /
+        `archived_by` fields are added.
+        """
+        if archived:
+            q = {"archived_at": {"$ne": None, "$exists": True}}
+        elif include_archived:
+            q = {}
+        else:
+            # Match documents where archived_at is missing OR None.
+            q = {"$or": [{"archived_at": {"$exists": False}}, {"archived_at": None}]}
+        rows = await db.campaigns.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
         return {"count": len(rows), "rows": [_campaign_summary(r) for r in rows]}
 
     @router.post("/campaigns")
@@ -2292,6 +2329,111 @@ def build_router(db) -> APIRouter:
             raise HTTPException(400, "Sent campaigns are permanent — they can't be deleted")
         await db.campaigns.delete_one({"id": campaign_id})
         return {"ok": True}
+
+    # ─── iter164ac: soft archive / unarchive for sent campaigns ────
+    # Design contract with Garry (25 Aug 2026):
+    #   • Sent campaigns are permanent — never hard-deleted.
+    #   • Archive is a bookkeeping flip only. It NEVER touches
+    #     recipient rows, delivery history, stats, message IDs, the
+    #     rendered sample HTML, or the audience filter. Rendering
+    #     and send behaviour are unchanged.
+    #   • Only completed campaigns (status ∈ {sent, failed}) can be
+    #     archived. In-flight campaigns (`sending`) MUST NOT be
+    #     archived — closing the door while people are walking
+    #     through it is a footgun.
+    #   • Drafts and scheduled campaigns keep the DELETE path; they
+    #     never need archiving because they can be removed outright.
+    _ARCHIVABLE_STATUSES = {"sent", "failed"}
+
+    @router.post("/campaigns/{campaign_id}/archive")
+    async def campaigns_archive(
+        campaign_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        from datetime import datetime, timezone
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        status = (c.get("status") or "").lower()
+        if status not in _ARCHIVABLE_STATUSES:
+            raise HTTPException(
+                400,
+                f"Only completed campaigns can be archived "
+                f"(status must be one of {sorted(_ARCHIVABLE_STATUSES)}; "
+                f"got {status!r}).",
+            )
+        if c.get("archived_at"):
+            # Idempotent: archiving an already-archived campaign is a
+            # no-op. Returning the current metadata keeps client
+            # retry logic simple.
+            return {
+                "ok":             True,
+                "id":             c.get("id"),
+                "status":         c.get("status"),
+                "is_archived":    True,
+                "archived_at":    c.get("archived_at"),
+                "archived_by":    c.get("archived_by"),
+                "archived_by_email": c.get("archived_by_email"),
+                "already_archived": True,
+            }
+        now = datetime.now(timezone.utc).isoformat()
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$set": {
+                "archived_at":       now,
+                "archived_by":       admin.get("id"),
+                "archived_by_email": admin.get("email"),
+                # NB: we intentionally do NOT touch `status` — the
+                # domain fact "this campaign was sent" is separate
+                # from the UI fact "we've filed it away".
+            }},
+        )
+        return {
+            "ok":                True,
+            "id":                campaign_id,
+            "status":            c.get("status"),
+            "is_archived":       True,
+            "archived_at":       now,
+            "archived_by":       admin.get("id"),
+            "archived_by_email": admin.get("email"),
+            "already_archived":  False,
+        }
+
+    @router.post("/campaigns/{campaign_id}/unarchive")
+    async def campaigns_unarchive(
+        campaign_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Restore a soft-archived campaign so it shows in the default
+        list again. Idempotent: unarchiving a campaign that isn't
+        archived returns ``{ok: true, already_active: true}``.
+        """
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if not c.get("archived_at"):
+            return {
+                "ok":              True,
+                "id":              c.get("id"),
+                "status":          c.get("status"),
+                "is_archived":     False,
+                "already_active":  True,
+            }
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$unset": {
+                "archived_at":       "",
+                "archived_by":       "",
+                "archived_by_email": "",
+            }},
+        )
+        return {
+            "ok":              True,
+            "id":              campaign_id,
+            "status":          c.get("status"),
+            "is_archived":     False,
+            "already_active":  False,
+        }
 
     @router.post("/campaigns/{campaign_id}/preview-audience")
     async def campaigns_preview_audience(campaign_id: str,
@@ -4622,6 +4764,19 @@ def build_router(db) -> APIRouter:
             "is_founding": bool(u.get("is_founding_member") or u.get("founding_member")),
         }
 
+    # iter164ad — Members Launch View filter.
+    #
+    # Until the genuine (non-test, non-demo) Founding-Member count in
+    # ``db.users`` reaches this threshold, the default ``/members``
+    # view is restricted to Founding Members only. Once the count
+    # crosses the threshold the restriction lifts automatically and
+    # the list falls back to "all genuine non-test members".
+    #
+    # Intentionally a module-level constant so it's easy to grep for
+    # and easy to tweak from a script/test if the launch strategy
+    # changes.
+    MEMBERS_LAUNCH_FOUNDING_THRESHOLD = 250
+
     @router.get("/members")
     async def list_members(
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
@@ -4629,9 +4784,68 @@ def build_router(db) -> APIRouter:
         status: Optional[str] = None,  # banned|suspended|restricted|founding|demo|admin
         limit: int = 50,
         skip: int = 0,
+        include_test: bool = False,  # iter164ad: default excludes QA/test-flagged users
     ):
-        """Search + filter list. `q` matches name, email, username or id (case-insensitive)."""
+        """Search + filter list. `q` matches name, email, username or id (case-insensitive).
+
+        iter164ad — Members Launch View filter:
+
+          * ``include_test`` defaults to ``False`` so QA/test-flagged
+            users (``is_test: true``) are excluded from the normal
+            admin view. Pass ``include_test=true`` for an explicit
+            admin override (used when auditing seeded/test rows).
+
+          * Pre-launch gating: while fewer than
+            :data:`MEMBERS_LAUNCH_FOUNDING_THRESHOLD` genuine
+            (non-test, non-demo) Founding Members exist in the users
+            collection, the *default* Members view is restricted to
+            Founding Members only — this matches the launch-period UX
+            where the Members list *is* the Founding-Member roster.
+            The restriction lifts automatically at the threshold; no
+            code change or redeploy is needed.
+
+          * Explicit ``status=`` filters (banned, suspended,
+            restricted, founding, demo, admin) always take precedence
+            and are NOT affected by the launch gate — an admin
+            filtering by ``status=demo`` sees all demo rows regardless
+            of the Founding-Member count.
+
+          * ``include_test=true`` also lifts the launch gate, since
+            the caller has explicitly asked for the full admin view.
+
+        The response always includes a ``launch_gate`` diagnostic dict
+        so the frontend can surface a small hint like "Pre-launch view
+        — Founding Members only until 250 join".
+        """
         mongo_q: dict = {}
+
+        # iter164ad — test-flag filter (default excludes).
+        if not include_test:
+            mongo_q["is_test"] = {"$ne": True}
+
+        # iter164ad — launch gate applies only to the *default* view:
+        # no explicit status filter, and include_test not overridden.
+        launch_gate_active = False
+        genuine_founder_count: Optional[int] = None
+        if status is None and not include_test:
+            genuine_founder_q = {
+                "is_test": {"$ne": True},
+                "is_demo": {"$ne": True},
+                "$or": [
+                    {"is_founder": True},
+                    {"is_founding_member": True},
+                    {"founding_member": True},
+                ],
+            }
+            genuine_founder_count = await db.users.count_documents(genuine_founder_q)
+            if genuine_founder_count < MEMBERS_LAUNCH_FOUNDING_THRESHOLD:
+                launch_gate_active = True
+                mongo_q["$or"] = [
+                    {"is_founder": True},
+                    {"is_founding_member": True},
+                    {"founding_member": True},
+                ]
+
         if status == "banned":
             mongo_q["banned"] = True
         elif status == "suspended":
@@ -4642,6 +4856,7 @@ def build_router(db) -> APIRouter:
             mongo_q["$or"] = [
                 {"is_founding_member": True},
                 {"founding_member": True},
+                {"is_founder": True},
             ]
         elif status == "demo":
             mongo_q["is_demo"] = True
@@ -4673,7 +4888,24 @@ def build_router(db) -> APIRouter:
             .limit(max(1, min(int(limit), 200)))
         )
         rows = [_project_member_row(u) async for u in cursor]
-        return {"items": rows, "total": total, "limit": limit, "skip": skip}
+        return {
+            "items": rows,
+            "total": total,
+            "limit": limit,
+            "skip": skip,
+            # iter164ad — launch-gate diagnostics for the UI.
+            "launch_gate": {
+                "active":          launch_gate_active,
+                "threshold":       MEMBERS_LAUNCH_FOUNDING_THRESHOLD,
+                "founder_count":   genuine_founder_count,
+                "include_test":    bool(include_test),
+                "reason": (
+                    "Pre-launch: Members view restricted to Founding "
+                    f"Members until {MEMBERS_LAUNCH_FOUNDING_THRESHOLD} "
+                    "genuine Founding Members exist."
+                ) if launch_gate_active else None,
+            },
+        }
 
     @router.get("/members/{user_id}")
     async def get_member(user_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001

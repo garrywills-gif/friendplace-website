@@ -133,7 +133,9 @@ class TestFounderClaim:
             # NOTE: there's no single-group GET endpoint (GET /api/groups/{id})
             # exposed; the review request mentioned that URL but the API
             # only ships /api/groups (list). Verified via the list response.
-            r = api.get(f"{BASE_URL}/api/groups")
+            # iter164ae: Founders Lounge is now is_system=True — pass
+            # include_system=true to keep it visible in the listing.
+            r = api.get(f"{BASE_URL}/api/groups", params={"include_system": "true"})
             assert r.status_code == 200
             groups = r.json()
             g = next((x for x in groups if x.get("id") == fl["id"]), None)

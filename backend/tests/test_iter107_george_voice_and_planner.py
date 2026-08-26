@@ -240,20 +240,26 @@ class TestSynthesizerHonesty:
 
 
 # ---------------------------------------------------------------------------
-# 3. Voice endpoint — persona → onyx / nova mapping + Cache-Control
+# 3. Voice endpoint — persona → ash / nova mapping + Cache-Control
 # ---------------------------------------------------------------------------
 
 class TestVoiceEndpoint:
     """POST /api/george/voice/speak must map persona → OpenAI voice id,
-    default to onyx on unknown / empty, and always emit no-store
-    Cache-Control + X-George-Voice headers."""
+    default to ash on unknown / empty, and always emit no-store
+    Cache-Control + X-George-Voice headers.
+
+    iter164ae (test cleanup): mapping was updated in Batch-3 —
+    ``george`` now maps to ``ash`` (warm conversational male). ``onyx``
+    is still an accepted legacy raw id but is no longer the default
+    fallback; unknown personas fall back to ``ash``.
+    """
 
     @pytest.mark.parametrize("voice_in,expected_voice", [
-        ("george",  "onyx"),   # default persona for George
+        ("george",  "ash"),    # default persona for George (Batch-3)
         ("georgia", "nova"),   # female alternative
         ("onyx",    "onyx"),   # legacy raw id
-        ("bogus",   "onyx"),   # unknown → safe fallback
-        ("",        "onyx"),   # empty → safe fallback
+        ("bogus",   "ash"),    # unknown → safe fallback (Batch-3)
+        ("",        "ash"),    # empty → safe fallback (Batch-3)
     ])
     def test_speak_voice_mapping_and_headers(self, token, voice_in, expected_voice):
         r = requests.post(

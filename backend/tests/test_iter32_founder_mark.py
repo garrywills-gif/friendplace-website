@@ -39,7 +39,13 @@ def mongo():
 
 @pytest.fixture(scope="module")
 def founder_user(api, mongo):
-    """Sign up a fresh real account that auto-promotes to founder."""
+    """Sign up a fresh real account and explicitly claim founder status.
+
+    iter164ae (test cleanup): founder enrolment became opt-in at
+    iter38 (``POST /api/founders/claim``). The test therefore does
+    both steps — signup + claim — so the downstream founder-badge
+    enrichment assertions still hold.
+    """
     suffix = uuid.uuid4().hex[:8]
     payload = {
         "username": f"TEST_iter32_{suffix}",
@@ -50,8 +56,26 @@ def founder_user(api, mongo):
     r = api.post(f"{BASE_URL}/api/auth/signup", json=payload)
     assert r.status_code == 200, f"signup failed: {r.status_code} {r.text}"
     data = r.json()
-    user = data["user"]
-    assert user.get("is_founder") is True, f"new signup should be founder: {user}"
+    token = data["access_token"]
+    auth_headers = {"Authorization": f"Bearer {token}"}
+
+    claim = api.post(
+        f"{BASE_URL}/api/founders/claim", headers=auth_headers, json={},
+    )
+    if claim.status_code == 400:
+        pytest.skip(f"founder cap reached; cannot claim: {claim.text}")
+    assert claim.status_code == 200, (
+        f"founder claim failed: {claim.status_code} {claim.text}"
+    )
+
+    # Refresh user snapshot with founder fields.
+    r2 = api.get(
+        f"{BASE_URL}/api/users/{data['user']['id']}",
+        headers=auth_headers,
+    )
+    user = r2.json() if r2.status_code == 200 else data["user"]
+    user["_auth_headers"] = auth_headers
+    assert user.get("is_founder") is True, f"post-claim user should be founder: {user}"
     assert isinstance(user.get("founder_number"), int) and user["founder_number"] >= 1
     yield user
     # Cleanup — remove the user + any docs we may have authored.
@@ -147,6 +171,25 @@ class TestGroupPostsFounderEnrichment:
 
 class TestNoticesFounderEnrichment:
     def test_notices_carry_founder_flags(self, api, founder_user, demo_user, mongo):
+        """iter164ae (test cleanup): the demo user (Maggie) is now a
+        prolific poster (18+ notices across the test corpus) and her
+        notice gets auto_hidden by the shared prolific-poster gate.
+        To keep exercising the founder-flag *enrichment* logic (not
+        the moderation gate), we sign up a fresh real non-founder
+        user for the "non-founder" slot in this test.
+        """
+        # Fresh non-founder for reliable enrichment check.
+        suffix = uuid.uuid4().hex[:8]
+        payload = {
+            "username": f"TEST_iter32nf_{suffix}",
+            "password": "Test1234!",
+            "email": f"test_iter32nf_{suffix}@example.com",
+            "first_name": "Iter32NonFounder",
+        }
+        r_nf = api.post(f"{BASE_URL}/api/auth/signup", json=payload)
+        assert r_nf.status_code == 200, r_nf.text
+        non_founder = r_nf.json()["user"]
+
         # Founder notice.
         founder_notice = {
             "id": str(uuid.uuid4()),
@@ -161,13 +204,13 @@ class TestNoticesFounderEnrichment:
         assert r1.status_code == 200, r1.text
         fn_id = r1.json()["id"]
 
-        # Demo (non-founder) notice.
+        # Non-founder notice.
         demo_notice = {
             "id": str(uuid.uuid4()),
-            "user_id": demo_user["id"],
-            "user_name": demo_user.get("first_name", "Margaret"),
-            "avatar": demo_user.get("avatar", ""),
-            "title": "TEST_iter32 demo notice",
+            "user_id": non_founder["id"],
+            "user_name": non_founder.get("first_name", "NonFounder"),
+            "avatar": non_founder.get("avatar", ""),
+            "title": "TEST_iter32 nonfounder notice",
             "body": "Hello",
             "category": "General",
         }
@@ -187,11 +230,12 @@ class TestNoticesFounderEnrichment:
             assert fn.get("user_founder_number") == founder_user["founder_number"]
 
             dn = by_id.get(dn_id)
-            assert dn is not None, "demo notice missing"
+            assert dn is not None, "non-founder notice missing"
             assert dn.get("user_is_founder") in (None, False)
             assert dn.get("user_founder_number") is None
         finally:
             mongo.notices.delete_many({"id": {"$in": [fn_id, dn_id]}})
+            mongo.users.delete_one({"id": non_founder["id"]})
 
 
 # ---------------- 3. Table chat messages enrichment ----------------
@@ -248,8 +292,10 @@ class TestDMMessagesFounderEnrichment:
     def test_dm_messages_carry_founder_flags(self, api, founder_user, demo_user, mongo):
         # Open a real DM conversation via /api/dm/start so the conv_id is
         # legit; then seed messages directly via Mongo (WS only path).
+        # iter164ae: /api/dm/start now requires auth.
         r = api.post(
             f"{BASE_URL}/api/dm/start",
+            headers=founder_user["_auth_headers"],
             json={"user_id": founder_user["id"], "other_id": demo_user["id"]},
         )
         assert r.status_code == 200, r.text
@@ -280,7 +326,10 @@ class TestDMMessagesFounderEnrichment:
         mongo.messages.insert_many([founder_msg, demo_msg])
 
         try:
-            r2 = api.get(f"{BASE_URL}/api/dm/{conv_id}/messages")
+            r2 = api.get(
+                f"{BASE_URL}/api/dm/{conv_id}/messages",
+                headers=founder_user["_auth_headers"],
+            )
             assert r2.status_code == 200
             docs = r2.json()
             by_id = {d["id"]: d for d in docs}
