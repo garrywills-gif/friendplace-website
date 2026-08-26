@@ -127,39 +127,73 @@ export function CampaignBodyRichTextEnhancer(): ReactElement | null {
   const lastMarkdownRef = useRef('');
   const syncingRef = useRef(false);
 
+  // The Campaign Composer conditionally mounts the Body field. Switching
+  // between templates can therefore remove and recreate the underlying
+  // textarea. Keep watching the composer DOM and attach this ONE rich editor
+  // to whichever current Body textarea is mounted, instead of attaching only
+  // once on first load (which could leave a plain textarea after a switch).
   useEffect(() => {
     let cancelled = false;
     let frame = 0;
     let mountHost: HTMLDivElement | null = null;
 
-    const attach = () => {
-      if (cancelled || mountHost) return;
-      const textarea = Array.from(document.querySelectorAll('textarea')).find(
-        node => node.getAttribute('placeholder') === BODY_PLACEHOLDER,
-      ) as HTMLTextAreaElement | undefined;
+    const findBodyTextarea = () => Array.from(document.querySelectorAll('textarea')).find(
+      node => node.getAttribute('placeholder') === BODY_PLACEHOLDER,
+    ) as HTMLTextAreaElement | undefined;
 
-      if (!textarea) {
-        frame = requestAnimationFrame(attach);
+    const detachCurrent = () => {
+      const textarea = textareaRef.current;
+      if (textarea?.isConnected) textarea.style.display = '';
+      if (mountHost?.isConnected) mountHost.remove();
+      mountHost = null;
+      textareaRef.current = null;
+      setHost(null);
+    };
+
+    const ensureAttached = () => {
+      frame = 0;
+      if (cancelled) return;
+
+      const currentTextarea = textareaRef.current;
+      if (
+        currentTextarea?.isConnected &&
+        mountHost?.isConnected &&
+        currentTextarea.getAttribute('placeholder') === BODY_PLACEHOLDER
+      ) {
+        currentTextarea.style.display = 'none';
         return;
       }
 
+      // A template switch removed/replaced the old Body field. Drop the
+      // stale portal host, then bind to the newly-mounted Body textarea.
+      if (currentTextarea || mountHost) detachCurrent();
+
+      const textarea = findBodyTextarea();
+      if (!textarea || !textarea.parentElement) return;
+
       mountHost = document.createElement('div');
       mountHost.dataset.campaignRichText = '1';
-      textarea.parentElement?.insertBefore(mountHost, textarea);
+      textarea.parentElement.insertBefore(mountHost, textarea);
       textarea.style.display = 'none';
       textareaRef.current = textarea;
       lastMarkdownRef.current = textarea.value;
       setHost(mountHost);
     };
 
-    attach();
+    const scheduleEnsureAttached = () => {
+      if (cancelled || frame) return;
+      frame = requestAnimationFrame(ensureAttached);
+    };
+
+    const observer = new MutationObserver(scheduleEnsureAttached);
+    observer.observe(document.body, { childList: true, subtree: true });
+    scheduleEnsureAttached();
+
     return () => {
       cancelled = true;
-      cancelAnimationFrame(frame);
-      if (textareaRef.current) textareaRef.current.style.display = '';
-      mountHost?.remove();
-      textareaRef.current = null;
-      setHost(null);
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+      detachCurrent();
     };
   }, []);
 
