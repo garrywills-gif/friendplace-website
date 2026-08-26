@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 
 const BODY_PLACEHOLDER = 'Write the letter. Blank lines start new paragraphs.';
@@ -123,7 +123,7 @@ function setNativeTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   textarea.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-export function CampaignBodyRichTextEnhancer() {
+export function CampaignBodyRichTextEnhancer(): ReactElement | null {
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -277,5 +277,5 @@ export function CampaignBodyRichTextEnhancer() {
       </div>
     </div>,
     host,
-  );
+  ) as unknown as ReactElement;
 }
