@@ -31,7 +31,7 @@ function markdownToHtml(markdown: string): string {
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
-    blocks.push(`<p>${inlineMarkdownToHtml(paragraph.join('<br>'))}</p>`);
+    blocks.push(`<p>${paragraph.map(inlineMarkdownToHtml).join('<br>')}</p>`);
     paragraph = [];
   };
   const flushList = () => {
@@ -59,62 +59,59 @@ function markdownToHtml(markdown: string): string {
   return blocks.join('');
 }
 
-function inlineNodeToMarkdown(node: Node): string {
+function nodeToMarkdown(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent || '';
   if (!(node instanceof HTMLElement)) return '';
 
   const tag = node.tagName.toLowerCase();
-  const inner = Array.from(node.childNodes).map(inlineNodeToMarkdown).join('');
-  if (tag === 'strong' || tag === 'b') return inner ? `**${inner}**` : '';
-  if (tag === 'em' || tag === 'i') return inner ? `*${inner}*` : '';
+  const children = () => Array.from(node.childNodes).map(nodeToMarkdown).join('');
+
+  if (tag === 'br') return '\n';
+  if (tag === 'strong' || tag === 'b') {
+    const inner = children();
+    return inner ? `**${inner}**` : '';
+  }
+  if (tag === 'em' || tag === 'i') {
+    const inner = children();
+    return inner ? `*${inner}*` : '';
+  }
   if (tag === 'a') {
+    const inner = children();
     const href = node.getAttribute('href') || '';
     return href && inner ? `[${inner}](${href})` : inner;
   }
-  if (tag === 'br') return '\n';
-  return inner;
+  if (tag === 'ul' || tag === 'ol') {
+    const items = Array.from(node.children)
+      .filter(child => child.tagName.toLowerCase() === 'li')
+      .map(child => `- ${Array.from(child.childNodes).map(nodeToMarkdown).join('').replace(/\u00a0/g, ' ').trim()}`)
+      .filter(line => line !== '- ');
+    return items.length ? `${items.join('\n')}\n\n` : '';
+  }
+  if (tag === 'li') return children();
+
+  // Browsers and email clients do not all paste paragraphs as <p> tags.
+  // Safari, Outlook and Word commonly use nested <div> blocks, while some
+  // sources use section/article/blockquote containers. Treat every block
+  // boundary as a Markdown paragraph boundary so pasted spacing survives.
+  if (
+    tag === 'p' || tag === 'div' || tag === 'section' || tag === 'article' ||
+    tag === 'blockquote' || tag === 'header' || tag === 'footer'
+  ) {
+    const inner = children().replace(/\u00a0/g, ' ').trim();
+    return inner ? `${inner}\n\n` : '\n\n';
+  }
+
+  return children();
 }
 
 function htmlToMarkdown(root: HTMLElement): string {
-  const blocks: string[] = [];
-  let inlineBuffer = '';
-
-  const flushInline = () => {
-    const clean = inlineBuffer.replace(/\u00a0/g, ' ').trim();
-    if (clean) blocks.push(clean);
-    inlineBuffer = '';
-  };
-
-  for (const node of Array.from(root.childNodes)) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      inlineBuffer += node.textContent || '';
-      continue;
-    }
-    if (!(node instanceof HTMLElement)) continue;
-    const tag = node.tagName.toLowerCase();
-
-    if (tag === 'ul' || tag === 'ol') {
-      flushInline();
-      const items = Array.from(node.children)
-        .filter(child => child.tagName.toLowerCase() === 'li')
-        .map(child => `- ${Array.from(child.childNodes).map(inlineNodeToMarkdown).join('').replace(/\u00a0/g, ' ').trim()}`)
-        .filter(line => line !== '- ');
-      if (items.length) blocks.push(items.join('\n'));
-      continue;
-    }
-
-    if (tag === 'p' || tag === 'div') {
-      flushInline();
-      const text = Array.from(node.childNodes).map(inlineNodeToMarkdown).join('').replace(/\u00a0/g, ' ').trim();
-      if (text) blocks.push(text);
-      continue;
-    }
-
-    inlineBuffer += inlineNodeToMarkdown(node);
-  }
-
-  flushInline();
-  return blocks.join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
+  return Array.from(root.childNodes)
+    .map(nodeToMarkdown)
+    .join('')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function setNativeTextareaValue(textarea: HTMLTextAreaElement, value: string) {
