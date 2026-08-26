@@ -2365,6 +2365,213 @@ def build_router(db) -> APIRouter:
                 "recipient": preview_recipient,
                 "audience_size": len(recipients) if len(recipients) < 2 else None}
 
+    # ─── iter164ab: campaign preview + test-send helper ────────────
+    # Shared render pipeline so the render-preview, render-recipient,
+    # test-send AND real send worker all produce byte-identical HTML
+    # for the same (campaign, recipient) pair. Keeping this in one
+    # place is what lets George promise the composer preview matches
+    # exactly what lands in an inbox.
+    def _campaign_overrides_for_recipient(c: Dict[str, Any],
+                                          r: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        overrides: Dict[str, Any] = {}
+        if r:
+            if r.get("first_name"):
+                overrides["first_name"] = r["first_name"]
+            if r.get("founder_number"):
+                overrides["founder_number"] = r["founder_number"]
+            if r.get("companion_choice"):
+                overrides["companion"] = r["companion_choice"]
+        if c.get("template") == "announcement":
+            overrides["title"]     = c.get("title") or ""
+            overrides["body_md"]   = c.get("body_md") or ""
+            overrides["cta_label"] = c.get("cta_label") or None
+            overrides["cta_url"]   = c.get("cta_url")   or None
+            if c.get("greeting") is not None:
+                overrides["greeting"] = c.get("greeting")
+            if c.get("show_founder_badge") is not None:
+                overrides["show_founder_badge"] = c.get("show_founder_badge")
+        return overrides
+
+    def _campaign_attachments_payload(c: Dict[str, Any]) -> Optional[list]:
+        """Return the Resend `attachments=` payload iff the campaign's
+        ``attach_file`` flag is ON AND a real attachment is on disk.
+        Shape matches exactly what the send worker uses.
+        """
+        if not c.get("attach_file"):
+            return None
+        att = c.get("attachment")
+        if not isinstance(att, dict) or not att.get("content_b64") or not att.get("filename"):
+            return None
+        return [{
+            "filename":     att["filename"],
+            "content":      att["content_b64"],
+            "content_type": att.get("content_type") or "application/pdf",
+        }]
+
+    @router.post("/campaigns/{campaign_id}/render-recipient")
+    async def campaigns_render_recipient(
+        campaign_id: str,
+        payload: Dict[str, Any],
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Render the *personalised* email for a single recipient
+        without sending it. Powers the composer's "Review emails" list.
+
+        Request body (JSON): either ``{"user_id": "…"}`` or
+        ``{"email": "…"}`` — one of them must identify a real
+        recipient inside the campaign's resolved audience. Returns
+        the exact subject/html/text that the send worker would emit
+        for that recipient.
+        """
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        user_id = (payload or {}).get("user_id")
+        email = (payload or {}).get("email")
+        if not user_id and not email:
+            raise HTTPException(400, "Provide user_id or email")
+        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
+        selected: Optional[Dict[str, Any]] = None
+        for r in recipients:
+            if user_id and r.get("id") == user_id:
+                selected = r
+                break
+            if email and (r.get("email") or "").strip().lower() == str(email).strip().lower():
+                selected = r
+                break
+        if not selected:
+            raise HTTPException(
+                404,
+                "Recipient not found in this campaign's resolved audience",
+            )
+        overrides = _campaign_overrides_for_recipient(c, selected)
+        companion = overrides.pop("companion", None) or c.get("companion") or "george"
+        subject, html, text = _preview_render(
+            c["template"], companion=companion,
+            subject_override=(c.get("subject") or None),
+            preheader_override=(c.get("preheader") or None),
+            data_overrides=overrides,
+        )
+        att = _campaign_attachments_payload(c)
+        return {
+            "subject": subject,
+            "html":    html,
+            "text":    text,
+            "recipient": {
+                "id":             selected.get("id"),
+                "email":          selected.get("email"),
+                "first_name":     selected.get("first_name"),
+                "founder_number": selected.get("founder_number"),
+                "companion":      companion,
+            },
+            "attachment": (
+                {"filename": att[0]["filename"],
+                 "size":     len((c.get("attachment") or {}).get("content_b64") or "") * 3 // 4,
+                 "content_type": att[0]["content_type"]}
+                if att else None
+            ),
+        }
+
+    @router.post("/campaigns/{campaign_id}/test-send")
+    async def campaigns_test_send(
+        campaign_id: str,
+        payload: Optional[Dict[str, Any]] = None,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Send a single test copy of the campaign to a safe address.
+
+        The audience is **never** touched. Allowed recipients:
+
+          • The authenticated admin's own email (default when no
+            ``to`` is provided).
+          • Any address in the ``CAMPAIGN_TEST_EMAILS`` env var
+            (comma-separated allow-list).
+
+        Any other value in ``to`` is refused with 400 so a fat-finger
+        can't accidentally spray a real subscriber.
+
+        Personalisation data is taken from the recipient's ``users``
+        row if one exists — otherwise the request falls back to the
+        neutral preview sample (no name leak on a bulk campaign).
+        """
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        payload = payload or {}
+        to = str(payload.get("to") or "").strip().lower()
+        admin_email = (admin.get("email") or "").strip().lower()
+        # Build the allow-list. `CAMPAIGN_TEST_EMAILS` env var is a
+        # comma-separated list (empty by default). The authenticated
+        # admin's own email is always allowed.
+        raw_env = os.environ.get("CAMPAIGN_TEST_EMAILS", "")
+        allow_list = {
+            e.strip().lower()
+            for e in raw_env.split(",")
+            if e.strip()
+        }
+        if admin_email:
+            allow_list.add(admin_email)
+        if not to:
+            to = admin_email
+        if not to:
+            raise HTTPException(400, "No `to` address and admin has no email on file")
+        if to not in allow_list:
+            raise HTTPException(
+                400,
+                "Refusing to send test email to that address — "
+                "only the signed-in admin or a CAMPAIGN_TEST_EMAILS "
+                "allow-list address is permitted.",
+            )
+        # Personalise from the users row if we have one for the test
+        # address. Otherwise fall back to the sample. Never look up
+        # against the campaign audience — this endpoint is deliberately
+        # decoupled from the audience filter.
+        user_row = await db.users.find_one(
+            {"email": {"$regex": f"^{re.escape(to)}$", "$options": "i"}},
+            {"_id": 0, "id": 1, "first_name": 1, "founder_number": 1,
+             "companion_choice": 1, "email": 1},
+        )
+        recipient = user_row or {"email": to, "first_name": "Test",
+                                 "founder_number": None, "companion_choice": None}
+        overrides = _campaign_overrides_for_recipient(c, recipient)
+        # Belt-and-braces marker so a test copy is visually distinct
+        # from a real send — inserted only into the subject, not the
+        # body, so the rendered HTML is otherwise byte-identical to
+        # what the audience would receive.
+        preview_subject_prefix = "[TEST] "
+        companion = overrides.pop("companion", None) or c.get("companion") or "george"
+        subject, html, text = _preview_render(
+            c["template"], companion=companion,
+            subject_override=(c.get("subject") or None),
+            preheader_override=(c.get("preheader") or None),
+            data_overrides=overrides,
+        )
+        subject_with_prefix = f"{preview_subject_prefix}{subject}" if subject else preview_subject_prefix.strip()
+        attachments = _campaign_attachments_payload(c)
+        # Use send_email_detailed exactly as the real worker does —
+        # SAME rendering path, same attachment handling.
+        from email_service import send_email_detailed as _send  # noqa: WPS433
+        result = await _send(
+            to=to, subject=subject_with_prefix, html=html, text=text,
+            attachments=attachments,
+        )
+        return {
+            "ok":        bool(getattr(result, "ok", False)),
+            "to":        to,
+            "subject":   subject_with_prefix,
+            "message_id": getattr(result, "message_id", None),
+            "http_status": getattr(result, "http_status", None),
+            "error":     getattr(result, "error", None),
+            "error_code": getattr(result, "error_code", None),
+            "attachment": (
+                {"filename": attachments[0]["filename"],
+                 "content_type": attachments[0]["content_type"]}
+                if attachments else None
+            ),
+            "used_admin_email": to == admin_email,
+        }
+
+
     # ─── iter164r: campaign attachment endpoints ───────────────────
     # Contract locked with Garry (24 Aug 2026):
     #   • Mutation only while the campaign is a draft.

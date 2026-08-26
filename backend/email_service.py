@@ -687,6 +687,129 @@ def _strip_trailing_signoff(body_md: str) -> str:
     return stripped
 
 
+# ─── iter164ab: campaign body_md → safe markdown-lite renderer ──────
+#
+# Motivation:
+#   The Campaign Composer needed to move beyond plain paragraphs so
+#   Founding Member updates can use light emphasis (bold/italic),
+#   inline links, and bullet lists without hand-writing HTML in the
+#   composer. Every byte of user input still gets HTML-escaped BEFORE
+#   any markdown transforms are applied — the transforms then act on
+#   the escaped output and only re-emit HTML for the recognised
+#   markdown syntax. That's the safe order: escape first, mark up
+#   second, so no raw HTML from the composer can leak through.
+#
+# Supported subset (intentionally small):
+#   • **bold**              → <strong>
+#   • *italic* / _italic_   → <em>
+#   • [text](url)           → <a href=url>text</a>  (http/https/mailto only)
+#   • Lines beginning with  → <ul><li>…</li></ul>
+#     "- " or "* "
+#   • Blank line            → paragraph break
+#
+# Everything else prints as literal escaped text. No headings, no
+# code blocks, no images, no HTML pass-through.
+import re as _md_re
+
+_MD_LINK_RE = _md_re.compile(
+    r"\[([^\]\n]+?)\]\((https?://[^\s)]+|mailto:[^\s)]+)\)",
+)
+_MD_BOLD_RE = _md_re.compile(r"\*\*(.+?)\*\*", _md_re.DOTALL)
+# Single-star italic: must NOT be preceded/followed by another star
+# (otherwise we'd eat the innards of a bold token that already ran).
+_MD_ITALIC_STAR_RE = _md_re.compile(r"(?<!\*)\*(?!\*)([^*\n]+?)(?<!\*)\*(?!\*)")
+# Underscore italic: only when flanked by whitespace/punctuation, so
+# `foo_bar_baz` variable-style tokens aren't butchered.
+_MD_ITALIC_UNDER_RE = _md_re.compile(
+    r"(?<![A-Za-z0-9_])_([^_\n]+?)_(?![A-Za-z0-9_])"
+)
+_MD_BULLET_LINE_RE = _md_re.compile(r"^[\-\*]\s+(.+)$")
+
+
+def _md_inline(escaped_text: str) -> str:
+    """Apply inline markdown to already-HTML-escaped text.
+
+    Order matters: **bold** must run before *italic* so the outer
+    stars don't get eaten as italic delimiters. Links run last on
+    the transformed string so their inner label can carry bold or
+    italic if needed.
+    """
+    out = _MD_BOLD_RE.sub(r"<strong>\1</strong>", escaped_text)
+    out = _MD_ITALIC_STAR_RE.sub(r"<em>\1</em>", out)
+    out = _MD_ITALIC_UNDER_RE.sub(r"<em>\1</em>", out)
+
+    def _link_sub(m: "_md_re.Match[str]") -> str:
+        label = m.group(1)
+        href = m.group(2)
+        # href is already HTML-escaped (escape ran BEFORE markdown), and
+        # we restricted the scheme to http/https/mailto via the regex,
+        # so this is safe to embed as an attribute value.
+        return (
+            f'<a href="{href}" '
+            f'style="color:#0F766E;text-decoration:underline;">{label}</a>'
+        )
+    out = _MD_LINK_RE.sub(_link_sub, out)
+    return out
+
+
+def _render_campaign_body_md_to_html(body_md: str) -> str:
+    """Convert a campaign body from safe markdown-lite to HTML.
+
+    Returns the joined HTML for every paragraph/list in the input
+    (no wrapping container — the letter shell already provides one).
+    Returns an empty string for empty input so callers can render an
+    "(No body content yet.)" placeholder.
+    """
+    from html import escape as _esc
+    if not body_md or not body_md.strip():
+        return ""
+    blocks = [b.strip("\n") for b in body_md.split("\n\n") if b.strip()]
+    html_parts: list[str] = []
+    for block in blocks:
+        lines = block.split("\n")
+        bullets = [_MD_BULLET_LINE_RE.match(ln.strip()) for ln in lines]
+        if lines and all(b is not None for b in bullets):
+            items = "".join(
+                f"<li style=\"margin:0 0 6px 0;\">"
+                f"{_md_inline(_esc(b.group(1).strip()))}</li>"
+                for b in bullets  # type: ignore[union-attr]
+            )
+            html_parts.append(
+                f"<ul style=\"margin:0 0 20px 20px;padding:0 0 0 4px;\">"
+                f"{items}</ul>"
+            )
+            continue
+        escaped = _esc(block).replace("\n", "<br>")
+        html_parts.append(
+            f"<p style=\"margin:0 0 20px 0;\">{_md_inline(escaped)}</p>"
+        )
+    return "".join(html_parts)
+
+
+def _render_campaign_body_md_to_text(body_md: str) -> str:
+    """Plain-text form for the text/plain part of the email.
+
+    We leave markdown markers legible (``**bold**``, ``*italic*``,
+    ``- item``) and expand links to ``label (url)``. This gives text
+    clients (and screen readers) an unambiguous, faithful rendering
+    that mirrors what the recipient sees in the HTML part.
+    """
+    if not body_md or not body_md.strip():
+        return ""
+    def _link_text(m: "_md_re.Match[str]") -> str:
+        return f"{m.group(1)} ({m.group(2)})"
+    blocks = [b.strip("\n") for b in body_md.split("\n\n") if b.strip()]
+    out_blocks: list[str] = []
+    for block in blocks:
+        # Expand links inline; leave bold/italic markers as-is so a
+        # plain-text reader still sees the emphasis.
+        expanded = _MD_LINK_RE.sub(_link_text, block)
+        out_blocks.append(expanded)
+    return "\n\n".join(out_blocks)
+
+
+
+
 
 
 def _letter_signature_html(*, signer: str = "george") -> str:
@@ -1984,16 +2107,24 @@ def announcement_template(
     if signer_norm != "none":
         body_md_effective = _strip_trailing_signoff(body_md_effective)
 
-    # Paragraph split on blank lines, escaping each and wrapping in <p>.
-    paragraphs = [p.strip() for p in body_md_effective.split("\n\n") if p.strip()]
-    body_html_parts = [
-        f"<p style=\"margin:0 0 20px 0;\">{_esc(p).replace(chr(10), '<br>')}</p>"
-        for p in paragraphs
-    ] or [
-        f"<p style=\"margin:0 0 20px 0;color:#94A3B8;font-style:italic;\">"
-        f"(No body content yet.)</p>"
-    ]
-    body_html_joined = "".join(body_html_parts)
+    # iter164ab: minimal, safe markdown-lite renderer for campaign
+    # bodies. Supports **bold**, *italic* / _italic_, [text](url) for
+    # http(s)/mailto URLs, `-`/`*` bullet lists, and blank-line
+    # paragraph breaks. Everything is HTML-escaped BEFORE markdown
+    # transforms run so no raw HTML from the composer can leak into
+    # the letter. Old callers (single-line paragraphs, no markdown)
+    # render byte-identically to the pre-iter164ab shell.
+    body_html_joined = _render_campaign_body_md_to_html(body_md_effective)
+    if not body_html_joined:
+        body_html_joined = (
+            "<p style=\"margin:0 0 20px 0;color:#94A3B8;font-style:italic;\">"
+            "(No body content yet.)</p>"
+        )
+    # Plain-text form used by the text/plain part of the email. We
+    # keep markdown markers legible for text-only readers (bold →
+    # **bold**, italic → *italic*, links → text (url), bullets stay
+    # as `- item` per RFC 5147 conventions) — no double-escape.
+    text_body_joined = _render_campaign_body_md_to_text(body_md_effective)
 
     cta_html = (
         _letter_button_html(label=cta_label, url=cta_url)
@@ -2025,7 +2156,7 @@ def announcement_template(
     )
     html = _letter_shell(preheader=preheader, body_html=body)
 
-    text_paragraphs = "\n\n".join(paragraphs) if paragraphs else "(No body content yet.)"
+    text_paragraphs = text_body_joined or "(No body content yet.)"
     # iter164o: conditional heading + signer-aware plain-text closing.
     heading_text = (
         f"{heading}\n{'=' * min(len(heading), 60)}\n\n"
