@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { ChatGPTGeorgeLink } from '@/components/admin/ChatGPTGeorgeLink';
 
 // The admin section MUST never be indexed regardless of the
 // site-wide FRIENDPLACE_INDEXABLE flag — override the parent metadata
@@ -155,6 +156,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: ADMIN_GLOBAL_CSS }} />
+      <ChatGPTGeorgeLink />
       {children}
     </>
   );
