@@ -5,11 +5,26 @@ Fields:
     id, organisation_name, contact_name, email, phone, category, tags,
     suburb, state, notes, status, last_contact_at, last_reply_at,
     communications (append-only history), created_at, updated_at,
-    created_by, is_test
+    created_by, is_test, outreach_number
 
 Contact status is denormalised into `status` for fast filtering AND
 computed on the fly in services/crm/status.py for consistency. Send
 worker + mark_replied() keep this field in sync.
+
+iter164ah — Permanent outreach numbering:
+    Each outreach organisation gets its own permanent sequential
+    integer id, stored as ``outreach_number``, starting at 20001. The
+    number is allocated by an atomic counter (see
+    ``next_outreach_number``) — never reused on delete, never derived
+    from a row count, never collides on concurrent creates. It is
+    intentionally in a completely separate namespace from Founding
+    Member numbering, so #20001 (outreach) and #0001 (founder) can
+    co-exist without ambiguity.
+
+    Historical guarantee: when an outreach organisation is used in a
+    campaign, the number is COPIED onto the campaign recipient row
+    (see cms_module._campaign_send_worker) so a sent campaign still
+    shows #20001 even after the active outreach record is deleted.
 """
 from __future__ import annotations
 
@@ -19,6 +34,9 @@ import re
 import uuid
 
 COLL_ORGS = "outreach_organisations"
+COLL_COUNTERS = "counters"                 # iter164ah: atomic sequence store
+OUTREACH_NUMBER_KEY = "outreach_number"    # counter doc _id
+OUTREACH_NUMBER_START = 20000              # first allocated will be 20001
 
 # State machine for a single outreach target.
 OUTREACH_STATUSES = [
@@ -139,6 +157,10 @@ async def upsert_org(
 
     Quick-add works with only organisation_name + email; other fields
     default to empty. Status defaults to 'not_contacted'.
+
+    iter164ah: on INSERT (new organisation), a permanent
+    ``outreach_number`` is allocated from the atomic counter. Updates
+    to an existing organisation do NOT re-allocate the number.
     """
     v = _validate(payload)
     now = _iso_now()
@@ -159,10 +181,109 @@ async def upsert_org(
         "is_test":         bool(payload.get("is_test", False)),
     }
 
-    await db[COLL_ORGS].update_one(
+    res = await db[COLL_ORGS].update_one(
         query, {"$set": set_doc, "$setOnInsert": set_on_insert}, upsert=True,
     )
+    # iter164ah: allocate the outreach_number ONLY when we actually
+    # inserted a new document. Doing the upsert first and *then*
+    # allocating guarantees we never burn a number on a no-op update.
+    if res.upserted_id is not None:
+        next_num = await next_outreach_number(db)
+        await db[COLL_ORGS].update_one(
+            {"_id": res.upserted_id},
+            {"$set": {"outreach_number": next_num}},
+        )
     return await db[COLL_ORGS].find_one(query, {"_id": 0}) or {}
+
+
+# ─── iter164ah: atomic outreach numbering ──────────────────────────
+async def next_outreach_number(db) -> int:
+    """Atomically allocate the next permanent outreach number.
+
+    Uses ``findOneAndUpdate`` with ``$inc`` on a single counter
+    document — safe under concurrent writes. Numbers start at 20001
+    and are strictly monotonic. Deletion of an outreach organisation
+    does NOT rewind the counter, so numbers are never reused.
+
+    The counter is intentionally in its own namespace so Founding
+    Member numbering (which uses ``interest_registrations`` +
+    ``founder_number``) is completely unaffected.
+    """
+    doc = await db[COLL_COUNTERS].find_one_and_update(
+        {"_id": OUTREACH_NUMBER_KEY},
+        {"$inc": {"seq": 1},
+         "$setOnInsert": {"created_at": _iso_now()}},
+        upsert=True,
+        # Ensure we always get the *incremented* value back.
+        return_document=True,  # ReturnDocument.AFTER
+    )
+    # First-ever call: counter doc didn't exist, $setOnInsert wrote
+    # {"_id": key, "seq": 1, ...}. We want the very first allocated
+    # number to be OUTREACH_NUMBER_START + 1 = 20001, so map through
+    # the base offset here.
+    seq = int((doc or {}).get("seq") or 0)
+    return OUTREACH_NUMBER_START + seq
+
+
+async def bump_outreach_counter_high_water(db, high: int) -> None:
+    """Advance the counter so future allocations resume above ``high``.
+
+    Used by the backfill so that if the highest-existing
+    ``outreach_number`` is (say) 20050, the next NEW create returns
+    20051 — even if the counter doc hasn't been touched before.
+    Never decrements.
+    """
+    if high <= OUTREACH_NUMBER_START:
+        return
+    new_seq = int(high) - OUTREACH_NUMBER_START
+    await db[COLL_COUNTERS].update_one(
+        {"_id": OUTREACH_NUMBER_KEY},
+        {"$max": {"seq": new_seq},
+         "$setOnInsert": {"created_at": _iso_now()}},
+        upsert=True,
+    )
+
+
+async def backfill_outreach_numbers(db) -> Dict[str, int]:
+    """One-shot: assign an ``outreach_number`` to every existing
+    organisation that doesn't yet have one, in a stable order
+    (oldest ``created_at`` first, ``id`` as tie-break).
+
+    Idempotent — safe to call on every boot. Returns a small summary
+    ``{"assigned": N, "already_numbered": M, "high_water": max}``.
+    """
+    stats = {"assigned": 0, "already_numbered": 0, "high_water": OUTREACH_NUMBER_START}
+    # 1. High-water: bump the counter so it never regresses below any
+    #    number that already exists on a row.
+    highest = await db[COLL_ORGS].find_one(
+        {"outreach_number": {"$exists": True, "$type": "int"}},
+        {"_id": 0, "outreach_number": 1},
+        sort=[("outreach_number", -1)],
+    )
+    if highest and int(highest.get("outreach_number") or 0) > OUTREACH_NUMBER_START:
+        stats["high_water"] = int(highest["outreach_number"])
+        await bump_outreach_counter_high_water(db, stats["high_water"])
+
+    # 2. Count already-numbered rows (for the summary).
+    stats["already_numbered"] = await db[COLL_ORGS].count_documents(
+        {"outreach_number": {"$exists": True, "$type": "int"}},
+    )
+
+    # 3. Assign numbers to the un-numbered ones in a stable order.
+    cursor = db[COLL_ORGS].find(
+        {"outreach_number": {"$exists": False}},
+        {"_id": 1, "id": 1, "created_at": 1},
+    ).sort([("created_at", 1), ("id", 1)])
+    async for row in cursor:
+        num = await next_outreach_number(db)
+        await db[COLL_ORGS].update_one(
+            {"_id": row["_id"]},
+            {"$set": {"outreach_number": num}},
+        )
+        stats["assigned"] += 1
+        if num > stats["high_water"]:
+            stats["high_water"] = num
+    return stats
 
 
 async def get_org(db, org_id: str) -> Optional[Dict[str, Any]]:
@@ -319,12 +440,31 @@ async def ensure_indexes(db) -> None:
     await db[COLL_ORGS].create_index("updated_at")
     await db[COLL_ORGS].create_index("last_contact_at")
     await db[COLL_ORGS].create_index("last_reply_at")
+    # iter164ah — permanent, sparse-unique numbering. Sparse so
+    # rows created before this migration (and rows currently mid-
+    # backfill) don't trip the constraint.
+    await db[COLL_ORGS].create_index(
+        "outreach_number", unique=True, sparse=True, name="uniq_outreach_number",
+    )
+    # Backfill any un-numbered rows in a stable order — idempotent.
+    try:
+        await backfill_outreach_numbers(db)
+    except Exception:
+        # Backfill is best-effort at boot; surface via logs only so a
+        # single bad row can't hold the API back from starting.
+        import logging
+        logging.getLogger("friendplace.outreach").exception(
+            "outreach_number backfill failed",
+        )
 
 
 __all__ = [
     "COLL_ORGS", "OUTREACH_STATUSES", "OUTREACH_CATEGORIES",
+    "OUTREACH_NUMBER_START",
     "normalise_category", "category_label",
     "upsert_org", "get_org", "list_orgs", "delete_org",
     "touch_last_contact", "log_communication", "mark_replied",
     "ensure_indexes",
+    "next_outreach_number", "backfill_outreach_numbers",
+    "bump_outreach_counter_high_water",
 ]

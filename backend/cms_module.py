@@ -2118,6 +2118,10 @@ def build_router(db) -> APIRouter:
                     "recipient_name":   org.get("contact_name"),
                     "organisation_name": org.get("organisation_name"),
                     "outreach_id":      org.get("id"),
+                    # iter164ah: permanent outreach number, copied
+                    # through so the send worker can pin it onto the
+                    # campaign_recipients row for historical accuracy.
+                    "outreach_number":  org.get("outreach_number"),
                 })
             return out
 
@@ -3080,6 +3084,11 @@ def build_router(db) -> APIRouter:
                     # and we'd keep re-sending to an invalid address.
                     "audience_kind":   (c.get("audience_filter") or {}).get("audience_kind"),
                     "outreach_id":     r.get("outreach_id"),
+                    # iter164ah — copy the permanent outreach number
+                    # onto the recipient row so historical campaign
+                    # records still show #20001 even if the active
+                    # outreach organisation is later deleted.
+                    "outreach_number": r.get("outreach_number"),
                 })
                 await db.campaigns.update_one(
                     {"id": campaign_id},
