@@ -513,53 +513,61 @@ export default function OutreachPage() {
             </thead>
 
             <tbody>
-              {rows.map((org) => (
-                <tr key={org.id}>
-                  <td style={td}>
-                    <div style={{ fontWeight: 800, color: '#0A2540' }}>
-                      {org.organisation_name}
-                    </div>
-                    {org.suburb && (
-                      <div style={muted}>
-                        {org.suburb}
-                        {org.state ? `, ${org.state}` : ''}
+              {rows.map((org) => {
+                const outreachNumber = Number((org as any).outreach_number || 0);
+                return (
+                  <tr key={org.id}>
+                    <td style={td}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {outreachNumber >= 20001 && (
+                          <span style={outreachNumberPill}>#{outreachNumber}</span>
+                        )}
+                        <span style={{ fontWeight: 800, color: '#0A2540' }}>
+                          {org.organisation_name}
+                        </span>
                       </div>
-                    )}
-                  </td>
+                      {org.suburb && (
+                        <div style={muted}>
+                          {org.suburb}
+                          {org.state ? `, ${org.state}` : ''}
+                        </div>
+                      )}
+                    </td>
 
-                  <td style={td}>
-                    <div>{org.contact_name || '—'}</div>
-                    <div style={muted}>{org.email}</div>
-                  </td>
+                    <td style={td}>
+                      <div>{org.contact_name || '—'}</div>
+                      <div style={muted}>{org.email}</div>
+                    </td>
 
-                  <td style={td}>
-                    {org.category
-                      ? org.category.replace(/_/g, ' ')
-                      : '—'}
-                  </td>
+                    <td style={td}>
+                      {org.category
+                        ? org.category.replace(/_/g, ' ')
+                        : '—'}
+                    </td>
 
-                  <td style={td}>
-                    <span style={statusPill}>
-                      {STATUS_LABELS[org.status] || org.status}
-                    </span>
-                  </td>
+                    <td style={td}>
+                      <span style={statusPill}>
+                        {STATUS_LABELS[org.status] || org.status}
+                      </span>
+                    </td>
 
-                  <td style={td}>
-                    {org.last_contact_at
-                      ? new Date(org.last_contact_at).toLocaleDateString('en-AU')
-                      : '—'}
-                  </td>
+                    <td style={td}>
+                      {org.last_contact_at
+                        ? new Date(org.last_contact_at).toLocaleDateString('en-AU')
+                        : '—'}
+                    </td>
 
-                  <td style={{ ...td, textAlign: 'right' }}>
-                    <Link
-                      href={`/admin/outreach/${org.id}`}
-                      style={viewLink}
-                    >
-                      Open →
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+                    <td style={{ ...td, textAlign: 'right' }}>
+                      <Link
+                        href={`/admin/outreach/${org.id}`}
+                        style={viewLink}
+                      >
+                        Open →
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -660,6 +668,18 @@ const statusPill: React.CSSProperties = {
   color: '#0F766E',
   fontWeight: 800,
   fontSize: 11,
+};
+
+const outreachNumberPill: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '3px 8px',
+  borderRadius: 999,
+  background: '#EFF6FF',
+  color: '#1D4ED8',
+  border: '1px solid #BFDBFE',
+  fontWeight: 900,
+  fontSize: 11,
+  fontVariantNumeric: 'tabular-nums',
 };
 
 const readyPill: React.CSSProperties = {
