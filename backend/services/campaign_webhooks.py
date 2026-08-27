@@ -333,8 +333,49 @@ async def _flag_founder_if_needed(
     evt_type: str,
     at: str,
 ) -> None:
-    """Terminal-event flags on the founder record — protects our sender
-    reputation by never re-sending to a bad address or complainer."""
+    """Terminal-event flags on the source-of-truth record — protects
+    our sender reputation by never re-sending to a bad address or a
+    complainer.
+
+    iter164ag — outreach parity: Founding-Member recipients update
+    ``interest_registrations``; **outreach** recipients update
+    ``outreach_organisations`` so a bounced or complained outreach
+    contact is flagged in their own collection and won't receive
+    further sends. Determined from the recipient row's ``outreach_id``
+    (present iff the campaign was outreach) — not from any
+    founder_number heuristic.
+    """
+    if evt_type not in ("email.bounced", "email.complained"):
+        return
+    # Outreach path — flag against outreach_organisations.
+    outreach_id = recipient.get("outreach_id")
+    if outreach_id:
+        try:
+            if evt_type == "email.bounced":
+                await db.outreach_organisations.update_one(
+                    {"id": outreach_id},
+                    {"$set": {
+                        "email_invalid":        True,
+                        "email_invalid_at":     at,
+                        "email_invalid_reason": "bounce",
+                        "status":               "email_invalid",
+                    }},
+                )
+            elif evt_type == "email.complained":
+                await db.outreach_organisations.update_one(
+                    {"id": outreach_id},
+                    {"$set": {
+                        "status":              "opted_out",
+                        "opted_out_at":        at,
+                        "opted_out_reason":    "spam_complaint",
+                    }},
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("outreach %s flag failed for %s: %s",
+                        evt_type, outreach_id, e)
+        return
+
+    # Founding-Member path — flag against interest_registrations.
     founder_id = recipient.get("founder_id")
     if not founder_id:
         return
@@ -426,6 +467,118 @@ async def handle_event(db: Any, event: dict, raw_body_len: int) -> dict:
             "campaign_id":  recipient.get("campaign_id")}
 
 
+async def reconcile_campaign_stats(db: Any, campaign_id: str) -> dict:
+    """iter164ag — rebuild a campaign's stats + timeline from the raw
+    ``resend_webhook_events`` log we keep for 90 days.
+
+    Idempotent — safe to run repeatedly. Uses the same rollup logic as
+    the live webhook path, so a reconciled campaign is
+    byte-equivalent to one whose events all landed live.
+
+    Use case: if for any reason (misconfigured Resend URL, rotated
+    secret, network blip) webhook events were dropped or accepted
+    but not folded in, an admin can call this to replay every raw
+    event we DID accept and rebuild the campaign's counters.
+
+    Returns a small dict describing what was replayed:
+
+        {
+          "ok": True,
+          "campaign_id": "...",
+          "raw_events_scanned": 84,
+          "recipients_matched": 78,
+          "events_by_type": {"email.delivered": 40, "email.opened": 22, ...},
+          "stats_after":  {"delivered": 40, "opened": 22, "clicked": 6, ...},
+        }
+    """
+    # 1) Snapshot: which recipient message_ids belong to this campaign?
+    recip_msg_ids: list[str] = []
+    async for r in db[RECIP_COLL].find(
+        {"campaign_id": campaign_id, "message_id": {"$exists": True, "$ne": None}},
+        {"_id": 0, "message_id": 1},
+    ):
+        mid = r.get("message_id")
+        if mid:
+            recip_msg_ids.append(mid)
+
+    scanned = 0
+    matched = 0
+    by_type: dict[str, int] = {}
+    if not recip_msg_ids:
+        # Nothing to reconcile against — return an empty summary so
+        # the caller can distinguish "no send happened yet" from
+        # "reconciliation didn't help".
+        cp = await db[CAMPAIGNS_COLL].find_one(
+            {"id": campaign_id}, {"_id": 0, "stats": 1},
+        )
+        return {
+            "ok":                  True,
+            "campaign_id":         campaign_id,
+            "raw_events_scanned":  0,
+            "recipients_matched":  0,
+            "events_by_type":      {},
+            "stats_after":         (cp or {}).get("stats") or {},
+        }
+
+    # 2) Reset per-campaign counters we're rebuilding — the timestamp
+    #    fields on the recipient rows are left in place (they're
+    #    keyed "first_*" so replaying is a no-op for them). Zero the
+    #    campaign-level counters so re-running doesn't double-count.
+    await db[CAMPAIGNS_COLL].update_one(
+        {"id": campaign_id},
+        {"$set": {
+            "stats.delivered":     0,
+            "stats.opened":        0,
+            "stats.clicked":       0,
+            "stats.bounced":       0,
+            "stats.complained":    0,
+            "stats.delayed":       0,
+            "stats.unique_opens":  0,
+            "stats.unique_clicks": 0,
+        }},
+    )
+    # Also clear the first_opened_at / first_clicked_at markers so the
+    # "first" bookkeeping counts each recipient exactly once on the
+    # replay pass. Timestamps re-set from the raw events below.
+    await db[RECIP_COLL].update_many(
+        {"campaign_id": campaign_id},
+        {"$unset": {"first_opened_at": "", "first_clicked_at": "",
+                    "open_count": "", "click_count": ""}},
+    )
+
+    # 3) Replay every raw event whose email_id belongs to this campaign,
+    #    ordered oldest-first so "first" bookkeeping stays correct.
+    cursor = db[RAW_COLL].find(
+        {"payload.data.email_id": {"$in": recip_msg_ids}},
+        {"_id": 0, "payload": 1, "inserted_at": 1},
+    ).sort("inserted_at", 1)
+    async for raw in cursor:
+        scanned += 1
+        payload = raw.get("payload") or {}
+        evt_type = payload.get("type") or payload.get("event") or "unknown"
+        by_type[evt_type] = by_type.get(evt_type, 0) + 1
+        try:
+            res = await handle_event(db, payload, raw_body_len=0)
+            if res.get("matched"):
+                matched += 1
+        except Exception as e:  # noqa: BLE001
+            log.warning("reconcile: replay failed for %s: %s", evt_type, e)
+
+    # 4) Return the current campaign stats so the caller can eyeball
+    #    the outcome without a second GET.
+    cp = await db[CAMPAIGNS_COLL].find_one(
+        {"id": campaign_id}, {"_id": 0, "stats": 1},
+    )
+    return {
+        "ok":                 True,
+        "campaign_id":        campaign_id,
+        "raw_events_scanned": scanned,
+        "recipients_matched": matched,
+        "events_by_type":     by_type,
+        "stats_after":        (cp or {}).get("stats") or {},
+    }
+
+
 # ── Router factory ────────────────────────────────────────────────
 def build_router(db: Any) -> APIRouter:
     """Build the FastAPI router for Resend webhooks.
@@ -509,13 +662,56 @@ def build_router(db: Any) -> APIRouter:
     # Resend's "Test" button which doesn't hit /webhooks/resend at all.
     @router.get("/webhooks/resend/health")
     async def resend_webhook_health():
+        """iter164ag — extended diagnostics.
+
+        Returns a small snapshot that admins can eyeball to answer
+        "are Resend webhooks actually reaching us right now?":
+
+          * ``secret_configured``  → RESEND_WEBHOOK_SECRET is set.
+          * ``allow_unsigned``     → WEBHOOKS_ALLOW_UNSIGNED=true (dev).
+          * ``route``              → the canonical URL to paste into
+                                     the Resend dashboard.
+          * ``recent`` (24h)       → count of raw events accepted by
+                                     event type, plus the latest
+                                     ``inserted_at`` timestamp. If
+                                     this dict is empty, either the
+                                     webhook URL is misconfigured in
+                                     Resend, no campaigns have sent,
+                                     or the signature check is
+                                     rejecting everything.
+        """
         secret_set = bool(os.getenv("RESEND_WEBHOOK_SECRET", "").strip())
         allow_unsigned = os.getenv("WEBHOOKS_ALLOW_UNSIGNED", "").strip().lower() == "true"
+        recent: dict[str, Any] = {"events_by_type": {}, "last_event_at": None,
+                                    "total_24h": 0}
+        try:
+            since = datetime.now(timezone.utc) - timedelta(hours=24)
+            cursor = db[RAW_COLL].aggregate([
+                {"$match": {"inserted_at": {"$gte": since}}},
+                {"$group": {"_id": "$type", "n": {"$sum": 1}}},
+            ])
+            async for row in cursor:
+                recent["events_by_type"][row["_id"] or "unknown"] = row["n"]
+                recent["total_24h"] += row["n"]
+            latest = await db[RAW_COLL].find_one(
+                {}, {"_id": 0, "inserted_at": 1, "type": 1},
+                sort=[("inserted_at", -1)],
+            )
+            if latest:
+                recent["last_event_at"] = (
+                    latest["inserted_at"].isoformat()
+                    if hasattr(latest["inserted_at"], "isoformat")
+                    else latest["inserted_at"]
+                )
+                recent["last_event_type"] = latest.get("type")
+        except Exception as e:  # noqa: BLE001
+            recent["diagnostic_error"] = str(e)
         return {
-            "ok":              True,
+            "ok":                True,
             "secret_configured": secret_set,
-            "allow_unsigned":  allow_unsigned,
-            "route":           "/api/webhooks/resend",
+            "allow_unsigned":    allow_unsigned,
+            "route":             "/api/webhooks/resend",
+            "recent":            recent,
         }
 
     return router

@@ -2444,6 +2444,25 @@ def build_router(db) -> APIRouter:
         recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=1000)
         return {"count": len(recipients), "sample": recipients[:10]}
 
+    # iter164ag — Reconcile campaign stats from the raw Resend webhook
+    # event log. Admins use this when a campaign's live rollup drifted
+    # from the raw log (e.g. the webhook secret was rotated mid-send,
+    # or events arrived while a bug in the receiver was in play). The
+    # operation is idempotent — replays every raw event we accepted
+    # for the campaign's recipients through the same rollup code path
+    # that the live webhook uses, so a reconciled campaign matches a
+    # freshly-flowed one byte-for-byte. Never triggers a new send.
+    @router.post("/campaigns/{campaign_id}/reconcile-stats")
+    async def campaigns_reconcile_stats(
+        campaign_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        from services.campaign_webhooks import reconcile_campaign_stats
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0, "id": 1})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        return await reconcile_campaign_stats(db, campaign_id)
+
     @router.post("/campaigns/{campaign_id}/render-preview")
     async def campaigns_render_preview(campaign_id: str,
                                         admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
@@ -3051,6 +3070,16 @@ def build_router(db) -> APIRouter:
                     "error":           result.error if not result.ok else None,
                     "http_status":     result.http_status,
                     "subject":         subject,
+                    # iter164ag — record the audience *shape* on the
+                    # recipient row so the webhook receiver can flag
+                    # bounces/complaints back to the right source-of-
+                    # truth collection (outreach_organisations for
+                    # outreach recipients, interest_registrations for
+                    # Founding Members). Without this, an outreach
+                    # bounce would silently no-op against founders,
+                    # and we'd keep re-sending to an invalid address.
+                    "audience_kind":   (c.get("audience_filter") or {}).get("audience_kind"),
+                    "outreach_id":     r.get("outreach_id"),
                 })
                 await db.campaigns.update_one(
                     {"id": campaign_id},
