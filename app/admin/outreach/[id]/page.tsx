@@ -189,6 +189,8 @@ export default function OutreachOrganisationDetailPage() {
     );
   }
 
+  const outreachNumber = Number((org as any).outreach_number || 0);
+
   return (
     <AdminShell title={org.organisation_name}>
       <p style={crumbs}>
@@ -198,6 +200,15 @@ export default function OutreachOrganisationDetailPage() {
         {' › '}
         {org.organisation_name}
       </p>
+
+      {outreachNumber >= 20001 && (
+        <div style={identityBar}>
+          <span style={outreachNumberPill}>#{outreachNumber}</span>
+          <span style={{ color: '#64748B', fontSize: 12, fontWeight: 700 }}>
+            Permanent Outreach ID
+          </span>
+        </div>
+      )}
 
       {error && <div style={errorBox}>{error}</div>}
 
@@ -386,6 +397,9 @@ export default function OutreachOrganisationDetailPage() {
           </button>
 
           <div style={metaBox}>
+            {outreachNumber >= 20001 && (
+              <MetaRow label="Outreach ID" value={`#${outreachNumber}`} />
+            )}
             <MetaRow
               label="Last contact"
               value={org.last_contact_at ? formatDate(org.last_contact_at) : '—'}
@@ -468,6 +482,26 @@ const crumbLink: React.CSSProperties = {
   color: '#0D9488',
   fontWeight: 700,
   textDecoration: 'none',
+};
+
+const identityBar: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  marginTop: -8,
+  marginBottom: 16,
+};
+
+const outreachNumberPill: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '4px 10px',
+  borderRadius: 999,
+  background: '#EFF6FF',
+  color: '#1D4ED8',
+  border: '1px solid #BFDBFE',
+  fontWeight: 900,
+  fontSize: 12,
+  fontVariantNumeric: 'tabular-nums',
 };
 
 const layout: React.CSSProperties = {
