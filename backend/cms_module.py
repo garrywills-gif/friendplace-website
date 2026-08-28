@@ -766,6 +766,31 @@ def build_router(db) -> APIRouter:
             ],
         }
 
+    @router.get("/enquiries/unread-count")
+    async def enquiries_unread_count(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Sidebar badge count for Mission Control (iter164ao).
+
+        Counts ONLY brand-new Contact-form enquiries — i.e.
+        kind == "contact" AND status == "new". Deliberately excludes
+        every other enquiry kind (Register Interest / interest, support,
+        report, waitlist) and any contact enquiry that's already been
+        actioned (resolved / replied). Test fixtures (is_test) are never
+        counted. A missing/empty status is treated as "new" to stay
+        consistent with the unified Enquiries list, which renders a
+        contact with no status as "new".
+        """
+        count = await db["contact_submissions"].count_documents({
+            "is_test": {"$ne": True},
+            "$or": [
+                {"status": "new"},
+                {"status": {"$in": [None, ""]}},
+                {"status": {"$exists": False}},
+            ],
+        })
+        return {"count": int(count)}
+
 
     # EMAIL TEMPLATE PREVIEW
     # ============================================================
