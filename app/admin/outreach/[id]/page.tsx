@@ -10,6 +10,7 @@ import {
   type OutreachOrgIn,
   type OutreachStatus,
 } from '@/lib/cms-api';
+import { outreachArchiveApi } from '@/lib/outreach-archive-api';
 
 const STATUS_OPTIONS: Array<{ value: OutreachStatus; label: string }> = [
   { value: 'not_contacted', label: 'Not contacted' },
@@ -35,7 +36,8 @@ export default function OutreachOrganisationDetailPage() {
   const [form, setForm] = useState<OutreachOrgIn | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -147,24 +149,42 @@ export default function OutreachOrganisationDetailPage() {
     }
   };
 
-  const remove = async () => {
+  const archive = async () => {
     if (!id || !org) return;
 
     const ok = window.confirm(
-      `Delete ${org.organisation_name}? This cannot be undone.`,
+      `Archive ${org.organisation_name}? It will be removed from the active outreach list and campaign audiences, but its history will be kept.`,
     );
 
     if (!ok) return;
 
-    setDeleting(true);
+    setArchiving(true);
     setError(null);
 
     try {
-      await outreachApi.del(id);
+      await outreachArchiveApi.archive(id);
       router.push('/admin/outreach');
     } catch (e: any) {
-      setError(e?.message || 'Could not delete organisation.');
-      setDeleting(false);
+      setError(e?.message || 'Could not archive organisation.');
+      setArchiving(false);
+    }
+  };
+
+  const restore = async () => {
+    if (!id) return;
+
+    setRestoring(true);
+    setError(null);
+
+    try {
+      const updated = await outreachArchiveApi.restore(id);
+      setOrg(updated);
+      setToast('Organisation restored to active outreach.');
+      setTimeout(() => setToast(null), 2200);
+    } catch (e: any) {
+      setError(e?.message || 'Could not restore organisation.');
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -190,6 +210,7 @@ export default function OutreachOrganisationDetailPage() {
   }
 
   const outreachNumber = Number((org as any).outreach_number || 0);
+  const isArchived = Boolean((org as any).archived_at);
 
   return (
     <AdminShell title={org.organisation_name}>
@@ -201,12 +222,17 @@ export default function OutreachOrganisationDetailPage() {
         {org.organisation_name}
       </p>
 
-      {outreachNumber >= 20001 && (
+      {(outreachNumber >= 20001 || isArchived) && (
         <div style={identityBar}>
-          <span style={outreachNumberPill}>#{outreachNumber}</span>
-          <span style={{ color: '#64748B', fontSize: 12, fontWeight: 700 }}>
-            Permanent Outreach ID
-          </span>
+          {outreachNumber >= 20001 && (
+            <>
+              <span style={outreachNumberPill}>#{outreachNumber}</span>
+              <span style={{ color: '#64748B', fontSize: 12, fontWeight: 700 }}>
+                Permanent Outreach ID
+              </span>
+            </>
+          )}
+          {isArchived && <span style={archivedPill}>Archived</span>}
         </div>
       )}
 
@@ -316,17 +342,31 @@ export default function OutreachOrganisationDetailPage() {
                 {saving ? 'Saving…' : 'Save changes'}
               </button>
 
-              <button
-                type="button"
-                onClick={() => void remove()}
-                disabled={deleting}
-                style={{
-                  ...adminStyles.dangerBtn,
-                  opacity: deleting ? 0.6 : 1,
-                }}
-              >
-                {deleting ? 'Deleting…' : 'Delete organisation'}
-              </button>
+              {isArchived ? (
+                <button
+                  type="button"
+                  onClick={() => void restore()}
+                  disabled={restoring}
+                  style={{
+                    ...adminStyles.ghostBtn,
+                    opacity: restoring ? 0.6 : 1,
+                  }}
+                >
+                  {restoring ? 'Restoring…' : 'Restore organisation'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void archive()}
+                  disabled={archiving}
+                  style={{
+                    ...adminStyles.dangerBtn,
+                    opacity: archiving ? 0.6 : 1,
+                  }}
+                >
+                  {archiving ? 'Archiving…' : 'Archive organisation'}
+                </button>
+              )}
             </div>
           </div>
 
@@ -399,6 +439,9 @@ export default function OutreachOrganisationDetailPage() {
           <div style={metaBox}>
             {outreachNumber >= 20001 && (
               <MetaRow label="Outreach ID" value={`#${outreachNumber}`} />
+            )}
+            {isArchived && (org as any).archived_at && (
+              <MetaRow label="Archived" value={formatDate((org as any).archived_at)} />
             )}
             <MetaRow
               label="Last contact"
@@ -490,6 +533,7 @@ const identityBar: React.CSSProperties = {
   gap: 8,
   marginTop: -8,
   marginBottom: 16,
+  flexWrap: 'wrap',
 };
 
 const outreachNumberPill: React.CSSProperties = {
@@ -502,6 +546,17 @@ const outreachNumberPill: React.CSSProperties = {
   fontWeight: 900,
   fontSize: 12,
   fontVariantNumeric: 'tabular-nums',
+};
+
+const archivedPill: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '4px 10px',
+  borderRadius: 999,
+  background: '#F1F5F9',
+  color: '#64748B',
+  border: '1px solid #CBD5E1',
+  fontWeight: 900,
+  fontSize: 11,
 };
 
 const layout: React.CSSProperties = {
