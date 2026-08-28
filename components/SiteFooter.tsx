@@ -6,6 +6,8 @@ import { brandAssets } from '@/lib/brand-assets';
 import { site } from '@/lib/brand';
 import SecretAdminTrigger from './SecretAdminTrigger';
 
+const FACEBOOK_URL = 'https://www.facebook.com/profile.php?id=61593250883842';
+
 /**
  * Rich site footer — dark navy band matching the invite flyer.
  *
@@ -59,6 +61,31 @@ export default function SiteFooter() {
           }}>
             Finding your people, one friendship at a time.
           </p>
+
+          <a
+            href={FACEBOOK_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="FriendPlace on Facebook"
+            title="FriendPlace on Facebook"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 38,
+              height: 38,
+              marginTop: 22,
+              borderRadius: 999,
+              border: '1px solid rgba(255,255,255,0.18)',
+              color: '#FFFFFF',
+              textDecoration: 'none',
+              background: 'rgba(255,255,255,0.06)',
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor">
+              <path d="M13.5 22v-9h3l.45-3.5H13.5V7.26c0-1.01.28-1.7 1.73-1.7H17V2.43c-.31-.04-1.38-.13-2.62-.13-2.59 0-4.37 1.58-4.37 4.48V9.5H7v3.5h3.01v9h3.49Z" />
+            </svg>
+          </a>
         </div>
 
         {/* Sitemap columns */}
