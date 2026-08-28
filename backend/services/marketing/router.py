@@ -59,6 +59,12 @@ class PreviewIn(BaseModel):
     suburb: str = ""
     subject_override: Optional[str] = None
     additional_message: str = ""
+    # iter164ai — personal reply mode. When provided, templates that
+    # support it (enquiry_reply) treat this as the ENTIRE editable
+    # body — no canned intro, no template body + additional_message
+    # concatenation. Preserves newlines / blank-line paragraphs
+    # exactly; HTML is safely escaped before wrapping.
+    body_text: Optional[str] = None
     flyer: Optional[FlyerAttachModel] = None
 
 
@@ -71,6 +77,7 @@ class SendIn(BaseModel):
     suburb: str = ""
     subject_override: Optional[str] = None
     additional_message: str = ""
+    body_text: Optional[str] = None       # iter164ai — see PreviewIn
     flyer: Optional[FlyerAttachModel] = None
     campaign_id: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
@@ -148,6 +155,9 @@ def build_marketing_router(db, current_cms_admin) -> APIRouter:
             recipient_type=body.recipient_type or "person",
             organisation_name=body.organisation_name,
             additional_message=body.additional_message,
+            # iter164ai — pass body_text through so enquiry_reply
+            # renders in personal-reply mode when the client sends it.
+            body_text=body.body_text or "",
             suburb=body.suburb,
             subject_override=body.subject_override,
             flyer_name=flyer_name,
@@ -181,6 +191,9 @@ def build_marketing_router(db, current_cms_admin) -> APIRouter:
                 suburb=body.suburb,
                 subject_override=body.subject_override,
                 additional_message=body.additional_message,
+                # iter164ai — pipe body_text into the send worker so
+                # the delivered email matches the preview byte-for-byte.
+                body_text=body.body_text or "",
                 flyer=(
                     FlyerAttachmentRequest(
                         template_key=body.flyer.template_key,

@@ -162,6 +162,12 @@ class SendRequest:
     suburb: str = ""
     subject_override: Optional[str] = None
     additional_message: str = ""
+    # iter164ai — Personal reply mode. When set, templates that
+    # support it (currently enquiry_reply) use body_text as the
+    # ENTIRE editable body — no canned intro, no template body +
+    # additional_message concatenation. Preview and send share this
+    # field so the delivered email matches the preview exactly.
+    body_text: str = ""
     flyer: Optional[FlyerAttachmentRequest] = None
     # A single campaign_id if this send belongs to a bulk campaign.
     campaign_id: Optional[str] = None
@@ -195,6 +201,9 @@ async def send_marketing_email(db, req: SendRequest) -> SendOutcome:
         recipient_type=req.recipient_type or "person",
         organisation_name=req.organisation_name,
         additional_message=req.additional_message,
+        # iter164ai — pass body_text through so preview and send
+        # render byte-identical HTML for the same context.
+        body_text=req.body_text or "",
         suburb=req.suburb,
         subject_override=req.subject_override,
         flyer_name=None,  # populated below if flyer attaches

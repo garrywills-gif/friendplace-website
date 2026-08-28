@@ -51,6 +51,15 @@ class TemplateContext:
     # Ad-hoc body content the sender may add via the Send Email form.
     additional_message: str = ""
 
+    # iter164ai — Personal reply mode. When ``body_text`` is provided,
+    # a template that opts into it (currently only ``enquiry_reply``)
+    # uses this string as the ENTIRE editable body — no canned intro,
+    # no template-body + additional_message concatenation. The
+    # renderer preserves paragraph breaks (blank-line separated) and
+    # single newlines (as <br />) exactly. All HTML is escaped before
+    # being wrapped for email — no admin markup passes through raw.
+    body_text: str = ""
+
     # Optional supplementary metadata
     suburb: str = ""
     subject_override: Optional[str] = None
@@ -347,11 +356,20 @@ def _rv_body_text(ctx: TemplateContext) -> str:
 
 # ------- Registry ---------------------------------------------------------
 
-# ---- Template: enquiry_reply (iter160a) -----------------------------------
+# ---- Template: enquiry_reply (iter160a; personal-reply mode iter164ai) ----
 # One-off personal reply to somebody who contacted us via the website
 # enquiry forms. Deliberately plain and warm - NO Founding Member
 # number/badge, NO founding-member-specific copy - because this template
 # is used for members of the public who may or may not be founders.
+#
+# iter164ai — TRUE personal reply mode: when the caller supplies
+# ``ctx.body_text`` the template treats it as the ENTIRE editable body
+# (no canned intro, no fallback prose, no "Warm wishes," pre-line —
+# the shared brand shell still renders the FriendPlace sign-off
+# "Warmly, / The FriendPlace team" so nothing is lost). If body_text
+# is empty the template falls back to the legacy
+# template-body + additional_message flow so existing callers stay
+# working.
 
 def _reply_subject(ctx: TemplateContext) -> str:
     if ctx.subject_override:
@@ -360,6 +378,16 @@ def _reply_subject(ctx: TemplateContext) -> str:
 
 
 def _reply_body_html(ctx: TemplateContext) -> str:
+    # iter164ai: personal reply mode — body_text is the whole email
+    # body. Escape & wrap safely; no intro, no sign-off (the shell
+    # already adds "Warmly, / The FriendPlace team" beneath).
+    body_text = (ctx.body_text or "").strip()
+    if body_text:
+        return _paragraph_html(body_text)
+
+    # Legacy fallback: canned intro + optional additional_message +
+    # inline "Warm wishes,". Kept for backwards-compatibility with any
+    # caller that hasn't migrated to body_text yet.
     intro = (
         '<p style="margin:0 0 12px;">Thanks so much for reaching out. '
         'I wanted to reply personally rather than send a template.</p>'
@@ -376,6 +404,12 @@ def _reply_body_html(ctx: TemplateContext) -> str:
 
 
 def _reply_body_text(ctx: TemplateContext) -> str:
+    # iter164ai — personal reply mode: use body_text verbatim.
+    body_text = (ctx.body_text or "").strip()
+    if body_text:
+        return body_text
+
+    # Legacy fallback (see _reply_body_html).
     lines = ["Thanks so much for reaching out. I wanted to reply personally rather than send a template.", ""]
     if ctx.additional_message:
         lines += [ctx.additional_message.strip(), ""]
