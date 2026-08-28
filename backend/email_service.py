@@ -1246,118 +1246,94 @@ def event_rsvp_confirmation_template(
         "Outlook in one tap."
     )
 
-    html = f"""\
-<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
-            <!-- Header -->
-            <tr>
-              <td align="center" style="padding:8px 22px 6px 22px;">
-                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
-                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
-                </div>
-                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
-                  EVENTS · RSVP CONFIRMED
-                </div>
-              </td>
-            </tr>
+    html = _letter_shell(
+        preheader=email_subject,
+        body_html=f"""\
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
+  <tr><td align="center" style="padding:0 22px 6px 22px;">
+    <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;">
+      EVENTS · RSVP CONFIRMED
+    </div>
+  </td></tr>
 
-            <!-- Opening -->
-            <tr>
-              <td style="padding:24px 22px 6px 22px;">
-                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-                  {opening_html}
-                </div>
-              </td>
-            </tr>
+  <!-- Opening -->
+  <tr>
+    <td style="padding:24px 22px 6px 22px;">
+      <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+        {opening_html}
+      </div>
+    </td>
+  </tr>
 
-            <!-- Status chip -->
-            <tr>
-              <td align="center" style="padding:22px 22px 4px 22px;">
-                <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:{chip_bg};border:1px solid {chip_border};">
-                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">{chip_label}</div>
-                  <div style="color:{chip_color};font-size:20px;font-weight:900;letter-spacing:0.5px;line-height:1;margin-top:8px;">
-                    {_esc(event_title)}
-                  </div>
-                  {guest_line_html}
-                </div>
-              </td>
-            </tr>
+  <!-- Status chip -->
+  <tr>
+    <td align="center" style="padding:22px 22px 4px 22px;">
+      <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:{chip_bg};border:1px solid {chip_border};">
+        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">{chip_label}</div>
+        <div style="color:{chip_color};font-size:20px;font-weight:900;letter-spacing:0.5px;line-height:1;margin-top:8px;">
+          {_esc(event_title)}
+        </div>
+        {guest_line_html}
+      </div>
+    </td>
+  </tr>
 
-            <!-- Details block -->
-            <tr>
-              <td style="padding:22px 22px 4px 22px;">
-                <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(148,163,184,0.18);border-radius:14px;padding:16px 18px;font-size:14px;line-height:22px;color:#E2E8F0;">
-                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHEN</div>
-                  <div>{_esc(event_when_display)}</div>
-                  <div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>
-                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHERE</div>
-                  <div>{_esc(event_where_display)}</div>
-                  {(
-                    f'<div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>'
-                    f'<div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">COST</div>'
-                    f'<div>{_esc(event_cost_display)}</div>'
-                  ) if event_cost_display else ""}
-                </div>
-              </td>
-            </tr>
+  <!-- Details block -->
+  <tr>
+    <td style="padding:22px 22px 4px 22px;">
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(148,163,184,0.18);border-radius:14px;padding:16px 18px;font-size:14px;line-height:22px;color:#E2E8F0;">
+        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHEN</div>
+        <div>{_esc(event_when_display)}</div>
+        <div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>
+        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHERE</div>
+        <div>{_esc(event_where_display)}</div>
+        {(
+          f'<div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>'
+          f'<div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">COST</div>'
+          f'<div>{_esc(event_cost_display)}</div>'
+        ) if event_cost_display else ""}
+      </div>
+    </td>
+  </tr>
 
-            <!-- Buttons: event page + manage RSVP -->
-            <tr>
-              <td align="center" style="padding:20px 22px 4px 22px;">
-                <a href="{_esc(event_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#38BDF8;color:#0B1F45;font-weight:800;text-decoration:none;font-size:14px;margin:0 4px;">View event page</a>
-                <a href="{_esc(manage_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:rgba(255,255,255,0.06);color:#E2E8F0;font-weight:800;text-decoration:none;font-size:14px;border:1px solid rgba(148,163,184,0.35);margin:0 4px;">View / cancel RSVP</a>
-              </td>
-            </tr>
+  <!-- Buttons: event page + manage RSVP -->
+  <tr>
+    <td align="center" style="padding:20px 22px 4px 22px;">
+      <a href="{_esc(event_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#38BDF8;color:#0B1F45;font-weight:800;text-decoration:none;font-size:14px;margin:0 4px;">View event page</a>
+      <a href="{_esc(manage_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:rgba(255,255,255,0.06);color:#E2E8F0;font-weight:800;text-decoration:none;font-size:14px;border:1px solid rgba(148,163,184,0.35);margin:0 4px;">View / cancel RSVP</a>
+    </td>
+  </tr>
 
-            <!-- ICS note -->
-            <tr>
-              <td style="padding:20px 22px 4px 22px;">
-                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
-                  {ics_note_html}
-                </div>
-              </td>
-            </tr>
+  <!-- ICS note -->
+  <tr>
+    <td style="padding:20px 22px 4px 22px;">
+      <div style="font-size:14px;line-height:22px;color:#94A3B8;">
+        {ics_note_html}
+      </div>
+    </td>
+  </tr>
 
-            <!-- Ticket ref for their records -->
-            <tr>
-              <td style="padding:8px 22px 4px 22px;">
-                <div style="font-size:12px;color:#64748B;">
-                  Your booking reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
-                </div>
-              </td>
-            </tr>
+  <!-- Ticket ref -->
+  <tr>
+    <td style="padding:8px 22px 4px 22px;">
+      <div style="font-size:12px;color:#64748B;">
+        Your booking reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
+      </div>
+    </td>
+  </tr>
 
-            <!-- Sign-off -->
-            <tr>
-              <td style="padding:24px 22px 4px 22px;">
-                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-                  See you there.<br><br>
-                  💜 The FriendPlace Events Team
-                </div>
-              </td>
-            </tr>
-
-            <!-- Spacer -->
-            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
-
-            <!-- Branded footer -->
-            <tr>
-              <td style="padding:0 12px;">
-                {_branded_footer_html()}
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
+  <!-- Sign-off -->
+  <tr>
+    <td style="padding:24px 22px 4px 22px;">
+      <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+        See you there.<br><br>
+        💜 The FriendPlace Events Team
+      </div>
+    </td>
+  </tr>
+</table>
+""",
+    )
 
     text = (
         f"{opening_text}\n\n"
@@ -1372,7 +1348,7 @@ def event_rsvp_confirmation_template(
         f"{ics_note_text}\n\n"
         f"See you there.\n\n"
         f"💜 The FriendPlace Events Team"
-        f"{_branded_footer_text()}"
+        f"{_letter_footer_text()}"
     )
     return email_subject, html, text
 
@@ -1407,81 +1383,63 @@ def event_cancelled_template(
         f"\n\nMessage from the organiser:\n  {reason.strip()}\n" if (reason or "").strip() else ""
     )
 
-    html = f"""\
-<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
-            <tr>
-              <td align="center" style="padding:8px 22px 6px 22px;">
-                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
-                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
-                </div>
-                <div style="color:#FCA5A5;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
-                  EVENT CANCELLED
-                </div>
-              </td>
-            </tr>
+    html = _letter_shell(
+        preheader=email_subject,
+        body_html=f"""\
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
+  <tr>
+    <td align="center" style="padding:0 22px 6px 22px;">
+      <div style="color:#FCA5A5;font-size:12px;letter-spacing:2.4px;font-weight:700;">
+        EVENT CANCELLED
+      </div>
+    </td>
+  </tr>
 
-            <tr>
-              <td style="padding:24px 22px 6px 22px;">
-                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-                  Hi {_esc(name)},<br><br>
-                  Sorry to be the bearer of not-great news — <strong style="color:#FFFFFF;">{_esc(event_title)}</strong> ({_esc(event_when_display)}) has been <strong style="color:#FFFFFF;">cancelled</strong>.<br><br>
-                  Your RSVP has been released and your spot is no longer being held. Your calendar should update automatically if you accepted our invite.
-                </div>
-              </td>
-            </tr>
+  <tr>
+    <td style="padding:24px 22px 6px 22px;">
+      <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+        Hi {_esc(name)},<br><br>
+        Sorry to be the bearer of not-great news — <strong style="color:#FFFFFF;">{_esc(event_title)}</strong> ({_esc(event_when_display)}) has been <strong style="color:#FFFFFF;">cancelled</strong>.<br><br>
+        Your RSVP has been released and your spot is no longer being held. Your calendar should update automatically if you accepted our invite.
+      </div>
+    </td>
+  </tr>
 
-            <tr>
-              <td style="padding:0 22px 4px 22px;">
-                {reason_html}
-              </td>
-            </tr>
+  <tr>
+    <td style="padding:0 22px 4px 22px;">
+      {reason_html}
+    </td>
+  </tr>
 
-            <tr>
-              <td style="padding:20px 22px 4px 22px;">
-                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
-                  Keep an eye on our
-                  <a href="https://www.friendplace.com.au/events" style="color:#93C5FD;text-decoration:none;font-weight:600;">events page</a>
-                  — there&rsquo;s always another one being planned.
-                </div>
-              </td>
-            </tr>
+  <tr>
+    <td style="padding:20px 22px 4px 22px;">
+      <div style="font-size:14px;line-height:22px;color:#94A3B8;">
+        Keep an eye on our
+        <a href="https://www.friendplace.com.au/events" style="color:#5EEAD4;text-decoration:none;font-weight:600;">events page</a>
+        — there&rsquo;s always another one being planned.
+      </div>
+    </td>
+  </tr>
 
-            <tr>
-              <td style="padding:8px 22px 4px 22px;">
-                <div style="font-size:12px;color:#64748B;">
-                  Reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
-                </div>
-              </td>
-            </tr>
+  <tr>
+    <td style="padding:8px 22px 4px 22px;">
+      <div style="font-size:12px;color:#64748B;">
+        Reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
+      </div>
+    </td>
+  </tr>
 
-            <tr>
-              <td style="padding:24px 22px 4px 22px;">
-                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-                  Thank you for understanding.<br><br>
-                  💜 The FriendPlace Events Team
-                </div>
-              </td>
-            </tr>
-
-            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
-            <tr>
-              <td style="padding:0 12px;">
-                {_branded_footer_html()}
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
+  <tr>
+    <td style="padding:24px 22px 4px 22px;">
+      <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+        Thank you for understanding.<br><br>
+        💜 The FriendPlace Events Team
+      </div>
+    </td>
+  </tr>
+</table>
+""",
+    )
 
     text = (
         f"Hi {name},\n\n"
@@ -1495,7 +1453,7 @@ def event_cancelled_template(
         f"Reference: {ticket_ref}\n\n"
         f"Thank you for understanding.\n\n"
         f"💜 The FriendPlace Events Team"
-        f"{_branded_footer_text()}"
+        f"{_letter_footer_text()}"
     )
     return email_subject, html, text
 
@@ -1526,82 +1484,68 @@ def business_welcome_template(
         "trial": "Free 1-month trial",
     }.get((requested_plan or "trial").lower(), "Free 1-month trial")
 
-    html = f"""\
-<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
-            <tr>
-              <td align="center" style="padding:8px 22px 6px 22px;">
-                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
-                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
-                </div>
-                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
-                  ORGANISATIONS · WELCOME
-                </div>
-              </td>
-            </tr>
+    html = _letter_shell(
+        preheader=email_subject,
+        body_html=f"""\
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
+  <tr>
+    <td align="center" style="padding:0 22px 6px 22px;">
+      <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;">
+        ORGANISATIONS · WELCOME
+      </div>
+    </td>
+  </tr>
 
-            <tr>
-              <td style="padding:24px 22px 6px 22px;">
-                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-                  Hi {_esc(name)},<br><br>
-                  Thanks for registering <strong style="color:#FFFFFF;">{safe_biz}</strong> on FriendPlace. We&rsquo;re delighted to have you as part of the community.
-                </div>
-              </td>
-            </tr>
+  <tr>
+    <td style="padding:24px 22px 6px 22px;">
+      <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+        Hi {_esc(name)},<br><br>
+        Thanks for registering <strong style="color:#FFFFFF;">{safe_biz}</strong> on FriendPlace. We&rsquo;re delighted to have you as part of the community.
+      </div>
+    </td>
+  </tr>
 
-            <tr>
-              <td align="center" style="padding:22px 22px 4px 22px;">
-                <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
-                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR TRIAL IS ACTIVE</div>
-                  <div style="color:#5EEAD4;font-size:22px;font-weight:900;line-height:1;margin-top:8px;">
-                    {trial_limit} listings · {trial_days} days
-                  </div>
-                  <div style="color:#CBD5E1;font-size:12px;margin-top:6px;">
-                    Requested: {_esc(plan_label)}
-                  </div>
-                </div>
-              </td>
-            </tr>
+  <tr>
+    <td align="center" style="padding:22px 22px 4px 22px;">
+      <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
+        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR TRIAL IS ACTIVE</div>
+        <div style="color:#5EEAD4;font-size:22px;font-weight:900;line-height:1;margin-top:8px;">
+          {trial_limit} listings · {trial_days} days
+        </div>
+        <div style="color:#CBD5E1;font-size:12px;margin-top:6px;">
+          Requested: {_esc(plan_label)}
+        </div>
+      </div>
+    </td>
+  </tr>
 
-            <tr>
-              <td style="padding:24px 22px 4px 22px;">
-                <div style="font-size:15px;line-height:24px;color:#E2E8F0;">
-                  Post your events straight from the mobile app — they&rsquo;ll appear in the community feed with your organisation shown as the host.
-                </div>
-              </td>
-            </tr>
+  <tr>
+    <td style="padding:24px 22px 4px 22px;">
+      <div style="font-size:15px;line-height:24px;color:#E2E8F0;">
+        Post your events straight from the mobile app — they&rsquo;ll appear in the community feed with your organisation shown as the host.
+      </div>
+    </td>
+  </tr>
 
-            <tr>
-              <td style="padding:18px 22px 4px 22px;">
-                <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
-                  We&rsquo;re finalising our organisation plans and will email you the pricing before your trial ends, so there are no surprises.
-                </div>
-              </td>
-            </tr>
+  <tr>
+    <td style="padding:18px 22px 4px 22px;">
+      <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
+        We&rsquo;re finalising our organisation plans and will email you the pricing before your trial ends, so there are no surprises.
+      </div>
+    </td>
+  </tr>
 
-            <tr>
-              <td style="padding:24px 22px 4px 22px;">
-                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-                  If you have any questions in the meantime, just reply to this email — it&rsquo;ll come straight through to us.<br><br>
-                  💜 The FriendPlace Team
-                </div>
-              </td>
-            </tr>
-
-            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
-            <tr><td style="padding:0 12px;">{_branded_footer_html()}</td></tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-"""
+  <tr>
+    <td style="padding:24px 22px 4px 22px;">
+      <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+        If you have any questions in the meantime, just reply to this email — it&rsquo;ll come straight through to us.<br><br>
+        💜 The FriendPlace Team
+      </div>
+    </td>
+  </tr>
+</table>
+""",
+    )
 
     text = (
         f"Hi {name},\n\n"
@@ -1612,7 +1556,7 @@ def business_welcome_template(
         f"We're finalising our organisation plans and will email you the pricing before your trial ends, so there are no surprises.\n\n"
         f"If you have any questions in the meantime, just reply to this email — it'll come straight through to us.\n\n"
         f"💜 The FriendPlace Team"
-        f"{_branded_footer_text()}"
+        f"{_letter_footer_text()}"
     )
     return email_subject, html, text
 
@@ -1637,65 +1581,54 @@ def event_submission_ack_template(
 
     email_subject = f"We've received your event — {submission_ref}"
 
-    html = f"""\
-<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#F1F5F9;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
-      <tr><td align="center">
-        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
-          <tr>
-            <td align="center" style="padding:8px 22px 6px 22px;">
-              <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
-                <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
-              </div>
-              <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
-                EVENT · SUBMITTED FOR REVIEW
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:24px 22px 6px 22px;">
-              <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-                Hi {_esc(name)},<br><br>
-                Thanks — your event has been submitted for review.<br><br>
-                The FriendPlace team will check the details and contact you if anything further is needed. We&rsquo;ll let you know once it has been approved and published.
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td align="center" style="padding:22px 22px 4px 22px;">
-              <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
-                <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR REFERENCE</div>
-                <div style="color:#5EEAD4;font-size:24px;font-weight:900;letter-spacing:2px;line-height:1;margin-top:6px;">{safe_ref}</div>
-                <div style="color:#CBD5E1;font-size:13px;margin-top:10px;">{safe_title}</div>
-                <div style="color:#94A3B8;font-size:12px;margin-top:2px;">Submitted by {safe_org}</div>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:18px 22px 4px 22px;">
-              <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
-                Reviews usually take under a day. If you spotted a typo or need to update anything, just reply to this email and we&rsquo;ll update it for you.
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:22px 22px 4px 22px;">
-              <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-                Thanks for helping to build FriendPlace.<br><br>
-                💜 The FriendPlace Team
-              </div>
-            </td>
-          </tr>
-          <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
-          <tr><td style="padding:0 12px;">{_branded_footer_html()}</td></tr>
-        </table>
-      </td></tr>
-    </table>
-  </body>
-</html>
-"""
+    html = _letter_shell(
+        preheader=email_subject,
+        body_html=f"""\
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
+  <tr>
+    <td align="center" style="padding:0 22px 6px 22px;">
+      <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;">
+        EVENT · SUBMITTED FOR REVIEW
+      </div>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:24px 22px 6px 22px;">
+      <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+        Hi {_esc(name)},<br><br>
+        Thanks — your event has been submitted for review.<br><br>
+        The FriendPlace team will check the details and contact you if anything further is needed. We&rsquo;ll let you know once it has been approved and published.
+      </div>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" style="padding:22px 22px 4px 22px;">
+      <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
+        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR REFERENCE</div>
+        <div style="color:#5EEAD4;font-size:24px;font-weight:900;letter-spacing:2px;line-height:1;margin-top:6px;">{safe_ref}</div>
+        <div style="color:#CBD5E1;font-size:13px;margin-top:10px;">{safe_title}</div>
+        <div style="color:#94A3B8;font-size:12px;margin-top:2px;">Submitted by {safe_org}</div>
+      </div>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:18px 22px 4px 22px;">
+      <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
+        Reviews usually take under a day. If you spotted a typo or need to update anything, just reply to this email and we&rsquo;ll update it for you.
+      </div>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:22px 22px 4px 22px;">
+      <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+        Thanks for helping to build FriendPlace.<br><br>
+        💜 The FriendPlace Team
+      </div>
+    </td>
+  </tr>
+</table>
+""",
+    )
 
     text = (
         f"Hi {name},\n\n"
@@ -1709,7 +1642,7 @@ def event_submission_ack_template(
         f"just reply to this email and we'll update it for you.\n\n"
         f"Thanks for helping to build FriendPlace.\n\n"
         f"💜 The FriendPlace Team"
-        f"{_branded_footer_text()}"
+        f"{_letter_footer_text()}"
     )
     return email_subject, html, text
 
