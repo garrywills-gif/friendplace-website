@@ -2092,7 +2092,13 @@ def build_router(db) -> APIRouter:
         # -- 3) Outreach contacts --
         if kind == "outreach_contacts":
             from services.outreach.store import COLL_ORGS, normalise_category
-            oq: Dict[str, Any] = {"is_test": {"$ne": True}}
+            # iter164an — exclude soft-archived organisations from all
+            # audience resolution (preview counts + bulk sends). In
+            # MongoDB {"archived_at": None} matches both null and missing,
+            # so pre-migration records stay eligible; only orgs with a
+            # non-null archived_at are excluded. Restore clears the field
+            # and makes them eligible again.
+            oq: Dict[str, Any] = {"is_test": {"$ne": True}, "archived_at": None}
             spec = f.get("outreach") or {}
             # iter161b (25 Feb 2026): normalise the category so a user
             # typing "retirement village" or "Retirement Village" also
@@ -2538,10 +2544,29 @@ def build_router(db) -> APIRouter:
             data_overrides=overrides or None,
         )
         preview_recipient = recipients[0] if len(recipients) == 1 else None
-        return {"subject": subject, "html": html, "text": text,
-                "recipient": preview_recipient,
-                "audience_size": len(recipients) if len(recipients) < 2 else None,
-                "is_outreach": is_outreach}
+        # iter164am — surface subject, preheader (extracted from the
+        # rendered HTML's hidden preview div) and headline separately
+        # so the composer preview can render each field in its own
+        # panel. Headline is `c.title` (announcement template) — the
+        # renderer only emits it inside an <h1> when non-empty.
+        import re as _re
+        _h1_match = _re.search(
+            r'<h1[^>]*>([\s\S]*?)</h1>', html,
+        )
+        headline_out = (
+            _re.sub(r'\s+', ' ', _h1_match.group(1)).strip()
+            if _h1_match else ""
+        )
+        return {
+            "subject":       subject,
+            "preheader":     _extract_preheader(html),
+            "headline":      headline_out,
+            "html":          html,
+            "text":          text,
+            "recipient":     preview_recipient,
+            "audience_size": len(recipients) if len(recipients) < 2 else None,
+            "is_outreach":   is_outreach,
+        }
 
     # ─── iter164ab: campaign preview + test-send helper ────────────
     # Shared render pipeline so the render-preview, render-recipient,

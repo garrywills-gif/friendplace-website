@@ -297,9 +297,19 @@ async def list_orgs(
     category: Optional[str] = None,
     status: Optional[str] = None,
     tags_any: Optional[List[str]] = None,
+    archived: bool = False,
     limit: int = 500,
 ) -> List[Dict[str, Any]]:
     query: Dict[str, Any] = {"is_test": {"$ne": True}}
+    # iter164an — soft archive. Active list (default) excludes archived
+    # organisations. In MongoDB, {"archived_at": None} matches BOTH docs
+    # where the field is explicitly null AND docs where it is missing,
+    # so pre-migration records (no field) correctly stay active. Passing
+    # archived=True returns only the archived organisations.
+    if archived:
+        query["archived_at"] = {"$ne": None}
+    else:
+        query["archived_at"] = None
     if category:
         query["category"] = category
     if status:
@@ -321,6 +331,66 @@ async def list_orgs(
 async def delete_org(db, org_id: str) -> bool:
     r = await db[COLL_ORGS].delete_one({"id": org_id})
     return r.deleted_count > 0
+
+
+# ─── iter164an: soft archive / restore ─────────────────────────────
+async def archive_org(
+    db, org_id: str, *, archived_by: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Soft-archive an outreach organisation.
+
+    Sets ``archived_at`` (+ optional ``archived_by``) WITHOUT touching
+    anything else on the document. The entire record — communications
+    history, notes, delivery/reply dates and the permanent
+    ``outreach_number`` — is preserved verbatim. An archived org is
+    excluded from the active list and from campaign audience resolution
+    (preview counts + bulk sends) but is never hard-deleted, so its
+    history and any historical campaign_recipients rows stay intact.
+
+    Returns the updated org, or None if the org doesn't exist.
+    Idempotent: archiving an already-archived org is a no-op refresh of
+    the timestamp is avoided — the existing archived_at is preserved.
+    """
+    existing = await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
+    if not existing:
+        return None
+    # Preserve the original archived_at if already archived.
+    if not existing.get("archived_at"):
+        now = _iso_now()
+        await db[COLL_ORGS].update_one(
+            {"id": org_id},
+            {"$set": {
+                "archived_at": now,
+                "archived_by": archived_by,
+                "updated_at": now,
+            }},
+        )
+    return await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
+
+
+async def restore_org(
+    db, org_id: str, *, restored_by: Optional[str] = None,  # noqa: ARG001
+) -> Optional[Dict[str, Any]]:
+    """Restore a soft-archived outreach organisation.
+
+    Clears ``archived_at`` / ``archived_by`` so the org becomes active
+    again — eligible for campaign audiences once more — while leaving
+    all other fields (history, notes, dates, outreach_number) untouched.
+
+    Returns the updated org, or None if the org doesn't exist.
+    """
+    existing = await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
+    if not existing:
+        return None
+    await db[COLL_ORGS].update_one(
+        {"id": org_id},
+        {"$set": {
+            "archived_at": None,
+            "archived_by": None,
+            "updated_at": _iso_now(),
+        }},
+    )
+    return await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
 
 
 async def touch_last_contact(
@@ -440,6 +510,8 @@ async def ensure_indexes(db) -> None:
     await db[COLL_ORGS].create_index("updated_at")
     await db[COLL_ORGS].create_index("last_contact_at")
     await db[COLL_ORGS].create_index("last_reply_at")
+    # iter164an — soft archive filter support.
+    await db[COLL_ORGS].create_index("archived_at")
     # iter164ah — permanent, sparse-unique numbering. Sparse so
     # rows created before this migration (and rows currently mid-
     # backfill) don't trip the constraint.
@@ -463,6 +535,7 @@ __all__ = [
     "OUTREACH_NUMBER_START",
     "normalise_category", "category_label",
     "upsert_org", "get_org", "list_orgs", "delete_org",
+    "archive_org", "restore_org",
     "touch_last_contact", "log_communication", "mark_replied",
     "ensure_indexes",
     "next_outreach_number", "backfill_outreach_numbers",

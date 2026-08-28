@@ -835,23 +835,28 @@ def _letter_signature_html(*, signer: str = "george") -> str:
       • "none"    — iter164o: append no closing at all. Used when the
                     body already contains its own sign-off, so we don't
                     render a duplicate.
+
+    iter164am — all sign-off text uses white (#FFFFFF) or a light
+    muted white (rgba(255,255,255,0.72)) so it stays readable on the
+    unified navy shell. Explicit inline colours only — no CSS
+    inheritance, which Gmail / Outlook happily strip.
     """
     if signer == "none":
         return ""
     if signer == "team":
         return """\
-<p style="margin:36px 0 0 0;">
-  Warmly,<br>
-  <span style="font-weight:700;color:#0A2540;">The FriendPlace Team</span>
+<p style="margin:36px 0 0 0;color:#FFFFFF;">
+  <span style="color:#FFFFFF;">Warmly,</span><br>
+  <span style="font-weight:700;color:#FFFFFF;">The FriendPlace Team</span>
 </p>
 """
     # Personal signer — proper case for the display name ("Georgia"/"George").
     display = signer.capitalize() if signer else "George"
     return f"""\
-<p style="margin:36px 0 0 0;">
-  Warmly,<br>
-  <span style="font-weight:700;color:#0A2540;">{display}</span><br>
-  <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:#64748B;font-style:italic;">Your friend at FriendPlace</span>
+<p style="margin:36px 0 0 0;color:#FFFFFF;">
+  <span style="color:#FFFFFF;">Warmly,</span><br>
+  <span style="font-weight:700;color:#FFFFFF;">{display}</span><br>
+  <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:rgba(255,255,255,0.72);font-style:italic;">Your friend at FriendPlace</span>
 </p>
 """
 
@@ -1029,12 +1034,12 @@ def password_reset_template(
         _letter_body_open()
         + f"<p style=\"margin:0 0 20px 0;\">Hi {_esc(name)},</p>"
         + "<p style=\"margin:0 0 20px 0;\">We received a request to reset the password on your FriendPlace account. If that was you, use the secure code below to finish resetting it.</p>"
-        + f"<p style=\"margin:0 0 12px 0;color:#64748B;font-size:14px;letter-spacing:1.4px;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:600;text-align:center;\">YOUR RESET CODE</p>"
+        + f"<p style=\"margin:0 0 12px 0;color:rgba(255,255,255,0.72);font-size:14px;letter-spacing:1.4px;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:600;text-align:center;\">YOUR RESET CODE</p>"
         + f'<div style="text-align:center;margin:0 0 24px 0;">'
         + f'  <div style="display:inline-block;padding:20px 32px;border-radius:14px;background:#F0FDFA;border:1px solid #99F6E4;font-family:-apple-system,\'SF Mono\',Menlo,Consolas,monospace;font-size:40px;font-weight:800;letter-spacing:12px;color:#0F766E;">{_esc(code)}</div>'
         + f'</div>'
         + f"<p style=\"margin:0 0 20px 0;\">For your security, this code will expire in <strong>{ttl_minutes} minutes</strong>.</p>"
-        + "<p style=\"margin:0 0 20px 0;color:#64748B;font-size:15px;\">If you didn&rsquo;t request a password reset, you can safely ignore this email. Your account will remain secure and no changes will be made.</p>"
+        + "<p style=\"margin:0 0 20px 0;color:rgba(255,255,255,0.72);font-size:15px;\">If you didn&rsquo;t request a password reset, you can safely ignore this email. Your account will remain secure and no changes will be made.</p>"
         + _letter_signature_html(signer="team")
         + _letter_body_close()
     )
@@ -1123,7 +1128,7 @@ def support_acknowledgement_template(
     safe_snippet = _esc(snippet) if snippet else ""
 
     snippet_html = (
-        f'<p style="margin:8px 0 0 0;color:#64748B;font-size:14px;font-style:italic;">&ldquo;{safe_snippet}&rdquo;</p>'
+        f'<p style="margin:8px 0 0 0;color:rgba(255,255,255,0.72);font-size:14px;font-style:italic;">&ldquo;{safe_snippet}&rdquo;</p>'
         if safe_snippet else ""
     )
 
@@ -1135,8 +1140,8 @@ def support_acknowledgement_template(
         + '<div style="text-align:center;margin:28px 0 12px 0;">'
         + '  <div style="display:inline-block;padding:18px 26px;border-radius:14px;background:#F0FDFA;border:1px solid #99F6E4;text-align:left;min-width:220px;">'
         + '    <div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:11px;letter-spacing:1.6px;font-weight:700;color:#0F766E;">YOUR SUPPORT TICKET</div>'
-        + f'    <div style="font-family:-apple-system,\'SF Mono\',Menlo,Consolas,monospace;font-size:22px;font-weight:800;letter-spacing:2px;color:#0A2540;margin-top:6px;">{safe_ref}</div>'
-        + f'    <div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:13px;color:#64748B;margin-top:8px;">{safe_category}</div>'
+        + f'    <div style="font-family:-apple-system,\'SF Mono\',Menlo,Consolas,monospace;font-size:22px;font-weight:800;letter-spacing:2px;color:#FFFFFF;margin-top:6px;">{safe_ref}</div>'
+        + f'    <div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:13px;color:rgba(255,255,255,0.72);margin-top:8px;">{safe_category}</div>'
         + f'    {snippet_html}'
         + '  </div>'
         + '</div>'
@@ -1798,7 +1803,7 @@ def waitlist_template(
     # deliberately never appears alongside the founder number
     # (they'd fight for the same "you're this-number" spotlight).
     position_html = (
-        f"<p style=\"margin:0 0 20px 0;color:#64748B;font-size:15px;font-style:italic;\">You&rsquo;re currently number <strong style=\"color:#0A2540;font-style:normal;\">{int(position)}</strong> on our list &mdash; thank you for the trust.</p>"
+        f"<p style=\"margin:0 0 20px 0;color:rgba(255,255,255,0.72);font-size:15px;font-style:italic;\">You&rsquo;re currently number <strong style=\"color:#FFFFFF;font-style:normal;\">{int(position)}</strong> on our list &mdash; thank you for the trust.</p>"
         if position and position > 0 and not founder_number else ""
     )
     position_text = (
@@ -1886,7 +1891,7 @@ def invitation_template(
     preheader = preheader_override or default_preheader
 
     inviter_line = (
-        f"<p style=\"margin:0 0 20px 0;\"><strong style=\"color:#0A2540;\">{_esc(inviter)}</strong> thought you&rsquo;d feel at home here &mdash; and asked me to send you a personal invitation to join us at FriendPlace.</p>"
+        f"<p style=\"margin:0 0 20px 0;color:#FFFFFF;\"><strong style=\"color:#FFFFFF;\">{_esc(inviter)}</strong> thought you&rsquo;d feel at home here &mdash; and asked me to send you a personal invitation to join us at FriendPlace.</p>"
         if inviter else
         "<p style=\"margin:0 0 20px 0;\">A member of FriendPlace thought you&rsquo;d feel at home here, and asked me to send you a personal invitation to join us.</p>"
     )
@@ -1905,7 +1910,7 @@ def invitation_template(
         + "<p style=\"margin:0 0 20px 0;\">FriendPlace is a quiet, kind space for finding people to share the small and lovely bits of life with &mdash; a coffee, a walk, an event that would be nicer with someone next to you. There&rsquo;s no algorithm chasing your attention, no pressure to perform. Just people, being neighbourly.</p>"
         + "<p style=\"margin:0 0 8px 0;\">Whenever you&rsquo;re ready, your invitation is waiting:</p>"
         + _letter_button_html(label="Accept your invitation", url=accept_url)
-        + f"<p style=\"margin:20px 0 20px 0;color:#64748B;font-size:14px;\">This invitation is personal to you and stays open for <strong>{int(expiry_days)} days</strong>. If it expires, simply reply to this email and I&rsquo;ll send you a fresh one.</p>"
+        + f"<p style=\"margin:20px 0 20px 0;color:rgba(255,255,255,0.72);font-size:14px;\">This invitation is personal to you and stays open for <strong style=\"color:#FFFFFF;\">{int(expiry_days)} days</strong>. If it expires, simply reply to this email and I&rsquo;ll send you a fresh one.</p>"
         + "<p style=\"margin:24px 0 0 0;\">I hope to see you inside.</p>"
         + _letter_signature_html(signer=companion)
         + _letter_body_close()
@@ -2065,7 +2070,7 @@ def announcement_template(
     body_html_joined = _render_campaign_body_md_to_html(body_md_effective)
     if not body_html_joined:
         body_html_joined = (
-            "<p style=\"margin:0 0 20px 0;color:#94A3B8;font-style:italic;\">"
+            "<p style=\"margin:0 0 20px 0;color:rgba(255,255,255,0.72);font-style:italic;\">"
             "(No body content yet.)</p>"
         )
     # Plain-text form used by the text/plain part of the email. We
@@ -2085,18 +2090,25 @@ def announcement_template(
     body = (
         _letter_body_open()
         + (
-            f"<h1 style=\"margin:0 0 20px 0;font-family:'Georgia','Times New Roman',serif;color:#0A2540;font-size:26px;line-height:1.3;font-weight:700;\">{_esc(heading)}</h1>"
+            # iter164am — headline must be readable on navy. Was
+            # color:#0A2540 (navy on navy → invisible); now explicit
+            # white with a subtle light-teal accent underline via
+            # border-bottom to keep the "letter headline" feel.
+            f"<h1 style=\"margin:0 0 20px 0;font-family:'Georgia','Times New Roman',serif;color:#FFFFFF;font-size:26px;line-height:1.3;font-weight:700;\">{_esc(heading)}</h1>"
             if has_heading else ""
         )
         + (
-            f"<p style=\"margin:0 0 20px 0;\">{_esc(greeting_rendered)}</p>"
+            # iter164am — greeting paragraph inherits body colour but
+            # some clients drop parent styles; set explicit white.
+            f"<p style=\"margin:0 0 20px 0;color:#FFFFFF;\">{_esc(greeting_rendered)}</p>"
             if greeting_rendered else ""
         )
         + founder_pill_html
         + body_html_joined
         + cta_html
         + (
-            "<p style=\"margin:24px 0 0 0;\">Thank you, as always, for being here from the start.</p>"
+            # iter164am — closing paragraph gets explicit white too.
+            "<p style=\"margin:24px 0 0 0;color:#FFFFFF;\">Thank you, as always, for being here from the start.</p>"
             if is_personal else ""
         )
         + _letter_signature_html(signer=signer_norm)
