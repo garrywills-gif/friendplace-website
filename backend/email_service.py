@@ -539,11 +539,11 @@ _BRAND_BUTTERFLY_B64 = _load_brand_butterfly_b64()
 def _brand_lockup_html() -> str:
     """Full-logo lockup (butterfly + FriendPlace wordmark), centred.
 
-    The butterfly is embedded as a data-URI PNG so no third-party CDN
-    is involved — no domain-verification delay, no image blocking by
-    corporate mail policies, no "click to load images" prompt on
-    Outlook. The wordmark below it is HTML text so it stays crisp at
-    any size and matches the website header exactly.
+    iter164ak — unified full-navy design. The butterfly is embedded as
+    a data-URI PNG so no third-party CDN is involved. Wordmark below
+    it is HTML text so it stays crisp at any size. Both sit on the
+    same FriendPlace navy as the surrounding shell — no light band
+    around the logo.
     """
     img_src = (
         f"data:image/png;base64,{_BRAND_BUTTERFLY_B64}"
@@ -551,16 +551,19 @@ def _brand_lockup_html() -> str:
     )
     img_tag = (
         f'<img src="{img_src}" alt="FriendPlace" width="96" height="94" '
-        f'style="display:block;margin:0 auto;border:0;outline:none;" />'
+        f'style="display:block;margin:0 auto;border:0;outline:none;background:{_INK_NAVY_DEEP};" />'
         if img_src else ""
     )
     return f"""\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
   <tr>
-    <td align="center" style="background:#FFFFFF;padding:56px 24px 8px 24px;">
+    <td align="center" style="background:{_INK_NAVY_DEEP};padding:56px 24px 8px 24px;">
       {img_tag}
       <div style="margin-top:18px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:-0.5px;line-height:1;">
-        <span style="color:#0A2540;">Friend</span><span style="color:#14B8A6;">Place</span>
+        <span style="color:#FFFFFF;">Friend</span><span style="color:#14B8A6;">Place</span>
+      </div>
+      <div style="margin-top:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.78);">
+        Because you belong too. 🦋
       </div>
     </td>
   </tr>
@@ -569,26 +572,27 @@ def _brand_lockup_html() -> str:
 
 
 def _letter_footer_html() -> str:
-    """Minimal, quiet footer for letter-style emails.
+    """Minimal, quiet footer for letter-style emails on navy.
 
-    No colour, no logos, no marketing — just a thin divider, the two
-    contact links, and one small line of legal/context text. This keeps
-    the email feeling like a personal note right down to the last line.
+    iter164ak — unified navy design: keeps the quiet feel but flips
+    the contrast so it stays legible on the navy shell background.
+    Hairline uses a translucent white so it doesn't compete with
+    body copy for attention.
     """
     return """\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B1F45;">
   <tr>
-    <td align="center" style="background:#FFFFFF;padding:8px 24px 48px 24px;">
-      <div style="height:1px;background:#E5E9EF;max-width:120px;margin:0 auto 24px auto;line-height:1px;font-size:1px;">&nbsp;</div>
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;color:#64748B;line-height:20px;">
-        <a href="mailto:hello@friendplace.com.au" style="color:#0F766E;text-decoration:none;font-weight:600;">hello@friendplace.com.au</a>
+    <td align="center" style="background:#0B1F45;padding:8px 24px 48px 24px;">
+      <div style="height:1px;background:rgba(255,255,255,0.18);max-width:120px;margin:0 auto 24px auto;line-height:1px;font-size:1px;">&nbsp;</div>
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;color:rgba(255,255,255,0.78);line-height:20px;">
+        <a href="mailto:hello@friendplace.com.au" style="color:#5EEAD4;text-decoration:none;font-weight:600;">hello@friendplace.com.au</a>
         &nbsp;&middot;&nbsp;
-        <a href="https://www.friendplace.com.au" style="color:#0F766E;text-decoration:none;font-weight:600;">friendplace.com.au</a>
+        <a href="https://www.friendplace.com.au" style="color:#5EEAD4;text-decoration:none;font-weight:600;">friendplace.com.au</a>
       </div>
-      <div style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:13px;color:#94A3B8;font-style:italic;line-height:20px;margin-top:14px;">
-        Because you belong too.
+      <div style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:13px;color:rgba(255,255,255,0.72);font-style:italic;line-height:20px;margin-top:14px;">
+        Because you belong too. 🦋
       </div>
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#B4BFCD;line-height:16px;margin-top:22px;max-width:420px;">
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:11px;color:rgba(255,255,255,0.55);line-height:16px;margin-top:22px;max-width:420px;">
         You&rsquo;re receiving this email because you have a FriendPlace account or expressed interest in joining our community.
       </div>
     </td>
@@ -598,14 +602,19 @@ def _letter_footer_html() -> str:
 
 
 def _letter_body_open() -> str:
-    """Open the letter-body table (serif body copy on white)."""
+    """Open the letter-body table (serif body copy on navy).
+
+    iter164ak — unified navy shell: switches body copy from
+    dark-navy-on-white to white-on-navy so all branded emails read
+    consistently across the family.
+    """
     return (
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        'style="background:#FFFFFF;">'
-        '<tr><td style="background:#FFFFFF;padding:24px 48px 8px 48px;'
+        'style="background:#0B1F45;">'
+        '<tr><td style="background:#0B1F45;padding:24px 48px 8px 48px;'
         'font-family:Georgia,\'Iowan Old Style\',\'Palatino Linotype\','
         '\'Book Antiqua\',Palatino,\'Times New Roman\',serif;'
-        'font-size:17px;line-height:28px;color:#0A2540;">'
+        'font-size:17px;line-height:28px;color:#FFFFFF;">'
     )
 
 
@@ -850,6 +859,12 @@ def _letter_signature_html(*, signer: str = "george") -> str:
 def _letter_shell(*, preheader: str, body_html: str) -> str:
     """Wrap letter content in the master email template.
 
+    iter164ak — unified full-navy design. The entire shell — outer
+    body, lockup, letter body, footer — sits on the FriendPlace navy
+    background so every branded email in this family reads the same
+    way. Templates keep their own content and CTA buttons; only the
+    surrounding chrome is standardised here.
+
     Args:
         preheader: The tiny line that appears in the inbox preview next
                    to the subject. Never visible in the body. Keep it
@@ -867,22 +882,22 @@ def _letter_shell(*, preheader: str, body_html: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="light only">
-  <meta name="supported-color-schemes" content="light">
+  <meta name="color-scheme" content="dark only">
+  <meta name="supported-color-schemes" content="dark">
   <title>FriendPlace</title>
 </head>
-<body style="margin:0;padding:0;background:#FFFFFF;">
+<body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};">
   <!-- Preheader: hidden visually, shown in inbox preview after subject -->
-  <div style="display:none;font-size:1px;color:#FFFFFF;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+  <div style="display:none;font-size:1px;color:{_INK_NAVY_DEEP};line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
     {safe_pre}
   </div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
     <tr>
-      <td align="center" style="background:#FFFFFF;">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#FFFFFF;">
-          <tr><td style="background:#FFFFFF;">{_brand_lockup_html()}</td></tr>
-          <tr><td style="background:#FFFFFF;">{body_html}</td></tr>
-          <tr><td style="background:#FFFFFF;">{_letter_footer_html()}</td></tr>
+      <td align="center" style="background:{_INK_NAVY_DEEP};">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:{_INK_NAVY_DEEP};">
+          <tr><td style="background:{_INK_NAVY_DEEP};">{_brand_lockup_html()}</td></tr>
+          <tr><td style="background:{_INK_NAVY_DEEP};">{body_html}</td></tr>
+          <tr><td style="background:{_INK_NAVY_DEEP};">{_letter_footer_html()}</td></tr>
         </table>
       </td>
     </tr>

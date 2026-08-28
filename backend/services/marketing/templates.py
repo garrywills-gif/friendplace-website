@@ -107,6 +107,12 @@ _TEXT_MUTED = "#475569"
 def _brand_shell_html(*, preheader: str, greeting: str, body_html: str) -> str:
     """Wrap a template's body in the shared FriendPlace shell.
 
+    iter164ak — unified full-navy design: the entire email is on the
+    FriendPlace navy background with white body copy. There is
+    intentionally NO white content card; the middle content sits
+    directly on the navy surface for a more intimate, one-to-one
+    feel across every branded template.
+
     ``body_html`` is the middle content only — the shell adds the
     lockup, the "Hi X," greeting, the sign-off, and the footer.
     """
@@ -121,6 +127,12 @@ def _brand_shell_html(*, preheader: str, greeting: str, body_html: str) -> str:
         if mark_b64 else ""
     )
 
+    # Palette for the navy shell.
+    text_light         = "#FFFFFF"
+    text_muted_on_navy = "rgba(255,255,255,0.78)"
+    hairline_on_navy   = "rgba(255,255,255,0.18)"
+    accent_link        = "#5EEAD4"  # teal-300, WCAG AA on navy
+
     # NOTE: table-based layout for max email-client compatibility
     # (Gmail iOS mangles flexbox). Inline styles everywhere — some
     # clients strip <style> blocks. Kept intentionally small.
@@ -129,7 +141,7 @@ def _brand_shell_html(*, preheader: str, greeting: str, body_html: str) -> str:
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light only" />
+  <meta name="color-scheme" content="dark only" />
   <title>FriendPlace</title>
 </head>
 <body style="margin:0;padding:0;background:{_BRAND_NAVY};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
@@ -139,30 +151,30 @@ def _brand_shell_html(*, preheader: str, greeting: str, body_html: str) -> str:
       <td align="center" style="padding:32px 16px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;width:100%;">
           <tr>
-            <td align="center" style="padding-bottom:20px;">
+            <td align="center" style="padding-bottom:24px;">
               {mark_img}
-              <div style="margin-top:10px;color:#FFFFFF;font-weight:800;font-size:20px;letter-spacing:0.02em;">FriendPlace</div>
-              <div style="margin-top:2px;color:rgba(255,255,255,0.75);font-size:12px;letter-spacing:0.14em;text-transform:uppercase;">Because you belong too.</div>
+              <div style="margin-top:10px;color:{text_light};font-weight:800;font-size:20px;letter-spacing:0.02em;">FriendPlace</div>
+              <div style="margin-top:2px;color:{text_muted_on_navy};font-size:12px;letter-spacing:0.14em;text-transform:uppercase;">Because you belong too. 🦋</div>
             </td>
           </tr>
           <tr>
-            <td style="background:#FFFFFF;border-radius:20px;padding:28px 28px 24px;box-shadow:0 20px 40px rgba(10,37,64,0.25);">
-              <div style="font-size:18px;font-weight:700;color:{_TEXT_DARK};margin-bottom:16px;">
+            <td style="padding:8px 28px 0;">
+              <div style="font-size:18px;font-weight:700;color:{text_light};margin-bottom:16px;">
                 {_html_escape(greeting)}
               </div>
-              <div style="font-size:15px;line-height:1.6;color:{_TEXT_DARK};">
+              <div style="font-size:15px;line-height:1.6;color:{text_light};">
                 {body_html}
               </div>
-              <div style="margin-top:24px;padding-top:16px;border-top:1px solid #E2E8F0;font-size:14px;color:{_TEXT_MUTED};line-height:1.55;">
+              <div style="margin-top:24px;padding-top:16px;border-top:1px solid {hairline_on_navy};font-size:14px;color:{text_muted_on_navy};line-height:1.55;">
                 Warmly,<br />
-                <strong style="color:{_TEXT_DARK};">The FriendPlace team</strong>
+                <strong style="color:{text_light};">The FriendPlace team</strong>
               </div>
             </td>
           </tr>
           <tr>
-            <td align="center" style="padding:20px 8px 12px;color:rgba(255,255,255,0.75);font-size:12px;line-height:1.55;">
+            <td align="center" style="padding:28px 8px 12px;color:{text_muted_on_navy};font-size:12px;line-height:1.55;">
               FriendPlace is a friendship platform for older Australians.<br />
-              <a href="https://friendplace.com.au" style="color:#8ED0F0;text-decoration:none;">friendplace.com.au</a>
+              <a href="https://friendplace.com.au" style="color:{accent_link};text-decoration:none;">friendplace.com.au</a>
             </td>
           </tr>
         </table>
@@ -182,6 +194,12 @@ def _brand_shell_text(*, greeting: str, body_text: str) -> str:
         f"— Because you belong too.\n"
         f"https://friendplace.com.au\n"
     )
+
+
+# iter164ak — the full-navy design that was briefly a variant here
+# is now the default shell (see _brand_shell_html above). This file
+# no longer keeps a separate `_brand_shell_html_navy` — all branded
+# templates use the same navy shell.
 
 
 def _html_escape(s: str) -> str:
@@ -480,6 +498,9 @@ def render_template(template_id: str, ctx: TemplateContext) -> RenderedEmail:
     """Render a template with the given context.
 
     Raises ValueError if template_id is unknown.
+
+    iter164ak — every branded template renders through the same
+    full-navy shell now. No template-specific shell dispatch.
     """
     tpl = MARKETING_TEMPLATES.get(template_id)
     if not tpl:
