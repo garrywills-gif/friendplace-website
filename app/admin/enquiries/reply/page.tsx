@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { AdminShell } from '@/components/admin/AdminShell';
 import { marketingApi, type MarketingPreviewOut } from '@/lib/cms-api';
+import { markEnquiryHandled } from '@/lib/enquiry-handled';
 
 export default function EnquiryReplyPage() {
   return (
@@ -88,7 +89,11 @@ function EnquiryReplyComposer() {
       } as any);
 
       if (result.ok) {
-        setToast({ kind: 'ok', msg: `Sent to ${result.recipient_email}.` });
+        // A successful outbound reply means this enquiry has been handled.
+        // Keep that state separate from the Replies inbox, which is only for
+        // replies coming back *to us* (email/phone/in person).
+        markEnquiryHandled(searchParams?.get('in_reply_to'));
+        setToast({ kind: 'ok', msg: `Sent to ${result.recipient_email}. Enquiry marked replied.` });
       } else {
         setToast({ kind: 'err', msg: `Send failed: ${result.error || 'unknown error'}` });
       }
