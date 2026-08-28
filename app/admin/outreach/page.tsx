@@ -9,6 +9,7 @@ import {
   type OutreachOrgIn,
   type OutreachStatus,
 } from '@/lib/cms-api';
+import { outreachArchiveApi } from '@/lib/outreach-archive-api';
 
 const STATUS_LABELS: Record<OutreachStatus, string> = {
   not_contacted: 'Not contacted',
@@ -22,6 +23,8 @@ const STATUS_LABELS: Record<OutreachStatus, string> = {
 };
 
 const SHEETJS_SRC = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+
+type OutreachView = 'active' | 'archived';
 
 type ImportRow = OutreachOrgIn & {
   rowNumber: number;
@@ -119,10 +122,12 @@ async function ensureSheetJs(): Promise<any> {
 export default function OutreachPage() {
   const [rows, setRows] = useState<OutreachOrg[]>([]);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState<OutreachView>('active');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState('');
   const [category, setCategory] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
   const [importFileName, setImportFileName] = useState('');
   const [importing, setImporting] = useState(false);
@@ -135,12 +140,16 @@ export default function OutreachPage() {
     setError(null);
 
     try {
-      const result = await outreachApi.list({
+      const params = {
         q: q.trim() || undefined,
         status: status ? (status as OutreachStatus) : undefined,
         category: category || undefined,
         limit: 500,
-      });
+      };
+
+      const result = view === 'archived'
+        ? await outreachArchiveApi.list(params)
+        : await outreachApi.list(params);
 
       setRows(result.organisations || []);
     } catch (e: any) {
@@ -152,7 +161,7 @@ export default function OutreachPage() {
 
   useEffect(() => {
     void load();
-  }, [status, category]);
+  }, [status, category, view]);
 
   const categories = useMemo(() => {
     return Array.from(
@@ -274,6 +283,19 @@ export default function OutreachPage() {
     setImportFileName('');
     setImporting(false);
     setImportResult({ imported: created, skipped });
+  };
+
+  const restore = async (org: OutreachOrg) => {
+    setRestoringId(org.id);
+    setError(null);
+    try {
+      await outreachArchiveApi.restore(org.id);
+      setRows((current) => current.filter((row) => row.id !== org.id));
+    } catch (e: any) {
+      setError(e?.message || 'Could not restore organisation.');
+    } finally {
+      setRestoringId(null);
+    }
   };
 
   return (
@@ -422,6 +444,23 @@ export default function OutreachPage() {
         </div>
       )}
 
+      <div style={viewTabs}>
+        <button
+          type="button"
+          onClick={() => setView('active')}
+          style={view === 'active' ? activeViewTab : viewTab}
+        >
+          Active
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('archived')}
+          style={view === 'archived' ? activeViewTab : viewTab}
+        >
+          Archived
+        </button>
+      </div>
+
       <div style={filters}>
         <input
           value={q}
@@ -474,29 +513,33 @@ export default function OutreachPage() {
         <p style={{ color: '#64748B' }}>Loading organisations…</p>
       ) : rows.length === 0 ? (
         <div style={emptyCard}>
-          <div style={{ fontSize: 34 }}>🏢</div>
+          <div style={{ fontSize: 34 }}>{view === 'archived' ? '🗄️' : '🏢'}</div>
           <h3 style={{ margin: '8px 0', color: '#0A2540' }}>
-            No outreach organisations yet
+            {view === 'archived' ? 'No archived organisations' : 'No outreach organisations yet'}
           </h3>
           <p style={{ color: '#64748B', margin: '0 0 16px' }}>
-            Add your first organisation or import the retirement-village spreadsheet.
+            {view === 'archived'
+              ? 'Archived contacts will appear here and can be restored at any time.'
+              : 'Add your first organisation or import the retirement-village spreadsheet.'}
           </p>
 
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              style={adminStyles.ghostBtn}
-            >
-              ↑ Import spreadsheet
-            </button>
-            <Link
-              href="/admin/outreach/new"
-              style={{ ...adminStyles.primaryBtn, textDecoration: 'none' }}
-            >
-              + New organisation
-            </Link>
-          </div>
+          {view === 'active' && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                style={adminStyles.ghostBtn}
+              >
+                ↑ Import spreadsheet
+              </button>
+              <Link
+                href="/admin/outreach/new"
+                style={{ ...adminStyles.primaryBtn, textDecoration: 'none' }}
+              >
+                + New organisation
+              </Link>
+            </div>
+          )}
         </div>
       ) : (
         <div style={tableWrap}>
@@ -525,6 +568,7 @@ export default function OutreachPage() {
                         <span style={{ fontWeight: 800, color: '#0A2540' }}>
                           {org.organisation_name}
                         </span>
+                        {view === 'archived' && <span style={archivedPill}>Archived</span>}
                       </div>
                       {org.suburb && (
                         <div style={muted}>
@@ -540,9 +584,7 @@ export default function OutreachPage() {
                     </td>
 
                     <td style={td}>
-                      {org.category
-                        ? org.category.replace(/_/g, ' ')
-                        : '—'}
+                      {org.category ? org.category.replace(/_/g, ' ') : '—'}
                     </td>
 
                     <td style={td}>
@@ -558,12 +600,21 @@ export default function OutreachPage() {
                     </td>
 
                     <td style={{ ...td, textAlign: 'right' }}>
-                      <Link
-                        href={`/admin/outreach/${org.id}`}
-                        style={viewLink}
-                      >
-                        Open →
-                      </Link>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, alignItems: 'center' }}>
+                        {view === 'archived' && (
+                          <button
+                            type="button"
+                            onClick={() => void restore(org)}
+                            disabled={restoringId === org.id}
+                            style={{ ...adminStyles.ghostBtn, opacity: restoringId === org.id ? 0.6 : 1 }}
+                          >
+                            {restoringId === org.id ? 'Restoring…' : 'Restore'}
+                          </button>
+                        )}
+                        <Link href={`/admin/outreach/${org.id}`} style={viewLink}>
+                          Open →
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -591,6 +642,30 @@ const intro: React.CSSProperties = {
   fontSize: 14,
   lineHeight: 1.6,
   maxWidth: 700,
+};
+
+const viewTabs: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+  marginBottom: 14,
+};
+
+const viewTab: React.CSSProperties = {
+  border: '1px solid #CBD5E1',
+  background: '#FFFFFF',
+  color: '#475569',
+  borderRadius: 999,
+  padding: '7px 13px',
+  fontSize: 12,
+  fontWeight: 800,
+  cursor: 'pointer',
+};
+
+const activeViewTab: React.CSSProperties = {
+  ...viewTab,
+  borderColor: '#0D9488',
+  background: '#F0FDFA',
+  color: '#0F766E',
 };
 
 const filters: React.CSSProperties = {
@@ -666,6 +741,17 @@ const statusPill: React.CSSProperties = {
   borderRadius: 999,
   background: '#F0FDFA',
   color: '#0F766E',
+  fontWeight: 800,
+  fontSize: 11,
+};
+
+const archivedPill: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '3px 8px',
+  borderRadius: 999,
+  background: '#F1F5F9',
+  color: '#64748B',
+  border: '1px solid #CBD5E1',
   fontWeight: 800,
   fontSize: 11,
 };
