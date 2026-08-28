@@ -57,19 +57,17 @@ function EnquiriesPanel() {
   const totalAll = useMemo(() => kinds.reduce((n, k) => n + k.count, 0), [kinds]);
 
   const tabs: Array<{ key: KindKey; label: string; count: number }> = [
-    { key: 'all',      label: 'All',              count: totalAll },
+    { key: 'all', label: 'All', count: totalAll },
     ...kinds.map((k) => ({ key: k.key as KindKey, label: k.label, count: k.count })),
   ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Rationale strip — reminds admins WHY this page exists */}
       <div style={rationaleStrip}>
         Every public submission is persisted here <strong>before</strong> any confirmation email is sent.
         This page is the guaranteed record, even if an email fails to deliver.
       </div>
 
-      {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {tabs.map((t) => (
           <button
@@ -127,10 +125,10 @@ function EnquiriesPanel() {
 
 function EnquiryRow({ r }: { r: Enquiry }) {
   const kindColor = {
-    contact:  { bg: '#EFF6FF', fg: '#1D4ED8' },
+    contact: { bg: '#EFF6FF', fg: '#1D4ED8' },
     interest: { bg: '#F0FDFA', fg: '#0F766E' },
-    support:  { bg: '#FEF3C7', fg: '#92400E' },
-    report:   { bg: '#FEE2E2', fg: '#991B1B' },
+    support: { bg: '#FEF3C7', fg: '#92400E' },
+    report: { bg: '#FEE2E2', fg: '#991B1B' },
     waitlist: { bg: '#EDE9FE', fg: '#5B21B6' },
   }[r.kind] || { bg: '#F1F5F9', fg: '#475569' };
   const when = r.created_at ? new Date(r.created_at).toLocaleString() : '';
@@ -162,31 +160,26 @@ function EnquiryRow({ r }: { r: Enquiry }) {
           }}>{r.status}</div>
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>{when}</div>
           {r.id && <div style={{ fontSize: 10, color: '#CBD5E1', marginTop: 3, fontFamily: '"SF Mono", Menlo, monospace' }}>{r.id}</div>}
-        </div>{r.email && (
-  <div
-    style={{
-      display: 'flex',
-      gap: 6,
-      justifyContent: 'flex-end',
-      marginTop: 10,
-      flexWrap: 'wrap',
-    }}
-  >
-    <Link
-      href={`/admin/marketing/send?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject ? `Re: ${r.subject}` : '')}&template_id=enquiry_reply&in_reply_to=${encodeURIComponent(r.id || '')}`}
-      style={replyButton}
-    >
-      Reply
-    </Link>
+        </div>
 
-    <Link
-      href={`/admin/replies?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject || '')}`}
-      style={logReplyButton}
-    >
-      Log reply
-    </Link>
-  </div>
-)}      </div>
+        {r.email && (
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
+            <Link
+              href={`/admin/enquiries/reply?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject ? `Re: ${r.subject}` : '')}&in_reply_to=${encodeURIComponent(r.id || '')}`}
+              style={replyButton}
+            >
+              Reply
+            </Link>
+
+            <Link
+              href={`/admin/replies?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject || '')}`}
+              style={logReplyButton}
+            >
+              Log reply
+            </Link>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
