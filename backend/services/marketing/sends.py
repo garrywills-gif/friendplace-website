@@ -175,6 +175,10 @@ class SendRequest:
     initiator: Optional[str] = None
     # Free-form tags for filtering the history view.
     tags: List[str] = field(default_factory=list)
+    # iter164aq — shared optional CTA button (see templates.TemplateContext).
+    cta_choice: str = ""
+    cta_label: str = ""
+    cta_url: str = ""
 
 
 @dataclass
@@ -207,6 +211,10 @@ async def send_marketing_email(db, req: SendRequest) -> SendOutcome:
         suburb=req.suburb,
         subject_override=req.subject_override,
         flyer_name=None,  # populated below if flyer attaches
+        # iter164aq — shared optional CTA button.
+        cta_choice=req.cta_choice or "",
+        cta_label=req.cta_label or "",
+        cta_url=req.cta_url or "",
     )
 
     flyer_attachment: Optional[FlyerAttachmentResult] = None

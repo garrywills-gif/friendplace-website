@@ -31,6 +31,9 @@ from typing import Callable, Dict, List, Optional
 
 from email_service import (
     _load_brand_butterfly_b64,  # reuse the same base64 mark used by transactional emails
+    _facebook_link_html,        # iter164aq — shared Facebook footer link
+    _letter_button_html,        # iter164aq — shared teal CTA button
+    resolve_cta,                # iter164aq — shared CTA preset resolver
 )
 
 
@@ -63,6 +66,17 @@ class TemplateContext:
     # Optional supplementary metadata
     suburb: str = ""
     subject_override: Optional[str] = None
+
+    # iter164aq — shared, optional CTA button. `cta_choice` mirrors the
+    # Mission Control UI ("none" | "visit" | "register" | "get_app" |
+    # "custom"); for "custom" the caller also supplies cta_label +
+    # cta_url. Resolved centrally via email_service.resolve_cta so every
+    # marketing template (enquiry_reply, outreach, individual) gets the
+    # same teal button + plain-text URL fallback without per-template
+    # HTML. Strictly optional — no choice means no button.
+    cta_choice: str = ""
+    cta_label: str = ""
+    cta_url: str = ""
 
     # If a flyer is attached, the sender may want to reference it
     # inline in the copy (used by outreach template).
@@ -175,6 +189,7 @@ def _brand_shell_html(*, preheader: str, greeting: str, body_html: str) -> str:
             <td align="center" style="padding:28px 8px 12px;color:{text_muted_on_navy};font-size:12px;line-height:1.55;">
               FriendPlace is a friendship platform for older Australians.<br />
               <a href="https://friendplace.com.au" style="color:{accent_link};text-decoration:none;">friendplace.com.au</a>
+              <div style="margin-top:8px;font-size:13px;">{_facebook_link_html(accent_link)}</div>
             </td>
           </tr>
         </table>
@@ -193,6 +208,7 @@ def _brand_shell_text(*, greeting: str, body_text: str) -> str:
         f"The FriendPlace team\n\n"
         f"— Because you belong too.\n"
         f"https://friendplace.com.au\n"
+        f"Facebook: https://www.facebook.com/profile.php?id=61593250883842\n"
     )
 
 
@@ -510,6 +526,16 @@ def render_template(template_id: str, ctx: TemplateContext) -> RenderedEmail:
     greeting = _greeting(ctx, tpl.default_greeting_prefix)
     body_html = tpl.build_body_html(ctx)
     body_text = tpl.build_body_text(ctx)
+
+    # iter164aq — shared optional CTA button. Appended to the body so it
+    # sits above the "Warmly, / The FriendPlace team" sign-off, rendered
+    # identically across every marketing template. resolve_cta returns
+    # None when no button was chosen, keeping the CTA strictly optional.
+    cta = resolve_cta(ctx.cta_choice, ctx.cta_label, ctx.cta_url)
+    if cta:
+        cta_label, cta_url = cta
+        body_html = body_html + _letter_button_html(label=cta_label, url=cta_url)
+        body_text = (body_text or "").rstrip() + f"\n\n{cta_label}: {cta_url}\n"
 
     shell_html = _brand_shell_html(
         preheader=subject,

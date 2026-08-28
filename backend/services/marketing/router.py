@@ -66,6 +66,10 @@ class PreviewIn(BaseModel):
     # exactly; HTML is safely escaped before wrapping.
     body_text: Optional[str] = None
     flyer: Optional[FlyerAttachModel] = None
+    # iter164aq — shared optional CTA button.
+    cta_choice: Optional[str] = None
+    cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
 
 
 class SendIn(BaseModel):
@@ -81,6 +85,10 @@ class SendIn(BaseModel):
     flyer: Optional[FlyerAttachModel] = None
     campaign_id: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
+    # iter164aq — shared optional CTA button.
+    cta_choice: Optional[str] = None
+    cta_label: Optional[str] = None
+    cta_url: Optional[str] = None
 
 
 class SendOut(BaseModel):
@@ -161,6 +169,10 @@ def build_marketing_router(db, current_cms_admin) -> APIRouter:
             suburb=body.suburb,
             subject_override=body.subject_override,
             flyer_name=flyer_name,
+            # iter164aq — shared optional CTA button.
+            cta_choice=body.cta_choice or "",
+            cta_label=body.cta_label or "",
+            cta_url=body.cta_url or "",
         )
         try:
             rendered = render_template(body.template_id, ctx)
@@ -205,6 +217,10 @@ def build_marketing_router(db, current_cms_admin) -> APIRouter:
                 campaign_id=body.campaign_id,
                 initiator=admin.get("email") if isinstance(admin, dict) else None,
                 tags=list(body.tags or []),
+                # iter164aq — shared optional CTA button.
+                cta_choice=body.cta_choice or "",
+                cta_label=body.cta_label or "",
+                cta_url=body.cta_url or "",
             )
             outcome = await send_marketing_email(db, req)
         except ValueError as exc:

@@ -589,6 +589,9 @@ def _letter_footer_html() -> str:
         &nbsp;&middot;&nbsp;
         <a href="https://www.friendplace.com.au" style="color:#5EEAD4;text-decoration:none;font-weight:600;">friendplace.com.au</a>
       </div>
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;line-height:20px;margin-top:8px;">
+        """ + _facebook_link_html("#5EEAD4") + """
+      </div>
       <div style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:13px;color:rgba(255,255,255,0.72);font-style:italic;line-height:20px;margin-top:14px;">
         Because you belong too. 🦋
       </div>
@@ -636,6 +639,67 @@ def _letter_button_html(*, label: str, url: str) -> str:
   </tr>
 </table>
 """
+
+
+# ── iter164aq: shared Facebook link + reusable CTA button system ────
+# One definition, used by every outbound email surface (enquiry
+# replies, outreach / individual sends, campaigns, transactional) so
+# the footer Facebook link, the CTA copy, the URL presets and the teal
+# button styling never drift per email type.
+
+FACEBOOK_URL = "https://www.facebook.com/profile.php?id=61593250883842"
+
+
+def _facebook_link_html(link_color: str) -> str:
+    """Clickable Facebook link: a small Facebook-style "f" badge + the
+    word Facebook. Inline-styled so it survives email clients; degrades
+    to plain "f Facebook" text if a client strips the badge background.
+    """
+    return (
+        f'<a href="{FACEBOOK_URL}" style="color:{link_color};text-decoration:none;font-weight:600;">'
+        '<span style="display:inline-block;width:16px;height:16px;line-height:16px;'
+        "background:#1877F2;color:#FFFFFF;border-radius:4px;font-weight:700;"
+        "text-align:center;font-size:12px;vertical-align:middle;"
+        "font-family:Georgia,'Times New Roman',serif;\">f</span>"
+        "&nbsp;Facebook</a>"
+    )
+
+
+# CTA presets exactly mirror the Mission Control UI options. Keys are
+# the stable contract George's frontend sends as ``cta_choice``.
+CTA_PRESETS = {
+    "visit":    ("Visit FriendPlace",      "https://friendplace.com.au"),
+    "register": ("Register your interest", "https://www.friendplace.com.au/register-interest"),
+    # Points at the website's app/download section until the final
+    # App Store / Google Play URLs are live.
+    "get_app":  ("Get the app",            "https://friendplace.com.au/#download"),
+}
+
+
+def resolve_cta(cta_choice=None, cta_label=None, cta_url=None):
+    """Resolve a CTA selection into a concrete ``(label, url)`` or None.
+
+    Mission Control's five options map as:
+      - "none" / "no_button"            -> None (no button)
+      - "visit" | "register" | "get_app" -> the matching preset
+      - "custom"                        -> uses cta_label + cta_url
+    Back-compat: when no choice is supplied but both cta_label and
+    cta_url are present (how Campaign Composer already sends), that
+    explicit pair is used. Returns None whenever a full button can't be
+    formed, so the CTA is always strictly optional.
+    """
+    choice = (cta_choice or "").strip().lower()
+    label = (cta_label or "").strip()
+    url = (cta_url or "").strip()
+    if choice in ("none", "no_button"):
+        return None
+    if choice == "custom":
+        return (label, url) if label and url else None
+    if choice in CTA_PRESETS:
+        return CTA_PRESETS[choice]
+    if label and url:            # no/unknown choice -> explicit pair
+        return (label, url)
+    return None
 
 
 # iter164o duplicate-signoff guarantee. Compiled once, module-level, so
@@ -918,6 +982,7 @@ def _letter_footer_text() -> str:
         "\n\n"
         "— — —\n\n"
         "hello@friendplace.com.au  ·  friendplace.com.au\n"
+        "Facebook: https://www.facebook.com/profile.php?id=61593250883842\n"
         "Because you belong too.\n\n"
         "You're receiving this email because you have a FriendPlace "
         "account or expressed interest in joining our community."
@@ -973,6 +1038,10 @@ def _branded_footer_html() -> str:
         &nbsp;·&nbsp;
         <a href="https://www.friendplace.com.au" style="color:#DBEAFE;text-decoration:none;">www.friendplace.com.au</a>
       </div>
+      <!-- Facebook -->
+      <div style="color:#93C5FD;font-size:13px;line-height:22px;margin-top:8px;">
+        """ + _facebook_link_html("#DBEAFE") + """
+      </div>
       <!-- Divider -->
       <div style="height:1px;background:#1E3A6B;margin:22px auto 14px;max-width:280px;"></div>
       <!-- Disclaimer -->
@@ -997,6 +1066,7 @@ def _branded_footer_text() -> str:
         "— FriendPlace —\n"
         "Because you belong too.\n\n"
         "hello@friendplace.com.au  ·  www.friendplace.com.au\n\n"
+        "Facebook: https://www.facebook.com/profile.php?id=61593250883842\n\n"
         "You're receiving this email from FriendPlace because you have a "
         "FriendPlace account."
     )
