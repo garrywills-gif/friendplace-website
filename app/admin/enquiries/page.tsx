@@ -8,15 +8,17 @@
  * sent. This page is the guaranteed source of truth: even if outbound
  * confirmation email delivery ever fails, no customer enquiry can be
  * lost — every submission is here.
- *
- * Locked with Garry (1 Aug 2026): "email should be a notification only,
- * not the only record."
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { AdminShell } from '@/components/admin/AdminShell';
 import { enquiriesApi, type Enquiry } from '@/lib/cms-api';
+import {
+  ENQUIRY_HANDLED_EVENT,
+  handledEnquiryIds,
+  markEnquiryHandled,
+} from '@/lib/enquiry-handled';
 
 type KindKey = 'all' | 'contact' | 'interest' | 'support' | 'report' | 'waitlist';
 
@@ -34,6 +36,18 @@ function EnquiriesPanel() {
   const [filter, setFilter] = useState<KindKey>('all');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [handled, setHandled] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const refreshHandled = () => setHandled(handledEnquiryIds());
+    refreshHandled();
+    window.addEventListener(ENQUIRY_HANDLED_EVENT, refreshHandled);
+    window.addEventListener('storage', refreshHandled);
+    return () => {
+      window.removeEventListener(ENQUIRY_HANDLED_EVENT, refreshHandled);
+      window.removeEventListener('storage', refreshHandled);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +74,11 @@ function EnquiriesPanel() {
     { key: 'all', label: 'All', count: totalAll },
     ...kinds.map((k) => ({ key: k.key as KindKey, label: k.label, count: k.count })),
   ];
+
+  const markHandled = (id?: string | null) => {
+    markEnquiryHandled(id);
+    setHandled(handledEnquiryIds());
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -116,14 +135,21 @@ function EnquiriesPanel() {
 
       {!loading && !error && rows && rows.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {rows.map((r, i) => <EnquiryRow key={`${r.kind}-${r.id ?? i}`} r={r} />)}
+          {rows.map((r, i) => (
+            <EnquiryRow
+              key={`${r.kind}-${r.id ?? i}`}
+              r={r}
+              handled={!!r.id && handled.has(r.id)}
+              onMarkHandled={() => markHandled(r.id)}
+            />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function EnquiryRow({ r }: { r: Enquiry }) {
+function EnquiryRow({ r, handled, onMarkHandled }: { r: Enquiry; handled: boolean; onMarkHandled: () => void }) {
   const kindColor = {
     contact: { bg: '#EFF6FF', fg: '#1D4ED8' },
     interest: { bg: '#F0FDFA', fg: '#0F766E' },
@@ -132,6 +158,7 @@ function EnquiryRow({ r }: { r: Enquiry }) {
     waitlist: { bg: '#EDE9FE', fg: '#5B21B6' },
   }[r.kind] || { bg: '#F1F5F9', fg: '#475569' };
   const when = r.created_at ? new Date(r.created_at).toLocaleString() : '';
+  const displayStatus = handled ? 'replied' : r.status;
 
   return (
     <div style={rowCard}>
@@ -161,8 +188,9 @@ function EnquiryRow({ r }: { r: Enquiry }) {
         <div style={{ textAlign: 'right', minWidth: 140 }}>
           <div style={{
             display: 'inline-block', padding: '2px 8px', borderRadius: 6,
-            background: '#F1F5F9', color: '#475569', fontSize: 11, fontWeight: 700,
-          }}>{r.status}</div>
+            background: handled ? '#DCFCE7' : '#F1F5F9',
+            color: handled ? '#166534' : '#475569', fontSize: 11, fontWeight: 700,
+          }}>{displayStatus}</div>
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>{when}</div>
           {r.id && <div style={{ fontSize: 10, color: '#CBD5E1', marginTop: 3, fontFamily: '"SF Mono", Menlo, monospace' }}>{r.id}</div>}
         </div>
@@ -176,12 +204,11 @@ function EnquiryRow({ r }: { r: Enquiry }) {
               Reply
             </Link>
 
-            <Link
-              href={`/admin/replies?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject || '')}`}
-              style={logReplyButton}
-            >
-              Log reply
-            </Link>
+            {!handled && r.id && (
+              <button type="button" onClick={onMarkHandled} style={markRepliedButton}>
+                Mark replied
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -207,15 +234,15 @@ const replyButton: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 800,
 };
-
-const logReplyButton: React.CSSProperties = {
+const markRepliedButton: React.CSSProperties = {
   display: 'inline-block',
   padding: '6px 10px',
   borderRadius: 8,
   background: '#FFFFFF',
   color: '#0F766E',
   border: '1px solid #99F6E4',
-  textDecoration: 'none',
   fontSize: 11,
   fontWeight: 800,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
 };
