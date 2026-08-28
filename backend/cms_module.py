@@ -665,9 +665,38 @@ def build_router(db) -> APIRouter:
     # If an outbound confirmation email ever fails to deliver, the
     # underlying record is still here.
 
+    # ── iter164ap: unified enquiry source map ──────────────────────
+    # kind -> (collection, id-matcher). Support tickets are addressable
+    # by their public `ref` OR their internal `id` (the unified list
+    # exposes `ref or id` as the row id), so we match either. Every
+    # other kind is keyed on `id`.
+    _ENQUIRY_COLLECTIONS = {
+        "contact":  "contact_submissions",
+        "interest": "interest_registrations",
+        "support":  "support_tickets",
+        "report":   "reports",
+        "waitlist": "waitlist",
+    }
+
+    def _enquiry_match(kind: str, ident: str) -> Dict[str, Any]:
+        if kind == "support":
+            return {"$or": [{"id": ident}, {"ref": ident}]}
+        return {"id": ident}
+
+    def _require_kind(kind: str) -> str:
+        k = (kind or "").strip().lower()
+        if k not in _ENQUIRY_COLLECTIONS:
+            raise HTTPException(
+                400,
+                f"Unknown enquiry kind {kind!r}. Must be one of: "
+                + ", ".join(_ENQUIRY_COLLECTIONS),
+            )
+        return k
+
     @router.get("/enquiries")
     async def list_enquiries(
         kind: Optional[str] = None,      # filter to one type: contact|interest|support|report|waitlist
+        archived: bool = False,          # iter164ap: active (default) vs archived view
         limit: int = 200,
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
@@ -676,12 +705,23 @@ def build_router(db) -> APIRouter:
         Returns rows from five collections in a normalised shape so the
         UI can render them side-by-side. Excludes test fixtures. Newest
         first. Capped at `limit` per collection so a spike can't hurt
-        the browser."""
+        the browser.
+
+        iter164ap: soft-archive aware. `archived=False` (default) returns
+        only active records — in MongoDB {"archived_at": None} matches
+        both explicit-null AND missing, so legacy records with no field
+        stay active automatically. `archived=True` returns only archived
+        records.
+        """
         lim = max(1, min(int(limit or 200), 500))
+        # Active vs archived filter fragment (see docstring).
+        arch_q: Dict[str, Any] = (
+            {"archived_at": {"$ne": None}} if archived else {"archived_at": None}
+        )
 
         async def _read(coll: str, mapper) -> list[dict]:
             docs = await db[coll].find(
-                {"is_test": {"$ne": True}}, {"_id": 0}
+                {"is_test": {"$ne": True}, **arch_q}, {"_id": 0}
             ).sort("created_at", -1).to_list(lim)
             return [mapper(d) for d in docs]
 
@@ -697,6 +737,8 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("message"),
                 "status":     d.get("status") or "new",
                 "created_at": d.get("created_at"),
+                "archived_at": d.get("archived_at"),
+                "archived_by": d.get("archived_by"),
                 "meta":       {"category": d.get("category")},
             })
         if not kind or kind == "interest":
@@ -710,6 +752,8 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("notes") or "",
                 "status":     d.get("status") or "new",
                 "created_at": d.get("created_at"),
+                "archived_at": d.get("archived_at"),
+                "archived_by": d.get("archived_by"),
                 "meta":       {"suburb": d.get("suburb"), "state": d.get("state"), "companion": d.get("companion")},
             })
         if not kind or kind == "support":
@@ -723,6 +767,8 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("message"),
                 "status":     d.get("status") or "open",
                 "created_at": d.get("created_at"),
+                "archived_at": d.get("archived_at"),
+                "archived_by": d.get("archived_by"),
                 "meta":       {"category": d.get("category"), "ref": d.get("ref")},
             })
         if not kind or kind == "report":
@@ -736,6 +782,8 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("details") or d.get("notes"),
                 "status":     d.get("status") or "open",
                 "created_at": d.get("created_at"),
+                "archived_at": d.get("archived_at"),
+                "archived_by": d.get("archived_by"),
                 "meta":       {"target_type": d.get("target_type"), "target_id": d.get("target_id")},
             })
         if not kind or kind == "waitlist":
@@ -749,6 +797,8 @@ def build_router(db) -> APIRouter:
                 "message":    "",
                 "status":     "invited" if d.get("invited") else "waiting",
                 "created_at": d.get("created_at"),
+                "archived_at": d.get("archived_at"),
+                "archived_by": d.get("archived_by"),
                 "meta":       {"referral": d.get("referral_source")},
             })
 
@@ -766,23 +816,83 @@ def build_router(db) -> APIRouter:
             ],
         }
 
+    # ── iter164ap: archive / restore / permanent delete ────────────
+    @router.post("/enquiries/{kind}/{ident}/archive")
+    async def archive_enquiry(
+        kind: str, ident: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Soft-archive one enquiry. Preserves the full source record
+        (status, message, history, timestamps) and simply stamps
+        ``archived_at`` / ``archived_by`` so it drops off the active
+        list. Idempotent — re-archiving keeps the original timestamp."""
+        k = _require_kind(kind)
+        coll = _ENQUIRY_COLLECTIONS[k]
+        match = _enquiry_match(k, ident)
+        existing = await db[coll].find_one(match, {"_id": 0})
+        if not existing:
+            raise HTTPException(404, f"{kind} enquiry {ident!r} not found")
+        if not existing.get("archived_at"):
+            from datetime import datetime as _dt, timezone as _tz
+            now = _dt.now(_tz.utc).isoformat()
+            await db[coll].update_one(match, {"$set": {
+                "archived_at": now,
+                "archived_by": admin.get("email") if isinstance(admin, dict) else None,
+            }})
+        doc = await db[coll].find_one(match, {"_id": 0})
+        return {"ok": True, "kind": k, "id": ident, "archived_at": doc.get("archived_at"), "archived_by": doc.get("archived_by")}
+
+    @router.post("/enquiries/{kind}/{ident}/restore")
+    async def restore_enquiry(
+        kind: str, ident: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Restore a soft-archived enquiry to the active list, leaving
+        every other field untouched."""
+        k = _require_kind(kind)
+        coll = _ENQUIRY_COLLECTIONS[k]
+        match = _enquiry_match(k, ident)
+        existing = await db[coll].find_one(match, {"_id": 0})
+        if not existing:
+            raise HTTPException(404, f"{kind} enquiry {ident!r} not found")
+        await db[coll].update_one(match, {"$set": {
+            "archived_at": None,
+            "archived_by": None,
+        }})
+        return {"ok": True, "kind": k, "id": ident}
+
+    @router.delete("/enquiries/{kind}/{ident}")
+    async def delete_enquiry(
+        kind: str, ident: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Permanently delete exactly one source record ({kind}/{id}).
+        Never touches any other collection or record."""
+        k = _require_kind(kind)
+        coll = _ENQUIRY_COLLECTIONS[k]
+        match = _enquiry_match(k, ident)
+        res = await db[coll].delete_one(match)
+        if res.deleted_count == 0:
+            raise HTTPException(404, f"{kind} enquiry {ident!r} not found")
+        return {"ok": True, "kind": k, "id": ident, "deleted": res.deleted_count}
+
     @router.get("/enquiries/unread-count")
     async def enquiries_unread_count(
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
-        """Sidebar badge count for Mission Control (iter164ao).
+        """Sidebar badge count for Mission Control (iter164ao/ap).
 
         Counts ONLY brand-new Contact-form enquiries — i.e.
-        kind == "contact" AND status == "new". Deliberately excludes
-        every other enquiry kind (Register Interest / interest, support,
-        report, waitlist) and any contact enquiry that's already been
-        actioned (resolved / replied). Test fixtures (is_test) are never
-        counted. A missing/empty status is treated as "new" to stay
-        consistent with the unified Enquiries list, which renders a
-        contact with no status as "new".
+        kind == "contact" AND status == "new" — that are NOT archived.
+        Deliberately excludes every other enquiry kind (Register
+        Interest, support, report, waitlist), any contact enquiry that's
+        already been actioned (resolved / replied), archived contacts,
+        and test fixtures (is_test). A missing/empty status is treated
+        as "new" to stay consistent with the unified Enquiries list.
         """
         count = await db["contact_submissions"].count_documents({
             "is_test": {"$ne": True},
+            "archived_at": None,   # iter164ap: archived contacts excluded
             "$or": [
                 {"status": "new"},
                 {"status": {"$in": [None, ""]}},
