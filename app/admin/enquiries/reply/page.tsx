@@ -7,6 +7,16 @@ import { AdminShell } from '@/components/admin/AdminShell';
 import { marketingApi, type MarketingPreviewOut } from '@/lib/cms-api';
 import { markEnquiryHandled } from '@/lib/enquiry-handled';
 
+type CtaChoice = 'none' | 'visit' | 'register' | 'get_app' | 'custom';
+
+const CTA_OPTIONS: Array<{ value: CtaChoice; label: string; help: string }> = [
+  { value: 'none', label: 'No button', help: 'Send the reply without a call-to-action button.' },
+  { value: 'visit', label: 'Visit FriendPlace', help: 'Links to friendplace.com.au.' },
+  { value: 'register', label: 'Register your interest', help: 'Links to the FriendPlace registration page.' },
+  { value: 'get_app', label: 'Get the app', help: 'Links to the FriendPlace app/download section.' },
+  { value: 'custom', label: 'Custom button', help: 'Choose your own button label and web address.' },
+];
+
 export default function EnquiryReplyPage() {
   return (
     <Suspense fallback={<div>Loading…</div>}>
@@ -22,6 +32,9 @@ function EnquiryReplyComposer() {
   const [subject, setSubject] = useState('');
   const [originalMessage, setOriginalMessage] = useState('');
   const [bodyText, setBodyText] = useState('');
+  const [ctaChoice, setCtaChoice] = useState<CtaChoice>('none');
+  const [ctaLabel, setCtaLabel] = useState('');
+  const [ctaUrl, setCtaUrl] = useState('');
   const [preview, setPreview] = useState<MarketingPreviewOut | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewErr, setPreviewErr] = useState<string | null>(null);
@@ -35,9 +48,12 @@ function EnquiryReplyComposer() {
     setOriginalMessage(searchParams?.get('message') || '');
   }, [searchParams]);
 
+  const selectedCta = CTA_OPTIONS.find((o) => o.value === ctaChoice) || CTA_OPTIONS[0];
+  const customCtaReady = ctaChoice !== 'custom' || (ctaLabel.trim().length > 0 && /^https?:\/\//i.test(ctaUrl.trim()));
+
   const previewKey = useMemo(
-    () => JSON.stringify({ recipientName, recipientEmail, subject, bodyText }),
-    [recipientName, recipientEmail, subject, bodyText],
+    () => JSON.stringify({ recipientName, recipientEmail, subject, bodyText, ctaChoice, ctaLabel, ctaUrl }),
+    [recipientName, recipientEmail, subject, bodyText, ctaChoice, ctaLabel, ctaUrl],
   );
 
   useEffect(() => {
@@ -54,6 +70,9 @@ function EnquiryReplyComposer() {
           subject_override: subject || null,
           additional_message: '',
           body_text: bodyText,
+          cta_choice: ctaChoice,
+          cta_label: ctaChoice === 'custom' ? ctaLabel : '',
+          cta_url: ctaChoice === 'custom' ? ctaUrl : '',
         } as any);
         if (alive) setPreview(p);
       } catch (e: any) {
@@ -69,9 +88,9 @@ function EnquiryReplyComposer() {
       alive = false;
       clearTimeout(timer);
     };
-  }, [previewKey, recipientName, recipientEmail, subject, bodyText]);
+  }, [previewKey, recipientName, recipientEmail, subject, bodyText, ctaChoice, ctaLabel, ctaUrl]);
 
-  const canSend = recipientEmail.includes('@') && bodyText.trim().length > 0 && !sending;
+  const canSend = recipientEmail.includes('@') && bodyText.trim().length > 0 && customCtaReady && !sending;
 
   const send = async () => {
     if (!canSend) return;
@@ -86,12 +105,12 @@ function EnquiryReplyComposer() {
         subject_override: subject || null,
         additional_message: '',
         body_text: bodyText,
+        cta_choice: ctaChoice,
+        cta_label: ctaChoice === 'custom' ? ctaLabel : '',
+        cta_url: ctaChoice === 'custom' ? ctaUrl : '',
       } as any);
 
       if (result.ok) {
-        // A successful outbound reply means this enquiry has been handled.
-        // Keep that state separate from the Replies inbox, which is only for
-        // replies coming back *to us* (email/phone/in person).
         markEnquiryHandled(searchParams?.get('in_reply_to'));
         setToast({ kind: 'ok', msg: `Sent to ${result.recipient_email}. Enquiry marked replied.` });
       } else {
@@ -149,6 +168,50 @@ function EnquiryReplyComposer() {
               onChange={(e) => setBodyText(e.target.value)}
               placeholder={recipientName ? `Hi ${recipientName.split(' ')[0]},\n\nThanks for getting in touch...` : 'Hi there,\n\nThanks for getting in touch...'}
             />
+          </div>
+
+          <div style={card}>
+            <h3 style={cardTitle}>Call-to-action (optional)</h3>
+            <p style={helpText}>Add a FriendPlace button to the bottom of this email. It will appear in the live preview before you send.</p>
+            <label style={label}>Button choice</label>
+            <select
+              style={input}
+              value={ctaChoice}
+              onChange={(e) => setCtaChoice(e.target.value as CtaChoice)}
+            >
+              {CTA_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <p style={{ ...helpText, marginTop: 8, marginBottom: ctaChoice === 'custom' ? 10 : 0 }}>{selectedCta.help}</p>
+
+            {ctaChoice === 'custom' && (
+              <div style={customCtaGrid}>
+                <div>
+                  <label style={label}>Button label</label>
+                  <input
+                    style={input}
+                    value={ctaLabel}
+                    onChange={(e) => setCtaLabel(e.target.value)}
+                    placeholder="Learn more"
+                  />
+                </div>
+                <div>
+                  <label style={label}>Button URL</label>
+                  <input
+                    style={input}
+                    type="url"
+                    value={ctaUrl}
+                    onChange={(e) => setCtaUrl(e.target.value)}
+                    placeholder="https://..."
+                  />
+                </div>
+              </div>
+            )}
+
+            {ctaChoice === 'custom' && !customCtaReady && (ctaLabel || ctaUrl) && (
+              <p style={ctaError}>Custom buttons need a label and a full http:// or https:// URL.</p>
+            )}
           </div>
 
           <div style={sendBar}>
@@ -212,6 +275,8 @@ const cardTitle: React.CSSProperties = { margin: '0 0 12px', fontSize: 15, fontW
 const label: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginTop: 10, marginBottom: 4 };
 const helpText: React.CSSProperties = { margin: '0 0 10px', fontSize: 12, color: '#64748B', lineHeight: 1.5 };
 const input: React.CSSProperties = { display: 'block', width: '100%', boxSizing: 'border-box', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', fontSize: 14, color: '#0F172A', background: '#FFFFFF' };
+const customCtaGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1.35fr', gap: 10 };
+const ctaError: React.CSSProperties = { margin: '10px 0 0', fontSize: 12, color: '#B91C1C', fontWeight: 700 };
 const sendBar: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 14 };
 const sendBtn: React.CSSProperties = { background: '#0D9488', color: '#FFFFFF', border: 'none', borderRadius: 12, padding: '12px 28px', fontSize: 15, fontWeight: 800 };
 const cancelLink: React.CSSProperties = { color: '#64748B', fontSize: 13, fontWeight: 700, textDecoration: 'none' };
