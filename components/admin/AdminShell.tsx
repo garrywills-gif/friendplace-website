@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi, repliesApi } from '@/lib/cms-api';
+import { enquiriesBadgeApi } from '@/lib/enquiries-badge-api';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
@@ -19,7 +20,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: string;
-  badgeKey?: 'submissions' | 'replies';
+  badgeKey?: 'submissions' | 'replies' | 'enquiries';
   soon?: boolean;
 };
 
@@ -38,7 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
 { href: '/admin/crm', label: 'CRM Navigator', icon: '🧭' },
       { href: '/admin/members',          label: 'Members',          icon: '👤' },
-      { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥' },
+      { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥', badgeKey: 'enquiries' },
       { href: '/admin/replies',          label: 'Replies',          icon: '💌', badgeKey: 'replies' },     
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
       { href: '/admin/campaigns',        label: 'Campaigns',        icon: '📮' },
@@ -100,7 +101,10 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   const [ready, setReady] = useState(false);
   const [admin, setLocalAdmin] = useState<CmsAdmin | null>(null);
   const [pendingSubmissions, setPendingSubmissions] = useState<number>(0);
-const [unreadReplies, setUnreadReplies] = useState<number>(0);  useEffect(() => {
+  const [unreadReplies, setUnreadReplies] = useState<number>(0);
+  const [unreadEnquiries, setUnreadEnquiries] = useState<number>(0);
+
+  useEffect(() => {
     (async () => {
       if (!isAuthed()) { router.replace('/admin/login'); return; }
       try {
@@ -116,8 +120,8 @@ const [unreadReplies, setUnreadReplies] = useState<number>(0);  useEffect(() => 
      
   }, []);
 
-  // Refresh the pending submissions badge whenever the route changes so
-  // admins see an up-to-date count after approving / rejecting an entry.
+  // Refresh sidebar badges whenever the route changes so admins see an
+  // up-to-date count after handling an enquiry, reply or submission.
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
@@ -128,13 +132,19 @@ const [unreadReplies, setUnreadReplies] = useState<number>(0);  useEffect(() => 
       } catch {
         // Silent fail — badge just stays at last known value.
       }
-try {
-  const res = await repliesApi.unreadCount();
-  if (!cancelled) setUnreadReplies(res.unread_count ?? 0);
-} catch {
-  // Silent fail — replies badge stays at last known value.
-}
-})();
+      try {
+        const res = await repliesApi.unreadCount();
+        if (!cancelled) setUnreadReplies(res.unread_count ?? 0);
+      } catch {
+        // Silent fail — replies badge stays at last known value.
+      }
+      try {
+        const res = await enquiriesBadgeApi.unreadCount();
+        if (!cancelled) setUnreadEnquiries(res.count ?? 0);
+      } catch {
+        // Silent fail — enquiries badge stays at last known value.
+      }
+    })();
     return () => { cancelled = true; };
   }, [ready, pathname]);
 
@@ -183,12 +193,14 @@ try {
                 const active =
                   pathname === item.href ||
                   (pathname?.startsWith(item.href + '/') ?? false);
-               const badgeCount =
-  item.badgeKey === 'submissions'
-    ? pendingSubmissions
-    : item.badgeKey === 'replies'
-      ? unreadReplies
-      : 0;
+                const badgeCount =
+                  item.badgeKey === 'submissions'
+                    ? pendingSubmissions
+                    : item.badgeKey === 'replies'
+                      ? unreadReplies
+                      : item.badgeKey === 'enquiries'
+                        ? unreadEnquiries
+                        : 0;
                 return (
                   <Link
                     key={item.href}
