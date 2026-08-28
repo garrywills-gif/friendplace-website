@@ -148,9 +148,14 @@ function EnquiryRow({ r }: { r: Enquiry }) {
           </div>
           {r.subject && <div style={{ fontSize: 13, color: '#475569', marginTop: 3 }}>{r.subject}</div>}
           {r.message && (
-            <div style={{ fontSize: 13, color: '#64748B', marginTop: 6, lineHeight: 1.55, maxHeight: 60, overflow: 'hidden' }}>
-              {r.message}
-            </div>
+            <details style={{ marginTop: 6 }}>
+              <summary style={{ fontSize: 13, color: '#64748B', lineHeight: 1.55, cursor: 'pointer', listStylePosition: 'inside' }}>
+                <span style={{ marginLeft: 4 }}>{r.message.length > 140 ? `${r.message.slice(0, 140)}…` : r.message}</span>
+              </summary>
+              <div style={{ fontSize: 13, color: '#475569', marginTop: 8, lineHeight: 1.6, whiteSpace: 'pre-wrap', padding: '10px 12px', background: '#F8FAFC', borderRadius: 10, border: '1px solid #E2E8F0' }}>
+                {r.message}
+              </div>
+            </details>
           )}
         </div>
         <div style={{ textAlign: 'right', minWidth: 140 }}>
@@ -165,7 +170,7 @@ function EnquiryRow({ r }: { r: Enquiry }) {
         {r.email && (
           <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 10, flexWrap: 'wrap' }}>
             <Link
-              href={`/admin/enquiries/reply?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject ? `Re: ${r.subject}` : '')}&in_reply_to=${encodeURIComponent(r.id || '')}`}
+              href={`/admin/enquiries/reply?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject ? `Re: ${r.subject}` : '')}&message=${encodeURIComponent(r.message || '')}&in_reply_to=${encodeURIComponent(r.id || '')}`}
               style={replyButton}
             >
               Reply
