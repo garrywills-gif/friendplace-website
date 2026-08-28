@@ -19,6 +19,7 @@ function EnquiryReplyComposer() {
   const [recipientName, setRecipientName] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
   const [subject, setSubject] = useState('');
+  const [originalMessage, setOriginalMessage] = useState('');
   const [bodyText, setBodyText] = useState('');
   const [preview, setPreview] = useState<MarketingPreviewOut | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -30,6 +31,7 @@ function EnquiryReplyComposer() {
     setRecipientEmail(searchParams?.get('email') || '');
     setRecipientName(searchParams?.get('name') || '');
     setSubject(searchParams?.get('subject') || '');
+    setOriginalMessage(searchParams?.get('message') || '');
   }, [searchParams]);
 
   const previewKey = useMemo(
@@ -105,7 +107,7 @@ function EnquiryReplyComposer() {
       </p>
 
       <div style={modeBanner}>
-        <strong>Personal enquiry reply</strong> — write the complete message below. No canned intro will be added. The FriendPlace branded wrapper and team sign-off stay in place.
+        <strong>Personal enquiry reply</strong> — read the full original enquiry below, then write your complete reply. No canned intro will be added. The FriendPlace branded wrapper and team sign-off stay in place.
       </div>
 
       <div style={layout}>
@@ -123,8 +125,17 @@ function EnquiryReplyComposer() {
             <input style={input} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Re: your enquiry" />
           </div>
 
+          <div style={originalCard}>
+            <h3 style={cardTitle}>Original enquiry</h3>
+            {originalMessage ? (
+              <div style={originalMessageStyle}>{originalMessage}</div>
+            ) : (
+              <p style={{ ...helpText, marginBottom: 0 }}>The original message was not included in this reply link. Return to Enquiries and open Reply again.</p>
+            )}
+          </div>
+
           <div style={card}>
-            <h3 style={cardTitle}>Email body</h3>
+            <h3 style={cardTitle}>Your reply</h3>
             <p style={helpText}>This is the full message. Blank lines create new paragraphs and single line breaks are preserved exactly in the preview and delivered email.</p>
             <textarea
               autoFocus
@@ -190,6 +201,8 @@ const modeBanner: React.CSSProperties = { marginBottom: 18, padding: '12px 14px'
 const formCol: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 16 };
 const previewCol: React.CSSProperties = { position: 'sticky', top: 16 };
 const card: React.CSSProperties = { background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 20 };
+const originalCard: React.CSSProperties = { ...card, background: '#F8FAFC', borderColor: '#CBD5E1' };
+const originalMessageStyle: React.CSSProperties = { fontSize: 14, color: '#334155', lineHeight: 1.65, whiteSpace: 'pre-wrap', padding: '12px 14px', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 10 };
 const cardTitle: React.CSSProperties = { margin: '0 0 12px', fontSize: 15, fontWeight: 800, color: '#0A2540' };
 const label: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginTop: 10, marginBottom: 4 };
 const helpText: React.CSSProperties = { margin: '0 0 10px', fontSize: 12, color: '#64748B', lineHeight: 1.5 };
