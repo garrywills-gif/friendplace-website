@@ -24,6 +24,7 @@
 import React, { useState } from "react";
 import { View, Image, Text, Pressable, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
 import ZoomableImageViewer from "./ZoomableImageViewer";
+import { resolvePresetSource, isPresetAvatar } from "@/src/lib/avatar-presets";
 
 type Props = {
   value?: string | null;
@@ -48,7 +49,13 @@ type Props = {
   zoomable?: boolean;
 };
 
-const URL_RE = /^https?:\/\//i;
+// Match http(s) URLs and base64 data URIs. `data:` URIs come from the
+// Edit Profile / signup "Upload your own photo" flow which encodes the
+// picked image as `data:image/jpeg;base64,…` and stores it directly in
+// `user.avatar`. Without this AvatarBubble rendered the raw base64 as
+// an emoji glyph (the "broken avatar everywhere except Edit Profile"
+// bug this fix addresses).
+const IMAGE_RE = /^(https?:|data:)/i;
 const GLASSES_MARK = "::g";
 
 /** Strip the trailing `::g` marker (if any) and return the bare avatar
@@ -80,13 +87,20 @@ export default function AvatarBubble({
   const { base, glasses } = parseAvatar(value);
   const [zoomOpen, setZoomOpen] = useState(false);
 
-  // Treat http(s) URLs as photos; everything else (emoji or empty) as text.
-  const isUrl = !!(base && URL_RE.test(base));
+  // Preset avatars ship bundled inside the app and resolve to a
+  // `require()`d image source. If the string is a preset ref but the
+  // id is unknown (e.g. an app update removed a portrait), we fall
+  // through to the emoji-text branch which renders the fallback
+  // glyph rather than crashing.
+  const presetSource = isPresetAvatar(base) ? resolvePresetSource(base) : null;
+  // Treat http(s) URLs AND base64 data URIs AND resolved presets as
+  // photos; everything else (emoji or empty) as text.
+  const isImage = !!presetSource || !!(base && IMAGE_RE.test(base));
   const fs = textSize ?? Math.round(size * 0.7);
 
   const imageEl = (
     <Image
-      source={{ uri: base as string }}
+      source={presetSource ? presetSource : { uri: base as string }}
       // resizeMode="cover" ensures the photo fills the circular frame
       // without distortion; combined with overflow:"hidden" it produces
       // a clean circular crop centred on the source. Users who dislike
@@ -101,13 +115,11 @@ export default function AvatarBubble({
     />
   );
 
-  const inner = isUrl ? (
-    zoomable ? (
-      // Safari on iPad/iOS is strict about Fragments-containing-Modal
-      // when the parent has overflow:"hidden" (which the Profile avatar
-      // circle uses to clip the photo). Wrapping in an explicit View
-      // gives React Native Web a stable container to portal the Modal
-      // off, and avoids the blank-tab crash we hit on the Profile page.
+  const inner = isImage ? (
+    zoomable && !presetSource && base && /^https?:/i.test(base) ? (
+      // Zoom is only offered for real URLs (uploaded photos, Google
+      // avatars). Presets and data URIs render at their native size
+      // in the tap-to-view — the extra modal doesn't add value.
       <View style={{ width: size, height: size }}>
         <Pressable
           onPress={() => setZoomOpen(true)}

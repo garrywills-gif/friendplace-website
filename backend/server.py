@@ -343,6 +343,9 @@ class Event(BaseModel):
     location: str = ""
     date: str = ""
     time: str = ""
+    # Optional cover image for the event. Same three-format rule as
+    # `Notice.image` — gallery ref / data URI / http URL.
+    image: str = ""
     rsvps: List[str] = []                # legacy "going" list — kept for compat
     rsvps_maybe: List[str] = []
     rsvps_cant: List[str] = []
@@ -369,6 +372,12 @@ class Notice(BaseModel):
     title: str
     body: str
     category: str = "Announcement"
+    # Optional image attached to the notice. One of:
+    #   - "gallery:coffee-catchups/01" — resolves to a bundled asset
+    #   - "data:image/jpeg;base64,…"    — member-uploaded photo
+    #   - "https://…"                   — future object-storage URL
+    # Empty string = no image.
+    image: str = ""
     likes: List[str] = []
     comments: List[dict] = []
     # Reaction map: { user_id -> "well_done" | "support" | "chat" | "flutter" | "congrats" }
@@ -7009,6 +7018,7 @@ class EventUpdateBody(BaseModel):
     location: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
+    image: Optional[str] = None        # gallery ref / data URI / http URL — "" clears
     capacity: Optional[int] = None     # None to clear (unlimited); use 0 = unlimited too
     notify_changes: bool = True        # blast a notification to all RSVPs
 
@@ -7029,7 +7039,7 @@ async def update_event(event_id: str, body: EventUpdateBody):
 
     update: Dict = {}
     changes: List[str] = []
-    for field in ("title", "emoji", "description", "location", "date", "time"):
+    for field in ("title", "emoji", "description", "location", "date", "time", "image"):
         v = getattr(body, field)
         if v is not None and v != ev.get(field):
             update[field] = v.strip() if isinstance(v, str) else v
@@ -8414,7 +8424,7 @@ async def edit_notice(notice_id: str, payload: dict):
         raise HTTPException(404, "Not found")
     if payload.get("user_id") != n.get("user_id"):
         raise HTTPException(403, "Only the author can edit")
-    update = {k: payload[k] for k in ("title", "body", "category") if k in payload}
+    update = {k: payload[k] for k in ("title", "body", "category", "image") if k in payload}
     update["edited_at"] = now_iso()
     await db.notices.update_one({"id": notice_id}, {"$set": update})
     return {**n, **update}

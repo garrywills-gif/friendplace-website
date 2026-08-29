@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image } from "react-native";
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -13,6 +13,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import { useComposerLock } from "@/src/lib/composer-lock";
+import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
 
 // Notice Board categories — Garry, 2 Aug 2026. Each category carries
 // its own emoji so the picker feels warm and skimmable, and so the
@@ -104,6 +105,9 @@ export default function Notices() {
   const [pTitle, setPTitle] = useState("");
   const [pBody, setPBody] = useState("");
   const [pCat, setPCat] = useState("Announcement");
+  // Optional image attached to the notice — gallery ref, data URI or "".
+  const [pImage, setPImage] = useState<string>("");
+  const [pImagePicker, setPImagePicker] = useState<boolean>(false);
   const [openCommentsFor, setOpenCommentsFor] = useState<string | null>(null);
   const [commentText, setCommentText] = useState("");
   const [replyTo, setReplyTo] = useState<{ commentId: string; userName: string } | null>(null);
@@ -129,14 +133,14 @@ export default function Notices() {
   };
   useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query]));
 
-  const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPosting(true); };
-  const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPosting(true); };
+  const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPosting(true); };
+  const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || ""); setPosting(true); };
 
   const submitPost = async () => {
     if (!user || !pTitle.trim() || !pBody.trim()) { show("Add a title and message"); return; }
     try {
       if (editing) {
-        await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat });
+        await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat, image: pImage });
         show("Notice updated");
       } else {
         // The backend may hold the notice for moderator review if the
@@ -153,6 +157,7 @@ export default function Notices() {
           title: pTitle.trim(),
           body: pBody.trim(),
           category: pCat,
+          image: pImage,
         });
         if (resp && resp.held_for_review) {
           show(resp.moderation_message ||
@@ -277,6 +282,12 @@ export default function Notices() {
 
         <Text style={[styles.title, { color: c.onSurface, fontSize: 18 * scale }]}>{n.title}</Text>
         <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>{n.body}</Text>
+        {n.image ? (() => {
+          const src = resolveImageSource(n.image);
+          return src ? (
+            <Image source={src} style={styles.noticeCardImage} resizeMode="cover" />
+          ) : null;
+        })() : null}
 
         {/* Reactions row */}
         <View style={styles.reactionsRow}>
@@ -444,12 +455,63 @@ export default function Notices() {
               <TextInput testID="post-title" value={pTitle} onChangeText={setPTitle} placeholder="A short headline" placeholderTextColor={c.muted} style={inputStyle} />
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Message</Text>
               <TextInput testID="post-body" value={pBody} onChangeText={setPBody} placeholder="What would you like to share?" placeholderTextColor={c.muted} multiline numberOfLines={5} style={[inputStyle, { height: 120, textAlignVertical: "top" }]} />
+
+              {/* Optional photo — pick from the FriendPlace gallery or upload
+                  your own. Emits a plain string that lands in the Notice's
+                  `image` field (gallery ref / data URI / empty). */}
+              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Photo (optional)</Text>
+              {pImage ? (
+                <View style={styles.photoPreviewWrap}>
+                  {(() => {
+                    const src = resolveImageSource(pImage);
+                    return src ? (
+                      <Image source={src} style={styles.photoPreview} resizeMode="cover" />
+                    ) : null;
+                  })()}
+                  <View style={styles.photoPreviewActions}>
+                    <Pressable
+                      testID="post-photo-change"
+                      onPress={() => setPImagePicker(true)}
+                      style={[styles.photoBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                    >
+                      <Ionicons name="images" size={16} color={c.onSurface} />
+                      <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>Change photo</Text>
+                    </Pressable>
+                    <Pressable
+                      testID="post-photo-remove"
+                      onPress={() => setPImage("")}
+                      style={[styles.photoBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                    >
+                      <Ionicons name="close-circle" size={16} color={c.muted} />
+                      <Text style={{ color: c.muted, fontWeight: "800", fontSize: 13 * scale }}>Remove</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <Pressable
+                  testID="post-photo-add"
+                  onPress={() => setPImagePicker(true)}
+                  style={[styles.photoAddBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                >
+                  <Ionicons name="camera" size={22} color={c.brand} />
+                  <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>Add a photo</Text>
+                </Pressable>
+              )}
+
               <View style={{ height: 14 }} />
               <Button testID="post-submit" label={editing ? "Save changes" : "Post to Notice Board"} onPress={submitPost} />
             </View>
           </KeyboardAvoidingView>
         </View>
       </Modal>
+
+      {/* Gallery picker sheet — shared with Local Events. */}
+      <GalleryPicker
+        visible={pImagePicker}
+        onClose={() => setPImagePicker(false)}
+        onPick={setPImage}
+        currentValue={pImage}
+      />
     </View>
   );
 }
@@ -465,6 +527,7 @@ const styles = StyleSheet.create({
   solvedChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   title: { fontWeight: "900", marginTop: 2 },
   body: { lineHeight: 22 },
+  noticeCardImage: { width: "100%", height: 180, borderRadius: 12, marginTop: 8 },
   reactionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
   reactBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1, minHeight: 40 },
   commentBox: { padding: 10, borderRadius: 12, borderWidth: 1 },
@@ -473,6 +536,30 @@ const styles = StyleSheet.create({
   replyPill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, width: "100%", justifyContent: "space-between" },
   sendBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
+  photoPreviewWrap: { gap: 8 },
+  photoPreview: { width: "100%", height: 160, borderRadius: 12 },
+  photoPreviewActions: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  photoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    minHeight: 36,
+  },
+  photoAddBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    minHeight: 52,
+  },
   modalSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, maxHeight: "85%" },
   modalHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   label: { fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
