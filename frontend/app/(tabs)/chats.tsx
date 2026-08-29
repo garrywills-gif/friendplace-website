@@ -456,7 +456,15 @@ export default function Chats() {
                 <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }} numberOfLines={1}>
                   Notes to Myself
                 </Text>
-                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }} numberOfLines={1}>
+                {/* Privacy reassurance line (Garry launch-polish 2026-08-14).
+                    Members were unsure whether these notes could be seen by
+                    friends. Making the private/self-only nature explicit at
+                    the entry point removes the doubt without changing any
+                    backend behaviour. */}
+                <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2, fontWeight: "700" }} numberOfLines={1}>
+                  🔒 Private — only you can see this
+                </Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 1 }} numberOfLines={1}>
                   Reminders, ideas, shopping lists, photos
                 </Text>
               </View>

@@ -86,8 +86,21 @@ type TourPage = {
 };
 const TOUR_STEPS: TourPage[] = [
   {
+    // Added 2026-08-14 (Garry launch-polish): Share a Moment sits at
+    // the start of the tour and is paired with FP Café as the two
+    // obvious first social actions. Uses the same hero-card shape and
+    // decoration pattern as the existing steps — no wizard-navigation
+    // plumbing changes; STEP_COUNT / STEP_* derived constants
+    // recompute automatically off TOUR_STEPS.length.
+    icon: "\uD83D\uDCF8", title: "Share a Moment",
+    bubble: "First up \u2014 Share a Moment.",
+    body: "Post a photo or a short story about something that made you smile today. You'll earn Butterfly Points every time you share.",
+    heroBg: "#FEF3F7", heroBorder: "#F9A8D4",
+    decorations: ["\uD83D\uDCF8", "\uD83E\uDD8B", "\u2728", "\uD83D\uDCAB"],
+  },
+  {
     icon: "\u2615", title: "FP Café",
-    bubble: "Let\u2019s start with the FP Café.",
+    bubble: "Then, the FP Café.",
     body: "Imagine walking into your local caf\u00e9. Drop in anytime and chat with people who are online.",
     heroBg: "#FEF3E2", heroBorder: "#F5C99B",
     decorations: ["\u2615", "\uD83E\uDD50", "\uD83C\uDF75", "\uD83E\uDDC1"],

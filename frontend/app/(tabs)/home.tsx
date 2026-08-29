@@ -555,6 +555,15 @@ export default function Home() {
               <Text style={[styles.momentHeroSub, { fontSize: 14 * scale }]}>
                 Share a photo, a story, or something that made you smile today.
               </Text>
+              {/* Butterfly Points reward line (Garry launch-polish
+                  2026-08-14). Members previously didn't know sharing
+                  a Moment earned points until AFTER they posted (toast
+                  said "+8 Butterfly Points"). Surfacing the reward on
+                  the banner itself gives them a reason to tap before
+                  they've committed to writing anything. */}
+              <Text style={[styles.momentHeroSub, { fontSize: 13 * scale, marginTop: 6, fontWeight: "800", color: "#78350F" }]}>
+                🦋 +8 Butterfly Points every time you share
+              </Text>
             </Pressable>
 
             <View style={{ flexDirection: "row", gap: 10, marginTop: 14, alignItems: "center" }}>
@@ -1289,8 +1298,30 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 2,
   },
-  flutterActions: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  flutterActionBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, borderWidth: 1.5 },
+  flutterActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+    marginTop: 10,
+  },
+  flutterActionBtn: {
+    // Bumped the horizontal padding + minHeight so the "Fluttered back"
+    // green pill lines up on the same visual weight as the primary
+    // "Flutter back" pressable — previously the responded state
+    // rendered ~3px taller (extra bottom padding around the ✔ glyph),
+    // which broke horizontal alignment in the Flutter/Fluttered row.
+    // (Launch-polish 2026-08-14.)
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    minHeight: 34,
+  },
   flutterRespondedRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1365,16 +1396,28 @@ const styles = StyleSheet.create({
   momentHeroCta: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#B45309",
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderRadius: 999,
+    minHeight: 44,
   },
   momentHeroSecondary: {
+    // Aligned vertically with the primary "Share a Moment" button
+    // (same 44 minHeight, same center alignment) so the chevron sits
+    // on the same baseline as the Share button's ✚ icon. Right-side
+    // paddingRight adds breathing room so the chevron never sits
+    // flush against the card border on narrow phones (iPhone SE was
+    // pushing it half-off-screen prior to this fix).
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+    justifyContent: "center",
+    paddingLeft: 12,
+    paddingRight: 14,
     paddingVertical: 10,
+    minHeight: 44,
+    gap: 4,
   },
   // Moment of the Week banner — celebratory amber card mirroring the
   // Founders Wall card treatment, so both "look up on Home" pieces feel

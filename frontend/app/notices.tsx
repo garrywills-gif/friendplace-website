@@ -355,7 +355,11 @@ export default function Notices() {
       <Header title="Notice Board" backHref="/home" emoji="📋" subtitle="Local notices · Share what's on" onBack={() => { console.log("[notices/back] Header onBack tapped"); router.replace("/home" as any); }} right={(
         <Pressable testID="new-notice" onPress={startCreate} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brand, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
           <Ionicons name="add" size={20} color="#FFF" />
-          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale }}>Add Post</Text>
+          {/* Renamed 2026-08-14 (Garry launch-polish): explicit "Add a
+              post" reads as a clear action rather than a cryptic "+"
+              icon alone. Matches app-wide voice ("share a moment",
+              "create an event"). */}
+          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale }}>Add a post</Text>
         </Pressable>
       )} />
       <View style={[styles.searchBar, { borderColor: c.border, backgroundColor: c.surfaceSecondary }]}>
