@@ -105,6 +105,14 @@ JOURNEY_CONTINUITY.md
 # Founders Wall cleanup — never commit prod creds
 backend/scripts/_prod_creds.env
 backend/scripts/_run_prod_dryrun.sh
+# Ignore all real .env files — they contain secrets. Deploy-time
+# templates live at frontend/.env.example and backend/.env.example
+# (tracked, no secrets, safe to ship in the deploy context).
 .env
 .env.*
 *.env
+# Explicitly keep the safe stub/example templates ignored-list-exempt.
+!.env.example
+!*.env.example
+!frontend/.env.example
+!backend/.env.example
