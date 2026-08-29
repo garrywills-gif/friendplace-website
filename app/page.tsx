@@ -57,13 +57,9 @@ export default async function HomePage() {
   return (
     <>
       {/* ---------- 0a. LAUNCH COUNTDOWN RIBBON ---------- */}
-      {/* Sits above everything else. Renders nothing when disabled. */}
       <LaunchCountdownRibbon initial={launchStatus} />
 
       {/* ---------- 0. NAVY BRANDING STRIP ---------- */}
-      {/* Real HTML/CSS masthead, NOT the flyer image. Slim 80 px band
-          that scales gracefully on mobile — contact rail hides below
-          900 px, tagline hides below 520 px. All copy is CMS-ready. */}
       <BrandMasthead />
 
       {/* ---------- 1. HERO ---------- */}
@@ -72,7 +68,6 @@ export default async function HomePage() {
         background: 'linear-gradient(180deg, #0A2540 0%, #12365B 100%)',
         color: '#FFFFFF', paddingTop: 96, paddingBottom: 120,
       }} className="fp-hero">
-        {/* soft teal glow behind the butterfly */}
         <div aria-hidden style={{
           position: 'absolute', right: '-10%', top: '-20%',
           width: 720, height: 720, borderRadius: '50%',
@@ -104,51 +99,28 @@ export default async function HomePage() {
                 FriendPlace is where genuine friendships begin. Meet local people, discover welcoming communities and enjoy real conversations — without swiping, followers or popularity contests.
               </p>
               <div className="hero-cta-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                               <Link
+                <Link
                   href="/register-interest"
                   className="btn btn-primary hero-register-cta"
                   aria-label="Register now for FriendPlace"
                 >
                   Register Now →
-                </Link>              
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-  <span style={{ fontSize: 12, fontWeight: 700, color: '#5EEAD4' }}>COMING SOON</span>
-  <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
-    Get the App →
-  </Link>
-</div>
+                </Link>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#5EEAD4' }}>COMING SOON</span>
+                  <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
+                    Get the App →
+                  </Link>
+                </div>
                 <Link href="/how-it-works" className="btn btn-ghost">
                   See how it works
                 </Link>
               </div>
-
-              {/* Hero-level invitation to meet George / Georgia. Sits ONE
-                  visual level below the primary CTAs and fades in ~1.3s
-                  after paint, so visitors get a moment to read the hero
-                  before George politely steps forward. Not another
-                  navigation item — an intentional invitation.
-
-                  On mobile we deliberately hoist this above the long
-                  descriptive paragraph and app-store CTAs (via CSS
-                  `order`) so the "Meet George or Georgia" button is
-                  visible without scrolling — it's one of FriendPlace's
-                  unique features and deserves to be seen first on
-                  small screens (Garry, iter147). */}
               <HeroInvitation />
             </div>
             <div className="hero-butterfly-wrap" style={{ display: 'flex', justifyContent: 'center' }}>
               <div className="butterfly-float" style={{ position: 'relative' }}>
                 <div aria-hidden className="butterfly-glow" />
-                {/* OFFICIAL butterfly (transparent background) from the
-                    master brand-assets folder. Aspect ratio 512:503 is
-                    preserved by only setting WIDTH — the height auto-
-                    derives via `height: auto`. NEVER scale width/height
-                    independently.
-
-                    Reserved for HERO + brand-presentation contexts only.
-                    The app-icon squircle is kept for the /#download
-                    section where we're showing "what the icon looks
-                    like on your phone". */}
                 <img
                   src={brandAssets.butterfly.src}
                   alt={brandAssets.butterfly.alt}
@@ -158,8 +130,8 @@ export default async function HomePage() {
                   style={{
                     position: 'relative',
                     zIndex: 1,
-                    width: 420,       // proportional — height auto
-                    height: 'auto',   // preserves 512:503 exactly
+                    width: 420,
+                    height: 'auto',
                     display: 'block',
                   }}
                 />
@@ -169,7 +141,7 @@ export default async function HomePage() {
         </div>
 
         <style>{`
-                   .hero-register-cta {
+          .hero-register-cta {
             background: linear-gradient(180deg, #F97316 0%, #EA580C 100%);
             color: #FFFFFF !important;
             font-size: 17px !important;
@@ -199,19 +171,13 @@ export default async function HomePage() {
           @media (prefers-reduced-motion: reduce) {
             .hero-register-cta { transition: none; }
             .hero-register-cta:hover { transform: none; }
-          }          @media (min-width: 900px) {
+          }
+          @media (min-width: 900px) {
             .hero-grid { grid-template-columns: 1.2fr 1fr !important; }
           }
           @media (max-width: 899px) {
             .hero-butterfly { width: 260px !important; }
           }
-
-          /* ── Mobile hero compression (Garry, iter147) ────────────────
-             On iPhone the Meet George or Georgia invitation must be
-             visible without scrolling. We tighten paddings, compress
-             margins, and use flex order to hoist the invitation above
-             the long descriptive paragraph and app-store CTAs. DOM
-             order stays intentional for accessibility and SEO. */
           @media (max-width: 720px) {
             .fp-hero {
               padding-top: 32px !important;
@@ -228,12 +194,8 @@ export default async function HomePage() {
             .hero-copy .hero-invitation-pill { padding: 13px 22px !important; font-size: 15px !important; }
             .hero-long           { order: 5; margin-bottom: 24px !important; font-size: 16px !important; }
             .hero-cta-row        { order: 6; }
-            .hero-butterfly-wrap { display: none !important; } /* Big brand butterfly duplicates the site-header butterfly on mobile; hide to reclaim ~260px of prime above-the-fold real estate. */
+            .hero-butterfly-wrap { display: none !important; }
           }
-
-          /* Gentle floating animation. The butterfly hovers like it is
-             thinking about landing on your finger. 6s cycle keeps it
-             calming rather than distracting. Respects reduced-motion. */
           @keyframes float {
             0%, 100% { transform: translateY(0) rotate(0deg); }
             50% { transform: translateY(-14px) rotate(-1.5deg); }
@@ -259,12 +221,6 @@ export default async function HomePage() {
       </section>
 
       {/* ---------- 2. WHY FRIENDPLACE ---------- */}
-      {/* id="why-friendplace" — deep-link target for the post-
-          registration "Continue Exploring →" button. New Founding
-          Members land here (not the hero) because they've already
-          said yes; the hero has done its job. Locked with Garry
-          (iter151, June 2026). Do not rename the id without
-          updating /register-interest → the success CTA. */}
       <section id="why-friendplace" style={{ padding: '96px 0', background: '#FEFCF8', scrollMarginTop: 80 }}>
         <div className="container">
           <div style={{ textAlign: 'center', marginBottom: 56 }}>
@@ -378,15 +334,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ---------- 4.5. SHARE A MOMENT ----------
-          Locked with Garry, 31 July 2026. Share a Moment has become
-          the defining feature of FriendPlace — this dedicated section
-          sits immediately after "Three Simple Steps" so prospective
-          members SEE the product, not just read about it. Uses real
-          photographic mock cards over illustrations. The guardrail
-          line is a hard rule from the "No guilt. Ever." principle
-          (`/app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md`).
-          Hero stays untouched — "Find your people." carries that job. */}
+      {/* ---------- 4.5. SHARE A MOMENT ---------- */}
       <section style={{
         padding: '96px 0',
         background: 'linear-gradient(180deg, #FEF9E4 0%, #FFFCF2 100%)',
@@ -407,13 +355,6 @@ export default async function HomePage() {
             </p>
           </div>
 
-          {/* Three mock Moment cards — real photos, first-person captions,
-              no engagement counts. This is deliberately laid out to
-              mirror the app but keeps the visitor's eye on the story
-              itself, not on how many likes a moment has picked up.
-              (Guardrail from Garry, 26 June 2026: "these are showcase
-              cards, not a live feed — like/comment counts subtly
-              shift focus towards popularity.") */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
@@ -429,9 +370,7 @@ export default async function HomePage() {
                 padding: 18,
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                  <div style={{
-                    fontSize: 28,
-                  }}>{m.avatar}</div>
+                  <div style={{ fontSize: 28 }}>{m.avatar}</div>
                   <div>
                     <div style={{ color: '#0A2540', fontWeight: 800, fontSize: 15 }}>{m.name}</div>
                     <div style={{ color: '#64748B', fontSize: 12 }}>{m.when}</div>
@@ -449,8 +388,6 @@ export default async function HomePage() {
             ))}
           </div>
 
-          {/* Guardrail line — locked wording from Garry, 31 July 2026.
-              The public expression of the "No guilt. Ever." principle. */}
           <p style={{
             marginTop: 40, textAlign: 'center',
             color: '#78350F', fontSize: 16, fontStyle: 'italic',
@@ -487,7 +424,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* ---------- 6. LIFE AT FRIENDPLACE (photo strip) ---------- */}
+      {/* ---------- 6. LIFE AT FRIENDPLACE ---------- */}
       <section style={{ padding: '96px 0', background: '#FEFCF8' }}>
         <div className="container">
           <div style={{ textAlign: 'center', marginBottom: 48 }}>
@@ -545,9 +482,6 @@ export default async function HomePage() {
               <span style={{ display: 'inline-flex', width: 20, height: 20, alignItems: 'center', justifyContent: 'center' }}>
                 <GeorgeButterflyMark size={20} />
               </span>
-              {/* Show a warm invitation while we're pre-launch. Once
-                  people start joining the count flips to a live "N of
-                  250 welcomed" pill. */}
               <span>
                 {founderCount > 0
                   ? `${founderCount} of ${founderCap} welcomed`
@@ -649,7 +583,7 @@ export default async function HomePage() {
               <SectionEyebrow color="#5EEAD4">Available on iOS & Android</SectionEyebrow>
               <h2 style={{ color: '#FFFFFF', marginBottom: 16 }}>Download FriendPlace</h2>
               <p style={{ color: '#CBD5E1', fontSize: 18, lineHeight: 1.6, marginBottom: 32 }}>
-                Free forever for members. No ads, no data selling — just a place to belong.
+                Free forever for individual members. No ads, no data selling — just a place to belong.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                 <StoreBtn store="Apple" href="#" />
@@ -670,16 +604,13 @@ export default async function HomePage() {
                   borderRadius: 12,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
-                  {/* This IS the app-icon-showing-on-phone context, so the
-                      squircle-framed full app icon is intentional here.
-                      Preserves the 1:1 aspect ratio. */}
                   <img
                     src={brandAssets.appIcon.src}
                     alt={brandAssets.appIcon.alt}
                     width={brandAssets.appIcon.width}
                     height={brandAssets.appIcon.height}
                     style={{
-                      width: 72, height: 72, // 1:1
+                      width: 72, height: 72,
                       borderRadius: 16, background: '#FFFFFF',
                       padding: 4,
                     }}
@@ -702,8 +633,6 @@ export default async function HomePage() {
       {/* ---------- 10. CLOSING CTA ---------- */}
       <section style={{ padding: '96px 0 32px', background: '#FEFCF8', textAlign: 'center' }}>
         <div className="container">
-          {/* Official transparent butterfly — brand presentation context,
-              so no squircle. Proportional sizing via width-only. */}
           <img
             src={brandAssets.butterfly.src}
             alt=""
@@ -787,7 +716,7 @@ const WHO = [
 ];
 
 const STEPS_COMPACT = [
-  { title: 'Join FriendPlace', body: 'Sign up in minutes with Apple, Google or email. Free forever for members.' },
+  { title: 'Join FriendPlace', body: 'Sign up in minutes with Apple, Google or email. Free forever for individual members.' },
   { title: 'Meet local people', body: 'Discover neighbours who share your interests. Send a warm hello — never a swipe.' },
   { title: 'Find your community', body: 'Coffee catch-ups, hobby nights, local events. Belonging in real life.' },
 ];
@@ -801,11 +730,6 @@ const LIFE_PHOTOS = [
   { src: 'https://images.unsplash.com/photo-1549057446-9f5c6ac91a04?crop=entropy&cs=srgb&fm=jpg&w=800&q=80', caption: 'Walking groups' },
 ];
 
-// Three real-feeling Share a Moment mock cards for the dedicated
-// section on Home. First-person captions in the voice a member would
-// actually use. Photos reuse the site's warm Life-at-FriendPlace
-// palette so the story reads as one continuous look-and-feel.
-// Locked wording with Garry, 31 July 2026.
 const MOCK_MOMENTS = [
   {
     name: 'Margaret',
