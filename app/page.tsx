@@ -694,7 +694,7 @@ export default async function HomePage() {
         </div>
         <style>{`
           @media (min-width: 900px) {
-            .download-grid { grid-template-columns: '1.3fr 1fr' !important; }
+            .download-grid { grid-template-columns: 1.3fr 1fr !important; }
           }
         `}</style>
       </section>
