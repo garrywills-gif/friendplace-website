@@ -127,6 +127,43 @@ api = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("friendplace")
 
+
+# ---------------- Unhandled-exception middleware ----------------
+# Launch-QA (29 Aug 2026): the TestFlight 1.0.21 (1025) signup regression
+# showed us that an unhandled exception anywhere in an API path used to
+# bubble up as a bare 500 with no body — the frontend couldn't parse it
+# and fell back to a generic "Could not create account" toast, hiding
+# the real cause. This middleware catches every unhandled exception,
+# logs a full traceback with the request path/method/IP, and returns
+# a truthful JSON body the frontend can surface verbatim.
+#
+# HTTPException raised deliberately by our own code (e.g. 400
+# "Username already taken") is a separate FastAPI mechanism and is
+# NOT caught here — it flows through normally with its intended body.
+@app.middleware("http")
+async def _unhandled_error_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except HTTPException:
+        # Re-raise so FastAPI's built-in handler serialises it as
+        # `{"detail": "..."}` with the intended status code.
+        raise
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        client_ip = (request.client.host if request.client else "unknown") or "unknown"
+        logger.error(
+            "unhandled.exception path=%s method=%s ip=%s exc=%s\n%s",
+            request.url.path, request.method, client_ip, repr(e), tb,
+        )
+        # Return a JSON body the frontend can parse. Truthful without
+        # leaking traceback / stack / internal identifiers.
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Something went wrong on our end. Please try again in a moment."},
+        )
+
 # ---------------- Sentry (no-op when DSN unset) ----------------
 # Init *after* logger creation so the LoggingIntegration captures our own
 # logs too. When `settings.sentry_dsn` is None / empty the SDK initialises
@@ -921,20 +958,46 @@ async def signup(body: SignupBody, request: Request):
     # bot floods dead (the per-account brute-force lockout on
     # /auth/login is the real defence against credential stuffing).
     client_ip = (request.client.host if request.client else "unknown") or "unknown"
-    rate_limit(f"signup:{client_ip}", max_calls=20, window_seconds=3600)
+
+    # Launch-QA breadcrumb (29 Aug 2026): whenever signup fails from
+    # here on, we log the reason with a masked email + client IP so
+    # production TestFlight failures leave a clear trail without
+    # exposing PII. Wrapped in an inner function so every raise site
+    # shares the same shape. `_mask_email` keeps first char + tld
+    # only, e.g. "j***@example.com" — enough to correlate across
+    # attempts, not enough to identify the person.
+    def _mask_email(e: str) -> str:
+        if not e or "@" not in e:
+            return "(none)"
+        local, dom = e.split("@", 1)
+        return f"{local[:1]}***@{dom}"
+
+    def _fail(reason: str, http_status: int) -> HTTPException:
+        logger.warning(
+            "signup.reject ip=%s email=%s username=%r reason=%r status=%d",
+            client_ip, _mask_email(body.email or ""), body.username, reason, http_status,
+        )
+        return HTTPException(http_status, reason)
+
+    try:
+        rate_limit(f"signup:{client_ip}", max_calls=20, window_seconds=3600)
+    except HTTPException as e:
+        logger.warning("signup.rate_limited ip=%s email=%s", client_ip, _mask_email(body.email or ""))
+        raise e
+
     uname = body.username.strip()
     if len(uname) < 3:
-        raise HTTPException(400, "Username must be at least 3 characters")
+        raise _fail("Username must be at least 3 characters", 400)
     if any(ch.isspace() for ch in uname):
-        raise HTTPException(400, "Username can't contain spaces")
+        raise _fail("Username can't contain spaces", 400)
     if not re.match(r"^[A-Za-z0-9_.\-]+$", uname):
-        raise HTTPException(400, "Username can only contain letters, numbers, and . _ -")
+        raise _fail("Username can only contain letters, numbers, and . _ -", 400)
     if len(body.password) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+        raise _fail("Password must be at least 6 characters", 400)
     if await db.users.find_one({"username": {"$regex": f"^{re.escape(uname)}$", "$options": "i"}}):
-        raise HTTPException(400, "Username already taken")
+        raise _fail("Username already taken", 400)
     if body.email and await db.users.find_one({"email": {"$regex": f"^{re.escape(body.email)}$", "$options": "i"}}):
-        raise HTTPException(400, "Email already registered")
+        raise _fail("Email already registered", 400)
 
     user = User(
         first_name=body.first_name or "",

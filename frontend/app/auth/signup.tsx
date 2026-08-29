@@ -145,6 +145,20 @@ export default function Signup() {
       // led to Garry's TestFlight incident where a genuinely-new email
       // signup kept failing without any hint as to why.
       //
+      // Follow-up (launch QA, 29 Aug 2026): the previous fix still
+      // hid ONE class of failure — messages that api.ts synthesised
+      // WITHOUT a numeric status prefix (Cloudflare intercepts, HTML
+      // bodies at 2xx, timeouts). Those arrive as e.g. "We can't
+      // reach FriendPlace right now…"; our regex saw no leading
+      // \d{3} so status became 0 and we fell through to the generic
+      // toast, silently swallowing the real reason. TestFlight 1.0.21
+      // showed this exactly.
+      //
+      // The fix: (a) always console.warn the raw error so
+      // Sentry/dev-console captures it, (b) if we can't parse a
+      // status+detail, surface the friendly message VERBATIM instead
+      // of overwriting it with the generic fallback.
+      //
       // `api.ts` wraps failures as `new Error(\`${status} ${text}\`)`,
       // so the message begins with the HTTP status followed by the
       // JSON body (which is either `{"detail":"..."}` for HTTPException
@@ -153,6 +167,13 @@ export default function Signup() {
       // where relevant. Only truly unexpected shapes (network drop,
       // non-JSON body) fall through to the generic toast.
       const raw = String(e?.message || "");
+
+      // Full raw trail for diagnostics — this is picked up by Sentry
+      // (when SENTRY_DSN_FRONTEND is set) AND by the automation
+      // console-log capture during TestFlight investigation. Never
+      // catch a signup failure silently again.
+      console.warn("[signup] failure raw:", raw);
+
       const m = raw.match(/^(\d{3})\s+(.*)$/s);
       const status = m ? parseInt(m[1], 10) : 0;
       let payload: any = null;
@@ -202,10 +223,13 @@ export default function Signup() {
         // guessing (e.g. a future field validation, a moderation
         // block, etc.).
         show(detail);
-      } else if (status >= 500 || status === 0) {
-        // Network drop / non-JSON body / server crash — the only
-        // scenario where the generic fallback is appropriate.
-        show("Could not create account. Try again.");
+      } else if (raw) {
+        // No status prefix / no parseable detail — but we DO have a
+        // human message from api.ts (Cloudflare/HTML/timeout branch).
+        // Surface it as-is rather than hiding it behind a generic
+        // "try again" that stops us diagnosing the real cause. This
+        // is the fix for the TestFlight 1.0.21 silent-failure bug.
+        show(raw);
       } else {
         show("Could not create account. Try again.");
       }
