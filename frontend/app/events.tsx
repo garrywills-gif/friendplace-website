@@ -10,6 +10,8 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import { shareIcs } from "@/src/lib/ics";
+import TappableImage from "@/src/components/TappableImage";
+import { resolveImageSource } from "@/src/components/GalleryPicker";
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
 
@@ -261,6 +263,23 @@ export default function Events() {
                   <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 * scale }}>CANCELLED</Text>
                 </View>
               )}
+              {/* Community-event cover photo (added launch batch). Wired
+                  through the shared TappableImage so members can tap to
+                  enlarge. `resolveImageSource` accepts the three storage
+                  formats: gallery:<theme>/NN, data:image/... URI, http(s) URL. */}
+              {item.image ? (() => {
+                const src = resolveImageSource(item.image);
+                return src ? (
+                  <TappableImage
+                    source={src}
+                    style={{ width: "100%", height: 160, borderRadius: 12, marginBottom: 12 }}
+                    resizeMode="cover"
+                    caption={item.title}
+                    accessibilityLabel="View event cover larger"
+                    testID={`event-cover-${item.id}`}
+                  />
+                ) : null;
+              })() : null}
               <View style={styles.row}>
                 <View style={[styles.emojiBox, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 36 }}>{item.emoji}</Text></View>
                 <View style={{ flex: 1, marginLeft: 14 }}>

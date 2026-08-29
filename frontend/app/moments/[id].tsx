@@ -23,6 +23,7 @@ import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import ButterflyFlutter from "@/src/components/ButterflyFlutter";
+import TappableImage from "@/src/components/TappableImage";
 
 type Comment = {
   id: string;
@@ -341,10 +342,14 @@ export default function MomentDetail() {
           {Array.isArray(moment.photos) && moment.photos.length > 0 ? (
             <View style={{ gap: 8 }}>
               {moment.photos.map((p, i) => (
-                <Image
+                <TappableImage
                   key={i}
-                  source={{ uri: p }}
+                  uri={p}
                   style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 16, backgroundColor: "#F3F4F6" }}
+                  resizeMode="cover"
+                  caption={moment.title || undefined}
+                  accessibilityLabel="View moment photo larger"
+                  testID={`moment-photo-${i}`}
                 />
               ))}
             </View>

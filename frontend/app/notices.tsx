@@ -14,6 +14,7 @@ import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import { useComposerLock } from "@/src/lib/composer-lock";
 import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
+import TappableImage from "@/src/components/TappableImage";
 
 // Notice Board categories — Garry, 2 Aug 2026. Each category carries
 // its own emoji so the picker feels warm and skimmable, and so the
@@ -285,7 +286,14 @@ export default function Notices() {
         {n.image ? (() => {
           const src = resolveImageSource(n.image);
           return src ? (
-            <Image source={src} style={styles.noticeCardImage} resizeMode="cover" />
+            <TappableImage
+              source={src}
+              style={styles.noticeCardImage}
+              resizeMode="cover"
+              caption={n.title}
+              accessibilityLabel="View notice photo larger"
+              testID={`notice-photo-${n.id}`}
+            />
           ) : null;
         })() : null}
 

@@ -28,7 +28,7 @@
  *   <ZoomableImageViewer uri={zoom} onClose={() => setZoom(null)} />
  */
 import React, { useCallback, useEffect } from "react";
-import { Modal, Pressable, StyleSheet, View, Text, useWindowDimensions } from "react-native";
+import { Modal, Pressable, StyleSheet, View, Text, useWindowDimensions, ImageSourcePropType } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   useAnimatedStyle,
@@ -40,8 +40,15 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Props = {
-  /** URI of the image to display. `null` hides the modal. */
-  uri: string | null;
+  /** URI of the image to display. `null` hides the modal. Kept for
+   * backward compatibility with existing callers (DM chat photos,
+   * profile hero, edit-profile preview). Prefer `source` for new code
+   * so bundled `require()`d assets can also be zoomed. */
+  uri?: string | null;
+  /** Bundled image source (require()d asset) — enables preset avatars
+   * and gallery photos to zoom. When both `uri` and `source` are set,
+   * `source` wins. Modal shows whenever either is truthy. */
+  source?: ImageSourcePropType | null;
   /** Called when the user dismisses the viewer. */
   onClose: () => void;
   /** Optional caption shown at the bottom (e.g. "Sent by Alice"). */
@@ -54,9 +61,19 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 5;
 const DOUBLE_TAP_SCALE = 2.5;
 
-export default function ZoomableImageViewer({ uri, onClose, caption, testID }: Props) {
+export default function ZoomableImageViewer({ uri, source, onClose, caption, testID }: Props) {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
+  // The viewer is "active" when either a URI OR a bundled source is
+  // supplied. Callers can pass whichever they have — presets ship as
+  // require()d ImageSourcePropType, uploaded photos & Google avatars
+  // ship as URIs.
+  const visible = !!(uri || source);
+  const imageSource: ImageSourcePropType | undefined = source
+    ? source
+    : uri
+      ? ({ uri } as ImageSourcePropType)
+      : undefined;
 
   // Reanimated shared values — driven by the gesture handlers on the
   // UI thread so the transform stays glass-smooth even on old iPads.
@@ -70,7 +87,7 @@ export default function ZoomableImageViewer({ uri, onClose, caption, testID }: P
   // Reset every time a new image opens so the viewer never inherits
   // the previous image's zoom state.
   useEffect(() => {
-    if (uri) {
+    if (visible) {
       scale.value = 1;
       savedScale.value = 1;
       tx.value = 0;
@@ -78,7 +95,7 @@ export default function ZoomableImageViewer({ uri, onClose, caption, testID }: P
       savedTx.value = 0;
       savedTy.value = 0;
     }
-  }, [uri, scale, savedScale, tx, ty, savedTx, savedTy]);
+  }, [visible, scale, savedScale, tx, ty, savedTx, savedTy]);
 
   const closeAnd = useCallback(() => {
     onClose();
@@ -181,7 +198,7 @@ export default function ZoomableImageViewer({ uri, onClose, caption, testID }: P
 
   return (
     <Modal
-      visible={!!uri}
+      visible={visible}
       transparent
       animationType="fade"
       onRequestClose={onClose}
@@ -193,9 +210,9 @@ export default function ZoomableImageViewer({ uri, onClose, caption, testID }: P
             and pan happen on the image (not the backdrop). */}
         <GestureDetector gesture={composed}>
           <Animated.View style={[styles.imgWrap, animStyle]}>
-            {uri && (
+            {imageSource && (
               <Animated.Image
-                source={{ uri }}
+                source={imageSource}
                 style={styles.img}
                 resizeMode="contain"
                 accessibilityLabel="Zoomable image"

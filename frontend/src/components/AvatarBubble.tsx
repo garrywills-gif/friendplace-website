@@ -116,10 +116,10 @@ export default function AvatarBubble({
   );
 
   const inner = isImage ? (
-    zoomable && !presetSource && base && /^https?:/i.test(base) ? (
-      // Zoom is only offered for real URLs (uploaded photos, Google
-      // avatars). Presets and data URIs render at their native size
-      // in the tap-to-view — the extra modal doesn't add value.
+    // Zoomable when we have EITHER a preset avatar (bundled require()d
+    // source) OR a real photo (http(s) URL or data: URI). Emoji is
+    // never zoomable — nothing to see at higher resolution.
+    zoomable && (presetSource || (base && /^(https?:|data:)/i.test(base))) ? (
       <View style={{ width: size, height: size }}>
         <Pressable
           onPress={() => setZoomOpen(true)}
@@ -130,7 +130,11 @@ export default function AvatarBubble({
           {imageEl}
         </Pressable>
         <ZoomableImageViewer
-          uri={zoomOpen ? (base as string) : null}
+          // Forward whichever shape we have. `source` wins over `uri`
+          // when both are set — the viewer accepts either. Guarded by
+          // `zoomOpen` so the modal doesn't preload assets before tap.
+          source={zoomOpen && presetSource ? presetSource : null}
+          uri={zoomOpen && !presetSource && base ? base : null}
           onClose={() => setZoomOpen(false)}
         />
       </View>
