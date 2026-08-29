@@ -46,6 +46,7 @@ import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import SpeakButton from "@/src/components/SpeakButton";
 
 // FriendPlace teal butterfly — the primary brand mark for every step
 // header. Using the app icon so the artwork stays consistent with the
@@ -341,6 +342,20 @@ export default function OnboardingWizard() {
               <Text style={{ color: "#0F766E", fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
                 GEORGE
               </Text>
+              {/* Read-aloud on the final "You're all set" screen (Session 2
+                  launch-polish 2026-08-14). Same SpeakButton, same
+                  companion-voice branching. Ensures audio is available
+                  from the first George/Georgia intro through to the
+                  very last screen of the tour. */}
+              <View style={{ marginLeft: "auto" }}>
+                <SpeakButton
+                  text={"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces. And remember, I\u2019m only ever a butterfly tap away."}
+                  color="#0F766E"
+                  bg="rgba(255,255,255,0.85)"
+                  size={20}
+                  testID="onb-celebrate-speak"
+                />
+              </View>
             </View>
             <Text style={{ color: "#0A2540", fontSize: 15 * scale, fontWeight: "700", lineHeight: 22 }}>
               {"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces.\n\nAnd remember\u2026 I\u2019m only ever a butterfly tap away. \uD83E\uDD8B"}
@@ -604,6 +619,23 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
           hangs half-off the card like a bird on a windowsill. */}
       {bubble ? (
         <View style={{ position: "relative", overflow: "visible", marginTop: 12 }} testID="onb-george-bubble-wrap">
+          {/* Read-aloud button (Session 2 launch-polish 2026-08-14).
+              Sits absolutely-positioned inside the bubble's top-right
+              corner so it's discoverable from the very first George/
+              Georgia introduction, and reuses the app-wide SpeakButton
+              which automatically picks the member's companion voice
+              (George → OpenAI "ash"; Georgia → OpenAI "nova"). No
+              second audio system was built — same SpeakButton used
+              on Home, Notice Board, DM, Moments and every game. */}
+          <View style={{ position: "absolute", top: 6, right: 6, zIndex: 2 }} pointerEvents="box-none">
+            <SpeakButton
+              text={"Hi, I\u2019m George. Welcome to FriendPlace! I\u2019ll be your guide while you\u2019re getting started. I\u2019ll show you around, answer questions and help you find your way whenever you need me. You\u2019ll also meet Georgia. We know the same things — we just have different personalities, so you can chat with whichever of us feels right for you."}
+              color="#0F766E"
+              bg="rgba(255,255,255,0.85)"
+              size={22}
+              testID="onb-welcome-speak"
+            />
+          </View>
           <View
             style={[
               styles.georgeBubble,
@@ -682,6 +714,19 @@ function StepFeatureTour({ scale, c, page }: { scale: number; c: any; page: Tour
             <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
               GEORGE
             </Text>
+            {/* Read-aloud (Session 2 launch-polish 2026-08-14) —
+                available on every tour step. Reuses SpeakButton so
+                the companion voice preference (George/Georgia) is
+                honoured automatically. */}
+            <View style={{ marginLeft: "auto" }}>
+              <SpeakButton
+                text={page.bubble}
+                color={c.brand}
+                bg="rgba(255,255,255,0.7)"
+                size={20}
+                testID={`onb-tour-speak-${page.title.toLowerCase().replace(/\s+/g, "-")}`}
+              />
+            </View>
           </View>
           <Text style={{ color: c.onSurface, fontSize: 15 * scale, fontWeight: "700", lineHeight: 21 }}>
             {page.bubble}
