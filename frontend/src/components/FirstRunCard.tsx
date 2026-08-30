@@ -128,7 +128,16 @@ export default function FirstRunCard({ userId, firstName, testID = "first-run-ca
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (window as any).location.assign(route);
     } else {
-      router.replace(route as any);
+      // TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #1):
+      // Previously used `router.replace()` which REPLACED the /(tabs)/home
+      // entry in the navigation stack with the target route. For top-level
+      // routes like `/events` or `/notices`, this meant Home was no longer
+      // in the back-stack. Any subsequent forward navigation (e.g., into
+      // Notice Board from Events) then popped the user past their tabs and
+      // landed them back on `/` (Welcome), which briefly showed the Log In
+      // buttons — reads as "logged out" to the member. Using `push()`
+      // instead preserves Home in the stack so back always resolves cleanly.
+      router.push(route as any);
     }
   }
 

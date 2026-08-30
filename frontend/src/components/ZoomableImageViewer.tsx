@@ -36,7 +36,7 @@ import Animated, {
   withTiming,
   runOnJS,
 } from "react-native-reanimated";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Props = {
@@ -205,43 +205,55 @@ export default function ZoomableImageViewer({ uri, source, onClose, caption, tes
       statusBarTranslucent
       testID={testID}
     >
-      <View style={styles.backdrop}>
-        {/* The image itself — wrapped in the gesture detector so pinch
-            and pan happen on the image (not the backdrop). */}
-        <GestureDetector gesture={composed}>
-          <Animated.View style={[styles.imgWrap, animStyle]}>
-            {imageSource && (
-              <Animated.Image
-                source={imageSource}
-                style={styles.img}
-                resizeMode="contain"
-                accessibilityLabel="Zoomable image"
-              />
-            )}
-          </Animated.View>
-        </GestureDetector>
+      {/* TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #3):
+          Pinch/zoom didn't work on TestFlight. Root cause: on iOS,
+          React Native's <Modal> presents its content in a SEPARATE
+          UIWindow that sits OUTSIDE the app's root
+          <GestureHandlerRootView>. Gesture handlers registered inside
+          the modal therefore never receive touches. Fix per official
+          react-native-gesture-handler v2 docs: wrap the modal content
+          in its OWN GestureHandlerRootView. This is a no-op on web
+          preview (where the previous implementation appeared to work
+          via bubble-up), so the fix is safe across all surfaces. */}
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View style={styles.backdrop}>
+          {/* The image itself — wrapped in the gesture detector so pinch
+              and pan happen on the image (not the backdrop). */}
+          <GestureDetector gesture={composed}>
+            <Animated.View style={[styles.imgWrap, animStyle]}>
+              {imageSource && (
+                <Animated.Image
+                  source={imageSource}
+                  style={styles.img}
+                  resizeMode="contain"
+                  accessibilityLabel="Zoomable image"
+                />
+              )}
+            </Animated.View>
+          </GestureDetector>
 
-        {/* Close button — always visible, tap target 44+ */}
-        <Pressable
-          testID="zoom-close-btn"
-          onPress={onClose}
-          hitSlop={16}
-          accessibilityLabel="Close image"
-          style={[styles.close, { top: insets.top + 12 }]}
-        >
-          <Ionicons name="close-circle" size={44} color="#FFFFFFEE" />
-        </Pressable>
+          {/* Close button — always visible, tap target 44+ */}
+          <Pressable
+            testID="zoom-close-btn"
+            onPress={onClose}
+            hitSlop={16}
+            accessibilityLabel="Close image"
+            style={[styles.close, { top: insets.top + 12 }]}
+          >
+            <Ionicons name="close-circle" size={44} color="#FFFFFFEE" />
+          </Pressable>
 
-        {/* Zoom hint — visible when at 1×, disappears when zoomed */}
-        <View
-          pointerEvents="none"
-          style={[styles.hint, { bottom: insets.bottom + 18 }]}
-        >
-          <Text style={styles.hintText}>
-            {caption ? caption : "Pinch or double-tap to zoom"}
-          </Text>
+          {/* Zoom hint — visible when at 1×, disappears when zoomed */}
+          <View
+            pointerEvents="none"
+            style={[styles.hint, { bottom: insets.bottom + 18 }]}
+          >
+            <Text style={styles.hintText}>
+              {caption ? caption : "Pinch or double-tap to zoom"}
+            </Text>
+          </View>
         </View>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

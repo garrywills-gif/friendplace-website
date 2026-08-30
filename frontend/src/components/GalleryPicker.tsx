@@ -57,9 +57,18 @@ interface Props {
   /** The currently-attached image string — used to highlight the
    * current pick when re-opening the sheet. */
   currentValue?: string | null;
+  /** TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #2):
+   * Whether to render the picker inside a native <Modal>. Default true
+   * for standalone callers (e.g. New Event screen). Set to FALSE when
+   * this picker is being rendered inside ANOTHER <Modal> — iOS refuses
+   * to stack two Modals (the second one silently fails to present and
+   * taps are swallowed, then the underlying view can freeze when the
+   * outer Modal dismisses). Inline mode renders as an absolute-position
+   * overlay that lives inside the parent Modal's view tree. */
+  modal?: boolean;
 }
 
-export default function GalleryPicker({ visible, onClose, onPick, currentValue }: Props) {
+export default function GalleryPicker({ visible, onClose, onPick, currentValue, modal = true }: Props) {
   const { c, scale } = useTheme();
   const insets = useSafeAreaInsets();
   const [activeTheme, setActiveTheme] = useState<string>(() => {
@@ -114,13 +123,8 @@ export default function GalleryPicker({ visible, onClose, onPick, currentValue }
     }
   }, [onPick, onClose]);
 
-  return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
+  const sheetBody = (
+    <>
       <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Close photo picker" />
       <View
         style={[
@@ -256,6 +260,33 @@ export default function GalleryPicker({ visible, onClose, onPick, currentValue }
           })}
         </ScrollView>
       </View>
+    </>
+  );
+
+  // Inline mode: caller is already inside a <Modal> (e.g. Notice Board
+  // composer). Rendering a nested <Modal> on iOS causes the second one
+  // to silently fail. Render as an absolute-position overlay instead.
+  if (!modal) {
+    if (!visible) return null;
+    return (
+      <View
+        pointerEvents="box-none"
+        style={StyleSheet.absoluteFillObject}
+        testID="gallery-picker-inline"
+      >
+        {sheetBody}
+      </View>
+    );
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      {sheetBody}
     </Modal>
   );
 }

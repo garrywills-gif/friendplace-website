@@ -86,23 +86,52 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
         {loading && <View style={styles.loading}><ActivityIndicator size="small" color={c.brand} /></View>}
       </View>
 
-      {open && matches.length > 0 && !pns && (
-        <View style={[styles.dropdown, { backgroundColor: c.surface, borderColor: c.border }]}>
-          {matches.map((m, idx) => (
-            <Pressable
-              key={`${m.postcode}-${m.name}-${idx}`}
-              testID={`suburb-match-${m.name}`}
-              onPress={() => choose(m)}
-              style={[styles.row, { borderBottomColor: c.border }]}
+      {open && !pns && text.length >= 2 && (
+        matches.length > 0 ? (
+          <View style={[styles.dropdown, { backgroundColor: c.surface, borderColor: c.border }]}>
+            {matches.map((m, idx) => (
+              <Pressable
+                key={`${m.postcode}-${m.name}-${idx}`}
+                testID={`suburb-match-${m.name}`}
+                onPress={() => choose(m)}
+                style={[styles.row, { borderBottomColor: c.border }]}
+              >
+                <Ionicons name="location" size={18} color={c.brand} />
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>{m.name}</Text>
+                  <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>{m.state} · {m.postcode}</Text>
+                </View>
+              </Pressable>
+            ))}
+          </View>
+        ) : (
+          !loading ? (
+            /* TestFlight Fix Batch 1 (Garry, Aug 2026 — P1 #6):
+               When the typed suburb has no matches, previously the
+               dropdown just stayed hidden and the member could leave
+               the field with unrecognised free-text — their profile
+               kept its previous suburb (or empty), silently excluding
+               them from Find a Friend results. This helpful "no
+               matches" state guides them to pick a nearby major town
+               so their suburb is actually recognised. */
+            <View
+              testID="suburb-no-matches"
+              style={[styles.dropdown, { backgroundColor: c.surface, borderColor: c.border, padding: 14, gap: 8 }]}
             >
-              <Ionicons name="location" size={18} color={c.brand} />
-              <View style={{ flex: 1, marginLeft: 10 }}>
-                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>{m.name}</Text>
-                <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>{m.state} · {m.postcode}</Text>
+              <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+                <Ionicons name="information-circle-outline" size={22} color={c.brand} style={{ marginTop: 1 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>
+                    We don&rsquo;t have that suburb yet
+                  </Text>
+                  <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 4, lineHeight: 18 }}>
+                    Try the closest main town or suburb — or tap &ldquo;Prefer not to say&rdquo; below and add it later.
+                  </Text>
+                </View>
               </View>
-            </Pressable>
-          ))}
-        </View>
+            </View>
+          ) : null
+        )
       )}
 
       <Pressable

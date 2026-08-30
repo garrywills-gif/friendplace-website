@@ -238,19 +238,32 @@ async def active_onboarding_session(db: Any, *, actor_id: str) -> Optional[dict]
     if not active:
         return None
     # Cross-check with the user's profile-complete flag. If the user
-    # is a member whose onboarding has already been approved, this
-    # session is stale — never re-route them back into onboarding.
+    # is a member whose George onboarding has already been approved,
+    # this session is stale — never re-route them back into onboarding.
+    #
+    # TestFlight Fix Batch 1 (Garry, Aug 2026 — P1 #7 "George forgot me
+    # after logout"): previously we ALSO invalidated on
+    # `users.onboarding_completed == True`, but that flag is set by the
+    # SIGNUP wizard (interests/location/groups — see server.py
+    # `/onboarding/complete` and `/onboarding/save`), NOT by finishing
+    # the Get-to-Know-You conversation. A fresh member who says
+    # "call me testie" to George mid-conversation, then logs out and
+    # back in, would have `onboarding_completed=True` from the signup
+    # wizard finishing during initial account setup — but their George
+    # session is legitimately still in-progress (never approved via
+    # `approve_onboarding`, which is what sets `profile_complete`). The
+    # over-aggressive check silently cancelled their session and
+    # George started fresh with no memory of "testie". Only
+    # `profile_complete` should invalidate — that flag is set
+    # exclusively by `approve_onboarding`.
     try:
         user_doc = await db.users.find_one(
             {"id": actor_id},
-            {"_id": 0, "profile_complete": 1, "onboarding_completed": 1},
+            {"_id": 0, "profile_complete": 1},
         )
     except Exception:
         user_doc = None
-    if user_doc and (
-        user_doc.get("profile_complete") is True
-        or user_doc.get("onboarding_completed") is True
-    ):
+    if user_doc and user_doc.get("profile_complete") is True:
         # Best-effort cleanup so subsequent presence lookups are
         # cheap and the session doesn't linger indefinitely.
         try:

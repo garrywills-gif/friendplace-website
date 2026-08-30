@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image, Keyboard } from "react-native";
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -139,6 +139,15 @@ export default function Notices() {
 
   const submitPost = async () => {
     if (!user || !pTitle.trim() || !pBody.trim()) { show("Add a title and message"); return; }
+    // TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #2):
+    // Dismiss the keyboard BEFORE closing the composer Modal. On iOS,
+    // if the keyboard is still up when the Modal starts its slide-down
+    // dismissal, the keyboard can become "orphaned" from the modal's
+    // input, leaving the underlying screen unresponsive to touches
+    // ("freeze"). This is a well-known iOS Modal + KeyboardAvoidingView
+    // interaction bug. Explicit Keyboard.dismiss() lets the keyboard
+    // retract first, then the modal closes cleanly.
+    Keyboard.dismiss();
     try {
       if (editing) {
         await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat, image: pImage });
@@ -510,16 +519,22 @@ export default function Notices() {
               <Button testID="post-submit" label={editing ? "Save changes" : "Post to Notice Board"} onPress={submitPost} />
             </View>
           </KeyboardAvoidingView>
+          {/* TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #2):
+              Gallery picker is rendered INSIDE the composer Modal in
+              inline (non-Modal) mode. Nesting two <Modal>s on iOS causes
+              the second one to fail to present and swallow all taps
+              ("Choose Photo doesn't work"). Inline mode paints the
+              picker as an absolute overlay within this Modal's own view
+              tree so gestures and animations behave correctly. */}
+          <GalleryPicker
+            visible={pImagePicker}
+            onClose={() => setPImagePicker(false)}
+            onPick={setPImage}
+            currentValue={pImage}
+            modal={false}
+          />
         </View>
       </Modal>
-
-      {/* Gallery picker sheet — shared with Local Events. */}
-      <GalleryPicker
-        visible={pImagePicker}
-        onClose={() => setPImagePicker(false)}
-        onPick={setPImage}
-        currentValue={pImage}
-      />
     </View>
   );
 }

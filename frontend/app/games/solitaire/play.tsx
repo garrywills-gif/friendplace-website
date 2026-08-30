@@ -229,12 +229,46 @@ export default function SolitairePlay() {
   const onHint = () => {
     const h = findHint(state);
     if (!h) { show("No moves left — this deal is finished 🃏"); setHintFlash(null); return; }
+    // TestFlight Fix Batch 1 (Garry, Aug 2026 — P1 #5):
+    // Previous labels like "Move column 4 → column 3" were ambiguous —
+    // a Klondike column can hold face-down cards at the bottom plus a
+    // face-up run at the top, and the hint only moves the face-up run.
+    // Users saw the label and expected the WHOLE column to move,
+    // couldn't, and reported the hint as invalid. Naming the exact
+    // top card being moved fixes it. The engine result is legal —
+    // this is a labelling clarity fix only.
+    const cardName = (c: { rank: number; suit: Suit }) =>
+      `${RANK_LABEL[c.rank as 1]}${SUIT_SYMBOL[c.suit]}`;
     let label = "";
     let flash: any = {};
-    if (h.kind === "waste-to-foundation") { label = `Move waste card to ${SUIT_SYMBOL[h.suit]} foundation`; flash = { suit: h.suit }; }
-    if (h.kind === "waste-to-tableau") { label = `Move waste card to column ${h.toPile + 1}`; flash = { pile: h.toPile }; }
-    if (h.kind === "tableau-to-foundation") { label = `Send column ${h.fromPile + 1} to ${SUIT_SYMBOL[h.suit]} foundation`; flash = { pile: h.fromPile, suit: h.suit }; }
-    if (h.kind === "tableau-to-tableau") { label = `Move column ${h.fromPile + 1} → column ${h.toPile + 1}`; flash = { pile: h.toPile }; }
+    if (h.kind === "waste-to-foundation") {
+      const w = state.waste[state.waste.length - 1];
+      label = `Move ${w ? cardName(w) : "waste card"} to ${SUIT_SYMBOL[h.suit]} foundation`;
+      flash = { suit: h.suit };
+    }
+    if (h.kind === "waste-to-tableau") {
+      const w = state.waste[state.waste.length - 1];
+      label = `Move ${w ? cardName(w) : "waste card"} to column ${h.toPile + 1}`;
+      flash = { pile: h.toPile };
+    }
+    if (h.kind === "tableau-to-foundation") {
+      const src = state.tableau[h.fromPile];
+      const t = src[src.length - 1];
+      label = t
+        ? `Send ${cardName(t)} from column ${h.fromPile + 1} to ${SUIT_SYMBOL[h.suit]} foundation`
+        : `Send column ${h.fromPile + 1} to ${SUIT_SYMBOL[h.suit]} foundation`;
+      flash = { pile: h.fromPile, suit: h.suit };
+    }
+    if (h.kind === "tableau-to-tableau") {
+      const src = state.tableau[h.fromPile];
+      const head = src[h.fromIndex];
+      // Show the specific card being moved so the member knows exactly
+      // which card to drag. E.g. "Move 5♣ from column 4 → column 3"
+      label = head
+        ? `Move ${cardName(head)} from column ${h.fromPile + 1} → column ${h.toPile + 1}`
+        : `Move column ${h.fromPile + 1} → column ${h.toPile + 1}`;
+      flash = { pile: h.toPile };
+    }
     if (h.kind === "draw-stock") {
       // Batch B P2 #1: guide the member towards the stock pile instead
       // of returning a dead-end toast.
