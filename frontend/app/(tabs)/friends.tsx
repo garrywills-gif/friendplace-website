@@ -628,13 +628,20 @@ export default function Friends() {
               >
                 {flutteredIds.has(item.id) ? (
                   <>
-                    <Ionicons name="checkmark" size={16} color={c.brand} />
+                    {/* Batch C follow-up (Garry, Aug 2026): keep the
+                        Flutter completed state as "Fluttered ✓" — it
+                        has a different meaning to a friend request.
+                        Tightened spacing + adjustsFontSizeToFit lets
+                        the longer word sit on one line on 375-wide
+                        iPhones without wrapping. */}
+                    <Ionicons name="checkmark" size={14} color={c.brand} />
                     <Text
                       numberOfLines={1}
                       adjustsFontSizeToFit
-                      style={[styles.actionText, { color: c.onSurface }]}
+                      minimumFontScale={0.85}
+                      style={[styles.actionText, { color: c.onSurface, fontSize: 13 }]}
                     >
-                      Sent
+                      Fluttered
                     </Text>
                   </>
                 ) : (
