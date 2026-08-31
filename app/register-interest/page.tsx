@@ -17,14 +17,14 @@
  * The backend endpoint + Resend confirmation email arrive in Phase C.
  *
  * Locked-in rules (Garry, Jul 2026):
- *   \u2022 Required: first name + email.
- *   \u2022 Optional: state/country, how did you hear about us.
- *   \u2022 Nothing else. The goal is <20 seconds to submit.
- *   \u2022 The companion the visitor chose is recorded alongside so
+ *   • Required: first name + email.
+ *   • Optional: state/country, how did you hear about us.
+ *   • Nothing else. The goal is <20 seconds to submit.
+ *   • The companion the visitor chose is recorded alongside so
  *     "Welcome back" on first app login is genuine.
  *
  * Read /app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md before editing.
- * The form is not a form \u2014 it's a conversation with 4 questions.
+ * The form is not a form — it's a conversation with 4 questions.
  */
 
 import Link from 'next/link';
@@ -35,7 +35,7 @@ import { API_BASE } from '@/lib/api-base';
 export default function RegisterInterestPage() {
   // We still read the companion so we can record their choice with the
   // registration (drives the "Welcome back" moment on first app login).
-  // But we no longer NAME them in the page copy \u2014 the visitor has
+  // But we no longer NAME them in the page copy — the visitor has
   // just come off the tour and George's closing line; the form is not
   // the moment for another host greeting.
   const { companion, meta } = useCompanion();
@@ -44,6 +44,7 @@ export default function RegisterInterestPage() {
   const [email, setEmail]             = useState('');
   const [location, setLocation]       = useState('');
   const [heardFrom, setHeardFrom]     = useState('');
+  const [referralSource, setReferralSource] = useState('');
   const [submitting, setSubmitting]   = useState(false);
   const [done, setDone]               = useState(false);
   const [founderNumber, setFounderNumber] = useState<number | null>(null);
@@ -82,6 +83,14 @@ export default function RegisterInterestPage() {
     } else {
       setWhyHref('/#why-friendplace');
     }
+
+    // Referral links use the Founding Member's permanent number, e.g.
+    // ?ref=FM0033. We keep this deliberately lightweight and record it
+    // through the existing `heard_from` field so the current production
+    // backend can track referral registrations without a schema change.
+    const params = new URLSearchParams(window.location.search);
+    const ref = (params.get('ref') || '').trim().toUpperCase();
+    if (/^FM\d{1,6}$/.test(ref)) setReferralSource(ref);
   }, []);
 
   // Reveal-moment side-effects — run once when the form flips from
@@ -176,9 +185,9 @@ export default function RegisterInterestPage() {
       setError('Please leave your first name and email so we know how to reach you.');
       return;
     }
-    // Very light email sanity check \u2014 the backend is the source of truth.
+    // Very light email sanity check — the backend is the source of truth.
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
-      setError("That email doesn't look quite right \u2014 could you double-check it?");
+      setError("That email doesn't look quite right — could you double-check it?");
       return;
     }
     setSubmitting(true);
@@ -188,6 +197,9 @@ export default function RegisterInterestPage() {
       // chosen companion. Any non-2xx surfaces as a friendly error;
       // the DB write itself is the source of truth so an email
       // failure never punishes the visitor.
+      const referralHeardFrom = referralSource
+        ? `referral:${referralSource}${heardFrom.trim() ? ` | ${heardFrom.trim()}` : ''}`
+        : (heardFrom.trim() || null);
       const res = await fetch(`${API_BASE}/api/public/register-interest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,7 +207,7 @@ export default function RegisterInterestPage() {
           first_name: firstName.trim(),
           email: email.trim().toLowerCase(),
           state_country: location.trim() || null,
-          heard_from: heardFrom.trim() || null,
+          heard_from: referralHeardFrom,
           companion_choice: companion,
         }),
       });
@@ -211,9 +223,9 @@ export default function RegisterInterestPage() {
         // 429 = rate-limited (five per hour per IP). We soften the
         // wording so it still feels like a person, not a server.
         if (res.status === 429) {
-          setError('It looks like a few of you might be registering from the same place \u2014 give it a moment and try again.');
+          setError('It looks like a few of you might be registering from the same place — give it a moment and try again.');
         } else {
-          setError(msg || "Something went wrong on our side \u2014 could you try again in a moment?");
+          setError(msg || "Something went wrong on our side — could you try again in a moment?");
         }
         return;
       }
@@ -230,7 +242,7 @@ export default function RegisterInterestPage() {
       setDone(true);
     } catch (err) {
       console.error('[ryi] submit failed', err);
-      // Network hiccup on the visitor's side \u2014 don't punish them
+      // Network hiccup on the visitor's side — don't punish them
       // for it; the retry is just a tap away.
       setError("Your internet seems a little slow. Could you try again?");
     } finally {
@@ -370,6 +382,10 @@ export default function RegisterInterestPage() {
               </li>
             </ul>
 
+            {founderNumber && founderNumber > 0 && (
+              <ReferralSharePanel founderNumber={founderNumber} />
+            )}
+
             <div style={{ marginTop: 32 }}>
               {/* Continue Exploring — deep-links to the "Why
                   FriendPlace?" section on the homepage (NOT the
@@ -397,7 +413,7 @@ export default function RegisterInterestPage() {
         <div style={plate}>
           {/* No explanation, no persuasion. By the time a visitor
               reaches this page they've had the whole story. RYI is
-              the moment they say yes \u2014 nothing more. Locked with
+              the moment they say yes — nothing more. Locked with
               Garry (Dec 2026): "This should be the natural conclusion
               after they've explored the story." */}
           <h1 style={openingLine}>Whenever you&rsquo;re ready.</h1>
@@ -461,7 +477,7 @@ export default function RegisterInterestPage() {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
               <button type="submit" disabled={submitting} style={{ ...primaryCta, opacity: submitting ? 0.6 : 1 }}>
-                {submitting ? 'Sending\u2026' : 'That\u2019s my hello'}
+                {submitting ? 'Sending…' : 'That’s my hello'}
               </button>
             </div>
           </form>
@@ -476,6 +492,56 @@ export default function RegisterInterestPage() {
   );
 }
 
+function ReferralSharePanel({ founderNumber }: { founderNumber: number }) {
+  const [copied, setCopied] = useState(false);
+  const code = `FM${String(founderNumber).padStart(4, '0')}`;
+  const url = `https://www.friendplace.com.au/register-interest?ref=${code}`;
+  const text = 'I’ve just become a FriendPlace Founding Member. It’s an Australian community for making genuine friendships and connecting locally. Have a look 🦋';
+
+  async function shareMore() {
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: 'FriendPlace', text, url });
+        return;
+      } catch { /* cancelled or unavailable — no action needed */ }
+    }
+    if (typeof window !== 'undefined') window.open(`mailto:?subject=${encodeURIComponent('Have a look at FriendPlace')}&body=${encodeURIComponent(`${text}\n\n${url}`)}`);
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch { /* clipboard unavailable */ }
+  }
+
+  const facebook = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+  const emailHref = `mailto:?subject=${encodeURIComponent('Have a look at FriendPlace')}&body=${encodeURIComponent(`${text}\n\n${url}`)}`;
+  const smsHref = `sms:?&body=${encodeURIComponent(`${text} ${url}`)}`;
+
+  return (
+    <div style={referralPanel}>
+      <div style={{ fontSize: 20, fontWeight: 850, color: '#0A2540' }}>
+        Know someone who might enjoy FriendPlace too?
+      </div>
+      <p style={{ ...leadCopy, fontSize: 15, marginTop: 8 }}>
+        Share FriendPlace with a friend and help us welcome the next Founding Member. 🦋
+      </p>
+      <div style={referralButtons}>
+        <a href={facebook} target="_blank" rel="noreferrer" style={referralButton}>Facebook</a>
+        <button type="button" onClick={shareMore} style={referralButton}>Messenger / More</button>
+        <a href={emailHref} style={referralButton}>Email</a>
+        <a href={smsHref} style={referralButton}>SMS</a>
+        <button type="button" onClick={copyLink} style={referralButton}>{copied ? 'Copied ✓' : 'Copy link'}</button>
+      </div>
+      <div style={{ marginTop: 12, fontSize: 11, color: '#94A3B8' }}>
+        Your share link includes your Founding Member referral code {code}.
+      </div>
+    </div>
+  );
+}
+
 // ─── Field wrapper ────────────────────────────────────────────────────
 
 function Field({ label, required, optional, children }: {
@@ -485,7 +551,7 @@ function Field({ label, required, optional, children }: {
     <label style={{ display: 'block', marginTop: 18 }}>
       <span style={fieldLabel}>
         {label}
-        {optional && <span style={optionalTag}>{' \u2014 optional'}</span>}
+        {optional && <span style={optionalTag}>{' — optional'}</span>}
       </span>
       {children}
     </label>
@@ -589,6 +655,40 @@ const secondaryCta: React.CSSProperties = {
   fontSize: 14, fontWeight: 700, textDecoration: 'none',
   border: '1.5px solid #99F6E4',
   borderRadius: 12,
+};
+
+const referralPanel: React.CSSProperties = {
+  marginTop: 28,
+  padding: '22px 18px',
+  borderRadius: 18,
+  background: '#F8FAFC',
+  border: '1px solid #E2E8F0',
+};
+
+const referralButtons: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  justifyContent: 'center',
+  gap: 8,
+  marginTop: 16,
+};
+
+const referralButton: React.CSSProperties = {
+  appearance: 'none',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: 40,
+  padding: '9px 13px',
+  borderRadius: 999,
+  border: '1.5px solid #99F6E4',
+  background: '#FFFFFF',
+  color: '#0F766E',
+  textDecoration: 'none',
+  fontSize: 13,
+  fontWeight: 750,
+  fontFamily: 'inherit',
+  cursor: 'pointer',
 };
 
 // Quiet, secondary — sits under the number card, doesn't fight
