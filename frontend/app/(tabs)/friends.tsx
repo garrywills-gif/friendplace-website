@@ -597,15 +597,21 @@ export default function Friends() {
                       testID={`add-friend-sent-${item.id}`}
                       style={[styles.actionBtn, { backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.border }]}
                     >
-                      <Ionicons name="checkmark" size={18} color={c.brand} />
-                      <Text style={[styles.actionText, { color: c.onSurface }]}>Request Sent</Text>
+                      <Ionicons name="checkmark" size={16} color={c.brand} />
+                      <Text
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        style={[styles.actionText, { color: c.onSurface }]}
+                      >
+                        Sent
+                      </Text>
                     </View>
                   );
                 }
                 return (
                   <Pressable testID={`add-friend-${item.id}`} onPress={() => sendReq(item)} style={[styles.actionBtn, { backgroundColor: c.brand }]}>
-                    <Ionicons name="person-add" size={18} color="#FFF" />
-                    <Text style={[styles.actionText]}>Add</Text>
+                    <Ionicons name="person-add" size={16} color="#FFF" />
+                    <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.actionText]}>Add</Text>
                   </Pressable>
                 );
               })()}
@@ -623,18 +629,24 @@ export default function Friends() {
                 {flutteredIds.has(item.id) ? (
                   <>
                     <Ionicons name="checkmark" size={16} color={c.brand} />
-                    <Text style={[styles.actionText, { color: c.onSurface }]}>Fluttered</Text>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      style={[styles.actionText, { color: c.onSurface }]}
+                    >
+                      Sent
+                    </Text>
                   </>
                 ) : (
                   <>
                     <GeorgeButterflyMark size={16} />
-                    <Text style={[styles.actionText]}>Flutter</Text>
+                    <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.actionText]}>Flutter</Text>
                   </>
                 )}
               </Pressable>
               <Pressable testID={`msg-${item.id}`} onPress={() => startDm(item)} style={[styles.actionBtn, { backgroundColor: c.brandSecondary }]}>
-                <Ionicons name="chatbubble-ellipses" size={18} color="#FFF" />
-                <Text style={[styles.actionText]}>Msg</Text>
+                <Ionicons name="chatbubble-ellipses" size={16} color="#FFF" />
+                <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.actionText]}>Msg</Text>
               </Pressable>
             </View>
           </View>
@@ -666,8 +678,8 @@ const styles = StyleSheet.create({
   name: { fontWeight: "800" },
   metaText: { marginTop: 2, fontWeight: "500" },
   actionRow: { flexDirection: "row", gap: 8 },
-  actionBtn: { flex: 1, minHeight: 48, borderRadius: 999, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
-  actionText: { color: "#FFF", fontWeight: "700", fontSize: 15 },
+  actionBtn: { flex: 1, minHeight: 48, borderRadius: 999, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6, paddingHorizontal: 8, minWidth: 0 },
+  actionText: { color: "#FFF", fontWeight: "700", fontSize: 14, flexShrink: 1 },
 });
 
 const modalStyles = StyleSheet.create({

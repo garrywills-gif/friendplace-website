@@ -293,7 +293,18 @@ export default function GalleryPicker({ visible, onClose, onPick, currentValue, 
 
 const styles = StyleSheet.create({
   backdrop: {
-    flex: 1,
+    // Batch B fix (Garry, Aug 2026 — "Notice Board Add-a-photo locks
+    // the screen on 1027"): the Batch 1 inline-mode overlay used
+    // `flex:1` on the backdrop, but the inline parent is
+    // position:absolute (no flex context on iOS), so the backdrop
+    // computed to zero height. The sheet still rendered near the
+    // bottom but with no visible dim overlay and no tap-away zone,
+    // so tapping outside the sheet did nothing and the composer
+    // read as "locked". Explicit absolute positioning inside the
+    // inline overlay fixes this without regressing the standalone-
+    // Modal path (where the surrounding Modal is already full-screen
+    // so absolute inset:0 has the same effect as flex:1 did).
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.55)",
   },
   sheet: {

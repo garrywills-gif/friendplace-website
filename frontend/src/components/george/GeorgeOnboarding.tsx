@@ -6,6 +6,7 @@ import {
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
+import { TypingDots } from './TypingDots';
 import { georgeApi } from '@/src/lib/george-api';
 import GeorgeSpeakButton from '@/src/components/george/GeorgeSpeakButton';
 import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
@@ -286,8 +287,12 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
         {busy && !showPreview && (
           <View style={styles.bubbleRow}>
             <View style={styles.avatarSlot} />
-            <View style={[styles.bubble, { paddingHorizontal: 18 }]}>
-              <ActivityIndicator size="small" color="#14B8A6" />
+            <View style={[styles.bubble, { paddingHorizontal: 18, paddingVertical: 10 }]}>
+              {/* Batch B fix (Garry, TestFlight 1027 — "restore animated
+                  thinking bubbles"): replaced the cold ActivityIndicator
+                  with a warm three-dot pulse that reads like George is
+                  actually thinking, not loading. */}
+              <TypingDots color="#FFFFFF" size={7} testID="george-onboarding-thinking" />
             </View>
           </View>
         )}

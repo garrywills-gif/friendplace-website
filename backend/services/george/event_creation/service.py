@@ -1279,6 +1279,7 @@ async def _compose_next(
     current_screen: Optional[str] = None,
     system_state: Optional[dict] = None,
     kb_block: str = "",
+    member_context: Optional[dict] = None,
 ) -> dict:
     # Every George shares the same institutional memory (see
     # `services/george/kb_grounding.py`). If the caller retrieved a
@@ -1288,6 +1289,34 @@ async def _compose_next(
     system_message = COMPOSER_SYSTEM.strip()
     if kb_block:
         system_message = system_message + kb_block
+    # Batch B fix (Garry, TestFlight 1027 — "trusted stored member
+    # context should be available so George can naturally remember
+    # and discuss relevant things the member has previously told
+    # him, without inventing facts"): if the caller supplied a
+    # member_context payload (from `services.george.memory.
+    # member_recall_context`), surface it into the composer prompt
+    # as an unmistakable authorised MEMBER MEMORY block. The
+    # composer is instructed to reference only what appears here —
+    # never invent — and to omit the name entirely if preferred_name
+    # is null. This is the load-bearing bit that turns George from
+    # a stateless assistant into a companion who remembers.
+    if member_context:
+        pn = member_context.get("preferred_name")
+        interests = member_context.get("interests") or []
+        area = member_context.get("area")
+        wants_more_of = member_context.get("wants_more_of")
+        lines = ["", "──────────────────────────────────────────",
+                 "MEMBER MEMORY (trusted — you may naturally reference any of these; NEVER invent anything not listed here)"]
+        lines.append(f"- Preferred name: {pn if pn else '(not set — address the member WITHOUT a name)'}")
+        if interests:
+            lines.append(f"- Interests / hobbies: {', '.join(interests)}")
+        if area:
+            lines.append(f"- Suburb / area: {area}")
+        if wants_more_of:
+            lines.append(f"- Wants more of: {wants_more_of}")
+        lines.append("Rules for this block: reference at most ONE fact from MEMBER MEMORY per turn, and only when it fits naturally. If nothing here fits, don't force it. NEVER add or infer facts not listed above. If preferred_name is '(not set)', do not use any name — never substitute a pronoun or another field.")
+        lines.append("──────────────────────────────────────────")
+        system_message = system_message + "\n" + "\n".join(lines)
     chat = LlmChat(
         api_key=_emergent_key(),
         session_id=f"event-compose-{uuid.uuid4().hex[:8]}",
@@ -1419,12 +1448,26 @@ async def start_event_conversation(
             db=db, user_message=seed, surface="member",
             session_id=session_id, user_id=host_id,
         )
+        # Batch B fix (Garry, Aug 2026): pull the member's trusted
+        # stored context — preferred name, interests, area,
+        # wants_more_of — so George can naturally reference them.
+        # `member_recall_context` is fully validated and safe to feed
+        # to the LLM. Failing quietly is fine — the composer degrades
+        # gracefully to the no-memory path.
+        _mem_ctx: dict | None = None
+        try:
+            from services.george.memory import member_recall_context as _mrc
+            _host_doc = await db.users.find_one({"id": host_id}, {"_id": 0}) if host_id else None
+            _mem_ctx = _mrc(_host_doc) if _host_doc else None
+        except Exception:
+            _mem_ctx = None
         composed = await _compose_next(
             extracted, defaults_pre, turns, today_iso,
             suggestion_offered=False,
             current_screen=current_screen,
             system_state=await _founders_system_state(db),
             kb_block=_kb_block,
+            member_context=_mem_ctx,
         )
 
     defaults = await infer_defaults(db, extracted, host_id=host_id)
@@ -1960,6 +2003,15 @@ async def take_conversation_turn(
         db=db, user_message=user_text, surface="member",
         session_id=session_id, user_id=session.get("host_id"),
     )
+    # Batch B fix: surface trusted member memory into the composer.
+    _mem_ctx: dict | None = None
+    try:
+        from services.george.memory import member_recall_context as _mrc
+        _host_id = session.get("host_id")
+        _host_doc = await db.users.find_one({"id": _host_id}, {"_id": 0}) if _host_id else None
+        _mem_ctx = _mrc(_host_doc) if _host_doc else None
+    except Exception:
+        _mem_ctx = None
 
     composed = await _compose_next(
         extracted, defaults, turns, today_iso,
@@ -1968,6 +2020,7 @@ async def take_conversation_turn(
         current_screen=current_screen or session.get("current_screen"),
         system_state=await _founders_system_state(db),
         kb_block=_kb_block,
+        member_context=_mem_ctx,
     )
     # If either side flagged a restart, we clear the draft too.
     restart = bool(composed.get("restart_requested")) or restart_locally
