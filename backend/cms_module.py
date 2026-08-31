@@ -894,6 +894,164 @@ def build_router(db) -> APIRouter:
         }
 
 
+    # ============================================================
+    # ORGANISATION OUTREACH  ·  MCGS → Outreach page (Aug 2026)
+    # ============================================================
+    # Backs the deployed website's `/admin/outreach` page which lists
+    # retirement villages, RSLs, libraries, community organisations
+    # etc. we've reached out to. Data lives in `cms_organisations`
+    # (same collection the milestones scanner reads). Records are
+    # authored elsewhere / migrated from CRM history — this endpoint
+    # is READ + soft-archive only. It never writes new outreach rows.
+    #
+    # The deployed frontend hits:
+    #   GET  /api/cms/outreach/organisations?<q|status|category|limit>
+    #   POST /api/cms/outreach/organisations/{id}/archive
+    # Both were 404ing on production because the routes hadn't been
+    # registered yet. See production JS chunk
+    # `_next/static/chunks/app/admin/outreach/page-*.js`.
+
+    def _outreach_row(d: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id":                d.get("id"),
+            "name":               d.get("name") or "",
+            "outreach_number":    d.get("outreach_number"),
+            "category":           d.get("category") or d.get("type") or "",
+            "status":             d.get("status") or "new",
+            "contact_name":       d.get("contact_name") or "",
+            "contact_email":      d.get("contact_email") or "",
+            "contact_phone":      d.get("contact_phone") or "",
+            "suburb":             d.get("suburb") or "",
+            "state":              d.get("state") or "",
+            "postcode":           d.get("postcode") or "",
+            "website":            d.get("website") or "",
+            "notes":              d.get("notes") or "",
+            "tags":               d.get("tags") or [],
+            "created_at":         d.get("created_at"),
+            "last_contacted_at":  d.get("last_contacted_at"),
+            "next_follow_up_at":  d.get("next_follow_up_at"),
+            "archived":           bool(d.get("archived")),
+            "archived_at":        d.get("archived_at"),
+        }
+
+    @router.get("/outreach/organisations")
+    @router.get("/outreach/organisations/")  # tolerate trailing slash — deployed frontend uses it
+    async def outreach_organisations_list(
+        q: Optional[str] = None,
+        status: Optional[str] = None,
+        category: Optional[str] = None,
+        archived: bool = False,
+        limit: int = 200,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """List outreach organisations. Hidden archived rows by default
+        so the working queue is clean. Pass ``?archived=true`` for the
+        archived surface. Returns an empty ``rows`` list (never a 404)
+        when the collection is genuinely empty — that lets the client
+        distinguish an API error (5xx / 4xx) from a legitimate empty
+        state and stop showing the misleading "No outreach
+        organisations yet" when the request actually failed.
+        """
+        lim = max(1, min(int(limit or 200), 500))
+        query: Dict[str, Any] = (
+            {"archived": True} if archived else {"archived": {"$ne": True}}
+        )
+        if status:
+            query["status"] = status
+        if category:
+            # Match either `category` or legacy `type` field.
+            query["$or"] = [{"category": category}, {"type": category}]
+        if q:
+            # Case-insensitive substring across the most useful fields.
+            import re
+            needle = re.escape(q.strip())
+            regex = {"$regex": needle, "$options": "i"}
+            or_clause = [
+                {"name": regex}, {"contact_name": regex},
+                {"contact_email": regex}, {"suburb": regex},
+                {"notes": regex},
+            ]
+            # Merge with any existing $or (from category) safely.
+            existing_or = query.pop("$or", None)
+            if existing_or:
+                query["$and"] = [{"$or": existing_or}, {"$or": or_clause}]
+            else:
+                query["$or"] = or_clause
+        rows_raw = await db.cms_organisations.find(query, {"_id": 0}) \
+            .sort("created_at", -1).to_list(lim)
+        rows = [_outreach_row(d) for d in rows_raw]
+        return {"count": len(rows), "rows": rows}
+
+    @router.post("/outreach/organisations/{org_id}/archive")
+    async def outreach_organisation_archive(
+        org_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Soft-archive an outreach organisation. Record is retained
+        and remains queryable via ``?archived=true``. Idempotent."""
+        from datetime import datetime, timezone
+        from services import audit as _audit  # local import — module boundary
+        existing = await db.cms_organisations.find_one(
+            {"id": org_id}, {"_id": 0, "id": 1, "archived": 1, "archived_at": 1},
+        )
+        if existing is None:
+            raise HTTPException(404, "Organisation not found")
+        if existing.get("archived") is True:
+            await _audit.log_admin_action(
+                db, admin=admin, action="cms.outreach.archive.noop",
+                target_type="outreach_organisation", target_id=org_id,
+            )
+            return {
+                "ok": True, "id": org_id, "archived": True,
+                "archived_at": existing.get("archived_at"), "noop": True,
+            }
+        now = datetime.now(timezone.utc).isoformat()
+        patch = {
+            "archived": True,
+            "archived_at": now,
+            "archived_by": admin.get("id"),
+            "archived_by_email": admin.get("email"),
+            "updated_at": now,
+        }
+        res = await db.cms_organisations.update_one({"id": org_id}, {"$set": patch})
+        if res.matched_count == 0:
+            raise HTTPException(404, "Organisation not found")
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.outreach.archive",
+            target_type="outreach_organisation", target_id=org_id,
+        )
+        return {"ok": True, "id": org_id, "archived": True, "archived_at": now}
+
+    @router.post("/outreach/organisations/{org_id}/unarchive")
+    async def outreach_organisation_unarchive(
+        org_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Restore an archived outreach organisation. Idempotent."""
+        from datetime import datetime, timezone
+        from services import audit as _audit  # local import — module boundary
+        existing = await db.cms_organisations.find_one(
+            {"id": org_id}, {"_id": 0, "id": 1, "archived": 1},
+        )
+        if existing is None:
+            raise HTTPException(404, "Organisation not found")
+        if not existing.get("archived"):
+            return {"ok": True, "id": org_id, "archived": False, "noop": True}
+        now = datetime.now(timezone.utc).isoformat()
+        await db.cms_organisations.update_one(
+            {"id": org_id},
+            {
+                "$set": {"archived": False, "updated_at": now},
+                "$unset": {"archived_at": "", "archived_by": "", "archived_by_email": ""},
+            },
+        )
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.outreach.unarchive",
+            target_type="outreach_organisation", target_id=org_id,
+        )
+        return {"ok": True, "id": org_id, "archived": False}
+
+
     # EMAIL TEMPLATE PREVIEW
     # ============================================================
     # Lets a signed-in CMS admin render each transactional email in a
@@ -1801,6 +1959,14 @@ def build_router(db) -> APIRouter:
             "sent_at":         c.get("sent_at"),
             "finished_at":     c.get("finished_at"),
             "sample_html":     c.get("sample_html"),
+            # Archive metadata (Aug 2026, Garry) — enables the
+            # "Archive campaign" / "Archived campaigns" UI on the
+            # deployed website. Archiving is a soft delete: every
+            # campaign remains readable via /campaigns/{id} so
+            # history, delivery counts, sent date, audience and
+            # results all stay intact.
+            "archived":        bool(c.get("archived")),
+            "archived_at":     c.get("archived_at"),
         }
 
     async def _resolve_audience(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
@@ -1831,9 +1997,97 @@ def build_router(db) -> APIRouter:
         ).sort([("founder_number", 1)]).to_list(limit)
 
     @router.get("/campaigns")
-    async def campaigns_list(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
-        rows = await db.campaigns.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    async def campaigns_list(
+        archived: bool = False,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """List campaigns. By default returns non-archived campaigns
+        (i.e. the working queue). Pass ``?archived=true`` for the
+        "Archived campaigns" surface.
+
+        Archive semantics (Aug 2026, Garry): archiving is a soft
+        delete. Records are NEVER removed — every archived campaign is
+        still openable via ``/campaigns/{id}``, keeping the full
+        history / audience / delivery record intact for future audit.
+        """
+        q: Dict[str, Any] = {"archived": True} if archived else {"archived": {"$ne": True}}
+        rows = await db.campaigns.find(q, {"_id": 0}).sort(
+            "archived_at" if archived else "created_at", -1,
+        ).to_list(200)
         return {"count": len(rows), "rows": [_campaign_summary(r) for r in rows]}
+
+    @router.post("/campaigns/{campaign_id}/archive")
+    async def campaigns_archive(
+        campaign_id: str, admin: dict = Depends(current_cms_admin),
+    ):
+        """Archive a campaign (soft delete — record retained).
+
+        Idempotent: archiving an already-archived campaign returns
+        ``ok:true`` with ``noop:true`` and preserves the original
+        ``archived_at``.
+        """
+        from datetime import datetime, timezone
+        from services import audit as _audit  # local import — module boundary
+        c = await db.campaigns.find_one(
+            {"id": campaign_id},
+            {"_id": 0, "id": 1, "archived": 1, "archived_at": 1},
+        )
+        if c is None:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("archived") is True:
+            await _audit.log_admin_action(
+                db, admin=admin, action="cms.campaign.archive.noop",
+                target_type="campaign", target_id=campaign_id,
+            )
+            return {
+                "ok": True, "id": campaign_id, "archived": True,
+                "archived_at": c.get("archived_at"), "noop": True,
+            }
+        now = datetime.now(timezone.utc).isoformat()
+        patch = {
+            "archived": True,
+            "archived_at": now,
+            "archived_by": admin.get("id"),
+            "archived_by_email": admin.get("email"),
+            "updated_at": now,
+        }
+        res = await db.campaigns.update_one({"id": campaign_id}, {"$set": patch})
+        if res.matched_count == 0:
+            raise HTTPException(404, "Campaign not found")
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.campaign.archive",
+            target_type="campaign", target_id=campaign_id,
+        )
+        return {"ok": True, "id": campaign_id, "archived": True, "archived_at": now}
+
+    @router.post("/campaigns/{campaign_id}/unarchive")
+    async def campaigns_unarchive(
+        campaign_id: str, admin: dict = Depends(current_cms_admin),
+    ):
+        """Restore an archived campaign back to the main queue.
+        Idempotent for already-active campaigns."""
+        from datetime import datetime, timezone
+        from services import audit as _audit  # local import — module boundary
+        c = await db.campaigns.find_one(
+            {"id": campaign_id}, {"_id": 0, "id": 1, "archived": 1},
+        )
+        if c is None:
+            raise HTTPException(404, "Campaign not found")
+        if not c.get("archived"):
+            return {"ok": True, "id": campaign_id, "archived": False, "noop": True}
+        now = datetime.now(timezone.utc).isoformat()
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {
+                "$set": {"archived": False, "updated_at": now},
+                "$unset": {"archived_at": "", "archived_by": "", "archived_by_email": ""},
+            },
+        )
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.campaign.unarchive",
+            target_type="campaign", target_id=campaign_id,
+        )
+        return {"ok": True, "id": campaign_id, "archived": False}
 
     @router.post("/campaigns")
     async def campaigns_create(payload: Dict[str, Any], admin: dict = Depends(current_cms_admin)):
