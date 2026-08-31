@@ -1,8 +1,19 @@
+import type { Metadata } from 'next';
 import { cms } from '@/lib/api';
 import { TourNext } from '@/components/TourNav';
 import TapMeButterfly from '@/components/TapMeButterfly';
 
-export const metadata = { title: 'How It Works' };
+export const metadata: Metadata = {
+  title: 'How FriendPlace Works | Make Friends & Meet People Nearby',
+  description: 'See how FriendPlace helps adults in Australia make new friends, meet people nearby, join local groups and events, and build genuine community connections.',
+  alternates: { canonical: '/how-it-works' },
+  openGraph: {
+    title: 'How FriendPlace Works | Make Friends & Meet People Nearby',
+    description: 'From joining FriendPlace to meeting local people, groups and events — see how genuine friendships can start nearby.',
+    url: '/how-it-works',
+    type: 'website',
+  },
+};
 
 export default async function HowPage() {
   // Future CMS hook — for now uses static defaults, editable in Mini-CMS.
@@ -45,9 +56,9 @@ export default async function HowPage() {
         </div>
       </section>
 
-      {/* Tour continues \u2014 last stop is /features, which ends with
+      {/* Tour continues — last stop is /features, which ends with
           George's voice returning to close the journey. See
-          /app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md \u2192 "The
+          /app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md → "The
           Quiet Host". */}
       <TourNext href="/features" label="See what makes it feel like belonging" />
 
