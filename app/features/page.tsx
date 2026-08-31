@@ -7,12 +7,23 @@
  *   See /app/website/APPROVED_ONBOARDING_JOURNEY.md.
  * ─────────────────────────────────────────────────────────── */
 
+import type { Metadata } from 'next';
 import { cms } from '@/lib/api';
 import { TourEnding } from '@/components/TourNav';
 import TapMeButterfly from '@/components/TapMeButterfly';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
 
-export const metadata = { title: 'Features' };
+export const metadata: Metadata = {
+  title: 'FriendPlace Features | Meet People, Groups, Events & FP Café',
+  description: 'Explore FriendPlace features for meeting local people, joining groups and events, sharing moments, chatting in FP Café and building genuine friendships in Australia.',
+  alternates: { canonical: '/features' },
+  openGraph: {
+    title: 'FriendPlace Features | Meet People, Groups, Events & FP Café',
+    description: 'See how FriendPlace helps adults connect locally through people, groups, events, FP Café and everyday community moments.',
+    url: '/features',
+    type: 'website',
+  },
+};
 
 const DEFAULT_FEATURES = [
   { icon: '✨', title: 'Share a Moment', body: 'A photo, a story or something that made you smile today. Share everyday moments with your community and enjoy theirs.' },
@@ -68,12 +79,12 @@ export default async function FeaturesPage() {
         </div>
       </section>
 
-      {/* George returns \u2014 one line, one button. This is the ONLY
+      {/* George returns — one line, one button. This is the ONLY
           moment his voice reappears during the tour. His silence
-          through /about \u2192 /how-it-works \u2192 the rest of this page
+          through /about → /how-it-works → the rest of this page
           is what makes this land. Do not add a second paragraph
           or a supporting line. See /app/website/PUBLIC_EXPERIENCE_PRINCIPLES.md
-          \u2192 "The Quiet Host". */}
+          → "The Quiet Host". */}
       <TourEnding />
 
       <TapMeButterfly />
