@@ -15,6 +15,21 @@ export const metadata: Metadata = {
 
 const guides = [
   {
+    href: '/guides/how-to-make-friends-over-50-australia',
+    title: 'How do I make friends over 50 in Australia?',
+    description: 'Practical, low-pressure ways to meet new people, build genuine friendships and find local connection after 50.',
+  },
+  {
+    href: '/guides/how-to-make-friends-after-retirement',
+    title: 'How do I make friends after retirement?',
+    description: 'Ways to rebuild your social rhythm, meet people locally and create new friendships after leaving work.',
+  },
+  {
+    href: '/guides/where-can-i-meet-people-near-me',
+    title: 'Where can I meet people near me in Australia?',
+    description: 'Where to find walking groups, clubs, volunteering, community activities and other low-pressure ways to meet people nearby.',
+  },
+  {
     href: '/guides/making-friends-as-an-adult-australia',
     title: 'Making friends as an adult in Australia',
     description: 'Why adult friendship can feel harder — and practical, low-pressure ways to meet people and build genuine connections.',
