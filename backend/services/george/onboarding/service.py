@@ -66,7 +66,7 @@ async def ensure_indexes(db: Any) -> None:
 EXTRACTOR_SYSTEM = """You are an information extractor for George's warm onboarding conversation at FriendPlace.
 
 Given the member's latest reply, extract any of these fields the member has genuinely said or reasonably implied:
-  preferred_name       - what they'd like to be called (string)
+  preferred_name       - what they'd like to be called (string). This is the name the MEMBER wants used when the app addresses them. It MUST be a real proper name that a person could plausibly be called: e.g. "Sarah", "Bob", "A.J.", "Ngaire", "Testie". You MUST NEVER return a pronoun (I, me, my, mine, we, us, our, you, your, they, them, he, she, him, her), an article (the, a, an), a common word (name, friend, member, mate, person), a question, an assistant self-reference (George, FriendPlace), or an empty/whitespace value. If the member's phrasing is ambiguous and no clean name can be isolated ("call us at home", "my dear"), OMIT this field — do not guess. It is ALWAYS better to leave preferred_name unset than to invent or approximate one.
   area                 - suburb or rough area (string; no full addresses)
   interests            - things they enjoy (list of short strings)
   life_stage           - ONLY if explicitly said ("retired", "working full-time", "caring for my mum", "between jobs", etc.) NEVER an age band. NEVER an estimate.
@@ -106,6 +106,17 @@ WHO YOU ARE
 CONTEXT
   You'll receive the current KNOWN profile fields (stated, inferred, or skipped) and the conversation so far.
 
+**FACTUAL SCOPE (very important — read this every turn)**
+  The KNOWN block below is the ONLY member information you have. Treat it as your complete memory of this member.
+  • If a field is not in KNOWN, you DO NOT know it. Never guess, never approximate, never fill in a plausible-sounding value from earlier in the conversation, from other members you've met, or from your general knowledge.
+  • You have never spoken to another member. You do not carry facts between members. Names, hobbies, suburbs, and stories from previous conversations are NOT yours to reference — you don't have any.
+  • If you're tempted to write a specific detail ("your barbecue on Sunday", "your walking group in Manly", "your daughter Sarah") and that detail is NOT in KNOWN or in the visible turns of THIS session, delete the specific and write generically ("something you enjoy", "a group nearby", "your family").
+
+**ADDRESSING THE MEMBER**
+  • If KNOWN contains `preferred_name`, address the member by that name naturally — sparingly, not every sentence.
+  • If KNOWN does NOT contain `preferred_name` (or it is empty), address the member WITHOUT a name at all. Warm greetings without names are perfectly natural: "Lovely to meet you.", "That's great to hear.", "Thanks for sharing.". NEVER substitute another field for a name. NEVER guess a name. NEVER refer to the member as "My", "us", "you there", "friend" (as a name), or by any word that is not their real preferred name.
+  • Never invent a name. If you catch yourself about to write a name that isn't in KNOWN, remove it.
+
 RULES
   1. START WARMLY on your first turn: acknowledge that the member said yes to getting to know each other, and open with "Let's start with something easy. What would you like me to call you?" (or a close natural variant).
   2. ACKNOWLEDGE the member's last reply naturally, in one short line, before asking anything new.
@@ -114,10 +125,11 @@ RULES
   5. When you have enough (see above), don't ask another question. Instead switch to state="ready_to_summarise" with a warm hand-off line. The profile summary card was retired 28 July 2026 (TestFlight round-2 feedback from Garry) — the member sees NO list of what you've learned. So NEVER say "have a look at what I've learned" or "does this look right" referring to a list. Use a warm humble line that mentions no artefact, e.g. *"That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know — I'm always learning."* (Vary the phrasing but hold the meaning.)
   6. If the member declines/skips, say something like *"That's absolutely fine."* and move on.
   7. INFERRED FIELDS: when the member says something ambiguous, you MAY infer softly. When you'd like the preview to gently confirm an inference, add the field to `confirm_hints`.
-  8. NEVER INVENT CONVERSATION HISTORY. This is critical (Garry, TestFlight iter142, 8 Aug 2026 — "George is inventing previous conversations"). You must never reference things you and the member "discussed", "planned", or "were working on" unless they appear *verbatim* in the visible turns of THIS session (see CONVERSATION below). Absence of memory is not permission to fabricate. If the member returns and there is no prior context, greet them warmly and ask an open question — do NOT reach for a plausible-sounding continuation. Examples of what is banned:
+  8. NEVER INVENT CONVERSATION HISTORY. This is critical (Garry, TestFlight iter142, 8 Aug 2026 — "George is inventing previous conversations"; reinforced Aug 2026 — "George remembered facts from another test profile"). You must never reference things you and the member "discussed", "planned", or "were working on" unless they appear *verbatim* in the visible turns of THIS session (see CONVERSATION below). Absence of memory is not permission to fabricate. If the member returns and there is no prior context, greet them warmly and ask an open question — do NOT reach for a plausible-sounding continuation. Examples of what is banned:
      • *"We were planning a get-together — want to continue?"* (if no such planning appears above)
      • *"Last time you mentioned your barbecue — how did it go?"* (if no barbecue mention appears above)
      • *"You were telling me about your walking group…"* (if not in the visible turns)
+     • *"Hi Margaret,"* (when preferred_name is NOT set — never invent a name)
      If a member challenges an invented reference, acknowledge honestly ("You're right, I'm sorry — I got that wrong") and move on with an open, present-tense question. Do NOT immediately re-introduce the same invented topic.
 
 OUTPUT (strict JSON, no fences):
@@ -198,9 +210,45 @@ async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, k
 # ---------------------------------------------------------------------------
 
 def _merge_patch(known: dict, patch: dict) -> dict:
+    """Merge the extractor's structured patch into the known dict.
+
+    Batch A fix (Garry, Aug 2026 — "George called me 'My'"): the
+    extractor's structured JSON goes through a strict per-field
+    sanitiser BEFORE it can reach storage. If the LLM returned a
+    pronoun/article/self-reference/etc. as `preferred_name`, it is
+    dropped silently — the field stays unset and George addresses
+    the member without a name, which is a safe, warm default.
+
+    Sanitising happens here (not in the LLM prompt only) so a
+    prompt-drift or a future model swap can never bypass it.
+    """
+    from services.george.memory import sanitise_preferred_name
     known = dict(known or {})
     for field, val in (patch or {}).get("patch", {}).items():
         if field not in FIELDS:
+            continue
+        # Per-field validation — currently only preferred_name has
+        # been observed to corrupt. Extend as new patterns emerge.
+        if field == "preferred_name":
+            candidate = None
+            if isinstance(val, dict):
+                candidate = val.get("value")
+            elif isinstance(val, str):
+                candidate = val
+            cleaned = sanitise_preferred_name(candidate)
+            if cleaned is None:
+                # Drop entirely — never write a bad name to storage.
+                log.info(
+                    "onboarding._merge_patch: dropped bad preferred_name value %r",
+                    candidate,
+                )
+                continue
+            # Preserve source metadata (stated/inferred) when the
+            # extractor supplied it, otherwise treat as stated.
+            source = "stated"
+            if isinstance(val, dict) and val.get("source") in ("stated", "inferred"):
+                source = val["source"]
+            known[field] = {"value": cleaned, "source": source}
             continue
         known[field] = val  # value + source
     return known
@@ -381,6 +429,25 @@ async def approve_onboarding(db: Any, session_id: str, *, edits: Optional[dict] 
         for field, val in edits.items():
             if field in FIELDS and val is not None:
                 known[field] = {"value": val, "source": "stated"}
+
+    # Batch A fix (Garry, Aug 2026): scrub the final `known` dict one
+    # last time before it is written to `users.george_profile`. This
+    # is the belt-and-braces to the extractor-time validator — legacy
+    # sessions that were drafted BEFORE the extractor was tightened
+    # may still carry a bad `preferred_name` in their known map.
+    # Silently drop invalid values rather than persist them.
+    from services.george.memory import sanitise_preferred_name
+    pn_field = known.get("preferred_name")
+    pn_value = pn_field.get("value") if isinstance(pn_field, dict) else pn_field
+    cleaned_pn = sanitise_preferred_name(pn_value)
+    if cleaned_pn is None:
+        known.pop("preferred_name", None)
+    else:
+        # Normalise into the canonical dict shape.
+        source = "stated"
+        if isinstance(pn_field, dict) and pn_field.get("source") in ("stated", "inferred"):
+            source = pn_field["source"]
+        known["preferred_name"] = {"value": cleaned_pn, "source": source}
 
     # Write to the user document under `george_profile` and set profile_complete.
     actor_id = session.get("actor_id")

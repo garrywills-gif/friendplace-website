@@ -210,10 +210,16 @@ async def get_daily_welcome(
         OR {shown: False} if already greeted today.
     """
     user_id = str(user.get("id") or "")
-    first_name = (user.get("first_name") or user.get("firstName") or "").strip()
-    # Fallback for guest / demo accounts — never leave the pronoun blank.
-    if not first_name:
-        first_name = "friend"
+    # Batch A fix (Garry, Aug 2026 — "George called me 'My'"): resolve
+    # the display name through the trusted validator so a bad
+    # preferred_name from onboarding, or a bad first_name, can never
+    # leak into a greeting. Falls back to first_name (also validated)
+    # then to no-name at all. NEVER substitutes another field.
+    from services.george.memory import (
+        resolve_preferred_name as _resolve_pref_name,
+        pick_recall_thought as _pick_recall_thought,
+    )
+    first_name = _resolve_pref_name(user) or ""
     tz_name = tz_name or user.get("timezone") or DEFAULT_TZ
     try:
         tz = ZoneInfo(tz_name)
@@ -233,7 +239,23 @@ async def get_daily_welcome(
             return {"shown": False}
 
     def _fmt(txt: str) -> str:
-        return (txt or "").replace("{first_name}", first_name)
+        """Substitute the member's name into a template. When we
+        DON'T have a trusted name, we render the greeting without a
+        name entirely — never as ", ." or with a placeholder. This
+        collapses "Good morning, {first_name}." to "Good morning."
+        cleanly."""
+        raw = txt or ""
+        if not first_name:
+            # Strip a leading comma+space right before {first_name} so
+            # "Good morning, {first_name}." → "Good morning."
+            # rather than "Good morning, ."
+            raw = raw.replace(", {first_name}", "")
+            # Also handle a stray space+placeholder ("Hello {first_name}.")
+            raw = raw.replace(" {first_name}", "")
+            # Anything remaining is a bare {first_name} — drop it.
+            raw = raw.replace("{first_name}", "")
+            return raw
+        return raw.replace("{first_name}", first_name)
 
     # Choose the SHAPE of the greeting first — that's what makes George
     # feel human rather than templated.
@@ -266,32 +288,53 @@ async def get_daily_welcome(
     opener_row = _weighted_choice(
         await _pool(db, kind="opener", band=band, now_utc=now_utc, active_contexts=active_ctx),
     )
-    opener_text = _fmt(opener_row["text"]) if opener_row else f"Hello, {first_name}."
+    opener_text = _fmt(opener_row["text"]) if opener_row else (
+        f"Hello, {first_name}." if first_name else "Hello."
+    )
 
     warm_thought_text: Optional[str] = None
     invitation_text: Optional[str] = None
 
+    # Batch A (Garry, Aug 2026 — "George should remember the person"):
+    # If the member has any interests recorded, occasionally use a
+    # warm memory-aware recall line ("How's the garden going?") in
+    # place of a generic warm thought. Rate-limited to roughly one
+    # in three eligible days so it feels like a natural human aside,
+    # never a mechanical recap.
     if "thought" in shape:
-        wt_row = _weighted_choice(
-            await _pool(db, kind="warm_thought", band=band, now_utc=now_utc, active_contexts=active_ctx),
-        )
-        if wt_row:
-            wt_text = _fmt(wt_row["text"])
-            # Small phrase-collision guard: some openers already say
-            # "lovely to see you" or "nice to see you", so pairing them
-            # with the "It's lovely to see you." warm thought reads
-            # duplicative. Drop the warm thought in that case rather
-            # than pick a different one — natural conversation often
-            # is just the opener.
-            _o_lower = opener_text.lower()
-            _w_lower = wt_text.lower()
-            collides = (
-                ("lovely to see you" in _o_lower and "lovely to see you" in _w_lower)
-                or ("nice to see you" in _o_lower and "lovely to see you" in _w_lower)
-                or ("hope" in _o_lower and _w_lower.startswith("i hope"))
+        used_recall = False
+        recall_line = _pick_recall_thought(user)
+        if recall_line:
+            # Deterministic per-day gate — same member+day always
+            # yields the same True/False, so a member can't game it
+            # by refreshing. Roughly 1 in 3 eligible days.
+            import hashlib as _hl
+            gate_key = f"{user_id}-{today}-recall"
+            if int(_hl.sha1(gate_key.encode()).hexdigest(), 16) % 3 == 0:
+                warm_thought_text = recall_line
+                used_recall = True
+
+        if not used_recall:
+            wt_row = _weighted_choice(
+                await _pool(db, kind="warm_thought", band=band, now_utc=now_utc, active_contexts=active_ctx),
             )
-            if not collides:
-                warm_thought_text = wt_text
+            if wt_row:
+                wt_text = _fmt(wt_row["text"])
+                # Small phrase-collision guard: some openers already say
+                # "lovely to see you" or "nice to see you", so pairing them
+                # with the "It's lovely to see you." warm thought reads
+                # duplicative. Drop the warm thought in that case rather
+                # than pick a different one — natural conversation often
+                # is just the opener.
+                _o_lower = opener_text.lower()
+                _w_lower = wt_text.lower()
+                collides = (
+                    ("lovely to see you" in _o_lower and "lovely to see you" in _w_lower)
+                    or ("nice to see you" in _o_lower and "lovely to see you" in _w_lower)
+                    or ("hope" in _o_lower and _w_lower.startswith("i hope"))
+                )
+                if not collides:
+                    warm_thought_text = wt_text
 
     if "invitation" in shape:
         inv_row = _weighted_choice(

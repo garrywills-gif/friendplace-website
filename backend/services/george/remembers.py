@@ -183,15 +183,16 @@ def _time_of_day(start_local: datetime) -> str:
 
 
 def _first_name(user: dict) -> str:
-    for key in ("first_name", "firstName", "given_name"):
-        v = user.get(key)
-        if v:
-            return str(v).strip()
-    # Fall back to username without the numeric suffix, capitalised.
-    u = (user.get("username") or "").strip()
-    if u:
-        return u.split("_", 1)[0].capitalize()
-    return ""
+    """Batch A fix (Garry, Aug 2026): resolve through the trusted
+    validator so a bad `preferred_name` or `first_name` cannot leak
+    into a pre-/post-event nudge as "Your event is tomorrow, My.".
+
+    Returns "" when there's no plausible name — callers already handle
+    that gracefully via `_comma_name("")` → "".
+    """
+    from services.george.memory import resolve_preferred_name as _resolve_pref_name
+    resolved = _resolve_pref_name(user)
+    return resolved or ""
 
 
 def _comma_name(name: str) -> str:
