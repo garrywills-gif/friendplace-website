@@ -669,6 +669,7 @@ def build_router(db) -> APIRouter:
     async def list_enquiries(
         kind: Optional[str] = None,      # filter to one type: contact|interest|support|report|waitlist
         limit: int = 200,
+        include_archived: bool = False,
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
         """Unified list of every public enquiry / registration.
@@ -676,13 +677,20 @@ def build_router(db) -> APIRouter:
         Returns rows from five collections in a normalised shape so the
         UI can render them side-by-side. Excludes test fixtures. Newest
         first. Capped at `limit` per collection so a spike can't hurt
-        the browser."""
+        the browser.
+
+        Archive (Aug 2026, Garry): archived records are hidden by
+        default so the MCGS Enquiries surface shows a working queue,
+        not a growing pile. Pass ``include_archived=true`` to also
+        return archived rows (e.g. for audit or an "Archived" tab).
+        """
         lim = max(1, min(int(limit or 200), 500))
 
         async def _read(coll: str, mapper) -> list[dict]:
-            docs = await db[coll].find(
-                {"is_test": {"$ne": True}}, {"_id": 0}
-            ).sort("created_at", -1).to_list(lim)
+            q: dict = {"is_test": {"$ne": True}}
+            if not include_archived:
+                q["archived"] = {"$ne": True}
+            docs = await db[coll].find(q, {"_id": 0}).sort("created_at", -1).to_list(lim)
             return [mapper(d) for d in docs]
 
         rows: list[dict] = []
@@ -697,6 +705,7 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("message"),
                 "status":     d.get("status") or "new",
                 "created_at": d.get("created_at"),
+                "archived":   bool(d.get("archived")),
                 "meta":       {"category": d.get("category")},
             })
         if not kind or kind == "interest":
@@ -710,6 +719,7 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("notes") or "",
                 "status":     d.get("status") or "new",
                 "created_at": d.get("created_at"),
+                "archived":   bool(d.get("archived")),
                 "meta":       {"suburb": d.get("suburb"), "state": d.get("state"), "companion": d.get("companion")},
             })
         if not kind or kind == "support":
@@ -723,6 +733,7 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("message"),
                 "status":     d.get("status") or "open",
                 "created_at": d.get("created_at"),
+                "archived":   bool(d.get("archived")),
                 "meta":       {"category": d.get("category"), "ref": d.get("ref")},
             })
         if not kind or kind == "report":
@@ -736,6 +747,7 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("details") or d.get("notes"),
                 "status":     d.get("status") or "open",
                 "created_at": d.get("created_at"),
+                "archived":   bool(d.get("archived")),
                 "meta":       {"target_type": d.get("target_type"), "target_id": d.get("target_id")},
             })
         if not kind or kind == "waitlist":
@@ -749,6 +761,7 @@ def build_router(db) -> APIRouter:
                 "message":    "",
                 "status":     "invited" if d.get("invited") else "waiting",
                 "created_at": d.get("created_at"),
+                "archived":   bool(d.get("archived")),
                 "meta":       {"referral": d.get("referral_source")},
             })
 
@@ -764,6 +777,120 @@ def build_router(db) -> APIRouter:
                 {"key": "report",   "label": "Report",            "count": sum(1 for r in rows if r["kind"] == "report")},
                 {"key": "waitlist", "label": "Waitlist",          "count": sum(1 for r in rows if r["kind"] == "waitlist")},
             ],
+        }
+
+
+    # ------------------------------------------------------------------
+    # Enquiry Archive  ·  used by MCGS → Enquiries "Archive" buttons.
+    # ------------------------------------------------------------------
+    # Each `kind` returned by `/cms/enquiries` maps to a distinct Mongo
+    # collection. Archiving is a soft-delete: we flip `archived=True`
+    # (plus `archived_at` and `archived_by`) so the record is retained
+    # for audit but disappears from the default list. Never a hard
+    # delete — per Garry's launch rule "no customer enquiry can ever
+    # be lost".
+    #
+    # The lookup id semantics match `list_enquiries`:
+    #   • contact    → `contact_submissions.id`
+    #   • interest   → `interest_registrations.id`
+    #   • support    → `support_tickets.ref` OR `support_tickets.id`
+    #     (the list emits `ref` as the display id when present)
+    #   • report     → `reports.id`
+    #   • waitlist   → `waitlist.id`
+
+    _ENQUIRY_COLLECTIONS = {
+        "contact":  "contact_submissions",
+        "interest": "interest_registrations",
+        "support":  "support_tickets",
+        "report":   "reports",
+        "waitlist": "waitlist",
+    }
+
+    async def _find_enquiry_query(kind: str, ident: str) -> Optional[dict]:
+        """Return the Mongo filter for locating an enquiry of `kind`
+        by the id the UI holds. Support tickets are special-cased
+        because the UI receives `ref` as the id."""
+        if kind == "support":
+            # Try ref first (that's what the list returns), fall back
+            # to the raw id.
+            doc = await db.support_tickets.find_one({"ref": ident}, {"_id": 1})
+            if doc:
+                return {"ref": ident}
+            return {"id": ident}
+        return {"id": ident}
+
+    @router.post("/enquiries/{kind}/{ident}/archive")
+    async def archive_enquiry(
+        kind: str,
+        ident: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Archive an enquiry (soft delete). Idempotent — archiving an
+        already-archived record returns ok=True without changing the
+        original `archived_at` timestamp. Records are NEVER deleted;
+        the row remains queryable via ``?include_archived=true``.
+        """
+        from services import audit as _audit  # local import — module boundary
+        if kind not in _ENQUIRY_COLLECTIONS:
+            raise HTTPException(
+                400,
+                f"Unknown enquiry kind '{kind}'. Expected one of: "
+                f"{', '.join(sorted(_ENQUIRY_COLLECTIONS.keys()))}.",
+            )
+        coll = _ENQUIRY_COLLECTIONS[kind]
+        q = await _find_enquiry_query(kind, ident)
+        # Include `id` in the projection so the returned dict is never
+        # empty for a matched record — otherwise the truthiness check
+        # below would 404 a real record that happens to have no
+        # `archived` / `archived_at` fields yet (i.e. every unarchived
+        # record). Explicit `is None` check is used regardless as
+        # belt-and-braces.
+        existing = await db[coll].find_one(
+            q,
+            {"_id": 0, "id": 1, "archived": 1, "archived_at": 1},
+        )
+        if existing is None:
+            raise HTTPException(404, "Enquiry not found")
+
+        # Idempotency — if it's already archived, don't overwrite the
+        # original timestamp / actor. Just return ok.
+        if existing.get("archived") is True:
+            await _audit.log_admin_action(
+                db, admin=admin, action="cms.enquiry.archive.noop",
+                target_type=f"enquiry.{kind}", target_id=ident,
+            )
+            return {
+                "ok": True,
+                "kind": kind,
+                "id": ident,
+                "archived": True,
+                "archived_at": existing.get("archived_at"),
+                "noop": True,
+            }
+
+        now = _now_iso()
+        patch = {
+            "archived": True,
+            "archived_at": now,
+            "archived_by": admin.get("id"),
+            "archived_by_email": admin.get("email"),
+            "updated_at": now,
+        }
+        res = await db[coll].update_one(q, {"$set": patch})
+        if res.matched_count == 0:
+            # Race: record was deleted between find_one and update_one.
+            raise HTTPException(404, "Enquiry not found")
+
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.enquiry.archive",
+            target_type=f"enquiry.{kind}", target_id=ident,
+        )
+        return {
+            "ok": True,
+            "kind": kind,
+            "id": ident,
+            "archived": True,
+            "archived_at": now,
         }
 
 
