@@ -1166,16 +1166,38 @@ def build_router(db) -> APIRouter:
         on ``/admin/outreach/new``.
 
         Duplicate protection: if an organisation with the same email
-        already exists (case-insensitive match on ``contact_email``),
-        the EXISTING row is returned with ``existing: True`` and no
-        data is modified. This makes spreadsheet re-runs idempotent
-        and preserves Garry's guarantee that existing records never
-        get overwritten, duplicated, or reset.
+        already exists (case-insensitive match on ``contact_email``
+        OR the legacy ``email`` field), the EXISTING row is returned
+        with ``existing: True`` and no data is modified. This makes
+        spreadsheet re-runs idempotent and preserves Garry's guarantee
+        that existing records never get overwritten, duplicated, or
+        reset.
+
+        HARDENING (iter169 regression fix): the production
+        ``outreach_organisations`` collection was seeded by an earlier
+        importer that wrote ``email`` (not ``contact_email``) and may
+        carry a unique index on either the legacy ``email`` field or on
+        ``outreach_number``. To keep new creates from 500-ing:
+          • duplicate scan checks BOTH email fields;
+          • the insert mirrors the address into both fields so any
+            legacy unique index is satisfied;
+          • ``outreach_number`` is only stored when a real value is
+            supplied — avoids the null-collision trap on a unique
+            partial index;
+          • pymongo ``DuplicateKeyError`` is caught and converted to
+            the idempotent existing-row response;
+          • any other unexpected DB error surfaces as a controlled
+            HTTP 500 with a safe JSON body (no raw traceback leak).
         """
         import re as _re
         import uuid as _uuid
         from datetime import datetime as _dt, timezone as _tz
         from services import audit as _audit
+        try:
+            from pymongo.errors import DuplicateKeyError as _DuplicateKeyError
+        except Exception:  # pragma: no cover — pymongo always present
+            class _DuplicateKeyError(Exception):
+                pass
 
         def _s(*keys) -> str:
             """First non-empty string among the given payload keys."""
@@ -1192,11 +1214,14 @@ def build_router(db) -> APIRouter:
             raise HTTPException(400, "Organisation name is required")
         if not email or "@" not in email:
             raise HTTPException(400, "A valid email address is required")
+        email_lower = email.lower()
 
-        # ── Idempotency — email is the natural key here. ────────────
+        # ── Idempotency — email is the natural key. Scan BOTH the
+        # new (``contact_email``) and legacy (``email``) fields
+        # because production rows were seeded with the legacy shape.
         rx_email = _re.compile(f"^{_re.escape(email)}$", _re.IGNORECASE)
         dupe = await db.outreach_organisations.find_one(
-            {"contact_email": rx_email},
+            {"$or": [{"contact_email": rx_email}, {"email": rx_email}]},
             {"_id": 0},
         )
         if dupe is not None:
@@ -1222,14 +1247,22 @@ def build_router(db) -> APIRouter:
 
         # Outreach_number: only accept ints; ignore other types.
         raw_on = payload.get("outreach_number")
-        outreach_number = int(raw_on) if isinstance(raw_on, (int, float)) and not isinstance(raw_on, bool) else None
+        outreach_number = (
+            int(raw_on)
+            if isinstance(raw_on, (int, float)) and not isinstance(raw_on, bool)
+            else None
+        )
 
         now = _dt.now(_tz.utc).isoformat()
         org_id = str(_uuid.uuid4())
-        doc = {
+        doc: Dict[str, Any] = {
             "id": org_id,
             "name": name,
-            "contact_email": email.lower(),
+            # Mirror the address into BOTH the new and the legacy field
+            # so any pre-existing unique index on either satisfies the
+            # insert. Reads via ``_outreach_row`` prefer ``email``.
+            "email": email_lower,
+            "contact_email": email_lower,
             "contact_name": _s("contact_name"),
             "contact_phone": _s("phone", "contact_phone"),
             "category": _s("category", "type"),
@@ -1240,14 +1273,66 @@ def build_router(db) -> APIRouter:
             "notes": _s("notes"),
             "tags": tags,
             "status": _s("status") or "not_contacted",
-            "outreach_number": outreach_number,
             "created_at": now,
             "updated_at": now,
             "created_by": admin.get("id"),
             "created_by_email": admin.get("email"),
             "archived": False,
         }
-        await db.outreach_organisations.insert_one(doc)
+        # Only store ``outreach_number`` when a real value was passed —
+        # avoids a null-collision on any legacy unique partial index.
+        if outreach_number is not None:
+            doc["outreach_number"] = outreach_number
+
+        try:
+            await db.outreach_organisations.insert_one(doc)
+        except _DuplicateKeyError:
+            # A concurrent create for the same email (or any legacy
+            # unique-index collision) — refetch and return the winner
+            # as if this had been an idempotent duplicate.
+            winner = await db.outreach_organisations.find_one(
+                {"$or": [{"contact_email": rx_email}, {"email": rx_email}]},
+                {"_id": 0},
+            )
+            if winner is not None:
+                await _audit.log_admin_action(
+                    db, admin=admin,
+                    action="cms.outreach.create.noop_dupe_key",
+                    target_type="outreach_organisation",
+                    target_id=winner.get("id"),
+                )
+                return {
+                    "ok": True,
+                    "id": winner.get("id"),
+                    "existing": True,
+                    "organisation": _outreach_row(winner),
+                }
+            # Duplicate key but nothing matches by email — a legacy
+            # unique index on a different field is enforcing. Report a
+            # clean 409 so the client can surface a real error rather
+            # than a raw 500.
+            raise HTTPException(
+                409,
+                "This organisation could not be saved because a matching "
+                "record already exists. Please refresh the Outreach list "
+                "and try again.",
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            # Never leak a raw traceback into the JSON body. Log it and
+            # return a controlled 500.
+            import logging as _logging
+            _logging.getLogger("cms.outreach").exception(
+                "outreach_organisation_create failed",
+                extra={"email": email_lower, "admin": admin.get("email")},
+            )
+            raise HTTPException(
+                500,
+                "Could not save this organisation right now. Please try "
+                "again shortly.",
+            )
+
         await _audit.log_admin_action(
             db, admin=admin, action="cms.outreach.create",
             target_type="outreach_organisation", target_id=org_id,
