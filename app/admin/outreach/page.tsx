@@ -52,7 +52,7 @@ function labelFor(slug: string): string {
 const SHEETJS_SRC = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
 type View = 'active' | 'archived';
 type RawRow = Record<string, unknown>;
-type ImportRow = OutreachOrgIn & { rowNumber: number; issue?: string };
+type ImportRow = OutreachOrgIn & { rowNumber: number; sourceFile: string; issue?: string };
 
 const txt = (v: unknown) => (v == null ? '' : String(v).trim());
 const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -89,6 +89,19 @@ function mapCategory(raw: string) {
   );
 }
 
+function categoryFromFilename(name: string): string {
+  const v = norm(name.replace(/\.(xlsx|xls|csv)$/i, ''));
+  if (v.includes('retirement') || v.includes('agedcare')) return 'retirement_village';
+  if (v.includes('u3a')) return 'u3a';
+  if (v.includes('probus')) return 'probus';
+  if (v.includes('mensshed') || v.includes('menssheds')) return 'mens_shed';
+  if (v.includes('communitycentre') || v.includes('communitycenter')) return 'community_centre';
+  if (v.includes('rsl') || v.includes('club')) return 'rsl_club';
+  if (v.includes('library') || v.includes('council')) return 'library_council';
+  if (v.includes('senior') || v.includes('olderaustralian')) return 'seniors_organisation';
+  return 'community_organisation';
+}
+
 function rowsFrom(result: OutreachListResponse): OutreachOrg[] {
   return result.rows || result.organisations || [];
 }
@@ -116,10 +129,6 @@ type Group = {
 };
 
 function isPositiveTouch(status: OutreachStatus | string | undefined): boolean {
-  // For the roll-up "Contacted" column, count every status that
-  // isn't the explicit "not_contacted" bucket. That includes replied,
-  // joined, awaiting_reply, contacted itself, and negative outcomes
-  // like bounced / declined / unsubscribed (they *were* touched).
   if (!status) return false;
   return String(status) !== 'not_contacted';
 }
@@ -150,7 +159,6 @@ function aggregateGroups(orgs: OutreachOrg[], q: string): Group[] {
   const needle = q.trim().toLowerCase();
   for (const [slug, list] of buckets.entries()) {
     const label = labelFor(slug);
-    // Filter: keep the whole group if its label matches, OR any org in it matches.
     if (needle) {
       const groupNameHits = label.toLowerCase().includes(needle);
       const anyOrgHits = list.some(o => orgMatchesQuery(o, needle));
@@ -211,19 +219,27 @@ export default function OutreachPage() {
   const totalContacted = rows.filter(r => isPositiveTouch(r.status)).length;
   const ready = importRows.filter(r => !r.issue);
 
-  const chooseSpreadsheet = async (file: File) => {
+  const chooseSpreadsheets = async (files: File[]) => {
     setError(null);
     setImportMessage('');
-    setImportName(file.name);
+    setImportRows([]);
+    if (!files.length) return;
+    setImportName(files.length === 1 ? files[0].name : `${files.length} spreadsheets`);
     try {
       const XLSX = await sheetJs();
-      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false }) as RawRow[];
       const existing = new Set(rows.map(r => r.email?.trim().toLowerCase()).filter(Boolean));
       const seen = new Set<string>();
-      setImportRows(
-        raw.map((r, i) => {
+      const mapped: ImportRow[] = [];
+
+      for (const file of files) {
+        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        const sheetName = wb.SheetNames[0];
+        if (!sheetName) continue;
+        const ws = wb.Sheets[sheetName];
+        const raw = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false }) as RawRow[];
+        const fallbackCategory = categoryFromFilename(file.name);
+
+        raw.forEach((r, i) => {
           const organisation_name = valueFor(
             r,
             'Village', 'Organisation', 'Organization', 'Organisation Name', 'Village Name',
@@ -236,15 +252,19 @@ export default function OutreachPage() {
           else if (!/^\S+@\S+\.\S+$/.test(email)) issue = 'Invalid email';
           else if (existing.has(key) || seen.has(key)) issue = 'Email already exists';
           if (key) seen.add(key);
-          const cat = mapCategory(valueFor(r, 'Category', 'Type', 'Organisation Type', 'Organization Type'));
+
+          const rawCategory = valueFor(r, 'Category', 'Type', 'Organisation Type', 'Organization Type');
+          const cat = rawCategory ? mapCategory(rawCategory) : fallbackCategory;
           const notes = [
             valueFor(r, 'Notes'),
             valueFor(r, 'Role') && `Role: ${valueFor(r, 'Role')}`,
             valueFor(r, 'Address') && `Address: ${valueFor(r, 'Address')}`,
             valueFor(r, 'Source') && `Source: ${valueFor(r, 'Source')}`,
           ].filter(Boolean).join('\n');
-          return {
+
+          mapped.push({
             rowNumber: i + 2,
+            sourceFile: file.name,
             organisation_name,
             email,
             contact_name: valueFor(r, 'Contact', 'Contact Name', 'Name'),
@@ -256,12 +276,14 @@ export default function OutreachPage() {
             notes,
             status: mapStatus(valueFor(r, 'Status')),
             issue: issue || undefined,
-          };
-        }),
-      );
+          });
+        });
+      }
+      setImportRows(mapped);
+      if (!mapped.length) setError('No organisation rows were found in the selected spreadsheet files.');
     } catch (e: any) {
       setImportRows([]);
-      setError(e?.message || 'Could not read that spreadsheet.');
+      setError(e?.message || 'Could not read those spreadsheets.');
     } finally {
       if (fileRef.current) fileRef.current.value = '';
     }
@@ -273,18 +295,21 @@ export default function OutreachPage() {
     setError(null);
     let imported = 0;
     let failed = 0;
+    const failures: string[] = [];
     for (const row of ready) {
-      const { rowNumber: _n, issue: _i, ...payload } = row;
+      const { rowNumber: _n, sourceFile: _f, issue: _i, ...payload } = row;
       try {
         await outreachApi.create(payload);
         imported++;
-      } catch {
+      } catch (e: any) {
         failed++;
+        if (failures.length < 5) failures.push(`${row.organisation_name}: ${e?.message || 'Import failed'}`);
       }
     }
     setImportRows([]);
     setImportName('');
     setImportMessage(`${imported} imported${failed ? ` · ${failed} failed` : ''}`);
+    if (failures.length) setError(failures.join(' · '));
     setImporting(false);
     await load();
   };
@@ -301,10 +326,11 @@ export default function OutreachPage() {
             ref={fileRef}
             type="file"
             accept=".xlsx,.xls,.csv"
+            multiple
             style={{ display: 'none' }}
             onChange={e => {
-              const f = e.target.files?.[0];
-              if (f) void chooseSpreadsheet(f);
+              const files = Array.from(e.target.files || []);
+              if (files.length) void chooseSpreadsheets(files);
             }}
           />
           <button type="button" style={adminStyles.ghostBtn} onClick={() => fileRef.current?.click()}>
@@ -335,8 +361,8 @@ export default function OutreachPage() {
           {importRows.some(r => r.issue) && (
             <div style={{ marginTop: 10, fontSize: 12, color: '#92400E' }}>
               {importRows.filter(r => r.issue).slice(0, 8).map(r => (
-                <div key={r.rowNumber}>
-                  Row {r.rowNumber}: {r.organisation_name || r.email || 'Unknown'} — {r.issue}
+                <div key={`${r.sourceFile}-${r.rowNumber}`}>
+                  {r.sourceFile} · Row {r.rowNumber}: {r.organisation_name || r.email || 'Unknown'} — {r.issue}
                 </div>
               ))}
             </div>
