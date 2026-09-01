@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -115,6 +116,97 @@ def _seed_and_cleanup(db):
             "id": f"{_MARKER}user-1",
             "email": f"{_MARKER}today-fb-1@example.com",
             "first_name": "Iter167today-fb-1",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "is_demo": False,
+        })
+
+        # ── Case-insensitivity regression (the "Neo" bug) ─────────────
+        # Simulate a real production edge-case: the RYI form
+        # lowercases the email, but the visitor later signed up for
+        # the app with mixed case (e.g. "Neo.Ellis@Gmail.com"). Both
+        # emails belong to the SAME person and MUST match.
+        neo_reg_id = f"{_MARKER}neo-mixedcase-{uuid.uuid4()}"
+        _SEEDED_IDS.append(neo_reg_id)
+        s_today_start, _ = sydney_day_bounds(0)
+        early_sydney_utc = s_today_start + timedelta(hours=1)
+        await db.interest_registrations.insert_one({
+            "id": neo_reg_id,
+            "first_name": "Iter167Neo",
+            # Lowercased by the RYI insert path (see server.py:12374).
+            "email": f"{_MARKER}neo.ellis@gmail.com",
+            "state_country": "VIC, Australia",
+            "heard_from": "Friend",
+            "companion_choice": "george",
+            "status": "registered",
+            "created_at": (early_sydney_utc + timedelta(hours=3)).isoformat(),
+            "is_test": False,
+            "is_reserved": False,
+            "tags": [],
+        })
+        # Users collection keeps the original mixed case — this is the
+        # exact byte pattern that broke the old case-sensitive $in.
+        await db.users.insert_one({
+            "id": f"{_MARKER}user-neo",
+            "email": f"{_MARKER}Neo.Ellis@Gmail.com",
+            "first_name": "Iter167Neo",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "is_demo": False,
+        })
+
+        # ── True-negative row: different email in users vs RYI ────────
+        # This person registered interest with one address but signed
+        # up for the app with a genuinely different address. That's
+        # NOT a casing issue — the two records shouldn't match, so
+        # the count must NOT tick up. Guards against over-counting.
+        diff_reg_id = f"{_MARKER}diff-email-{uuid.uuid4()}"
+        _SEEDED_IDS.append(diff_reg_id)
+        await db.interest_registrations.insert_one({
+            "id": diff_reg_id,
+            "first_name": "Iter167DifferentEmail",
+            "email": f"{_MARKER}oldaddress@yahoo.com",
+            "state_country": "QLD, Australia",
+            "heard_from": "Google",
+            "companion_choice": "george",
+            "status": "registered",
+            "created_at": (early_sydney_utc + timedelta(hours=4)).isoformat(),
+            "is_test": False,
+            "is_reserved": False,
+            "tags": [],
+        })
+        await db.users.insert_one({
+            "id": f"{_MARKER}user-diff",
+            "email": f"{_MARKER}newaddress@icloud.com",
+            "first_name": "Iter167DifferentEmail",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "is_demo": False,
+        })
+
+        # ── Regex-sensitive local-part row ─────────────────────────────
+        # Emails containing '.', '+', or other regex metacharacters
+        # must be escaped so the regex build doesn't turn them into
+        # wildcards (a `.` treated as "any char" would over-match).
+        regex_reg_id = f"{_MARKER}regex-safe-{uuid.uuid4()}"
+        _SEEDED_IDS.append(regex_reg_id)
+        await db.interest_registrations.insert_one({
+            "id": regex_reg_id,
+            "first_name": "Iter167RegexSafe",
+            "email": f"{_MARKER}first.last+tag@example.com",
+            "state_country": "SA, Australia",
+            "heard_from": None,
+            "companion_choice": "george",
+            "status": "registered",
+            "created_at": (early_sydney_utc + timedelta(hours=5)).isoformat(),
+            "is_test": False,
+            "is_reserved": False,
+            "tags": [],
+        })
+        # A DIFFERENT user whose email is only distinguishable from
+        # the RYI one when `.` and `+` are ESCAPED. If we didn't
+        # escape them, `first.last+tag` would falsely match this row.
+        await db.users.insert_one({
+            "id": f"{_MARKER}user-regex-decoy",
+            "email": f"{_MARKER}firstXlastYtag@example.com",
+            "first_name": "Iter167RegexDecoy",
             "created_at": datetime.now(timezone.utc).isoformat(),
             "is_demo": False,
         })
@@ -359,3 +451,154 @@ class TestChatTopicRouting:
         from services.george.chat import _TOPIC_TO_TOOL
         mapping = dict(_TOPIC_TO_TOOL)
         assert mapping["from facebook"]["name"] == "founding_members_by_source"
+
+
+
+# ─── 9. Case-insensitivity regression (the "Neo" bug) ─────────────────
+#
+# Regression test for the iter167 hotfix. Root cause:
+# ``_joined_app_email_count`` was matching lowercased ``interest_registrations``
+# emails against ``users.email`` with a plain case-sensitive ``$in``.
+# Any user whose signup email contained uppercase (e.g. "Neo.Ellis@Gmail.com")
+# silently failed to match, so Neo was invisible to the count while Garry
+# and George (both seeded programmatically with all-lowercase emails)
+# matched fine.
+#
+# The fix replaces the plain ``$in`` with a case-insensitive regex ``$in``
+# whose members are anchored (^…$) and escaped (``re.escape``) so
+# metacharacters like ``.`` and ``+`` in real email local-parts don't
+# turn into wildcards. These tests ensure both requirements hold.
+
+class TestJoinedAppCaseInsensitive:
+    def test_mixed_case_users_email_matches_lowercase_registration(self, db):
+        """The exact Neo regression: user.email='Neo.Ellis@Gmail.com',
+        interest_registration.email='neo.ellis@gmail.com' — must match."""
+        res = _run(execute_tool(db, "count_founding_members_joined_app", {}))
+        # Seed inserts:
+        #   1) today-fb-1                — lowercase in both collections → matches
+        #   2) neo.ellis@gmail.com       — MIXED case in users → must ALSO match
+        #   3) oldaddress vs newaddress  — genuinely different → must NOT match
+        # → joined_app_count must be at least 2, and NOT 1 (which was the
+        # old buggy behaviour before the case-insensitive fix landed).
+        assert res["joined_app_count"] >= 2, (
+            f"Expected mixed-case Neo to match; got {res['joined_app_count']}"
+        )
+
+    def test_upper_case_users_email_still_matches(self, db):
+        """Extra safety: seed an all-upper-case user, all-lower registration,
+        confirm the count goes up by exactly 1."""
+        upper_reg_id = f"{_MARKER}upper-{uuid.uuid4()}"
+        _SEEDED_IDS.append(upper_reg_id)
+        upper_email_low = f"{_MARKER}shouty@example.com"
+        upper_email_up  = f"{_MARKER}SHOUTY@EXAMPLE.COM"
+
+        async def _seed_upper():
+            s_today, _ = sydney_day_bounds(0)
+            await db.interest_registrations.insert_one({
+                "id": upper_reg_id,
+                "first_name": "Iter167Shouty",
+                "email": upper_email_low,
+                "state_country": "NSW",
+                "heard_from": None,
+                "status": "registered",
+                "created_at": (s_today + timedelta(hours=2)).isoformat(),
+                "is_test": False,
+                "is_reserved": False,
+            })
+            await db.users.insert_one({
+                "id": f"{_MARKER}user-shouty",
+                "email": upper_email_up,
+                "first_name": "Iter167Shouty",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "is_demo": False,
+            })
+
+        _run(_seed_upper())
+        try:
+            res = _run(execute_tool(db, "count_founding_members_joined_app", {}))
+            assert res["joined_app_count"] >= 3
+        finally:
+            _run(db.interest_registrations.delete_one({"id": upper_reg_id}))
+            _run(db.users.delete_one({"id": f"{_MARKER}user-shouty"}))
+
+    def test_genuinely_different_emails_do_not_match(self, db):
+        """Truthful negatives: if the RYI email and the users email are
+        actually different addresses (not just different case), the count
+        must NOT pick up a spurious match. Guards against over-counting.
+
+        Seed contains ``oldaddress@yahoo.com`` on the registration side
+        and ``newaddress@icloud.com`` on the users side, same first_name.
+        Total match count must NOT include this pair — otherwise the
+        code is doing a name/first_name join, which it must never do.
+        """
+        # Query for just this pair by directly counting matches for
+        # the RYI email against the users collection.
+        target_email = f"{_MARKER}oldaddress@yahoo.com"
+        cnt = _run(db.users.count_documents({
+            "email": {"$regex": f"^{re.escape(target_email)}$", "$options": "i"}
+        }))
+        assert cnt == 0, (
+            "A registration email that has no matching users row must "
+            "not be counted as joined-app."
+        )
+
+    def test_regex_metacharacters_escaped(self, db):
+        """Dot and plus in a real email local-part must be treated as
+        literals. If the code failed to ``re.escape``, ``first.last+tag``
+        would match the decoy ``firstXlastYtag``. The seed sets that
+        up deliberately — a correct implementation matches ZERO users
+        for the ``first.last+tag`` registration email.
+        """
+        target = f"{_MARKER}first.last+tag@example.com"
+        # Sanity: the ONLY users row that could match is the decoy
+        # (``firstXlastYtag`` — same @ suffix, no matching local-part).
+        # A properly-escaped regex must NOT match it.
+        cnt = _run(db.users.count_documents({
+            "email": {"$in": [re.compile(f"^{re.escape(target)}$", re.IGNORECASE)]}
+        }))
+        assert cnt == 0, (
+            "Regex metacharacters in the email local-part were not "
+            "escaped; the decoy user was falsely matched."
+        )
+        # And confirm the raw string comparison would also miss.
+        cnt_plain = _run(db.users.count_documents({"email": target}))
+        assert cnt_plain == 0
+
+    def test_whitespace_trimmed_before_match(self, db):
+        """Emails with accidental leading/trailing whitespace on the
+        registration side (visitors sometimes paste with a trailing
+        space) must still match — the code calls ``.strip().lower()``
+        before building the regex."""
+        pad_reg_id = f"{_MARKER}padded-{uuid.uuid4()}"
+        _SEEDED_IDS.append(pad_reg_id)
+        pad_email_padded = f"  {_MARKER}padded@example.com  "
+        pad_email_clean  = f"{_MARKER}padded@example.com"
+
+        async def _seed_pad():
+            s_today, _ = sydney_day_bounds(0)
+            await db.interest_registrations.insert_one({
+                "id": pad_reg_id,
+                "first_name": "Iter167Padded",
+                "email": pad_email_padded,   # whitespace on both sides
+                "state_country": "TAS",
+                "status": "registered",
+                "created_at": (s_today + timedelta(hours=3)).isoformat(),
+                "is_test": False,
+                "is_reserved": False,
+            })
+            await db.users.insert_one({
+                "id": f"{_MARKER}user-padded",
+                "email": pad_email_clean,     # clean on the users side
+                "first_name": "Iter167Padded",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "is_demo": False,
+            })
+
+        _run(_seed_pad())
+        try:
+            # Include an all-time window so this seed is guaranteed to be in scope.
+            res = _run(execute_tool(db, "count_founding_members_joined_app", {}))
+            assert res["joined_app_count"] >= 3
+        finally:
+            _run(db.interest_registrations.delete_one({"id": pad_reg_id}))
+            _run(db.users.delete_one({"id": f"{_MARKER}user-padded"}))

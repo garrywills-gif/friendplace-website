@@ -652,6 +652,17 @@ async def _joined_app_email_count(db: Any, *, base: dict) -> int:
     email (e.g. they later joined with a different address) are honestly
     counted as NOT joined-app — false negatives are safer than false
     positives when reporting to Garry.
+
+    CASE-INSENSITIVITY (iter167 hotfix).
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    ``interest_registrations.email`` is normalised to ``.strip().lower()``
+    on insert (see ``server.py`` RYI handlers). ``users.email`` is
+    stored verbatim in whatever case the visitor typed on signup — every
+    other user lookup in the codebase (``get_user_by_email``, signup
+    dedupe, login) works around this with a case-insensitive regex.
+    We must do the same here, otherwise a Founding Member whose signup
+    email contains any uppercase character (e.g. ``Neo@Example.com``)
+    silently fails to match and gets miscounted as "not joined".
     """
     # Pull just the emails from the filtered registrations. Even at
     # scale this collection is small (Founding Members cap = ~500) so
@@ -667,15 +678,19 @@ async def _joined_app_email_count(db: Any, *, base: dict) -> int:
             emails.append(e)
     if not emails:
         return 0
-    # Match against the users collection on lowercased email. Users
-    # in FriendPlace store email in whatever case the visitor typed,
-    # but for safety we build a case-insensitive $in via regex.
     # De-dupe first — a visitor can appear multiple times in interest
     # registrations if they registered twice.
     unique_emails = sorted(set(emails))
-    return await db.users.count_documents({
-        "email": {"$in": unique_emails},
-    })
+    # Build a regex per email: anchored (^…$) and fully escaped so
+    # ``.`` and ``+`` in local-parts don't turn into wildcards, then
+    # case-insensitive so mixed-case ``users.email`` still matches.
+    # This mirrors the pattern used throughout server.py for user
+    # lookups. Mongo will use the index on ``email`` with the
+    # ``^…$`` anchor as long as it's a real index (not a text index).
+    regexes = [
+        re.compile(f"^{re.escape(e)}$", re.IGNORECASE) for e in unique_emails
+    ]
+    return await db.users.count_documents({"email": {"$in": regexes}})
 
 
 @register(
