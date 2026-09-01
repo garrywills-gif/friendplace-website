@@ -77,6 +77,33 @@ function mapStatus(raw: string): OutreachStatus {
   return 'not_contacted';
 }
 
+function mapCategory(raw: string): string {
+  const value = normaliseHeader(raw);
+  if (!value) return 'community_organisation';
+
+  const aliases: Record<string, string> = {
+    retirementvillage: 'retirement_village',
+    retirementvillages: 'retirement_village',
+    retirementvillageagedcare: 'retirement_village',
+    u3a: 'u3a',
+    u3anetwork: 'u3a',
+    probus: 'probus',
+    mensshed: 'mens_shed',
+    menssheds: 'mens_shed',
+    communitycentre: 'community_centre',
+    communitycentres: 'community_centre',
+    seniorsolderaustraliansorganisations: 'seniors_organisation',
+    seniorsolderaustraliansorganisation: 'seniors_organisation',
+    olderaustraliansorganisation: 'seniors_organisation',
+    librariescouncilcommunityprograms: 'library_council',
+    librarycouncilcommunityprograms: 'library_council',
+    communityorganisations: 'community_organisation',
+    communityorganisation: 'community_organisation',
+  };
+
+  return aliases[value] || raw.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'community_organisation';
+}
+
 function buildNotes(row: RawSheetRow): string {
   const notes = valueFor(row, 'Notes');
   const extras = [
@@ -164,9 +191,7 @@ export default function OutreachPage() {
   }, [status, category, view]);
 
   const categories = useMemo(() => {
-    return Array.from(
-      new Set(rows.map((r) => r.category).filter(Boolean)),
-    ).sort();
+    return Array.from(new Set(rows.map((r) => r.category).filter(Boolean))).sort();
   }, [rows]);
 
   const validImportRows = useMemo(
@@ -212,15 +237,17 @@ export default function OutreachPage() {
         else if (!/^\S+@\S+\.\S+$/.test(email)) issue = 'Invalid email';
         else if (duplicate) issue = 'Email already exists';
 
+        const categoryValue = mapCategory(valueFor(row, 'Category', 'Type', 'Organisation Type', 'Organization Type'));
+
         return {
           rowNumber: index + 2,
           organisation_name: organisationName,
           email,
           contact_name: valueFor(row, 'Contact', 'Contact Name', 'Name'),
           phone: valueFor(row, 'Phone', 'Telephone', 'Mobile'),
-          category: 'retirement_village',
-          tags: ['retirement_village', 'spreadsheet_import'],
-          suburb: valueFor(row, 'Suburb'),
+          category: categoryValue,
+          tags: [categoryValue, 'spreadsheet_import'],
+          suburb: valueFor(row, 'Suburb', 'City / Suburb', 'City'),
           state: valueFor(row, 'State'),
           notes: buildNotes(row),
           status: mapStatus(valueFor(row, 'Status')),
@@ -268,12 +295,12 @@ export default function OutreachPage() {
         } = row;
         await outreachApi.create(payload);
         created += 1;
-      } catch {
+      } catch (e: any) {
         skipped.push({
           rowNumber: row.rowNumber,
           organisation_name: row.organisation_name || `Spreadsheet row ${row.rowNumber}`,
           email: row.email || '',
-          issue: 'Import failed',
+          issue: e?.message || 'Import failed',
         });
       }
     }
@@ -319,18 +346,11 @@ export default function OutreachPage() {
               if (file) void handleSpreadsheet(file);
             }}
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            style={adminStyles.ghostBtn}
-          >
+          <button type="button" onClick={() => fileInputRef.current?.click()} style={adminStyles.ghostBtn}>
             ↑ Import spreadsheet
           </button>
 
-          <Link
-            href="/admin/outreach/new"
-            style={{ ...adminStyles.primaryBtn, textDecoration: 'none' }}
-          >
+          <Link href="/admin/outreach/new" style={{ ...adminStyles.primaryBtn, textDecoration: 'none' }}>
             + New organisation
           </Link>
         </div>
@@ -378,8 +398,9 @@ export default function OutreachPage() {
               <thead>
                 <tr>
                   <th style={th}>Row</th>
-                  <th style={th}>Village</th>
+                  <th style={th}>Organisation</th>
                   <th style={th}>Email</th>
+                  <th style={th}>Category</th>
                   <th style={th}>Suburb</th>
                   <th style={th}>Result</th>
                 </tr>
@@ -390,6 +411,7 @@ export default function OutreachPage() {
                     <td style={td}>{row.rowNumber}</td>
                     <td style={td}>{row.organisation_name || '—'}</td>
                     <td style={td}>{row.email || '—'}</td>
+                    <td style={td}>{row.category ? row.category.replace(/_/g, ' ') : '—'}</td>
                     <td style={td}>{row.suburb || '—'}</td>
                     <td style={td}>
                       {row.valid && !row.duplicate ? (
@@ -431,10 +453,11 @@ export default function OutreachPage() {
                 <div style={skippedList}>
                   {importResult.skipped.map((row) => (
                     <div key={`${row.rowNumber}-${row.email}-${row.issue}`} style={skippedRow}>
-                      <div style={{ fontWeight: 800, color: '#0A2540' }}>
-                        {row.organisation_name}
+                      <div>
+                        <div style={{ fontWeight: 800, color: '#0A2540' }}>{row.organisation_name}</div>
+                        {row.email && <div style={muted}>{row.email}</div>}
                       </div>
-                      <div style={{ color: '#92400E' }}>{row.issue}</div>
+                      <div style={{ color: '#92400E', maxWidth: 520, textAlign: 'right' }}>{row.issue}</div>
                     </div>
                   ))}
                 </div>
@@ -445,18 +468,10 @@ export default function OutreachPage() {
       )}
 
       <div style={viewTabs}>
-        <button
-          type="button"
-          onClick={() => setView('active')}
-          style={view === 'active' ? activeViewTab : viewTab}
-        >
+        <button type="button" onClick={() => setView('active')} style={view === 'active' ? activeViewTab : viewTab}>
           Active
         </button>
-        <button
-          type="button"
-          onClick={() => setView('archived')}
-          style={view === 'archived' ? activeViewTab : viewTab}
-        >
+        <button type="button" onClick={() => setView('archived')} style={view === 'archived' ? activeViewTab : viewTab}>
           Archived
         </button>
       </div>
@@ -465,46 +480,26 @@ export default function OutreachPage() {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') void load();
-          }}
+          onKeyDown={(e) => { if (e.key === 'Enter') void load(); }}
           placeholder="Search organisation, contact or email…"
           style={{ ...adminStyles.input, marginBottom: 0, flex: '1 1 260px' }}
         />
 
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          style={{ ...adminStyles.input, marginBottom: 0, minWidth: 180 }}
-        >
+        <select value={status} onChange={(e) => setStatus(e.target.value)} style={{ ...adminStyles.input, marginBottom: 0, minWidth: 180 }}>
           <option value="">All statuses</option>
           {Object.entries(STATUS_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
+            <option key={value} value={value}>{label}</option>
           ))}
         </select>
 
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          style={{ ...adminStyles.input, marginBottom: 0, minWidth: 190 }}
-        >
+        <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ ...adminStyles.input, marginBottom: 0, minWidth: 190 }}>
           <option value="">All categories</option>
           {categories.map((c) => (
-            <option key={c} value={c}>
-              {c.replace(/_/g, ' ')}
-            </option>
+            <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>
           ))}
         </select>
 
-        <button
-          type="button"
-          onClick={() => void load()}
-          style={adminStyles.ghostBtn}
-        >
-          Search
-        </button>
+        <button type="button" onClick={() => void load()} style={adminStyles.ghostBtn}>Search</button>
       </div>
 
       {error && <div style={errorBox}>{error}</div>}
@@ -520,24 +515,13 @@ export default function OutreachPage() {
           <p style={{ color: '#64748B', margin: '0 0 16px' }}>
             {view === 'archived'
               ? 'Archived contacts will appear here and can be restored at any time.'
-              : 'Add your first organisation or import the retirement-village spreadsheet.'}
+              : 'Add your first organisation or import an outreach spreadsheet.'}
           </p>
 
           {view === 'active' && (
             <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                style={adminStyles.ghostBtn}
-              >
-                ↑ Import spreadsheet
-              </button>
-              <Link
-                href="/admin/outreach/new"
-                style={{ ...adminStyles.primaryBtn, textDecoration: 'none' }}
-              >
-                + New organisation
-              </Link>
+              <button type="button" onClick={() => fileInputRef.current?.click()} style={adminStyles.ghostBtn}>↑ Import spreadsheet</button>
+              <Link href="/admin/outreach/new" style={{ ...adminStyles.primaryBtn, textDecoration: 'none' }}>+ New organisation</Link>
             </div>
           )}
         </div>
@@ -554,7 +538,6 @@ export default function OutreachPage() {
                 <th style={th}></th>
               </tr>
             </thead>
-
             <tbody>
               {rows.map((org) => {
                 const outreachNumber = Number((org as any).outreach_number || 0);
@@ -562,43 +545,19 @@ export default function OutreachPage() {
                   <tr key={org.id}>
                     <td style={td}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        {outreachNumber >= 20001 && (
-                          <span style={outreachNumberPill}>#{outreachNumber}</span>
-                        )}
-                        <span style={{ fontWeight: 800, color: '#0A2540' }}>
-                          {org.organisation_name}
-                        </span>
+                        {outreachNumber >= 20001 && <span style={outreachNumberPill}>#{outreachNumber}</span>}
+                        <span style={{ fontWeight: 800, color: '#0A2540' }}>{org.organisation_name}</span>
                         {view === 'archived' && <span style={archivedPill}>Archived</span>}
                       </div>
-                      {org.suburb && (
-                        <div style={muted}>
-                          {org.suburb}
-                          {org.state ? `, ${org.state}` : ''}
-                        </div>
-                      )}
+                      {org.suburb && <div style={muted}>{org.suburb}{org.state ? `, ${org.state}` : ''}</div>}
                     </td>
-
                     <td style={td}>
                       <div>{org.contact_name || '—'}</div>
                       <div style={muted}>{org.email}</div>
                     </td>
-
-                    <td style={td}>
-                      {org.category ? org.category.replace(/_/g, ' ') : '—'}
-                    </td>
-
-                    <td style={td}>
-                      <span style={statusPill}>
-                        {STATUS_LABELS[org.status] || org.status}
-                      </span>
-                    </td>
-
-                    <td style={td}>
-                      {org.last_contact_at
-                        ? new Date(org.last_contact_at).toLocaleDateString('en-AU')
-                        : '—'}
-                    </td>
-
+                    <td style={td}>{org.category ? org.category.replace(/_/g, ' ') : '—'}</td>
+                    <td style={td}><span style={statusPill}>{STATUS_LABELS[org.status] || org.status}</span></td>
+                    <td style={td}>{org.last_contact_at ? new Date(org.last_contact_at).toLocaleDateString('en-AU') : '—'}</td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, alignItems: 'center' }}>
                         {view === 'archived' && (
@@ -611,9 +570,7 @@ export default function OutreachPage() {
                             {restoringId === org.id ? 'Restoring…' : 'Restore'}
                           </button>
                         )}
-                        <Link href={`/admin/outreach/${org.id}`} style={viewLink}>
-                          Open →
-                        </Link>
+                        <Link href={`/admin/outreach/${org.id}`} style={viewLink}>Open →</Link>
                       </div>
                     </td>
                   </tr>
@@ -627,214 +584,29 @@ export default function OutreachPage() {
   );
 }
 
-const topBar: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  gap: 16,
-  flexWrap: 'wrap',
-  marginBottom: 20,
-};
-
-const intro: React.CSSProperties = {
-  margin: 0,
-  color: '#475569',
-  fontSize: 14,
-  lineHeight: 1.6,
-  maxWidth: 700,
-};
-
-const viewTabs: React.CSSProperties = {
-  display: 'flex',
-  gap: 6,
-  marginBottom: 14,
-};
-
-const viewTab: React.CSSProperties = {
-  border: '1px solid #CBD5E1',
-  background: '#FFFFFF',
-  color: '#475569',
-  borderRadius: 999,
-  padding: '7px 13px',
-  fontSize: 12,
-  fontWeight: 800,
-  cursor: 'pointer',
-};
-
-const activeViewTab: React.CSSProperties = {
-  ...viewTab,
-  borderColor: '#0D9488',
-  background: '#F0FDFA',
-  color: '#0F766E',
-};
-
-const filters: React.CSSProperties = {
-  display: 'flex',
-  gap: 10,
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  marginBottom: 18,
-};
-
-const importCard: React.CSSProperties = {
-  background: '#FFFFFF',
-  border: '1px solid #99F6E4',
-  borderRadius: 16,
-  padding: 16,
-  marginBottom: 18,
-};
-
-const importHeader: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 12,
-  flexWrap: 'wrap',
-  marginBottom: 12,
-};
-
-const previewWrap: React.CSSProperties = {
-  overflowX: 'auto',
-  border: '1px solid #E2E8F0',
-  borderRadius: 12,
-};
-
-const tableWrap: React.CSSProperties = {
-  overflowX: 'auto',
-  background: '#FFFFFF',
-  border: '1px solid #E2E8F0',
-  borderRadius: 16,
-};
-
-const table: React.CSSProperties = {
-  width: '100%',
-  borderCollapse: 'collapse',
-};
-
-const th: React.CSSProperties = {
-  textAlign: 'left',
-  padding: '12px 14px',
-  fontSize: 11,
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase',
-  color: '#64748B',
-  borderBottom: '1px solid #E2E8F0',
-};
-
-const td: React.CSSProperties = {
-  padding: '14px',
-  fontSize: 13,
-  color: '#334155',
-  borderBottom: '1px solid #F1F5F9',
-  verticalAlign: 'top',
-};
-
-const muted: React.CSSProperties = {
-  marginTop: 3,
-  color: '#94A3B8',
-  fontSize: 12,
-};
-
-const statusPill: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '4px 9px',
-  borderRadius: 999,
-  background: '#F0FDFA',
-  color: '#0F766E',
-  fontWeight: 800,
-  fontSize: 11,
-};
-
-const archivedPill: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '3px 8px',
-  borderRadius: 999,
-  background: '#F1F5F9',
-  color: '#64748B',
-  border: '1px solid #CBD5E1',
-  fontWeight: 800,
-  fontSize: 11,
-};
-
-const outreachNumberPill: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '3px 8px',
-  borderRadius: 999,
-  background: '#EFF6FF',
-  color: '#1D4ED8',
-  border: '1px solid #BFDBFE',
-  fontWeight: 900,
-  fontSize: 11,
-  fontVariantNumeric: 'tabular-nums',
-};
-
-const readyPill: React.CSSProperties = {
-  ...statusPill,
-  background: '#ECFDF5',
-  color: '#047857',
-};
-
-const skipPill: React.CSSProperties = {
-  ...statusPill,
-  background: '#FFF7ED',
-  color: '#C2410C',
-};
-
-const viewLink: React.CSSProperties = {
-  color: '#0F766E',
-  fontWeight: 800,
-  textDecoration: 'none',
-};
-
-const emptyCard: React.CSSProperties = {
-  background: '#FFFFFF',
-  border: '1px dashed #CBD5E1',
-  borderRadius: 16,
-  padding: '48px 24px',
-  textAlign: 'center',
-};
-
-const successBox: React.CSSProperties = {
-  marginBottom: 16,
-  padding: 12,
-  borderRadius: 10,
-  background: '#ECFDF5',
-  color: '#047857',
-  fontSize: 13,
-  fontWeight: 700,
-};
-
-const skippedToggle: React.CSSProperties = {
-  marginTop: 8,
-  padding: 0,
-  border: 'none',
-  background: 'transparent',
-  color: '#0F766E',
-  fontSize: 12,
-  fontWeight: 900,
-  cursor: 'pointer',
-};
-
-const skippedList: React.CSSProperties = {
-  marginTop: 10,
-  borderTop: '1px solid #A7F3D0',
-};
-
-const skippedRow: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  gap: 12,
-  padding: '9px 0',
-  borderBottom: '1px solid #D1FAE5',
-  fontSize: 12,
-  lineHeight: 1.4,
-};
-
-const errorBox: React.CSSProperties = {
-  marginBottom: 16,
-  padding: 12,
-  borderRadius: 10,
-  background: '#FEF2F2',
-  color: '#B91C1C',
-  fontSize: 13,
-};
+const topBar: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 20 };
+const intro: React.CSSProperties = { margin: 0, color: '#475569', fontSize: 14, lineHeight: 1.6, maxWidth: 700 };
+const viewTabs: React.CSSProperties = { display: 'flex', gap: 6, marginBottom: 14 };
+const viewTab: React.CSSProperties = { border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#475569', borderRadius: 999, padding: '7px 13px', fontSize: 12, fontWeight: 800, cursor: 'pointer' };
+const activeViewTab: React.CSSProperties = { ...viewTab, borderColor: '#0D9488', background: '#F0FDFA', color: '#0F766E' };
+const filters: React.CSSProperties = { display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 18 };
+const importCard: React.CSSProperties = { background: '#FFFFFF', border: '1px solid #99F6E4', borderRadius: 16, padding: 16, marginBottom: 18 };
+const importHeader: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 };
+const previewWrap: React.CSSProperties = { overflowX: 'auto', border: '1px solid #E2E8F0', borderRadius: 12 };
+const tableWrap: React.CSSProperties = { overflowX: 'auto', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16 };
+const table: React.CSSProperties = { width: '100%', borderCollapse: 'collapse' };
+const th: React.CSSProperties = { textAlign: 'left', padding: '12px 14px', fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748B', borderBottom: '1px solid #E2E8F0' };
+const td: React.CSSProperties = { padding: '14px', fontSize: 13, color: '#334155', borderBottom: '1px solid #F1F5F9', verticalAlign: 'top' };
+const muted: React.CSSProperties = { marginTop: 3, color: '#94A3B8', fontSize: 12 };
+const statusPill: React.CSSProperties = { display: 'inline-block', padding: '4px 9px', borderRadius: 999, background: '#F0FDFA', color: '#0F766E', fontWeight: 800, fontSize: 11 };
+const archivedPill: React.CSSProperties = { display: 'inline-block', padding: '3px 8px', borderRadius: 999, background: '#F1F5F9', color: '#64748B', border: '1px solid #CBD5E1', fontWeight: 800, fontSize: 11 };
+const outreachNumberPill: React.CSSProperties = { display: 'inline-block', padding: '3px 8px', borderRadius: 999, background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', fontWeight: 900, fontSize: 11, fontVariantNumeric: 'tabular-nums' };
+const readyPill: React.CSSProperties = { ...statusPill, background: '#ECFDF5', color: '#047857' };
+const skipPill: React.CSSProperties = { ...statusPill, background: '#FFF7ED', color: '#C2410C' };
+const viewLink: React.CSSProperties = { color: '#0F766E', fontWeight: 800, textDecoration: 'none' };
+const emptyCard: React.CSSProperties = { background: '#FFFFFF', border: '1px dashed #CBD5E1', borderRadius: 16, padding: '48px 24px', textAlign: 'center' };
+const successBox: React.CSSProperties = { marginBottom: 16, padding: 12, borderRadius: 10, background: '#ECFDF5', color: '#047857', fontSize: 13, fontWeight: 700 };
+const skippedToggle: React.CSSProperties = { marginTop: 8, padding: 0, border: 'none', background: 'transparent', color: '#0F766E', fontSize: 12, fontWeight: 900, cursor: 'pointer' };
+const skippedList: React.CSSProperties = { marginTop: 10, borderTop: '1px solid #A7F3D0' };
+const skippedRow: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', gap: 12, padding: '9px 0', borderBottom: '1px solid #D1FAE5', fontSize: 12, lineHeight: 1.4 };
+const errorBox: React.CSSProperties = { marginBottom: 16, padding: 12, borderRadius: 10, background: '#FEF2F2', color: '#B91C1C', fontSize: 13 };
