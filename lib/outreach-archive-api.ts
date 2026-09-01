@@ -10,6 +10,12 @@ type OutreachListParams = {
   limit?: number;
 };
 
+type OutreachListResponse = {
+  count?: number;
+  rows?: OutreachOrg[];
+  organisations?: OutreachOrg[];
+};
+
 async function request<T>(method: string, path: string): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
@@ -21,7 +27,10 @@ async function request<T>(method: string, path: string): Promise<T> {
     cache: 'no-store',
   });
 
-  if (res.status === 401) clearAuth();
+  if (res.status === 401) {
+    clearAuth();
+    throw new Error('Your session has expired. Please sign in again.');
+  }
 
   const text = await res.text();
   let json: any = {};
@@ -32,7 +41,9 @@ async function request<T>(method: string, path: string): Promise<T> {
   }
 
   if (!res.ok) {
-    const msg = json?.detail || json?.error || `Request failed (${res.status})`;
+    const msg = res.status >= 500
+      ? 'Outreach service is temporarily unavailable.'
+      : json?.detail || json?.error || `Request failed (${res.status})`;
     throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
   }
 
@@ -50,7 +61,7 @@ function buildListQuery(params?: OutreachListParams) {
 
 export const outreachArchiveApi = {
   list: (params?: OutreachListParams) =>
-    request<{ organisations: OutreachOrg[] }>(
+    request<OutreachListResponse>(
       'GET',
       `/cms/outreach/organisations?${buildListQuery(params)}`,
     ),
@@ -62,6 +73,6 @@ export const outreachArchiveApi = {
   restore: (id: string) =>
     request<OutreachOrg>(
       'POST',
-      `/cms/outreach/organisations/${encodeURIComponent(id)}/restore`,
+      `/cms/outreach/organisations/${encodeURIComponent(id)}/unarchive`,
     ),
 };
