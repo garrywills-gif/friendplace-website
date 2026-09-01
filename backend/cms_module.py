@@ -49,7 +49,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import FileResponse
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 # ---- Config (env-driven, no hard-coding) ---------------------------------
 CMS_JWT_TTL_HOURS = int(os.getenv("CMS_JWT_TTL_HOURS", "12"))
@@ -1041,11 +1041,18 @@ def build_router(db) -> APIRouter:
         return {"ok": True, "id": org_id, "archived": True, "archived_at": now}
 
     @router.post("/outreach/organisations/{org_id}/unarchive")
+    @router.post("/outreach/organisations/{org_id}/restore")  # deployed frontend built-in alias
     async def outreach_organisation_unarchive(
         org_id: str,
         admin: dict = Depends(current_cms_admin),
     ):
-        """Restore an archived outreach organisation. Idempotent."""
+        """Restore an archived outreach organisation. Idempotent.
+
+        Two paths are registered so both the current deployed frontend
+        (which calls ``/unarchive``) and any lingering stale-cache
+        browser (which historically called ``/restore``) both succeed
+        without further Vercel deploys.
+        """
         from datetime import datetime, timezone
         from services import audit as _audit  # local import — module boundary
         existing = await db.cms_organisations.find_one(
@@ -1068,6 +1075,137 @@ def build_router(db) -> APIRouter:
             target_type="outreach_organisation", target_id=org_id,
         )
         return {"ok": True, "id": org_id, "archived": False}
+
+    # ─── Create — spreadsheet import + manual "New Organisation" form ───
+    #
+    # The deployed Vercel frontend calls ``POST /cms/outreach/organisations``
+    # from TWO paths:
+    #   1. Spreadsheet import (Outreach page): parses .xlsx/.csv client-side
+    #      with sheetjs, then loops one row per POST with a friendly
+    #      payload shape (organisation_name + email + contact_name + phone
+    #      + category + suburb + state + notes + tags + status).
+    #   2. The `/admin/outreach/new` manual form: identical payload
+    #      shape but with only ONE row.
+    #
+    # Storage schema is the pre-existing ``cms_organisations`` document
+    # (fields: name, contact_email, contact_phone, category, suburb,
+    # state, notes, tags, status, ...). We normalise the incoming
+    # frontend-shaped keys into that schema so both surfaces read back
+    # cleanly through ``_outreach_row``.
+    #
+    # DATA SAFETY: if the payload's email already exists on ANY
+    # existing organisation (case-insensitive), we return that row
+    # untouched with ``existing: True`` and HTTP 200. Never overwrite,
+    # never duplicate, never re-import — spreadsheet re-runs are safe.
+    #
+    # Body is accepted as a plain ``dict`` (declared via ``Body(...)``)
+    # rather than a nested Pydantic model, because Pydantic v2 will
+    # not rebuild a function-scoped model class at import time and
+    # FastAPI's OpenAPI generator raises PydanticUserError. Field
+    # validation happens inline below.
+    @router.post("/outreach/organisations")
+    @router.post("/outreach/organisations/")  # trailing-slash tolerant
+    async def outreach_organisation_create(
+        payload: Dict[str, Any] = Body(...),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Create a new outreach organisation. Used by BOTH the
+        spreadsheet import loop and the manual "New Organisation" form
+        on ``/admin/outreach/new``.
+
+        Duplicate protection: if an organisation with the same email
+        already exists (case-insensitive match on ``contact_email``),
+        the EXISTING row is returned with ``existing: True`` and no
+        data is modified. This makes spreadsheet re-runs idempotent
+        and preserves Garry's guarantee that existing records never
+        get overwritten, duplicated, or reset.
+        """
+        import re as _re
+        import uuid as _uuid
+        from datetime import datetime as _dt, timezone as _tz
+        from services import audit as _audit
+
+        def _s(*keys) -> str:
+            """First non-empty string among the given payload keys."""
+            for k in keys:
+                v = payload.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            return ""
+
+        # Normalise the tolerant payload into the storage schema.
+        name = _s("organisation_name", "name")
+        email = _s("email", "contact_email")
+        if not name:
+            raise HTTPException(400, "Organisation name is required")
+        if not email or "@" not in email:
+            raise HTTPException(400, "A valid email address is required")
+
+        # ── Idempotency — email is the natural key here. ────────────
+        rx_email = _re.compile(f"^{_re.escape(email)}$", _re.IGNORECASE)
+        dupe = await db.cms_organisations.find_one(
+            {"contact_email": rx_email},
+            {"_id": 0},
+        )
+        if dupe is not None:
+            await _audit.log_admin_action(
+                db, admin=admin, action="cms.outreach.create.noop_duplicate",
+                target_type="outreach_organisation", target_id=dupe.get("id"),
+            )
+            return {
+                "ok": True,
+                "id": dupe.get("id"),
+                "existing": True,
+                "organisation": _outreach_row(dupe),
+            }
+
+        # Tags may arrive as a list, a comma-separated string, or None.
+        raw_tags = payload.get("tags")
+        if isinstance(raw_tags, str):
+            tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+        elif isinstance(raw_tags, list):
+            tags = [str(t).strip() for t in raw_tags if str(t).strip()]
+        else:
+            tags = []
+
+        # Outreach_number: only accept ints; ignore other types.
+        raw_on = payload.get("outreach_number")
+        outreach_number = int(raw_on) if isinstance(raw_on, (int, float)) and not isinstance(raw_on, bool) else None
+
+        now = _dt.now(_tz.utc).isoformat()
+        org_id = str(_uuid.uuid4())
+        doc = {
+            "id": org_id,
+            "name": name,
+            "contact_email": email.lower(),
+            "contact_name": _s("contact_name"),
+            "contact_phone": _s("phone", "contact_phone"),
+            "category": _s("category", "type"),
+            "suburb": _s("suburb"),
+            "state": _s("state"),
+            "postcode": _s("postcode"),
+            "website": _s("website"),
+            "notes": _s("notes"),
+            "tags": tags,
+            "status": _s("status") or "not_contacted",
+            "outreach_number": outreach_number,
+            "created_at": now,
+            "updated_at": now,
+            "created_by": admin.get("id"),
+            "created_by_email": admin.get("email"),
+            "archived": False,
+        }
+        await db.cms_organisations.insert_one(doc)
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.outreach.create",
+            target_type="outreach_organisation", target_id=org_id,
+        )
+        return {
+            "ok": True,
+            "id": org_id,
+            "existing": False,
+            "organisation": _outreach_row(doc),
+        }
 
 
     # EMAIL TEMPLATE PREVIEW
