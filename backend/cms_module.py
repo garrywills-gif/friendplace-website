@@ -929,24 +929,68 @@ def build_router(db) -> APIRouter:
     # registered yet. See production JS chunk
     # `_next/static/chunks/app/admin/outreach/page-*.js`.
 
+    # ─── Response shape ─────────────────────────────────────────────
+    # George's deployed frontend (origin/main → Vercel) types
+    # ``OutreachOrg`` as ``{ organisation_name, email, phone, ... }``
+    # while the storage schema uses the older ``{ name, contact_email,
+    # contact_phone, ... }`` naming. ``_outreach_row`` emits BOTH the
+    # canonical frontend names and the legacy aliases so:
+    #   1. George's TypeScript types read cleanly (organisation_name).
+    #   2. Any pre-iter167 caller still sees the fields it expected.
+    #   3. Zero migration of the underlying documents is required —
+    #      Garry explicitly forbade altering historical records.
+    #
+    # ``communications`` is the outbound/inbound contact history array
+    # rendered on the detail page. Each entry:
+    #   { at: iso, kind: "email_sent"|"email_reply"|"note"|"campaign_send",
+    #     direction: "outbound"|"inbound", subject: str, body: str,
+    #     campaign_id: str|None }
+    # Auto-populated on campaign sends (see ``_touch_outreach_on_send``)
+    # and via ``POST .../log`` for manual notes.
+    _OUTREACH_STATUSES = [
+        "not_contacted", "contacted", "awaiting_reply", "replied",
+        "joined", "declined", "bounced", "unsubscribed",
+    ]
+
     def _outreach_row(d: Dict[str, Any]) -> Dict[str, Any]:
+        # Normalise the legacy "new" status to "not_contacted" so
+        # George's UI never sees an unrecognised value.
+        raw_status = (d.get("status") or "").strip()
+        if raw_status in ("", "new", "registered"):
+            status = "not_contacted"
+        else:
+            status = raw_status
+        name = d.get("organisation_name") or d.get("name") or ""
+        email = d.get("email") or d.get("contact_email") or ""
+        phone = d.get("phone") or d.get("contact_phone") or ""
+        # ``communications`` may not exist on legacy rows — return [] then.
+        comms = d.get("communications") or []
         return {
-            "id":                d.get("id"),
-            "name":               d.get("name") or "",
+            "id":                 d.get("id"),
+            # Canonical (frontend) names ─────────────────────────────
+            "organisation_name":  name,
+            "email":              email,
+            "phone":              phone,
+            # Legacy aliases ─────────────────────────────────────────
+            "name":               name,
+            "contact_email":      email,
+            "contact_phone":      phone,
+            # Shared fields ──────────────────────────────────────────
             "outreach_number":    d.get("outreach_number"),
             "category":           d.get("category") or d.get("type") or "",
-            "status":             d.get("status") or "new",
+            "status":             status,
             "contact_name":       d.get("contact_name") or "",
-            "contact_email":      d.get("contact_email") or "",
-            "contact_phone":      d.get("contact_phone") or "",
             "suburb":             d.get("suburb") or "",
             "state":              d.get("state") or "",
             "postcode":           d.get("postcode") or "",
             "website":            d.get("website") or "",
             "notes":              d.get("notes") or "",
             "tags":               d.get("tags") or [],
+            "communications":     list(comms),
             "created_at":         d.get("created_at"),
-            "last_contacted_at":  d.get("last_contacted_at"),
+            "updated_at":         d.get("updated_at"),
+            "last_contact_at":    d.get("last_contact_at") or d.get("last_contacted_at"),
+            "last_reply_at":      d.get("last_reply_at"),
             "next_follow_up_at":  d.get("next_follow_up_at"),
             "archived":           bool(d.get("archived")),
             "archived_at":        d.get("archived_at"),
@@ -998,7 +1042,12 @@ def build_router(db) -> APIRouter:
         rows_raw = await db.cms_organisations.find(query, {"_id": 0}) \
             .sort("created_at", -1).to_list(lim)
         rows = [_outreach_row(d) for d in rows_raw]
-        return {"count": len(rows), "rows": rows}
+        # ``organisations`` is a duplicate alias of ``rows`` because
+        # George's ``outreachApi.list`` types the response as
+        # ``{ organisations: OutreachOrg[] }`` while
+        # ``outreach-archive-api.ts`` also accepts ``rows``. Emit
+        # both so both clients read cleanly with no migration.
+        return {"count": len(rows), "rows": rows, "organisations": rows}
 
     @router.post("/outreach/organisations/{org_id}/archive")
     async def outreach_organisation_archive(
@@ -1206,6 +1255,211 @@ def build_router(db) -> APIRouter:
             "existing": False,
             "organisation": _outreach_row(doc),
         }
+
+    # ─── Meta — statuses + categories the frontend renders in filters ───
+    @router.get("/outreach/meta")
+    async def outreach_meta(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Static metadata for the Outreach page filters."""
+        cats_cursor = db.cms_organisations.aggregate([
+            {"$match": {"category": {"$type": "string", "$ne": ""}}},
+            {"$group": {"_id": "$category"}},
+            {"$sort": {"_id": 1}},
+        ])
+        cats = [c["_id"] async for c in cats_cursor if c.get("_id")]
+        return {"statuses": _OUTREACH_STATUSES, "categories": cats}
+
+    # ─── Get one — powers the /admin/outreach/{id} detail page ─────
+    @router.get("/outreach/organisations/{org_id}")
+    async def outreach_organisation_get(
+        org_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        doc = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        if doc is None:
+            raise HTTPException(404, "Organisation not found")
+        return _outreach_row(doc)
+
+    # ─── Update — inline edits from the detail page ────────────────
+    @router.patch("/outreach/organisations/{org_id}")
+    async def outreach_organisation_update(
+        org_id: str,
+        payload: Dict[str, Any] = Body(...),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Update editable fields. Never touches archived or communications."""
+        from datetime import datetime as _dt, timezone as _tz
+        from services import audit as _audit
+        existing = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        if existing is None:
+            raise HTTPException(404, "Organisation not found")
+
+        editable = {
+            "organisation_name": "name", "name": "name",
+            "email": "contact_email", "contact_email": "contact_email",
+            "phone": "contact_phone", "contact_phone": "contact_phone",
+            "contact_name": "contact_name",
+            "category": "category", "suburb": "suburb", "state": "state",
+            "postcode": "postcode", "website": "website",
+            "notes": "notes", "tags": "tags", "status": "status",
+            "outreach_number": "outreach_number",
+        }
+        patch: Dict[str, Any] = {}
+        for k, v in payload.items():
+            if k not in editable:
+                continue
+            storage_key = editable[k]
+            if storage_key == "tags":
+                if isinstance(v, list):
+                    patch["tags"] = [str(t).strip() for t in v if str(t).strip()]
+                continue
+            if storage_key == "status":
+                if v in _OUTREACH_STATUSES:
+                    patch["status"] = v
+                continue
+            if isinstance(v, str):
+                patch[storage_key] = v.strip()
+            elif v is None:
+                patch[storage_key] = ""
+            elif storage_key == "outreach_number" and isinstance(v, (int, float)):
+                patch["outreach_number"] = int(v)
+
+        if "contact_email" in patch and "@" not in patch["contact_email"]:
+            raise HTTPException(400, "A valid email address is required")
+        if "contact_email" in patch:
+            patch["contact_email"] = patch["contact_email"].lower()
+
+        if not patch:
+            return _outreach_row(existing)
+        patch["updated_at"] = _dt.now(_tz.utc).isoformat()
+        await db.cms_organisations.update_one({"id": org_id}, {"$set": patch})
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.outreach.update",
+            target_type="outreach_organisation", target_id=org_id,
+        )
+        fresh = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        return _outreach_row(fresh)
+
+    # ─── Delete — hard delete (audited) ────────────────────────────
+    @router.delete("/outreach/organisations/{org_id}")
+    async def outreach_organisation_delete(
+        org_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        from services import audit as _audit
+        existing = await db.cms_organisations.find_one(
+            {"id": org_id}, {"_id": 0, "id": 1, "name": 1, "contact_email": 1},
+        )
+        if existing is None:
+            raise HTTPException(404, "Organisation not found")
+        await db.cms_organisations.delete_one({"id": org_id})
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.outreach.delete",
+            target_type="outreach_organisation", target_id=org_id,
+        )
+        return {"ok": True, "id": org_id, "deleted": True}
+
+    # ─── Mark replied — records an inbound response ───────────────
+    @router.post("/outreach/organisations/{org_id}/mark-replied")
+    async def outreach_organisation_mark_replied(
+        org_id: str,
+        payload: Dict[str, Any] = Body(default={}),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        from datetime import datetime as _dt, timezone as _tz
+        from services import audit as _audit
+        existing = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        if existing is None:
+            raise HTTPException(404, "Organisation not found")
+        now = _dt.now(_tz.utc).isoformat()
+        entry = {
+            "at": now, "kind": "email_reply",
+            "direction": (payload.get("direction") or "inbound").strip() or "inbound",
+            "subject": (payload.get("subject") or "").strip(),
+            "body":    (payload.get("body") or "").strip(),
+            "campaign_id": payload.get("campaign_id") or None,
+            "by": admin.get("email"),
+        }
+        await db.cms_organisations.update_one(
+            {"id": org_id},
+            {"$set": {"status": "replied", "last_reply_at": now, "updated_at": now},
+             "$push": {"communications": entry}},
+        )
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.outreach.mark_replied",
+            target_type="outreach_organisation", target_id=org_id,
+        )
+        fresh = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        return _outreach_row(fresh)
+
+    # ─── Log — free-form contact-history entry (no status change) ──
+    @router.post("/outreach/organisations/{org_id}/log")
+    async def outreach_organisation_log(
+        org_id: str,
+        payload: Dict[str, Any] = Body(...),
+        admin: dict = Depends(current_cms_admin),
+    ):
+        from datetime import datetime as _dt, timezone as _tz
+        from services import audit as _audit
+        kind = (payload.get("kind") or "").strip()
+        if not kind:
+            raise HTTPException(400, "kind is required (e.g. 'phone_call', 'note')")
+        existing = await db.cms_organisations.find_one(
+            {"id": org_id}, {"_id": 0, "id": 1},
+        )
+        if existing is None:
+            raise HTTPException(404, "Organisation not found")
+        now = _dt.now(_tz.utc).isoformat()
+        entry = {
+            "at": now, "kind": kind,
+            "body": (payload.get("body") or "").strip(),
+            "by": admin.get("email"),
+        }
+        await db.cms_organisations.update_one(
+            {"id": org_id},
+            {"$set": {"updated_at": now}, "$push": {"communications": entry}},
+        )
+        await _audit.log_admin_action(
+            db, admin=admin, action="cms.outreach.log",
+            target_type="outreach_organisation", target_id=org_id,
+        )
+        fresh = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        return _outreach_row(fresh)
+
+    # ─── Internal: auto-touch outreach org on campaign send ────────
+    # Called from the campaign send worker for every successful
+    # recipient send. If the recipient's email matches an outreach
+    # organisation (case-insensitive), we bump status to ``contacted``
+    # (only if it was ``not_contacted``) and append a ``campaign_send``
+    # entry to its history. Silently no-ops if there's no matching org.
+    async def _touch_outreach_on_send(*, email: str, campaign_id: str,
+                                       subject: str) -> None:
+        if not email:
+            return
+        import re as _re
+        from datetime import datetime as _dt, timezone as _tz
+        rx = _re.compile(f"^{_re.escape(email)}$", _re.IGNORECASE)
+        org = await db.cms_organisations.find_one(
+            {"contact_email": rx},
+            {"_id": 0, "id": 1, "status": 1},
+        )
+        if not org:
+            return
+        now = _dt.now(_tz.utc).isoformat()
+        update_set: Dict[str, Any] = {"last_contact_at": now, "updated_at": now}
+        if (org.get("status") or "not_contacted") in ("not_contacted", "", None):
+            update_set["status"] = "contacted"
+        entry = {
+            "at": now, "kind": "campaign_send", "direction": "outbound",
+            "subject": subject, "campaign_id": campaign_id,
+        }
+        await db.cms_organisations.update_one(
+            {"id": org["id"]},
+            {"$set": update_set, "$push": {"communications": entry}},
+        )
+    # Expose the helper to the campaign send worker without cross-file coupling.
+    router._touch_outreach_on_send = _touch_outreach_on_send  # type: ignore[attr-defined]
+
+
 
 
     # EMAIL TEMPLATE PREVIEW
@@ -2501,6 +2755,20 @@ def build_router(db) -> APIRouter:
                             "campaign_id": campaign_id,
                         })
                     except Exception:
+                        pass
+                # iter167 — if the recipient email matches an existing
+                # outreach organisation, bump its status to "contacted"
+                # and append the send to its history. Never invents a
+                # new outreach row — a Founding Member campaign that
+                # happens to overlap emails simply no-ops.
+                if result.ok:
+                    try:
+                        await _touch_outreach_on_send(
+                            email=r["email"], campaign_id=campaign_id,
+                            subject=subject,
+                        )
+                    except Exception:
+                        # Never let outreach bookkeeping fail a send.
                         pass
                 # Auto-advance status for invitation campaigns.
                 if result.ok and c["template"] == "invitation":
