@@ -305,8 +305,14 @@ _STATE_QUESTION_RE = re.compile(
     r"show me (?:everyone|all|the)|"
     r"conversion|funnel|how are we tracking|"
     r"awaiting contact|hasn(?:'|�)?t been contacted|haven(?:'|�)?t been contacted|not (?:yet )?contacted|"
-    r"joined (?:today|this week|this month)|invited (?:today|this week|this month)|"
-    r"from (?:sydney|melbourne|brisbane|perth|adelaide|hobart|canberra|darwin)|"
+    r"joined (?:today|this week|this month|yesterday|the app|friendplace)|"
+    r"invited (?:today|this week|this month)|"
+    r"registered (?:today|this week|this month|yesterday)|"
+    r"signed up|through the website|via the website|"
+    r"from (?:facebook|google|instagram|twitter|tiktok|sydney|melbourne|brisbane|perth|adelaide|hobart|canberra|darwin)|"
+    r"via facebook|came from|heard about|"
+    r"where (?:did|are they|do they|are people)|"
+    r"break(?:down)? by source|best source|top source|acquisition|source|"
     r"any (tickets|signals|cases|events|reports|submissions|registrations|founding members)"
     r")\b",
     re.IGNORECASE,
@@ -332,15 +338,69 @@ _TOPIC_TO_TOOL = [
     ("everyone who hasn't",    {"name": "list_interest_registrations", "args": {"status": "registered"}}),
     ("still registered",  {"name": "count_interest_registrations", "args": {"status": "registered"}}),
     ("awaiting contact",  {"name": "count_interest_registrations", "args": {"status": "registered"}}),
-    ("joined this week",  {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 7}}),
-    ("joined today",      {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 1}}),
-    ("invited this week", {"name": "count_interest_registrations", "args": {"status": "invited", "since_days": 7}}),
+
+    # ─── "Joined the app" — the honest, email-matched metric ──────────
+    # These phrases mean "how many people have actually created a
+    # FriendPlace account?" — not the manual CRM ladder flag.
+    ("joined the app",         {"name": "count_founding_members_joined_app", "args": {}}),
+    ("joined app",             {"name": "count_founding_members_joined_app", "args": {}}),
+    ("created an account",     {"name": "count_founding_members_joined_app", "args": {}}),
+    ("created accounts",       {"name": "count_founding_members_joined_app", "args": {}}),
+    ("signed up for the app",  {"name": "count_founding_members_joined_app", "args": {}}),
+    ("actually joined",        {"name": "count_founding_members_joined_app", "args": {}}),
+    ("actually signed up",     {"name": "count_founding_members_joined_app", "args": {}}),
+
+    # ─── Registration-window questions (Sydney-local) ────────────────
+    # "How many joined/registered yesterday" etc. Garry usually means
+    # "landed in the registration list on that day" — so we route to
+    # count_interest_registrations with a Sydney-local ``since`` window
+    # and NO status filter. If he specifically wants the CRM ladder
+    # 'joined' status he'll say "status joined" or use the CRM.
+    ("registered today",       {"name": "count_interest_registrations", "args": {"since": "today"}}),
+    ("registered yesterday",   {"name": "count_interest_registrations", "args": {"since": "yesterday"}}),
+    ("registered this week",   {"name": "count_interest_registrations", "args": {"since": "this_week"}}),
+    ("registered this month",  {"name": "count_interest_registrations", "args": {"since": "this_month"}}),
+    ("signed up today",        {"name": "count_interest_registrations", "args": {"since": "today"}}),
+    ("signed up yesterday",    {"name": "count_interest_registrations", "args": {"since": "yesterday"}}),
+    ("signed up this week",    {"name": "count_interest_registrations", "args": {"since": "this_week"}}),
+    ("through the website",    {"name": "count_interest_registrations", "args": {}}),
+    ("via the website",        {"name": "count_interest_registrations", "args": {}}),
+    ("joined yesterday",       {"name": "founding_members_summary",    "args": {}}),
+    ("joined today",           {"name": "founding_members_summary",    "args": {}}),
+    ("joined this week",       {"name": "founding_members_summary",    "args": {}}),
+    ("joined this month",      {"name": "founding_members_summary",    "args": {}}),
+    ("new today",              {"name": "count_interest_registrations", "args": {"since": "today"}}),
+    ("new yesterday",          {"name": "count_interest_registrations", "args": {"since": "yesterday"}}),
+    ("new this week",          {"name": "count_interest_registrations", "args": {"since": "this_week"}}),
+
+    # ─── Source / acquisition breakdown (heard_from) ─────────────────
+    ("came from facebook",     {"name": "founding_members_by_source", "args": {}}),
+    ("from facebook",          {"name": "founding_members_by_source", "args": {}}),
+    ("via facebook",           {"name": "founding_members_by_source", "args": {}}),
+    ("where did",              {"name": "founding_members_by_source", "args": {}}),
+    ("acquisition source",     {"name": "founding_members_by_source", "args": {}}),
+    ("registration source",    {"name": "founding_members_by_source", "args": {}}),
+    ("heard about us",         {"name": "founding_members_by_source", "args": {}}),
+    ("how they heard",         {"name": "founding_members_by_source", "args": {}}),
+    ("break.*by source",       {"name": "founding_members_by_source", "args": {}}),
+    ("break down by source",   {"name": "founding_members_by_source", "args": {}}),
+    ("breakdown by source",    {"name": "founding_members_by_source", "args": {}}),
+    ("what's our best source", {"name": "founding_members_by_source", "args": {}}),
+    ("best source",            {"name": "founding_members_by_source", "args": {}}),
+    ("top source",             {"name": "founding_members_by_source", "args": {}}),
+    ("where are people coming from", {"name": "founding_members_by_source", "args": {}}),
+    ("where are they coming from",   {"name": "founding_members_by_source", "args": {}}),
+
+    ("invited this week", {"name": "count_interest_registrations", "args": {"status": "invited", "since": "this_week"}}),
     ("been invited",      {"name": "count_interest_registrations", "args": {"status": "invited"}}),
     ("have been invited", {"name": "count_interest_registrations", "args": {"status": "invited"}}),
     ("who was invited",   {"name": "list_interest_registrations",  "args": {"status": "invited"}}),
-    ("have joined",       {"name": "count_interest_registrations", "args": {"status": "joined"}}),
+    # "have joined" / "who joined" / "joined friendplace" — the honest
+    # interpretation is 'created a FriendPlace app account', not the
+    # manual CRM ladder flag. Route to the email-matched tool.
+    ("have joined",       {"name": "count_founding_members_joined_app", "args": {}}),
     ("who joined",        {"name": "list_interest_registrations",  "args": {"status": "joined"}}),
-    ("joined friendplace",{"name": "count_interest_registrations", "args": {"status": "joined"}}),
+    ("joined friendplace",{"name": "count_founding_members_joined_app", "args": {}}),
     ("conversion rate",      {"name": "founding_members_conversion", "args": {}}),
     ("conversion",           {"name": "founding_members_conversion", "args": {}}),
     ("funnel",               {"name": "founding_members_conversion", "args": {}}),

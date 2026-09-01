@@ -458,21 +458,102 @@ async def _count_organisations(db: Any, args: dict) -> int:
 #
 # Test-flagged rows (`is_test: true`) are excluded by default so QA
 # fixtures never inflate the real numbers.
+#
+# TIMEZONE (iter167).
+# ~~~~~~~~~~~~~~~~~~
+# All "day-bound" windows below (today / yesterday / this_week /
+# this_month) are computed against Australia/Sydney local midnight,
+# not UTC midnight. FriendPlace's audience — and Garry — think in
+# Sydney time; a "New Today" number computed on UTC midnight would
+# undercount by 10-11 hours every morning. See
+# ``services.analytics.local_time`` for the single source of truth.
+# The legacy ``since_days`` argument (rolling 24h window) is retained
+# for questions like "in the last 3 days" where a day boundary would
+# be surprising.
+#
+# REGISTERED vs JOINED-APP (iter167).
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# `interest_registrations.status = "joined"` is a MANUAL CRM ladder
+# flag — it does NOT prove a FriendPlace user account exists. When
+# Garry asks "how many people joined the app?", the honest answer
+# needs the ``count_founding_members_joined_app`` tool below, which
+# resolves the registration email against ``db.users``. Never
+# conflate the two.
+
+# Whitelist of Sydney-local windows George can request. The value is
+# the argument George passes; the mapping to a UTC range lives in
+# ``services.analytics.local_time.sydney_named_range``.
+_LOCAL_WINDOWS = {
+    "today", "yesterday",
+    "this_week", "last_week",
+    "this_month", "last_month",
+    "this_year",
+}
+
+
+def _apply_time_window(q: dict, args: dict) -> Optional[str]:
+    """Attach a ``created_at`` bound to the query based on the caller's
+    time-window arguments. Returns a short human label of the window
+    (or ``None`` if no window was requested) so the tool result can be
+    self-describing for the synthesizer.
+
+    Priority: ``since`` (Sydney-local named window) beats ``since_days``
+    (legacy rolling 24h window). This matches how Garry talks about
+    time — he means "today in Sydney", not "the last 24 hours".
+    """
+    from services.analytics.local_time import sydney_named_range
+
+    since = args.get("since")
+    if since:
+        start_iso, end_iso = sydney_named_range(since)  # type: ignore[arg-type]
+        q["created_at"] = {"$gte": start_iso, "$lt": end_iso}
+        return since
+    if "since_days" in args:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
+        q["created_at"] = {"$gte": cutoff.isoformat()}
+        return f"last_{int(args['since_days'])}_days"
+    return None
+
+
+def _apply_heard_from(q: dict, args: dict) -> None:
+    """Apply an optional ``heard_from`` substring filter.
+
+    ``heard_from`` is a free-text field the visitor types on the
+    Register Your Interest form. Values in production include
+    "Facebook", "Friend", "Google", "AI Companion", "Founder",
+    "A friend", "Newspaper", etc. We do case-insensitive substring
+    matching so "facebook" catches "Facebook", "FB", "via Facebook",
+    "Facebook ad", etc. Never invent a stricter enum — Garry's users
+    type whatever they want and we should be honest about that.
+    """
+    if not args.get("heard_from"):
+        return
+    rx = re.compile(re.escape(str(args["heard_from"])), re.IGNORECASE)
+    q["heard_from"] = rx
+
 
 @register(
     "count_interest_registrations",
     "Count website visitors who Registered their Interest (a.k.a. Founding Members). "
     "Filter by status (registered/invited/joined/opted_out — 'registered' also matches "
     "the legacy 'new' status i.e. anyone awaiting contact), companion_choice (george/georgia), "
-    "state_country (case-insensitive substring, e.g. 'Sydney', 'NSW', 'Melbourne'), or "
-    "since_days for a rolling window (use since_days=1 for 'today', 7 for 'this week'). "
-    "Test-flagged rows are excluded by default.",
+    "state_country (case-insensitive substring, e.g. 'Sydney', 'NSW', 'Melbourne'), "
+    "heard_from (case-insensitive substring on the free-text acquisition field, "
+    "e.g. 'Facebook', 'Google', 'Friend'), or a time window. "
+    "For time windows PREFER the ``since`` argument (Sydney-local: 'today', 'yesterday', "
+    "'this_week', 'last_week', 'this_month', 'last_month', 'this_year') — that matches how "
+    "Garry thinks about dates. Only fall back to ``since_days`` (rolling 24h) when the "
+    "question truly is 'in the last N days'. IMPORTANT: this counts REGISTERED interest "
+    "on the website, not joined-app accounts. If Garry asks 'how many joined the app?' "
+    "use ``count_founding_members_joined_app`` instead. Test-flagged rows excluded by default.",
     args={
         "status": {"type": "str", "required": False,
                    "enum": {"registered", "invited", "joined", "opted_out"}},
         "companion_choice": {"type": "str", "required": False,
                              "enum": {"george", "georgia"}},
         "state_country": {"type": "str", "required": False},
+        "heard_from": {"type": "str", "required": False},
+        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
         "since_days": {"type": "int", "required": False},
         "include_test_data": {"type": "bool", "required": False},
     },
@@ -493,9 +574,8 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
     if "state_country" in args:
         rx = re.compile(re.escape(args["state_country"]), re.IGNORECASE)
         q["state_country"] = rx
-    if "since_days" in args:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
-        q["created_at"] = {"$gte": cutoff.isoformat()}
+    _apply_heard_from(q, args)
+    _apply_time_window(q, args)
     if not _should_include_test_data(args):
         q["is_test"] = {"$ne": True}
     return await db.interest_registrations.count_documents(q)
@@ -506,7 +586,8 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
     "List website visitors who Registered their Interest (a.k.a. Founding Members), "
     "newest first. Returns a small list with first_name, email, state_country, heard_from, "
     "companion_choice, status and created_at. Capped at 50 rows. Same filters as "
-    "count_interest_registrations. Use limit=1 to fetch just the most recent registration. "
+    "count_interest_registrations — including the Sydney-local ``since`` window and the "
+    "``heard_from`` substring filter. Use limit=1 to fetch just the most recent registration. "
     "Test-flagged rows are excluded by default.",
     args={
         "status": {"type": "str", "required": False,
@@ -514,6 +595,8 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
         "companion_choice": {"type": "str", "required": False,
                              "enum": {"george", "georgia"}},
         "state_country": {"type": "str", "required": False},
+        "heard_from": {"type": "str", "required": False},
+        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
         "since_days": {"type": "int", "required": False},
         "limit": {"type": "int", "required": False},
         "include_test_data": {"type": "bool", "required": False},
@@ -535,9 +618,8 @@ async def _list_interest_registrations(db: Any, args: dict) -> list:
     if "state_country" in args:
         rx = re.compile(re.escape(args["state_country"]), re.IGNORECASE)
         q["state_country"] = rx
-    if "since_days" in args:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
-        q["created_at"] = {"$gte": cutoff.isoformat()}
+    _apply_heard_from(q, args)
+    _apply_time_window(q, args)
     if not _should_include_test_data(args):
         q["is_test"] = {"$ne": True}
     limit = max(1, min(int(args.get("limit") or 20), 50))
@@ -557,20 +639,111 @@ async def _list_interest_registrations(db: Any, args: dict) -> list:
     return rows
 
 
+async def _joined_app_email_count(db: Any, *, base: dict) -> int:
+    """Count Founding Member registrations whose ``email`` is present in
+    ``db.users`` (i.e. they actually created a FriendPlace app account).
+
+    ``base`` is the base Mongo filter to apply to
+    ``interest_registrations`` — typically ``{"is_test": {"$ne": True}}``
+    plus an optional time window.
+
+    The match is on ``email`` because that's the only field guaranteed
+    to be present on both sides of the funnel. Users without a matching
+    email (e.g. they later joined with a different address) are honestly
+    counted as NOT joined-app — false negatives are safer than false
+    positives when reporting to Garry.
+    """
+    # Pull just the emails from the filtered registrations. Even at
+    # scale this collection is small (Founding Members cap = ~500) so
+    # a plain projection + in-memory lookup is fine.
+    emails: list[str] = []
+    cursor = db.interest_registrations.find(
+        {**base, "email": {"$type": "string", "$ne": ""}},
+        {"_id": 0, "email": 1},
+    )
+    async for r in cursor:
+        e = (r.get("email") or "").strip().lower()
+        if e:
+            emails.append(e)
+    if not emails:
+        return 0
+    # Match against the users collection on lowercased email. Users
+    # in FriendPlace store email in whatever case the visitor typed,
+    # but for safety we build a case-insensitive $in via regex.
+    # De-dupe first — a visitor can appear multiple times in interest
+    # registrations if they registered twice.
+    unique_emails = sorted(set(emails))
+    return await db.users.count_documents({
+        "email": {"$in": unique_emails},
+    })
+
+
+@register(
+    "count_founding_members_joined_app",
+    "Count Founding Members who have actually created a FriendPlace app account. "
+    "This is NOT the CRM ladder flag ``status='joined'`` (which is a manual toggle "
+    "an admin flips). It matches an ``interest_registrations`` row to a real user "
+    "in the ``users`` collection by email. Use this whenever Garry asks 'how many "
+    "have joined the app?', 'how many have actually signed up?', 'how many of the "
+    "waitlist have become members?'. Optional Sydney-local ``since`` window filters "
+    "on the REGISTRATION date. If no window is given the count spans all time. "
+    "Test-flagged rows are excluded by default.",
+    args={
+        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
+        "since_days": {"type": "int", "required": False},
+        "include_test_data": {"type": "bool", "required": False},
+    },
+)
+async def _count_founding_members_joined_app(db: Any, args: dict) -> dict:
+    base: dict = {}
+    _apply_time_window(base, args)
+    if not _should_include_test_data(args):
+        base["is_test"] = {"$ne": True}
+    total_registered = await db.interest_registrations.count_documents(base)
+    joined_app = await _joined_app_email_count(db, base=base)
+    return {
+        "joined_app_count": joined_app,
+        "total_registered": total_registered,
+        "metric": "joined_app_account",  # explicit for the synthesizer
+        "match_field": "email",
+        "window": args.get("since") or (
+            f"last_{int(args['since_days'])}_days" if "since_days" in args else None
+        ),
+        "timezone": "Australia/Sydney" if args.get("since") in _LOCAL_WINDOWS else None,
+    }
+
+
 @register(
     "founding_members_summary",
-    "One-shot dashboard summary of the Founding Members CRM: total registered, new today, "
-    "awaiting contact, invited, joined, opted out, plus the most-recent registration. "
-    "Use this when the admin asks for a general overview (e.g. 'how are Founding Members "
-    "doing?') rather than a specific slice. Test-flagged rows are excluded.",
+    "One-shot dashboard summary of the Founding Members CRM. Returns TWO distinct "
+    "'joined' numbers — never conflate them: "
+    "(a) ``joined_status_count`` — the manual CRM-ladder flag status='joined' (an admin "
+    "toggled this by hand); "
+    "(b) ``joined_app_count`` — Founding Members whose email is present in the users "
+    "collection (i.e. they actually created a FriendPlace app account). "
+    "Also includes total registered, new today, new yesterday, new this week, awaiting "
+    "contact, invited, opted out, and the most-recent registration. All day-bound "
+    "counts use Australia/Sydney local boundaries. Use this when the admin asks for a "
+    "general overview ('how are Founding Members doing?'). Test-flagged rows excluded.",
     args={},
 )
 async def _founding_members_summary(db: Any, args: dict) -> dict:
+    from services.analytics.local_time import sydney_named_range
     base = {"is_test": {"$ne": True}}
     total = await db.interest_registrations.count_documents(base)
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    today_start, today_end = sydney_named_range("today")
+    yesterday_start, yesterday_end = sydney_named_range("yesterday")
+    week_start, week_end = sydney_named_range("this_week")
+
     new_today = await db.interest_registrations.count_documents({
-        **base, "created_at": {"$gte": today_start.isoformat()},
+        **base, "created_at": {"$gte": today_start, "$lt": today_end},
+    })
+    new_yesterday = await db.interest_registrations.count_documents({
+        **base, "created_at": {"$gte": yesterday_start, "$lt": yesterday_end},
+    })
+    new_this_week = await db.interest_registrations.count_documents({
+        **base, "created_at": {"$gte": week_start, "$lt": week_end},
     })
     awaiting = await db.interest_registrations.count_documents({
         **base,
@@ -581,40 +754,130 @@ async def _founding_members_summary(db: Any, args: dict) -> dict:
         ],
     })
     invited = await db.interest_registrations.count_documents({**base, "status": "invited"})
-    joined  = await db.interest_registrations.count_documents({**base, "status": "joined"})
-    opted   = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
+    joined_status_count = await db.interest_registrations.count_documents({**base, "status": "joined"})
+    opted = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
+    joined_app_count = await _joined_app_email_count(db, base=base)
     latest = await db.interest_registrations.find_one(
         base,
-        {"_id": 0, "first_name": 1, "email": 1, "state_country": 1, "created_at": 1},
+        {"_id": 0, "first_name": 1, "email": 1, "state_country": 1, "created_at": 1,
+         "heard_from": 1, "founder_number": 1},
         sort=[("created_at", -1)],
     )
     return {
-        "total":            total,
-        "new_today":        new_today,
-        "awaiting_contact": awaiting,
-        "invited":          invited,
-        "joined":           joined,
-        "opted_out":        opted,
-        "latest":           latest,
+        "total":               total,
+        "new_today":           new_today,
+        "new_yesterday":       new_yesterday,
+        "new_this_week":       new_this_week,
+        "awaiting_contact":    awaiting,
+        "invited":             invited,
+        # Legacy field kept for the mission-control dashboard card. It
+        # counts the MANUAL CRM ladder flag, not real app signups —
+        # George must never quote this as "joined the app".
+        "joined_status_count": joined_status_count,
+        # The honest number: emails present in ``db.users``.
+        "joined_app_count":    joined_app_count,
+        # Alias so pre-existing callers that still ask for "joined"
+        # don't crash. The tool description tells George to prefer
+        # the explicit fields above.
+        "joined":              joined_status_count,
+        "opted_out":           opted,
+        "latest":              latest,
+        "timezone":            "Australia/Sydney",
+    }
+
+
+@register(
+    "founding_members_by_source",
+    "Group Founding Member registrations by acquisition source (the free-text "
+    "``heard_from`` field the visitor types on the Register Your Interest form — "
+    "'Facebook', 'Friend', 'Google', etc.). Returns a list of "
+    "{source, count} rows sorted by count DESC, plus an ``unknown`` bucket for "
+    "registrations with no source captured. Optional Sydney-local ``since`` "
+    "window scopes the breakdown to today / yesterday / this_week / this_month. "
+    "Use this when Garry asks 'where did this week's registrations come from?', "
+    "'how many from Facebook yesterday?', 'what's our best source this month?'. "
+    "Sources are NEVER invented — if the field is empty it goes in ``unknown``. "
+    "Test-flagged rows are excluded by default.",
+    args={
+        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
+        "since_days": {"type": "int", "required": False},
+        "include_test_data": {"type": "bool", "required": False},
+    },
+)
+async def _founding_members_by_source(db: Any, args: dict) -> dict:
+    match: dict = {}
+    window_label = _apply_time_window(match, args)
+    if not _should_include_test_data(args):
+        match["is_test"] = {"$ne": True}
+    pipeline = [
+        {"$match": match},
+        {
+            "$group": {
+                "_id": {
+                    "$let": {
+                        "vars": {
+                            "hf": {"$trim": {"input": {"$ifNull": ["$heard_from", ""]}}}
+                        },
+                        "in": {
+                            "$cond": [
+                                {"$eq": ["$$hf", ""]},
+                                None,   # empty → unknown bucket
+                                {"$toLower": "$$hf"},
+                            ]
+                        },
+                    }
+                },
+                "count": {"$sum": 1},
+                "sample_label": {"$first": "$heard_from"},
+            }
+        },
+        {"$sort": {"count": -1, "_id": 1}},
+    ]
+    rows: list[dict] = []
+    unknown = 0
+    total = 0
+    async for r in db.interest_registrations.aggregate(pipeline):
+        cnt = int(r.get("count") or 0)
+        total += cnt
+        key = r.get("_id")
+        if key is None:
+            unknown += cnt
+            continue
+        # Prefer the original casing of the first row we saw for that
+        # normalized key ("Facebook" reads better than "facebook").
+        label = (r.get("sample_label") or key or "").strip() or key
+        rows.append({"source": label, "count": cnt})
+    return {
+        "total":     total,
+        "sources":   rows,   # already sorted DESC by count
+        "unknown":   unknown,
+        "window":    window_label,
+        "timezone":  "Australia/Sydney" if args.get("since") in _LOCAL_WINDOWS else None,
+        "note":      (
+            "Sources come from the free-text 'heard_from' field the visitor "
+            "types on the RYI form. Empty values are reported honestly as 'unknown' "
+            "rather than guessed at."
+        ),
     }
 
 
 @register(
     "founding_members_conversion",
     "Funnel + conversion metrics for the Founding Members CRM. Returns counts at every "
-    "stage (registered, invited, joined, opted_out), plus derived rates: "
-    "invite_rate (invited / (total - opted_out)), join_rate (joined / (total - opted_out)), "
-    "invited_to_joined (joined / invited). Use this when the admin asks about conversion, "
-    "funnel, ratios, or 'how are we tracking'. Test-flagged rows are excluded.",
+    "stage (registered, invited, joined-status-flag, joined-app-account, opted_out), "
+    "plus derived rates: invite_rate (invited / (total - opted_out)), "
+    "join_app_rate (joined_app / (total - opted_out)), invited_to_joined "
+    "(joined_app / invited). Use this when the admin asks about conversion, funnel, "
+    "ratios, or 'how are we tracking'. Optional Sydney-local ``since`` window scopes "
+    "the whole funnel. Test-flagged rows are excluded.",
     args={
+        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
         "since_days": {"type": "int", "required": False},
     },
 )
 async def _founding_members_conversion(db: Any, args: dict) -> dict:
     base: dict = {"is_test": {"$ne": True}}
-    if "since_days" in args:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
-        base["created_at"] = {"$gte": cutoff.isoformat()}
+    window_label = _apply_time_window(base, args)
     total = await db.interest_registrations.count_documents(base)
     awaiting = await db.interest_registrations.count_documents({
         **base,
@@ -624,28 +887,32 @@ async def _founding_members_conversion(db: Any, args: dict) -> dict:
             {"status": {"$in": ["registered", "new"]}},
         ],
     })
-    invited   = await db.interest_registrations.count_documents({**base, "status": "invited"})
-    joined    = await db.interest_registrations.count_documents({**base, "status": "joined"})
-    opted_out = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
+    invited     = await db.interest_registrations.count_documents({**base, "status": "invited"})
+    joined_flag = await db.interest_registrations.count_documents({**base, "status": "joined"})
+    opted_out   = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
+    joined_app  = await _joined_app_email_count(db, base=base)
 
     def pct(numer: int, denom: int) -> Optional[float]:
         return round((numer / denom) * 100, 1) if denom > 0 else None
 
     active = max(total - opted_out, 0)  # exclude opt-outs from the denominator
-    # Invited count is conservative — anyone who has been invited OR later
-    # joined counts as "reached invite stage".
-    reached_invite = invited + joined
+    # Anyone whose registration email is now in `users` has, by definition,
+    # reached the "joined the app" endpoint. We use that for join rates.
     return {
-        "window_days":       int(args["since_days"]) if "since_days" in args else None,
-        "total":             total,
-        "registered":        awaiting,
-        "invited":           invited,
-        "joined":            joined,
-        "opted_out":         opted_out,
-        "active_pool":       active,
-        "invite_rate_pct":   pct(reached_invite, active),
-        "join_rate_pct":     pct(joined, active),
-        "invited_to_joined_pct": pct(joined, reached_invite),
+        "window":                window_label,
+        "timezone":              "Australia/Sydney" if args.get("since") in _LOCAL_WINDOWS else None,
+        "total":                 total,
+        "registered":            awaiting,
+        "invited":               invited,
+        # Kept for legacy callers — this is the manual ladder flag.
+        "joined_status_count":   joined_flag,
+        # The honest number based on `users` collection.
+        "joined_app_count":      joined_app,
+        "opted_out":             opted_out,
+        "active_pool":           active,
+        "invite_rate_pct":       pct(invited + joined_app, active),
+        "join_app_rate_pct":     pct(joined_app, active),
+        "invited_to_joined_pct": pct(joined_app, invited) if invited else None,
     }
 
 

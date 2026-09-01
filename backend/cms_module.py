@@ -1155,14 +1155,38 @@ def build_router(db) -> APIRouter:
         `total` — they are Founding Members — but excluded from
         `new_today` and `awaiting_contact` because they don't need
         an invite. Their status is always `joined`.
+
+        DATE BOUNDARIES — Australia/Sydney LOCAL (iter167 fix).
+        Previously "new_today" was computed against UTC midnight, which
+        undercounts by ~10 hours every morning because Sydney is
+        UTC+10 (AEST) or UTC+11 (AEDT). We now use Sydney-local day
+        boundaries via ``services.analytics.local_time`` so the number
+        matches what an Australian admin sees in the registration
+        list underneath the dashboard. The helper handles DST
+        transitions automatically.
         """
-        from datetime import datetime, timezone
+        from services.analytics.local_time import (
+            sydney_named_range,
+        )
         base = {"is_test": {"$ne": True}}
         base_public = {**base, "is_reserved": {"$ne": True}}
         total = await db.interest_registrations.count_documents(base)
-        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        today_start_iso, today_end_iso = sydney_named_range("today")
+        yesterday_start_iso, yesterday_end_iso = sydney_named_range("yesterday")
+        week_start_iso, week_end_iso = sydney_named_range("this_week")
+
         new_today = await db.interest_registrations.count_documents({
-            **base_public, "created_at": {"$gte": today_start.isoformat()},
+            **base_public,
+            "created_at": {"$gte": today_start_iso, "$lt": today_end_iso},
+        })
+        new_yesterday = await db.interest_registrations.count_documents({
+            **base_public,
+            "created_at": {"$gte": yesterday_start_iso, "$lt": yesterday_end_iso},
+        })
+        new_this_week = await db.interest_registrations.count_documents({
+            **base_public,
+            "created_at": {"$gte": week_start_iso, "$lt": week_end_iso},
         })
         awaiting = await db.interest_registrations.count_documents({
             **base_public,
@@ -1191,11 +1215,17 @@ def build_router(db) -> APIRouter:
         return {
             "total":            total,
             "new_today":        new_today,
+            "new_yesterday":    new_yesterday,
+            "new_this_week":    new_this_week,
             "awaiting_contact": awaiting,
             "invited":          invited,
             "joined":           joined,
             "opted_out":        opted,
             "latest":           latest_summary,
+            # Timezone metadata so any future consumer (or a browser
+            # devtools inspect) can see we're not on UTC.
+            "timezone":         "Australia/Sydney",
+            "today_range_utc":  {"start": today_start_iso, "end": today_end_iso},
         }
 
     @router.patch("/crm/founding-members/{member_id}")
