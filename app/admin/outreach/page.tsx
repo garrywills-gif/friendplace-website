@@ -1,9 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AdminShell, adminStyles } from '@/components/admin/AdminShell';
-import { outreachApi, type OutreachOrg, type OutreachOrgIn, type OutreachStatus } from '@/lib/cms-api';
+import { campaignsApi, outreachApi, type OutreachOrg, type OutreachOrgIn, type OutreachStatus } from '@/lib/cms-api';
 import { outreachArchiveApi, type OutreachListResponse } from '@/lib/outreach-archive-api';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -172,6 +173,7 @@ function aggregateGroups(orgs: OutreachOrg[], q: string): Group[] {
 }
 
 export default function OutreachPage() {
+  const router = useRouter();
   const [rows, setRows] = useState<OutreachOrg[]>([]);
   const [view, setView] = useState<View>('active');
   const [q, setQ] = useState('');
@@ -182,6 +184,7 @@ export default function OutreachPage() {
   const [importName, setImportName] = useState('');
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState('');
+  const [creatingCampaignFor, setCreatingCampaignFor] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const load = async (preserveCurrentError = false) => {
@@ -319,6 +322,33 @@ export default function OutreachPage() {
     }
   };
 
+  const createCampaignForGroup = async (g: Group) => {
+    if (view !== 'active' || !g.notContacted || creatingCampaignFor) return;
+    setCreatingCampaignFor(g.slug);
+    setError(null);
+    try {
+      const campaign = await campaignsApi.create({
+        name: `${g.label} — not contacted`,
+        template: 'announcement',
+        companion: 'team',
+        title: 'A note from FriendPlace',
+        greeting: 'Dear [Contact name],',
+        show_founder_badge: false,
+        audience_filter: {
+          audience_kind: 'outreach_contacts',
+          outreach: {
+            category: g.slug,
+            status: 'not_contacted',
+          },
+        } as any,
+      });
+      router.push(`/admin/campaigns/new?id=${encodeURIComponent(campaign.id)}`);
+    } catch (e: any) {
+      setError(e?.message || `Could not create a campaign for ${g.label}.`);
+      setCreatingCampaignFor(null);
+    }
+  };
+
   return (
     <AdminShell title="Organisation Outreach">
       <div style={topBar}>
@@ -407,15 +437,33 @@ export default function OutreachPage() {
           {groups.map(g => {
             const href = `/admin/outreach/group/${encodeURIComponent(g.slug)}${view === 'archived' ? '?archived=true' : ''}`;
             const lastLabel = g.lastContactAt ? new Date(g.lastContactAt).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+            const creating = creatingCampaignFor === g.slug;
             return (
-              <Link key={g.slug} href={href} style={{ ...rowLine, textDecoration: 'none', color: 'inherit' }}>
-                <div style={{ flex: '2 1 0', minWidth: 0 }}><div style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>{g.label}</div><div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{g.slug === 'uncategorised' ? 'No category set' : g.slug}</div></div>
+              <div key={g.slug} style={rowLine}>
+                <div style={{ flex: '2 1 0', minWidth: 0 }}>
+                  <Link href={href} style={{ textDecoration: 'none' }}>
+                    <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>{g.label}</div>
+                    <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{g.slug === 'uncategorised' ? 'No category set' : g.slug}</div>
+                  </Link>
+                </div>
                 <div style={{ flex: '0.8 1 0', textAlign: 'right', fontWeight: 800, color: '#0A2540' }}>{g.total}</div>
                 <div style={{ flex: '0.9 1 0', textAlign: 'right' }}><span style={g.contacted ? contactedPill : neutralPill}>{g.contacted}</span></div>
-                <div style={{ flex: '1 1 0', textAlign: 'right' }}><span style={g.notContacted ? notContactedPill : neutralPill}>{g.notContacted}</span></div>
+                <div style={{ flex: '1 1 0', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={g.notContacted ? notContactedPill : neutralPill}>{g.notContacted}</span>
+                  {view === 'active' && g.notContacted > 0 && (
+                    <button
+                      type="button"
+                      style={campaignBtn}
+                      disabled={Boolean(creatingCampaignFor)}
+                      onClick={() => void createCampaignForGroup(g)}
+                    >
+                      {creating ? 'Creating…' : 'Create campaign'}
+                    </button>
+                  )}
+                </div>
                 <div style={{ flex: '1.2 1 0', fontSize: 13, color: '#475569' }}>{lastLabel}</div>
-                <div style={{ flex: '0 0 86px', textAlign: 'right' }}><span style={openLink}>View →</span></div>
-              </Link>
+                <div style={{ flex: '0 0 86px', textAlign: 'right' }}><Link href={href} style={{ ...openLink, textDecoration: 'none' }}>View →</Link></div>
+              </div>
             );
           })}
         </div>
@@ -438,6 +486,7 @@ const rowLine: React.CSSProperties = { display: 'flex', padding: '16px 18px', al
 const contactedPill: React.CSSProperties = { display: 'inline-block', padding: '3px 10px', borderRadius: 999, background: '#DCFCE7', color: '#166534', fontWeight: 800, fontSize: 12, minWidth: 28, textAlign: 'center' };
 const notContactedPill: React.CSSProperties = { display: 'inline-block', padding: '3px 10px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontWeight: 800, fontSize: 12, minWidth: 28, textAlign: 'center' };
 const neutralPill: React.CSSProperties = { display: 'inline-block', padding: '3px 10px', borderRadius: 999, background: '#F1F5F9', color: '#64748B', fontWeight: 800, fontSize: 12, minWidth: 28, textAlign: 'center' };
+const campaignBtn: React.CSSProperties = { border: '1px solid #99F6E4', background: '#F0FDFA', color: '#0F766E', borderRadius: 9, padding: '5px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' };
 const openLink: React.CSSProperties = { color: '#0F766E', fontWeight: 800 };
 const emptyState: React.CSSProperties = { padding: 48, textAlign: 'center', color: '#64748B', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18 };
 const notice: React.CSSProperties = { background: '#FFF', border: '1px solid #99F6E4', borderRadius: 14, padding: 14, marginBottom: 16, color: '#334155', fontSize: 13 };
