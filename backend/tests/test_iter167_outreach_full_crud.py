@@ -203,17 +203,98 @@ class TestUpdate:
         assert doc.get("archived") is False
 
 
-# ─── 5. Delete ────────────────────────────────────────────────────────
+# ─── 5. Delete — SOFT-ARCHIVE (iter167 hardening) ────────────────────
 
 class TestDelete:
-    def test_delete_removes_row(self, db, token):
+    """Outreach records and their contact-history are NEVER hard-deleted.
+    The DELETE verb is retained for frontend compatibility but performs
+    an audited soft-archive. The row + ``communications`` are preserved
+    and remain visible under ``?archived=true``."""
+
+    def test_delete_soft_archives_and_preserves_row(self, db, token):
         org_id = _seed(token, email_suffix="delete-test")
+        # Give the row a communications entry so we can prove it survives.
+        requests.post(
+            f"{BASE_URL}/api/cms/outreach/organisations/{org_id}/log",
+            headers=_h(token),
+            json={"kind": "phone_call", "body": "History must survive delete"},
+            timeout=10,
+        )
+
         r = requests.delete(
             f"{BASE_URL}/api/cms/outreach/organisations/{org_id}",
             headers=_h(token), timeout=10,
         )
         assert r.status_code == 200
-        assert db.cms_organisations.find_one({"id": org_id}) is None
+        body = r.json()
+        assert body["deleted"] is False
+        assert body["archived"] is True
+
+        # Row is preserved in Mongo, with communications intact.
+        doc = db.cms_organisations.find_one({"id": org_id})
+        assert doc is not None, "row must NEVER be hard-deleted"
+        assert doc["archived"] is True
+        assert doc.get("archived_at") is not None
+        assert len(doc.get("communications") or []) == 1, (
+            "communications history must survive the soft-archive delete"
+        )
+
+    def test_delete_hides_from_active_shows_in_archived(self, token):
+        org_id = _seed(token, email_suffix="delete-visibility")
+        requests.delete(
+            f"{BASE_URL}/api/cms/outreach/organisations/{org_id}",
+            headers=_h(token), timeout=10,
+        )
+        active = requests.get(
+            f"{BASE_URL}/api/cms/outreach/organisations?archived=false&limit=500",
+            headers=_h(token), timeout=10,
+        ).json()
+        assert not any(r["id"] == org_id for r in active["rows"])
+        archived = requests.get(
+            f"{BASE_URL}/api/cms/outreach/organisations?archived=true&limit=500",
+            headers=_h(token), timeout=10,
+        ).json()
+        assert any(r["id"] == org_id for r in archived["rows"])
+
+    def test_delete_is_idempotent_on_already_archived(self, token):
+        org_id = _seed(token, email_suffix="delete-idempotent")
+        first = requests.delete(
+            f"{BASE_URL}/api/cms/outreach/organisations/{org_id}",
+            headers=_h(token), timeout=10,
+        )
+        assert first.status_code == 200
+        assert first.json()["archived"] is True
+        # Second call: idempotent no-op, honest response with noop=true.
+        second = requests.delete(
+            f"{BASE_URL}/api/cms/outreach/organisations/{org_id}",
+            headers=_h(token), timeout=10,
+        )
+        assert second.status_code == 200
+        assert second.json().get("noop") is True
+
+    def test_soft_deleted_row_can_be_restored(self, db, token):
+        """Because delete is now soft-archive, ``/restore`` (== /unarchive)
+        must bring the row back to active — with its history intact."""
+        org_id = _seed(token, email_suffix="delete-restore")
+        requests.post(
+            f"{BASE_URL}/api/cms/outreach/organisations/{org_id}/log",
+            headers=_h(token),
+            json={"kind": "meeting", "body": "Coffee in Manly"}, timeout=10,
+        )
+        requests.delete(
+            f"{BASE_URL}/api/cms/outreach/organisations/{org_id}",
+            headers=_h(token), timeout=10,
+        )
+        r = requests.post(
+            f"{BASE_URL}/api/cms/outreach/organisations/{org_id}/unarchive",
+            headers=_h(token), timeout=10,
+        )
+        assert r.status_code == 200
+        assert r.json()["archived"] is False
+        # And communications are still there — the round-trip is
+        # information-preserving.
+        doc = db.cms_organisations.find_one({"id": org_id})
+        assert len(doc.get("communications") or []) == 1
 
 
 # ─── 6. Mark replied ──────────────────────────────────────────────────

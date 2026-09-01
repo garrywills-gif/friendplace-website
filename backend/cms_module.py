@@ -1339,24 +1339,60 @@ def build_router(db) -> APIRouter:
         fresh = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
         return _outreach_row(fresh)
 
-    # ─── Delete — hard delete (audited) ────────────────────────────
+    # ─── Delete → SOFT-ARCHIVE ONLY (iter167 hardening) ────────────
+    # Garry's policy: outreach organisations and their contact-history
+    # audit trail must NEVER be hard-deleted. We keep the DELETE verb
+    # registered so George's frontend calling ``outreachApi.del(id)``
+    # still resolves cleanly — but the semantics are now identical to
+    # the /archive endpoint: the row is marked archived, its
+    # ``communications`` history is preserved, and it remains
+    # inspectable via ``?archived=true``.
+    #
+    # If a genuine hard delete is ever needed (mis-entry cleanup,
+    # duplicate reconciliation) it will be a separate operator-only
+    # tool with an explicit confirmation prompt — never exposed on
+    # the general CMS surface.
     @router.delete("/outreach/organisations/{org_id}")
     async def outreach_organisation_delete(
         org_id: str,
         admin: dict = Depends(current_cms_admin),
     ):
+        from datetime import datetime as _dt, timezone as _tz
         from services import audit as _audit
         existing = await db.cms_organisations.find_one(
-            {"id": org_id}, {"_id": 0, "id": 1, "name": 1, "contact_email": 1},
+            {"id": org_id}, {"_id": 0, "id": 1, "archived": 1},
         )
         if existing is None:
             raise HTTPException(404, "Organisation not found")
-        await db.cms_organisations.delete_one({"id": org_id})
+        # Already archived → idempotent no-op, honest response.
+        if existing.get("archived"):
+            return {
+                "ok": True, "id": org_id, "deleted": False,
+                "archived": True, "noop": True,
+                "note": "Outreach organisations are soft-archived, never hard-deleted.",
+            }
+        now = _dt.now(_tz.utc).isoformat()
+        await db.cms_organisations.update_one(
+            {"id": org_id},
+            {"$set": {
+                "archived":          True,
+                "archived_at":       now,
+                "archived_by":       admin.get("id"),
+                "archived_by_email": admin.get("email"),
+                "updated_at":        now,
+            }},
+        )
+        # Audit as ``delete_soft_archived`` so ops can distinguish the
+        # policy-driven soft-archive from an explicit ``/archive`` click.
         await _audit.log_admin_action(
-            db, admin=admin, action="cms.outreach.delete",
+            db, admin=admin, action="cms.outreach.delete_soft_archived",
             target_type="outreach_organisation", target_id=org_id,
         )
-        return {"ok": True, "id": org_id, "deleted": True}
+        return {
+            "ok": True, "id": org_id,
+            "deleted": False, "archived": True,
+            "note": "Outreach organisations are soft-archived, never hard-deleted.",
+        }
 
     # ─── Mark replied — records an inbound response ───────────────
     @router.post("/outreach/organisations/{org_id}/mark-replied")
