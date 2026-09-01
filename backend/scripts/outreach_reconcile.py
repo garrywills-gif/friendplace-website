@@ -218,6 +218,245 @@ SOURCES = [
 ]
 
 
+# ─── Extended scanners: campaigns + marketing contacts ─────────────
+#
+# Rationale (added iter168b after Garry pointed out the Retirement
+# Village outreach campaigns): the audience system's ``_resolve_audience``
+# resolves each campaign against ``interest_registrations`` and then
+# writes one row per recipient into ``campaign_recipients``. That means
+# **the definitive source of truth for who was actually emailed on an
+# outreach campaign is ``campaign_recipients``**, not the audience
+# filter (which is misleading — everything shows "All Founding Members"
+# in the label). So we scan ``campaigns`` for outreach-flavoured
+# name/title/subject, then unwind each into its recipient list, and
+# reconcile each unique email into ``cms_organisations`` with the
+# delivery history preserved.
+
+# Regex that identifies outreach-flavoured campaigns by title.
+_OUTREACH_CAMPAIGN_RX = re.compile(
+    r"retirement\s*villages?|\brsl\b|\blibrary\b|\bcouncil\b|"
+    r"\bcommunity\s*centre\b|outreach|organisations?",
+    re.IGNORECASE,
+)
+
+
+def _campaign_status_to_org_status(recipient_status: str) -> str:
+    """Map a campaign_recipients ``status`` value to an outreach status.
+
+    Only used when we're SEEDING a fresh org row. Existing orgs are
+    never regressed.
+    """
+    s = (recipient_status or "").lower()
+    if s in ("delivered", "opened", "clicked", "sent"):
+        return "contacted"
+    if s == "bounced":
+        return "bounced"
+    if s == "complained":
+        return "unsubscribed"
+    if s in ("failed",):
+        return "bounced"
+    return "not_contacted"
+
+
+def _rec_evidence_at(rec: Dict[str, Any]) -> Optional[str]:
+    """Best available timestamp on a campaign_recipients row."""
+    for k in ("delivered_at", "sent_at", "first_opened_at",
+             "first_clicked_at", "bounced_at", "complained_at",
+             "last_event_at"):
+        v = rec.get(k)
+        if v:
+            return v
+    return None
+
+
+async def _scan_campaigns_and_recipients(db) -> List[Dict[str, Any]]:
+    """Walk every campaign whose title matches the outreach regex, then
+    walk its ``campaign_recipients`` rows and yield one candidate per
+    unique recipient. Recipient's ``first_name`` becomes the tentative
+    organisation_name — imperfect but honest: the frontend can rename
+    from the detail page. Notes carry the campaign trail.
+
+    Also included: any campaign_recipients row whose ``email`` does NOT
+    appear in ``interest_registrations`` (i.e. it wasn't resolved from
+    the founder list) — that's a strong signal it's an outreach org
+    even if the campaign title is generic.
+    """
+    out: List[Dict[str, Any]] = []
+
+    # ── 1. Campaigns whose title matches the outreach regex ──
+    match_campaigns: List[Dict[str, Any]] = []
+    async for c in db.campaigns.find({}, {"_id": 0}):
+        for k in ("name", "title", "subject"):
+            if isinstance(c.get(k), str) and _OUTREACH_CAMPAIGN_RX.search(c[k]):
+                match_campaigns.append(c)
+                break
+
+    # ── 2. Build a founder-email set once, for cross-check ──
+    founder_emails: set[str] = set()
+    async for r in db.interest_registrations.find({}, {"_id": 0, "email": 1}):
+        e = _norm_email(r.get("email"))
+        if e:
+            founder_emails.add(e)
+
+    # ── 3. Emit candidates from every recipient of matched campaigns ─
+    seen_here: Dict[str, Dict[str, Any]] = {}
+    for c in match_campaigns:
+        cid = c.get("id")
+        camp_name = c.get("name") or c.get("title") or "Outreach campaign"
+        async for r in db.campaign_recipients.find({"campaign_id": cid}, {"_id": 0}):
+            email = _norm_email(r.get("email"))
+            if not email or _is_test_email(email):
+                continue
+            name = (r.get("first_name") or "").strip() or camp_name
+            entry = seen_here.get(email)
+            evidence_at = _rec_evidence_at(r)
+            comm = {
+                "at": evidence_at,
+                "kind": f"campaign_{r.get('status') or 'send'}",
+                "direction": "outbound",
+                "subject": r.get("subject") or c.get("subject") or "",
+                "campaign_id": cid,
+                "campaign_name": camp_name,
+                "status": r.get("status"),
+                "message_id": r.get("message_id"),
+                "bounce_type": r.get("bounce_type"),
+                "bounce_message": r.get("bounce_message"),
+                "by": "system:outreach_reconcile",
+            }
+            if entry is None:
+                seen_here[email] = {
+                    "organisation_name": name,
+                    "contact_email": email,
+                    "contact_phone": "",
+                    "contact_name": "",
+                    "category": "retirement_village" if re.search(r"retirement|village", camp_name, re.I) else "outreach",
+                    "suburb": "",
+                    "state": "",
+                    "notes": f"Reconciled from campaign '{camp_name}'.",
+                    "source_collection": "campaign_recipients",
+                    "source_id": r.get("id"),
+                    "source_created_at": evidence_at,
+                    "_history": [comm],
+                    "_status_from_recipients": _campaign_status_to_org_status(r.get("status", "")),
+                    "_last_contact_at": evidence_at,
+                }
+            else:
+                entry["_history"].append(comm)
+                # Prefer the most-recent evidence for last_contact_at.
+                if evidence_at and (
+                    entry["_last_contact_at"] is None
+                    or evidence_at > entry["_last_contact_at"]
+                ):
+                    entry["_last_contact_at"] = evidence_at
+                # Bump status only if newer evidence is stronger.
+                # Order: not_contacted < bounced < unsubscribed < contacted
+                order = {"not_contacted": 0, "bounced": 1, "unsubscribed": 2, "contacted": 3}
+                new_status = _campaign_status_to_org_status(r.get("status", ""))
+                if order.get(new_status, 0) > order.get(entry["_status_from_recipients"], 0):
+                    entry["_status_from_recipients"] = new_status
+        out.extend(list(seen_here.values()))
+        # Reset for next campaign so cross-campaign dedupe is handled
+        # centrally by the reconciler (not lost here).
+        seen_here.clear()
+
+    # ── 4. Also emit ANY campaign_recipients whose email is NOT a
+    #      founder, regardless of campaign title. That covers cases
+    #      where an outreach campaign wasn't named obviously.
+    async for r in db.campaign_recipients.find({}, {"_id": 0}):
+        email = _norm_email(r.get("email"))
+        if not email or _is_test_email(email):
+            continue
+        if email in founder_emails:
+            continue  # this recipient came from founder list — skip
+        # Fetch the campaign for context (cheap, only for outliers).
+        c = await db.campaigns.find_one({"id": r.get("campaign_id")}, {"_id": 0})
+        camp_name = (c or {}).get("name") or (c or {}).get("title") or "Historical campaign"
+        name = (r.get("first_name") or "").strip() or camp_name
+        evidence_at = _rec_evidence_at(r)
+        out.append({
+            "organisation_name": name,
+            "contact_email": email,
+            "contact_phone": "",
+            "contact_name": "",
+            "category": "outreach",
+            "suburb": "",
+            "state": "",
+            "notes": f"Reconciled from non-founder campaign recipient (campaign '{camp_name}').",
+            "source_collection": "campaign_recipients",
+            "source_id": r.get("id"),
+            "source_created_at": evidence_at,
+            "_history": [{
+                "at": evidence_at,
+                "kind": f"campaign_{r.get('status') or 'send'}",
+                "direction": "outbound",
+                "subject": r.get("subject") or (c or {}).get("subject") or "",
+                "campaign_id": r.get("campaign_id"),
+                "campaign_name": camp_name,
+                "status": r.get("status"),
+                "message_id": r.get("message_id"),
+                "bounce_type": r.get("bounce_type"),
+                "bounce_message": r.get("bounce_message"),
+                "by": "system:outreach_reconcile",
+            }],
+            "_status_from_recipients": _campaign_status_to_org_status(r.get("status", "")),
+            "_last_contact_at": evidence_at,
+        })
+    return out
+
+
+async def _scan_marketing_contacts_collection(db) -> List[Dict[str, Any]]:
+    """Some deployments carry a ``marketing_contacts`` (or
+    ``cms_marketing_contacts``) collection where each row has a
+    ``recipient_type`` field. When ``recipient_type == 'organisation'``
+    we treat the row as a first-class outreach candidate. The scanner
+    silently returns [] if the collection doesn't exist yet — safe for
+    fresh installs.
+    """
+    out: List[Dict[str, Any]] = []
+    names = await db.list_collection_names()
+    candidates_cols = [c for c in names
+                       if c in ("marketing_contacts", "cms_marketing_contacts",
+                                "outreach_contacts", "cms_contacts")]
+    for col in candidates_cols:
+        async for d in db[col].find({}, {"_id": 0}):
+            rtype = (d.get("recipient_type") or d.get("contact_type") or "").lower()
+            if rtype not in ("organisation", "organization", "org"):
+                continue
+            name = (
+                d.get("organisation_name") or d.get("organization_name")
+                or d.get("name") or d.get("first_name") or ""
+            ).strip()
+            email = _norm_email(d.get("email") or d.get("contact_email"))
+            if not name:
+                continue
+            if email and _is_test_email(email):
+                continue
+            out.append({
+                "organisation_name": name,
+                "contact_email":     email,
+                "contact_phone":     (d.get("phone") or d.get("contact_phone") or "").strip(),
+                "contact_name":      (d.get("contact_name") or "").strip(),
+                "category":          (d.get("category") or d.get("type") or "").strip(),
+                "suburb":            (d.get("suburb") or "").strip(),
+                "state":             (d.get("state") or "").strip(),
+                "notes":             f"Reconciled from {col} (recipient_type=organisation)",
+                "source_collection": col,
+                "source_id":         d.get("id"),
+                "source_created_at": d.get("created_at"),
+            })
+    return out
+
+
+# Extend the source list — order matters for dedupe (highest-signal
+# sources first so their status/history wins).
+SOURCES = [
+    _scan_marketing_contacts_collection,     # explicit organisation contacts
+    _scan_campaigns_and_recipients,          # actual send history
+    _scan_event_submissions,                 # inbound org contacts
+    _scan_interest_registrations_organisation_tag,
+]
+
+
 # ─── Reconciliation core ───────────────────────────────────────────
 
 
@@ -331,23 +570,46 @@ async def reconcile(*, commit: bool, verbose: bool) -> Dict[str, Any]:
         for cand in candidates:
             name = cand["organisation_name"].strip()
             email = _norm_email(cand["contact_email"])
-            # Skip if this org already exists
+            key_name = _norm_name(name)
+            # Skip if this org already exists in cms_organisations
             if email and email in existing_by_email:
                 skipped_dupe += 1
                 continue
-            key_name = _norm_name(name)
             if key_name and key_name in existing_by_name:
                 skipped_dupe += 1
                 continue
-            # Also skip if we've already accepted a matching candidate
-            # in this same run.
+            # If we've already accepted a matching candidate in this
+            # run, MERGE the extra evidence (history + strongest status
+            # + latest last-contact) instead of dropping the new
+            # candidate's info on the floor.
+            prior = None
             if email and email in accepted_by_email:
+                prior = accepted_by_email[email]
+            elif key_name and key_name in accepted_by_name:
+                prior = accepted_by_name[key_name]
+            if prior is not None:
                 merged_within_run += 1
+                # Merge histories
+                prior_hist = prior.get("_history") or []
+                new_hist = cand.get("_history") or []
+                prior["_history"] = prior_hist + new_hist
+                # Merge status via same monotonic order
+                order = {"not_contacted": 0, "bounced": 1, "unsubscribed": 2, "contacted": 3}
+                pri_st = prior.get("_status_from_recipients") or "not_contacted"
+                new_st = cand.get("_status_from_recipients") or "not_contacted"
+                if order.get(new_st, 0) > order.get(pri_st, 0):
+                    prior["_status_from_recipients"] = new_st
+                # Latest evidence timestamp wins for last_contact_at
+                p_last = prior.get("_last_contact_at")
+                n_last = cand.get("_last_contact_at")
+                if n_last and (not p_last or n_last > p_last):
+                    prior["_last_contact_at"] = n_last
+                # Prefer non-empty contact metadata from either source
+                for k in ("contact_phone", "contact_name", "suburb", "state", "category"):
+                    if not prior.get(k) and cand.get(k):
+                        prior[k] = cand[k]
                 continue
-            if key_name and key_name in accepted_by_name:
-                merged_within_run += 1
-                continue
-            # Fill synthetic email so downstream idempotency has a key
+            # Fresh accept — fill synthetic email if no natural key
             if not email:
                 email = _synthetic_email(name, cand.get("source_id") or "")
                 cand["contact_email"] = email
@@ -368,12 +630,31 @@ async def reconcile(*, commit: bool, verbose: bool) -> Dict[str, Any]:
         docs_to_insert: List[Dict[str, Any]] = []
         for email, cand in accepted_by_email.items():
             now = _now_iso()
-            last_contact_at = send_index.get(email)
-            status = "contacted" if last_contact_at else "not_contacted"
-            comms: List[Dict[str, Any]] = []
-            if last_contact_at:
+            # Evidence timestamps: prefer campaign-recipient evidence
+            # captured in the scanner, fall back to email_test_log/other
+            # sends registered in send_index.
+            hist_from_cand = cand.get("_history") or []
+            cand_last = cand.get("_last_contact_at")
+            index_last = send_index.get(email)
+            last_contact_at = None
+            for v in (cand_last, index_last):
+                if v and (last_contact_at is None or v > last_contact_at):
+                    last_contact_at = v
+            # Status: recipients-derived (bounced/unsubscribed/contacted)
+            # is the strongest signal. Fall back to send_index bump.
+            status = cand.get("_status_from_recipients")
+            if not status or status == "not_contacted":
+                status = "contacted" if index_last else "not_contacted"
+            # Communications: keep campaign_recipients evidence verbatim
+            # so the detail-page timeline reads back "Retirement Villages
+            # #3 — delivered 2026-08-28" etc. Also record the send_index
+            # bump if it's newer than any campaign entry.
+            comms: List[Dict[str, Any]] = list(hist_from_cand)
+            if index_last and (not comms or all(
+                (c.get("at") or "") < index_last for c in comms if c.get("at")
+            )):
                 comms.append({
-                    "at": last_contact_at,
+                    "at": index_last,
                     "kind": "reconciled_send_evidence",
                     "direction": "outbound",
                     "subject": "(historical send — pre-Outreach reconciliation)",
