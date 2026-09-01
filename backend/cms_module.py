@@ -495,6 +495,24 @@ def build_router(db) -> APIRouter:
                 locked_until = await _sec.create_lockout(db, "email", email, "bruteforce")
                 await _sec.create_lockout(db, "ip", ip, "bruteforce")
                 locked_flag = True
+                # ── DOOM-LOOP FIX (iter167 hotfix) ─────────────────────
+                # Reset the failed-attempt counters IMMEDIATELY after
+                # the lockout is armed. The 15-min gate is already
+                # covering the brute-force protection window; we don't
+                # need to also carry a stale ≥5 fail_count into the
+                # future. Without this reset, ONE wrong password after
+                # the 15-min timer expires would satisfy
+                # ``count >= LOCKOUT_AFTER`` again and instantly create
+                # a fresh lockout — trapping a legitimate admin who
+                # mistypes once. The reset gives the admin a clean
+                # 5-attempt allowance after each cooldown while
+                # preserving the "5 → 15 min" protection exactly.
+                # Attempts DURING the active lockout continue to be
+                # rejected at the gate above (line 454-466) before
+                # reaching bump_attempt or create_lockout, so a wrong
+                # password mid-lockout still cannot extend or restart
+                # the timer.
+                await _sec.reset_counters(db, email, ip)
                 await _sec.log_event(
                     db, outcome="lockout_created", email=email, ip=ip,
                     user_agent=ua_raw, ua=ua, geo=geo,
