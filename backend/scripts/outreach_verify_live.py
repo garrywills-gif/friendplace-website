@@ -266,7 +266,7 @@ def main() -> int:
         # Confirm row still in Mongo
         cli = MongoClient(MONGO_URL)
         try:
-            doc = cli[DB_NAME].cms_organisations.find_one({"id": manual_id})
+            doc = cli[DB_NAME].outreach_organisations.find_one({"id": manual_id})
             _assert(doc is not None, "row was hard-deleted — policy violation")
             _assert(doc.get("archived") is True, "row not archived")
         finally:
@@ -296,9 +296,9 @@ def main() -> int:
         cli = MongoClient(MONGO_URL)
         try:
             if created_ids:
-                res = cli[DB_NAME].cms_organisations.delete_many({"id": {"$in": created_ids}})
+                res = cli[DB_NAME].outreach_organisations.delete_many({"id": {"$in": created_ids}})
                 # Also nuke anything with our marker in case of partial ids
-                res2 = cli[DB_NAME].cms_organisations.delete_many(
+                res2 = cli[DB_NAME].outreach_organisations.delete_many(
                     {"contact_email": {"$regex": f"^{MARKER}"}})
                 print(f"\ncleanup: removed {res.deleted_count + res2.deleted_count} verify-live rows")
         finally:

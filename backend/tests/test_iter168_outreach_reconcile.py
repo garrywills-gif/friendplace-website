@@ -1,7 +1,7 @@
 """Iter168 — Outreach reconciliation script safety net.
 
 The ``scripts/outreach_reconcile.py`` script is the ONLY code path that
-seeds ``cms_organisations`` from adjacent collections. Its filters are
+seeds ``outreach_organisations`` from adjacent collections. Its filters are
 deliberately conservative — but conservative filters only earn their
 keep if we prove them with tests. This suite locks in:
 
@@ -10,7 +10,7 @@ keep if we prove them with tests. This suite locks in:
     • Obvious synthetic emails (@example.com, TEST_ prefix, etc.)
       never leak in.
     • Legit rows DO come through and dedupe correctly against any
-      pre-existing ``cms_organisations`` row (by email + by name).
+      pre-existing ``outreach_organisations`` row (by email + by name).
     • Send evidence in ``email_test_log`` bumps status → contacted.
     • Idempotency: running twice never duplicates.
 
@@ -113,7 +113,7 @@ async def test_dry_run_reports_only_legit_candidate(scratch_env):
     assert report["candidates"]["total"] == 1, report["candidates"]
     assert report["reconciled"]["net_new"] == 1
     assert report["reconciled"]["created"] == 0, "dry run must not write"
-    assert report["after"]["cms_organisations_total"] == 0
+    assert report["after"]["outreach_organisations_total"] == 0
 
 
 @pytest.mark.asyncio
@@ -121,9 +121,9 @@ async def test_commit_creates_only_legit_rows(scratch_env):
     await _seed_event_submissions(scratch_env)
     report = await R.reconcile(commit=True, verbose=False)
     assert report["reconciled"]["created"] == 1
-    total = await scratch_env.cms_organisations.count_documents({})
+    total = await scratch_env.outreach_organisations.count_documents({})
     assert total == 1
-    row = await scratch_env.cms_organisations.find_one({}, {"_id": 0})
+    row = await scratch_env.outreach_organisations.find_one({}, {"_id": 0})
     assert row["name"] == "Turramurra Community Centre"
     assert row["contact_email"] == "events@turramurra.org.au"
     assert row["status"] == "not_contacted"
@@ -136,7 +136,7 @@ async def test_send_history_marks_contacted(scratch_env):
     await _seed_email_history(scratch_env, "events@turramurra.org.au")
     report = await R.reconcile(commit=True, verbose=False)
     assert report["reconciled"]["created"] == 1
-    row = await scratch_env.cms_organisations.find_one({}, {"_id": 0})
+    row = await scratch_env.outreach_organisations.find_one({}, {"_id": 0})
     assert row["status"] == "contacted"
     assert row["last_contact_at"] == "2026-08-15T09:00:00+00:00"
     assert len(row["communications"]) == 1
@@ -148,14 +148,14 @@ async def test_idempotent_run_never_duplicates(scratch_env):
     await _seed_event_submissions(scratch_env)
     await R.reconcile(commit=True, verbose=False)
     await R.reconcile(commit=True, verbose=False)
-    total = await scratch_env.cms_organisations.count_documents({})
+    total = await scratch_env.outreach_organisations.count_documents({})
     assert total == 1, f"reconciliation duplicated rows on 2nd run: {total}"
 
 
 @pytest.mark.asyncio
 async def test_dedupe_against_existing_by_name_and_email(scratch_env):
     # Pre-existing row with same email
-    await scratch_env.cms_organisations.insert_one({
+    await scratch_env.outreach_organisations.insert_one({
         "id": "existing-1",
         "name": "Turramurra Community Centre",
         "contact_email": "events@turramurra.org.au",
@@ -168,7 +168,7 @@ async def test_dedupe_against_existing_by_name_and_email(scratch_env):
     assert report["reconciled"]["created"] == 0
     assert report["reconciled"]["existing_skipped"] == 1
     # Existing status must not be regressed
-    existing = await scratch_env.cms_organisations.find_one({"id": "existing-1"})
+    existing = await scratch_env.outreach_organisations.find_one({"id": "existing-1"})
     assert existing["status"] == "replied"
 
 
@@ -183,17 +183,17 @@ async def test_synthetic_email_when_source_missing(scratch_env):
     })
     report = await R.reconcile(commit=True, verbose=False)
     assert report["reconciled"]["created"] == 1
-    row = await scratch_env.cms_organisations.find_one({}, {"_id": 0})
+    row = await scratch_env.outreach_organisations.find_one({}, {"_id": 0})
     assert row["name"] == "Manly RSL"
     assert row["contact_email"].endswith("@no-email.reconciled.local")
 
 
 @pytest.mark.asyncio
 async def test_existing_org_without_contact_gets_bumped_by_send_history(scratch_env):
-    """A row already in cms_organisations with status=not_contacted must
+    """A row already in outreach_organisations with status=not_contacted must
     be moved to ``contacted`` if email evidence exists in
     ``email_test_log``."""
-    await scratch_env.cms_organisations.insert_one({
+    await scratch_env.outreach_organisations.insert_one({
         "id": "old-1",
         "name": "Ryde Library",
         "contact_email": "librarian@ryde.nsw.gov.au",
@@ -204,7 +204,7 @@ async def test_existing_org_without_contact_gets_bumped_by_send_history(scratch_
     })
     await _seed_email_history(scratch_env, "librarian@ryde.nsw.gov.au")
     report = await R.reconcile(commit=True, verbose=False)
-    row = await scratch_env.cms_organisations.find_one({"id": "old-1"}, {"_id": 0})
+    row = await scratch_env.outreach_organisations.find_one({"id": "old-1"}, {"_id": 0})
     assert row["status"] == "contacted"
     assert row["last_contact_at"] == "2026-08-15T09:00:00+00:00"
     assert any(c.get("kind") == "reconciled_send_evidence" for c in row["communications"])

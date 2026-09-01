@@ -70,8 +70,8 @@ def token():
 def _cleanup(db):
     """Guarantees test rows never leak between runs."""
     def _wipe():
-        db.cms_organisations.delete_many({"id": {"$regex": f"^{MARKER}"}})
-        db.cms_organisations.delete_many({"contact_email": {"$regex": f"^{MARKER}"}})
+        db.outreach_organisations.delete_many({"id": {"$regex": f"^{MARKER}"}})
+        db.outreach_organisations.delete_many({"contact_email": {"$regex": f"^{MARKER}"}})
     _wipe()
     yield
     _wipe()
@@ -194,7 +194,7 @@ class TestCreate:
         # DB assertions — the frontend-shaped keys must be normalised
         # into the storage schema, so the list endpoint reads them back
         # cleanly on the next fetch.
-        doc = db.cms_organisations.find_one({"id": body["id"]})
+        doc = db.outreach_organisations.find_one({"id": body["id"]})
         assert doc is not None
         assert doc["name"] == "Iter167 RSL Manly"
         assert doc["contact_email"] == payload["email"].lower()
@@ -226,7 +226,7 @@ class TestCreate:
             headers=_h(token), json=payload, timeout=10,
         )
         assert r.status_code == 200
-        doc = db.cms_organisations.find_one({"id": r.json()["id"]})
+        doc = db.outreach_organisations.find_one({"id": r.json()["id"]})
         assert doc["postcode"] == "4020"
         assert doc["website"] == "https://redcliffe.example.gov.au"
 
@@ -288,12 +288,12 @@ class TestDuplicateProtection:
         assert body["existing"] is True
 
         # And the DB row must NOT have been mutated.
-        doc = db.cms_organisations.find_one({"id": first_id})
+        doc = db.outreach_organisations.find_one({"id": first_id})
         assert doc["name"] == "Iter167 Dupe Original", (
             "existing row must NEVER be overwritten by a duplicate create"
         )
         # Exactly one row per email.
-        cnt = db.cms_organisations.count_documents({"contact_email": email})
+        cnt = db.outreach_organisations.count_documents({"contact_email": email})
         assert cnt == 1
 
     def test_case_insensitive_duplicate_detection(self, db, token):
@@ -369,7 +369,7 @@ class TestArchiveFlow:
         assert any(r["id"] == org_id for r in archived["rows"])
 
         # DB row is preserved, not deleted.
-        doc = db.cms_organisations.find_one({"id": org_id})
+        doc = db.outreach_organisations.find_one({"id": org_id})
         assert doc is not None
         assert doc["archived"] is True
 

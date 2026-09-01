@@ -3,16 +3,16 @@
 WHY
 ───
 The Vercel-deployed ``/admin/outreach`` page currently shows 0
-organisations because ``cms_organisations`` is empty. Garry believes
+organisations because ``outreach_organisations`` is empty. Garry believes
 historical outreach touches (spreadsheet imports, campaign sends,
 retirement-village replies, RSL / library contacts, etc.) may still
 exist in adjacent collections. This script:
 
     1. Scans every accessible collection for organisation-shaped records
        (has ``organisation_name`` + a contact channel like email/phone).
-    2. De-duplicates against ``cms_organisations`` by email
+    2. De-duplicates against ``outreach_organisations`` by email
        (case-insensitive) and by normalised organisation name.
-    3. Upserts each fresh find into ``cms_organisations`` using the
+    3. Upserts each fresh find into ``outreach_organisations`` using the
        canonical outreach schema (name/contact_email/contact_phone/…).
     4. Cross-references send history (``email_test_log`` +
        ``campaign_recipients``) and, for any org whose contact_email
@@ -21,7 +21,7 @@ exist in adjacent collections. This script:
 
 INVARIANTS
 ──────────
-- **Never overwrites** an existing ``cms_organisations`` record. The
+- **Never overwrites** an existing ``outreach_organisations`` record. The
   script upserts NEW rows only; existing rows keep every field including
   ``status``, ``notes``, ``tags``, ``communications``.
 - **Never invents data**. Every reconciled row is traceable to a source
@@ -229,7 +229,7 @@ SOURCES = [
 # filter (which is misleading — everything shows "All Founding Members"
 # in the label). So we scan ``campaigns`` for outreach-flavoured
 # name/title/subject, then unwind each into its recipient list, and
-# reconcile each unique email into ``cms_organisations`` with the
+# reconcile each unique email into ``outreach_organisations`` with the
 # delivery history preserved.
 
 # Regex that identifies outreach-flavoured campaigns by title.
@@ -462,10 +462,10 @@ SOURCES = [
 
 async def _load_existing_index(db) -> Tuple[Dict[str, Dict], Dict[str, Dict]]:
     """Build case-insensitive email + normalised-name lookup tables from
-    the current ``cms_organisations`` collection."""
+    the current ``outreach_organisations`` collection."""
     by_email: Dict[str, Dict] = {}
     by_name:  Dict[str, Dict] = {}
-    async for d in db.cms_organisations.find({}, {"_id": 0}):
+    async for d in db.outreach_organisations.find({}, {"_id": 0}):
         e = _norm_email(d.get("contact_email") or d.get("email"))
         n = _norm_name(d.get("name") or d.get("organisation_name"))
         if e:
@@ -544,9 +544,9 @@ async def reconcile(*, commit: bool, verbose: bool) -> Dict[str, Any]:
         }
 
         # ── Snapshot before ────────────────────────────────────────
-        report["before"]["cms_organisations_total"]    = await db.cms_organisations.count_documents({})
-        report["before"]["cms_organisations_active"]   = await db.cms_organisations.count_documents({"archived": {"$ne": True}})
-        report["before"]["cms_organisations_archived"] = await db.cms_organisations.count_documents({"archived": True})
+        report["before"]["outreach_organisations_total"]    = await db.outreach_organisations.count_documents({})
+        report["before"]["outreach_organisations_active"]   = await db.outreach_organisations.count_documents({"archived": {"$ne": True}})
+        report["before"]["outreach_organisations_archived"] = await db.outreach_organisations.count_documents({"archived": True})
 
         # ── Gather candidates ──────────────────────────────────────
         candidates: List[Dict[str, Any]] = []
@@ -571,7 +571,7 @@ async def reconcile(*, commit: bool, verbose: bool) -> Dict[str, Any]:
             name = cand["organisation_name"].strip()
             email = _norm_email(cand["contact_email"])
             key_name = _norm_name(name)
-            # Skip if this org already exists in cms_organisations
+            # Skip if this org already exists in outreach_organisations
             if email and email in existing_by_email:
                 skipped_dupe += 1
                 continue
@@ -694,7 +694,7 @@ async def reconcile(*, commit: bool, verbose: bool) -> Dict[str, Any]:
 
         # Also bump EXISTING organisations that have send evidence but
         # are still marked ``not_contacted``.
-        cursor = db.cms_organisations.find(
+        cursor = db.outreach_organisations.find(
             {"status": {"$in": [None, "", "not_contacted", "new", "registered"]}},
             {"_id": 0, "id": 1, "contact_email": 1, "status": 1},
         )
@@ -714,10 +714,10 @@ async def reconcile(*, commit: bool, verbose: bool) -> Dict[str, Any]:
             ]
         if commit:
             if docs_to_insert:
-                await db.cms_organisations.insert_many(docs_to_insert)
+                await db.outreach_organisations.insert_many(docs_to_insert)
                 report["reconciled"]["created"] = len(docs_to_insert)
             for org_id, last in bumps_existing:
-                await db.cms_organisations.update_one(
+                await db.outreach_organisations.update_one(
                     {"id": org_id, "status": {"$in": [None, "", "not_contacted", "new", "registered"]}},
                     {"$set": {
                         "status":          "contacted",
@@ -741,9 +741,9 @@ async def reconcile(*, commit: bool, verbose: bool) -> Dict[str, Any]:
 
         # ── Snapshot after ─────────────────────────────────────────
         report["after"] = {
-            "cms_organisations_total":    await db.cms_organisations.count_documents({}),
-            "cms_organisations_active":   await db.cms_organisations.count_documents({"archived": {"$ne": True}}),
-            "cms_organisations_archived": await db.cms_organisations.count_documents({"archived": True}),
+            "outreach_organisations_total":    await db.outreach_organisations.count_documents({}),
+            "outreach_organisations_active":   await db.outreach_organisations.count_documents({"archived": {"$ne": True}}),
+            "outreach_organisations_archived": await db.outreach_organisations.count_documents({"archived": True}),
         }
         report["finished_at"] = _now_iso()
         return report
@@ -755,9 +755,9 @@ def _print_report(r: Dict[str, Any]) -> None:
     print("─" * 60)
     print(f"Outreach reconciliation  |  DB: {r['db_name']}  |  commit={r['commit_mode']}")
     print("─" * 60)
-    print(f"Before  cms_organisations:  {r['before']['cms_organisations_total']} "
-          f"(active {r['before']['cms_organisations_active']}, "
-          f"archived {r['before']['cms_organisations_archived']})")
+    print(f"Before  outreach_organisations:  {r['before']['outreach_organisations_total']} "
+          f"(active {r['before']['outreach_organisations_active']}, "
+          f"archived {r['before']['outreach_organisations_archived']})")
     print(f"Candidates found:           {r['candidates']['total']}")
     for src, n in r["candidates"]["by_source"].items():
         print(f"    {src:<48} {n}")
@@ -768,9 +768,9 @@ def _print_report(r: Dict[str, Any]) -> None:
     print(f"Marked contacted (new+existing): {r['contact_bumps']['marked_contacted']}")
     if not r["commit_mode"]:
         print(f"Would bump existing:         {r['contact_bumps'].get('would_bump_existing', 0)}")
-    print(f"After   cms_organisations:  {r['after']['cms_organisations_total']} "
-          f"(active {r['after']['cms_organisations_active']}, "
-          f"archived {r['after']['cms_organisations_archived']})")
+    print(f"After   outreach_organisations:  {r['after']['outreach_organisations_total']} "
+          f"(active {r['after']['outreach_organisations_active']}, "
+          f"archived {r['after']['outreach_organisations_archived']})")
     if r["created_samples"]:
         print("Sample created rows:")
         for s in r["created_samples"]:

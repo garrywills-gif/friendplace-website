@@ -51,8 +51,8 @@ def token():
 @pytest.fixture(scope="module", autouse=True)
 def _cleanup(db):
     def wipe():
-        db.cms_organisations.delete_many({"id": {"$regex": f"^{MARKER}"}})
-        db.cms_organisations.delete_many({"contact_email": {"$regex": f"^{MARKER}"}})
+        db.outreach_organisations.delete_many({"id": {"$regex": f"^{MARKER}"}})
+        db.outreach_organisations.delete_many({"contact_email": {"$regex": f"^{MARKER}"}})
     wipe()
     yield
     wipe()
@@ -198,7 +198,7 @@ class TestUpdate:
             json={"archived": True, "notes": "keep me active"}, timeout=10,
         )
         assert r.status_code == 200
-        doc = db.cms_organisations.find_one({"id": org_id})
+        doc = db.outreach_organisations.find_one({"id": org_id})
         # Archive must ONLY be set via the /archive endpoint.
         assert doc.get("archived") is False
 
@@ -231,7 +231,7 @@ class TestDelete:
         assert body["archived"] is True
 
         # Row is preserved in Mongo, with communications intact.
-        doc = db.cms_organisations.find_one({"id": org_id})
+        doc = db.outreach_organisations.find_one({"id": org_id})
         assert doc is not None, "row must NEVER be hard-deleted"
         assert doc["archived"] is True
         assert doc.get("archived_at") is not None
@@ -293,7 +293,7 @@ class TestDelete:
         assert r.json()["archived"] is False
         # And communications are still there — the round-trip is
         # information-preserving.
-        doc = db.cms_organisations.find_one({"id": org_id})
+        doc = db.outreach_organisations.find_one({"id": org_id})
         assert len(doc.get("communications") or []) == 1
 
 
@@ -348,7 +348,7 @@ class TestLog:
 
 class TestAutoTouchOnSend:
     """The critical wiring — when a Founding-Member campaign send
-    happens to hit an email that ALSO exists in cms_organisations, we
+    happens to hit an email that ALSO exists in outreach_organisations, we
     bump that org's status to 'contacted' and record the send. This is
     what makes 'organisation status auto-updates when emailed through
     FriendPlace' work end-to-end."""
@@ -362,14 +362,14 @@ class TestAutoTouchOnSend:
         async def run():
             cli = AsyncIOMotorClient(MONGO_URL)[DB_NAME]
             # Fetch the seeded email verbatim from Mongo (already lowercased).
-            doc = await cli.cms_organisations.find_one({"id": org_id})
+            doc = await cli.outreach_organisations.find_one({"id": org_id})
             # Simulate the send loop's helper. Rebuild here rather than
             # importing it because it's declared inside a factory
             # function scope in cms_module.py.
             import re
             rx = re.compile(f"^{re.escape(doc['contact_email'])}$", re.IGNORECASE)
             now = datetime.now(timezone.utc).isoformat()
-            await cli.cms_organisations.update_one(
+            await cli.outreach_organisations.update_one(
                 {"contact_email": rx},
                 {
                     "$set": {
@@ -402,7 +402,7 @@ class TestAutoTouchOnSend:
         subsequent send must NEVER pull it back down to ``contacted``."""
         org_id = _seed(token, email_suffix="norollback", status="replied")
         # Directly simulate the helper's "only bump if not_contacted" guard.
-        doc = db.cms_organisations.find_one({"id": org_id})
+        doc = db.outreach_organisations.find_one({"id": org_id})
         current = doc.get("status")
         update_set = {"last_contact_at": "now"}
         if current in ("not_contacted", "", None):

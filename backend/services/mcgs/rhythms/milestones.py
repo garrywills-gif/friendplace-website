@@ -221,7 +221,7 @@ async def _scan_org_event_thresholds(db: Any) -> list[str]:
         if await _already_awarded(db, key, period):
             continue
         # Fetch org name for warmth.
-        org = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0, "name": 1})
+        org = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0, "name": 1})
         name = (org or {}).get("name") or "An organisation"
         sid = await _award(
             db,

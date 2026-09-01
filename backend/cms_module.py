@@ -917,10 +917,13 @@ def build_router(db) -> APIRouter:
     # ============================================================
     # Backs the deployed website's `/admin/outreach` page which lists
     # retirement villages, RSLs, libraries, community organisations
-    # etc. we've reached out to. Data lives in `cms_organisations`
-    # (same collection the milestones scanner reads). Records are
-    # authored elsewhere / migrated from CRM history — this endpoint
-    # is READ + soft-archive only. It never writes new outreach rows.
+    # etc. we've reached out to. Data lives in `outreach_organisations`
+    # (production truth — verified 2026-10 to contain the Retirement
+    # Villages #2/#3/#4/Att outreach records with their real
+    # communications history). Previously mis-pointed to `cms_organisations`
+    # (empty), which is why /admin/outreach showed 0 records. All CRUD
+    # + read paths below now read/write the correct collection; no data
+    # migration or copy is performed.
     #
     # The deployed frontend hits:
     #   GET  /api/cms/outreach/organisations?<q|status|category|limit>
@@ -1039,7 +1042,7 @@ def build_router(db) -> APIRouter:
                 query["$and"] = [{"$or": existing_or}, {"$or": or_clause}]
             else:
                 query["$or"] = or_clause
-        rows_raw = await db.cms_organisations.find(query, {"_id": 0}) \
+        rows_raw = await db.outreach_organisations.find(query, {"_id": 0}) \
             .sort("created_at", -1).to_list(lim)
         rows = [_outreach_row(d) for d in rows_raw]
         # ``organisations`` is a duplicate alias of ``rows`` because
@@ -1058,7 +1061,7 @@ def build_router(db) -> APIRouter:
         and remains queryable via ``?archived=true``. Idempotent."""
         from datetime import datetime, timezone
         from services import audit as _audit  # local import — module boundary
-        existing = await db.cms_organisations.find_one(
+        existing = await db.outreach_organisations.find_one(
             {"id": org_id}, {"_id": 0, "id": 1, "archived": 1, "archived_at": 1},
         )
         if existing is None:
@@ -1080,7 +1083,7 @@ def build_router(db) -> APIRouter:
             "archived_by_email": admin.get("email"),
             "updated_at": now,
         }
-        res = await db.cms_organisations.update_one({"id": org_id}, {"$set": patch})
+        res = await db.outreach_organisations.update_one({"id": org_id}, {"$set": patch})
         if res.matched_count == 0:
             raise HTTPException(404, "Organisation not found")
         await _audit.log_admin_action(
@@ -1104,7 +1107,7 @@ def build_router(db) -> APIRouter:
         """
         from datetime import datetime, timezone
         from services import audit as _audit  # local import — module boundary
-        existing = await db.cms_organisations.find_one(
+        existing = await db.outreach_organisations.find_one(
             {"id": org_id}, {"_id": 0, "id": 1, "archived": 1},
         )
         if existing is None:
@@ -1112,7 +1115,7 @@ def build_router(db) -> APIRouter:
         if not existing.get("archived"):
             return {"ok": True, "id": org_id, "archived": False, "noop": True}
         now = datetime.now(timezone.utc).isoformat()
-        await db.cms_organisations.update_one(
+        await db.outreach_organisations.update_one(
             {"id": org_id},
             {
                 "$set": {"archived": False, "updated_at": now},
@@ -1136,7 +1139,7 @@ def build_router(db) -> APIRouter:
     #   2. The `/admin/outreach/new` manual form: identical payload
     #      shape but with only ONE row.
     #
-    # Storage schema is the pre-existing ``cms_organisations`` document
+    # Storage schema is the pre-existing ``outreach_organisations`` document
     # (fields: name, contact_email, contact_phone, category, suburb,
     # state, notes, tags, status, ...). We normalise the incoming
     # frontend-shaped keys into that schema so both surfaces read back
@@ -1192,7 +1195,7 @@ def build_router(db) -> APIRouter:
 
         # ── Idempotency — email is the natural key here. ────────────
         rx_email = _re.compile(f"^{_re.escape(email)}$", _re.IGNORECASE)
-        dupe = await db.cms_organisations.find_one(
+        dupe = await db.outreach_organisations.find_one(
             {"contact_email": rx_email},
             {"_id": 0},
         )
@@ -1244,7 +1247,7 @@ def build_router(db) -> APIRouter:
             "created_by_email": admin.get("email"),
             "archived": False,
         }
-        await db.cms_organisations.insert_one(doc)
+        await db.outreach_organisations.insert_one(doc)
         await _audit.log_admin_action(
             db, admin=admin, action="cms.outreach.create",
             target_type="outreach_organisation", target_id=org_id,
@@ -1260,7 +1263,7 @@ def build_router(db) -> APIRouter:
     @router.get("/outreach/meta")
     async def outreach_meta(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
         """Static metadata for the Outreach page filters."""
-        cats_cursor = db.cms_organisations.aggregate([
+        cats_cursor = db.outreach_organisations.aggregate([
             {"$match": {"category": {"$type": "string", "$ne": ""}}},
             {"$group": {"_id": "$category"}},
             {"$sort": {"_id": 1}},
@@ -1274,7 +1277,7 @@ def build_router(db) -> APIRouter:
         org_id: str,
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
-        doc = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        doc = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
         if doc is None:
             raise HTTPException(404, "Organisation not found")
         return _outreach_row(doc)
@@ -1289,7 +1292,7 @@ def build_router(db) -> APIRouter:
         """Update editable fields. Never touches archived or communications."""
         from datetime import datetime as _dt, timezone as _tz
         from services import audit as _audit
-        existing = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        existing = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
         if existing is None:
             raise HTTPException(404, "Organisation not found")
 
@@ -1331,12 +1334,12 @@ def build_router(db) -> APIRouter:
         if not patch:
             return _outreach_row(existing)
         patch["updated_at"] = _dt.now(_tz.utc).isoformat()
-        await db.cms_organisations.update_one({"id": org_id}, {"$set": patch})
+        await db.outreach_organisations.update_one({"id": org_id}, {"$set": patch})
         await _audit.log_admin_action(
             db, admin=admin, action="cms.outreach.update",
             target_type="outreach_organisation", target_id=org_id,
         )
-        fresh = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        fresh = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
         return _outreach_row(fresh)
 
     # ─── Delete → SOFT-ARCHIVE ONLY (iter167 hardening) ────────────
@@ -1359,7 +1362,7 @@ def build_router(db) -> APIRouter:
     ):
         from datetime import datetime as _dt, timezone as _tz
         from services import audit as _audit
-        existing = await db.cms_organisations.find_one(
+        existing = await db.outreach_organisations.find_one(
             {"id": org_id}, {"_id": 0, "id": 1, "archived": 1},
         )
         if existing is None:
@@ -1372,7 +1375,7 @@ def build_router(db) -> APIRouter:
                 "note": "Outreach organisations are soft-archived, never hard-deleted.",
             }
         now = _dt.now(_tz.utc).isoformat()
-        await db.cms_organisations.update_one(
+        await db.outreach_organisations.update_one(
             {"id": org_id},
             {"$set": {
                 "archived":          True,
@@ -1403,7 +1406,7 @@ def build_router(db) -> APIRouter:
     ):
         from datetime import datetime as _dt, timezone as _tz
         from services import audit as _audit
-        existing = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        existing = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
         if existing is None:
             raise HTTPException(404, "Organisation not found")
         now = _dt.now(_tz.utc).isoformat()
@@ -1415,7 +1418,7 @@ def build_router(db) -> APIRouter:
             "campaign_id": payload.get("campaign_id") or None,
             "by": admin.get("email"),
         }
-        await db.cms_organisations.update_one(
+        await db.outreach_organisations.update_one(
             {"id": org_id},
             {"$set": {"status": "replied", "last_reply_at": now, "updated_at": now},
              "$push": {"communications": entry}},
@@ -1424,7 +1427,7 @@ def build_router(db) -> APIRouter:
             db, admin=admin, action="cms.outreach.mark_replied",
             target_type="outreach_organisation", target_id=org_id,
         )
-        fresh = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        fresh = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
         return _outreach_row(fresh)
 
     # ─── Log — free-form contact-history entry (no status change) ──
@@ -1439,7 +1442,7 @@ def build_router(db) -> APIRouter:
         kind = (payload.get("kind") or "").strip()
         if not kind:
             raise HTTPException(400, "kind is required (e.g. 'phone_call', 'note')")
-        existing = await db.cms_organisations.find_one(
+        existing = await db.outreach_organisations.find_one(
             {"id": org_id}, {"_id": 0, "id": 1},
         )
         if existing is None:
@@ -1450,7 +1453,7 @@ def build_router(db) -> APIRouter:
             "body": (payload.get("body") or "").strip(),
             "by": admin.get("email"),
         }
-        await db.cms_organisations.update_one(
+        await db.outreach_organisations.update_one(
             {"id": org_id},
             {"$set": {"updated_at": now}, "$push": {"communications": entry}},
         )
@@ -1458,7 +1461,7 @@ def build_router(db) -> APIRouter:
             db, admin=admin, action="cms.outreach.log",
             target_type="outreach_organisation", target_id=org_id,
         )
-        fresh = await db.cms_organisations.find_one({"id": org_id}, {"_id": 0})
+        fresh = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
         return _outreach_row(fresh)
 
     # ─── Internal: auto-touch outreach org on campaign send ────────
@@ -1474,7 +1477,7 @@ def build_router(db) -> APIRouter:
         import re as _re
         from datetime import datetime as _dt, timezone as _tz
         rx = _re.compile(f"^{_re.escape(email)}$", _re.IGNORECASE)
-        org = await db.cms_organisations.find_one(
+        org = await db.outreach_organisations.find_one(
             {"contact_email": rx},
             {"_id": 0, "id": 1, "status": 1},
         )
@@ -1488,7 +1491,7 @@ def build_router(db) -> APIRouter:
             "at": now, "kind": "campaign_send", "direction": "outbound",
             "subject": subject, "campaign_id": campaign_id,
         }
-        await db.cms_organisations.update_one(
+        await db.outreach_organisations.update_one(
             {"id": org["id"]},
             {"$set": update_set, "$push": {"communications": entry}},
         )
