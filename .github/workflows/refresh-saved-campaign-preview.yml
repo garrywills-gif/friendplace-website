@@ -1,0 +1,29 @@
+name: Refresh saved campaign preview
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/refresh-saved-campaign-preview.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Patch saved preview refresh
+        run: python scripts/patch_campaign_saved_preview_refresh.py
+      - name: Verify campaign invariants
+        run: node scripts/check-campaign-invariants.mjs
+      - name: Commit repair
+        run: |
+          rm .github/workflows/refresh-saved-campaign-preview.yml
+          rm scripts/patch_campaign_saved_preview_refresh.py
+          git config user.name 'FriendPlace Campaign Guard'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'Refresh campaign preview after explicit save'
+          git push
