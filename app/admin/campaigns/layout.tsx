@@ -1,11 +1,24 @@
+'use client';
+
 import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 export default function CampaignsLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const query = searchParams?.toString() || '';
+  const currentUrl = `${pathname || '/admin/campaigns'}${query ? `?${query}` : ''}`;
+  const isComposer = pathname === '/admin/campaigns/new';
+  const templatesHref = isComposer
+    ? `/admin/campaigns/templates?returnTo=${encodeURIComponent(currentUrl)}`
+    : '/admin/campaigns/templates';
+
   return (
     <>
       {children}
       <Link
-        href="/admin/campaigns/templates"
+        href={templatesHref}
         aria-label="Open campaign email templates"
         title="Campaign email templates"
         style={{
