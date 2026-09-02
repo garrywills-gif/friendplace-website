@@ -25,7 +25,9 @@ for (const token of [
   "'Hi [Contact name],'",
   "'Hello [Contact name],'",
   "label: 'No greeting'",
-  "templateSelect.value !== 'community_outreach'",
+  "af.audience_kind === 'outreach_contacts'",
+  "campaign.companion === 'team'",
+  "const isOutreach = Boolean(visibleOutreach || savedOutreach)",
 ]) {
   if (!greetingPreset.includes(token)) throw new Error(`Outreach greeting preset invariant missing: ${token}`);
 }
