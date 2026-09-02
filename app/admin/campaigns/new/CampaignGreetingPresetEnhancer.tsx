@@ -47,18 +47,20 @@ function findTemplateSelect(): HTMLSelectElement | null {
 }
 
 /**
- * Progressive UI enhancement for Community / Outreach campaigns.
+ * Outreach-only greeting preset selector.
  *
- * The core composer still owns the React greeting state and save payload.
- * This component swaps the free-text control for the four approved outreach
- * presets while writing every selection back through the original React input.
- * Nothing is saved until the composer Save / Send / Schedule action runs.
+ * Existing outreach drafts can be stored server-side as `announcement`, so
+ * detection must not rely only on the visible template select. We also use
+ * the persisted audience kind / team signer from the loaded campaign.
+ * The original React input remains the source of truth for save/send/schedule;
+ * this enhancer only replaces its UI and never performs a save itself.
  */
 export function CampaignGreetingPresetEnhancer() {
   useEffect(() => {
     let disposed = false;
     let savedGreeting: string | null | undefined;
     let savedGreetingLoaded = false;
+    let savedOutreach = false;
 
     const id = new URLSearchParams(window.location.search).get('id');
     if (id) {
@@ -66,6 +68,11 @@ export function CampaignGreetingPresetEnhancer() {
         .get(id)
         .then((campaign) => {
           savedGreeting = campaign.greeting;
+          const af = (campaign.audience_filter || {}) as any;
+          savedOutreach =
+            af.audience_kind === 'outreach_contacts' ||
+            af.audience_kind === 'outreach' ||
+            campaign.companion === 'team';
           savedGreetingLoaded = true;
           sync();
         })
@@ -85,7 +92,10 @@ export function CampaignGreetingPresetEnhancer() {
         '[data-fp-outreach-greeting-presets="1"]',
       );
 
-      if (!input || !templateSelect || templateSelect.value !== 'community_outreach') {
+      const visibleOutreach = templateSelect?.value === 'community_outreach';
+      const isOutreach = Boolean(visibleOutreach || savedOutreach);
+
+      if (!input || !isOutreach) {
         existing?.remove();
         if (input) input.style.display = '';
         return;
@@ -96,8 +106,8 @@ export function CampaignGreetingPresetEnhancer() {
       const permitted = PRESETS.some((preset) => preset.value === input.value);
       let value = permitted ? input.value : OUTREACH_DEFAULT;
 
-      // Legacy Outreach drafts with greeting=null/missing must visibly default
-      // to Dear. An explicit saved empty string remains the real No greeting
+      // Legacy Outreach drafts with greeting=null/missing visibly default to
+      // Dear. An explicit saved empty string remains the real No greeting
       // choice and is never silently changed.
       if (id && (savedGreeting === null || typeof savedGreeting === 'undefined')) {
         value = OUTREACH_DEFAULT;
