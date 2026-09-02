@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 
 type SavedCampaignTemplate = {
@@ -15,6 +15,7 @@ type SavedCampaignTemplate = {
 };
 
 const STORAGE_KEY = 'friendplace.mcgs.campaignTemplates.v1';
+const APPLY_KEY = 'friendplace.mcgs.campaignTemplateToApply.v1';
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -70,6 +71,7 @@ function htmlToPlainText(html: string) {
 }
 
 export default function CampaignTemplatesPage() {
+  const router = useRouter();
   const [templates, setTemplates] = useState<SavedCampaignTemplate[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -78,9 +80,21 @@ export default function CampaignTemplatesPage() {
   const [body, setBody] = useState('');
   const [bodyHtml, setBodyHtml] = useState('');
   const [copied, setCopied] = useState<string | null>(null);
+  const [returnTo, setReturnTo] = useState('/admin/campaigns');
+  const [returningToCampaign, setReturningToCampaign] = useState(false);
   const editorRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    try {
+      const referrer = document.referrer ? new URL(document.referrer) : null;
+      if (referrer && referrer.origin === window.location.origin && referrer.pathname === '/admin/campaigns/new') {
+        setReturnTo(`${referrer.pathname}${referrer.search}`);
+        setReturningToCampaign(true);
+      }
+    } catch {
+      // If the referrer cannot be read, fall back to the campaign list.
+    }
+
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) setTemplates(JSON.parse(raw));
@@ -166,6 +180,21 @@ export default function CampaignTemplatesPage() {
     if (editingId === template.id) resetForm();
   };
 
+  const useTemplate = (template: SavedCampaignTemplate) => {
+    if (!returningToCampaign) return;
+    try {
+      window.sessionStorage.setItem(APPLY_KEY, JSON.stringify({
+        returnTo,
+        subject: template.subject || '',
+        body: template.body || '',
+        body_html: sanitiseEmailHtml(template.body_html || plainTextToHtml(template.body)),
+      }));
+    } catch {
+      return;
+    }
+    router.push(returnTo);
+  };
+
   const flashCopied = (key: string) => {
     setCopied(key);
     window.setTimeout(() => setCopied(current => current === key ? null : current), 1600);
@@ -210,13 +239,15 @@ export default function CampaignTemplatesPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
         <div>
           <p style={{ margin: 0, color: '#475569', maxWidth: 720, lineHeight: 1.6 }}>
-            Keep your best campaign emails here, then copy the subject or email body whenever you create a new campaign.
+            Keep your best campaign emails here, then use one directly in the campaign you are working on.
           </p>
           <p style={{ margin: '6px 0 0', color: '#94A3B8', fontSize: 12 }}>
             Saved privately in this browser on this device. Bold, italic, lists and links are preserved when pasted here.
           </p>
         </div>
-        <Link href="/admin/campaigns" style={{ ...s.ghostBtn, textDecoration: 'none' }}>← Campaigns</Link>
+        <button type="button" onClick={() => router.push(returnTo)} style={{ ...s.ghostBtn }}>
+          {returningToCampaign ? '← Back to Campaign' : '← Campaigns'}
+        </button>
       </div>
 
       <div style={{ ...s.card, marginBottom: 22 }}>
@@ -291,6 +322,9 @@ export default function CampaignTemplatesPage() {
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {returningToCampaign && (
+                      <button type="button" onClick={() => useTemplate(template)} style={useBtn}>Use this template</button>
+                    )}
                     {template.subject && (
                       <button type="button" onClick={() => void copyText(template.subject, `${template.id}-subject`)} style={smallBtn}>
                         {copied === `${template.id}-subject` ? 'Copied ✓' : 'Copy subject'}
@@ -382,6 +416,13 @@ const smallBtn: React.CSSProperties = {
   fontWeight: 800,
   fontSize: 12,
   cursor: 'pointer',
+};
+
+const useBtn: React.CSSProperties = {
+  ...smallBtn,
+  background: '#0F766E',
+  color: '#FFFFFF',
+  borderColor: '#0F766E',
 };
 
 const deleteBtn: React.CSSProperties = {
