@@ -2,6 +2,7 @@
 
 import { Suspense } from 'react';
 import { usePathname, useSearchParams } from 'next/navigation';
+import { CampaignRenameEnhancer } from './CampaignRenameEnhancer';
 
 const shortcutStyle: React.CSSProperties = {
   position: 'fixed',
@@ -51,6 +52,7 @@ export default function CampaignsLayout({ children }: { children: React.ReactNod
   return (
     <>
       {children}
+      <CampaignRenameEnhancer />
       <Suspense
         fallback={(
           <a
