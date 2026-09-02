@@ -59,21 +59,22 @@ export function CampaignTemplateApplyEnhancer() {
       if (stopped) return;
       attempts += 1;
 
-      const subjectInput = fieldAfterLabel('Subject', 'input') as HTMLInputElement | null;
-      const bodyTextarea = fieldAfterLabel('Body', 'textarea') as HTMLTextAreaElement | null;
+      // The campaign composer calls this field "Subject line". The old
+      // enhancer searched for "Subject", so it never found the input and
+      // therefore never applied either the subject OR the body.
+      const subjectInput = fieldAfterLabel('Subject line', 'input') as HTMLInputElement | null;
+      const bodyTextarea = document.querySelector(
+        'textarea[placeholder="Write the letter. Blank lines start new paragraphs."]',
+      ) as HTMLTextAreaElement | null;
 
       if (subjectInput && bodyTextarea) {
-        // Existing campaigns hydrate asynchronously. An earlier version applied
-        // the selected template as soon as the fields mounted, then the saved
-        // draft arrived and overwrote it. Re-apply for a short settling window
-        // so the selected template is the final state.
+        // Existing campaigns hydrate asynchronously. Re-apply during a short
+        // settling window so the selected template remains the final state.
         setNativeValue(subjectInput, pending?.subject || '');
         setNativeValue(bodyTextarea, pending?.body || '');
         successfulApplies += 1;
       }
 
-      // Keep applying for ~4 seconds. This comfortably covers normal draft
-      // hydration without leaving a persistent background loop.
       if (attempts < 40) {
         window.setTimeout(apply, 100);
         return;
