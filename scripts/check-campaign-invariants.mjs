@@ -20,6 +20,7 @@ const end = composer.indexOf('const doSend = async');
 const effectRegion = composer.slice(first, end);
 if (effectRegion.includes('await saveDraft(true)')) throw new Error('Campaign invariant violated: autosave has returned');
 if (!review.includes("'preview-audience'")) throw new Error('Recipient review endpoint contract missing');
+if (!composer.includes('Explicit saves must refresh the persisted preview immediately.')) throw new Error('Saved preview refresh invariant missing');
 for (const token of [
   "'Dear [Contact name],'",
   "'Hi [Contact name],'",

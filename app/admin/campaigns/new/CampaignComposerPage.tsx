@@ -483,6 +483,17 @@ function ComposePanel() {
         c = await campaignsApi.create(payload);
         setCampaignId(c.id);
       }
+      // Explicit saves must refresh the persisted preview immediately.
+      // This is NOT autosave: it only runs after Save / Send / Schedule has
+      // deliberately persisted the campaign. It also fixes existing drafts
+      // where campaignId does not change, so the [campaignId] preview effect
+      // would otherwise keep showing stale CTA/copy.
+      try {
+        const a = await campaignsApi.previewAudience(c.id);
+        setAudienceCount(a.count);
+        const r = await campaignsApi.renderPreview(c.id);
+        setPreviewHtml(r.html || '');
+      } catch { /* saving succeeded; preview refresh is non-fatal */ }
       if (!silent) showToast('Draft saved');
       return c.id;
     } catch (e: any) {
