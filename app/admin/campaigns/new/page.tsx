@@ -3,6 +3,7 @@
 import CampaignComposerPage from './CampaignComposerPage';
 import { CampaignBodyRichTextEnhancer } from './CampaignBodyRichTextEnhancer';
 import { CampaignDeliveryReviewEnhancer } from './CampaignDeliveryReviewEnhancer';
+import { CampaignCtaUrlEnhancer } from './CampaignCtaUrlEnhancer';
 
 export default function NewCampaignPage() {
   return (
@@ -10,6 +11,7 @@ export default function NewCampaignPage() {
       <CampaignComposerPage />
       <CampaignBodyRichTextEnhancer />
       <CampaignDeliveryReviewEnhancer />
+      <CampaignCtaUrlEnhancer />
     </>
   );
 }
