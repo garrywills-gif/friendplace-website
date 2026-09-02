@@ -2175,13 +2175,16 @@ def announcement_template(
         )
         + founder_pill_html
         + body_html_joined
-        + cta_html
         + (
             # iter164am — closing paragraph gets explicit white too.
             "<p style=\"margin:24px 0 0 0;color:#FFFFFF;\">Thank you, as always, for being here from the start.</p>"
             if is_personal else ""
         )
         + _letter_signature_html(signer=signer_norm)
+        # iter164av — CTA button now renders AFTER the sign-off
+        # (body → sign-off → CTA → footer). Text/URL/styling/tracking
+        # unchanged; only its position moved.
+        + cta_html
         + _letter_body_close()
     )
     html = _letter_shell(preheader=preheader, body_html=body)
@@ -2207,9 +2210,10 @@ def announcement_template(
         + (f"{greeting_rendered}\n\n" if greeting_rendered else "")
         + founder_pill_text
         + text_paragraphs + "\n"
-        + cta_text
         + closing_intro
         + closing_signoff
+        # iter164av — CTA after the sign-off in plain text too.
+        + cta_text
         + _letter_footer_text()
     )
     return subject, html, text

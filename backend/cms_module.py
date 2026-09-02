@@ -2134,6 +2134,9 @@ def build_router(db) -> APIRouter:
             "archived_at":     c.get("archived_at"),
             "archived_by":     c.get("archived_by"),
             "archived_by_email": c.get("archived_by_email"),
+            # iter164av — internal-name rename audit (rename-only endpoint).
+            "renamed_at":      c.get("renamed_at"),
+            "renamed_by":      c.get("renamed_by"),
         }
 
     async def _resolve_audience(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
@@ -2510,6 +2513,42 @@ def build_router(db) -> APIRouter:
         from datetime import datetime, timezone
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
         await db.campaigns.update_one({"id": campaign_id}, {"$set": updates})
+        c2 = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        return _campaign_summary(c2)
+
+    @router.patch("/campaigns/{campaign_id}/rename")
+    async def campaigns_rename(campaign_id: str, payload: Dict[str, Any],
+                               admin: dict = Depends(current_cms_admin)):
+        """iter164av — rename ONLY the internal campaign name, allowed
+        even after a campaign has been sent.
+
+        Everything else stays locked and untouched: subject, body,
+        recipients, the archived sent HTML, delivery history and all
+        tracking (opens / clicks / bounces / complaints). This exists
+        because PATCH /campaigns/{id} correctly rejects edits to sent
+        campaigns — so the rename lives here and is persisted
+        server-side, making the label consistent across browsers and
+        devices (replacing the local-only frontend workaround).
+        """
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        new_name = str(payload.get("name") or "").strip()
+        if not new_name:
+            raise HTTPException(400, "name is required")
+        new_name = new_name[:200]
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        # Whitelist: only the name (+ audit metadata) is ever written.
+        await db.campaigns.update_one(
+            {"id": campaign_id},
+            {"$set": {
+                "name":        new_name,
+                "renamed_at":  now,
+                "renamed_by":  admin.get("email") if isinstance(admin, dict) else None,
+                "updated_at":  now,
+            }},
+        )
         c2 = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
         return _campaign_summary(c2)
 
