@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 
 export default function CampaignsLayout({ children }: { children: React.ReactNode }) {
@@ -17,7 +16,7 @@ export default function CampaignsLayout({ children }: { children: React.ReactNod
   return (
     <>
       {children}
-      <Link
+      <a
         href={templatesHref}
         aria-label="Open campaign email templates"
         title="Campaign email templates"
@@ -43,7 +42,7 @@ export default function CampaignsLayout({ children }: { children: React.ReactNod
       >
         <span aria-hidden>✉️</span>
         Campaign templates
-      </Link>
+      </a>
     </>
   );
 }
