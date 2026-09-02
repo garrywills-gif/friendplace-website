@@ -5,6 +5,7 @@ import { CampaignBodyRichTextEnhancer } from './CampaignBodyRichTextEnhancer';
 import { CampaignDeliveryReviewEnhancer } from './CampaignDeliveryReviewEnhancer';
 import { CampaignCtaUrlEnhancer } from './CampaignCtaUrlEnhancer';
 import { CampaignGreetingPresetEnhancer } from './CampaignGreetingPresetEnhancer';
+import { CampaignTemplateApplyEnhancer } from './CampaignTemplateApplyEnhancer';
 
 export default function NewCampaignPage() {
   return (
@@ -14,6 +15,7 @@ export default function NewCampaignPage() {
       <CampaignDeliveryReviewEnhancer />
       <CampaignCtaUrlEnhancer />
       <CampaignGreetingPresetEnhancer />
+      <CampaignTemplateApplyEnhancer />
     </>
   );
 }
