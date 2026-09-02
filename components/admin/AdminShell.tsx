@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi, repliesApi } from '@/lib/cms-api';
 import { enquiriesBadgeApi } from '@/lib/enquiries-badge-api';
+import { ENQUIRY_HANDLED_EVENT } from '@/lib/enquiry-handled';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
@@ -147,6 +148,29 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
     })();
     return () => { cancelled = true; };
   }, [ready, pathname]);
+
+  // Enquiry status changes happen without a route change. Listen for the
+  // shared lifecycle event so the sidebar badge updates immediately instead
+  // of waiting until the admin navigates somewhere else.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+
+    const refreshEnquiriesBadge = async () => {
+      try {
+        const res = await enquiriesBadgeApi.unreadCount();
+        if (!cancelled) setUnreadEnquiries(res.count ?? 0);
+      } catch {
+        // Silent fail — preserve the last known badge value.
+      }
+    };
+
+    window.addEventListener(ENQUIRY_HANDLED_EVENT, refreshEnquiriesBadge);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(ENQUIRY_HANDLED_EVENT, refreshEnquiriesBadge);
+    };
+  }, [ready]);
 
   const signOut = () => {
     clearAuth();
