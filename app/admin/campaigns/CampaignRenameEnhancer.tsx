@@ -2,22 +2,57 @@
 
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
-import { campaignsApi } from '@/lib/cms-api';
+
+const STORAGE_KEY = 'friendplace.mcgs.campaignDisplayNames.v1';
+
+type NameMap = Record<string, string>;
+
+function readNames(): NameMap {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) as NameMap : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeNames(names: NameMap) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(names));
+  } catch {
+    // Best effort only; the campaign remains usable even if storage is blocked.
+  }
+}
 
 export function CampaignRenameEnhancer() {
   const pathname = usePathname();
 
   useEffect(() => {
-    const match = pathname?.match(/^\/admin\/campaigns\/([^/]+)$/);
-    if (!match) return;
-    const campaignId = match[1];
-
     let stopped = false;
     let observer: MutationObserver | null = null;
 
-    const install = () => {
-      if (stopped) return;
-      if (document.querySelector('[data-campaign-rename-button="1"]')) return;
+    const applyListAliases = () => {
+      const names = readNames();
+      const links = Array.from(document.querySelectorAll('a[href^="/admin/campaigns/"]')) as HTMLAnchorElement[];
+      for (const link of links) {
+        const match = link.getAttribute('href')?.match(/^\/admin\/campaigns\/([^/?#]+)$/);
+        if (!match) continue;
+        const alias = names[match[1]];
+        if (!alias) continue;
+        const title = Array.from(link.querySelectorAll('div')).find(node => {
+          const style = (node as HTMLElement).style;
+          return style.fontWeight === '800' || style.fontWeight === '900';
+        }) as HTMLElement | undefined;
+        if (title && title.textContent !== alias) title.textContent = alias;
+      }
+    };
+
+    const detailMatch = pathname?.match(/^\/admin\/campaigns\/([^/]+)$/);
+
+    const installDetailRename = () => {
+      if (!detailMatch || stopped) return;
+      const campaignId = detailMatch[1];
+      const names = readNames();
 
       const headings = Array.from(document.querySelectorAll('h2')) as HTMLHeadingElement[];
       const heading = headings.find(node => {
@@ -25,6 +60,11 @@ export function CampaignRenameEnhancer() {
         return text && text !== 'Campaign';
       });
       if (!heading || !heading.parentElement) return;
+
+      const savedAlias = names[campaignId];
+      if (savedAlias && heading.textContent !== savedAlias) heading.textContent = savedAlias;
+
+      if (document.querySelector('[data-campaign-rename-button="1"]')) return;
 
       const button = document.createElement('button');
       button.type = 'button';
@@ -42,30 +82,32 @@ export function CampaignRenameEnhancer() {
         cursor: 'pointer',
       });
 
-      button.addEventListener('click', async () => {
+      button.addEventListener('click', () => {
         const currentName = (heading.textContent || '').trim();
         const nextName = window.prompt('Campaign name', currentName)?.trim();
         if (!nextName || nextName === currentName) return;
 
-        button.disabled = true;
+        const currentNames = readNames();
+        currentNames[campaignId] = nextName;
+        writeNames(currentNames);
+        heading.textContent = nextName;
+
         const oldText = button.textContent;
-        button.textContent = 'Saving…';
-        try {
-          await campaignsApi.update(campaignId, { name: nextName });
-          heading.textContent = nextName;
-          button.textContent = '✓ Renamed';
-          window.setTimeout(() => {
-            button.textContent = oldText;
-            button.disabled = false;
-          }, 1200);
-        } catch (error: any) {
+        button.textContent = '✓ Renamed';
+        button.disabled = true;
+        window.setTimeout(() => {
           button.textContent = oldText;
           button.disabled = false;
-          window.alert(error?.message || 'Could not rename campaign');
-        }
+        }, 1200);
       });
 
       heading.parentElement.appendChild(button);
+    };
+
+    const install = () => {
+      if (stopped) return;
+      if (pathname === '/admin/campaigns') applyListAliases();
+      installDetailRename();
     };
 
     install();
