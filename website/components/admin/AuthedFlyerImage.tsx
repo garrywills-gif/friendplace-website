@@ -46,25 +46,19 @@ export function AuthedFlyerImage({
 }: Props) {
   const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  // iter164x: keep the actual error message so QA can see WHY the
-  // preview failed instead of the generic "Preview unavailable".
-  const [errorMsg, setErrorMsg] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     let current: string | null = null;
     setStatus('loading');
     setUrl(null);
-    setErrorMsg('');
+    setErrorMessage('');
 
-    // iter164y: debounce the actual render request by ~350 ms so a
-    // burst of keystrokes in the editor collapses into a single
-    // fetch. Each backend render is ~500 ms even warm — without the
-    // debounce, five quick keystrokes queue five renders and the
-    // last correct image lags 2-3 s behind the input. The trailing
-    // edge is what matters: we always send the render for the
-    // *latest* set of fields, never for a stale mid-typing state.
-    const timer = setTimeout(() => {
+    // Trailing-edge debounce: rapid editor changes collapse into one
+    // render request using the latest field values instead of queuing a
+    // full backend image generation for every keystroke.
+    const timer = window.setTimeout(() => {
       (async () => {
         try {
           const res = await flyersApi.renderBlob(templateKey, { layout, fields });
@@ -77,10 +71,11 @@ export function AuthedFlyerImage({
           setStatus('ready');
         } catch (e: any) {
           if (!cancelled) {
+            const message = e?.message || 'Preview could not be loaded';
+            setErrorMessage(message);
             setStatus('error');
-            const msg = e?.message || 'Preview could not be loaded';
-            setErrorMsg(msg);
-            onError?.(msg);
+            onError?.(message);
+            console.error('[FlyerPreview] render failed', e);
           }
         }
       })();
@@ -88,7 +83,7 @@ export function AuthedFlyerImage({
 
     return () => {
       cancelled = true;
-      clearTimeout(timer);
+      window.clearTimeout(timer);
       if (current) URL.revokeObjectURL(current);
     };
     // Rebuild whenever the identity of the render changes. Serialising
@@ -100,12 +95,13 @@ export function AuthedFlyerImage({
     return (
       <div
         role="img"
-        aria-label={`${alt} — preview unavailable`}
+        aria-label={`${alt} — preview unavailable${errorMessage ? `: ${errorMessage}` : ''}`}
         style={{
           width: '100%',
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
+          gap: 6,
           alignItems: 'center',
           justifyContent: 'center',
           background: '#FEF2F2',
@@ -114,29 +110,14 @@ export function AuthedFlyerImage({
           fontWeight: 600,
           padding: 12,
           textAlign: 'center',
-          gap: 6,
           ...style,
         }}
         className={className}
       >
         <div>Preview unavailable</div>
-        {errorMsg && (
-          <div
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              color: '#991B1B',
-              maxWidth: '100%',
-              wordBreak: 'break-word',
-              whiteSpace: 'pre-wrap',
-              lineHeight: 1.4,
-              // iter164x: expose the underlying error so QA can copy it
-              // rather than screenshot a generic message. See the
-              // browser console (`__fpFlyerLastError`) for the full
-              // diagnostic (url, status, response headers, body).
-            }}
-          >
-            {errorMsg}
+        {errorMessage && (
+          <div style={{ fontSize: 11, fontWeight: 500, maxWidth: 420, wordBreak: 'break-word' }}>
+            {errorMessage}
           </div>
         )}
       </div>

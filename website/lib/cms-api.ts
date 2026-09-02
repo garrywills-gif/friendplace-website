@@ -945,6 +945,16 @@ export type Campaign = {
   body_md?: string;
   cta_label?: string;
   cta_url?: string;
+  // iter164q composer wiring for iter164p backend fields:
+  //   greeting == null     -> legacy "Dear <first_name>," greeting
+  //   greeting == ""       -> no greeting line at all
+  //   greeting == "Dear [Contact name]," -> per-recipient substitution
+  //   greeting == any other string       -> rendered verbatim
+  greeting?: string | null;
+  //   show_founder_badge == null  -> legacy (show pill iff founder_number)
+  //   true                        -> show pill iff founder_number set
+  //   false                       -> hard-suppress even when set
+  show_founder_badge?: boolean | null;
   audience_filter: CampaignAudienceFilter;
   status: CampaignStatus;
   stats: CampaignStats;
@@ -1201,92 +1211,22 @@ export const flyersApi = {
     const token = getToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    // iter164w: use `fetchWithRetry` (not plain `fetch`) so a cold-start
-    // pod hibernation / preview edge route-refresh blip is retried
-    // instead of stalling forever. Every other CMS API call (login,
-    // members, campaigns, etc.) uses the retry wrapper; the flyer
-    // render endpoint was the last plain-fetch holdout, which is why
-    // the modal preview would "load for a very long time then show
-    // Preview unavailable" on the Vercel-hosted admin site whenever
-    // the preview backend had a transient blip. Body stays streamed
-    // (retry wrapper returns the Response with the body unconsumed).
-    //
-    // iter164x: also instrument every failure path. If a subsequent
-    // attempt still can't render, we stash a rich diagnostic on
-    // `window.__fpFlyerLastError` and dump it to the console so the
-    // real HTTP status / response body / duration / retry outcome
-    // can be inspected in the production browser instead of the
-    // component silently falling through to "Preview unavailable".
-    const url = `${BASE}/api/cms/flyer-templates/${key}/render?${q.toString()}`;
-    const startedAt = Date.now();
-    const stash = (err: unknown, extra: Record<string, unknown>) => {
-      const record = {
-        at: new Date().toISOString(),
-        url,
-        base: BASE,
-        template: key,
-        layout: opts.layout,
-        hasToken: !!token,
-        tokenLen: token ? token.length : 0,
-        durationMs: Date.now() - startedAt,
-        error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
-        ...extra,
-      };
-      try {
-        // eslint-disable-next-line no-console
-        console.error('[flyer.renderBlob] failed', record);
-        // Stash on window so QA can grab it via dev-tools console.
-        if (typeof window !== 'undefined') (window as any).__fpFlyerLastError = record;
-      } catch { /* noop */ }
-      return record;
-    };
-    let res: Response;
-    try {
-      res = await fetchWithRetry(url, { headers, cache: 'no-store' });
-    } catch (err) {
-      const rec = stash(err, { phase: 'fetch-threw' });
-      throw new Error(
-        `renderBlob fetch threw after ${rec.durationMs}ms: ${rec.error && typeof rec.error === 'object' && 'message' in rec.error ? (rec.error as any).message : String(rec.error)}`,
-      );
-    }
+    const res = await fetchWithRetry(
+      `${BASE}/api/cms/flyer-templates/${key}/render?${q.toString()}`,
+      { headers, cache: 'no-store' },
+    );
     if (res.status === 401) {
       clearAuth();
-      stash(new Error('401 Unauthorized'), { phase: 'auth', status: res.status });
       throw new Error('Session expired — please sign in again.');
     }
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
-      const headerBag: Record<string, string> = {};
-      try { res.headers.forEach((v, k) => { headerBag[k] = v; }); } catch { /* noop */ }
-      stash(new Error(`HTTP ${res.status}`), {
-        phase: 'http-error',
-        status: res.status,
-        statusText: res.statusText,
-        responseHeaders: headerBag,
-        bodyPreview: (txt || '').slice(0, 500),
-      });
-      throw new Error(txt || `Render failed (${res.status} ${res.statusText || ''})`.trim());
+      throw new Error(txt || `Render failed (${res.status})`);
     }
     const blob = await res.blob();
-    // Belt-and-braces: some edge proxies serve an HTML error page with a
-    // 200 status. If we got something that isn't the PNG we asked for,
-    // surface a specific error rather than shoving an HTML blob into
-    // <img src>.
-    const contentType = res.headers.get('Content-Type') || 'application/octet-stream';
-    if (!/^image\//i.test(contentType)) {
-      const txt = await blob.text().catch(() => '');
-      stash(new Error(`Unexpected Content-Type ${contentType}`), {
-        phase: 'wrong-content-type',
-        status: res.status,
-        contentType,
-        blobSize: blob.size,
-        bodyPreview: txt.slice(0, 500),
-      });
-      throw new Error(`Render returned ${contentType} instead of an image (${blob.size} bytes)`);
-    }
     return {
       url: URL.createObjectURL(blob),
-      contentType,
+      contentType: res.headers.get('Content-Type') || 'application/octet-stream',
     };
   },
 };

@@ -1,10 +1,21 @@
+import type { Metadata } from 'next';
 import { cms } from '@/lib/api';
 import { brandAssets } from '@/lib/brand-assets';
 import { site } from '@/lib/brand';
 import { TourNext } from '@/components/TourNav';
 import TapMeButterfly from '@/components/TapMeButterfly';
 
-export const metadata = { title: 'About Us' };
+export const metadata: Metadata = {
+  title: 'About FriendPlace | Friendship & Community in Australia',
+  description: 'Learn why FriendPlace is building a safer, welcoming Australian community where adults can meet local people and build genuine friendships.',
+  alternates: { canonical: '/about' },
+  openGraph: {
+    title: 'About FriendPlace | Friendship & Community in Australia',
+    description: 'A welcoming Australian community built around genuine friendship, local connection and belonging.',
+    url: '/about',
+    type: 'website',
+  },
+};
 
 export default async function AboutPage() {
   const data = await cms.about();
@@ -93,7 +104,7 @@ export default async function AboutPage() {
           → "The Quiet Host". */}
       <TourNext href="/how-it-works" label="See how it works" />
 
-      {/* The one mark of George during the tour \u2014 quiet, corner,
+      {/* The one mark of George during the tour — quiet, corner,
           "here if you want me". Never on /meet (he's fully present)
           or /register-interest (his voice returns to close). */}
       <TapMeButterfly />

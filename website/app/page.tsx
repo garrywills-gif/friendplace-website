@@ -104,9 +104,19 @@ export default async function HomePage() {
                 FriendPlace is where genuine friendships begin. Meet local people, discover welcoming communities and enjoy real conversations — without swiping, followers or popularity contests.
               </p>
               <div className="hero-cta-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
-                  Get the App →
-                </Link>
+                               <Link
+                  href="/register-interest"
+                  className="btn btn-primary hero-register-cta"
+                  aria-label="Register now for FriendPlace"
+                >
+                  Register Now →
+                </Link>              
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+  <span style={{ fontSize: 12, fontWeight: 700, color: '#5EEAD4' }}>COMING SOON</span>
+  <Link href="#download" className="btn btn-primary" style={{ fontSize: 16, padding: '16px 30px' }}>
+    Get the App →
+  </Link>
+</div>
                 <Link href="/how-it-works" className="btn btn-ghost">
                   See how it works
                 </Link>
@@ -159,7 +169,37 @@ export default async function HomePage() {
         </div>
 
         <style>{`
-          @media (min-width: 900px) {
+                   .hero-register-cta {
+            background: linear-gradient(180deg, #F97316 0%, #EA580C 100%);
+            color: #FFFFFF !important;
+            font-size: 17px !important;
+            padding: 18px 32px !important;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+            font-weight: 800 !important;
+            box-shadow: 0 12px 32px rgba(234,88,12,0.42), inset 0 0 0 1px rgba(255,255,255,0.14);
+            transition: transform 140ms ease, box-shadow 200ms ease, background 200ms ease;
+          }
+          .hero-register-cta:hover {
+            background: linear-gradient(180deg, #FB923C 0%, #F97316 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 16px 40px rgba(234,88,12,0.55), inset 0 0 0 1px rgba(255,255,255,0.22);
+          }
+          .hero-register-cta:focus-visible {
+            outline: 3px solid #FED7AA;
+            outline-offset: 3px;
+          }
+          @media (max-width: 720px) {
+            .hero-register-cta {
+              width: 100%;
+              font-size: 16px !important;
+              padding: 16px 24px !important;
+            }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .hero-register-cta { transition: none; }
+            .hero-register-cta:hover { transform: none; }
+          }          @media (min-width: 900px) {
             .hero-grid { grid-template-columns: 1.2fr 1fr !important; }
           }
           @media (max-width: 899px) {
@@ -609,7 +649,7 @@ export default async function HomePage() {
               <SectionEyebrow color="#5EEAD4">Available on iOS & Android</SectionEyebrow>
               <h2 style={{ color: '#FFFFFF', marginBottom: 16 }}>Download FriendPlace</h2>
               <p style={{ color: '#CBD5E1', fontSize: 18, lineHeight: 1.6, marginBottom: 32 }}>
-                Free forever for members. No ads, no data selling — just a place to belong.
+                Free forever for individual members. No ads, no data selling — just a place to belong.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                 <StoreBtn store="Apple" href="#" />
@@ -747,7 +787,7 @@ const WHO = [
 ];
 
 const STEPS_COMPACT = [
-  { title: 'Join FriendPlace', body: 'Sign up in minutes with Apple, Google or email. Free forever for members.' },
+  { title: 'Join FriendPlace', body: 'Sign up in minutes with Apple, Google or email. Free forever for individual members.' },
   { title: 'Meet local people', body: 'Discover neighbours who share your interests. Send a warm hello — never a swipe.' },
   { title: 'Find your community', body: 'Coffee catch-ups, hobby nights, local events. Belonging in real life.' },
 ];

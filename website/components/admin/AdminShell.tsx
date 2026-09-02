@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
-import { cmsApi } from '@/lib/cms-api';
+import { cmsApi, repliesApi } from '@/lib/cms-api';
+import { enquiriesBadgeApi } from '@/lib/enquiries-badge-api';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
@@ -19,7 +20,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: string;
-  badgeKey?: 'submissions' | 'replies';
+  badgeKey?: 'submissions' | 'replies' | 'enquiries';
   soon?: boolean;
 };
 
@@ -36,12 +37,11 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Community',
     items: [
-      { href: '/admin/crm',              label: 'CRM Navigator',    icon: '🧭' },
+{ href: '/admin/crm', label: 'CRM Navigator', icon: '🧭' },
       { href: '/admin/members',          label: 'Members',          icon: '👤' },
-      { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥' },
-      { href: '/admin/replies',          label: 'Replies',          icon: '💌', badgeKey: 'replies' },
+      { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥', badgeKey: 'enquiries' },
+      { href: '/admin/replies',          label: 'Replies',          icon: '💌', badgeKey: 'replies' },     
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
-      { href: '/admin/outreach',         label: 'Outreach',         icon: '🏘️' },
       { href: '/admin/campaigns',        label: 'Campaigns',        icon: '📮' },
       { href: '/admin/segments',         label: 'Segments',         icon: '🦋' },
       { href: '/admin/moments',          label: 'Moments',          icon: '✨' },
@@ -51,7 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/events',           label: 'Events',           icon: '📅' },
       { href: '/admin/event-submissions',label: 'Event submissions',icon: '📝', badgeKey: 'submissions' },
       { href: '/admin/announcements',    label: 'Announcements',    icon: '📣', soon: true },
-      { href: '/admin/flyers',           label: 'Flyers',           icon: '🖨️' },
+      { href: '/admin/flyers',           label: 'Marketing',        icon: '🖨️' },
     ],
   },
   {
@@ -102,6 +102,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   const [admin, setLocalAdmin] = useState<CmsAdmin | null>(null);
   const [pendingSubmissions, setPendingSubmissions] = useState<number>(0);
   const [unreadReplies, setUnreadReplies] = useState<number>(0);
+  const [unreadEnquiries, setUnreadEnquiries] = useState<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -119,23 +120,29 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
      
   }, []);
 
-  // Refresh the pending submissions badge whenever the route changes so
-  // admins see an up-to-date count after approving / rejecting an entry.
+  // Refresh sidebar badges whenever the route changes so admins see an
+  // up-to-date count after handling an enquiry, reply or submission.
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
     (async () => {
       try {
-        const [subs, reps] = await Promise.all([
-          cmsApi.listEventSubmissions('pending').catch(() => null),
-          // iter160b: reply badge in CRM nav
-          (await import('@/lib/cms-api')).repliesApi.unreadCount().catch(() => null),
-        ]);
-        if (cancelled) return;
-        if (subs) setPendingSubmissions(subs.counts?.pending ?? 0);
-        if (reps) setUnreadReplies(reps.unread_count ?? 0);
+        const res = await cmsApi.listEventSubmissions('pending');
+        if (!cancelled) setPendingSubmissions(res.counts?.pending ?? 0);
       } catch {
-        // Silent fail — badges just stay at last known value.
+        // Silent fail — badge just stays at last known value.
+      }
+      try {
+        const res = await repliesApi.unreadCount();
+        if (!cancelled) setUnreadReplies(res.unread_count ?? 0);
+      } catch {
+        // Silent fail — replies badge stays at last known value.
+      }
+      try {
+        const res = await enquiriesBadgeApi.unreadCount();
+        if (!cancelled) setUnreadEnquiries(res.count ?? 0);
+      } catch {
+        // Silent fail — enquiries badge stays at last known value.
       }
     })();
     return () => { cancelled = true; };
@@ -155,7 +162,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   }
 
   return (
-    <div style={adminShellRoot}>
+    <div style={{ minHeight: '100vh', background: '#F8FAFC', fontFamily: 'Public Sans, system-ui, sans-serif', display: 'flex' }}>
       <aside style={sidebar}>
         <Link href="/admin/bridge" style={sidebarBrand}>
           <span style={{ display: 'inline-flex', width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
@@ -187,9 +194,13 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                   pathname === item.href ||
                   (pathname?.startsWith(item.href + '/') ?? false);
                 const badgeCount =
-                  item.badgeKey === 'submissions' ? pendingSubmissions :
-                  item.badgeKey === 'replies'     ? unreadReplies      :
-                  0;
+                  item.badgeKey === 'submissions'
+                    ? pendingSubmissions
+                    : item.badgeKey === 'replies'
+                      ? unreadReplies
+                      : item.badgeKey === 'enquiries'
+                        ? unreadEnquiries
+                        : 0;
                 return (
                   <Link
                     key={item.href}
@@ -283,35 +294,7 @@ const sidebar: React.CSSProperties = {
   position: 'sticky',
   top: 0,
   alignSelf: 'flex-start',
-  // iter164d: subtract the safe-area inset so the sidebar's 100vh
-  // doesn't overflow the padded root. Resolves to plain 100vh in
-  // normal Safari (inset = 0), so the browser layout is unchanged.
-  height: 'calc(100vh - env(safe-area-inset-top, 0px))',
-};
-
-// iter164d: root wrapper. Installed macOS PWAs ("Add to Dock") open
-// the site inside a WKWebView window that overlays a slim window
-// chrome / traffic-lights band across the top of the content area.
-// Without a top pad, the sidebar brand and the sticky Ask George bar
-// end up clipped under it (see iter164d bug report screenshot).
-//
-// `env(safe-area-inset-top)` resolves to 0px in a normal Safari
-// window, so nothing shifts there — the layout regression tests in
-// preview browser confirm identical positioning. In the installed
-// PWA the OS reports the correct inset (macOS Sonoma+, iOS home
-// screen), so the shell lands below the chrome.
-//
-// The `@media (display-mode: standalone)` fallback exists for hosts
-// that DON'T populate the safe-area inset in standalone mode (some
-// older macOS builds, some WKWebView-based installers). It only
-// bites in standalone mode, so it can't affect the normal Safari
-// layout.
-const adminShellRoot: React.CSSProperties = {
-  minHeight: '100vh',
-  background: '#F8FAFC',
-  fontFamily: 'Public Sans, system-ui, sans-serif',
-  display: 'flex',
-  paddingTop: 'env(safe-area-inset-top, 0px)',
+  height: '100vh',
 };
 const sidebarBrand: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '0 20px', color: '#FFFFFF', textDecoration: 'none' };
 const navLink: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', padding: '10px 20px', fontSize: 14, fontWeight: 700, textDecoration: 'none' };
@@ -391,6 +374,7 @@ const footerBtn: React.CSSProperties = {
   alignItems: 'center',
   justifyContent: 'center',
 };
+const mainCol: React.CSSProperties = { flex: 1, minWidth: 0, width: '100%' };
 const pageTitle: React.CSSProperties = { fontSize: 28, color: '#0A2540', fontWeight: 900, marginTop: 0, marginBottom: 24 };
 
 // Reusable button/panel styles for admin editor pages.

@@ -1,5 +1,7 @@
 'use client';
 
+import { Suspense } from 'react';
+
 /**
  * /admin/replies — Replies inbox (iter160b P0).
  *
@@ -61,7 +63,7 @@ function fmtWhen(iso: string): string {
   } catch { return iso; }
 }
 
-export default function RepliesPage() {
+function RepliesPageInner() {
   const searchParams = useSearchParams();
   const prefill = useMemo(() => ({
     email:   searchParams?.get('email')   || '',
@@ -664,3 +666,17 @@ const closeBtn: React.CSSProperties = {
   background: 'transparent', border: 'none', cursor: 'pointer',
   fontSize: 20, color: '#64748B',
 };
+
+// Vercel static-generation guard — `useSearchParams()` inside
+// RepliesPageInner triggers Next.js 14's CSR bailout, which fails the
+// prerender step of `next build`. Wrapping the client body in Suspense
+// tells Next it's OK to bail out here. The admin route is auth-gated
+// and always renders client-side, so there is no user-visible impact.
+export default function RepliesPage() {
+  return (
+    <Suspense fallback={null}>
+      <RepliesPageInner />
+    </Suspense>
+  );
+}
+

@@ -105,3 +105,5 @@ JOURNEY_CONTINUITY.md
 # Emergent platform internals (cron dispatch scripts, PRD summary) — not
 # needed in a public marketing/website repo, keep them local to the pod.
 .emergent/
+website_PRE_SYNC_20260902_062311/.git/objects/pack/pack-19fb2b520802d7ff56e4d2aed41592a64be46681.pack
+website/.git/objects/pack/pack-19fb2b520802d7ff56e4d2aed41592a64be46681.pack

@@ -617,6 +617,14 @@ export async function speakText(text: string, voice: 'george' | 'georgia' = 'geo
   // otherwise replay a stale audio blob (e.g. a female clip after we
   // switched George's persona to male).
   const url = `${BASE}/api/george/voice/speak?_=${Date.now()}`;
+  // iter164l DIAGNOSTIC: split the "speakText took N seconds" into
+  // its constituent phases so Safari's 40 s gap and the Mac PWA
+  // stall become attributable to a specific segment. Diagnostic-only.
+  const _stT0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const _stDt = () => ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _stT0).toFixed(1) + 'ms';
+  console.log('[tts-diag] speakText: START fetch', {
+    dt: _stDt(), chars: text.length, voice, speed,
+  });
   const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
@@ -627,7 +635,18 @@ export async function speakText(text: string, voice: 'george' | 'georgia' = 'geo
     body: JSON.stringify({ text, voice, speed }),
     signal,
   });
+  console.log('[tts-diag] speakText: RESPONSE headers received', {
+    dt: _stDt(),
+    status: res.status,
+    ok: res.ok,
+    contentType: res.headers.get('content-type'),
+    contentLength: res.headers.get('content-length'),
+  });
   if (!res.ok) throw new Error(`Speech failed: ${res.status}`);
-  return await res.blob();
+  const blob = await res.blob();
+  console.log('[tts-diag] speakText: BLOB complete', {
+    dt: _stDt(), blobSize: blob.size, blobType: blob.type,
+  });
+  return blob;
 }
 

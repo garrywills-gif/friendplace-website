@@ -876,6 +876,68 @@ def build_router(db) -> APIRouter:
             raise HTTPException(404, f"{kind} enquiry {ident!r} not found")
         return {"ok": True, "kind": k, "id": ident, "deleted": res.deleted_count}
 
+    # iter164aw — persist enquiry lifecycle status server-side.
+    _ENQUIRY_STATUSES = ("new", "read", "replied", "resolved")
+    _ENQUIRY_STATUS_TS = {
+        "read":     "read_at",
+        "replied":  "replied_at",
+        "resolved": "resolved_at",
+    }
+
+    @router.patch("/enquiries/{kind}/{ident}/status")
+    async def set_enquiry_status(
+        kind: str, ident: str, payload: Dict[str, Any],
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Persist an enquiry's lifecycle status on the source record.
+
+        Replaces the browser-local "handled" workaround so the badge /
+        read / replied / resolved state survives refreshes, other
+        browsers/devices, cache clears and republishes.
+
+        Body: { "status": "new" | "read" | "replied" | "resolved" }
+
+        Writes `status` plus the matching audit timestamp
+        (`read_at` / `replied_at` / `resolved_at`, stamped once and
+        preserved on repeat) and `status_updated_at` / `status_updated_by`.
+        Nothing else on the record is touched. Because the unread-count
+        only counts contact `status == "new"`, moving a contact to
+        read/replied/resolved now drops it off the badge permanently.
+        """
+        k = _require_kind(kind)
+        status = str(payload.get("status") or "").strip().lower()
+        if status not in _ENQUIRY_STATUSES:
+            raise HTTPException(
+                400, f"status must be one of: {', '.join(_ENQUIRY_STATUSES)}")
+        coll = _ENQUIRY_COLLECTIONS[k]
+        match = _enquiry_match(k, ident)
+        existing = await db[coll].find_one(match, {"_id": 0})
+        if not existing:
+            raise HTTPException(404, f"{kind} enquiry {ident!r} not found")
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        by = admin.get("email") if isinstance(admin, dict) else None
+        updates: Dict[str, Any] = {
+            "status": status,
+            "status_updated_at": now,
+            "status_updated_by": by,
+        }
+        # Stamp the lifecycle timestamp once (preserve the earliest).
+        ts_field = _ENQUIRY_STATUS_TS.get(status)
+        if ts_field and not existing.get(ts_field):
+            updates[ts_field] = now
+        await db[coll].update_one(match, {"$set": updates})
+        doc = await db[coll].find_one(match, {"_id": 0})
+        return {
+            "ok": True, "kind": k, "id": ident, "status": status,
+            "read_at":     doc.get("read_at"),
+            "replied_at":  doc.get("replied_at"),
+            "resolved_at": doc.get("resolved_at"),
+            "status_updated_at": doc.get("status_updated_at"),
+            "status_updated_by": doc.get("status_updated_by"),
+        }
+
     @router.get("/enquiries/unread-count")
     async def enquiries_unread_count(
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001

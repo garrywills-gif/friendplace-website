@@ -20,6 +20,7 @@ import { useParams } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import {
   campaignsApi,
+  outreachApi,
   type Campaign,
   type CampaignRecipient,
   type CampaignRecipientEvent,
@@ -27,6 +28,8 @@ import {
 
 // ── Filter tabs above the recipient roster ──────────────────────
 type RecipientFilter = 'all' | 'opened' | 'clicked' | 'not_opened' | 'bounced';
+
+type OutreachNumberMap = Record<string, number>;
 
 const FILTER_LABEL: Record<RecipientFilter, string> = {
   all:        'All',
@@ -51,6 +54,13 @@ function matchesFilter(r: CampaignRecipient, f: RecipientFilter): boolean {
   }
 }
 
+function recipientReference(r: CampaignRecipient, outreachNumbers: OutreachNumberMap): string | null {
+  const outreachNumber = Number((r as any).outreach_number || outreachNumbers[String((r as any).outreach_id || '')] || 0);
+  if (outreachNumber >= 20001) return `#${outreachNumber}`;
+  if (r.founder_number && r.founder_number > 0) return `#${String(r.founder_number).padStart(4, '0')}`;
+  return null;
+}
+
 // ── The page ───────────────────────────────────────────────────
 export default function CampaignDetailPage() {
   const params = useParams<{ id: string }>();
@@ -60,6 +70,7 @@ export default function CampaignDetailPage() {
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<RecipientFilter>('all');
   const [openTimelineFor, setOpenTimelineFor] = useState<CampaignRecipient | null>(null);
+  const [outreachNumbers, setOutreachNumbers] = useState<OutreachNumberMap>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +88,26 @@ export default function CampaignDetailPage() {
     const t = setInterval(load, 4000);
     return () => { cancelled = true; clearInterval(t); };
   }, [id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await outreachApi.list({ limit: 500 });
+        if (cancelled) return;
+        const map: OutreachNumberMap = {};
+        for (const org of result.organisations || []) {
+          const n = Number((org as any).outreach_number || 0);
+          if (org.id && n >= 20001) map[String(org.id)] = n;
+        }
+        setOutreachNumbers(map);
+      } catch {
+        // Campaign history still works if the outreach list cannot be loaded.
+        // Newer recipient rows carry outreach_number themselves.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const filteredRecipients = useMemo(() => {
     if (!campaign) return [];
@@ -102,6 +133,8 @@ export default function CampaignDetailPage() {
   const clickRate    = accepted ? uniqueClicks / accepted : 0;
   const bounceRate   = accepted ? bounced      / accepted : 0;
   const isDraft = campaign.status === 'draft';
+  const audienceKind = String((campaign as any).audience_filter?.audience_kind || '');
+  const isOutreachCampaign = audienceKind === 'outreach' || audienceKind === 'outreach_contacts';
 
   const counters = campaign.recipients.reduce(
     (acc, r) => {
@@ -124,7 +157,8 @@ export default function CampaignDetailPage() {
         <div>
           <h2 style={{ margin: 0, fontSize: 28, color: '#0A2540', fontWeight: 900 }}>{campaign.name}</h2>
           <div style={{ marginTop: 6, color: '#475569', fontSize: 14 }}>
-            {campaign.template === 'announcement' ? 'Founding Member update' :
+            {isOutreachCampaign ? 'Outreach campaign' :
+              campaign.template === 'announcement' ? 'Founding Member update' :
               campaign.template === 'invitation' ? 'Invitation' : 'Welcome letter'}
             {' · '}signed by {
               campaign.companion === 'team'    ? 'The FriendPlace Team' :
@@ -208,32 +242,37 @@ export default function CampaignDetailPage() {
                   filter === 'all' ? 'No recipients recorded.' : 'No recipients in this filter.'}
               </div>
             ) : (
-              filteredRecipients.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => setOpenTimelineFor(r)}
-                  style={{
-                    display: 'flex', width: '100%', textAlign: 'left', padding: '12px 16px',
-                    gap: 10, alignItems: 'center', border: 'none',
-                    background: '#FFFFFF', borderTop: '1px solid #F1F5F9', cursor: 'pointer',
-                  }}
-                >
-                  <span style={{
-                    padding: '2px 8px', borderRadius: 6,
-                    background: '#F0FDFA', color: '#0F766E', border: '1px solid #99F6E4',
-                    fontSize: 11, fontWeight: 900, fontVariantNumeric: 'tabular-nums',
-                  }}>
-                    #{String(r.founder_number ?? 0).padStart(4, '0')}
-                  </span>
-                  <div style={{ flex: '1 1 0', minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, color: '#0A2540', fontSize: 14 }}>
-                      {r.first_name || '(unnamed)'}
+              filteredRecipients.map((r) => {
+                const ref = recipientReference(r, outreachNumbers);
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => setOpenTimelineFor(r)}
+                    style={{
+                      display: 'flex', width: '100%', textAlign: 'left', padding: '12px 16px',
+                      gap: 10, alignItems: 'center', border: 'none',
+                      background: '#FFFFFF', borderTop: '1px solid #F1F5F9', cursor: 'pointer',
+                    }}
+                  >
+                    {ref && (
+                      <span style={{
+                        padding: '2px 8px', borderRadius: 6,
+                        background: '#F0FDFA', color: '#0F766E', border: '1px solid #99F6E4',
+                        fontSize: 11, fontWeight: 900, fontVariantNumeric: 'tabular-nums',
+                      }}>
+                        {ref}
+                      </span>
+                    )}
+                    <div style={{ flex: '1 1 0', minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: '#0A2540', fontSize: 14 }}>
+                        {r.first_name || '(unnamed)'}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748B' }}>{r.email}</div>
                     </div>
-                    <div style={{ fontSize: 12, color: '#64748B' }}>{r.email}</div>
-                  </div>
-                  <RecipientPill r={r} />
-                </button>
-              ))
+                    <RecipientPill r={r} />
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
@@ -265,6 +304,7 @@ export default function CampaignDetailPage() {
         <RecipientTimelineModal
           campaignId={id}
           recipient={openTimelineFor}
+          displayReference={recipientReference(openTimelineFor, outreachNumbers)}
           onClose={() => setOpenTimelineFor(null)}
         />
       )}
@@ -274,10 +314,18 @@ export default function CampaignDetailPage() {
 
 // ── Modal — per-recipient timeline drill-down ────────────────────
 function RecipientTimelineModal({
-  campaignId, recipient, onClose,
-}: { campaignId: string; recipient: CampaignRecipient; onClose: () => void }) {
+  campaignId, recipient, displayReference, onClose,
+}: {
+  campaignId: string;
+  recipient: CampaignRecipient;
+  displayReference: string | null;
+  onClose: () => void;
+}) {
   const [events, setEvents] = useState<CampaignRecipientEvent[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removed, setRemoved] = useState(false);
+  const [removeErr, setRemoveErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -291,6 +339,33 @@ function RecipientTimelineModal({
     })();
     return () => { cancelled = true; };
   }, [campaignId, recipient.id]);
+
+  const bounceEvent = events
+    ? [...events].reverse().find((e) => e.type === 'email.bounced')
+    : undefined;
+  const bounceType = String(bounceEvent?.meta?.bounce_type || (recipient as any).bounce_type || '').toLowerCase();
+  const isPermanentBounce = bounceType.includes('permanent') || bounceType.includes('hard');
+  const isTransientBounce = bounceType.includes('transient') || bounceType.includes('soft');
+  const outreachId = String((recipient as any).outreach_id || '');
+
+  const removeFromOutreach = async () => {
+    if (!outreachId || removing || removed) return;
+    const ok = window.confirm(
+      `Remove ${displayReference ? `${displayReference} · ` : ''}${recipient.email} from the active Outreach database?\n\nThe campaign timeline and historical send record will be kept.`,
+    );
+    if (!ok) return;
+
+    setRemoving(true);
+    setRemoveErr(null);
+    try {
+      await outreachApi.del(outreachId);
+      setRemoved(true);
+    } catch (e: any) {
+      setRemoveErr(e?.message || 'Could not remove this outreach record.');
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   return (
     <div
@@ -317,7 +392,7 @@ function RecipientTimelineModal({
               EMAIL TIMELINE
             </div>
             <h3 style={{ margin: '4px 0 2px', fontSize: 20, fontWeight: 900, color: '#0A2540' }}>
-              {recipient.first_name || '(unnamed)'} · #{String(recipient.founder_number ?? 0).padStart(4, '0')}
+              {recipient.first_name || '(unnamed)'}{displayReference ? ` · ${displayReference}` : ''}
             </h3>
             <div style={{ color: '#64748B', fontSize: 13 }}>{recipient.email}</div>
           </div>
@@ -366,6 +441,54 @@ function RecipientTimelineModal({
             </ol>
           )}
         </div>
+
+        {bounceEvent && isTransientBounce && (
+          <div style={{
+            marginTop: 16, padding: '12px 14px', borderRadius: 12,
+            background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E',
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>Temporary bounce — kept in Outreach</div>
+            <div style={{ marginTop: 3, fontSize: 12 }}>
+              This address may work again later, so it has not been removed from the database.
+            </div>
+          </div>
+        )}
+
+        {bounceEvent && isPermanentBounce && outreachId && (
+          <div style={{
+            marginTop: 16, padding: '12px 14px', borderRadius: 12,
+            background: removed ? '#F0FDFA' : '#FEF2F2',
+            border: `1px solid ${removed ? '#99F6E4' : '#FECACA'}`,
+          }}>
+            {removed ? (
+              <div style={{ color: '#0F766E', fontSize: 13, fontWeight: 900 }}>
+                Removed from active Outreach. Campaign history has been kept.
+              </div>
+            ) : (
+              <>
+                <div style={{ color: '#991B1B', fontSize: 13, fontWeight: 900 }}>
+                  Permanent bounce — this address should not be used again.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void removeFromOutreach()}
+                  disabled={removing}
+                  style={{
+                    ...s.dangerBtn,
+                    marginTop: 10,
+                    opacity: removing ? 0.6 : 1,
+                    cursor: removing ? 'wait' : 'pointer',
+                  }}
+                >
+                  {removing ? 'Removing…' : 'Remove from Outreach'}
+                </button>
+                {removeErr && (
+                  <div style={{ color: '#B91C1C', fontSize: 12, marginTop: 8 }}>{removeErr}</div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {recipient.open_count && recipient.open_count > 1 ? (
           <p style={{ marginTop: 16, color: '#64748B', fontSize: 12 }}>
