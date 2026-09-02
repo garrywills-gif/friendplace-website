@@ -1,0 +1,29 @@
+name: Restore campaign explicit save logic
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/restore-campaign-save-logic.yml'
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Apply targeted repair
+        run: python scripts/restore_campaign_save_logic.py
+      - name: Verify campaign invariants
+        run: node scripts/check-campaign-invariants.mjs
+      - name: Remove one-shot repair files and commit
+        run: |
+          rm .github/workflows/restore-campaign-save-logic.yml
+          rm scripts/restore_campaign_save_logic.py
+          git config user.name 'FriendPlace Campaign Repair'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'Restore campaign explicit save logic'
+          git push
