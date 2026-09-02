@@ -52,27 +52,48 @@ export function CampaignTemplateApplyEnhancer() {
     if (pending.returnTo && pending.returnTo !== current) return;
 
     let attempts = 0;
+    let successfulApplies = 0;
+    let stopped = false;
+
     const apply = () => {
+      if (stopped) return;
       attempts += 1;
+
       const subjectInput = fieldAfterLabel('Subject', 'input') as HTMLInputElement | null;
       const bodyTextarea = fieldAfterLabel('Body', 'textarea') as HTMLTextAreaElement | null;
 
-      if (!subjectInput || !bodyTextarea) {
-        if (attempts < 50) window.setTimeout(apply, 100);
+      if (subjectInput && bodyTextarea) {
+        // Existing campaigns hydrate asynchronously. An earlier version applied
+        // the selected template as soon as the fields mounted, then the saved
+        // draft arrived and overwrote it. Re-apply for a short settling window
+        // so the selected template is the final state.
+        setNativeValue(subjectInput, pending?.subject || '');
+        setNativeValue(bodyTextarea, pending?.body || '');
+        successfulApplies += 1;
+      }
+
+      // Keep applying for ~4 seconds. This comfortably covers normal draft
+      // hydration without leaving a persistent background loop.
+      if (attempts < 40) {
+        window.setTimeout(apply, 100);
         return;
       }
 
-      setNativeValue(subjectInput, pending?.subject || '');
-      setNativeValue(bodyTextarea, pending?.body || '');
-
-      try {
-        window.sessionStorage.removeItem(APPLY_KEY);
-      } catch {
-        // Best effort only.
+      stopped = true;
+      if (successfulApplies > 0) {
+        try {
+          window.sessionStorage.removeItem(APPLY_KEY);
+        } catch {
+          // Best effort only.
+        }
       }
     };
 
     window.setTimeout(apply, 0);
+
+    return () => {
+      stopped = true;
+    };
   }, []);
 
   return null;
