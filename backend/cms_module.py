@@ -1481,6 +1481,12 @@ def build_router(db) -> APIRouter:
                 kwargs["greeting"] = data_overrides["greeting"]
             if "show_founder_badge" in data_overrides:
                 kwargs["show_founder_badge"] = data_overrides["show_founder_badge"]
+            # iter164as — first_name may be an intentional "" (a blank
+            # outreach / nameless recipient). The general merge above
+            # drops "" values, so pass it through explicitly here to
+            # guarantee the sample "Sarah" never leaks into a real render.
+            if "first_name" in data_overrides:
+                kwargs["first_name"] = data_overrides["first_name"]
         # Only pass overrides that are actually set — passing None
         # explicitly would fight the templates' internal defaults.
         if subject_override is not None:
@@ -2586,8 +2592,13 @@ def build_router(db) -> APIRouter:
         c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
         if not c:
             raise HTTPException(404, "Campaign not found")
-        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=1000)
-        return {"count": len(recipients), "sample": recipients[:10]}
+        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
+        # iter164as — resolve the FULL audience (up to 5000) and return
+        # the entire resolved list so Mission Control shows the true
+        # recipient set, not a 10-row teaser. `sample` is retained for
+        # frontend compatibility but now carries the full list; the
+        # `recipients` key mirrors it for the backend contract.
+        return {"count": len(recipients), "recipients": recipients, "sample": recipients}
 
     # iter164ag — Reconcile campaign stats from the raw Resend webhook
     # event log. Admins use this when a campaign's live rollup drifted
@@ -2628,8 +2639,12 @@ def build_router(db) -> APIRouter:
             # recipient's real data in the preview (it's the one they'll
             # get regardless).
             r = recipients[0]
-            if r.get("first_name"):
-                overrides["first_name"] = r["first_name"]
+            # iter164as — force the recipient's first_name through even
+            # when blank ("") so a nameless single recipient never falls
+            # back to the sample "Sarah". _preview_render honours the
+            # explicit empty override (see the passthrough in
+            # _preview_render).
+            overrides["first_name"] = r.get("first_name") or ""
             if r.get("founder_number"):
                 overrides["founder_number"] = r["founder_number"]
         else:
@@ -2778,9 +2793,10 @@ def build_router(db) -> APIRouter:
         if not _is_outreach_campaign(c):
             return
         if bulk_preview:
-            overrides["first_name"] = "[Contact name]"
+            resolved_first = "[Contact name]"
         else:
-            overrides["first_name"] = _resolve_outreach_first_name(r)
+            resolved_first = _resolve_outreach_first_name(r)
+        overrides["first_name"]         = resolved_first
         overrides["founder_number"]     = 0
         overrides["show_founder_badge"] = False
         # Only inject the outreach default greeting when the composer
@@ -2788,7 +2804,14 @@ def build_router(db) -> APIRouter:
         # earlier layer has already written one into `overrides`.
         composer_greeting = c.get("greeting")
         if composer_greeting is None and "greeting" not in overrides:
-            overrides["greeting"] = "Hi [Contact name],"
+            # iter164as — a no-name Outreach recipient gets a warm
+            # "Hello friend,"; a named Outreach recipient keeps
+            # "Hi <name>,". Scoped to Outreach ONLY — Founding Member and
+            # other campaign types keep their existing no-name greeting.
+            if not bulk_preview and resolved_first == "friend":
+                overrides["greeting"] = "Hello friend,"
+            else:
+                overrides["greeting"] = "Hi [Contact name],"
 
     def _campaign_overrides_for_recipient(c: Dict[str, Any],
                                           r: Optional[Dict[str, Any]]) -> Dict[str, Any]:

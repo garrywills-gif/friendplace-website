@@ -6,7 +6,7 @@ P0 contract with Garry (26 Aug 2026):
     regardless of any sample data or the presence of a founder_number
     on their record.
   * Outreach greeting is ``"Hi <first_name>,"`` when the contact has
-    a name, otherwise ``"Hi friend,"``. The sample "Sarah" from
+    a name, otherwise ``"Hello friend,"``. The sample "Sarah" from
     ``_preview_sample`` must not survive.
   * Outreach status is determined from the campaign's
     ``audience_filter.audience_kind`` (``outreach`` /
@@ -192,7 +192,7 @@ def test_named_outreach_contact_greets_by_first_name(admin_token, outreach_setup
 
 
 # ---------------------------------------------------------------------------
-# 2. Unnamed outreach contact → "Hi friend,"; no leak of sample "Sarah".
+# 2. Unnamed outreach contact → "Hello friend,"; no leak of sample "Sarah".
 # ---------------------------------------------------------------------------
 
 def test_unnamed_outreach_contact_falls_back_to_friend(admin_token, outreach_setup):
@@ -202,10 +202,10 @@ def test_unnamed_outreach_contact_falls_back_to_friend(admin_token, outreach_set
     )
     html = payload["html"]
     text = payload["text"]
-    assert "Hi friend," in html, (
-        f"missing 'Hi friend,' fallback greeting\n{html[:500]}"
+    assert "Hello friend," in html, (
+        f"missing 'Hello friend,' fallback greeting\n{html[:500]}"
     )
-    assert "Hi friend," in text
+    assert "Hello friend," in text
     # Sample data must NEVER leak through for an unnamed outreach contact.
     assert "Sarah" not in html, (
         f"sample 'Sarah' leaked into outreach render for anonymous "
@@ -243,7 +243,7 @@ def test_no_name_leak_between_recipient_renders(admin_token, outreach_setup):
         "second render leaked the first recipient's first name — the "
         "override builder is reusing stale per-recipient data"
     )
-    assert "Hi friend," in second["html"]
+    assert "Hello friend," in second["html"]
 
 
 # ---------------------------------------------------------------------------
@@ -287,8 +287,8 @@ def test_outreach_contact_matching_founder_email_still_gets_outreach_render(
         assert "Founding Member" not in html
         assert "#0042" not in html
         assert "Dear Sarah," not in html
-        assert "Hi friend," in html, (
-            "outreach + no contact_name must render 'Hi friend,' even "
+        assert "Hello friend," in html, (
+            "outreach + no contact_name must render 'Hello friend,' even "
             "when a same-email Founding Member row exists"
         )
     finally:
@@ -414,7 +414,7 @@ def test_send_worker_shares_outreach_envelope(admin_token, outreach_setup, db):
         admin_token, outreach_setup["campaign_id"],
         email=outreach_setup["anon_email"],
     )
-    assert "Hi friend," in anon["html"]
+    assert "Hello friend," in anon["html"]
     assert "Founding Member" not in anon["html"]
 
 
@@ -470,8 +470,8 @@ def test_founding_member_campaign_still_renders_founder_pill(admin_token, db):
         assert preview.get("is_outreach") is False
         # Standard "Dear <name>," greeting from the FM/individual path.
         assert "Dear Michael," in preview["html"] or "Dear [Contact name]," in preview["html"]
-        # And no "Hi friend," forced default.
-        assert "Hi friend," not in preview["html"]
+        # And no "Hello friend," forced default.
+        assert "Hello friend," not in preview["html"]
     finally:
         db.interest_registrations.delete_one({"id": fmr_id})
         db.campaigns.delete_one({"id": campaign_id})
