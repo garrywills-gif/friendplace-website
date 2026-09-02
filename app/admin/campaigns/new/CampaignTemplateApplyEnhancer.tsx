@@ -14,11 +14,21 @@ type PendingTemplate = {
 };
 
 function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const previousValue = element.value;
   const prototype = element instanceof HTMLTextAreaElement
     ? HTMLTextAreaElement.prototype
     : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
   setter?.call(element, value);
+
+  // React tracks controlled input values internally. If the native setter
+  // updates the DOM before React's synthetic input handler runs, React can
+  // decide "nothing changed" and leave component state at the old subject.
+  // Rewind the tracker to the previous value so the input event is recognised
+  // as a real change and setSubject() receives the exact saved template text.
+  const tracker = (element as any)._valueTracker;
+  if (tracker?.setValue) tracker.setValue(previousValue);
+
   element.dispatchEvent(new Event('input', { bubbles: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
 }
