@@ -2,57 +2,54 @@
 
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { API_BASE } from '@/lib/api-base';
+import { clearAuth, getToken } from '@/lib/cms-auth';
 
-const STORAGE_KEY = 'friendplace.mcgs.campaignDisplayNames.v1';
+const LEGACY_STORAGE_KEY = 'friendplace.mcgs.campaignDisplayNames.v1';
 
-type NameMap = Record<string, string>;
+async function renameCampaign(campaignId: string, name: string): Promise<{ name: string }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
 
-function readNames(): NameMap {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) as NameMap : {};
-  } catch {
-    return {};
+  const res = await fetch(`${API_BASE}/api/cms/campaigns/${encodeURIComponent(campaignId)}/rename`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ name }),
+    cache: 'no-store',
+  });
+
+  if (res.status === 401) clearAuth();
+  const text = await res.text();
+  let json: any = {};
+  try { json = text ? JSON.parse(text) : {}; } catch { json = { detail: text }; }
+
+  if (!res.ok) {
+    const message = json?.detail || json?.error || `Could not rename campaign (${res.status})`;
+    throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
   }
-}
 
-function writeNames(names: NameMap) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(names));
-  } catch {
-    // Best effort only; the campaign remains usable even if storage is blocked.
-  }
+  return { name: String(json?.name || name) };
 }
 
 export function CampaignRenameEnhancer() {
   const pathname = usePathname();
 
   useEffect(() => {
+    // Remove the temporary browser-only aliases now that campaign names
+    // are persisted by the backend rename-only endpoint.
+    try { window.localStorage.removeItem(LEGACY_STORAGE_KEY); } catch { /* storage blocked */ }
+
+    const detailMatch = pathname?.match(/^\/admin\/campaigns\/([^/]+)$/);
+    if (!detailMatch) return;
+    const campaignId = detailMatch[1];
+
     let stopped = false;
     let observer: MutationObserver | null = null;
 
-    const applyListAliases = () => {
-      const names = readNames();
-      const links = Array.from(document.querySelectorAll('a[href^="/admin/campaigns/"]')) as HTMLAnchorElement[];
-      for (const link of links) {
-        const match = link.getAttribute('href')?.match(/^\/admin\/campaigns\/([^/?#]+)$/);
-        if (!match) continue;
-        const alias = names[match[1]];
-        if (!alias) continue;
-        const title = Array.from(link.querySelectorAll('div')).find(node => {
-          const style = (node as HTMLElement).style;
-          return style.fontWeight === '800' || style.fontWeight === '900';
-        }) as HTMLElement | undefined;
-        if (title && title.textContent !== alias) title.textContent = alias;
-      }
-    };
-
-    const detailMatch = pathname?.match(/^\/admin\/campaigns\/([^/]+)$/);
-
-    const installDetailRename = () => {
-      if (!detailMatch || stopped) return;
-      const campaignId = detailMatch[1];
-      const names = readNames();
+    const install = () => {
+      if (stopped) return;
+      if (document.querySelector('[data-campaign-rename-button="1"]')) return;
 
       const headings = Array.from(document.querySelectorAll('h2')) as HTMLHeadingElement[];
       const heading = headings.find(node => {
@@ -60,11 +57,6 @@ export function CampaignRenameEnhancer() {
         return text && text !== 'Campaign';
       });
       if (!heading || !heading.parentElement) return;
-
-      const savedAlias = names[campaignId];
-      if (savedAlias && heading.textContent !== savedAlias) heading.textContent = savedAlias;
-
-      if (document.querySelector('[data-campaign-rename-button="1"]')) return;
 
       const button = document.createElement('button');
       button.type = 'button';
@@ -82,32 +74,30 @@ export function CampaignRenameEnhancer() {
         cursor: 'pointer',
       });
 
-      button.addEventListener('click', () => {
+      button.addEventListener('click', async () => {
         const currentName = (heading.textContent || '').trim();
-        const nextName = window.prompt('Campaign name', currentName)?.trim();
-        if (!nextName || nextName === currentName) return;
+        const requestedName = window.prompt('Campaign name', currentName)?.trim();
+        if (!requestedName || requestedName === currentName) return;
 
-        const currentNames = readNames();
-        currentNames[campaignId] = nextName;
-        writeNames(currentNames);
-        heading.textContent = nextName;
-
-        const oldText = button.textContent;
-        button.textContent = '✓ Renamed';
         button.disabled = true;
-        window.setTimeout(() => {
+        const oldText = button.textContent;
+        button.textContent = 'Saving…';
+        try {
+          const renamed = await renameCampaign(campaignId, requestedName);
+          heading.textContent = renamed.name;
+          button.textContent = '✓ Renamed';
+          window.setTimeout(() => {
+            button.textContent = oldText;
+            button.disabled = false;
+          }, 1200);
+        } catch (error: any) {
           button.textContent = oldText;
           button.disabled = false;
-        }, 1200);
+          window.alert(error?.message || 'Could not rename campaign');
+        }
       });
 
       heading.parentElement.appendChild(button);
-    };
-
-    const install = () => {
-      if (stopped) return;
-      if (pathname === '/admin/campaigns') applyListAliases();
-      installDetailRename();
     };
 
     install();
