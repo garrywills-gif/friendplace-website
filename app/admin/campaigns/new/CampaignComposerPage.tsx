@@ -1160,7 +1160,7 @@ function ComposePanel() {
             <iframe
               title="Campaign preview"
               srcDoc={previewHtml || '<div style="padding:24px;color:#94A3B8;font-family:sans-serif">Preview appears here as you compose.</div>'}
-              sandbox=""
+              sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
               style={{ width: '100%', height: '100%', border: 'none' }}
             />
           </div>
