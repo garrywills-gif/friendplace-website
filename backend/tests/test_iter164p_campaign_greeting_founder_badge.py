@@ -18,7 +18,7 @@ Covers:
   05 render-preview greeting="Hi there," -> renders "Hi there,"; no "Dear"
   06 render-preview show_founder_badge=false + outreach bulk -> no Founding Member pill
   07 render-preview show_founder_badge=true + single-recipient founder -> pill present
-  08 back-compat: no new fields -> outreach bulk shows "Hi [Contact name]," and pill iff founder_number
+  08 back-compat: no new fields -> outreach bulk shows "Dear [Contact name]," and pill iff founder_number
   09 send worker: sample_html substitutes first_name and suppresses pill when show_founder_badge=false
 """
 from __future__ import annotations
@@ -388,15 +388,15 @@ def test_08_back_compat_bulk_preview_defaults(api_client, auth_headers):
                          headers=auth_headers, timeout=10).json()
     assert got.get("greeting") is None
     assert got.get("show_founder_badge") is None
-    # Render bulk preview -> outreach bulk uses "Hi [Contact name],"
-    # (iter164af outreach envelope) and no pill (outreach has no founder_number).
+    # Render bulk preview -> outreach default greeting "Dear [Contact name],"
+    # (iter164at preset default) and no pill (outreach has no founder_number).
     r = api_client.post(
         f"{BASE_URL}/api/cms/campaigns/{c['id']}/render-preview",
         headers=auth_headers, timeout=15,
     )
     assert r.status_code == 200
     html = r.json()["html"]
-    assert "Hi [Contact name]," in html, "outreach bulk preview should render 'Hi [Contact name],'"
+    assert "Dear [Contact name]," in html, "outreach bulk preview should render default 'Dear [Contact name],'"
     assert "Founding Member #" not in html, (
         "outreach recipients have no founder_number so no pill expected"
     )

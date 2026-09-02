@@ -1999,6 +1999,28 @@ def build_router(db) -> APIRouter:
 
     _CAMPAIGN_TEMPLATES = {"announcement", "invitation", "welcome"}
 
+    # iter164at — persisted Outreach greeting presets. The composer
+    # stores the chosen preset verbatim in ``campaigns.greeting``
+    # (str | None):
+    #   • None -> unset/blank -> DEFAULT "Dear [Contact name],"
+    #     (Outreach campaigns must fall back to Dear, never "no greeting")
+    #   • ""   -> "No greeting" -> render no greeting line
+    #   • a named-contact preset ("Dear/Hi/Hello [Contact name],")
+    #     -> rendered with "[Contact name]" substituted per recipient
+    # A resolved Outreach recipient with NO contact name always renders
+    # "Hello friend," when any named-contact preset (or the default) is
+    # in effect — an explicit "No greeting" ("") stays blank for everyone.
+    # Scoped to Outreach ONLY — Founding Member / other campaigns keep
+    # their existing greeting behaviour.
+    OUTREACH_GREETING_DEFAULT   = "Dear [Contact name],"
+    OUTREACH_NO_NAME_GREETING   = "Hello friend,"
+    OUTREACH_GREETING_PRESETS = [
+        {"value": "Dear [Contact name],",  "label": "Dear [Contact name],"},
+        {"value": "Hi [Contact name],",    "label": "Hi [Contact name],"},
+        {"value": "Hello [Contact name],", "label": "Hello [Contact name],"},
+        {"value": "",                       "label": "No greeting"},
+    ]
+
     def _build_audience_query(f: Dict[str, Any]) -> Dict[str, Any]:
         """Turn a campaign's audience filter into a Mongo query."""
         q: Dict[str, Any] = {"is_test": {"$ne": True}}
@@ -2381,6 +2403,26 @@ def build_router(db) -> APIRouter:
         }
         await db.campaigns.insert_one(dict(campaign))
         return _campaign_summary(campaign)
+
+    @router.get("/campaigns/greeting-presets")
+    async def campaigns_greeting_presets(
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """iter164at — greeting preset options for the Outreach composer
+        selector (replaces the old free-text greeting/addressee field).
+
+        The frontend saves the chosen ``value`` verbatim into
+        ``campaigns.greeting``. Unset/blank (null) on an Outreach
+        campaign falls back to ``default`` ("Dear [Contact name],"), and
+        a resolved recipient with no contact name renders
+        ``no_name_fallback`` ("Hello friend,").
+        """
+        return {
+            "presets":          OUTREACH_GREETING_PRESETS,
+            "default":          OUTREACH_GREETING_DEFAULT,
+            "no_name_fallback": OUTREACH_NO_NAME_GREETING,
+            "applies_to":       "outreach",
+        }
 
     @router.get("/campaigns/{campaign_id}")
     async def campaigns_get(campaign_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
@@ -2799,19 +2841,24 @@ def build_router(db) -> APIRouter:
         overrides["first_name"]         = resolved_first
         overrides["founder_number"]     = 0
         overrides["show_founder_badge"] = False
-        # Only inject the outreach default greeting when the composer
-        # hasn't asked for a specific one on the campaign doc AND no
-        # earlier layer has already written one into `overrides`.
+        # iter164at — Outreach greeting preset resolution (Outreach ONLY).
+        #   campaigns.greeting persists the chosen preset:
+        #     None -> unset/blank -> DEFAULT "Dear [Contact name],"
+        #     ""   -> "No greeting" -> render no greeting line
+        #     a named-contact preset -> honoured verbatim (token
+        #        "[Contact name]" is substituted per recipient by
+        #        announcement_template)
+        #   A no-name recipient overrides ANY named-contact preset with
+        #   "Hello friend,"; an explicit "No greeting" ("") stays blank.
+        #   This ALWAYS sets overrides["greeting"] so the outreach
+        #   envelope wins over any earlier layer.
         composer_greeting = c.get("greeting")
-        if composer_greeting is None and "greeting" not in overrides:
-            # iter164as — a no-name Outreach recipient gets a warm
-            # "Hello friend,"; a named Outreach recipient keeps
-            # "Hi <name>,". Scoped to Outreach ONLY — Founding Member and
-            # other campaign types keep their existing no-name greeting.
-            if not bulk_preview and resolved_first == "friend":
-                overrides["greeting"] = "Hello friend,"
-            else:
-                overrides["greeting"] = "Hi [Contact name],"
+        effective = (OUTREACH_GREETING_DEFAULT
+                     if composer_greeting is None else composer_greeting)
+        if (not bulk_preview) and resolved_first == "friend" and effective != "":
+            overrides["greeting"] = OUTREACH_NO_NAME_GREETING
+        else:
+            overrides["greeting"] = effective
 
     def _campaign_overrides_for_recipient(c: Dict[str, Any],
                                           r: Optional[Dict[str, Any]]) -> Dict[str, Any]:

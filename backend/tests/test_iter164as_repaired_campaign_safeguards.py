@@ -153,7 +153,7 @@ def test_outreach_no_name_hello_friend(db, auth):
                            json={"email": f"anon-{tag}@example.com"}, headers=auth)
         assert r1.status_code == 200 and r2.status_code == 200, (r1.text, r2.text)
         h1, h2 = r1.json()["html"], r2.json()["html"]
-        assert "Hi Jane," in h1
+        assert "Dear Jane," in h1   # iter164at default preset "Dear [Contact name],"
         assert "Hello friend," in h2
         assert "Sarah" not in h2
         assert "Founding Member" not in h1 and "Founding Member" not in h2

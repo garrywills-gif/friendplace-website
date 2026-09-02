@@ -5,9 +5,9 @@ P0 contract with Garry (26 Aug 2026):
   * Outreach recipients must NEVER see a Founding Member badge/pill,
     regardless of any sample data or the presence of a founder_number
     on their record.
-  * Outreach greeting is ``"Hi <first_name>,"`` when the contact has
-    a name, otherwise ``"Hello friend,"``. The sample "Sarah" from
-    ``_preview_sample`` must not survive.
+  * Outreach greeting defaults to ``"Dear <first_name>,"`` when the
+    contact has a name, otherwise ``"Hello friend,"``. The sample
+    "Sarah" from ``_preview_sample`` must not survive.
   * Outreach status is determined from the campaign's
     ``audience_filter.audience_kind`` (``outreach`` /
     ``outreach_contacts``), NOT from whether a recipient happens to
@@ -169,7 +169,7 @@ def outreach_setup(admin_token, db):
 
 
 # ---------------------------------------------------------------------------
-# 1. Named outreach contact → "Hi Sarah,"; no founder pill.
+# 1. Named outreach contact → "Dear Sarah,"; no founder pill.
 # ---------------------------------------------------------------------------
 
 def test_named_outreach_contact_greets_by_first_name(admin_token, outreach_setup):
@@ -180,10 +180,8 @@ def test_named_outreach_contact_greets_by_first_name(admin_token, outreach_setup
     html = payload["html"]
     text = payload["text"]
     # Greeting present with actual first name.
-    assert "Hi Sarah," in html, f"missing 'Hi Sarah,' in html\n{html[:400]}"
-    assert "Hi Sarah," in text
-    # No stray sample name.
-    assert "Dear Sarah," not in html
+    assert "Dear Sarah," in html, f"missing 'Dear Sarah,' in html\n{html[:400]}"
+    assert "Dear Sarah," in text
     # No founder pill/badge.
     assert "Founding Member" not in html, (
         f"outreach render must not carry a Founding Member badge\n{html[:600]}"
@@ -231,7 +229,7 @@ def test_no_name_leak_between_recipient_renders(admin_token, outreach_setup):
         admin_token, outreach_setup["campaign_id"],
         email=outreach_setup["named_email"],
     )
-    assert "Hi Sarah," in first["html"]
+    assert "Dear Sarah," in first["html"]
 
     # …then render the anonymous contact and confirm Sarah's identity did
     # not survive into the second render.
@@ -308,12 +306,12 @@ def test_render_preview_bulk_outreach_uses_placeholder_greeting(
     payload = _render_preview(admin_token, outreach_setup["campaign_id"])
     html = payload["html"]
     assert payload.get("is_outreach") is True
-    assert "Hi [Contact name]," in html, (
-        f"bulk outreach preview should use 'Hi [Contact name],' greeting\n"
+    assert "Dear [Contact name]," in html, (
+        f"bulk outreach preview should use the default 'Dear [Contact name],' greeting\n"
         f"{html[:600]}"
     )
     assert "Dear Sarah," not in html
-    assert "Dear [Contact name]," not in html
+    assert "Hi [Contact name]," not in html
     assert "Founding Member" not in html
     assert "#0042" not in html
 
@@ -336,7 +334,7 @@ def test_render_preview_single_outreach_uses_recipient_name(
         payload = _render_preview(admin_token, campaign_id)
         html = payload["html"]
         assert payload.get("is_outreach") is True
-        assert "Hi Michael," in html, (
+        assert "Dear Michael," in html, (
             f"single-recipient outreach preview must greet by real "
             f"first name\n{html[:500]}"
         )
@@ -369,7 +367,7 @@ def test_test_send_outreach_path_uses_outreach_envelope(
         email=outreach_setup["named_email"],
     )
     html = payload["html"]
-    assert "Hi Sarah," in html
+    assert "Dear Sarah," in html
     assert "Founding Member" not in html
     assert "#0042" not in html
 
