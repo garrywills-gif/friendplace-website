@@ -384,163 +384,37 @@ function ComposePanel() {
     })();
   }, [editId]);
 
-  // Debounced auto-save-as-draft, and auto-refresh audience count + preview
-  const audienceFilter: CampaignAudienceFilter = useMemo(() => {
-    // iter160a — 5 audience kinds sent as `audience_kind` on the filter.
-    if (recipientMode === 'outreach') {
-      return {
-        audience_kind: 'outreach_contacts',
-        outreach: {
-          category: outreachCategory || undefined,
-          status:   outreachStatus || undefined,
-        },
-      } as any;
-    }
-    if (recipientMode === 'manual') {
-      return {
-        audience_kind: 'manual_list',
-        manual_recipients: manualList,
-      } as any;
-    }
-    if (recipientMode === 'individual') {
-      return {
-        audience_kind: 'individual',
-        recipient_email: individualEmail,
-        recipient_name:  individualName,
-      } as any;
-    }
-    return recipientMode === 'segment'
-      ? {
-          segment_id: segmentId || undefined,
-          exclude_reserved: true,
-          exclude_opted_out: true,
-        }
-      : {
-          statuses,
-          tags_any: tagsAny,
-          exclude_reserved: true,
-          exclude_opted_out: true,
-        };
-  }, [recipientMode, segmentId, statuses, tagsAny,
-      outreachCategory, outreachStatus, manualList, individualEmail, individualName]);
-
-  // Load saved segments once (for the picker) and refresh George's
-  // suggestions as the draft's copy changes.
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await segmentsApi.list();
-        setSegments(r.items.map((s) => ({
-          id: s.id, name: s.name, emoji: s.emoji, last_count: s.last_count, description: s.description,
-        })));
-      } catch { /* non-fatal */ }
-    })();
-  }, []);
-
-  const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (recipientMode !== 'custom' && recipientMode !== 'segment') return;
-    if (suggestTimer.current) clearTimeout(suggestTimer.current);
-    suggestTimer.current = setTimeout(async () => {
-      if (!subject && !bodyMd && !title) { setSuggestions([]); return; }
-      try {
-        const r = await segmentsApi.suggest({ subject, title, body_md: bodyMd, preheader });
-        setSuggestions(r.suggestions);
-      } catch { /* silent */ }
-    }, 600);
-    return () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); };
-  }, [subject, title, bodyMd, preheader, recipientMode]);
-
-  const saveDraft = useCallback(async (silent = false): Promise<string | null> => {
-    setSaving(true);
-    try {
-      // iter164o: `template` in state is the UI variant. Map to the
-      // backend template key here so the server (which knows nothing
-      // about `community_outreach`) sees a value it already renders.
-      const serverTemplate = TEMPLATE_META[template]?.serverTemplate || 'announcement';
-      const payload: Partial<Campaign> & { attach_file?: boolean } = {
-        name: name || 'Untitled campaign',
-        template: serverTemplate, subject, preheader, companion,
-        title, body_md: bodyMd,
-        cta_label: ctaLabel, cta_url: ctaUrl,
-        audience_filter: audienceFilter,
-        // iter164q: forward the new editable fields. `greeting` is
-        // always a string (state has a default) — even the empty
-        // string is meaningful to the backend ("no greeting line").
-        // `show_founder_badge` is always a boolean.
-        greeting: greeting,
-        show_founder_badge: showFounderBadge,
-        // iter164r: independently controls whether a saved PDF is sent.
-        // Uploading the file alone never turns this on.
-        attach_file: attachFile,
-      };
-      let c: Campaign;
-      if (campaignId) {
-        c = await campaignsApi.update(campaignId, payload);
-      } else {
-        c = await campaignsApi.create(payload);
-        setCampaignId(c.id);
-      }
-      if (!silent) showToast('Draft saved');
-      return c.id;
-    } catch (e: any) {
-      showToast(e?.message || 'Save failed');
-      return null;
-    } finally { setSaving(false); }
-  }, [campaignId, name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl, audienceFilter, greeting, showFounderBadge, attachFile]);
-
-  // Refresh preview + audience count whenever the important fields change.
-  // iter161 bug: the outreach / manual / individual selectors were missing
-  // from this dependency array, so switching Outreach category or status
-  // (or editing the manual list / individual email) never re-fired the
-  // draft save + preview. The audience count would freeze on whatever
-  // was computed the first time the effect ran (Garry, 25 Feb 2026:
-  // "40 retirement villages imported, filter still shows 6").
+  // CAMPAIGN_INVARIANT: NO_AUTOSAVE
+  // Opening or editing a campaign is READ-ONLY until the admin deliberately
+  // chooses Save draft, Send campaign, or Schedule. This prevents initial
+  // Founding-Member defaults racing the async draft hydration and overwriting
+  // a saved Outreach/manual/individual audience.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!campaignId) {
+      setAudienceCount(null);
+      setPreviewHtml('');
+      return;
+    }
     debounceRef.current = setTimeout(async () => {
-      // iter161 bug: previously this was `campaignId || await saveDraft(true)`
-      // which short-circuited AFTER the first save — so subsequent
-      // outreach/manual/individual edits never PATCHed the draft to the
-      // backend, and `preview-audience` kept reading the stale filter.
-      // Always save first (create OR update), then preview so the count
-      // reflects the current in-memory filter.
-      const id = await saveDraft(true);
-      if (!id) return;
       try {
-        const a = await campaignsApi.previewAudience(id);
+        const a = await campaignsApi.previewAudience(campaignId);
         setAudienceCount(a.count);
-        const r = await campaignsApi.renderPreview(id);
+        const r = await campaignsApi.renderPreview(campaignId);
         setPreviewHtml(r.html || '');
-      } catch { /* ignore transient errors */ }
-    }, 500);
+      } catch { /* ignore transient preview errors */ }
+    }, 150);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [
-    name, template, subject, preheader, companion, title, bodyMd, ctaLabel, ctaUrl,
-    // iter164q: new editable fields must retrigger the debounced save.
-    greeting, showFounderBadge,
-    // iter164r: persist the explicit send-attachment flag with the draft.
-    attachFile,
-    // Founding-Member custom filter
-    statuses, tagsAny,
-    // Mode + saved segment
-    recipientMode, segmentId,
-    // iter161: Outreach / Manual / Individual selectors (previously missing)
-    outreachCategory, outreachStatus,
-    manualList,
-    individualEmail, individualName,
-    campaignId, saveDraft,
-  ]);
+  }, [campaignId]);
 
   const doSend = async () => {
-    if (!campaignId) {
-      const id = await saveDraft(true);
-      if (!id) return;
-    }
+    // CAMPAIGN_INVARIANT: EXPLICIT_SAVE_BEFORE_SEND
+    const id = await saveDraft(true);
+    if (!id) return;
     setSending(true);
     try {
-      const r = await campaignsApi.send(campaignId!);
+      const r = await campaignsApi.send(id);
       const noun =
         recipientMode === 'individual' ? (r.targeted === 1 ? 'recipient' : 'recipients') :
         recipientMode === 'outreach'   ? (r.targeted === 1 ? 'organisation' : 'organisations') :
@@ -548,18 +422,17 @@ function ComposePanel() {
                                          (r.targeted === 1 ? 'Founding Member' : 'Founding Members');
       showToast(`Sending to ${r.targeted} ${noun}…`);
       setConfirmOpen(false);
-      setTimeout(() => router.push(`/admin/campaigns/${campaignId}`), 1200);
+      setTimeout(() => router.push(`/admin/campaigns/${id}`), 1200);
     } catch (e: any) {
       showToast(e?.message || 'Send failed');
     } finally { setSending(false); }
   };
 
   const doSchedule = async (localValue: string) => {
-    if (!campaignId) {
-      const id = await saveDraft(true);
-      if (!id) return;
-    }
     if (!localValue) { showToast('Pick a date and time'); return; }
+    // CAMPAIGN_INVARIANT: EXPLICIT_SAVE_BEFORE_SCHEDULE
+    const id = await saveDraft(true);
+    if (!id) return;
     // datetime-local returns YYYY-MM-DDTHH:MM in the user's local
     // timezone. Convert to a proper ISO string so the backend can
     // parse it unambiguously.
@@ -572,7 +445,7 @@ function ComposePanel() {
     }
     setSending(true);
     try {
-      await campaignsApi.schedule(campaignId!, iso);
+      await campaignsApi.schedule(id, iso);
       showToast('Campaign scheduled');
       setScheduleOpen(false);
       setTimeout(() => router.push('/admin/campaigns'), 800);
@@ -595,8 +468,13 @@ function ComposePanel() {
       return;
     }
 
-    const id = await saveDraft(true);
-    if (!id) return;
+    // CAMPAIGN_INVARIANT: ATTACHMENT_DOES_NOT_AUTOSAVE_COPY
+    if (!campaignId) {
+      showToast('Save the draft first, then upload the PDF');
+      if (attachmentInputRef.current) attachmentInputRef.current.value = '';
+      return;
+    }
+    const id = campaignId;
     setAttachmentBusy(true);
     try {
       const saved = await uploadCampaignAttachment(id, file);
@@ -1153,7 +1031,7 @@ function ComposePanel() {
       {/* Preview column */}
       <div>
         <div style={{ position: 'sticky', top: 20 }}>
-          <div style={{ ...s.label, marginBottom: 8 }}>Live preview</div>
+          <div style={{ ...s.label, marginBottom: 8 }}>Saved preview</div>
           <div style={{
             border: '1px solid #E2E8F0', borderRadius: 18, overflow: 'hidden',
             background: '#FFFFFF', height: 720,
@@ -1166,7 +1044,7 @@ function ComposePanel() {
             />
           </div>
           <div style={s.helper}>
-            Personalised with the first real recipient in the audience — same rendering path the send worker uses.
+            Shows the last saved draft, personalised with a real recipient. Save draft to refresh it.
           </div>
         </div>
       </div>
