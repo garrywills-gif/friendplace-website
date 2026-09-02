@@ -17,17 +17,20 @@ import { type Enquiry } from '@/lib/cms-api';
 import { API_BASE } from '@/lib/api-base';
 import { clearAuth, getToken } from '@/lib/cms-auth';
 import { fetchWithRetry } from '@/lib/fetch-retry';
-import {
-  ENQUIRY_HANDLED_EVENT,
-  handledEnquiryIds,
-  markEnquiryHandled,
-} from '@/lib/enquiry-handled';
+import { setEnquiryStatus } from '@/lib/enquiry-handled';
 
 type KindKey = 'all' | 'contact' | 'interest' | 'support' | 'report' | 'waitlist';
 type EnquiryKind = Exclude<KindKey, 'all'>;
+type EnquiryStatus = 'new' | 'read' | 'replied' | 'resolved';
 type EnquiryRow = Enquiry & {
+  status?: EnquiryStatus | string;
   archived_at?: string | null;
   archived_by?: string | null;
+  read_at?: string | null;
+  replied_at?: string | null;
+  resolved_at?: string | null;
+  status_updated_at?: string | null;
+  status_updated_by?: string | null;
 };
 
 type EnquiriesListResponse = {
@@ -88,19 +91,7 @@ function EnquiriesPanel() {
   const [archived, setArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [handled, setHandled] = useState<Set<string>>(new Set());
   const [busyKey, setBusyKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    const refreshHandled = () => setHandled(handledEnquiryIds());
-    refreshHandled();
-    window.addEventListener(ENQUIRY_HANDLED_EVENT, refreshHandled);
-    window.addEventListener('storage', refreshHandled);
-    return () => {
-      window.removeEventListener(ENQUIRY_HANDLED_EVENT, refreshHandled);
-      window.removeEventListener('storage', refreshHandled);
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,9 +119,21 @@ function EnquiriesPanel() {
     ...kinds.map((k) => ({ key: k.key as KindKey, label: k.label, count: k.count })),
   ];
 
-  const markHandled = (id?: string | null) => {
-    markEnquiryHandled(id);
-    setHandled(handledEnquiryIds());
+  const updateStatus = async (r: EnquiryRow, status: EnquiryStatus) => {
+    if (!r.id) return;
+    const key = `status:${r.kind}:${r.id}`;
+    setBusyKey(key);
+    setError(null);
+    try {
+      await setEnquiryStatus(r.kind, r.id, status);
+      setRows((current) => current?.map((row) => (
+        row.kind === r.kind && row.id === r.id ? { ...row, status } : row
+      )) || current);
+    } catch (e: any) {
+      setError(e?.message || `Failed to mark enquiry ${status}.`);
+    } finally {
+      setBusyKey(null);
+    }
   };
 
   const removeCurrentRow = (kind: EnquiryKind, id: string) => {
@@ -182,20 +185,8 @@ function EnquiriesPanel() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <button
-          type="button"
-          onClick={() => setArchived(false)}
-          style={viewToggle(!archived)}
-        >
-          Active
-        </button>
-        <button
-          type="button"
-          onClick={() => setArchived(true)}
-          style={viewToggle(archived)}
-        >
-          Archived
-        </button>
+        <button type="button" onClick={() => setArchived(false)} style={viewToggle(!archived)}>Active</button>
+        <button type="button" onClick={() => setArchived(true)} style={viewToggle(archived)}>Archived</button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -205,15 +196,11 @@ function EnquiriesPanel() {
             type="button"
             onClick={() => setFilter(t.key)}
             style={{
-              padding: '8px 14px',
-              borderRadius: 999,
+              padding: '8px 14px', borderRadius: 999,
               border: `1.5px solid ${filter === t.key ? '#14B8A6' : '#CBD5E1'}`,
               background: filter === t.key ? '#F0FDFA' : '#FFFFFF',
               color: filter === t.key ? '#0F766E' : '#475569',
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
+              fontWeight: 700, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
             }}
           >
             {t.label}
@@ -255,9 +242,8 @@ function EnquiriesPanel() {
               key={`${r.kind}-${r.id ?? i}`}
               r={r}
               archived={archived}
-              handled={!!r.id && handled.has(r.id)}
               busyKey={busyKey}
-              onMarkHandled={() => markHandled(r.id)}
+              onStatus={(status) => updateStatus(r, status)}
               onArchive={() => runRowAction(r, 'archive')}
               onRestore={() => runRowAction(r, 'restore')}
               onDelete={() => deletePermanently(r)}
@@ -272,18 +258,16 @@ function EnquiriesPanel() {
 function EnquiryRowCard({
   r,
   archived,
-  handled,
   busyKey,
-  onMarkHandled,
+  onStatus,
   onArchive,
   onRestore,
   onDelete,
 }: {
   r: EnquiryRow;
   archived: boolean;
-  handled: boolean;
   busyKey: string | null;
-  onMarkHandled: () => void;
+  onStatus: (status: EnquiryStatus) => void;
   onArchive: () => void;
   onRestore: () => void;
   onDelete: () => void;
@@ -295,9 +279,17 @@ function EnquiryRowCard({
     report: { bg: '#FEE2E2', fg: '#991B1B' },
     waitlist: { bg: '#EDE9FE', fg: '#5B21B6' },
   }[r.kind] || { bg: '#F1F5F9', fg: '#475569' };
+
+  const status = (r.status || 'new') as EnquiryStatus;
+  const statusTone = {
+    new: { bg: '#FEF3C7', fg: '#92400E' },
+    read: { bg: '#EFF6FF', fg: '#1D4ED8' },
+    replied: { bg: '#DCFCE7', fg: '#166534' },
+    resolved: { bg: '#F1F5F9', fg: '#475569' },
+  }[status] || { bg: '#F1F5F9', fg: '#475569' };
+
   const when = r.created_at ? new Date(r.created_at).toLocaleString() : '';
   const archivedWhen = r.archived_at ? new Date(r.archived_at).toLocaleString() : '';
-  const displayStatus = handled ? 'replied' : r.status;
   const rowBusy = !!busyKey && busyKey.endsWith(`:${r.kind}:${r.id}`);
 
   return (
@@ -308,6 +300,7 @@ function EnquiryRowCard({
           color: kindColor.fg, fontSize: 11, fontWeight: 800, letterSpacing: '0.03em',
           textTransform: 'uppercase', whiteSpace: 'nowrap',
         }}>{r.kind_label}</span>
+
         <div style={{ flex: 1, minWidth: 260 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#0A2540' }}>
             {r.name || '(no name)'}
@@ -325,17 +318,16 @@ function EnquiryRowCard({
             </details>
           )}
         </div>
+
         <div style={{ textAlign: 'right', minWidth: 140 }}>
           <div style={{
             display: 'inline-block', padding: '2px 8px', borderRadius: 6,
-            background: handled ? '#DCFCE7' : '#F1F5F9',
-            color: handled ? '#166534' : '#475569', fontSize: 11, fontWeight: 700,
-          }}>{displayStatus}</div>
+            background: statusTone.bg, color: statusTone.fg,
+            fontSize: 11, fontWeight: 700, textTransform: 'capitalize',
+          }}>{status}</div>
           <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 6 }}>{when}</div>
           {archived && archivedWhen && (
-            <div style={{ fontSize: 11, color: '#64748B', marginTop: 4 }}>
-              Archived {archivedWhen}
-            </div>
+            <div style={{ fontSize: 11, color: '#64748B', marginTop: 4 }}>Archived {archivedWhen}</div>
           )}
           {r.id && <div style={{ fontSize: 10, color: '#CBD5E1', marginTop: 3, fontFamily: '"SF Mono", Menlo, monospace' }}>{r.id}</div>}
         </div>
@@ -343,20 +335,30 @@ function EnquiryRowCard({
 
       <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 12, flexWrap: 'wrap' }}>
         {!archived && r.email && (
-          <>
-            <Link
-              href={`/admin/enquiries/reply?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject ? `Re: ${r.subject}` : '')}&message=${encodeURIComponent(r.message || '')}&in_reply_to=${encodeURIComponent(r.id || '')}`}
-              style={replyButton}
-            >
-              Reply
-            </Link>
+          <Link
+            href={`/admin/enquiries/reply?email=${encodeURIComponent(r.email)}&name=${encodeURIComponent(r.name || '')}&subject=${encodeURIComponent(r.subject ? `Re: ${r.subject}` : '')}&message=${encodeURIComponent(r.message || '')}&in_reply_to=${encodeURIComponent(r.id || '')}&kind=${encodeURIComponent(r.kind)}`}
+            style={replyButton}
+          >
+            Reply
+          </Link>
+        )}
 
-            {!handled && r.id && (
-              <button type="button" onClick={onMarkHandled} style={markRepliedButton} disabled={rowBusy}>
-                Mark replied
-              </button>
-            )}
-          </>
+        {!archived && r.id && status === 'new' && (
+          <button type="button" onClick={() => onStatus('read')} style={statusButton} disabled={rowBusy}>
+            Mark read
+          </button>
+        )}
+
+        {!archived && r.id && status !== 'replied' && status !== 'resolved' && (
+          <button type="button" onClick={() => onStatus('replied')} style={markRepliedButton} disabled={rowBusy}>
+            Mark replied
+          </button>
+        )}
+
+        {!archived && r.id && status !== 'resolved' && (
+          <button type="button" onClick={() => onStatus('resolved')} style={resolveButton} disabled={rowBusy}>
+            Resolve
+          </button>
         )}
 
         {!archived && r.id && (
@@ -389,50 +391,32 @@ const rationaleStrip: React.CSSProperties = {
   padding: '10px 14px', fontSize: 13, color: '#0F766E',
 };
 const viewToggle = (active: boolean): React.CSSProperties => ({
-  padding: '8px 15px',
-  borderRadius: 10,
+  padding: '8px 15px', borderRadius: 10,
   border: `1.5px solid ${active ? '#0F766E' : '#CBD5E1'}`,
-  background: active ? '#0F766E' : '#FFFFFF',
-  color: active ? '#FFFFFF' : '#475569',
-  fontWeight: 800,
-  fontSize: 13,
-  cursor: 'pointer',
-  fontFamily: 'inherit',
+  background: active ? '#0F766E' : '#FFFFFF', color: active ? '#FFFFFF' : '#475569',
+  fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
 });
 const replyButton: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '6px 10px',
-  borderRadius: 8,
-  background: '#0F766E',
-  color: '#FFFFFF',
-  textDecoration: 'none',
-  fontSize: 11,
-  fontWeight: 800,
+  display: 'inline-block', padding: '6px 10px', borderRadius: 8,
+  background: '#0F766E', color: '#FFFFFF', textDecoration: 'none', fontSize: 11, fontWeight: 800,
+};
+const statusButton: React.CSSProperties = {
+  display: 'inline-block', padding: '6px 10px', borderRadius: 8,
+  background: '#FFFFFF', color: '#1D4ED8', border: '1px solid #BFDBFE',
+  fontSize: 11, fontWeight: 800, cursor: 'pointer', fontFamily: 'inherit',
 };
 const markRepliedButton: React.CSSProperties = {
-  display: 'inline-block',
-  padding: '6px 10px',
-  borderRadius: 8,
-  background: '#FFFFFF',
-  color: '#0F766E',
-  border: '1px solid #99F6E4',
-  fontSize: 11,
-  fontWeight: 800,
-  cursor: 'pointer',
-  fontFamily: 'inherit',
+  ...statusButton, color: '#0F766E', border: '1px solid #99F6E4',
+};
+const resolveButton: React.CSSProperties = {
+  ...statusButton, color: '#475569', border: '1px solid #CBD5E1', background: '#F8FAFC',
 };
 const archiveButton: React.CSSProperties = {
-  ...markRepliedButton,
-  color: '#475569',
-  border: '1px solid #CBD5E1',
+  ...statusButton, color: '#475569', border: '1px solid #CBD5E1',
 };
 const restoreButton: React.CSSProperties = {
-  ...markRepliedButton,
-  background: '#F0FDFA',
+  ...markRepliedButton, background: '#F0FDFA',
 };
 const deleteButton: React.CSSProperties = {
-  ...markRepliedButton,
-  color: '#B91C1C',
-  border: '1px solid #FCA5A5',
-  background: '#FEF2F2',
+  ...markRepliedButton, color: '#B91C1C', border: '1px solid #FCA5A5', background: '#FEF2F2',
 };
