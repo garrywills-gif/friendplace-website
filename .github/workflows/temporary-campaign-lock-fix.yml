@@ -1,0 +1,136 @@
+name: Temporary campaign lock fix
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/temporary-campaign-lock-fix.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Patch campaign composer safely
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('app/admin/campaigns/new/CampaignComposerPage.tsx')
+          s = p.read_text()
+
+          old = '''  // Debounced auto-save-as-draft, and auto-refresh audience count + preview'''
+          if old not in s:
+              raise SystemExit('Expected autosave marker not found')
+
+          # Refresh saved preview after an EXPLICIT save, never before.
+          needle = '''      if (!silent) showToast('Draft saved');\n      return c.id;'''
+          repl = '''      // CAMPAIGN_INVARIANT: NO_AUTOSAVE\n      // A preview refresh is allowed only after this explicit save path has\n      // persisted the draft. Opening or typing in a campaign must never PATCH it.\n      try {\n        const a = await campaignsApi.previewAudience(c.id);\n        setAudienceCount(a.count);\n        const r = await campaignsApi.renderPreview(c.id);\n        setPreviewHtml(r.html || '');\n      } catch { /* preview refresh is non-fatal to saving */ }\n      if (!silent) showToast('Draft saved');\n      return c.id;'''
+          if needle not in s:
+              raise SystemExit('saveDraft return block not found')
+          s = s.replace(needle, repl, 1)
+
+          # Replace the autosave effect with a read-only preview of the persisted draft.
+          start = s.index('  // Debounced auto-save-as-draft, and auto-refresh audience count + preview')
+          end = s.index('\n\n  const doSend = async () => {', start)
+          new_effect = '''  // CAMPAIGN_INVARIANT: NO_AUTOSAVE\n  // Opening or editing a campaign is READ-ONLY until the admin deliberately\n  // chooses Save draft, Send campaign, or Schedule. This prevents initial\n  // Founding-Member defaults racing the async draft hydration and overwriting\n  // a saved Outreach/manual/individual audience.\n  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);\n  useEffect(() => {\n    if (debounceRef.current) clearTimeout(debounceRef.current);\n    if (!campaignId) {\n      setAudienceCount(null);\n      setPreviewHtml('');\n      return;\n    }\n    debounceRef.current = setTimeout(async () => {\n      try {\n        const a = await campaignsApi.previewAudience(campaignId);\n        setAudienceCount(a.count);\n        const r = await campaignsApi.renderPreview(campaignId);\n        setPreviewHtml(r.html || '');\n      } catch { /* ignore transient preview errors */ }\n    }, 150);\n    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };\n  }, [campaignId]);'''
+          s = s[:start] + new_effect + s[end:]
+
+          # Send must explicitly save CURRENT edits first, even for an existing campaign.
+          old_send = '''  const doSend = async () => {\n    if (!campaignId) {\n      const id = await saveDraft(true);\n      if (!id) return;\n    }\n    setSending(true);\n    try {\n      const r = await campaignsApi.send(campaignId!);'''
+          new_send = '''  const doSend = async () => {\n    // CAMPAIGN_INVARIANT: EXPLICIT_SAVE_BEFORE_SEND\n    const id = await saveDraft(true);\n    if (!id) return;\n    setSending(true);\n    try {\n      const r = await campaignsApi.send(id);'''
+          if old_send not in s:
+              raise SystemExit('doSend block not found')
+          s = s.replace(old_send, new_send, 1)
+          s = s.replace('setTimeout(() => router.push(`/admin/campaigns/${campaignId}`), 1200);',
+                        'setTimeout(() => router.push(`/admin/campaigns/${id}`), 1200);', 1)
+
+          old_sched = '''  const doSchedule = async (localValue: string) => {\n    if (!campaignId) {\n      const id = await saveDraft(true);\n      if (!id) return;\n    }\n    if (!localValue) { showToast('Pick a date and time'); return; }'''
+          new_sched = '''  const doSchedule = async (localValue: string) => {\n    if (!localValue) { showToast('Pick a date and time'); return; }\n    // CAMPAIGN_INVARIANT: EXPLICIT_SAVE_BEFORE_SCHEDULE\n    const id = await saveDraft(true);\n    if (!id) return;'''
+          if old_sched not in s:
+              raise SystemExit('doSchedule block not found')
+          s = s.replace(old_sched, new_sched, 1)
+          s = s.replace('await campaignsApi.schedule(campaignId!, iso);', 'await campaignsApi.schedule(id, iso);', 1)
+
+          # Uploading a PDF must not silently persist unrelated unsaved campaign edits.
+          old_upload = '''    const id = await saveDraft(true);\n    if (!id) return;\n    setAttachmentBusy(true);'''
+          new_upload = '''    // CAMPAIGN_INVARIANT: ATTACHMENT_DOES_NOT_AUTOSAVE_COPY\n    if (!campaignId) {\n      showToast('Save the draft first, then upload the PDF');\n      if (attachmentInputRef.current) attachmentInputRef.current.value = '';\n      return;\n    }\n    const id = campaignId;\n    setAttachmentBusy(true);'''
+          if old_upload not in s:
+              raise SystemExit('attachment autosave block not found')
+          s = s.replace(old_upload, new_upload, 1)
+
+          # Make the preview wording truthful now that unsaved typing doesn't persist.
+          s = s.replace('<div style={{ ...s.label, marginBottom: 8 }}>Live preview</div>',
+                        '<div style={{ ...s.label, marginBottom: 8 }}>Saved preview</div>', 1)
+          s = s.replace('Personalised with the first real recipient in the audience — same rendering path the send worker uses.',
+                        'Shows the last saved draft, personalised with a real recipient. Save draft to refresh it.', 1)
+
+          p.write_text(s)
+
+          # Add a source-level regression guard that runs before every production build.
+          guard = Path('scripts/check-campaign-invariants.mjs')
+          guard.parent.mkdir(exist_ok=True)
+          guard.write_text(r'''import fs from 'node:fs';
+
+const composer = fs.readFileSync('app/admin/campaigns/new/CampaignComposerPage.tsx', 'utf8');
+const review = fs.readFileSync('app/admin/campaigns/new/CampaignDeliveryReviewEnhancer.tsx', 'utf8');
+
+const mustContain = [
+  'CAMPAIGN_INVARIANT: NO_AUTOSAVE',
+  'CAMPAIGN_INVARIANT: EXPLICIT_SAVE_BEFORE_SEND',
+  'CAMPAIGN_INVARIANT: EXPLICIT_SAVE_BEFORE_SCHEDULE',
+  "kind === 'outreach_contacts'",
+  "setRecipientMode('outreach')",
+  'defaultShowBadge: false',
+  "const [greeting, setGreeting] = useState<string>('Dear [Contact name],')",
+  "placeholder=\"https://…\"",
+];
+for (const token of mustContain) {
+  if (!composer.includes(token)) throw new Error(`Campaign invariant missing: ${token}`);
+}
+
+// The old race was a debounced effect calling saveDraft(true). The only
+// saveDraft(true) calls allowed are explicit Send/Schedule paths.
+const effectRegion = composer.slice(
+  composer.indexOf('CAMPAIGN_INVARIANT: NO_AUTOSAVE', composer.indexOf('const saveDraft')),
+  composer.indexOf('const doSend = async')
+);
+if (effectRegion.includes('await saveDraft(true)')) {
+  throw new Error('Campaign invariant violated: autosave has returned');
+}
+
+if (!review.includes("campaignPost<{ count: number; sample: AudienceRecipient[] }>(campaignId, 'preview-audience')")) {
+  throw new Error('Recipient review endpoint contract changed unexpectedly');
+}
+
+console.log('✓ FriendPlace campaign invariants protected');
+''')
+
+          package = Path('package.json')
+          import json
+          data = json.loads(package.read_text())
+          build = data['scripts'].get('build', 'next build')
+          if 'check-campaign-invariants.mjs' not in build:
+              data['scripts']['build'] = 'node scripts/check-campaign-invariants.mjs && next build'
+          data['scripts']['check:campaigns'] = 'node scripts/check-campaign-invariants.mjs'
+          package.write_text(json.dumps(data, indent=2) + '\n')
+
+          # Remove this one-shot workflow from the resulting commit.
+          Path('.github/workflows/temporary-campaign-lock-fix.yml').unlink()
+      - name: Verify guard
+        run: node scripts/check-campaign-invariants.mjs
+      - name: Commit protected fix
+        run: |
+          git config user.name 'FriendPlace Campaign Guard'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'Lock campaign composer against autosave regressions'
+          git push
