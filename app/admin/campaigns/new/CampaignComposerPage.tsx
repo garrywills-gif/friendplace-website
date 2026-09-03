@@ -790,6 +790,23 @@ function ComposePanel() {
               <input value={ctaUrl} onChange={e => setCtaUrl(e.target.value)}
                 placeholder="https://…" style={{ ...s.input, flex: '1.4 1 0' }} maxLength={500} />
             </div>
+            <div style={{ marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  // Quick-fill only — no autosave, no other side effects.
+                  setCtaLabel('Visit FriendPlace');
+                  setCtaUrl('https://www.friendplace.com.au/');
+                }}
+                style={{
+                  padding: '7px 12px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  cursor: 'pointer', border: '1.5px solid #99F6E4', background: '#F0FDFA',
+                  color: '#0F766E',
+                }}
+              >
+                ↺ FriendPlace website
+              </button>
+            </div>
           </SectionCard>
         )}
 
