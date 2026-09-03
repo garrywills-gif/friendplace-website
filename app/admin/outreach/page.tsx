@@ -16,8 +16,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   community_organisation: 'Community Organisations',
   rsl_club: 'RSL / Clubs',
   rsl: 'RSL / Clubs',
-  library_council: 'Libraries / Councils',
-  library: 'Libraries / Councils',
+  library_council: 'Libraries',
+  library: 'Libraries',
   seniors_organisation: 'Seniors Organisations',
   event_submission: 'Event Submissions',
   outreach: 'Other Outreach',
@@ -80,6 +80,8 @@ function mapCategory(raw: string) {
     communitycentres: 'community_centre',
     communityorganisation: 'community_organisation',
     communityorganisations: 'community_organisation',
+    library: 'library_council',
+    libraries: 'library_council',
     seniorsolderaustraliansorganisations: 'seniors_organisation',
     seniorsolderaustraliansorganisation: 'seniors_organisation',
     olderaustraliansorganisation: 'seniors_organisation',
@@ -97,7 +99,7 @@ function categoryFromFilename(name: string) {
   if (v.includes('mensshed')) return 'mens_shed';
   if (v.includes('communitycentre') || v.includes('communitycenter')) return 'community_centre';
   if (v.includes('rsl') || v.includes('club')) return 'rsl_club';
-  if (v.includes('library') || v.includes('council')) return 'library_council';
+  if (v.includes('library') || v.includes('libraries') || v.includes('council')) return 'library_council';
   if (v.includes('senior') || v.includes('olderaustralian')) return 'seniors_organisation';
   return 'community_organisation';
 }
