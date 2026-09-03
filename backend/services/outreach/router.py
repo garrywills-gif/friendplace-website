@@ -121,8 +121,15 @@ def build_outreach_router(db, current_cms_admin) -> APIRouter:
         return row
 
     @router.post("/organisations/{org_id}/restore")
+    @router.post("/organisations/{org_id}/unarchive")
     async def _restore(org_id: str, admin: dict = Depends(current_cms_admin)):
-        """Restore a soft-archived org, making it eligible again."""
+        """Restore a soft-archived org, making it eligible again.
+
+        Exposed at both ``/restore`` and ``/unarchive`` (the frontend
+        calls the latter). Clears archived_at/archived_by only —
+        preserving the id, status, contact history and every other
+        field — and is idempotent (restoring an active org is a no-op).
+        """
         row = await restore_org(
             db, org_id,
             restored_by=admin.get("email") if isinstance(admin, dict) else None,
