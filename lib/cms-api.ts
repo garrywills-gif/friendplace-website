@@ -1009,6 +1009,9 @@ export type CampaignRecipientEvent = {
     link_url?: string;
     bounce_type?: string;
     bounce_msg?: string;
+    error?: string;
+    http_status?: number;
+    message_id?: string;
   };
 };
 
@@ -1039,6 +1042,10 @@ export const campaignsApi = {
     req<Campaign>('POST', `/cms/campaigns/${id}/schedule`, { scheduled_at: scheduledAtIso }),
   unschedule: (id: string) =>
     req<Campaign>('POST', `/cms/campaigns/${id}/unschedule`),
+  retryFailed: (id: string) =>
+    req<{ retried: number; succeeded: number; failed_again: number; eligible: number; stats: Record<string, number> }>(
+      'POST', `/cms/campaigns/${id}/retry-failed`,
+    ),
 };
 
 // ---------------------------------------------------------------------------

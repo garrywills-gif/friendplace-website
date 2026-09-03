@@ -71,6 +71,8 @@ export default function CampaignDetailPage() {
   const [filter, setFilter] = useState<RecipientFilter>('all');
   const [openTimelineFor, setOpenTimelineFor] = useState<CampaignRecipient | null>(null);
   const [outreachNumbers, setOutreachNumbers] = useState<OutreachNumberMap>({});
+  const [retrying, setRetrying] = useState(false);
+  const [retryNotice, setRetryNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,6 +138,32 @@ export default function CampaignDetailPage() {
   const audienceKind = String((campaign as any).audience_filter?.audience_kind || '');
   const isOutreachCampaign = audienceKind === 'outreach' || audienceKind === 'outreach_contacts';
 
+  // Count of recipients CURRENTLY eligible for retry — computed live
+  // from the recipient rows, never from the (possibly stale) aggregate.
+  const eligibleFailed = campaign.recipients.filter(
+    (r) => (r.status || '').toLowerCase() === 'failed',
+  ).length;
+
+  const retryFailed = async () => {
+    if (retrying || eligibleFailed < 1) return;
+    if (!window.confirm(`Retry ${eligibleFailed} failed email${eligibleFailed === 1 ? '' : 's'}?`)) return;
+    setRetrying(true);
+    setRetryNotice(null);
+    try {
+      const res = await campaignsApi.retryFailed(campaign.id);
+      setRetryNotice(
+        `Retried ${res.retried}: ${res.succeeded} sent` +
+        (res.failed_again ? `, ${res.failed_again} still failed` : '') + '.',
+      );
+      const fresh = await campaignsApi.get(campaign.id);
+      setCampaign(fresh);
+    } catch (e: any) {
+      setRetryNotice(e?.message || 'Retry could not be completed.');
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   const counters = campaign.recipients.reduce(
     (acc, r) => {
       (['all', 'opened', 'clicked', 'not_opened', 'bounced'] as RecipientFilter[])
@@ -194,7 +222,22 @@ export default function CampaignDetailPage() {
       <div style={statsGrid}>
         <StatTile label="Targeted"  value={stats.targeted || 0}  tone="muted" />
         <StatTile label="Accepted"  value={accepted}              tone="muted" />
-        <StatTile label="Failed"    value={stats.failed || 0}     tone={(stats.failed || 0) > 0 ? 'red' : 'muted'} />
+        <StatTile label="Failed"    value={stats.failed || 0}     tone={(stats.failed || 0) > 0 ? 'red' : 'muted'}
+                  action={eligibleFailed > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => void retryFailed()}
+                      disabled={retrying}
+                      style={{
+                        marginTop: 10, padding: '6px 10px', borderRadius: 8,
+                        border: '1.5px solid #B91C1C', background: retrying ? '#FCA5A5' : '#B91C1C',
+                        color: '#FFFFFF', fontSize: 12, fontWeight: 800,
+                        cursor: retrying ? 'wait' : 'pointer', width: '100%',
+                      }}
+                    >
+                      {retrying ? 'Retrying…' : `Retry failed emails${eligibleFailed !== (stats.failed || 0) ? ` (${eligibleFailed})` : ''}`}
+                    </button>
+                  ) : null} />
         <StatTile label="Opens (raw)"  value={stats.opened  || 0} tone="muted" />
         <StatTile label="Clicks (raw)" value={stats.clicked || 0} tone="muted" />
         <StatTile label="Complaints"   value={complained}
@@ -205,6 +248,15 @@ export default function CampaignDetailPage() {
         counted once). Raw counts include repeat opens. Delivered / Opened /
         Clicked / Bounced / Complained update live from Resend webhooks.
       </div>
+
+      {retryNotice && (
+        <div style={{
+          marginTop: -8, marginBottom: 20, padding: '10px 14px', borderRadius: 12,
+          background: '#ECFDF5', border: '1px solid #6EE7B7', color: '#047857', fontSize: 13, fontWeight: 700,
+        }}>
+          {retryNotice}
+        </div>
+      )}
 
       {/* Two-column: recipient roster (with filters + timeline) + archived email */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 20, marginTop: 12 }}>
@@ -435,6 +487,11 @@ function RecipientTimelineModal({
                         {e.meta.bounce_type ? `[${e.meta.bounce_type}] ` : ''}{e.meta.bounce_msg}
                       </div>
                     )}
+                    {e.meta?.error && (
+                      <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 4 }}>
+                        {e.meta.http_status ? `[${e.meta.http_status}] ` : ''}{e.meta.error}
+                      </div>
+                    )}
                   </div>
                 </li>
               ))}
@@ -510,6 +567,9 @@ function prettyEventLabel(type: string): string {
     case 'email.clicked':          return 'Clicked a link';
     case 'email.bounced':          return 'Bounced';
     case 'email.complained':       return 'Marked as spam';
+    case 'email.failed':           return 'Send failed';
+    case 'email.retry_succeeded':  return 'Retry sent';
+    case 'email.retry_failed':     return 'Retry failed';
     default: return type;
   }
 }
@@ -521,6 +581,9 @@ function TimelineDot({ type }: { type: string }) {
     type === 'email.clicked'   ? '#7C3AED' :
     type === 'email.bounced'   ? '#B91C1C' :
     type === 'email.complained' ? '#B91C1C' :
+    type === 'email.failed'    ? '#B91C1C' :
+    type === 'email.retry_failed' ? '#B91C1C' :
+    type === 'email.retry_succeeded' ? '#0F766E' :
     type === 'email.delivery_delayed' ? '#B45309' :
     '#64748B';
   return (
@@ -561,7 +624,7 @@ function RecipientPill({ r }: { r: CampaignRecipient }) {
   );
 }
 
-function StatTile({ label, value, tone }: { label: string; value: number; tone: 'teal' | 'amber' | 'red' | 'muted' }) {
+function StatTile({ label, value, tone, action }: { label: string; value: number; tone: 'teal' | 'amber' | 'red' | 'muted'; action?: React.ReactNode }) {
   const palette = tone === 'teal'
     ? { bg: '#F0FDFA', border: '#99F6E4', accent: '#0F766E' }
     : tone === 'amber'
@@ -575,6 +638,7 @@ function StatTile({ label, value, tone }: { label: string; value: number; tone: 
     }}>
       <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 800, color: palette.accent }}>{label}</div>
       <div style={{ fontSize: 26, fontWeight: 900, color: '#0A2540', marginTop: 4, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      {action}
     </div>
   );
 }
