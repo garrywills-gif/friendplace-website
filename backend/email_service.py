@@ -105,6 +105,7 @@ async def send_email_detailed(
     text: Optional[str] = None,
     reply_to: Optional[str] = None,
     attachments: Optional[list] = None,
+    from_email: Optional[str] = None,
 ) -> SendResult:
     """Send a transactional email via Resend and return a rich result.
 
@@ -115,8 +116,14 @@ async def send_email_detailed(
 
     This is the primary implementation. `send_email()` remains for
     callers that only want a boolean.
+
+    ``from_email`` optionally overrides the configured sender (used by
+    the MCGS Inbox so a reply goes out *from* the FriendPlace mailbox
+    the original message was sent to, e.g. support@friendplace.com.au).
+    The address must belong to a Resend-verified domain.
     """
-    api_key, from_email, from_name, env_reply_to = _config()
+    api_key, cfg_from_email, from_name, env_reply_to = _config()
+    from_email = (from_email or cfg_from_email)
 
     if resend is None:
         return SendResult(

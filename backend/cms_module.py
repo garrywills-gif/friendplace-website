@@ -2520,13 +2520,34 @@ def build_router(db) -> APIRouter:
             {"recipient_id": recipient_id, "campaign_id": campaign_id},
             {"_id": 0, "type": 1, "at": 1, "meta": 1},
         ).sort([("at", 1)]).to_list(200)
-        # Prepend a "sent" pseudo-event from the recipient row itself,
-        # so campaigns predating the webhook receiver still show a
-        # complete timeline (Resend can also emit email.sent AFTER we
-        # inserted the recipient, which we merge with dedupe).
-        if recip.get("sent_at"):
+        status = (recip.get("status") or "").lower()
+        if status == "failed":
+            # A failed send never reached the provider successfully, so the
+            # timeline must show the *failure* (with the real provider/API
+            # reason) rather than a misleading "Sent". iter164bb.
+            has_failure = any(
+                e.get("type") in ("email.failed", "email.retry_failed")
+                for e in events
+            )
+            if not has_failure:
+                events.insert(0, {
+                    "type": "email.failed",
+                    "at":   recip.get("sent_at"),
+                    "meta": {
+                        "subject":     recip.get("subject"),
+                        "error":       recip.get("error"),
+                        "http_status": recip.get("http_status"),
+                    },
+                })
+        elif recip.get("sent_at"):
+            # Prepend a "sent" pseudo-event from the recipient row itself,
+            # so campaigns predating the webhook receiver still show a
+            # complete timeline (Resend can also emit email.sent AFTER we
+            # inserted the recipient, which we merge with dedupe). Skip it
+            # when a successful retry already accounts for the send.
             has_sent = any(e.get("type") == "email.sent" for e in events)
-            if not has_sent:
+            has_retry_ok = any(e.get("type") == "email.retry_succeeded" for e in events)
+            if not has_sent and not has_retry_ok:
                 events.insert(0, {
                     "type": "email.sent",
                     "at":   recip["sent_at"],
@@ -2534,6 +2555,194 @@ def build_router(db) -> APIRouter:
                 })
         return {"recipient": recip, "events": events}
 
+    @router.post("/campaigns/{campaign_id}/retry-failed")
+    async def campaigns_retry_failed(
+        campaign_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """iter164bb — resend ONLY the recipients whose current state is
+        ``failed`` (e.g. Resend returned a quota error), within the same
+        campaign.
+
+        Safety rules:
+          • Eligible set is computed live from ``campaign_recipients``
+            (status == "failed") — never a stale campaign aggregate.
+          • Recipients that were accepted/sent/delivered/opened/clicked,
+            or bounced/complained/unsubscribed, are NEVER touched (their
+            status is not "failed", so they're excluded by definition).
+          • The original failure is preserved in the timeline; each retry
+            appends a new attempt event rather than replacing history.
+          • A per-campaign ``retry_in_progress`` guard prevents a
+            concurrent double-send.
+          • Successes flip the recipient to "sent" and move the KPI count
+            from failed → accepted; repeat failures keep "failed" and
+            store the fresh provider error.
+        """
+        import uuid as _uuid
+        from datetime import datetime, timezone
+        from email_service import send_email_detailed  # noqa: WPS433
+
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("retry_in_progress"):
+            raise HTTPException(409, "A retry is already running for this campaign.")
+
+        failed = await db.campaign_recipients.find(
+            {"campaign_id": campaign_id, "status": "failed"}, {"_id": 0},
+        ).to_list(5000)
+        if not failed:
+            return {"retried": 0, "succeeded": 0, "failed_again": 0,
+                    "eligible": 0, "stats": c.get("stats")}
+
+        # Claim the guard atomically — only one retry at a time.
+        claim = await db.campaigns.update_one(
+            {"id": campaign_id, "retry_in_progress": {"$ne": True}},
+            {"$set": {"retry_in_progress": True}},
+        )
+        if claim.modified_count == 0:
+            raise HTTPException(409, "A retry is already running for this campaign.")
+
+        succeeded = 0
+        failed_again = 0
+        try:
+            for recip in failed:
+                now = datetime.now(timezone.utc).isoformat()
+                # 1) Preserve the ORIGINAL failure in the timeline (once).
+                has_orig = await db.campaign_recipient_events.find_one({
+                    "recipient_id": recip["id"], "campaign_id": campaign_id,
+                    "type": {"$in": ["email.failed", "email.retry_failed"]},
+                })
+                if not has_orig:
+                    await db.campaign_recipient_events.insert_one({
+                        "id": str(_uuid.uuid4()),
+                        "campaign_id": campaign_id,
+                        "recipient_id": recip["id"],
+                        "type": "email.failed",
+                        "at": recip.get("sent_at") or now,
+                        "meta": {
+                            "subject": recip.get("subject"),
+                            "error": recip.get("error"),
+                            "http_status": recip.get("http_status"),
+                        },
+                    })
+
+                # 2) Re-render this recipient's email from the campaign.
+                r = {
+                    "id": recip.get("founder_id"),
+                    "email": recip["email"],
+                    "first_name": recip.get("first_name"),
+                    "founder_number": recip.get("founder_number"),
+                    "outreach_id": recip.get("outreach_id"),
+                    "outreach_number": recip.get("outreach_number"),
+                }
+                overrides: Dict[str, Any] = {}
+                if r.get("first_name"):
+                    overrides["first_name"] = r["first_name"]
+                if r.get("founder_number"):
+                    overrides["founder_number"] = r["founder_number"]
+                companion = c.get("companion") or "george"
+                if c.get("template") == "announcement":
+                    overrides["title"]     = c.get("title") or ""
+                    overrides["body_md"]   = c.get("body_md") or ""
+                    overrides["cta_label"] = c.get("cta_label") or None
+                    overrides["cta_url"]   = c.get("cta_url")   or None
+                    if c.get("greeting") is not None:
+                        overrides["greeting"] = c.get("greeting")
+                    if c.get("show_founder_badge") is not None:
+                        overrides["show_founder_badge"] = c.get("show_founder_badge")
+                _apply_outreach_safety(overrides, c, r)
+                subject, html, text = _preview_render(
+                    c["template"], companion=companion,
+                    subject_override=(c.get("subject") or None),
+                    preheader_override=(c.get("preheader") or None),
+                    data_overrides=overrides,
+                )
+                attachments = None
+                if c.get("attach_file") and isinstance(c.get("attachment"), dict):
+                    _att = c["attachment"]
+                    if _att.get("content_b64") and _att.get("filename"):
+                        attachments = [{
+                            "filename":     _att["filename"],
+                            "content":      _att["content_b64"],
+                            "content_type": _att.get("content_type") or "application/pdf",
+                        }]
+
+                # 3) Send + record the retry attempt (never delete history).
+                result = await send_email_detailed(
+                    to=r["email"], subject=subject, html=html, text=text,
+                    attachments=attachments,
+                )
+                now = datetime.now(timezone.utc).isoformat()
+                await db.campaign_recipient_events.insert_one({
+                    "id": str(_uuid.uuid4()),
+                    "campaign_id": campaign_id,
+                    "recipient_id": recip["id"],
+                    "type": "email.retry_succeeded" if result.ok else "email.retry_failed",
+                    "at": now,
+                    "meta": {
+                        "subject": subject,
+                        "message_id": result.message_id,
+                        "error": result.error if not result.ok else None,
+                        "http_status": result.http_status,
+                    },
+                })
+
+                if result.ok:
+                    await db.campaign_recipients.update_one(
+                        {"id": recip["id"]},
+                        {"$set": {
+                            "status": "sent",
+                            "message_id": result.message_id,
+                            "error": None,
+                            "http_status": result.http_status,
+                            "sent_at": now,
+                            "retried_at": now,
+                        }, "$inc": {"retry_count": 1}},
+                    )
+                    await db.campaigns.update_one(
+                        {"id": campaign_id},
+                        {"$inc": {"stats.accepted": 1, "stats.failed": -1}},
+                    )
+                    succeeded += 1
+                    if result.message_id:
+                        try:
+                            from services.outreach.store import touch_last_contact as _tlc
+                            await _tlc(
+                                db, email=r["email"], campaign_id=campaign_id,
+                                subject=subject,
+                                send_id=str(recip["id"]) + "@retry@" + campaign_id,
+                            )
+                        except Exception:
+                            pass
+                else:
+                    await db.campaign_recipients.update_one(
+                        {"id": recip["id"]},
+                        {"$set": {
+                            "error": result.error,
+                            "http_status": result.http_status,
+                            "retried_at": now,
+                        }, "$inc": {"retry_count": 1}},
+                    )
+                    failed_again += 1
+
+            # Guard against a negative failed count.
+            await db.campaigns.update_one(
+                {"id": campaign_id, "stats.failed": {"$lt": 0}},
+                {"$set": {"stats.failed": 0}},
+            )
+            fresh = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+            return {
+                "retried": len(failed),
+                "succeeded": succeeded,
+                "failed_again": failed_again,
+                "eligible": len(failed),
+                "stats": fresh.get("stats") if fresh else c.get("stats"),
+            }
+        finally:
+            await db.campaigns.update_one(
+                {"id": campaign_id}, {"$unset": {"retry_in_progress": ""}},
+            )
     @router.patch("/campaigns/{campaign_id}")
     async def campaigns_update(campaign_id: str, payload: Dict[str, Any],
                                admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
@@ -6690,6 +6899,32 @@ def build_router(db) -> APIRouter:
     except Exception:
         import logging as _logging
         _logging.getLogger("friendplace.outreach").exception("outreach router mount failed")
+
+    # ------------------------------------------------------------------
+    # MCGS Email — combined FriendPlace inbox sub-router.
+    # Effective URLs: /api/cms/email/*  (+ public /api/cms/email/inbound)
+    # ------------------------------------------------------------------
+    try:
+        from services.email_inbox import (
+            build_email_inbox_router as _build_email_inbox_router,
+            ensure_inbox_indexes as _inbox_indexes,
+            seed_default_mailboxes as _seed_mailboxes,
+        )
+        router.include_router(_build_email_inbox_router(db, current_cms_admin))
+        async def _bootstrap_inbox():
+            try:
+                await _inbox_indexes(db)
+                await _seed_mailboxes(db)
+            except Exception:
+                import logging as _logging
+                _logging.getLogger("friendplace.email_inbox").exception("email inbox bootstrap failed")
+        try:
+            _asyncio.get_event_loop().create_task(_bootstrap_inbox())
+        except Exception:
+            pass
+    except Exception:
+        import logging as _logging
+        _logging.getLogger("friendplace.email_inbox").exception("email inbox router mount failed")
 
     # ------------------------------------------------------------------
     # iter160b — Replies inbox sub-router (manual "Log a reply" flow).

@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
 import { cmsApi, repliesApi } from '@/lib/cms-api';
 import { enquiriesBadgeApi } from '@/lib/enquiries-badge-api';
+import { inboxApi } from '@/lib/inbox-api';
 import { ENQUIRY_HANDLED_EVENT } from '@/lib/enquiry-handled';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
@@ -21,7 +22,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: string;
-  badgeKey?: 'submissions' | 'replies' | 'enquiries';
+  badgeKey?: 'submissions' | 'replies' | 'enquiries' | 'inbox';
   soon?: boolean;
 };
 
@@ -41,6 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
 { href: '/admin/crm', label: 'CRM Navigator', icon: '🧭' },
       { href: '/admin/members',          label: 'Members',          icon: '👤' },
       { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥', badgeKey: 'enquiries' },
+      { href: '/admin/inbox',            label: 'Inbox',            icon: '📧', badgeKey: 'inbox' },
       { href: '/admin/replies',          label: 'Replies',          icon: '💌', badgeKey: 'replies' },     
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
       { href: '/admin/campaigns',        label: 'Campaigns',        icon: '📮' },
@@ -104,6 +106,7 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   const [pendingSubmissions, setPendingSubmissions] = useState<number>(0);
   const [unreadReplies, setUnreadReplies] = useState<number>(0);
   const [unreadEnquiries, setUnreadEnquiries] = useState<number>(0);
+  const [unreadInbox, setUnreadInbox] = useState<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -144,6 +147,12 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
         if (!cancelled) setUnreadEnquiries(res.count ?? 0);
       } catch {
         // Silent fail — enquiries badge stays at last known value.
+      }
+      try {
+        const res = await inboxApi.unreadCount();
+        if (!cancelled) setUnreadInbox(res.count ?? 0);
+      } catch {
+        // Silent fail — inbox badge stays at last known value.
       }
     })();
     return () => { cancelled = true; };
@@ -224,7 +233,9 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                       ? unreadReplies
                       : item.badgeKey === 'enquiries'
                         ? unreadEnquiries
-                        : 0;
+                        : item.badgeKey === 'inbox'
+                          ? unreadInbox
+                          : 0;
                 return (
                   <Link
                     key={item.href}
