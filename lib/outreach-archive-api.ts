@@ -16,6 +16,13 @@ export type OutreachListResponse = {
   organisations?: OutreachOrg[];
 };
 
+export type LibraryReclassifyResponse = {
+  matched: number;
+  reclassified: number;
+  libraries: { total: number; contacted: number; not_contacted: number };
+  community_organisations: { total: number; contacted: number; not_contacted: number };
+};
+
 async function request<T>(method: string, path: string): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
@@ -64,4 +71,8 @@ export const outreachArchiveApi = {
     request<OutreachOrg>('POST', `/cms/outreach/organisations/${encodeURIComponent(id)}/archive`),
   restore: (id: string) =>
     request<OutreachOrg>('POST', `/cms/outreach/organisations/${encodeURIComponent(id)}/unarchive`),
+  deleteGroup: (category: string) =>
+    request<{ deleted: number; category: string }>('DELETE', `/cms/outreach/groups/${encodeURIComponent(category)}`),
+  reclassifyLibraries: () =>
+    request<LibraryReclassifyResponse>('POST', '/cms/outreach/maintenance/reclassify-libraries'),
 };
