@@ -2949,14 +2949,19 @@ def build_router(db) -> APIRouter:
         #     a named-contact preset -> honoured verbatim (token
         #        "[Contact name]" is substituted per recipient by
         #        announcement_template)
-        #   A no-name recipient overrides ANY named-contact preset with
-        #   "Hello friend,"; an explicit "No greeting" ("") stays blank.
-        #   This ALWAYS sets overrides["greeting"] so the outreach
+        #   A no-name recipient only falls back to "Hello friend," when
+        #   the effective greeting is a *named-contact preset* — i.e. it
+        #   contains the "[Contact name]" token that cannot be
+        #   personalised without a name. A LITERAL custom greeting with
+        #   no token (e.g. "Dear COTA Team,") is honoured verbatim even
+        #   for a no-name recipient; an explicit "No greeting" ("") stays
+        #   blank. This ALWAYS sets overrides["greeting"] so the outreach
         #   envelope wins over any earlier layer.
         composer_greeting = c.get("greeting")
         effective = (OUTREACH_GREETING_DEFAULT
                      if composer_greeting is None else composer_greeting)
-        if (not bulk_preview) and resolved_first == "friend" and effective != "":
+        CONTACT_TOKEN = "[Contact name]"
+        if (not bulk_preview) and resolved_first == "friend" and (CONTACT_TOKEN in effective):
             overrides["greeting"] = OUTREACH_NO_NAME_GREETING
         else:
             overrides["greeting"] = effective
