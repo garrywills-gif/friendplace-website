@@ -924,7 +924,7 @@ function ComposePanel() {
                 <option value="">— any category —</option>
                 <option value="retirement_village">Retirement village</option>
                 <option value="community_centre">Community centre</option>
-                <option value="library">Library</option>
+                <option value="library_council">Library</option>
                 <option value="council">Council</option>
                 <option value="club">Club</option>
                 <option value="church">Church</option>
