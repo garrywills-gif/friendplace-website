@@ -188,7 +188,6 @@ export default function OutreachPage() {
   const [importMessage, setImportMessage] = useState('');
   const [creatingCampaignFor, setCreatingCampaignFor] = useState<string | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
-  const [fixingLibraries, setFixingLibraries] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const load = async (preserveCurrentError = false) => {
@@ -353,22 +352,6 @@ export default function OutreachPage() {
     }
   };
 
-  const fixLibraryCategories = async () => {
-    if (fixingLibraries) return;
-    setFixingLibraries(true);
-    setError(null);
-    setImportMessage('');
-    try {
-      const result = await outreachArchiveApi.reclassifyLibraries();
-      setImportMessage(`${result.reclassified} library organisation${result.reclassified === 1 ? '' : 's'} moved to Libraries.`);
-      await load(true);
-    } catch (e: any) {
-      setError(e?.message || 'Could not fix library categories.');
-    } finally {
-      setFixingLibraries(false);
-    }
-  };
-
   const deleteGroup = async (g: Group) => {
     if (view !== 'active' || g.contacted > 0 || deletingGroup) return;
     if (!window.confirm(`Delete all ${g.total} organisations in "${g.label}"? This cannot be undone.`)) return;
@@ -403,9 +386,6 @@ export default function OutreachPage() {
             }}
           />
           <button type="button" style={adminStyles.ghostBtn} onClick={() => fileRef.current?.click()}>↑ Import spreadsheet</button>
-          <button type="button" style={adminStyles.ghostBtn} disabled={fixingLibraries || view !== 'active'} onClick={() => void fixLibraryCategories()}>
-            {fixingLibraries ? 'Fixing libraries…' : 'Fix library categories'}
-          </button>
           <Link href="/admin/outreach/new" style={{ ...adminStyles.primaryBtn, textDecoration: 'none' }}>+ New organisation</Link>
         </div>
       </div>
