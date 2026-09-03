@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { campaignsApi } from '@/lib/cms-api';
 
 const OUTREACH_DEFAULT = 'Dear [Contact name],';
+const CUSTOM_VALUE = '__custom__';
 const PRESETS = [
   { value: 'Dear [Contact name],', label: 'Dear [Contact name],' },
   { value: 'Hi [Contact name],', label: 'Hi [Contact name],' },
@@ -46,20 +47,25 @@ function findTemplateSelect(): HTMLSelectElement | null {
   );
 }
 
+function presetValueFor(greeting: string): string {
+  return PRESETS.some((preset) => preset.value === greeting)
+    ? greeting
+    : CUSTOM_VALUE;
+}
+
 /**
  * Outreach-only greeting preset selector.
  *
- * Existing outreach drafts can be stored server-side as `announcement`, so
- * detection must not rely only on the visible template select. We also use
- * the persisted audience kind / team signer from the loaded campaign.
- * The original React input remains the source of truth for save/send/schedule;
- * this enhancer only replaces its UI and never performs a save itself.
+ * The real React greeting input remains the source of truth for preview,
+ * save, send and schedule. The selector is only a convenience layer.
+ * Custom keeps the real input visible so admins can type any greeting.
  */
 export function CampaignGreetingPresetEnhancer() {
   useEffect(() => {
     let disposed = false;
     let savedGreeting: string | null | undefined;
     let savedGreetingLoaded = false;
+    let savedGreetingApplied = false;
     let savedOutreach = false;
 
     const id = new URLSearchParams(window.location.search).get('id');
@@ -103,24 +109,21 @@ export function CampaignGreetingPresetEnhancer() {
 
       if (!savedGreetingLoaded) return;
 
-      const permitted = PRESETS.some((preset) => preset.value === input.value);
-      let value = permitted ? input.value : OUTREACH_DEFAULT;
-
-      // Legacy Outreach drafts with greeting=null/missing visibly default to
-      // Dear. An explicit saved empty string remains the real No greeting
-      // choice and is never silently changed.
-      if (id && (savedGreeting === null || typeof savedGreeting === 'undefined')) {
-        value = OUTREACH_DEFAULT;
-      } else if (id && typeof savedGreeting === 'string') {
-        value = PRESETS.some((preset) => preset.value === savedGreeting)
-          ? savedGreeting
-          : OUTREACH_DEFAULT;
-      } else if (!id && input.value === '') {
-        value = OUTREACH_DEFAULT;
+      // Apply the saved value once only. Previously every DOM/change sync
+      // re-applied the original saved greeting, which made the selector look
+      // as though it changed and then immediately snap back.
+      if (!savedGreetingApplied) {
+        let initial = input.value;
+        if (id && typeof savedGreeting === 'string') {
+          initial = savedGreeting;
+        } else if (id && (savedGreeting === null || typeof savedGreeting === 'undefined')) {
+          initial = OUTREACH_DEFAULT;
+        } else if (!id && !input.value) {
+          initial = OUTREACH_DEFAULT;
+        }
+        if (input.value !== initial) setReactInputValue(input, initial);
+        savedGreetingApplied = true;
       }
-
-      if (input.value !== value) setReactInputValue(input, value);
-      input.style.display = 'none';
 
       let select = existing;
       if (!select) {
@@ -142,17 +145,35 @@ export function CampaignGreetingPresetEnhancer() {
           option.textContent = preset.label;
           select.appendChild(option);
         }
+        const custom = document.createElement('option');
+        custom.value = CUSTOM_VALUE;
+        custom.textContent = 'Custom greeting…';
+        select.appendChild(custom);
 
         select.addEventListener('change', () => {
+          if (select!.value === CUSTOM_VALUE) {
+            input.style.display = '';
+            input.focus();
+            input.select();
+            return;
+          }
           setReactInputValue(input, select!.value);
+          input.style.display = 'none';
         });
         input.parentElement?.insertBefore(select, input);
       }
-      select.value = value;
+
+      const selectedValue = presetValueFor(input.value);
+      select.value = selectedValue;
+      input.style.display = selectedValue === CUSTOM_VALUE ? '' : 'none';
     };
 
     const onChange = () => queueMicrotask(sync);
+    const onInput = (event: Event) => {
+      if (event.target === findGreetingInput()) queueMicrotask(sync);
+    };
     document.addEventListener('change', onChange, true);
+    document.addEventListener('input', onInput, true);
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
     sync();
@@ -160,6 +181,7 @@ export function CampaignGreetingPresetEnhancer() {
     return () => {
       disposed = true;
       document.removeEventListener('change', onChange, true);
+      document.removeEventListener('input', onInput, true);
       observer.disconnect();
       document
         .querySelector<HTMLSelectElement>('[data-fp-outreach-greeting-presets="1"]')
