@@ -12,13 +12,20 @@ in ``router.py`` and outbound reuses the existing Resend ``email_service``.
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+import httpx
+
 COLL_MAILBOXES = "inbox_mailboxes"
 COLL_MESSAGES = "inbox_messages"
+
+# Resend "retrieve received email" endpoint — fetch the full body/headers
+# that the email.received webhook intentionally omits.
+RESEND_RECEIVING_URL = "https://api.resend.com/emails/receiving/{email_id}"
 
 # Initial FriendPlace addresses (seeded once; editable from MCGS after).
 DEFAULT_MAILBOXES: List[Dict[str, str]] = [
@@ -150,10 +157,32 @@ async def _resolve_thread_id(
     return str(uuid.uuid4())
 
 
+async def fetch_received_email(email_id: str) -> Dict[str, Any]:
+    """Fetch the full inbound email (body + headers) from Resend by id.
+
+    The ``email.received`` webhook only carries metadata, so we call the
+    Resend Receiving API to get ``html`` / ``text`` / ``headers``. Returns
+    ``{}`` on any failure (missing key/id, non-200) so ingestion degrades
+    to metadata-only rather than dropping the message."""
+    api_key = os.getenv("RESEND_API_KEY", "").strip()
+    if not email_id or not api_key:
+        return {}
+    url = RESEND_RECEIVING_URL.format(email_id=email_id)
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url, headers={"Authorization": f"Bearer {api_key}"})
+        if r.status_code != 200:
+            return {}
+        return r.json() or {}
+    except Exception:
+        return {}
+
+
 async def store_inbound(db, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Persist one inbound email. ``payload`` is already normalised by the
     router into: to, from_email, from_name, subject, text, html,
-    message_id, in_reply_to, references (list), received_at."""
+    message_id, in_reply_to, references (list), received_at,
+    resend_email_id, received_for."""
     mailbox = _norm_addr(payload.get("to"))
     subject = payload.get("subject") or "(no subject)"
     thread_id = await _resolve_thread_id(
@@ -176,6 +205,8 @@ async def store_inbound(db, payload: Dict[str, Any]) -> Dict[str, Any]:
         "snippet": _snippet(payload.get("text"), payload.get("html")),
         "message_id": payload.get("message_id") or "",
         "provider_message_id": payload.get("message_id") or "",
+        "resend_email_id": payload.get("resend_email_id") or "",
+        "received_for": payload.get("received_for") or [],
         "in_reply_to": payload.get("in_reply_to") or "",
         "references": payload.get("references") or [],
         "thread_id": thread_id,
@@ -332,7 +363,7 @@ async def ensure_inbox_indexes(db) -> None:
 __all__ = [
     "DEFAULT_MAILBOXES", "COLL_MAILBOXES", "COLL_MESSAGES",
     "seed_default_mailboxes", "list_mailboxes", "add_mailbox", "remove_mailbox",
-    "store_inbound", "store_outbound_reply",
+    "store_inbound", "store_outbound_reply", "fetch_received_email",
     "list_messages", "get_thread", "set_read",
     "archive_message", "restore_message", "unread_count",
     "ensure_inbox_indexes",

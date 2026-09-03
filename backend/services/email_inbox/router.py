@@ -18,14 +18,19 @@ Public route (provider webhook — secured by a shared secret header):
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from email_service import send_email_detailed
+from services.campaign_webhooks import verify_signature
 from services.email_inbox import store
+
+_log = logging.getLogger("friendplace.email_inbox")
 
 
 class MailboxIn(BaseModel):
@@ -43,52 +48,65 @@ class ReplyIn(BaseModel):
     subject: Optional[str] = None
 
 
-def _extract_inbound(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalise a provider webhook body into our inbound shape.
+def _display_name(headers: Dict[str, Any]) -> str:
+    """Pull the sender display name out of the retrieved headers.from."""
+    raw = str((headers or {}).get("from") or "")
+    if "<" in raw:
+        name = raw.split("<", 1)[0].strip().strip('"').strip()
+        return name
+    return ""
 
-    Tolerant of Resend inbound (``{type, data:{...}}``), a flat generic
-    body, and SendGrid-style inbound parse. Missing bits degrade
-    gracefully rather than erroring.
-    """
-    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
 
-    def _addr(v: Any) -> str:
-        if isinstance(v, dict):
-            return str(v.get("email") or v.get("address") or "")
-        if isinstance(v, list) and v:
-            return _addr(v[0])
-        return str(v or "")
+def _references_list(headers: Dict[str, Any]) -> List[str]:
+    refs = (headers or {}).get("references") or ""
+    if isinstance(refs, list):
+        return [str(r) for r in refs if r]
+    return [r for r in str(refs).replace(",", " ").split() if r]
 
-    def _name(v: Any) -> str:
-        if isinstance(v, dict):
-            return str(v.get("name") or "")
+
+async def _pick_mailbox(db, to_list: List[str], received_for: List[str]) -> str:
+    """Resolve which managed FriendPlace address this email is for.
+
+    Prefer a `to`/`received_for` address that matches a managed mailbox;
+    otherwise fall back to the first recipient so nothing is dropped."""
+    candidates = [str(a).strip().lower() for a in (list(to_list or []) + list(received_for or [])) if a]
+    if not candidates:
         return ""
+    managed = {m["address"] for m in await store.list_mailboxes(db)}
+    for c in candidates:
+        if c in managed:
+            return c
+    return candidates[0]
 
-    to_val = data.get("to") or data.get("recipient") or payload.get("to")
-    from_val = data.get("from") or data.get("sender") or payload.get("from")
 
-    headers = data.get("headers") or payload.get("headers") or {}
-    if isinstance(headers, list):  # some providers send a list of {name,value}
-        headers = {str(h.get("name", "")).lower(): h.get("value") for h in headers if isinstance(h, dict)}
-    else:
-        headers = {str(k).lower(): v for k, v in headers.items()} if isinstance(headers, dict) else {}
+async def _normalise_received(db, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Build our inbound shape from the webhook `data` + the full email
+    fetched from Resend (body/headers are not in the webhook)."""
+    email_id = data.get("email_id") or data.get("id") or ""
+    full = await store.fetch_received_email(email_id) if email_id else {}
+    headers = full.get("headers") or {}
 
-    references = data.get("references") or headers.get("references") or ""
-    if isinstance(references, str):
-        references = [r for r in references.replace(",", " ").split() if r]
+    to_list = data.get("to") or full.get("to") or []
+    if isinstance(to_list, str):
+        to_list = [to_list]
+    received_for = data.get("received_for") or full.get("received_for") or []
+    if isinstance(received_for, str):
+        received_for = [received_for]
+    mailbox = await _pick_mailbox(db, to_list, received_for)
 
     return {
-        "to": _addr(to_val),
-        "from_email": _addr(from_val),
-        "from_name": _name(from_val) or data.get("from_name") or payload.get("from_name") or "",
-        "subject": data.get("subject") or payload.get("subject") or "(no subject)",
-        "text": data.get("text") or data.get("plain") or payload.get("text") or "",
-        "html": data.get("html") or payload.get("html") or "",
-        "message_id": (data.get("message_id") or headers.get("message-id")
-                       or payload.get("message_id") or ""),
-        "in_reply_to": (data.get("in_reply_to") or headers.get("in-reply-to") or ""),
-        "references": references,
-        "received_at": data.get("received_at") or payload.get("received_at"),
+        "to": mailbox,
+        "from_email": data.get("from") or full.get("from") or "",
+        "from_name": _display_name(headers),
+        "subject": data.get("subject") or full.get("subject") or "(no subject)",
+        "text": full.get("text") or "",
+        "html": full.get("html") or "",
+        "message_id": data.get("message_id") or full.get("message_id") or "",
+        "in_reply_to": headers.get("in-reply-to") or "",
+        "references": _references_list(headers),
+        "received_at": data.get("created_at") or full.get("created_at"),
+        "resend_email_id": email_id,
+        "received_for": received_for,
     }
 
 
@@ -206,23 +224,41 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
     async def _unread(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
         return {"count": await store.unread_count(db)}
 
-    # ── public inbound webhook ───────────────────────────────────────
+    # ── Resend inbound webhook (native email.received flow) ──────────
     @router.post("/inbound")
-    async def _inbound(
-        payload: Dict[str, Any],
-        x_inbox_token: Optional[str] = Header(default=None),
-    ):
-        """Provider webhook for incoming email. Secure by setting
-        ``INBOUND_EMAIL_SECRET`` in the backend env and configuring the
-        provider to send it as the ``X-Inbox-Token`` header. If the env
-        var is unset the endpoint still accepts posts (so it works before
-        the secret is configured) — set it before going live."""
-        secret = (os.getenv("INBOUND_EMAIL_SECRET") or "").strip()
-        if secret and (x_inbox_token or "").strip() != secret:
-            raise HTTPException(401, "Invalid inbound token")
-        normalised = _extract_inbound(payload)
+    async def _inbound(request: Request):
+        """Resend inbound webhook. Verifies the Svix signature with the
+        inbound webhook's OWN signing secret (``RESEND_INBOUND_WEBHOOK_SECRET``
+        — separate from the campaign webhook), accepts ``email.received``
+        events, fetches the full message from Resend by ``email_id``, and
+        stores it against the correct FriendPlace mailbox. Always returns
+        200 for accepted/ignored events so Resend does not retry.
+        """
+        raw_body = await request.body()
+        ok, reason = verify_signature(
+            secret=os.getenv("RESEND_INBOUND_WEBHOOK_SECRET", ""),
+            svix_id=request.headers.get("svix-id", ""),
+            svix_timestamp=request.headers.get("svix-timestamp", ""),
+            svix_signature=request.headers.get("svix-signature", ""),
+            raw_body=raw_body,
+        )
+        if not ok:
+            raise HTTPException(401, f"signature verification failed: {reason}")
+
+        try:
+            payload = json.loads(raw_body or b"{}")
+        except Exception:
+            raise HTTPException(400, "Invalid JSON body")
+
+        if payload.get("type") != "email.received":
+            # Acknowledge other event types without storing them.
+            return {"ok": True, "ignored": payload.get("type")}
+
+        data = payload.get("data") or {}
+        normalised = await _normalise_received(db, data)
         if not normalised["to"]:
-            raise HTTPException(400, "Could not determine recipient mailbox")
+            _log.warning("inbound email had no resolvable recipient: %s", data.get("email_id"))
+            return {"ok": True, "skipped": "no_recipient"}
         row = await store.store_inbound(db, normalised)
         return {"ok": True, "id": row["id"], "thread_id": row["thread_id"]}
 

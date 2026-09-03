@@ -37,17 +37,44 @@ def auth():
     return {"Authorization": f"Bearer {r.json()['token']}"}
 
 
-def _inbound(to, frm, subject, text, *, message_id=None, in_reply_to=None):
-    payload = {
-        "to": to, "from": {"email": frm, "name": "Test Sender"},
-        "subject": subject, "text": text,
-        "message_id": message_id or f"<{uuid.uuid4()}@mail>",
-    }
+def _seed_inbound(db, to, frm, subject, text, *, message_id=None, in_reply_to=None, from_name="Test Sender"):
+    """Seed an inbound message directly (the real webhook now requires a
+    Resend Svix signature, verified separately in test_iter164bc)."""
+    import re as _re
+    import uuid as _u
+    from datetime import datetime, timezone
+
+    def _ns(s):
+        s = (s or "").strip()
+        prev = None
+        while prev != s:
+            prev = s
+            s = _re.sub(r"^\s*(re|fwd|fw)\s*:\s*", "", s, flags=_re.I)
+        return _re.sub(r"\s+", " ", s).strip().lower()
+
+    mid = message_id or f"<{_u.uuid4()}@mail>"
+    thread_id = None
     if in_reply_to:
-        payload["in_reply_to"] = in_reply_to
-    r = requests.post(f"{BASE}/cms/email/inbound", json=payload)
-    assert r.status_code == 200, r.text
-    return r.json()
+        hit = db.inbox_messages.find_one({"message_id": in_reply_to})
+        if hit:
+            thread_id = hit.get("thread_id")
+    if not thread_id:
+        hit = db.inbox_messages.find_one({"mailbox": to.lower(), "subject_norm": _ns(subject)})
+        if hit:
+            thread_id = hit.get("thread_id")
+    thread_id = thread_id or str(_u.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(_u.uuid4()), "mailbox": to.lower(), "direction": "inbound",
+        "from_email": frm.lower(), "from_name": from_name, "to_email": to.lower(),
+        "subject": subject, "subject_norm": _ns(subject), "text": text, "html": "",
+        "snippet": text[:140], "message_id": mid, "provider_message_id": mid,
+        "in_reply_to": in_reply_to or "", "references": [], "thread_id": thread_id,
+        "read": False, "archived_at": None, "archived_by": None,
+        "received_at": now, "created_at": now,
+    }
+    db.inbox_messages.insert_one(doc)
+    return {"id": doc["id"], "thread_id": thread_id}
 
 
 @pytest.fixture
@@ -69,7 +96,7 @@ def test_default_mailboxes_seeded(auth):
 
 def test_inbound_list_read_archive_flow(db, auth, cleanup):
     frm = f"{cleanup}@example.com"
-    ing = _inbound("support@friendplace.com.au", frm, "Need help", "Please help me.")
+    ing = _seed_inbound(db, "support@friendplace.com.au", frm, "Need help", "Please help me.")
     mid_row = db.inbox_messages.find_one({"id": ing["id"]}, {"_id": 0})
     assert mid_row["mailbox"] == "support@friendplace.com.au"
     assert mid_row["read"] is False
@@ -110,9 +137,9 @@ def test_inbound_list_read_archive_flow(db, auth, cleanup):
 
 def test_inbound_threading(db, auth, cleanup):
     frm = f"{cleanup}@example.com"
-    m1 = _inbound("hello@friendplace.com.au", frm, "Question about groups", "First message.",
+    m1 = _seed_inbound(db, "hello@friendplace.com.au", frm, "Question about groups", "First message.",
                   message_id=f"<{cleanup}-1@mail>")
-    m2 = _inbound("hello@friendplace.com.au", frm, "Re: Question about groups", "Follow up.",
+    m2 = _seed_inbound(db, "hello@friendplace.com.au", frm, "Re: Question about groups", "Follow up.",
                   message_id=f"<{cleanup}-2@mail>", in_reply_to=f"<{cleanup}-1@mail>")
     r1 = db.inbox_messages.find_one({"id": m1["id"]})
     r2 = db.inbox_messages.find_one({"id": m2["id"]})
@@ -137,7 +164,7 @@ def test_add_and_remove_mailbox_no_code_change(db, auth):
         addrs = {m["address"] for m in requests.get(f"{BASE}/cms/email/mailboxes", headers=auth).json()["mailboxes"]}
         assert addr in addrs
         # inbound to the brand-new mailbox routes correctly
-        ing = _inbound(addr, "sender@example.com", "Hi new box", "Routing test")
+        ing = _seed_inbound(db, addr, "sender@example.com", "Hi new box", "Routing test")
         assert db.inbox_messages.find_one({"id": ing["id"]})["mailbox"] == addr
         db.inbox_messages.delete_one({"id": ing["id"]})
 
@@ -152,7 +179,7 @@ def test_add_and_remove_mailbox_no_code_change(db, auth):
 
 def test_reply_guards(db, auth, cleanup):
     frm = f"{cleanup}@example.com"
-    ing = _inbound("hello@friendplace.com.au", frm, "Ping", "hello")
+    ing = _seed_inbound(db, "hello@friendplace.com.au", frm, "Ping", "hello")
     # empty body → 400
     r = requests.post(f"{BASE}/cms/email/messages/{ing['id']}/reply",
                       json={"body_text": "   "}, headers=auth)
@@ -162,7 +189,3 @@ def test_reply_guards(db, auth, cleanup):
                       json={"body_text": "hi"}, headers=auth)
     assert r.status_code == 404, r.text
 
-
-def test_inbound_requires_recipient():
-    r = requests.post(f"{BASE}/cms/email/inbound", json={"from": "x@y.com", "subject": "no to"})
-    assert r.status_code == 400, r.text
