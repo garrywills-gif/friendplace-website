@@ -16,8 +16,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   community_organisation: 'Community Organisations',
   rsl_club: 'RSL / Clubs',
   rsl: 'RSL / Clubs',
-  library_council: 'Libraries / Councils',
-  library: 'Libraries / Councils',
+  library_council: 'Libraries',
+  library: 'Libraries',
   seniors_organisation: 'Seniors Organisations',
   event_submission: 'Event Submissions',
   outreach: 'Other Outreach',
@@ -80,6 +80,8 @@ function mapCategory(raw: string) {
     communitycentres: 'community_centre',
     communityorganisation: 'community_organisation',
     communityorganisations: 'community_organisation',
+    library: 'library_council',
+    libraries: 'library_council',
     seniorsolderaustraliansorganisations: 'seniors_organisation',
     seniorsolderaustraliansorganisation: 'seniors_organisation',
     olderaustraliansorganisation: 'seniors_organisation',
@@ -97,7 +99,7 @@ function categoryFromFilename(name: string) {
   if (v.includes('mensshed')) return 'mens_shed';
   if (v.includes('communitycentre') || v.includes('communitycenter')) return 'community_centre';
   if (v.includes('rsl') || v.includes('club')) return 'rsl_club';
-  if (v.includes('library') || v.includes('council')) return 'library_council';
+  if (v.includes('library') || v.includes('libraries') || v.includes('council')) return 'library_council';
   if (v.includes('senior') || v.includes('olderaustralian')) return 'seniors_organisation';
   return 'community_organisation';
 }
@@ -185,6 +187,7 @@ export default function OutreachPage() {
   const [importing, setImporting] = useState(false);
   const [importMessage, setImportMessage] = useState('');
   const [creatingCampaignFor, setCreatingCampaignFor] = useState<string | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const load = async (preserveCurrentError = false) => {
@@ -349,6 +352,23 @@ export default function OutreachPage() {
     }
   };
 
+  const deleteGroup = async (g: Group) => {
+    if (view !== 'active' || g.contacted > 0 || deletingGroup) return;
+    if (!window.confirm(`Delete all ${g.total} organisations in "${g.label}"? This cannot be undone.`)) return;
+    setDeletingGroup(g.slug);
+    setError(null);
+    setImportMessage('');
+    try {
+      const result = await outreachArchiveApi.deleteGroup(g.slug);
+      setImportMessage(`${result.deleted} organisation${result.deleted === 1 ? '' : 's'} deleted from ${g.label}.`);
+      await load(true);
+    } catch (e: any) {
+      setError(e?.message || `Could not delete ${g.label}.`);
+    } finally {
+      setDeletingGroup(null);
+    }
+  };
+
   return (
     <AdminShell title="Organisation Outreach">
       <div style={topBar}>
@@ -432,12 +452,13 @@ export default function OutreachPage() {
             <div style={{ flex: '0.9 1 0', textAlign: 'right' }}>Contacted</div>
             <div style={{ flex: '1 1 0', textAlign: 'right' }}>Not contacted</div>
             <div style={{ flex: '1.2 1 0' }}>Last contact</div>
-            <div style={{ flex: '0 0 86px', textAlign: 'right' }}>Action</div>
+            <div style={{ flex: '0 0 150px', textAlign: 'right' }}>Action</div>
           </div>
           {groups.map(g => {
             const href = `/admin/outreach/group/${encodeURIComponent(g.slug)}${view === 'archived' ? '?archived=true' : ''}`;
             const lastLabel = g.lastContactAt ? new Date(g.lastContactAt).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
             const creating = creatingCampaignFor === g.slug;
+            const deleting = deletingGroup === g.slug;
             return (
               <div key={g.slug} style={rowLine}>
                 <div style={{ flex: '2 1 0', minWidth: 0 }}>
@@ -462,7 +483,20 @@ export default function OutreachPage() {
                   )}
                 </div>
                 <div style={{ flex: '1.2 1 0', fontSize: 13, color: '#475569' }}>{lastLabel}</div>
-                <div style={{ flex: '0 0 86px', textAlign: 'right' }}><Link href={href} style={{ ...openLink, textDecoration: 'none' }}>View →</Link></div>
+                <div style={{ flex: '0 0 150px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10 }}>
+                  {view === 'active' && (
+                    <button
+                      type="button"
+                      style={{ ...deleteBtn, opacity: g.contacted > 0 ? 0.45 : 1, cursor: g.contacted > 0 ? 'not-allowed' : 'pointer' }}
+                      disabled={g.contacted > 0 || Boolean(deletingGroup)}
+                      title={g.contacted > 0 ? 'Groups with contact history cannot be bulk deleted.' : `Delete all ${g.total} organisations in this group`}
+                      onClick={() => void deleteGroup(g)}
+                    >
+                      {deleting ? 'Deleting…' : 'Delete'}
+                    </button>
+                  )}
+                  <Link href={href} style={{ ...openLink, textDecoration: 'none' }}>View →</Link>
+                </div>
               </div>
             );
           })}
@@ -487,6 +521,7 @@ const contactedPill: React.CSSProperties = { display: 'inline-block', padding: '
 const notContactedPill: React.CSSProperties = { display: 'inline-block', padding: '3px 10px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontWeight: 800, fontSize: 12, minWidth: 28, textAlign: 'center' };
 const neutralPill: React.CSSProperties = { display: 'inline-block', padding: '3px 10px', borderRadius: 999, background: '#F1F5F9', color: '#64748B', fontWeight: 800, fontSize: 12, minWidth: 28, textAlign: 'center' };
 const campaignBtn: React.CSSProperties = { border: '1px solid #99F6E4', background: '#F0FDFA', color: '#0F766E', borderRadius: 9, padding: '5px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' };
+const deleteBtn: React.CSSProperties = { border: '1px solid #FCA5A5', background: '#FFF', color: '#B91C1C', borderRadius: 8, padding: '5px 8px', fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' };
 const openLink: React.CSSProperties = { color: '#0F766E', fontWeight: 800 };
 const emptyState: React.CSSProperties = { padding: 48, textAlign: 'center', color: '#64748B', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18 };
 const notice: React.CSSProperties = { background: '#FFF', border: '1px solid #99F6E4', borderRadius: 14, padding: 14, marginBottom: 16, color: '#334155', fontSize: 13 };

@@ -1,0 +1,26 @@
+From 80ffd88a9e8686816b29803e72894877b574a043 Mon Sep 17 00:00:00 2001
+From: "Neo (Emergent)" <neo@friendplace.com.au>
+Date: Thu, 3 Sep 2026 05:23:29 +0000
+Subject: [PATCH] Fix Campaign Composer Library category filter to canonical
+ library_council
+
+---
+ app/admin/campaigns/new/CampaignComposerPage.tsx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/app/admin/campaigns/new/CampaignComposerPage.tsx b/app/admin/campaigns/new/CampaignComposerPage.tsx
+index d62b154a..4aa67af6 100644
+--- a/app/admin/campaigns/new/CampaignComposerPage.tsx
++++ b/app/admin/campaigns/new/CampaignComposerPage.tsx
+@@ -924,7 +924,7 @@ function ComposePanel() {
+                 <option value="">— any category —</option>
+                 <option value="retirement_village">Retirement village</option>
+                 <option value="community_centre">Community centre</option>
+-                <option value="library">Library</option>
++                <option value="library_council">Library</option>
+                 <option value="council">Council</option>
+                 <option value="club">Club</option>
+                 <option value="church">Church</option>
+-- 
+2.39.5
+
