@@ -10,6 +10,7 @@ from services.outreach.store import (
     upsert_org, get_org, list_orgs, delete_org,
     archive_org, restore_org,
     log_communication, mark_replied,
+    reclassify_libraries, delete_group, GroupNotEmptyError,
 )
 
 
@@ -157,6 +158,36 @@ def build_outreach_router(db, current_cms_admin) -> APIRouter:
         if not row:
             raise HTTPException(404, "Organisation not found")
         return row
+
+    # ─── iter164ay: group maintenance ────────────────────────────────
+    @router.post("/maintenance/reclassify-libraries")
+    async def _reclassify_libraries(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """One-time, idempotent fix for the NSW library batch that was
+        imported under community_organisation. Moves the untouched,
+        Library-tagged rows to library_council and returns the resulting
+        counts. Safe to run more than once (subsequent runs reclassify 0).
+        """
+        return await reclassify_libraries(db)
+
+    @router.delete("/groups/{category}")
+    async def _delete_group(
+        category: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Safely bulk-delete every ACTIVE organisation in a category in
+        a single operation. Refuses (409) if any organisation in the
+        group has already been contacted, preserving outreach history.
+        """
+        try:
+            return await delete_group(db, category)
+        except GroupNotEmptyError as e:
+            raise HTTPException(
+                409,
+                f"Cannot delete this group: {e.contacted} of {e.total} "
+                f"organisations have already been contacted.",
+            )
+        except ValueError as e:
+            raise HTTPException(404, str(e))
 
     return router
 

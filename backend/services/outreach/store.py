@@ -503,6 +503,123 @@ async def log_communication(
     return await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
 
 
+# ─── iter164ay: safe library reclassification + guarded group delete ──
+
+# A group is deletable only when every organisation in it is still
+# "untouched". Any of these statuses means we've already engaged them,
+# so the group must NOT be bulk-deletable.
+_POSITIVE_TOUCH_STATUSES = [
+    "contacted", "awaiting_reply", "replied",
+    "joined", "declined", "bounced", "unsubscribed",
+]
+
+
+def _active_group_query(category: str) -> Dict[str, Any]:
+    """Match the ACTIVE (non-archived, non-test) organisations in a
+    category — the exact set the Outreach group view shows."""
+    return {
+        "category": category,
+        "is_test": {"$ne": True},
+        "archived_at": None,   # matches null AND missing (pre-migration rows)
+    }
+
+
+async def reclassify_libraries(db) -> Dict[str, Any]:
+    """iter164ay — one-time, idempotent fix for the NSW library batch
+    that was imported under ``category = 'community_organisation'``.
+
+    Scope is intentionally narrow and matches Garry's description of
+    the batch EXACTLY so no other Community Organisation is touched:
+      • category == 'community_organisation'
+      • status   == 'not_contacted' (the whole batch is untouched)
+      • notes contain the word "Library" (case-insensitive)
+      • real, active records only (is_test != True, not archived)
+
+    Those rows are moved to ``category = 'library_council'``. Running it
+    again is a no-op (they're no longer community_organisation), so the
+    admin button is safe to click more than once.
+
+    Returns the number reclassified plus the resulting Libraries and
+    Community Organisations breakdowns for verification.
+    """
+    match: Dict[str, Any] = {
+        "category": "community_organisation",
+        "status": "not_contacted",
+        "notes": {"$regex": "Library", "$options": "i"},
+        "is_test": {"$ne": True},
+        "archived_at": None,
+    }
+    matched = await db[COLL_ORGS].count_documents(match)
+    result = await db[COLL_ORGS].update_many(
+        match,
+        {"$set": {"category": "library_council", "updated_at": _iso_now()}},
+    )
+    libraries = await _group_breakdown(db, "library_council")
+    community = await _group_breakdown(db, "community_organisation")
+    return {
+        "matched": matched,
+        "reclassified": result.modified_count,
+        "libraries": libraries,
+        "community_organisations": community,
+    }
+
+
+async def _group_breakdown(db, category: str) -> Dict[str, int]:
+    """Active total / contacted / not_contacted for a category."""
+    base = _active_group_query(category)
+    total = await db[COLL_ORGS].count_documents(base)
+    contacted = await db[COLL_ORGS].count_documents(
+        {**base, "status": {"$in": _POSITIVE_TOUCH_STATUSES}},
+    )
+    return {
+        "total": total,
+        "contacted": contacted,
+        "not_contacted": total - contacted,
+    }
+
+
+class GroupNotEmptyError(Exception):
+    """Raised when a group can't be bulk-deleted because at least one
+    organisation in it has already been contacted."""
+
+    def __init__(self, contacted: int, total: int):
+        self.contacted = contacted
+        self.total = total
+        super().__init__(
+            f"{contacted} of {total} organisations have already been "
+            f"contacted; group cannot be deleted.",
+        )
+
+
+async def delete_group(db, category: str) -> Dict[str, Any]:
+    """iter164ay — safely bulk-delete every ACTIVE organisation in a
+    category IN ONE OPERATION.
+
+    Guard: refuses (raises ``GroupNotEmptyError``) if ANY organisation
+    in the group has a positive-touch status (contacted, replied,
+    joined, declined, bounced, unsubscribed, awaiting_reply) so we can
+    never destroy a group that has real outreach history. Only groups
+    where every org is ``not_contacted`` (or unset) are deletable.
+
+    Returns ``{"deleted": n, "category": ...}``. Raises ValueError when
+    the group is empty (nothing to delete).
+    """
+    category = (category or "").strip()
+    if not category:
+        raise ValueError("category is required")
+    base = _active_group_query(category)
+    total = await db[COLL_ORGS].count_documents(base)
+    if total == 0:
+        raise ValueError("No organisations found in that group")
+    contacted = await db[COLL_ORGS].count_documents(
+        {**base, "status": {"$in": _POSITIVE_TOUCH_STATUSES}},
+    )
+    if contacted > 0:
+        raise GroupNotEmptyError(contacted=contacted, total=total)
+    result = await db[COLL_ORGS].delete_many(base)
+    return {"deleted": result.deleted_count, "category": category}
+
+
 async def ensure_indexes(db) -> None:
     await db[COLL_ORGS].create_index("email", unique=True)
     await db[COLL_ORGS].create_index("status")
@@ -538,6 +655,7 @@ __all__ = [
     "archive_org", "restore_org",
     "touch_last_contact", "log_communication", "mark_replied",
     "ensure_indexes",
+    "reclassify_libraries", "delete_group", "GroupNotEmptyError",
     "next_outreach_number", "backfill_outreach_numbers",
     "bump_outreach_counter_high_water",
 ]
