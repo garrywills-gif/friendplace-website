@@ -383,14 +383,42 @@ export default function CampaignsListPage() {
 }
 
 function describeAudience(c: Campaign): string {
-  const f = c.audience_filter || {};
+  const f: any = c.audience_filter || {};
+
+  if (f.audience_kind === 'outreach_contacts' || f.outreach?.category) {
+    const category = String(f.outreach?.category || '').trim();
+    const categoryLabels: Record<string, string> = {
+      library_council: 'Libraries',
+      library: 'Libraries',
+      community_organisation: 'Community Organisations',
+      community_centre: 'Community Centres',
+      mens_shed: "Men's Sheds",
+      probus: 'Probus',
+      retirement_village: 'Retirement Villages',
+      seniors_organisation: 'Seniors Organisations',
+      u3a: 'U3A',
+    };
+    const label = categoryLabels[category] || category
+      .split('_')
+      .filter(Boolean)
+      .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ') || 'Outreach contacts';
+    const outreachStatus = String(f.outreach?.status || '').trim();
+    const statusLabel = outreachStatus === 'not_contacted' ? 'Not contacted' : outreachStatus
+      .split('_')
+      .filter(Boolean)
+      .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+    return statusLabel ? `${label} — ${statusLabel}` : label;
+  }
+
   const bits: string[] = [];
   const statuses = f.statuses || [];
   if (statuses.length === 0) bits.push('All Founding Members');
-  else bits.push(statuses.map(s =>
-    s === 'registered' ? 'Registered' :
-    s === 'invited'    ? 'Invited' :
-    s === 'joined'     ? 'Joined' : 'Opted out'
+  else bits.push(statuses.map((status: string) =>
+    status === 'registered' ? 'Registered' :
+    status === 'invited'    ? 'Invited' :
+    status === 'joined'     ? 'Joined' : 'Opted out'
   ).join(', '));
   const tagsAny = f.tags_any || [];
   if (tagsAny.length) bits.push(`tag: ${tagsAny.join(', ')}`);
