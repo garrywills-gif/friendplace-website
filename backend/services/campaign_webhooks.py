@@ -347,6 +347,19 @@ async def _flag_founder_if_needed(
     """
     if evt_type not in ("email.bounced", "email.complained"):
         return
+    # iter164bd: hard suppression — a bounce or complaint permanently
+    # suppresses the address across ALL future sends (provider-independent).
+    try:
+        from services import suppression as _supp
+        email = recipient.get("email")
+        if email:
+            await _supp.suppress_email(
+                db, email,
+                reason=("hard_bounce" if evt_type == "email.bounced" else "spam_complaint"),
+                source="resend_webhook",
+            )
+    except Exception as e:  # noqa: BLE001
+        log.warning("suppression write failed for %s: %s", recipient.get("email"), e)
     # Outreach path — flag against outreach_organisations.
     outreach_id = recipient.get("outreach_id")
     if outreach_id:

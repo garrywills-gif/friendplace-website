@@ -2201,7 +2201,18 @@ def build_router(db) -> APIRouter:
             "renamed_by":      c.get("renamed_by"),
         }
 
-    async def _resolve_audience(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
+    async def _resolve_audience(f: Dict[str, Any], limit: int = 5000,
+                                include_suppressed: bool = False) -> list[dict]:
+        """Resolve audience, then HARD-EXCLUDE suppressed emails (iter164bd)
+        unless include_suppressed=True (used by preview to report an
+        excluded count). Covers every audience kind + preview/test/send."""
+        rows = await _resolve_audience_raw(f, limit)
+        if include_suppressed:
+            return rows
+        from services import suppression as _supp
+        return await _supp.filter_recipients(db, rows)
+
+    async def _resolve_audience_raw(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
         """iter160a: dispatch across five audience kinds.
 
         f.audience_kind can be:
@@ -2608,6 +2619,10 @@ def build_router(db) -> APIRouter:
         try:
             for recip in failed:
                 now = datetime.now(timezone.utc).isoformat()
+                # iter164bd: never retry a suppressed address.
+                from services import suppression as _supp
+                if await _supp.is_suppressed(db, recip.get("email")):
+                    continue
                 # 1) Preserve the ORIGINAL failure in the timeline (once).
                 has_orig = await db.campaign_recipient_events.find_one({
                     "recipient_id": recip["id"], "campaign_id": campaign_id,
@@ -7043,6 +7058,41 @@ def build_router(db) -> APIRouter:
 
 def build_public_router(db) -> APIRouter:
     router = APIRouter(prefix="/public", tags=["public"])
+
+    from fastapi.responses import HTMLResponse as _UHTML  # noqa: WPS433
+
+    @router.get("/unsubscribe")
+    async def public_unsubscribe(token: str = ""):
+        """iter164bd — provider-independent, login-free unsubscribe.
+        Verifies the signed token, suppresses that exact address
+        (idempotent), and shows a simple confirmation page. Never
+        exposes another recipient's details."""
+        from services import suppression as _supp
+        email = _supp.verify_token(token)
+        if email:
+            try:
+                await _supp.suppress_email(
+                    db, email, reason="unsubscribed", source="unsubscribe_link")
+                # Mirror onto any matching outreach org for MCGS display.
+                try:
+                    await db.outreach_organisations.update_many(
+                        {"email": email},
+                        {"$set": {"status": "unsubscribed",
+                                  "email_suppressed": True}},
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        body = (
+            "<div style=\"font-family:system-ui,sans-serif;max-width:520px;"
+            "margin:64px auto;padding:32px;text-align:center;color:#0A2540\">"
+            "<h1 style=\"font-size:22px\">You've been unsubscribed</h1>"
+            "<p style=\"color:#475569;line-height:1.6\">You won't receive any "
+            "further outreach emails from FriendPlace. Thank you.</p></div>"
+        )
+        return _UHTML(content=body, status_code=200)
+
 
     async def _content() -> Dict[str, Any]:
         doc = await db.site_content.find_one({"key": "main"}, {"_id": 0})
