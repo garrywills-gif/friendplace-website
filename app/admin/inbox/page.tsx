@@ -147,12 +147,20 @@ function InboxPanel() {
     }
 
     try {
+      // Persist the read state explicitly before asking for message detail.
+      // The detail GET alone is not guaranteed to commit the read flag quickly
+      // enough for the unread-only polling query, which can make the top badges
+      // jump back to their old value on the next refresh.
+      if (!m.read) await inboxApi.setRead(m.id, true);
+
       const r = await inboxApi.get(m.id);
-      setSelected(r.message);
+      setSelected({ ...r.message, read: true });
       setThread(r.thread);
-      // Keep the list aligned with the backend response. The optimistic badge
-      // work above has already made the visible counters feel instantaneous.
       setRows((prev) => prev?.map((x) => (x.id === m.id ? { ...x, read: true } : x)) ?? prev);
+
+      // Reconcile against the now-persisted backend state so the optimistic
+      // counters and the next background poll agree.
+      if (!m.read) await load({ silent: true });
     } catch (e: any) {
       // If the request fails, restore authoritative unread counts quietly.
       await load({ silent: true });
