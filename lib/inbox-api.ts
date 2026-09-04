@@ -96,5 +96,10 @@ export const inboxApi = {
     req<InboxMessage>('POST', `/cms/email/messages/${encodeURIComponent(id)}/restore`),
   reply: (id: string, body: { body_text: string; body_html?: string; subject?: string }) =>
     req<{ ok: true; message_id: string; reply: InboxMessage }>('POST', `/cms/email/messages/${encodeURIComponent(id)}/reply`, body),
-  unreadCount: () => req<{ count: number }>('GET', '/cms/email/unread-count'),
+  unreadCount: async () => {
+    const r = await req<InboxListResponse>('GET', `/cms/email/messages?${listQuery({ archived: false, limit: 300 })}`);
+    const managed = new Set(r.mailboxes.map((mb) => mb.address));
+    const count = r.rows.filter((m) => !m.read && managed.has(m.mailbox)).length;
+    return { count };
+  },
 };
