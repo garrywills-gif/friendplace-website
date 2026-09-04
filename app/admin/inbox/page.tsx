@@ -34,6 +34,18 @@ function fmt(dt?: string) {
   return d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+function syncSidebarUnreadBadge(count: number) {
+  // AdminShell owns the sidebar state, but reading a message happens inside this
+  // child page. Update the visible badge immediately for a responsive click,
+  // while the normal polling/route refresh remains the source of truth.
+  const inboxLink = document.querySelector<HTMLAnchorElement>('a[href="/admin/inbox"]');
+  const badge = inboxLink?.querySelector<HTMLElement>('span[aria-label$=" pending"]');
+  if (!badge) return;
+  badge.textContent = count > 99 ? '99+' : String(Math.max(0, count));
+  badge.style.display = count > 0 ? 'inline-flex' : 'none';
+  badge.setAttribute('aria-label', `${Math.max(0, count)} pending`);
+}
+
 function InboxPanel() {
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [rows, setRows] = useState<InboxMessage[] | null>(null);
@@ -123,15 +135,27 @@ function InboxPanel() {
   const openMessage = async (m: InboxMessage) => {
     setNotice(null);
     setReplyText('');
+
+    // Optimistic unread update: the counters react at click-time instead of
+    // waiting for the message-detail request to round-trip to the backend.
+    if (!m.read) {
+      const nextTotal = Math.max(0, totalUnread - 1);
+      setRows((prev) => prev?.map((x) => (x.id === m.id ? { ...x, read: true } : x)) ?? prev);
+      setMailboxes((prev) => prev.map((mb) =>
+        mb.address === m.mailbox ? { ...mb, unread: Math.max(0, (mb.unread || 0) - 1) } : mb));
+      syncSidebarUnreadBadge(nextTotal);
+    }
+
     try {
       const r = await inboxApi.get(m.id);
       setSelected(r.message);
       setThread(r.thread);
-      // reflect read state in the list without a full reload
+      // Keep the list aligned with the backend response. The optimistic badge
+      // work above has already made the visible counters feel instantaneous.
       setRows((prev) => prev?.map((x) => (x.id === m.id ? { ...x, read: true } : x)) ?? prev);
-      setMailboxes((prev) => prev.map((mb) =>
-        mb.address === m.mailbox && !m.read ? { ...mb, unread: Math.max(0, (mb.unread || 0) - 1) } : mb));
     } catch (e: any) {
+      // If the request fails, restore authoritative unread counts quietly.
+      await load({ silent: true });
       setError(e?.message || 'Could not open message.');
     }
   };
