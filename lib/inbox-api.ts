@@ -77,6 +77,23 @@ function listQuery(opts?: { mailbox?: string; read?: boolean; archived?: boolean
   return qs.toString();
 }
 
+function canonicalMailboxAddress(address?: string) {
+  const value = (address || '').trim().toLowerCase();
+  const suffix = '@elkiegyun.resend.app';
+  if (value.endsWith(suffix)) {
+    const local = value.slice(0, -suffix.length);
+    return `${local}@friendplace.com.au`;
+  }
+  return value;
+}
+
+function canonicalMessage(message: InboxMessage): InboxMessage {
+  return {
+    ...message,
+    mailbox: canonicalMailboxAddress(message.mailbox),
+  };
+}
+
 export const inboxApi = {
   mailboxes: () => req<{ mailboxes: Mailbox[] }>('GET', '/cms/email/mailboxes'),
   addMailbox: (address: string, label?: string) =>
@@ -84,10 +101,30 @@ export const inboxApi = {
   removeMailbox: (id: string) =>
     req<{ ok: true }>('DELETE', `/cms/email/mailboxes/${encodeURIComponent(id)}`),
 
-  list: (opts?: { mailbox?: string; read?: boolean; archived?: boolean; limit?: number }) =>
-    req<InboxListResponse>('GET', `/cms/email/messages?${listQuery(opts)}`),
-  get: (id: string) =>
-    req<{ message: InboxMessage; thread: InboxMessage[] }>('GET', `/cms/email/messages/${encodeURIComponent(id)}`),
+  list: async (opts?: { mailbox?: string; read?: boolean; archived?: boolean; limit?: number }) => {
+    // Forwarded inbound messages can be stored under their Resend transport
+    // address (for example community@elkiegyun.resend.app). Fetch the view
+    // without a backend mailbox filter, canonicalise to the public FriendPlace
+    // address, then filter locally so chips and message lists stay in sync.
+    const backendOpts = opts ? { ...opts, mailbox: undefined } : undefined;
+    const r = await req<InboxListResponse>('GET', `/cms/email/messages?${listQuery(backendOpts)}`);
+    const rows = (r.rows || []).map(canonicalMessage);
+    const wanted = canonicalMailboxAddress(opts?.mailbox);
+    const filtered = wanted ? rows.filter((m) => m.mailbox === wanted) : rows;
+    return {
+      ...r,
+      rows: filtered,
+      count: filtered.length,
+      total_unread: filtered.filter((m) => !m.read).length,
+    };
+  },
+  get: async (id: string) => {
+    const r = await req<{ message: InboxMessage; thread: InboxMessage[] }>('GET', `/cms/email/messages/${encodeURIComponent(id)}`);
+    return {
+      message: canonicalMessage(r.message),
+      thread: (r.thread || []).map(canonicalMessage),
+    };
+  },
   setRead: (id: string, read: boolean) =>
     req<InboxMessage>('POST', `/cms/email/messages/${encodeURIComponent(id)}/read`, { read }),
   archive: (id: string) =>
@@ -97,16 +134,15 @@ export const inboxApi = {
   reply: (id: string, body: { body_text: string; body_html?: string; subject?: string }) =>
     req<{ ok: true; message_id: string; reply: InboxMessage }>('POST', `/cms/email/messages/${encodeURIComponent(id)}/reply`, body),
   unreadCount: async () => {
-    // Ask the backend specifically for unread, non-archived messages rather
-    // than deriving the badge from the first page of all mail. Normalise
-    // mailbox addresses so newly-added addresses still count even if the
-    // backend's casing differs from the managed-mailbox record.
     const r = await req<InboxListResponse>(
       'GET',
       `/cms/email/messages?${listQuery({ archived: false, read: false, limit: 300 })}`,
     );
-    const managed = new Set(r.mailboxes.map((mb) => mb.address.trim().toLowerCase()));
-    const count = r.rows.filter((m) => managed.has(m.mailbox.trim().toLowerCase())).length;
+    const managed = new Set(r.mailboxes.map((mb) => canonicalMailboxAddress(mb.address)));
+    const count = (r.rows || [])
+      .map(canonicalMessage)
+      .filter((m) => managed.has(m.mailbox))
+      .length;
     return { count };
   },
 };
