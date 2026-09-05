@@ -158,6 +158,36 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
     return () => { cancelled = true; };
   }, [ready, pathname]);
 
+  // Inbox messages can arrive while the admin stays on the same page. Keep the
+  // navigator Inbox badge live just like the Inbox page itself: refresh every
+  // 10 seconds while visible and immediately when the tab/window regains focus.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+
+    const refreshInboxBadge = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const res = await inboxApi.unreadCount();
+        if (!cancelled) setUnreadInbox(res.count ?? 0);
+      } catch {
+        // Silent fail — preserve the last known Inbox badge value.
+      }
+    };
+
+    void refreshInboxBadge();
+    const timer = window.setInterval(refreshInboxBadge, 10000);
+    window.addEventListener('focus', refreshInboxBadge);
+    document.addEventListener('visibilitychange', refreshInboxBadge);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshInboxBadge);
+      document.removeEventListener('visibilitychange', refreshInboxBadge);
+    };
+  }, [ready]);
+
   // Enquiry status changes happen without a route change. Listen for the
   // shared lifecycle event so the sidebar badge updates immediately instead
   // of waiting until the admin navigates somewhere else.
