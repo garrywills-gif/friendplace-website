@@ -97,9 +97,16 @@ export const inboxApi = {
   reply: (id: string, body: { body_text: string; body_html?: string; subject?: string }) =>
     req<{ ok: true; message_id: string; reply: InboxMessage }>('POST', `/cms/email/messages/${encodeURIComponent(id)}/reply`, body),
   unreadCount: async () => {
-    const r = await req<InboxListResponse>('GET', `/cms/email/messages?${listQuery({ archived: false, limit: 300 })}`);
-    const managed = new Set(r.mailboxes.map((mb) => mb.address));
-    const count = r.rows.filter((m) => !m.read && managed.has(m.mailbox)).length;
+    // Ask the backend specifically for unread, non-archived messages rather
+    // than deriving the badge from the first page of all mail. Normalise
+    // mailbox addresses so newly-added addresses still count even if the
+    // backend's casing differs from the managed-mailbox record.
+    const r = await req<InboxListResponse>(
+      'GET',
+      `/cms/email/messages?${listQuery({ archived: false, read: false, limit: 300 })}`,
+    );
+    const managed = new Set(r.mailboxes.map((mb) => mb.address.trim().toLowerCase()));
+    const count = r.rows.filter((m) => managed.has(m.mailbox.trim().toLowerCase())).length;
     return { count };
   },
 };
