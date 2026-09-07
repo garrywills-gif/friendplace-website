@@ -266,6 +266,7 @@ function ComposePanel() {
   const [campaignId, setCampaignId] = useState<string | null>(editId);
   const [saving, setSaving] = useState(false);
   const [audienceCount, setAudienceCount] = useState<number | null>(null);
+  const [excludedCount, setExcludedCount] = useState<number>(0);
   const [previewHtml, setPreviewHtml] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -491,6 +492,7 @@ function ComposePanel() {
       try {
         const a = await campaignsApi.previewAudience(c.id);
         setAudienceCount(a.count);
+        setExcludedCount(a.excluded_count || 0);
         const r = await campaignsApi.renderPreview(c.id);
         setPreviewHtml(r.html || '');
       } catch { /* saving succeeded; preview refresh is non-fatal */ }
@@ -515,6 +517,7 @@ function ComposePanel() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!campaignId) {
       setAudienceCount(null);
+      setExcludedCount(0);
       setPreviewHtml('');
       return;
     }
@@ -522,6 +525,7 @@ function ComposePanel() {
       try {
         const a = await campaignsApi.previewAudience(campaignId);
         setAudienceCount(a.count);
+        setExcludedCount(a.excluded_count || 0);
         const r = await campaignsApi.renderPreview(campaignId);
         setPreviewHtml(r.html || '');
       } catch { /* ignore transient preview errors */ }
@@ -1125,6 +1129,16 @@ function ComposePanel() {
             </span>
           </div>
         </SectionCard>
+
+        {excludedCount > 0 && (
+          <div style={{
+            marginTop: 12, padding: '8px 12px', borderRadius: 10,
+            background: '#FEE2E2', border: '1px solid #FCA5A5', color: '#B91C1C',
+            fontSize: 13, fontWeight: 800,
+          }}>
+            ⛔ Excluded — Do Not Email: {excludedCount} (not counted in the sendable total)
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 20, alignItems: 'center', flexWrap: 'wrap' }}>
           {(() => {

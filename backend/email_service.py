@@ -106,6 +106,7 @@ async def send_email_detailed(
     reply_to: Optional[str] = None,
     attachments: Optional[list] = None,
     from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
 ) -> SendResult:
     """Send a transactional email via Resend and return a rich result.
 
@@ -122,8 +123,9 @@ async def send_email_detailed(
     the original message was sent to, e.g. support@friendplace.com.au).
     The address must belong to a Resend-verified domain.
     """
-    api_key, cfg_from_email, from_name, env_reply_to = _config()
+    api_key, cfg_from_email, cfg_from_name, env_reply_to = _config()
     from_email = (from_email or cfg_from_email)
+    from_name = (from_name or cfg_from_name)
 
     if resend is None:
         return SendResult(
@@ -578,7 +580,7 @@ def _brand_lockup_html() -> str:
 """
 
 
-def _letter_footer_html() -> str:
+def _letter_footer_html(show_account_disclaimer: bool = True) -> str:
     """Minimal, quiet footer for letter-style emails on navy.
 
     iter164ak — unified navy design: keeps the quiet feel but flips
@@ -586,6 +588,12 @@ def _letter_footer_html() -> str:
     Hairline uses a translucent white so it doesn't compete with
     body copy for attention.
     """
+    account_disclaimer = (
+        """<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:11px;color:rgba(255,255,255,0.55);line-height:16px;margin-top:22px;max-width:420px;">
+        You&rsquo;re receiving this email because you have a FriendPlace account or expressed interest in joining our community.
+      </div>"""
+        if show_account_disclaimer else ""
+    )
     return """\
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B1F45;">
   <tr>
@@ -602,9 +610,7 @@ def _letter_footer_html() -> str:
       <div style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:13px;color:rgba(255,255,255,0.72);font-style:italic;line-height:20px;margin-top:14px;">
         Because you belong too. 🦋
       </div>
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:11px;color:rgba(255,255,255,0.55);line-height:16px;margin-top:22px;max-width:420px;">
-        You&rsquo;re receiving this email because you have a FriendPlace account or expressed interest in joining our community.
-      </div>
+      """ + account_disclaimer + """
     </td>
   </tr>
 </table>
@@ -918,7 +924,8 @@ def _letter_signature_html(*, signer: str = "george") -> str:
         return """\
 <p style="margin:36px 0 0 0;color:#FFFFFF;">
   <span style="color:#FFFFFF;">Warmly,</span><br>
-  <span style="font-weight:700;color:#FFFFFF;">The FriendPlace Team</span>
+  <span style="font-weight:700;color:#FFFFFF;">The FriendPlace Team</span><br>
+  <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:rgba(255,255,255,0.72);font-style:italic;">Because you belong too. 🦋</span>
 </p>
 """
     # Personal signer — proper case for the display name ("Georgia"/"George").
@@ -932,7 +939,7 @@ def _letter_signature_html(*, signer: str = "george") -> str:
 """
 
 
-def _letter_shell(*, preheader: str, body_html: str) -> str:
+def _letter_shell(*, preheader: str, body_html: str, show_account_disclaimer: bool = True) -> str:
     """Wrap letter content in the master email template.
 
     iter164ak — unified full-navy design. The entire shell — outer
@@ -973,7 +980,7 @@ def _letter_shell(*, preheader: str, body_html: str) -> str:
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:{_INK_NAVY_DEEP};">
           <tr><td style="background:{_INK_NAVY_DEEP};">{_brand_lockup_html()}</td></tr>
           <tr><td style="background:{_INK_NAVY_DEEP};">{body_html}</td></tr>
-          <tr><td style="background:{_INK_NAVY_DEEP};">{_letter_footer_html()}</td></tr>
+          <tr><td style="background:{_INK_NAVY_DEEP};">{_letter_footer_html(show_account_disclaimer)}</td></tr>
         </table>
       </td>
     </tr>
@@ -983,16 +990,20 @@ def _letter_shell(*, preheader: str, body_html: str) -> str:
 """
 
 
-def _letter_footer_text() -> str:
+def _letter_footer_text(show_account_disclaimer: bool = True) -> str:
     """Plain-text counterpart to `_letter_footer_html`."""
+    disclaimer = (
+        "\n\nYou're receiving this email because you have a FriendPlace "
+        "account or expressed interest in joining our community."
+        if show_account_disclaimer else ""
+    )
     return (
         "\n\n"
         "— — —\n\n"
         "hello@friendplace.com.au  ·  friendplace.com.au\n"
         "Facebook: https://www.facebook.com/profile.php?id=61593250883842\n"
-        "Because you belong too.\n\n"
-        "You're receiving this email because you have a FriendPlace "
-        "account or expressed interest in joining our community."
+        "Because you belong too."
+        + disclaimer
     )
 
 
@@ -2029,6 +2040,7 @@ def announcement_template(
     preheader_override: str | None = None,
     greeting: str | None = None,
     show_founder_badge: bool | None = None,
+    outreach_unsubscribe_url: str | None = None,
 ) -> tuple[str, str, str]:
     """The Founding Member Update template — used by campaigns.
 
@@ -2164,6 +2176,31 @@ def announcement_template(
         f"\n{cta_label}: {cta_url}\n" if cta_label and cta_url else ""
     )
 
+    # iter164bd — outreach-only unsubscribe footer. Rendered ONLY when a
+    # recipient-specific signed URL is supplied (organisation outreach
+    # sends); transactional/member emails never pass this, so they never
+    # get the wording.
+    outreach_footer_html = ""
+    outreach_footer_text = ""
+    if outreach_unsubscribe_url:
+        outreach_footer_html = (
+            "<p style=\"margin:28px 0 0 0;padding-top:16px;"
+            "border-top:1px solid rgba(255,255,255,0.18);"
+            "color:rgba(255,255,255,0.62);font-size:12px;line-height:1.6;\">"
+            "You\u2019re receiving this email because your organisation\u2019s "
+            "publicly listed contact details indicated FriendPlace may be "
+            "relevant to your community. If you\u2019d prefer not to hear from "
+            "FriendPlace again, "
+            f"<a href=\"{outreach_unsubscribe_url}\" style=\"color:#99F6E4;"
+            "text-decoration:underline;\">unsubscribe here</a>.</p>"
+        )
+        outreach_footer_text = (
+            "\n\n---\nYou're receiving this email because your organisation's "
+            "publicly listed contact details indicated FriendPlace may be "
+            "relevant to your community. If you'd prefer not to hear from "
+            f"FriendPlace again, unsubscribe here: {outreach_unsubscribe_url}\n"
+        )
+
     body = (
         _letter_body_open()
         + (
@@ -2192,9 +2229,11 @@ def announcement_template(
         # (body → sign-off → CTA → footer). Text/URL/styling/tracking
         # unchanged; only its position moved.
         + cta_html
+        + outreach_footer_html
         + _letter_body_close()
     )
-    html = _letter_shell(preheader=preheader, body_html=body)
+    html = _letter_shell(preheader=preheader, body_html=body,
+                         show_account_disclaimer=not bool(outreach_unsubscribe_url))
 
     text_paragraphs = text_body_joined or "(No body content yet.)"
     # iter164o: conditional heading + signer-aware plain-text closing.
@@ -2209,7 +2248,7 @@ def announcement_template(
     if signer_norm == "none":
         closing_signoff = ""
     elif signer_norm == "team":
-        closing_signoff = "Warmly,\nThe FriendPlace Team"
+        closing_signoff = "Warmly,\nThe FriendPlace Team\nBecause you belong too."
     else:
         closing_signoff = f"Warmly,\n{display}\nYour friend at FriendPlace"
     text = (
@@ -2221,6 +2260,7 @@ def announcement_template(
         + closing_signoff
         # iter164av — CTA after the sign-off in plain text too.
         + cta_text
-        + _letter_footer_text()
+        + outreach_footer_text
+        + _letter_footer_text(show_account_disclaimer=not bool(outreach_unsubscribe_url))
     )
     return subject, html, text

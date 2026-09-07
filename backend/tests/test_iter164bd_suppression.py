@@ -87,3 +87,51 @@ def test_reimport_does_not_clear_suppression():
         db.outreach_organisations.delete_one({"id": oid})
     finally:
         db.email_suppressions.delete_one({"email": email})
+
+
+def test_outreach_footer_and_token_roundtrip():
+    from email_service import announcement_template
+    import services.suppression as _s
+    _, html, text = announcement_template(
+        first_name="friend", title="T", body_md="Hello", companion="george",
+        outreach_unsubscribe_url="https://x/api/public/unsubscribe?token=abc")
+    assert "unsubscribe here" in html and "publicly listed contact details" in html
+    assert "unsubscribe here" in text
+    _, html2, text2 = announcement_template(first_name="Sam", title="T", body_md="Hi")
+    assert "publicly listed contact details" not in html2
+    assert "publicly listed contact details" not in text2
+    tok = _s.make_token("Foo@Example.com")
+    assert _s.verify_token(tok) == "foo@example.com"
+    assert _s.verify_token(tok + "z") is None
+
+
+def test_preview_excluded_count_and_sendable_total():
+    auth = _auth()
+    tag = uuid.uuid4().hex[:8]
+    supp_email = f"ex-{tag}@example.com"
+    ok_email = f"okk-{tag}@example.com"
+    cat = f"exc_{tag}"
+    ids = []
+    for e in (supp_email, ok_email):
+        oid = str(uuid.uuid4()); ids.append(oid)
+        db.outreach_organisations.insert_one({
+            "id": oid, "organisation_name": f"Org {e}", "email": e, "category": cat,
+            "tags": [cat], "status": "not_contacted", "is_test": False,
+            "archived_at": None, "created_at": "x", "updated_at": "x"})
+    requests.get(f"{BASE}/public/unsubscribe?token={supp.make_token(supp_email)}")
+    cid = str(uuid.uuid4())
+    db.campaigns.insert_one({"id": cid, "name": "exc", "template": "announcement",
+        "title": "T", "body_md": "b", "subject": "S", "status": "draft",
+        "audience_filter": {"audience_kind": "outreach_contacts", "outreach": {"category": cat}},
+        "created_at": "x", "updated_at": "x"})
+    try:
+        r = requests.post(f"{BASE}/cms/campaigns/{cid}/preview-audience", headers=auth).json()
+        assert r["count"] == 1
+        assert r["excluded_count"] == 1
+        assert any(x["email"] == supp_email and x["reason"] == "unsubscribed"
+                   for x in r["excluded_do_not_email"])
+        assert supp_email not in {x["email"] for x in r["recipients"]}
+    finally:
+        db.outreach_organisations.delete_many({"id": {"$in": ids}})
+        db.campaigns.delete_one({"id": cid})
+        db.email_suppressions.delete_one({"email": supp_email})

@@ -22,6 +22,13 @@ import { AdminShell, adminStyles } from '@/components/admin/AdminShell';
 import { type OutreachOrg, type OutreachStatus } from '@/lib/cms-api';
 import { outreachArchiveApi, type OutreachListResponse } from '@/lib/outreach-archive-api';
 
+const SUPPRESSION_LABELS: Record<string, string> = {
+  unsubscribed:   'Unsubscribed',
+  hard_bounce:    'Hard bounce',
+  spam_complaint: 'Spam complaint',
+  manual:         'Suppressed',
+};
+
 const STATUS_LABELS: Record<OutreachStatus, string> = {
   not_contacted:  'Not contacted',
   contacted:      'Contacted',
@@ -256,7 +263,8 @@ export default function OutreachGroupPage() {
                     <div
                       style={{
                         fontSize: 12,
-                        color: '#94A3B8',
+                        color: o.email_suppressed ? '#B91C1C' : '#94A3B8',
+                        textDecoration: o.email_suppressed ? 'line-through' : 'none',
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
@@ -266,20 +274,38 @@ export default function OutreachGroupPage() {
                     </div>
                   </div>
                   <div style={{ flex: '1 1 0' }}>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        padding: '4px 10px',
-                        borderRadius: 999,
-                        background: stStyle.bg,
-                        color: stStyle.fg,
-                        fontWeight: 800,
-                        fontSize: 11,
-                        letterSpacing: '0.03em',
-                      }}
-                    >
-                      {stLbl}
-                    </span>
+                    {o.email_suppressed ? (
+                      <>
+                        <span
+                          style={{
+                            display: 'inline-block', padding: '4px 10px', borderRadius: 999,
+                            background: '#FEE2E2', color: '#B91C1C', border: '1px solid #FCA5A5',
+                            fontWeight: 900, fontSize: 11, letterSpacing: '0.03em',
+                          }}
+                        >
+                          ⛔ DO NOT EMAIL
+                        </span>
+                        <div style={{ fontSize: 11, color: '#B91C1C', marginTop: 3 }}>
+                          {SUPPRESSION_LABELS[o.suppression_reason || 'unsubscribed'] || 'Unsubscribed'}
+                          {o.suppressed_at ? ` · ${new Date(o.suppressed_at).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}
+                        </div>
+                      </>
+                    ) : (
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          padding: '4px 10px',
+                          borderRadius: 999,
+                          background: stStyle.bg,
+                          color: stStyle.fg,
+                          fontWeight: 800,
+                          fontSize: 11,
+                          letterSpacing: '0.03em',
+                        }}
+                      >
+                        {stLbl}
+                      </span>
+                    )}
                   </div>
                   <div style={{ flex: '1 1 0', fontSize: 13, color: '#475569' }}>{lastLbl}</div>
                   <div style={{ flex: '0 0 86px', textAlign: 'right' }}>

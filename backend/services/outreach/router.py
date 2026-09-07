@@ -43,6 +43,30 @@ class LogCommIn(BaseModel):
 def build_outreach_router(db, current_cms_admin) -> APIRouter:
     router = APIRouter(prefix="/outreach", tags=["outreach"])
 
+    async def _annotate_suppression(rows: list) -> list:
+        """iter164bd — decorate each org with hard-suppression state so
+        MCGS can render the DO NOT EMAIL treatment. Source of truth is the
+        email-keyed email_suppressions collection, so this reflects
+        suppression even for freshly re-imported records."""
+        from services import suppression as _supp
+        emails = [r.get("email") for r in rows if r.get("email")]
+        supp_map = {}
+        norm = list({(e or "").strip().lower() for e in emails if e})
+        if norm:
+            cur = db[_supp.COLL].find({"email": {"$in": norm}}, {"_id": 0})
+            async for d in cur:
+                supp_map[d["email"]] = d
+        for r in rows:
+            s = supp_map.get((r.get("email") or "").strip().lower())
+            if s:
+                r["email_suppressed"] = True
+                r["suppression_reason"] = s.get("suppression_reason")
+                r["suppressed_at"] = s.get("suppressed_at")
+                r["suppressed_source"] = s.get("suppressed_source")
+            else:
+                r["email_suppressed"] = False
+        return rows
+
     @router.get("/meta")
     async def _meta(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
         return {"statuses": OUTREACH_STATUSES, "categories": OUTREACH_CATEGORIES}
@@ -60,7 +84,7 @@ def build_outreach_router(db, current_cms_admin) -> APIRouter:
             db, q=q, category=category, status=status,
             archived=archived, limit=limit,
         )
-        return {"organisations": rows}
+        return {"organisations": await _annotate_suppression(rows)}
 
     @router.post("/organisations")
     async def _create(
@@ -81,6 +105,7 @@ def build_outreach_router(db, current_cms_admin) -> APIRouter:
         row = await get_org(db, org_id)
         if not row:
             raise HTTPException(404, "Organisation not found")
+        (await _annotate_suppression([row]))
         return row
 
     @router.patch("/organisations/{org_id}")

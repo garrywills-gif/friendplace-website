@@ -1027,7 +1027,7 @@ export const campaignsApi = {
     req<Campaign>('PATCH', `/cms/campaigns/${id}`, patch),
   remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/campaigns/${id}`),
   previewAudience: (id: string) =>
-    req<{ count: number; sample: Array<{ id: string; first_name?: string; email: string; founder_number?: number; status?: string; tags?: string[] }> }>(
+    req<{ count: number; excluded_count?: number; excluded_do_not_email?: Array<{ email: string; organisation_name?: string; reason: string; suppressed_at?: string | null }>; sample: Array<{ id: string; first_name?: string; email: string; founder_number?: number; status?: string; tags?: string[] }> }>(
       'POST', `/cms/campaigns/${id}/preview-audience`,
     ),
   renderPreview: (id: string) =>
@@ -1514,6 +1514,11 @@ export type OutreachOrg = {
   communications: Array<{ kind: string; at: string; [k: string]: any }>;
   created_at: string;
   updated_at: string;
+  // iter164bd — hard suppression state (annotated by the backend).
+  email_suppressed?: boolean;
+  suppression_reason?: 'unsubscribed' | 'hard_bounce' | 'spam_complaint' | 'manual' | null;
+  suppressed_at?: string | null;
+  suppressed_source?: string | null;
 };
 
 export type OutreachOrgIn = {

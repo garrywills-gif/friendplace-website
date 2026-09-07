@@ -73,6 +73,14 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB per file
 # Surfaced in the Mission Control System Status card.
 APP_VERSION = "1.0.0"
 
+# iter164be — organisation outreach is sent from the Community mailbox
+# (a verified friendplace.com.au sender), never the transactional
+# noreply@ identity. Applied at every outreach send path (real send,
+# retry, and test-send) so the From line reads consistently.
+OUTREACH_FROM_EMAIL = "community@friendplace.com.au"
+OUTREACH_FROM_NAME = "FriendPlace Community Team"
+
+
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
 
@@ -1549,6 +1557,9 @@ def build_router(db) -> APIRouter:
             # guarantee the sample "Sarah" never leaks into a real render.
             if "first_name" in data_overrides:
                 kwargs["first_name"] = data_overrides["first_name"]
+            # iter164bd — outreach-only unsubscribe footer URL passthrough.
+            if "outreach_unsubscribe_url" in data_overrides and name == "announcement":
+                kwargs["outreach_unsubscribe_url"] = data_overrides["outreach_unsubscribe_url"]
         # Only pass overrides that are actually set — passing None
         # explicitly would fight the templates' internal defaults.
         if subject_override is not None:
@@ -2616,12 +2627,31 @@ def build_router(db) -> APIRouter:
 
         succeeded = 0
         failed_again = 0
+        suppressed_n = 0
         try:
             for recip in failed:
                 now = datetime.now(timezone.utc).isoformat()
-                # iter164bd: never retry a suppressed address.
+                # iter164bd — MANDATORY per-retry suppression guard. A
+                # suppressed address is NEVER retried; it's moved out of
+                # "failed" into "suppressed" (not counted as failed).
                 from services import suppression as _supp
-                if await _supp.is_suppressed(db, recip.get("email")):
+                _s = await _supp.get_suppression(db, recip.get("email"))
+                if _s:
+                    await db.campaign_recipients.update_one(
+                        {"id": recip["id"]},
+                        {"$set": {"status": "suppressed",
+                                  "suppression_reason": _s.get("suppression_reason"),
+                                  "error": None, "retried_at": now}},
+                    )
+                    await db.campaign_recipient_events.insert_one({
+                        "id": str(_uuid.uuid4()), "campaign_id": campaign_id,
+                        "recipient_id": recip["id"], "type": "email.suppressed",
+                        "at": now, "meta": {"reason": _s.get("suppression_reason")},
+                    })
+                    await db.campaigns.update_one(
+                        {"id": campaign_id},
+                        {"$inc": {"stats.failed": -1, "stats.suppressed": 1}})
+                    suppressed_n += 1
                     continue
                 # 1) Preserve the ORIGINAL failure in the timeline (once).
                 has_orig = await db.campaign_recipient_events.find_one({
@@ -2687,6 +2717,8 @@ def build_router(db) -> APIRouter:
                 result = await send_email_detailed(
                     to=r["email"], subject=subject, html=html, text=text,
                     attachments=attachments,
+                    **({"from_email": OUTREACH_FROM_EMAIL, "from_name": OUTREACH_FROM_NAME}
+                       if _is_outreach_campaign(c) else {}),
                 )
                 now = datetime.now(timezone.utc).isoformat()
                 await db.campaign_recipient_events.insert_one({
@@ -2751,6 +2783,7 @@ def build_router(db) -> APIRouter:
                 "retried": len(failed),
                 "succeeded": succeeded,
                 "failed_again": failed_again,
+                "suppressed": suppressed_n,
                 "eligible": len(failed),
                 "stats": fresh.get("stats") if fresh else c.get("stats"),
             }
@@ -2960,12 +2993,38 @@ def build_router(db) -> APIRouter:
         if not c:
             raise HTTPException(404, "Campaign not found")
         recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
+        # iter164bd — also resolve WITH suppressed rows so we can report an
+        # "Excluded — Do Not Email" count and which records/why. Suppressed
+        # records are NEVER in `recipients`/`count` (the sendable total).
+        raw = await _resolve_audience(c.get("audience_filter") or {}, limit=5000,
+                                      include_suppressed=True)
+        from services import suppression as _supp
+        clean_emails = {(r.get("email") or "").strip().lower() for r in recipients}
+        excluded = []
+        seen = set()
+        for r in raw:
+            e = (r.get("email") or "").strip().lower()
+            if e and e not in clean_emails and e not in seen:
+                seen.add(e)
+                s = await _supp.get_suppression(db, e)
+                excluded.append({
+                    "email": r.get("email"),
+                    "organisation_name": r.get("organisation_name") or r.get("name"),
+                    "reason": (s or {}).get("suppression_reason") or "unsubscribed",
+                    "suppressed_at": (s or {}).get("suppressed_at"),
+                })
         # iter164as — resolve the FULL audience (up to 5000) and return
         # the entire resolved list so Mission Control shows the true
         # recipient set, not a 10-row teaser. `sample` is retained for
         # frontend compatibility but now carries the full list; the
         # `recipients` key mirrors it for the backend contract.
-        return {"count": len(recipients), "recipients": recipients, "sample": recipients}
+        return {
+            "count": len(recipients),
+            "recipients": recipients,
+            "sample": recipients,
+            "excluded_count": len(excluded),
+            "excluded_do_not_email": excluded,
+        }
 
     # iter164ag — Reconcile campaign stats from the raw Resend webhook
     # event log. Admins use this when a campaign's live rollup drifted
@@ -3189,6 +3248,14 @@ def build_router(db) -> APIRouter:
             overrides["greeting"] = OUTREACH_NO_NAME_GREETING
         else:
             overrides["greeting"] = effective
+        # iter164bd — outreach-only unsubscribe footer link. Provide a
+        # recipient-specific secure signed URL for real sends; a neutral
+        # placeholder for bulk preview (never a real recipient's token).
+        from services import suppression as _supp2
+        if bulk_preview or not (r and r.get("email")):
+            overrides["outreach_unsubscribe_url"] = _supp2.unsubscribe_url("preview@friendplace.com.au")
+        else:
+            overrides["outreach_unsubscribe_url"] = _supp2.unsubscribe_url(r["email"])
 
     def _campaign_overrides_for_recipient(c: Dict[str, Any],
                                           r: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -3377,6 +3444,8 @@ def build_router(db) -> APIRouter:
         result = await _send(
             to=to, subject=subject_with_prefix, html=html, text=text,
             attachments=attachments,
+            **({"from_email": OUTREACH_FROM_EMAIL, "from_name": OUTREACH_FROM_NAME}
+               if _is_outreach_campaign(c) else {}),
         )
         return {
             "ok":        bool(getattr(result, "ok", False)),
@@ -3544,6 +3613,7 @@ def build_router(db) -> APIRouter:
             return
         recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
         stats = {"targeted": len(recipients), "accepted": 0, "failed": 0,
+                 "suppressed": 0,
                  "delivered": 0, "opened": 0, "clicked": 0, "bounced": 0}
         await db.campaigns.update_one(
             {"id": campaign_id},
@@ -3556,6 +3626,29 @@ def build_router(db) -> APIRouter:
             batch = recipients[i:i + BATCH_SIZE]
             async def _one(r: dict):
                 nonlocal sample_html_saved
+                # iter164bd — MANDATORY final per-send suppression guard.
+                # Re-check the exact address against email_suppressions
+                # immediately before sending. If suppressed, skip the send
+                # entirely and record it as "suppressed" (NOT failed).
+                from services import suppression as _supp
+                _s = await _supp.get_suppression(db, r.get("email"))
+                if _s:
+                    now = datetime.now(timezone.utc).isoformat()
+                    await db.campaign_recipients.insert_one({
+                        "id": str(uuid.uuid4()), "campaign_id": campaign_id,
+                        "founder_id": r.get("id"), "email": r.get("email"),
+                        "first_name": r.get("first_name"),
+                        "status": "suppressed",
+                        "suppression_reason": _s.get("suppression_reason"),
+                        "message_id": None, "sent_at": now, "error": None,
+                        "subject": c.get("subject"),
+                        "audience_kind": (c.get("audience_filter") or {}).get("audience_kind"),
+                        "outreach_id": r.get("outreach_id"),
+                        "outreach_number": r.get("outreach_number"),
+                    })
+                    await db.campaigns.update_one(
+                        {"id": campaign_id}, {"$inc": {"stats.suppressed": 1}})
+                    return
                 overrides: Dict[str, Any] = {}
                 if r.get("first_name"):
                     overrides["first_name"] = r["first_name"]
@@ -3619,6 +3712,8 @@ def build_router(db) -> APIRouter:
                 result = await send_email_detailed(
                     to=r["email"], subject=subject, html=html, text=text,
                     attachments=attachments,
+                    **({"from_email": OUTREACH_FROM_EMAIL, "from_name": OUTREACH_FROM_NAME}
+                       if _is_outreach_campaign(c) else {}),
                 )
                 now = datetime.now(timezone.utc).isoformat()
                 await db.campaign_recipients.insert_one({

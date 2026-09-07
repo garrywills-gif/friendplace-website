@@ -222,6 +222,25 @@ export default function OutreachOrganisationDetailPage() {
         {org.organisation_name}
       </p>
 
+      {org.email_suppressed && (
+        <div style={{
+          background: '#FEE2E2', border: '1.5px solid #FCA5A5', borderRadius: 12,
+          padding: '12px 16px', marginBottom: 16, color: '#B91C1C',
+          display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        }}>
+          <span style={{ fontWeight: 900, fontSize: 13, letterSpacing: '0.03em' }}>⛔ DO NOT EMAIL</span>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>
+            {org.suppression_reason === 'hard_bounce' ? 'Hard bounce'
+              : org.suppression_reason === 'spam_complaint' ? 'Spam complaint'
+              : org.suppression_reason === 'manual' ? 'Manually suppressed'
+              : 'Unsubscribed'}
+            {org.suppressed_at ? ` · ${formatDate(org.suppressed_at)}` : ''}
+          </span>
+          <span style={{ fontSize: 12, color: '#7F1D1D' }}>
+            This address is permanently excluded from all sends. History is preserved.
+          </span>
+        </div>
+      )}
       {(outreachNumber >= 20001 || isArchived) && (
         <div style={identityBar}>
           {outreachNumber >= 20001 && (
