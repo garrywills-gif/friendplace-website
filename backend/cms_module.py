@@ -7189,6 +7189,48 @@ def build_public_router(db) -> APIRouter:
         return _UHTML(content=body, status_code=200)
 
 
+    @router.get("/email-selftest")
+    async def email_selftest():
+        """iter164be — zero-auth, zero-email production renderer probe.
+
+        Renders a canned OUTREACH sample and a canned MEMBER sample
+        through the SAME `announcement_template` the campaign test-send
+        and real-send worker use, then reports which of the 8 campaign
+        email fixes are present in the LIVE build. Sends no email and
+        touches no data — safe to hit on production at any time to
+        confirm exactly which renderer revision is deployed.
+        """
+        from email_service import announcement_template as _at  # noqa: WPS433
+        _, out_html, out_text = _at(
+            first_name="friend", title="Hello", body_md="This is **bold** text.",
+            companion="team", cta_label="Visit FriendPlace",
+            cta_url="https://www.friendplace.com.au/",
+            outreach_unsubscribe_url="https://x/api/public/unsubscribe?token=ABC.DEF",
+        )
+        _, mem_html, _mt = _at(
+            first_name="Sam", title="Hi", body_md="Body", companion="george")
+        checks = {
+            "navy_shell":            ("#0B1F45" in out_html),
+            "bold_to_strong":        ("<strong>bold</strong>" in out_html and "**bold**" not in out_html),
+            "teal_cta_button":       ("background:#14B8A6" in out_html and "Visit FriendPlace" in out_html),
+            "team_signoff_tagline":  ("The FriendPlace Team</span><br>" in out_html
+                                      and "Because you belong too. \U0001f98b</span>" in out_html),
+            "cold_outreach_footer":  ("publicly listed contact details" in out_html),
+            "no_account_wording":    ("you have a FriendPlace account" not in out_html),
+            "single_disclaimer":     (out_html.count("receiving this email") == 1),
+            "clean_unsubscribe_link":("unsubscribe here</a>" in out_html
+                                      and out_html.count("token=ABC.DEF") == 1),
+            "member_email_unchanged":("you have a FriendPlace account" in mem_html
+                                      and "publicly listed contact details" not in mem_html),
+        }
+        return {
+            "build": "iter164be",
+            "all_fixes_present": all(checks.values()),
+            "checks": checks,
+            "outreach_sender": f"{OUTREACH_FROM_NAME} <{OUTREACH_FROM_EMAIL}>",
+        }
+
+
     async def _content() -> Dict[str, Any]:
         doc = await db.site_content.find_one({"key": "main"}, {"_id": 0})
         if not doc:
