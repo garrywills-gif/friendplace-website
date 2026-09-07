@@ -201,7 +201,7 @@ export default function CampaignsListPage() {
             <div style={{ flex: '0.9 1 0' }}>Status</div>
             <div style={{ flex: '1.4 1 0' }}>Delivery</div>
             <div style={{ flex: '1 1 0' }}>{showArchived ? 'Archived' : 'Sent'}</div>
-            <div style={{ flex: '0 0 86px', textAlign: 'right' }}>Action</div>
+            <div style={{ flex: '0 0 150px', textAlign: 'right' }}>Action</div>
           </div>
           {rows.map(c => {
             const meta = STATUS_META[c.status];
@@ -212,7 +212,7 @@ export default function CampaignsListPage() {
             return (
               <div key={c.id} style={rowLine}>
                 <Link
-                  href={`/admin/campaigns/${c.id}`}
+                  href={c.status === 'draft' ? `/admin/campaigns/new?id=${c.id}` : `/admin/campaigns/${c.id}`}
                   style={{ ...rowMainLink, textDecoration: 'none', color: 'inherit' }}
                 >
                   <div style={{ flex: '2 1 0', minWidth: 0 }}>
@@ -270,7 +270,7 @@ export default function CampaignsListPage() {
                   </div>
                 </Link>
 
-                <div style={{ flex: '0 0 86px', textAlign: 'right' }}>
+                <div style={{ flex: '0 0 150px', textAlign: 'right' }}>
                   {showArchived ? (
                     <button
                       type="button"
@@ -282,14 +282,23 @@ export default function CampaignsListPage() {
                       {restoringId === c.id ? 'Restoring…' : 'Restore'}
                     </button>
                   ) : c.status === 'draft' ? (
-                    <button
-                      type="button"
-                      onClick={() => setDeleteTarget(c)}
-                      style={deleteBtn}
-                      aria-label={`Delete ${c.name}`}
-                    >
-                      Delete
-                    </button>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                      <Link
+                        href={`/admin/campaigns/new?id=${c.id}`}
+                        style={{ ...editBtn, textDecoration: 'none' }}
+                        aria-label={`Edit ${c.name}`}
+                      >
+                        Edit
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(c)}
+                        style={deleteBtn}
+                        aria-label={`Delete ${c.name}`}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   ) : c.status === 'sent' || c.status === 'failed' ? (
                     <button
                       type="button"
@@ -450,6 +459,10 @@ const rowLine: React.CSSProperties = {
 };
 const rowMainLink: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 auto',
+};
+const editBtn: React.CSSProperties = {
+  border: '1px solid #99F6E4', background: '#F0FDFA', color: '#0F766E',
+  borderRadius: 9, padding: '6px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
 };
 const deleteBtn: React.CSSProperties = {
   border: '1px solid #FCA5A5', background: '#FFF7F7', color: '#B91C1C',
