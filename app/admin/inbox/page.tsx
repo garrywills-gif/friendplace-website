@@ -356,9 +356,7 @@ function InboxPanel() {
                         : `${t.from_name || t.from_email} → ${t.mailbox}`}
                       <span style={{ marginLeft: 8 }}>· {fmt(t.received_at)}</span>
                     </div>
-                    <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, color: '#0A2540', lineHeight: 1.6 }}>
-                      {t.text || t.snippet}
-                    </div>
+                    <MessageBody message={t} />
                   </div>
                 ))}
               </div>
@@ -380,6 +378,27 @@ function InboxPanel() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function MessageBody({ message }: { message: InboxMessage }) {
+  if (message.html?.trim()) {
+    return (
+      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #E2E8F0', background: '#FFFFFF' }}>
+        <iframe
+          title={`Email content: ${message.subject || 'message'}`}
+          srcDoc={message.html}
+          sandbox=""
+          style={{ display: 'block', width: '100%', minHeight: 560, border: 0, background: '#FFFFFF' }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, color: '#0A2540', lineHeight: 1.6 }}>
+      {message.text || message.snippet}
     </div>
   );
 }
