@@ -1,13 +1,36 @@
 """
-Curated Australian suburbs dataset — ~250 entries spanning every state/territory's
-capital + major regional centres + popular regional areas.
+Curated Australian suburbs dataset — hand-picked coverage of every state /
+territory's capital, major regional centres, growth suburbs, and popular
+regional areas. Focused on the FriendPlace target audience.
+
+Each row: (name, postcode, state, lat, lng).
+
+Refreshing / extending
+──────────────────────
+This module also looks for ``suburbs_extra.json`` next to this file at
+import time. If present, its entries are MERGED into the master list
+(dedupe by lowercased ``name + state + postcode``). That gives us a
+zero-code path to periodic refreshes — every ~6 months drop in a fresh
+JSON export sourced from a permissively-licensed dataset (e.g. Matthew
+Proctor's Australian postcodes, CC BY 4.0 — attribution required in
+Legal → Data credits) and no code change is needed.
+
+Expected JSON shape:
+
+    [
+      {"name": "Schofields", "postcode": "2762", "state": "NSW",
+       "lat": -33.6928, "lng": 150.8683},
+      ...
+    ]
 
 Each row: (name, postcode, state, lat, lng). Hand-picked for coverage of the
 audience FriendPlace targets. Easy to extend.
 """
 from __future__ import annotations
 
+import json
 import math
+import os
 from typing import Dict, List, Optional, Tuple
 
 
@@ -636,7 +659,118 @@ SUBURBS: List[Tuple[str, str, str, float, float]] = [
     ("Hawker",            "2614", "ACT", -35.2452, 149.0417),
     ("Latham",            "2615", "ACT", -35.2214, 149.0361),
     ("Charnwood",         "2615", "ACT", -35.2078, 149.0247),
+    # ---------- Sydney growth-corridor suburbs (added 2026-09 for
+    # TestFlight 1028 "Schofields not found" report — hand-checked
+    # coordinates against Australia Post + Google Maps) ----------
+    ("Schofields",        "2762", "NSW", -33.6928, 150.8683),
+    ("The Ponds",         "2769", "NSW", -33.7040, 150.9066),
+    ("Rouse Hill",        "2155", "NSW", -33.6858, 150.9160),
+    ("Kellyville",        "2155", "NSW", -33.7141, 150.9527),
+    ("Kellyville Ridge",  "2155", "NSW", -33.7228, 150.9166),
+    ("Beaumont Hills",    "2155", "NSW", -33.7000, 150.9410),
+    ("Box Hill",          "2765", "NSW", -33.6425, 150.8779),
+    ("Marsden Park",      "2765", "NSW", -33.6825, 150.8181),
+    ("Riverstone",        "2765", "NSW", -33.6807, 150.8617),
+    ("Quakers Hill",      "2763", "NSW", -33.7333, 150.8817),
+    ("Stanhope Gardens",  "2768", "NSW", -33.7267, 150.9160),
+    ("Glenwood",          "2768", "NSW", -33.7383, 150.9310),
+    ("Bella Vista",       "2153", "NSW", -33.7375, 150.9583),
+    ("Baulkham Hills",    "2153", "NSW", -33.7573, 150.9926),
+    ("Castle Hill",       "2154", "NSW", -33.7333, 151.0000),
+    ("Norwest",           "2153", "NSW", -33.7278, 150.9634),
+    ("Ropes Crossing",    "2760", "NSW", -33.7370, 150.7910),
+    ("St Marys",          "2760", "NSW", -33.7683, 150.7737),
+    ("Werrington",        "2747", "NSW", -33.7625, 150.7472),
+    ("Oran Park",         "2570", "NSW", -34.0000, 150.7419),
+    ("Gregory Hills",     "2557", "NSW", -34.0223, 150.7615),
+    ("Leppington",        "2179", "NSW", -33.9770, 150.8090),
+    ("Austral",           "2179", "NSW", -33.9270, 150.8161),
+    ("Edmondson Park",    "2174", "NSW", -33.9750, 150.8558),
+    ("Prestons",          "2170", "NSW", -33.9411, 150.8792),
+    ("Cecil Hills",       "2171", "NSW", -33.8836, 150.8541),
+    ("Bonnyrigg",         "2177", "NSW", -33.8945, 150.8867),
+    ("Cabramatta",        "2166", "NSW", -33.8946, 150.9358),
+    ("Cranebrook",        "2749", "NSW", -33.7168, 150.6939),
+    ("Jordan Springs",    "2747", "NSW", -33.7000, 150.7383),
+    ("Ermington",         "2115", "NSW", -33.8117, 151.0483),
+    ("Meadowbank",        "2114", "NSW", -33.8149, 151.0808),
+    ("Ryde",              "2112", "NSW", -33.8134, 151.1051),
+    ("West Ryde",         "2114", "NSW", -33.8073, 151.0899),
+    # ---------- Melbourne growth areas ----------
+    ("Point Cook",        "3030", "VIC", -37.9151, 144.7513),
+    ("Werribee",          "3030", "VIC", -37.9006, 144.6612),
+    ("Tarneit",           "3029", "VIC", -37.8367, 144.6642),
+    ("Truganina",         "3029", "VIC", -37.8125, 144.7364),
+    ("Wyndham Vale",      "3024", "VIC", -37.8917, 144.6250),
+    ("Craigieburn",       "3064", "VIC", -37.6000, 144.9500),
+    ("Mickleham",         "3064", "VIC", -37.5333, 144.9333),
+    ("Kalkallo",          "3064", "VIC", -37.5000, 144.9500),
+    ("Cranbourne",        "3977", "VIC", -38.1108, 145.2818),
+    ("Cranbourne East",   "3977", "VIC", -38.1054, 145.3110),
+    ("Cranbourne West",   "3977", "VIC", -38.1085, 145.2569),
+    ("Clyde",             "3978", "VIC", -38.1279, 145.3358),
+    ("Clyde North",       "3978", "VIC", -38.1101, 145.3320),
+    ("Officer",           "3809", "VIC", -38.0645, 145.4083),
+    ("Pakenham",          "3810", "VIC", -38.0708, 145.4820),
+    ("Berwick",           "3806", "VIC", -38.0333, 145.3500),
+    ("Doreen",            "3754", "VIC", -37.6083, 145.1517),
+    ("Mernda",            "3754", "VIC", -37.5972, 145.1069),
+    ("Epping",            "3076", "VIC", -37.6489, 145.0329),
+    # ---------- Brisbane growth areas ----------
+    ("North Lakes",       "4509", "QLD", -27.2287, 153.0206),
+    ("Griffin",           "4503", "QLD", -27.2733, 152.9578),
+    ("Mango Hill",        "4509", "QLD", -27.2440, 153.0322),
+    ("Redbank Plains",    "4301", "QLD", -27.6567, 152.8547),
+    ("Ripley",            "4306", "QLD", -27.6829, 152.8017),
+    ("Springfield Lakes", "4300", "QLD", -27.6688, 152.9179),
+    ("Ormeau",            "4208", "QLD", -27.7568, 153.2637),
+    ("Coomera",           "4209", "QLD", -27.8558, 153.3053),
+    ("Upper Coomera",     "4209", "QLD", -27.8813, 153.2916),
+    ("Pimpama",           "4209", "QLD", -27.8112, 153.3160),
+    ("Yarrabilba",        "4207", "QLD", -27.8114, 153.1032),
+    # ---------- Perth growth areas ----------
+    ("Baldivis",          "6171", "WA", -32.3392, 115.8106),
+    ("Ellenbrook",        "6069", "WA", -31.7833, 116.0100),
+    ("Byford",            "6122", "WA", -32.2183, 115.9992),
 ]
+
+
+# ── Optional JSON overlay ─────────────────────────────────────────
+# Merge additional/refreshed suburbs from ``suburbs_extra.json`` next
+# to this file. Dedupe key is (name lowercase, state, postcode) so the
+# same suburb never appears twice regardless of casing differences.
+
+def _apply_json_overlay() -> None:
+    path = os.path.join(os.path.dirname(__file__), "suburbs_extra.json")
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            extra = json.load(fh)
+    except Exception:
+        return
+    if not isinstance(extra, list):
+        return
+    seen = {(n.lower(), s, p) for n, p, s, _, _ in SUBURBS}
+    for row in extra:
+        try:
+            n = str(row.get("name", "")).strip()
+            p = str(row.get("postcode", "")).strip()
+            s = str(row.get("state", "")).strip().upper()
+            la = float(row.get("lat", 0.0))
+            lg = float(row.get("lng", 0.0))
+            if not (n and p and s):
+                continue
+            key = (n.lower(), s, p)
+            if key in seen:
+                continue
+            SUBURBS.append((n, p, s, la, lg))
+            seen.add(key)
+        except Exception:
+            continue
+
+
+_apply_json_overlay()
 
 
 def search_suburbs(q: str, limit: int = 10) -> List[Dict]:

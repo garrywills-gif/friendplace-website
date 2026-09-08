@@ -15,6 +15,7 @@ import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { GeorgeEventCreation } from './GeorgeEventCreation';
 import { useGeorge } from '@/src/lib/george-context';
 import { georgeApi, type Presence } from '@/src/lib/george-api';
+import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 
 /**
  * George's butterfly on FriendPlace mobile.
@@ -74,6 +75,12 @@ type Phase = 'idle' | 'arriving' | 'landed' | 'resting' | 'intro';
 export function GeorgeButterfly() {
   const insets = useSafeAreaInsets();
   const { landedFrom, consumeLanded, currentScreen, openRequested, currentPathname } = useGeorge();
+  // Persisted companion pick — drives the "Chat to George" / "Chat to
+  // Georgia" CTA label on the welcome bubble. Falls back to George
+  // until the AsyncStorage cache hydrates so the first frame after a
+  // cold start doesn't flash the wrong name.
+  const { voice: companionVoice } = useGeorgeVoice();
+  const companionShortName = VOICE_LABELS[companionVoice]?.short || 'George';
   const [phase, setPhase] = useState<Phase>('idle');
   const [, setPresence] = useState<Presence | null>(null);
   const [greeting, setGreeting] = useState<string | null>(null);
@@ -586,6 +593,7 @@ export function GeorgeButterfly() {
                 Welcome Back experience. */}
             <GeorgeWelcomeBubble
               greeting={greeting}
+              chatLabel={`💬  Chat to ${companionShortName}`}
               onChat={flutterAndOpenChat}
               onDismiss={() => {
                 bubbleOpacity.value = withTiming(0, { duration: 160 });

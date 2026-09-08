@@ -73,7 +73,7 @@ export function GeorgeWelcomeBubble({
             testID="george-welcome-chat"
             onPress={onChat}
             accessibilityRole="button"
-            accessibilityLabel="Chat to George"
+            accessibilityLabel={chatLabel ? chatLabel.replace(/^\p{Emoji}\s*/u, '') : 'Chat to George'}
             style={({ pressed }) => [
               styles.bubbleBtnPrimary,
               { opacity: pressed ? 0.85 : 1 },

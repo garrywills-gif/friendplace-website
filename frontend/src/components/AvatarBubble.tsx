@@ -57,6 +57,7 @@ type Props = {
 // bug this fix addresses).
 const IMAGE_RE = /^(https?:|data:)/i;
 const GLASSES_MARK = "::g";
+const PRESET_RE = /^preset:/i;
 
 /** Strip the trailing `::g` marker (if any) and return the bare avatar
  * value plus a boolean indicating whether glasses should be overlaid. */
@@ -66,6 +67,29 @@ export function parseAvatar(value?: string | null): { base: string | null; glass
     return { base: value.slice(0, -GLASSES_MARK.length), glasses: true };
   }
   return { base: value, glasses: false };
+}
+
+/**
+ * Safe text glyph for member-facing captions.
+ *
+ * Callers sometimes want to prefix a member's name with their emoji
+ * avatar in plain text (e.g. `"👨 Harry"` in a DM header). This helper
+ * returns:
+ *   • the raw glyph      → for legacy emoji avatars
+ *   • ``null``           → for preset avatars (`"preset:portrait-62"`),
+ *                          http/data URIs, or empty values
+ *
+ * That prevents the "preset:portrait-62 Harry" leak seen on DM headers,
+ * event hosts, and any other member-facing surface that concatenates
+ * avatars with names. Rendering the actual avatar image is still the
+ * responsibility of ``<AvatarBubble>``.
+ */
+export function avatarDisplayGlyph(value?: string | null): string | null {
+  const { base } = parseAvatar(value);
+  if (!base) return null;
+  if (PRESET_RE.test(base)) return null;
+  if (IMAGE_RE.test(base)) return null;
+  return base;
 }
 
 /** Append the `::g` marker to an avatar value. Idempotent — won't double up. */
@@ -166,7 +190,7 @@ export default function AvatarBubble({
         accessibilityElementsHidden
         importantForAccessibility="no"
       >
-        {base || fallback}
+        {avatarDisplayGlyph(value) || fallback}
       </Text>
     </View>
   );

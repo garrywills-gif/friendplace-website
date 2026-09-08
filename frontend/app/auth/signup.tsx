@@ -21,7 +21,7 @@
  *   - The pickup of any pending `friendplace.invite.ref` (set by the
  *     /invite/[id] landing) is preserved so attribution still flows through.
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -57,6 +57,25 @@ export default function Signup() {
 
   const [step, setStep] = useState<1 | 2>(1);
 
+  // Ref used to (a) snap the About-You screen to the very top when the
+  // wizard advances to Step 2 (previously the second step opened
+  // partly-scrolled on some devices because the ScrollView kept its
+  // scroll position from Step 1), and (b) scroll a validation error
+  // into view so the on-screen keyboard never hides it.
+  const scrollRef = useRef<ScrollView>(null);
+
+  // Inline validation errors — displayed above the affected field so
+  // they stay visible when the keyboard is up (toast alone was hidden
+  // behind the keyboard on iOS). Cleared on user edit.
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [suburbError, setSuburbError]     = useState<string | null>(null);
+
+  // Track whether the member picked a suburb from the recognised list.
+  // Free-text suburbs must never be accepted — Garry hit this with
+  // "Schofields" — so we block submission unless picked OR the member
+  // has chosen "Prefer not to say".
+  const [suburbPicked, setSuburbPicked] = useState(false);
+
   // Step 1 — account essentials
   const [firstName, setFirstName] = useState("");
   const [username, setUsername] = useState("");
@@ -87,6 +106,20 @@ export default function Signup() {
     })();
   }, []);
 
+  // When we transition to Step 2 ("About You") snap the ScrollView to
+  // the top. Fixes the "opens halfway down the page" report on
+  // TestFlight 1.0.24 (1028) where the second step inherited the
+  // first step's scroll offset on iOS.
+  useEffect(() => {
+    if (step === 2) {
+      // requestAnimationFrame + microtask so the ScrollView has
+      // rendered its new content before we scroll.
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ y: 0, animated: false });
+      });
+    }
+  }, [step]);
+
   const birthdayString = useMemo(() => {
     if (!bdayMonth || !bdayDay) return "";
     const mm = String(bdayMonth).padStart(2, "0");
@@ -102,9 +135,32 @@ export default function Signup() {
   // required because it's the primary recovery channel (password reset,
   // login link, important account updates) and the simplest signal we
   // have to prevent the same person creating multiple accounts.
+  //
+  // Every failure ALSO writes an inline error message that renders
+  // above the affected field. Toasts alone were being hidden by the
+  // on-screen keyboard on iOS, so users typing an invalid display name
+  // never saw the reason (TestFlight 1028 report).
   const validateStep1 = () => {
+    setUsernameError(null);
     const u = username.trim().toLowerCase();
-    if (!u || u.length < 3) { show("Username must be at least 3 characters"); return false; }
+    if (!u || u.length < 3) {
+      const msg = "Username must be at least 3 characters";
+      setUsernameError(msg);
+      show(msg);
+      requestAnimationFrame(() =>
+        scrollRef.current?.scrollTo({ y: 0, animated: true }),
+      );
+      return false;
+    }
+    if (!/^[a-z0-9._-]+$/.test(u)) {
+      const msg = "Username can only contain letters, numbers, dots, dashes and underscores";
+      setUsernameError(msg);
+      show(msg);
+      requestAnimationFrame(() =>
+        scrollRef.current?.scrollTo({ y: 0, animated: true }),
+      );
+      return false;
+    }
     const em = email.trim().toLowerCase();
     if (!em) { show("Email address is required"); return false; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { show("Please enter a valid email address"); return false; }
@@ -116,6 +172,24 @@ export default function Signup() {
   const continueFromStep1 = () => { if (validateStep1()) setStep(2); };
 
   const submit = async () => {
+    // ── Suburb: enforce recognised-list selection ───────────────
+    // The member either picked a suburb from the searchable list or
+    // toggled "Prefer not to say". Free-text is never accepted —
+    // silently registering an unrecognised suburb (Garry's Schofields
+    // report on 1028) hurts local-neighbours discovery and gives the
+    // impression the app accepted invalid input.
+    if (!locationPrivate && !suburbPicked) {
+      const msg = "Please pick your suburb from the list, or tap “Prefer not to say”.";
+      setSuburbError(msg);
+      show(msg);
+      // Scroll the suburb section back into view — it sits near the
+      // bottom of Step 2 so this brings the error near the keyboard.
+      requestAnimationFrame(() =>
+        scrollRef.current?.scrollToEnd({ animated: true }),
+      );
+      return;
+    }
+    setSuburbError(null);
     setBusy(true);
     try {
       await signup({
@@ -244,13 +318,16 @@ export default function Signup() {
       <Header
         title={headerTitle}
         showGeorge
-        // Step 2's header "back" goes to the welcome interstitial; the
-        // in-page "Back to Step 1" link below the form is the primary way
-        // to return — visible without scrolling on Step 2.
-        backHref={step === 2 ? "/auth/welcome" : undefined}
+        // Step 2's header "back" must NOT navigate away — that used to
+        // pop the whole Signup component and lose every field the
+        // member had filled in (TestFlight 1028 report). We intercept
+        // the back gesture with a custom handler so it just returns
+        // to Step 1 with state intact. Step 1 uses the default header
+        // back which navigates to Welcome as before.
+        onBack={step === 2 ? () => setStep(1) : undefined}
       />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           {/* Step indicator — single source of progress, sits above the
               form so it's the first thing the user sees on entry to each step. */}
           <View testID="signup-step-indicator" style={styles.stepperRow}>
@@ -269,7 +346,24 @@ export default function Signup() {
           {step === 1 ? (
             <>
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Username  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-              <TextInput testID="signup-username" value={username} onChangeText={setUsername} placeholder="e.g. maggie (lowercase)" autoCapitalize="none" autoCorrect={false} placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+              <TextInput
+                testID="signup-username"
+                value={username}
+                onChangeText={(t) => { setUsername(t); if (usernameError) setUsernameError(null); }}
+                placeholder="e.g. maggie (lowercase)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholderTextColor={c.muted}
+                style={[styles.input, inputStyle, usernameError ? { borderColor: c.error } : null]}
+              />
+              {usernameError ? (
+                <Text
+                  testID="signup-username-error"
+                  style={{ color: c.error, marginTop: 4, marginBottom: 8, fontSize: 13 * scale, fontWeight: "600" }}
+                >
+                  {usernameError}
+                </Text>
+              ) : null}
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>First name <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional)</Text></Text>
               <TextInput testID="signup-first-name" value={firstName} onChangeText={setFirstName} placeholder="Shown on your profile" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
@@ -358,24 +452,36 @@ export default function Signup() {
                 initialValue={suburb}
                 preferNotToSay={locationPrivate}
                 onChange={(m, pns) => {
+                  if (suburbError) setSuburbError(null);
                   if (pns) {
                     setSuburb("");
                     setSuburbPostcode(undefined);
                     setSuburbState(undefined);
                     setLocationPrivate(true);
+                    setSuburbPicked(false);
                   } else if (m) {
                     setSuburb(m.name);
                     setSuburbPostcode(m.postcode);
                     setSuburbState(m.state);
                     setLocationPrivate(false);
+                    setSuburbPicked(true);
                   } else {
                     setSuburb("");
                     setSuburbPostcode(undefined);
                     setSuburbState(undefined);
                     setLocationPrivate(false);
+                    setSuburbPicked(false);
                   }
                 }}
               />
+              {suburbError ? (
+                <Text
+                  testID="signup-suburb-error"
+                  style={{ color: c.error, marginTop: 4, marginBottom: 8, fontSize: 13 * scale, fontWeight: "600" }}
+                >
+                  {suburbError}
+                </Text>
+              ) : null}
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Interests</Text>
               <View style={styles.row}>

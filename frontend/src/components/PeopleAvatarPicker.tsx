@@ -240,25 +240,28 @@ function PresetTab({ value, onPick, c, scale }: {
   c: any;
   scale: number;
 }) {
-  const [group, setGroup] = useState<AvatarPresetGroup>(() => {
-    // Seed the filter to the currently-selected preset's group if any.
-    if (isPresetAvatar(value)) {
-      const found = AVATAR_PRESETS.find((p) => `preset:${p.id}` === value);
-      if (found) return found.group;
-    }
-    return "senior"; // Sensible default for FriendPlace's core audience.
-  });
+  // "All" is now the default filter and appears first so members see
+  // the full FriendPlace preset gallery on open (TestFlight 1028
+  // feedback: seeding to the caller's age group hid the newer avatars
+  // and gave no way back to the complete gallery). Selecting an age
+  // band still narrows to that band; tapping "All" restores.
+  const [group, setGroup] = useState<AvatarPresetGroup | 'all'>('all');
 
   const filtered = useMemo(
-    () => AVATAR_PRESETS.filter((p) => p.group === group),
+    () => (group === 'all' ? AVATAR_PRESETS : AVATAR_PRESETS.filter((p) => p.group === group)),
     [group],
+  );
+
+  const chips: { key: AvatarPresetGroup | 'all'; label: string; hint: string }[] = useMemo(
+    () => [{ key: 'all', label: 'All', hint: 'Everyone' }, ...AVATAR_PRESET_GROUPS],
+    [],
   );
 
   return (
     <View style={{ gap: 10 }}>
       {/* Age filter chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
-        {AVATAR_PRESET_GROUPS.map((g) => {
+        {chips.map((g) => {
           const on = g.key === group;
           return (
             <Pressable

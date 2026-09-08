@@ -10,7 +10,7 @@ import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import ReportSheet from "@/src/components/ReportSheet";
-import { parseAvatar } from "@/src/components/AvatarBubble";
+import { parseAvatar, avatarDisplayGlyph } from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import { useComposerLock } from "@/src/lib/composer-lock";
@@ -230,7 +230,7 @@ export default function DM() {
           isSelfDm
             ? "📝 Notes to Myself"
             : other
-            ? `${parseAvatar(other.avatar).base ?? ""} ${other.first_name}`
+            ? `${avatarDisplayGlyph(other.avatar) ?? ""} ${other.first_name}`.trim()
             : "Message"
         }
         titleAccessory={!isSelfDm && other ? <FounderMark user={other} size={15} testID="dm-header-founder" /> : null}
