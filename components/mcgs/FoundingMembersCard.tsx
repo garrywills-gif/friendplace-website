@@ -10,7 +10,6 @@
  * full CRM.
  */
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { foundingMembersCrmApi, type CRMFoundingMembersStats } from '@/lib/cms-api';
 
@@ -30,7 +29,7 @@ export function FoundingMembersCard() {
       }
     };
     void load();
-    interval = setInterval(load, 60_000); // gentle 1-min refresh
+    interval = setInterval(load, 60_000);
     return () => { cancelled = true; if (interval) clearInterval(interval); };
   }, []);
 
@@ -39,7 +38,7 @@ export function FoundingMembersCard() {
   const latestWhen = latest?.created_at ? relTime(latest.created_at) : '';
 
   return (
-    <Link href="/admin/crm/founding-members" style={cardLink}>
+    <a href="/admin/crm/founding-members" style={cardLink} aria-label="Open Founding Members CRM">
       <div style={header}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 18 }}>🌟</span>
@@ -56,23 +55,9 @@ export function FoundingMembersCard() {
       ) : (
         <>
           <div style={statsGrid}>
-            <StatTile
-              tone="teal"
-              label="Total"
-              value={stats?.total}
-            />
-            <StatTile
-              tone="teal"
-              label="New today"
-              value={stats?.new_today}
-              accent={(stats?.new_today ?? 0) > 0}
-            />
-            <StatTile
-              tone="amber"
-              label="Awaiting invitation"
-              value={stats?.awaiting_contact}
-              accent={(stats?.awaiting_contact ?? 0) > 0}
-            />
+            <StatTile tone="teal" label="Total" value={stats?.total} />
+            <StatTile tone="teal" label="New today" value={stats?.new_today} accent={(stats?.new_today ?? 0) > 0} />
+            <StatTile tone="amber" label="Awaiting invitation" value={stats?.awaiting_contact} accent={(stats?.awaiting_contact ?? 0) > 0} />
           </div>
 
           <div style={latestRow}>
@@ -92,17 +77,13 @@ export function FoundingMembersCard() {
                   {latestDisplayName || <span style={{ color: '#94A3B8', fontWeight: 500 }}>None yet</span>}
                 </span>
               </div>
-              {latest?.state_country && (
-                <div style={latestMeta}>{latest.state_country}</div>
-              )}
+              {latest?.state_country && <div style={latestMeta}>{latest.state_country}</div>}
             </div>
-            {latestWhen && (
-              <div style={latestTime}>{latestWhen}</div>
-            )}
+            {latestWhen && <div style={latestTime}>{latestWhen}</div>}
           </div>
         </>
       )}
-    </Link>
+    </a>
   );
 }
 
@@ -149,7 +130,6 @@ function relTime(iso?: string): string {
   return '';
 }
 
-// ─── styles ────────────────────────────────────────
 const cardLink: React.CSSProperties = {
   display: 'block',
   background: '#FFFFFF',
@@ -160,6 +140,7 @@ const cardLink: React.CSSProperties = {
   textDecoration: 'none',
   color: 'inherit',
   marginBottom: 16,
+  cursor: 'pointer',
 };
 const header: React.CSSProperties = {
   display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
