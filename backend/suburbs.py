@@ -5,15 +5,31 @@ regional areas. Focused on the FriendPlace target audience.
 
 Each row: (name, postcode, state, lat, lng).
 
-Refreshing / extending
+Comprehensive coverage
 ──────────────────────
-This module also looks for ``suburbs_extra.json`` next to this file at
-import time. If present, its entries are MERGED into the master list
-(dedupe by lowercased ``name + state + postcode``). That gives us a
-zero-code path to periodic refreshes — every ~6 months drop in a fresh
-JSON export sourced from a permissively-licensed dataset (e.g. Matthew
-Proctor's Australian postcodes, CC BY 4.0 — attribution required in
-Legal → Data credits) and no code change is needed.
+The default JSON overlay shipped alongside this file
+(``suburbs_extra.json``) contains ~17,900 Australian localities
+sourced from Matthew Proctor's ``australian_postcodes`` dataset
+(https://www.matthewproctor.com/australian_postcodes), which is
+licensed **Creative Commons Attribution 4.0**. Attribution must
+appear in the FriendPlace legal/data-credits page:
+
+    "Suburb & locality data © Matthew Proctor, licensed under
+     Creative Commons Attribution 4.0 International (CC BY 4.0)."
+
+Refreshing
+──────────
+To pick up new suburbs / boundary changes, re-download the source
+CSV and regenerate the JSON overlay:
+
+    curl -sSL -o /tmp/aus_pc.csv \\
+        "https://www.matthewproctor.com/Content/postcodes/australian_postcodes.csv"
+    python /tmp/build_suburbs_extra.py    # generator lives in /tmp for now
+
+No code change is required — the loader below merges any
+``suburbs_extra.json`` file present next to this module (dedupe by
+lowercased ``name + state + postcode``). A ~6-monthly refresh is a
+sensible cadence.
 
 Expected JSON shape:
 
@@ -22,9 +38,6 @@ Expected JSON shape:
        "lat": -33.6928, "lng": 150.8683},
       ...
     ]
-
-Each row: (name, postcode, state, lat, lng). Hand-picked for coverage of the
-audience FriendPlace targets. Easy to extend.
 """
 from __future__ import annotations
 

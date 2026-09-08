@@ -47,7 +47,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
-import { useGeorgeVoice, VOICE_LABELS } from "@/src/lib/george-voice";
+import { useGeorgeVoice, VOICE_LABELS, hasChosenCompanion, type GeorgeVoice } from "@/src/lib/george-voice";
 
 // FriendPlace teal butterfly — the primary brand mark for every step
 // header. Using the app icon so the artwork stays consistent with the
@@ -202,10 +202,32 @@ export default function OnboardingWizard() {
   // voice the member picked in Accessibility. No new state, no
   // separate migration — the hook subscribes to the same store.
   // (Launch-polish 2026-08-14, follow-up to Session 2.)
-  const { voice } = useGeorgeVoice();
+  const { voice: savedVoice } = useGeorgeVoice();
+
+  // ── Random tour host (TestFlight 1028, Garry, Sep 2026) ───────────
+  // The onboarding tour is delivered by a randomly chosen host — either
+  // George or Georgia — so first-time members don't always meet the
+  // same companion. The pick is made ONCE per onboarding session and
+  // kept in local state so every step of the tour uses the same voice.
+  // On the final "You're all set!" screen we then hand off to the
+  // member's saved companion when — and only when — they've explicitly
+  // chosen one already (see `hasChosenCompanion` in george-voice.ts).
+  const [tourHost] = useState<GeorgeVoice>(() =>
+    Math.random() < 0.5 ? 'george' : 'georgia',
+  );
+  const [chosenBefore, setChosenBefore] = useState(false);
+  useEffect(() => {
+    void hasChosenCompanion().then(setChosenBefore);
+  }, []);
+  const voice = tourHost;                       // tour speaks as this
   const companionName = VOICE_LABELS[voice].short;             // "George" | "Georgia"
   const companionUpper = companionName.toUpperCase();           // "GEORGE" | "GEORGIA"
   const otherName = voice === 'george' ? 'Georgia' : 'George';
+  const savedCompanionShort = VOICE_LABELS[savedVoice]?.short || 'George';
+  // Only announce a handoff when the tour host differs from the
+  // member's PRE-CHOSEN companion. Never invent a preference just to
+  // trigger a handoff (Garry's explicit rule).
+  const showHandoff = chosenBefore && savedVoice !== tourHost;
 
   const [step, setStep] = useState(0);
   const [interests, setInterests] = useState<string[]>([]);
@@ -313,10 +335,12 @@ export default function OnboardingWizard() {
     // very first time the member opens the app after onboarding.
     // See `GeorgeButterfly.pickReturningGreeting`.
     AsyncStorage.setItem(GEORGIA_HINT_FLAG, '1').catch(() => {});
-    // Auto-redirect after a warm beat so members have time to read
-    // George's closing line but aren't left staring at a static
-    // screen. ~5.5s reads comfortably on the celebration bubble.
-    setTimeout(goHome, 5500);
+    // TestFlight 1028 (Garry, Sep 2026 — P0 tour timing): the
+    // celebration screen previously auto-dismissed after 5.5s which
+    // cut George/Georgia's closing line off on some devices and made
+    // slower readers feel rushed. It now stays put until the member
+    // taps "Tap to continue" (or the whole screen, see the Pressable
+    // wrapper on the render side). Audio can also finish uninterrupted.
   };
 
   const canNext = step < STEP_COUNT - 1 ? true : true; // interests step allows 0-selected
@@ -371,17 +395,40 @@ export default function OnboardingWizard() {
             <Text style={{ color: "#0A2540", fontSize: 15 * scale, fontWeight: "700", lineHeight: 22 }}>
               {"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces.\n\nAnd remember\u2026 I\u2019m only ever a butterfly tap away. \uD83E\uDD8B"}
             </Text>
+            {showHandoff ? (
+              <Text
+                testID="onb-celebrate-handoff"
+                style={{ color: "#0F766E", fontSize: 15 * scale, fontWeight: "800", lineHeight: 22, marginTop: 12 }}
+              >
+                {`That\u2019s the tour from me \u2014 ${savedCompanionShort} will be around whenever you feel like a chat. \uD83D\uDC4B`}
+              </Text>
+            ) : null}
           </View>
 
-          <ActivityIndicator size="small" color="#FFFFFF" style={{ marginTop: 24 }} />
+          {/* Whole-screen tap target so members can tap anywhere to
+              continue. The dedicated "Tap to continue" pill sits at
+              the bottom for members who look for it. */}
         </View>
         <Pressable
+          testID="onb-celebrate-continue"
           onPress={goHome}
           accessibilityLabel="Continue to Home"
-          hitSlop={12}
-          style={{ alignSelf: "center", paddingVertical: 12 }}
+          accessibilityRole="button"
+          hitSlop={16}
+          style={({ pressed }) => ({
+            alignSelf: "center",
+            paddingVertical: 14,
+            paddingHorizontal: 26,
+            marginBottom: 12,
+            borderRadius: 999,
+            backgroundColor: pressed ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.10)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.55)",
+          })}
         >
-          <Text style={{ color: "rgba(255,255,255,0.75)", fontWeight: "700", fontSize: 14 * scale }}>Tap to continue</Text>
+          <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 15 * scale }}>
+            Tap to continue →
+          </Text>
         </Pressable>
       </View>
     );

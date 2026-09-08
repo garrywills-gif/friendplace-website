@@ -19,6 +19,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export type GeorgeVoice = 'george' | 'georgia';
 
 const STORAGE_KEY = '@friendplace/george_voice';
+// Set when the member has EXPLICITLY chosen a companion (via
+// Settings → Accessibility → Voice). Read by the onboarding tour so
+// that a random tour host only announces a handoff to the saved
+// companion when the member has actually made a choice — Garry's rule
+// ("If they haven't chosen an everyday companion yet, don't invent
+// one just for the handoff", Sep 2026).
+const CHOSEN_FLAG_KEY = '@friendplace/george_voice_chosen';
 export const DEFAULT_VOICE: GeorgeVoice = 'george';
 
 // In-memory cache — synchronously readable by `getVoiceSync()` so
@@ -54,11 +61,13 @@ export async function getVoice(): Promise<GeorgeVoice> {
   return hydrateVoice();
 }
 
-/** Persist a new voice preference and notify subscribers. */
+/** Persist a new voice preference, mark the member as having chosen
+ *  it, and notify subscribers. */
 export async function setVoice(next: GeorgeVoice): Promise<void> {
   _cached = next;
   try {
     await AsyncStorage.setItem(STORAGE_KEY, next);
+    await AsyncStorage.setItem(CHOSEN_FLAG_KEY, '1');
   } catch {
     // Non-fatal — the in-memory cache is still updated, so the
     // preference sticks for this session at least.
@@ -66,6 +75,18 @@ export async function setVoice(next: GeorgeVoice): Promise<void> {
   _listeners.forEach(fn => {
     try { fn(next); } catch { /* one bad listener shouldn't kill the rest */ }
   });
+}
+
+/** Has the member explicitly chosen a companion voice, or are we
+ *  still on the app-wide default? Used by the onboarding tour to
+ *  decide whether a random tour host should hand off to a "saved"
+ *  companion at the end of the flow. */
+export async function hasChosenCompanion(): Promise<boolean> {
+  try {
+    return (await AsyncStorage.getItem(CHOSEN_FLAG_KEY)) === '1';
+  } catch {
+    return false;
+  }
 }
 
 /** Subscribe to changes. Returns an unsubscribe function. */

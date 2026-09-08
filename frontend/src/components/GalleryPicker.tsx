@@ -28,6 +28,7 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Linking,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
@@ -88,20 +89,40 @@ export default function GalleryPicker({ visible, onClose, onPick, currentValue, 
   const pickFromDevice = useCallback(async () => {
     setUploading(true);
     try {
+      // Ask the OS. On iOS the sheet appears the first time; on
+      // subsequent taps `canAskAgain` may be false when the member
+      // previously denied — surface a clear next step in that case.
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
         if (perm.canAskAgain === false) {
           Alert.alert(
             "Photo permission needed",
-            "Please allow FriendPlace to access your photo library from Settings.",
+            "FriendPlace can't open your photo library. Turn it back on in Settings → FriendPlace → Photos, then try again.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Open Settings", onPress: () => Linking.openSettings() },
+            ],
+          );
+        } else {
+          // First-time deny — let the member know why nothing opened.
+          Alert.alert(
+            "Photo permission needed",
+            "FriendPlace needs access to your photos to attach one to your post. Tap 'Upload your own' again and choose Allow.",
           );
         }
         return;
       }
+      // TestFlight 1028 (Garry, Sep 2026 — P0 photo pickers):
+      //   • ``MediaTypeOptions.Images`` is deprecated in
+      //     expo-image-picker ≥15 and returns undefined on some iOS
+      //     builds — modern API is the array form ``["images"]``.
+      //   • ``allowsEditing: true`` + a forced ``aspect`` ratio was
+      //     silently failing on iOS 17+, returning a cancelled result
+      //     with no error. Cropping is now user-driven and the aspect
+      //     lock is removed so the picker always presents.
       const r = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         allowsEditing: true,
-        aspect: [3, 2],
         quality: 0.6,
         base64: true,
       });
@@ -113,6 +134,11 @@ export default function GalleryPicker({ visible, onClose, onPick, currentValue, 
       } else if (asset.uri) {
         onPick(asset.uri);
         onClose();
+      } else {
+        Alert.alert(
+          "Couldn't attach that photo",
+          "The image came through empty. Please try picking it again.",
+        );
       }
     } catch (e) {
       // eslint-disable-next-line no-console

@@ -118,7 +118,9 @@ CONTEXT
   • Never invent a name. If you catch yourself about to write a name that isn't in KNOWN, remove it.
 
 RULES
-  1. START WARMLY on your first turn: acknowledge that the member said yes to getting to know each other, and open with "Let's start with something easy. What would you like me to call you?" (or a close natural variant).
+  1. START WARMLY on your first turn:
+     • If KNOWN contains `signup_first_name` (the name the member gave at signup) and NOT `preferred_name`, greet them by that name and offer it as the default — e.g. *"Hi {signup_first_name} — lovely to meet you! Would you like me to call you {signup_first_name}, or something else?"* (or a close natural variant). If they confirm the same name (or a variant / shortening of it) accept it into `preferred_name`.
+     • If KNOWN does NOT contain `signup_first_name`, acknowledge that the member said yes to getting to know each other, and open with "Let's start with something easy. What would you like me to call you?" (or a close natural variant).
   2. ACKNOWLEDGE the member's last reply naturally, in one short line, before asking anything new.
   3. NEVER re-ask a field that's already known or skipped.
   4. NEVER ask for: age, DOB, identity/demographic info, full address, relationship status, health.
@@ -339,6 +341,28 @@ async def start_or_resume_onboarding(db: Any, *, actor_id: str) -> dict:
         return existing
     session_id = str(uuid.uuid4())
     known: dict = {}
+    # ── Seed KNOWN with the signup first name (TestFlight 1028,
+    # Garry, Sep 2026 — "Welcome Brad" bug) ─────────────────────
+    # Onboarding used to open with "What would you like me to call
+    # you?" every time — but when a member has already given us
+    # their name at signup we ought to offer it as the default
+    # rather than pretending we don't know. We store the signup
+    # first name under a distinct key (``signup_first_name``) so
+    # the memory pipeline still treats ``preferred_name`` as the
+    # explicit member choice — no change to memory architecture,
+    # just extra context for the composer prompt to use.
+    try:
+        u = await db["users"].find_one({"id": actor_id}, {"_id": 0, "first_name": 1})
+        sname = (u or {}).get("first_name")
+        if isinstance(sname, str) and sname.strip():
+            known["signup_first_name"] = {
+                "value": sname.strip(),
+                "source": "signup",
+            }
+    except Exception:
+        # Never let a name lookup block the session. Fallback UX
+        # is the generic "What would you like me to call you?".
+        pass
     skipped: list = []
     turns: list = []
     composed = await _compose(known, turns, skipped, is_first=True)
