@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Pressable, ScrollView, TextInput,
   ActivityIndicator, Platform, Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GeorgeButterflyMark } from './GeorgeButterflyMark';
@@ -85,16 +86,53 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
   // (Garry, 27 July 2026): route through the cloud persona voice so
   // members hear the SAME voice the Speaker (▶︎) button uses, and so
   // the clip plays even when the iOS ringer switch is muted.
-  const spokenIdxRef = useRef<number>(-1);
+  //
+  // TestFlight round-6 (Garry, 10 Aug 2026 Batch B #1) — "old
+  // George/Georgia replies are spoken again when reopening the chat".
+  // Root cause: the effect below only tracked a per-mount ref, so on a
+  // fresh mount the ref reset to -1 and the very last George turn from
+  // the resumed onboarding session got auto-spoken every reopen.
+  //
+  // Fix: mirror the persistent per-session_id cursor pattern used in
+  // GeorgeEventCreation. On boot we load the cursor for THIS session
+  // and only speak when the current turn count is greater. On send /
+  // reset we persist the new count so subsequent reopens stay silent
+  // on already-heard turns.
+  const AUTO_READ_STORE_KEY = '@george.onboarding.autoread.cursor.v1';
+  const autoReadCursorRef = useRef<number>(0);
+  const persistAutoReadCursor = useCallback(async (sid: string | null, count: number) => {
+    if (!sid) return;
+    try {
+      const raw = await AsyncStorage.getItem(AUTO_READ_STORE_KEY);
+      const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+      map[sid] = count;
+      // Bound the map so it doesn't grow forever — keep the last 30.
+      const keys = Object.keys(map);
+      if (keys.length > 30) {
+        for (const k of keys.slice(0, keys.length - 30)) delete map[k];
+      }
+      await AsyncStorage.setItem(AUTO_READ_STORE_KEY, JSON.stringify(map));
+    } catch { /* non-fatal */ }
+  }, []);
+  const loadAutoReadCursor = useCallback(async (sid: string): Promise<number> => {
+    try {
+      const raw = await AsyncStorage.getItem(AUTO_READ_STORE_KEY);
+      const map: Record<string, number> = raw ? JSON.parse(raw) : {};
+      return typeof map[sid] === 'number' ? map[sid] : 0;
+    } catch { return 0; }
+  }, []);
+
   useEffect(() => {
     if (!prefs?.autoReadNewMessages) return;
-    const last = turns.length - 1;
-    if (last <= spokenIdxRef.current) return;
-    const t = turns[last];
-    if (!t || t.role !== 'george' || !t.content?.trim()) return;
-    spokenIdxRef.current = last;
-    void speakGeorgeAloud(t.content);
-  }, [turns, prefs?.autoReadNewMessages]);
+    if (!sessionId) return;
+    // Only speak when new turns have arrived past our persisted cursor.
+    if (turns.length <= autoReadCursorRef.current) return;
+    const last = turns[turns.length - 1];
+    if (!last || last.role !== 'george' || !last.content?.trim()) return;
+    autoReadCursorRef.current = turns.length;
+    void persistAutoReadCursor(sessionId, turns.length);
+    void speakGeorgeAloud(last.content);
+  }, [turns, prefs?.autoReadNewMessages, sessionId, persistAutoReadCursor]);
 
   // Stop any in-flight speech when the screen unmounts so a
   // half-spoken bubble doesn't linger after the user leaves.
@@ -104,6 +142,12 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     (async () => {
       try {
         const s = await georgeApi.onboardingStart();
+        // Load auto-read cursor for THIS session BEFORE state commits.
+        // Fresh session (no persisted entry) starts at 0 so the opener
+        // gets spoken once and then the cursor advances.
+        try {
+          autoReadCursorRef.current = await loadAutoReadCursor(s.session_id);
+        } catch { autoReadCursorRef.current = 0; }
         setSessionId(s.session_id);
         setTurns(s.turns || []);
         setStatus(s.status || 'in_progress');
@@ -112,7 +156,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
         setTurns([{ role: 'george', content: "Sorry \u2014 I couldn't quite connect. Give it a moment and try again?" }]);
       } finally { setBusy(false); }
     })();
-  }, []);
+  }, [loadAutoReadCursor]);
 
   useEffect(() => {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
@@ -201,7 +245,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
       setStatus(s.status || 'in_progress');
       setKnown(s.known || {});
       setInput('');
-      spokenIdxRef.current = -1;
+      autoReadCursorRef.current = 0;
       stopGeorgeAutoRead();
     } catch {
       setTurns(x => [...x, { role: 'george', content: "I couldn\u2019t quite start us over — give it a moment and try again?" }]);

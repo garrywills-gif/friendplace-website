@@ -136,7 +136,18 @@ export default function DM() {
     (async () => {
       const msgs = await api.dmMessages(id);
       setMessages(msgs);
-      if (other_id) try { setOther(await api.getUser(other_id)); } catch {}
+      // Batch B (Garry, 10 Aug 2026 #2) — DM header must ALWAYS show the
+      // other member's name. When the caller passed us an explicit
+      // `other_id` we use that; otherwise we derive it from the first
+      // message whose author isn't us. Falling back this way means push-
+      // notification deep links and legacy links that only carry the
+      // conversation id still land on a fully-labelled header.
+      let peerId: string | undefined = other_id;
+      if (!peerId && Array.isArray(msgs)) {
+        const peerMsg = msgs.find((m: any) => m && m.user_id && m.user_id !== user.id);
+        if (peerMsg) peerId = peerMsg.user_id;
+      }
+      if (peerId) try { setOther(await api.getUser(peerId)); } catch {}
       // Mark this conversation as read the moment we open it so the tab
       // badge + list unread count drop to zero. Best-effort — a network
       // hiccup here shouldn't block the chat itself from loading.

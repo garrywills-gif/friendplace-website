@@ -157,21 +157,47 @@ export default function Events() {
   // eyeball ("is this in my area?"). If the user has no suburb set
   // we surface a friendly nudge to add it — see the empty-state
   // handling in the list below.
-  type FilterKey = "all" | "today" | "this_week" | "this_weekend" | "this_month" | "near_me";
+  type FilterKey = "all" | "today" | "this_week" | "this_weekend" | "next_week" | "this_month" | "near_me";
   const filterOptions: { value: FilterKey; label: string }[] = useMemo(() => ([
     { value: "all",           label: "All upcoming" },
     { value: "today",         label: "Today" },
     { value: "this_week",     label: "This week" },
     { value: "this_weekend",  label: "This weekend" },
+    { value: "next_week",     label: "Next week" },
     { value: "this_month",    label: "This month" },
     { value: "near_me",       label: "Near me" },
   ]), []);
   const [filter, setFilter] = useState<FilterKey>("all");
+  // Batch B (Garry, 10 Aug 2026 #4) — search box above the filter pills.
+  // Case-insensitive substring match across title, description,
+  // location, venue name, venue address, host name, and organiser tags
+  // so members can find "coffee", "walk", "book club", or a suburb like
+  // "Manly" without needing exact wording.
+  const [query, setQuery] = useState<string>("");
 
   const visibleEvents = useMemo(() => {
-    if (filter === "all") return events;
-    return events.filter((e) => matchesEventFilter(e, filter, user));
-  }, [events, filter, user]);
+    const q = query.trim().toLowerCase();
+    let list = events;
+    if (filter !== "all") {
+      list = list.filter((e) => matchesEventFilter(e, filter, user));
+    }
+    if (q) {
+      list = list.filter((e) => {
+        const hay = [
+          e?.title,
+          e?.description,
+          e?.location,
+          e?.venue_name,
+          e?.venue_address,
+          e?.host_name,
+          Array.isArray(e?.tags) ? e.tags.join(" ") : "",
+          Array.isArray(e?.interests) ? e.interests.join(" ") : "",
+        ].filter(Boolean).join(" ").toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    return list;
+  }, [events, filter, user, query]);
 
   const setRsvp = async (e: any, resp: "going" | "maybe" | "cant") => {
     if (!user) return;
@@ -197,6 +223,39 @@ export default function Events() {
         <Ionicons name="add-circle" size={20} color="#FFF" />
         <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Host a new event</Text>
       </Pressable>
+
+      {/* Batch B (Garry, 10 Aug 2026 #4) — pinned search box above the
+          filter pills. Wraps the input in a rounded pill with a leading
+          magnifier and a trailing clear (×) affordance so members can
+          reset the query without clearing the field character-by-character. */}
+      <View style={{ marginHorizontal: 16, marginTop: 10 }}>
+        <View style={[styles.searchPill, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <Ionicons name="search" size={16} color={c.muted} />
+          <TextInput
+            testID="event-search-input"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search events, suburbs, hosts…"
+            placeholderTextColor={c.muted}
+            style={[styles.searchInput, { color: c.onSurface, fontSize: 14 * scale }]}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <Pressable
+              testID="event-search-clear"
+              onPress={() => setQuery("")}
+              hitSlop={8}
+              style={{ padding: 2 }}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
+              <Ionicons name="close-circle" size={18} color={c.muted} />
+            </Pressable>
+          )}
+        </View>
+      </View>
 
       {/* Filter pills — Garry, 2 Aug 2026: PINNED above the list so
           "Today / This week / This month / All upcoming" always stay
@@ -237,7 +296,7 @@ export default function Events() {
         keyExtractor={(e) => e.id}
         contentContainerStyle={{ padding: 16, gap: 12 }}
         ListEmptyComponent={
-          <EventsEmptyState filter={filter} user={user} onClearFilter={() => setFilter("all")} c={c} scale={scale} />
+          <EventsEmptyState filter={filter} query={query} user={user} onClearFilter={() => setFilter("all")} onClearQuery={() => setQuery("")} c={c} scale={scale} />
         }
         ListHeaderComponent={
           <View style={{ marginBottom: 8 }}>
@@ -974,6 +1033,20 @@ function matchesEventFilter(e: any, key: string, user: any): boolean {
       nextMonday.setDate(nextMonday.getDate() + 7);
       return eventDate >= monday && eventDate < nextMonday;
     }
+    case "next_week": {
+      // Batch B (Garry, 10 Aug 2026 #4) — next Monday 00:00 → the
+      // Monday after (7 days later). Sunday-of-this-week (getDay===0)
+      // is folded back to 7 so the calculation always anchors on
+      // Monday-of-this-week, exactly like "this_week" above.
+      const dow = now.getDay() === 0 ? 7 : now.getDay();
+      const thisMonday = new Date(startOfToday);
+      thisMonday.setDate(thisMonday.getDate() - (dow - 1));
+      const nextMonday = new Date(thisMonday);
+      nextMonday.setDate(nextMonday.getDate() + 7);
+      const mondayAfter = new Date(nextMonday);
+      mondayAfter.setDate(mondayAfter.getDate() + 7);
+      return eventDate >= nextMonday && eventDate < mondayAfter;
+    }
     case "this_weekend": {
       // Saturday 00:00 → Monday 00:00 (whichever weekend is upcoming
       // from *today*: if today is Mon-Fri, use this coming Sat/Sun;
@@ -1018,19 +1091,28 @@ function matchesEventFilter(e: any, key: string, user: any): boolean {
    ------------------------------------------------------------------ */
 
 function EventsEmptyState({
-  filter, user, onClearFilter, c, scale,
+  filter, query, user, onClearFilter, onClearQuery, c, scale,
 }: {
   filter: string;
+  query: string;
   user: any;
   onClearFilter: () => void;
+  onClearQuery: () => void;
   c: any;
   scale: number;
 }) {
   const router = useRouter();
   const suburb = (user?.suburb || "").toString().trim();
   const needsSuburb = filter === "near_me" && !suburb;
+  const hasQuery = (query || "").trim().length > 0;
 
   const copy: { emoji: string; title: string; body: string; cta?: { label: string; onPress: () => void } } =
+    hasQuery ? {
+      emoji: "🔎",
+      title: `No matches for "${query.trim()}"`,
+      body: "Try a different keyword, a nearby suburb, or clear the search to see everything.",
+      cta: { label: "Clear search", onPress: onClearQuery },
+    } :
     needsSuburb ? {
       emoji: "📍",
       title: "Add your suburb to see nearby events",
@@ -1055,6 +1137,11 @@ function EventsEmptyState({
       emoji: "🗓️",
       title: "Nothing on this week",
       body: "Have a look further ahead or plant the seed by posting your own event.",
+      cta: { label: "See all upcoming", onPress: onClearFilter },
+    } : filter === "next_week" ? {
+      emoji: "📆",
+      title: "Nothing on next week yet",
+      body: "The diary's still open — how about starting a coffee, walk, or catch-up for next week?",
       cta: { label: "See all upcoming", onPress: onClearFilter },
     } : filter === "this_month" ? {
       emoji: "📅",
@@ -1086,6 +1173,21 @@ function EventsEmptyState({
 
 const styles = StyleSheet.create({
   card: { borderRadius: 18, padding: 14, borderWidth: 1, gap: 10 },
+  // Batch B (Garry, 10 Aug 2026 #4) — Local Events search pill.
+  searchPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === "ios" ? 10 : 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 0,
+    minHeight: 22,
+  },
   // alignItems: "flex-start" so multi-line event details (title + date +
   // location on three lines) don't vertically-centre the SpeakButton /
   // Edit column against the middle of the writing — previously the

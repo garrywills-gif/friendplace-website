@@ -268,6 +268,14 @@ export default function Settings() {
           <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 17 * scale }}>Terms of Use</Text>
           <Text style={{ color: c.muted, fontSize: 18 * scale }}>›</Text>
         </Pressable>
+        <Pressable
+          testID="settings-credits"
+          onPress={() => router.push("/legal/credits")}
+          style={[styles.linkRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+        >
+          <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 17 * scale }}>Data & Credits</Text>
+          <Text style={{ color: c.muted, fontSize: 18 * scale }}>›</Text>
+        </Pressable>
 
         {/* ─── Account deletion — store-mandated, kept separate from the
             normal Sign Out so it can't be tapped by accident. Red border +

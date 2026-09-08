@@ -140,6 +140,35 @@ function UndoSnack({
   );
 }
 
+/**
+ * Unread badge pill with a "new message just arrived" pulse.
+ *
+ * When the numeric `count` grows between renders, the pill briefly
+ * scales up (1 → 1.3) and back to draw the eye — the same visual
+ * heartbeat iMessage / WhatsApp use for freshly-arrived messages
+ * (Batch B, Garry 10 Aug 2026 #3). If `count` shrinks or stays the
+ * same, no animation runs, so a background reconcile that returns
+ * the same value doesn't cause a phantom pulse.
+ */
+function UnreadPill({ count, brand }: { count: number; brand: string }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const prev = useRef<number>(count);
+  React.useEffect(() => {
+    if (count > prev.current) {
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 1.3, duration: 160, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, friction: 3.5, tension: 140, useNativeDriver: true }),
+      ]).start();
+    }
+    prev.current = count;
+  }, [count, scale]);
+  return (
+    <Animated.View style={[styles.unreadPill, { backgroundColor: brand, transform: [{ scale }] }]}>
+      <Text style={styles.unreadText}>{count > 99 ? "99+" : count}</Text>
+    </Animated.View>
+  );
+}
+
 export default function Chats() {
   const { c, scale } = useTheme();
   const { user } = useAuth();
@@ -605,9 +634,7 @@ export default function Chats() {
                     {ts}
                   </Text>
                   {unread > 0 ? (
-                    <View style={[styles.unreadPill, { backgroundColor: c.brand }]}>
-                      <Text style={styles.unreadText}>{unread > 99 ? "99+" : unread}</Text>
-                    </View>
+                    <UnreadPill count={unread} brand={c.brand} />
                   ) : (
                     <Ionicons name="chevron-forward" size={18} color={c.muted} style={{ marginTop: 6 }} />
                   )}
