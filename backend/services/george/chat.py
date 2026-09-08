@@ -78,6 +78,11 @@ FLYER AUTHORING (dedicated planner rule \u2014 iter158):
 - Known template keys and matching phrases: `founding_member_invite` (Founding Member Invite / founding member / member invite), `community_notice` (Community Notice / community notice / general notice / noticeboard).
 - Field mapping heuristics: if Garry names a venue or host ("for the Kellyville Library", "at Bella Vista Community Hub"), pass it as `field_values.venue`; if he names a URL, pass it as `field_values.url`. Layouts are named after paper sizes: "A3", "A4 poster", "A5 flyer", "A5 x 2 up", "A5 x 4 up" \u2192 `poster_a3`, `poster_a4`, `flyer_a5`, `flyer_a5_2up_a4`, `flyer_a5_4up_a3`.
 
+BROAD STATUS / OVERVIEW (dedicated planner rule -- iter164bf):
+- For BROAD, whole-operation status questions -- "how's everything going?", "how are things?", "how are we doing?", "what's the latest?", "give me an overview / the rundown", "anything I should know?", "how's it all looking?" -- you MUST call the SINGLE tool `mission_control_overview` (no args). Do NOT fan out into several count_* tools, and NEVER return empty tool_calls for these. That one tool returns registrations, the Bridge + Signal Feed alerts, campaign performance + failures, and the inbox in one shot.
+- If the question instead names a SPECIFIC area (a registrations count, one campaign, the Bridge workload, replies), use that area's specific tool -- not the overview.
+
+
 MANDATORY FRESH-CALL RULES (operational state changes constantly \u2014 stale numbers are unacceptable):
 - ANY question about the CURRENT state of tickets, signals, cases, events, members, organisations, submissions, or reports \u2014 whether it's the first time or the fifth time in the conversation \u2014 MUST invoke a fresh `count_*` (or `list_*`) tool this turn. Never rely on a number from earlier in the recent conversation.
 - Follow-up phrasings like "what about now?", "any change?", "still 23?", "recount", "recheck", "refresh", "again please", "how many left?", "any resolved?" \u2014 always re-invoke the same count tool. Empty `tool_calls` is FORBIDDEN for these.
@@ -652,6 +657,14 @@ def _upgrade_count_to_summary_for_richness(plan: dict, user_message: str) -> Non
 # Words / phrases that clearly signal "tell me the CURRENT state".
 _STATE_QUESTION_RE = re.compile(
     r"\b("
+    r"how(?:'s| is| are|s)?\s+(?:everything|things|it all|we all)|"
+    r"how(?:'s| is)?\s+it (?:going|looking|all going)|"
+    r"how are (?:we|things) (?:doing|going|tracking|looking)|"
+    r"how(?:'s| is)? the (?:business|operation|community|whole thing)|"
+    r"give me (?:an? |the )?(?:overview|rundown|status|update|picture|summary)|"
+    r"status (?:update|check|report)|overview|the rundown|big picture|"
+    r"what(?:'s| is)? (?:the )?(?:latest|situation|overview|going on|happening)|"
+    r"anything (?:i should know|urgent|to worry|on fire|important)|"
     r"how many|current|latest|right now|now\?|at the moment|as of now|"
     r"any change|still|recount|recheck|refresh|update(?:d)?|again please|"
     r"any left|still open|still active|open right now|any resolved|"
@@ -779,6 +792,44 @@ _TOPIC_TO_TOOL = [
     ("waiting on us for",   {"name": "list_stale_replies", "args": {"days": 7}}),
     ("been waiting a week", {"name": "list_stale_replies", "args": {"days": 7}}),
     ("been waiting for a week", {"name": "list_stale_replies", "args": {"days": 7}}),
+    # iter164bf: BROAD whole-operation status questions. These sit LAST so
+    # any specific topic above wins first-match — only a genuinely broad
+    # "how's everything going?"-style question (with no specific topic
+    # keyword) falls through to the one-shot Chief-of-Staff overview.
+    ("how's everything",   {"name": "mission_control_overview", "args": {}}),
+    ("hows everything",    {"name": "mission_control_overview", "args": {}}),
+    ("how is everything",  {"name": "mission_control_overview", "args": {}}),
+    ("everything going",   {"name": "mission_control_overview", "args": {}}),
+    ("everything ok",      {"name": "mission_control_overview", "args": {}}),
+    ("how are things",     {"name": "mission_control_overview", "args": {}}),
+    ("how's things",       {"name": "mission_control_overview", "args": {}}),
+    ("hows things",        {"name": "mission_control_overview", "args": {}}),
+    ("how are we doing",   {"name": "mission_control_overview", "args": {}}),
+    ("how are we going",   {"name": "mission_control_overview", "args": {}}),
+    ("how's it going",     {"name": "mission_control_overview", "args": {}}),
+    ("hows it going",      {"name": "mission_control_overview", "args": {}}),
+    ("how's it all going", {"name": "mission_control_overview", "args": {}}),
+    ("how's it looking",   {"name": "mission_control_overview", "args": {}}),
+    ("hows it looking",    {"name": "mission_control_overview", "args": {}}),
+    ("give me an overview",{"name": "mission_control_overview", "args": {}}),
+    ("give me the rundown",{"name": "mission_control_overview", "args": {}}),
+    ("give me a status",   {"name": "mission_control_overview", "args": {}}),
+    ("give me a summary",  {"name": "mission_control_overview", "args": {}}),
+    ("status update",      {"name": "mission_control_overview", "args": {}}),
+    ("overview",           {"name": "mission_control_overview", "args": {}}),
+    ("the rundown",        {"name": "mission_control_overview", "args": {}}),
+    ("what's the latest",  {"name": "mission_control_overview", "args": {}}),
+    ("whats the latest",   {"name": "mission_control_overview", "args": {}}),
+    ("what's the situation",{"name": "mission_control_overview", "args": {}}),
+    ("what's happening",   {"name": "mission_control_overview", "args": {}}),
+    ("whats happening",    {"name": "mission_control_overview", "args": {}}),
+    ("what's going on",    {"name": "mission_control_overview", "args": {}}),
+    ("anything i should know", {"name": "mission_control_overview", "args": {}}),
+    ("anything urgent",    {"name": "mission_control_overview", "args": {}}),
+    ("big picture",        {"name": "mission_control_overview", "args": {}}),
+    ("how's the business", {"name": "mission_control_overview", "args": {}}),
+    ("how's the operation",{"name": "mission_control_overview", "args": {}}),
+    ("how's the community",{"name": "mission_control_overview", "args": {}}),
 ]
 
 

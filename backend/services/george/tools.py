@@ -648,8 +648,124 @@ async def _founding_members_conversion(db: Any, args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Placeholders that honestly say "not yet built"
+# Chief-of-Staff one-shot overview (iter164bf)
 # ---------------------------------------------------------------------------
+
+@register(
+    "mission_control_overview",
+    "ONE-SHOT executive overview of the whole Mission Control operation — the single "
+    "tool to call for BROAD status questions like 'how's everything going?', 'how are "
+    "things?', 'give me an overview', 'what's the latest?', 'how are we doing?', "
+    "'anything I should know?'. Returns LIVE data in one shot: founding-member "
+    "registrations (total, new_today, awaiting_invitation, invited, joined, opted_out, "
+    "most_recent), the Bridge workload + Signal Feed alerts, recent campaign performance "
+    "and any campaigns with FAILED sends, the inbox (new contact enquiries + "
+    "unread/awaiting/stale replies), and a derived `attention` list of anything "
+    "high-priority, overdue or abnormal. ALWAYS prefer this single tool over calling "
+    "several count_* tools for a general status question. Test-flagged rows excluded.",
+    args={},
+)
+async def _mission_control_overview(db: Any, args: dict) -> dict:  # noqa: ARG001
+    from ..crm.founding_stats import compute_founding_members_stats
+    from services.mcgs import compute_bridge_summary
+    from services.replies.store import (
+        unread_count as _ru,
+        awaiting_count as _aw,
+        stale_reply_count as _sr,
+    )
+
+    fm = await compute_founding_members_stats(db)
+    bridge = await compute_bridge_summary(db)
+
+    # Inbox / enquiries needing attention.
+    enquiries_new = await db["contact_submissions"].count_documents({
+        "is_test": {"$ne": True},
+        "archived_at": None,
+        "$or": [
+            {"status": "new"},
+            {"status": {"$in": [None, ""]}},
+            {"status": {"$exists": False}},
+        ],
+    })
+    replies_unread   = int(await _ru(db))
+    replies_awaiting = int(await _aw(db))
+    replies_stale    = int(await _sr(db, days=7))
+
+    # Campaigns — most recent send + any campaign with failed sends.
+    camp_rows = await db.campaigns.find(
+        {"is_test": {"$ne": True}}, {"_id": 0}
+    ).sort([("sent_at", -1), ("created_at", -1)]).to_list(15)
+    recent_campaign = None
+    campaigns_with_failures: list[dict] = []
+    for r in camp_rows:
+        summ = _summarise_campaign(r)
+        failed = int((r.get("stats") or {}).get("failed") or 0)
+        if recent_campaign is None and r.get("status") in (
+            "sent", "sending", "partially_sent", "completed"
+        ):
+            recent_campaign = {**summ, "failed": failed}
+        if failed > 0:
+            campaigns_with_failures.append({
+                "id": summ["id"], "title": summ["title"],
+                "status": summ["status"], "accepted": summ["accepted"],
+                "failed": failed,
+            })
+
+    # Compact Bridge view (only categories with open work + alerts).
+    open_categories = [
+        {"label": c["label"], "open": c["open"],
+         "oldest_waiting_seconds": c.get("oldest_waiting_seconds")}
+        for c in (bridge.get("categories") or []) if int(c.get("open") or 0) > 0
+    ]
+    total_actionable = int(bridge.get("total_actionable") or 0)
+    milestones_open = int((bridge.get("milestones") or {}).get("open") or 0)
+
+    # Derived attention list — anything high-priority / overdue / abnormal.
+    attention: list[str] = []
+    if campaigns_with_failures:
+        nfail = sum(c["failed"] for c in campaigns_with_failures)
+        attention.append(
+            f"{nfail} failed campaign send(s) across "
+            f"{len(campaigns_with_failures)} campaign(s)"
+        )
+    if replies_stale:
+        attention.append(f"{replies_stale} reply(ies) waiting more than 7 days")
+    if enquiries_new:
+        attention.append(f"{enquiries_new} new contact enquiry(ies) awaiting a response")
+    if total_actionable:
+        attention.append(f"{total_actionable} item(s) awaiting action on the Bridge")
+
+    return {
+        "founding_members": {
+            "total":                fm.get("total"),
+            "new_today":            fm.get("new_today"),
+            "awaiting_invitation":  fm.get("awaiting_invitation", fm.get("awaiting_contact")),
+            "invited":              fm.get("invited"),
+            "joined":               fm.get("joined"),
+            "opted_out":            fm.get("opted_out"),
+            "most_recent":          fm.get("most_recent"),
+        },
+        "bridge": {
+            "total_actionable":  total_actionable,
+            "open_categories":   open_categories,
+            "signal_alerts_open": milestones_open,
+        },
+        "campaigns": {
+            "most_recent":   recent_campaign,
+            "with_failures": campaigns_with_failures,
+        },
+        "inbox": {
+            "new_enquiries":              int(enquiries_new),
+            "replies_unread":             replies_unread,
+            "replies_awaiting_our_reply": replies_awaiting,
+            "replies_stale_over_7d":      replies_stale,
+        },
+        "attention":        attention,
+        "all_clear":        (len(attention) == 0),
+    }
+
+
+
 
 @register(
     "get_system_health",
