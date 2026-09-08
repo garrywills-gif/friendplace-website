@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import { API_BASE } from '@/lib/api-base';
 import { clearAuth, getToken } from '@/lib/cms-auth';
 
+const CAMPAIGN_SAVED_EVENT = 'friendplace:campaign-saved';
+
 type AudienceRecipient = {
   id?: string | null;
   email: string;
@@ -73,6 +75,15 @@ export function CampaignDeliveryReviewEnhancer(): ReactElement | null {
 
     setCampaignId(campaignIdFromUrl());
 
+    const onCampaignSaved = (event: Event) => {
+      const custom = event as CustomEvent<{ id?: string }>;
+      const id = String(custom.detail?.id || '').trim();
+      if (!id) return;
+      setCampaignId(id);
+      setMessage('✓ Draft saved — personalised review is ready.');
+    };
+    window.addEventListener(CAMPAIGN_SAVED_EVENT, onCampaignSaved as EventListener);
+
     const attach = () => {
       if (cancelled || mountHost) return;
       const iframe = document.querySelector('iframe[title="Campaign preview"]') as HTMLIFrameElement | null;
@@ -92,6 +103,7 @@ export function CampaignDeliveryReviewEnhancer(): ReactElement | null {
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
+      window.removeEventListener(CAMPAIGN_SAVED_EVENT, onCampaignSaved as EventListener);
       mountHost?.remove();
       setHost(null);
     };
@@ -101,7 +113,7 @@ export function CampaignDeliveryReviewEnhancer(): ReactElement | null {
 
   const sendTest = async () => {
     if (!campaignId) {
-      setMessage('Save this draft, then reopen it to send a safe test copy.');
+      setMessage('Save this draft first, then you can send a safe test copy straight away.');
       return;
     }
     setBusy('test');
@@ -121,7 +133,7 @@ export function CampaignDeliveryReviewEnhancer(): ReactElement | null {
 
   const openReview = async () => {
     if (!campaignId) {
-      setMessage('Save this draft, then reopen it to review personalised recipients.');
+      setMessage('Save this draft first, then Review emails will open immediately.');
       return;
     }
     setBusy('review');
@@ -249,6 +261,7 @@ export function CampaignDeliveryReviewEnhancer(): ReactElement | null {
             <>
               <div style={{ padding: '8px 12px', borderBottom: '1px solid #E2E8F0', fontSize: 12, color: '#475569' }}>
                 <strong>To:</strong> {rendered.recipient?.email} &nbsp; · &nbsp; <strong>Subject:</strong> {rendered.subject}
+                {rendered.recipient?.founder_number ? <> &nbsp; · &nbsp; <strong>Founding Member:</strong> #{String(rendered.recipient.founder_number).padStart(4, '0')}</> : null}
                 {rendered.attachment?.filename ? <> &nbsp; · &nbsp; 📎 {rendered.attachment.filename}</> : null}
               </div>
               <iframe title="Personalised campaign recipient review" sandbox="" srcDoc={rendered.html || ''} style={{ width: '100%', height: 'calc(100% - 38px)', border: 0 }} />
