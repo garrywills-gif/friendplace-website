@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "au.com.friendplace.app",
-      "buildNumber": "1029",
+      "buildNumber": "1030",
       "usesAppleSignIn": true,
       "infoPlist": {
         "CFBundleDisplayName": "FriendPlace",
@@ -57,7 +57,7 @@
     },
     "android": {
       "package": "au.com.friendplace.app",
-      "versionCode": 125,
+      "versionCode": 126,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0A2540"
