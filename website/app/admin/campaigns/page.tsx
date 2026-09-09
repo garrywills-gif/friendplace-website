@@ -151,7 +151,7 @@ export default function CampaignsListPage() {
       <div style={headerRow}>
         <div>
           <p style={{ color: '#475569', fontSize: 15, maxWidth: 640, margin: 0 }}>
-            Send updates, invitations and announcements to your Founding Members. Sent campaigns are
+            Send updates, invitations and announcements to members and outreach contacts. Sent campaigns are
             kept as part of your communication history so you can reopen them later and see exactly
             what was sent and how it performed.
           </p>
@@ -190,7 +190,7 @@ export default function CampaignsListPage() {
           <p style={{ color: '#64748B', fontSize: 13, margin: 0 }}>
             {showArchived
               ? 'Archived sent campaigns will appear here and can be restored at any time.'
-              : 'Your first Founding Member Update starts with the button above.'}
+              : 'Your first campaign starts with the button above.'}
           </p>
         </div>
       ) : (
@@ -201,23 +201,25 @@ export default function CampaignsListPage() {
             <div style={{ flex: '0.9 1 0' }}>Status</div>
             <div style={{ flex: '1.4 1 0' }}>Delivery</div>
             <div style={{ flex: '1 1 0' }}>{showArchived ? 'Archived' : 'Sent'}</div>
-            <div style={{ flex: '0 0 86px', textAlign: 'right' }}>Action</div>
+            <div style={{ flex: '0 0 150px', textAlign: 'right' }}>Action</div>
           </div>
           {rows.map(c => {
             const meta = STATUS_META[c.status];
             const total = c.stats?.targeted || 0;
             const accepted = c.stats?.accepted || 0;
             const failed = c.stats?.failed || 0;
+            const outreach = isOutreachCampaign(c);
             return (
               <div key={c.id} style={rowLine}>
                 <Link
-                  href={`/admin/campaigns/${c.id}`}
+                  href={c.status === 'draft' ? `/admin/campaigns/new?id=${c.id}` : `/admin/campaigns/${c.id}`}
                   style={{ ...rowMainLink, textDecoration: 'none', color: 'inherit' }}
                 >
                   <div style={{ flex: '2 1 0', minWidth: 0 }}>
                     <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>{c.name}</div>
                     <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
-                      {c.template === 'announcement' ? 'Founding Member update' :
+                      {outreach ? 'Community / Outreach update' :
+                        c.template === 'announcement' ? 'Founding Member update' :
                         c.template === 'invitation'   ? 'Invitation' :
                         c.template === 'welcome'      ? 'Welcome letter' : c.template}
                       {' · '}signed by {c.companion === 'georgia' ? 'Georgia' : c.companion === 'team' ? 'The FriendPlace Team' : 'George'}
@@ -268,7 +270,7 @@ export default function CampaignsListPage() {
                   </div>
                 </Link>
 
-                <div style={{ flex: '0 0 86px', textAlign: 'right' }}>
+                <div style={{ flex: '0 0 150px', textAlign: 'right' }}>
                   {showArchived ? (
                     <button
                       type="button"
@@ -280,14 +282,23 @@ export default function CampaignsListPage() {
                       {restoringId === c.id ? 'Restoring…' : 'Restore'}
                     </button>
                   ) : c.status === 'draft' ? (
-                    <button
-                      type="button"
-                      onClick={() => setDeleteTarget(c)}
-                      style={deleteBtn}
-                      aria-label={`Delete ${c.name}`}
-                    >
-                      Delete
-                    </button>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                      <Link
+                        href={`/admin/campaigns/new?id=${c.id}`}
+                        style={{ ...editBtn, textDecoration: 'none' }}
+                        aria-label={`Edit ${c.name}`}
+                      >
+                        Edit
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteTarget(c)}
+                        style={deleteBtn}
+                        aria-label={`Delete ${c.name}`}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   ) : c.status === 'sent' || c.status === 'failed' ? (
                     <button
                       type="button"
@@ -382,10 +393,15 @@ export default function CampaignsListPage() {
   );
 }
 
+function isOutreachCampaign(c: Campaign): boolean {
+  const f: any = c.audience_filter || {};
+  return f.audience_kind === 'outreach_contacts' || Boolean(f.outreach?.category);
+}
+
 function describeAudience(c: Campaign): string {
   const f: any = c.audience_filter || {};
 
-  if (f.audience_kind === 'outreach_contacts' || f.outreach?.category) {
+  if (isOutreachCampaign(c)) {
     const category = String(f.outreach?.category || '').trim();
     const categoryLabels: Record<string, string> = {
       library_council: 'Libraries',
@@ -398,18 +414,11 @@ function describeAudience(c: Campaign): string {
       seniors_organisation: 'Seniors Organisations',
       u3a: 'U3A',
     };
-    const label = categoryLabels[category] || category
+    return categoryLabels[category] || category
       .split('_')
       .filter(Boolean)
       .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ') || 'Outreach contacts';
-    const outreachStatus = String(f.outreach?.status || '').trim();
-    const statusLabel = outreachStatus === 'not_contacted' ? 'Not contacted' : outreachStatus
-      .split('_')
-      .filter(Boolean)
-      .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
-    return statusLabel ? `${label} — ${statusLabel}` : label;
   }
 
   const bits: string[] = [];
@@ -450,6 +459,10 @@ const rowLine: React.CSSProperties = {
 };
 const rowMainLink: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 auto',
+};
+const editBtn: React.CSSProperties = {
+  border: '1px solid #99F6E4', background: '#F0FDFA', color: '#0F766E',
+  borderRadius: 9, padding: '6px 10px', fontSize: 12, fontWeight: 800, cursor: 'pointer',
 };
 const deleteBtn: React.CSSProperties = {
   border: '1px solid #FCA5A5', background: '#FFF7F7', color: '#B91C1C',

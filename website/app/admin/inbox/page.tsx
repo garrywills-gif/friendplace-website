@@ -34,6 +34,18 @@ function fmt(dt?: string) {
   return d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+function syncSidebarUnreadBadge(count: number) {
+  // AdminShell owns the sidebar state, but reading a message happens inside this
+  // child page. Update the visible badge immediately for a responsive click,
+  // while the normal polling/route refresh remains the source of truth.
+  const inboxLink = document.querySelector<HTMLAnchorElement>('a[href="/admin/inbox"]');
+  const badge = inboxLink?.querySelector<HTMLElement>('span[aria-label$=" pending"]');
+  if (!badge) return;
+  badge.textContent = count > 99 ? '99+' : String(Math.max(0, count));
+  badge.style.display = count > 0 ? 'inline-flex' : 'none';
+  badge.setAttribute('aria-label', `${Math.max(0, count)} pending`);
+}
+
 function InboxPanel() {
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [rows, setRows] = useState<InboxMessage[] | null>(null);
@@ -56,26 +68,64 @@ function InboxPanel() {
   const [newAddr, setNewAddr] = useState('');
   const [newLabel, setNewLabel] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
+    if (!silent) setLoading(true);
     try {
-      const r = await inboxApi.list({
-        mailbox: mailbox || undefined,
-        archived,
-        read: unreadOnly ? false : undefined,
-        limit: 300,
-      });
+      // Fetch the current view and a tiny unread-only view in parallel.
+      // The second response lets Mission Control calculate reliable per-mailbox
+      // unread badges even if the backend mailbox metadata is stale.
+      const [r, unreadR] = await Promise.all([
+        inboxApi.list({
+          mailbox: mailbox || undefined,
+          archived,
+          read: unreadOnly ? false : undefined,
+          limit: 300,
+        }),
+        inboxApi.list({
+          archived: false,
+          read: false,
+          limit: 300,
+        }),
+      ]);
+
+      const unreadByMailbox = new Map<string, number>();
+      for (const message of unreadR.rows || []) {
+        unreadByMailbox.set(message.mailbox, (unreadByMailbox.get(message.mailbox) || 0) + 1);
+      }
+
       setRows(r.rows);
-      setMailboxes(r.mailboxes);
+      setMailboxes(r.mailboxes.map((mb) => ({
+        ...mb,
+        unread: unreadByMailbox.get(mb.address) || 0,
+      })));
       setError(null);
     } catch (e: any) {
+      // Background polling should not replace a working inbox with a loading
+      // state, but a real error still needs to be visible to the admin.
       setError(e?.message || 'Failed to load inbox.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [mailbox, archived, unreadOnly]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+
+  // Keep the inbox live without requiring a browser refresh. Poll quietly while
+  // visible, and refresh immediately when the admin returns to the tab/window.
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') void load({ silent: true });
+    };
+    const timer = window.setInterval(refreshIfVisible, 10000);
+    window.addEventListener('focus', refreshIfVisible);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshIfVisible);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [load]);
 
   const totalUnread = useMemo(
     () => mailboxes.reduce((n, m) => n + (m.unread || 0), 0),
@@ -85,15 +135,35 @@ function InboxPanel() {
   const openMessage = async (m: InboxMessage) => {
     setNotice(null);
     setReplyText('');
-    try {
-      const r = await inboxApi.get(m.id);
-      setSelected(r.message);
-      setThread(r.thread);
-      // reflect read state in the list without a full reload
+
+    // Optimistic unread update: the counters react at click-time instead of
+    // waiting for the message-detail request to round-trip to the backend.
+    if (!m.read) {
+      const nextTotal = Math.max(0, totalUnread - 1);
       setRows((prev) => prev?.map((x) => (x.id === m.id ? { ...x, read: true } : x)) ?? prev);
       setMailboxes((prev) => prev.map((mb) =>
-        mb.address === m.mailbox && !m.read ? { ...mb, unread: Math.max(0, (mb.unread || 0) - 1) } : mb));
+        mb.address === m.mailbox ? { ...mb, unread: Math.max(0, (mb.unread || 0) - 1) } : mb));
+      syncSidebarUnreadBadge(nextTotal);
+    }
+
+    try {
+      // Persist the read state explicitly before asking for message detail.
+      // The detail GET alone is not guaranteed to commit the read flag quickly
+      // enough for the unread-only polling query, which can make the top badges
+      // jump back to their old value on the next refresh.
+      if (!m.read) await inboxApi.setRead(m.id, true);
+
+      const r = await inboxApi.get(m.id);
+      setSelected({ ...r.message, read: true });
+      setThread(r.thread);
+      setRows((prev) => prev?.map((x) => (x.id === m.id ? { ...x, read: true } : x)) ?? prev);
+
+      // Reconcile against the now-persisted backend state so the optimistic
+      // counters and the next background poll agree.
+      if (!m.read) await load({ silent: true });
     } catch (e: any) {
+      // If the request fails, restore authoritative unread counts quietly.
+      await load({ silent: true });
       setError(e?.message || 'Could not open message.');
     }
   };
@@ -104,7 +174,7 @@ function InboxPanel() {
       const updated = await inboxApi.setRead(m.id, !m.read);
       setRows((prev) => prev?.map((x) => (x.id === m.id ? updated : x)) ?? prev);
       if (selected?.id === m.id) setSelected(updated);
-      await load();
+      await load({ silent: true });
     } catch (e: any) { setError(e?.message || 'Action failed.'); }
     finally { setBusy(null); }
   };
@@ -115,7 +185,7 @@ function InboxPanel() {
       if (archived) await inboxApi.restore(m.id);
       else await inboxApi.archive(m.id);
       if (selected?.id === m.id) { setSelected(null); setThread([]); }
-      await load();
+      await load({ silent: true });
     } catch (e: any) { setError(e?.message || 'Action failed.'); }
     finally { setBusy(null); }
   };
@@ -131,7 +201,7 @@ function InboxPanel() {
       const r = await inboxApi.get(selected.id);
       setSelected(r.message);
       setThread(r.thread);
-      await load();
+      await load({ silent: true });
     } catch (e: any) {
       setNotice(null);
       setError(e?.message || 'Reply could not be sent.');
@@ -145,7 +215,7 @@ function InboxPanel() {
     try {
       await inboxApi.addMailbox(newAddr.trim(), newLabel.trim() || undefined);
       setNewAddr(''); setNewLabel('');
-      await load();
+      await load({ silent: true });
     } catch (e: any) { setError(e?.message || 'Could not add mailbox.'); }
   };
 
@@ -154,7 +224,7 @@ function InboxPanel() {
     try {
       await inboxApi.removeMailbox(mb.id);
       if (mailbox === mb.address) setMailbox('');
-      await load();
+      await load({ silent: true });
     } catch (e: any) { setError(e?.message || 'Could not remove mailbox.'); }
   };
 
@@ -168,11 +238,12 @@ function InboxPanel() {
       {/* Mailbox filter chips */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
         <Chip active={mailbox === ''} onClick={() => setMailbox('')}
-          label={`All${totalUnread ? ` (${totalUnread})` : ''}`} />
+          label="All" count={totalUnread} />
         {mailboxes.map((mb) => (
           <Chip key={mb.id} active={mailbox === mb.address}
             onClick={() => setMailbox(mb.address)}
-            label={`${mb.label}${mb.unread ? ` (${mb.unread})` : ''}`}
+            label={mb.label}
+            count={mb.unread || 0}
             title={mb.address} />
         ))}
         <button type="button" onClick={() => setManageOpen((v) => !v)} style={manageBtn}>
@@ -285,9 +356,7 @@ function InboxPanel() {
                         : `${t.from_name || t.from_email} → ${t.mailbox}`}
                       <span style={{ marginLeft: 8 }}>· {fmt(t.received_at)}</span>
                     </div>
-                    <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, color: '#0A2540', lineHeight: 1.6 }}>
-                      {t.text || t.snippet}
-                    </div>
+                    <MessageBody message={t} />
                   </div>
                 ))}
               </div>
@@ -313,14 +382,47 @@ function InboxPanel() {
   );
 }
 
-function Chip({ active, onClick, label, title }: { active: boolean; onClick: () => void; label: string; title?: string }) {
+function MessageBody({ message }: { message: InboxMessage }) {
+  if (message.html?.trim()) {
+    return (
+      <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #E2E8F0', background: '#FFFFFF' }}>
+        <iframe
+          title={`Email content: ${message.subject || 'message'}`}
+          srcDoc={message.html}
+          sandbox=""
+          style={{ display: 'block', width: '100%', minHeight: 560, border: 0, background: '#FFFFFF' }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, color: '#0A2540', lineHeight: 1.6 }}>
+      {message.text || message.snippet}
+    </div>
+  );
+}
+
+function Chip({ active, onClick, label, title, count = 0 }: { active: boolean; onClick: () => void; label: string; title?: string; count?: number }) {
+  const hasUnread = count > 0;
   return (
     <button type="button" onClick={onClick} title={title}
       style={{
-        padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer',
-        border: active ? '1.5px solid #14B8A6' : '1.5px solid #E2E8F0',
+        display: 'inline-flex', alignItems: 'center', gap: 8,
+        padding: '8px 12px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+        border: active ? '1.5px solid #14B8A6' : hasUnread ? '1.5px solid #5EEAD4' : '1.5px solid #E2E8F0',
         background: active ? '#F0FDFA' : '#FFFFFF', color: active ? '#0F766E' : '#475569',
-      }}>{label}</button>
+      }}>
+      <span>{label}</span>
+      {hasUnread && (
+        <span style={{
+          minWidth: 22, height: 22, padding: '0 6px', borderRadius: 999,
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          background: active ? '#0F766E' : '#14B8A6', color: '#FFFFFF',
+          fontSize: 11, fontWeight: 900, lineHeight: 1,
+        }}>{count}</span>
+      )}
+    </button>
   );
 }
 
