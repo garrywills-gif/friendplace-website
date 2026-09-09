@@ -82,6 +82,11 @@ BROAD STATUS / OVERVIEW (dedicated planner rule -- iter164bf):
 - For BROAD, whole-operation status questions -- "how's everything going?", "how are things?", "how are we doing?", "what's the latest?", "give me an overview / the rundown", "anything I should know?", "how's it all looking?" -- you MUST call the SINGLE tool `mission_control_overview` (no args). Do NOT fan out into several count_* tools, and NEVER return empty tool_calls for these. That one tool returns registrations, the Bridge + Signal Feed alerts, campaign performance + failures, and the inbox in one shot.
 - If the question instead names a SPECIFIC area (a registrations count, one campaign, the Bridge workload, replies), use that area's specific tool -- not the overview.
 
+FLEXIBLE ANALYTICS (dedicated planner rule -- iter164bi):
+- For ANALYTICAL questions -- "when/what time do people register?", "which hour/day is busiest?", "break registrations down by hour/day/state/source", "distribution", "peak time", "weekday vs weekend", "by suburb/state/source/status/mailbox/template" -- call `analyze_data` with the right `dataset` (registrations | enquiries | inbox | campaigns) and `group_by` dimension. Time dimensions: hour_of_day, day_of_week, weekday_weekend, date, month. NEVER answer an analytical question by saying the query "doesn't exist" or by logging a feature request -- if the data exists, call analyze_data. Example: "what time are people registering?" -> analyze_data {dataset:"registrations", group_by:"hour_of_day"}.
+- AFFIRMATION FOLLOW-THROUGH: if your PREVIOUS turn offered an analysis (e.g. "Would you like me to analyse/break that down?") and the user now replies with an affirmation ("yes", "yes do that", "yes please", "go ahead", "do it", "please do"), you MUST carry out that offered analysis now by calling the appropriate tool (usually analyze_data with the dataset/dimension implied by the earlier question) -- do NOT return empty tool_calls and do NOT turn it into a knowledge-base/feature request.
+
+
 
 MANDATORY FRESH-CALL RULES (operational state changes constantly \u2014 stale numbers are unacceptable):
 - ANY question about the CURRENT state of tickets, signals, cases, events, members, organisations, submissions, or reports \u2014 whether it's the first time or the fifth time in the conversation \u2014 MUST invoke a fresh `count_*` (or `list_*`) tool this turn. Never rely on a number from earlier in the recent conversation.
@@ -665,6 +670,11 @@ _STATE_QUESTION_RE = re.compile(
     r"status (?:update|check|report)|overview|the rundown|big picture|"
     r"what(?:'s| is)? (?:the )?(?:latest|situation|overview|going on|happening)|"
     r"anything (?:i should know|urgent|to worry|on fire|important)|"
+    r"what time|what hour|which hour|which day|time of day|hour of the day|"
+    r"busiest|peak (?:time|hour)|day of the week|weekday or weekend|"
+    r"break(?:down| it down| that down)|broken down|distribution|by state|by source|"
+    r"when (?:are|do) people (?:regist|sign)|"
+    r"yes,? (?:do (?:that|it)|please|go ahead)|go ahead|do it|please do|"
     r"how many|current|latest|right now|now\?|at the moment|as of now|"
     r"any change|still|recount|recheck|refresh|update(?:d)?|again please|"
     r"any left|still open|still active|open right now|any resolved|"
@@ -688,6 +698,28 @@ _STATE_QUESTION_RE = re.compile(
 # "count" queries. If the topic is ambiguous, we leave the safety net
 # alone so the synthesizer can honestly say it doesn't have the data.
 _TOPIC_TO_TOOL = [
+    # iter164bi: analytical shortcuts FIRST — an analytical phrase ("what time",
+    # "which hour/day", "by state") must beat the generic count/registrations
+    # mappings below. The planner handles the general case; these give the
+    # safety net a deterministic mapping for the most frequent asks.
+    ("what time",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("what hour",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("which hour",            {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("time of day",           {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("hour of the day",       {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("busiest time",          {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("peak time",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("peak hour",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("when are people registering", {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("when do people register",     {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("when are people signing up",  {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("day of the week",       {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "day_of_week"}}),
+    ("which day",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "day_of_week"}}),
+    ("weekday or weekend",    {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "weekday_weekend"}}),
+    ("by state",              {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "state"}}),
+    ("which state",           {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "state"}}),
+    ("by source",            {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "source"}}),
+
     # Founding Members CRM — Phase 1 (put FIRST so specific matches win
     # before the generic "member"/"registration" fallbacks below).
     ("who is the latest",   {"name": "list_interest_registrations", "args": {"limit": 1}}),

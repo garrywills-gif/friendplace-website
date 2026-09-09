@@ -765,6 +765,244 @@ async def _mission_control_overview(db: Any, args: dict) -> dict:  # noqa: ARG00
     }
 
 
+# ---------------------------------------------------------------------------
+# General-purpose read-only analytics (iter164bi)
+# ---------------------------------------------------------------------------
+
+_WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                  "Friday", "Saturday", "Sunday"]
+
+# Curated, READ-ONLY analytics surface. Each dataset whitelists a collection,
+# a base filter (so counts match the dashboards), a timestamp field, and the
+# dimensions George may group/filter by. This keeps analytics flexible but
+# safe — no arbitrary queries, no writes.
+_ANALYTICS_DATASETS: Dict[str, Any] = {
+    "registrations": {
+        "collection": "interest_registrations",
+        "base_filter": {"is_test": {"$ne": True}},
+        "timestamp_field": "created_at",
+        "label": "founding-member registrations",
+        "dimensions": {
+            "hour_of_day":     {"kind": "time", "part": "hour"},
+            "day_of_week":     {"kind": "time", "part": "weekday"},
+            "weekday_weekend": {"kind": "time", "part": "weekday_weekend"},
+            "date":            {"kind": "time", "part": "date"},
+            "month":           {"kind": "time", "part": "month"},
+            "state":           {"kind": "field", "field": "state_country"},
+            "source":          {"kind": "field", "field": "source"},
+            "heard_from":      {"kind": "field", "field": "heard_from"},
+            "companion":       {"kind": "field", "field": "companion_choice"},
+            "status":          {"kind": "field", "field": "status"},
+        },
+    },
+    "enquiries": {
+        "collection": "contact_submissions",
+        "base_filter": {"is_test": {"$ne": True}},
+        "timestamp_field": "created_at",
+        "label": "contact enquiries",
+        "dimensions": {
+            "hour_of_day":     {"kind": "time", "part": "hour"},
+            "day_of_week":     {"kind": "time", "part": "weekday"},
+            "weekday_weekend": {"kind": "time", "part": "weekday_weekend"},
+            "date":            {"kind": "time", "part": "date"},
+            "status":          {"kind": "field", "field": "status"},
+        },
+    },
+    "inbox": {
+        "collection": "inbox_messages",
+        "base_filter": {"direction": "inbound"},
+        "timestamp_field": "received_at",
+        "label": "inbound inbox messages",
+        "dimensions": {
+            "hour_of_day":     {"kind": "time", "part": "hour"},
+            "day_of_week":     {"kind": "time", "part": "weekday"},
+            "weekday_weekend": {"kind": "time", "part": "weekday_weekend"},
+            "date":            {"kind": "time", "part": "date"},
+            "mailbox":         {"kind": "field", "field": "mailbox"},
+        },
+    },
+    "campaigns": {
+        "collection": "campaigns",
+        "base_filter": {"is_test": {"$ne": True}},
+        "timestamp_field": "sent_at",
+        "label": "campaigns",
+        "dimensions": {
+            "status":          {"kind": "field", "field": "status"},
+            "template":        {"kind": "field", "field": "template"},
+            "date":            {"kind": "time", "part": "date"},
+            "day_of_week":     {"kind": "time", "part": "weekday"},
+            "hour_of_day":     {"kind": "time", "part": "hour"},
+        },
+    },
+}
+
+
+def _parse_dt_sydney(raw: Any):
+    """Parse a stored timestamp (ISO string or datetime) → Australia/Sydney."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    syd = ZoneInfo("Australia/Sydney")
+    dt = None
+    if isinstance(raw, datetime):
+        dt = raw
+    elif isinstance(raw, str) and raw.strip():
+        s = raw.strip().replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                try:
+                    dt = datetime.strptime(s[:19], fmt)
+                    break
+                except ValueError:
+                    continue
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)  # stored timestamps are UTC
+    return dt.astimezone(syd)
+
+
+@register(
+    "analyze_data",
+    "GENERAL-PURPOSE read-only analytics. Dynamically group / filter / count / "
+    "summarise existing FriendPlace operational data on demand — use this to "
+    "answer analytical questions instead of ever saying a query 'doesn't exist'. "
+    "Give `dataset` (one of: registrations, enquiries, inbox, campaigns) and "
+    "`group_by` (a dimension). Time dimensions (hour_of_day, day_of_week, "
+    "weekday_weekend, date, month) are computed in Australia/Sydney local time. "
+    "Field dimensions include: registrations→state, source, heard_from, "
+    "companion, status; enquiries→status; inbox→mailbox; campaigns→status, "
+    "template. Returns {total, analysed, buckets:[{key,count,pct}], top, and "
+    "for hour_of_day a strongest_window + weekday_vs_weekend split}. Example: "
+    "'what time do people register?' → dataset=registrations, group_by=hour_of_day. "
+    "Optional `filters` is a flat object of field-dimension equals values. If a "
+    "requested dataset/dimension isn't available the tool returns what IS "
+    "available so you can tell Garry exactly what data is missing.",
+    args={
+        "dataset":  {"type": "str", "required": True},
+        "group_by": {"type": "str", "required": True},
+        "filters":  {"type": "dict", "required": False},
+        "limit":    {"type": "int", "required": False},
+    },
+)
+async def _analyze_data(db: Any, args: dict) -> dict:
+    dataset = str(args.get("dataset") or "").strip().lower()
+    group_by = str(args.get("group_by") or "").strip().lower()
+    filters = args.get("filters") or {}
+    limit = max(1, min(int(args.get("limit") or 50000), 50000))
+
+    spec = _ANALYTICS_DATASETS.get(dataset)
+    if not spec:
+        return {"error": f"No dataset named '{dataset}'.",
+                "available_datasets": sorted(_ANALYTICS_DATASETS.keys())}
+    dims = spec["dimensions"]
+    if group_by not in dims:
+        return {"error": f"Dataset '{dataset}' has no dimension '{group_by}'.",
+                "dataset": dataset,
+                "available_dimensions": sorted(dims.keys())}
+
+    # Build a safe read-only filter: base + only whitelisted field-dimension equals.
+    q = dict(spec.get("base_filter") or {})
+    applied_filters, ignored_filters = {}, []
+    for k, v in (filters.items() if isinstance(filters, dict) else []):
+        dk = dims.get(str(k).strip().lower())
+        if dk and dk["kind"] == "field":
+            q[dk["field"]] = v
+            applied_filters[k] = v
+        else:
+            ignored_filters.append(k)
+
+    ts_field = spec["timestamp_field"]
+    dim = dims[group_by]
+    proj = {"_id": 0, ts_field: 1}
+    if dim["kind"] == "field":
+        proj[dim["field"]] = 1
+    docs = await db[spec["collection"]].find(q, proj).limit(limit).to_list(limit)
+
+    counts: Dict[str, int] = {}
+    wk_we = {"Weekday": 0, "Weekend": 0}
+    hour_counts = [0] * 24
+    analysed = 0
+    skipped_no_timestamp = 0
+
+    for d in docs:
+        if dim["kind"] == "time":
+            local = _parse_dt_sydney(d.get(ts_field))
+            if local is None:
+                skipped_no_timestamp += 1
+                continue
+            part = dim["part"]
+            if part == "hour":
+                key = f"{local.hour:02d}:00"
+                hour_counts[local.hour] += 1
+            elif part == "weekday":
+                key = _WEEKDAY_NAMES[local.weekday()]
+            elif part == "weekday_weekend":
+                key = "Weekend" if local.weekday() >= 5 else "Weekday"
+            elif part == "date":
+                key = local.strftime("%Y-%m-%d")
+            elif part == "month":
+                key = local.strftime("%Y-%m")
+            else:
+                key = "(unknown)"
+            wk_we["Weekend" if local.weekday() >= 5 else "Weekday"] += 1
+        else:
+            val = d.get(dim["field"])
+            key = str(val).strip() if val not in (None, "") else "(unknown)"
+        counts[key] = counts.get(key, 0) + 1
+        analysed += 1
+
+    def _pct(n: int) -> float:
+        return round((n / analysed) * 100, 1) if analysed else 0.0
+
+    # Sort buckets sensibly per dimension.
+    part = dim.get("part")
+    if part == "hour":
+        ordered = [f"{h:02d}:00" for h in range(24) if f"{h:02d}:00" in counts]
+    elif part == "weekday":
+        ordered = [w for w in _WEEKDAY_NAMES if w in counts]
+    elif part in ("date", "month"):
+        ordered = sorted(counts.keys())
+    elif part == "weekday_weekend":
+        ordered = [k for k in ("Weekday", "Weekend") if k in counts]
+    else:
+        ordered = [k for k, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+    buckets = [{"key": k, "count": counts[k], "pct": _pct(counts[k])} for k in ordered]
+    top = sorted(buckets, key=lambda b: -b["count"])[:5]
+
+    result: Dict[str, Any] = {
+        "dataset": dataset, "label": spec["label"], "group_by": group_by,
+        "total_matched": len(docs), "analysed": analysed,
+        "skipped_no_timestamp": skipped_no_timestamp,
+        "buckets": buckets, "top": top,
+        "applied_filters": applied_filters,
+        "ignored_filters": ignored_filters,
+    }
+    if dim["kind"] == "time":
+        result["timezone"] = "Australia/Sydney"
+    if part == "hour" and analysed:
+        # Strongest contiguous 3-hour window (wrapping midnight).
+        best_start, best_sum = 0, -1
+        for start in range(24):
+            s = sum(hour_counts[(start + i) % 24] for i in range(3))
+            if s > best_sum:
+                best_sum, best_start = s, start
+        result["strongest_window"] = {
+            "from": f"{best_start:02d}:00",
+            "to": f"{(best_start + 3) % 24:02d}:00",
+            "count": best_sum, "pct": _pct(best_sum),
+        }
+        result["peak_hour"] = top[0] if top else None
+    if dim["kind"] == "time" and analysed:
+        result["weekday_vs_weekend"] = {
+            "weekday": {"count": wk_we["Weekday"], "pct": _pct(wk_we["Weekday"])},
+            "weekend": {"count": wk_we["Weekend"], "pct": _pct(wk_we["Weekend"])},
+        }
+    return result
+
+
 
 
 @register(
