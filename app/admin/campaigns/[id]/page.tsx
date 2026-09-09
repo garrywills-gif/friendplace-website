@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
+import { campaignRetryTransientApi } from '@/lib/campaign-retry-transient-api';
 import {
   campaignsApi,
   outreachApi,
@@ -72,6 +73,7 @@ export default function CampaignDetailPage() {
   const [openTimelineFor, setOpenTimelineFor] = useState<CampaignRecipient | null>(null);
   const [outreachNumbers, setOutreachNumbers] = useState<OutreachNumberMap>({});
   const [retrying, setRetrying] = useState(false);
+  const [retryingTransient, setRetryingTransient] = useState(false);
   const [retryNotice, setRetryNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -164,6 +166,35 @@ export default function CampaignDetailPage() {
     }
   };
 
+  const retryTransientBounces = async () => {
+    if (retryingTransient || bounced < 1) return;
+    const ok = window.confirm(
+      'Retry transient / soft bounces in this campaign?\n\nPermanent / hard bounces will never be retried.',
+    );
+    if (!ok) return;
+
+    setRetryingTransient(true);
+    setRetryNotice(null);
+    try {
+      const res = await campaignRetryTransientApi.retry(campaign.id);
+      if (res.attempted < 1) {
+        setRetryNotice('No transient or soft bounces are currently eligible for retry.');
+      } else {
+        setRetryNotice(
+          `Retried ${res.attempted} transient bounce${res.attempted === 1 ? '' : 's'}: ${res.succeeded} sent` +
+          (res.failed_again ? `, ${res.failed_again} failed again` : '') +
+          (res.suppressed ? `, ${res.suppressed} suppressed` : '') + '.',
+        );
+      }
+      const fresh = await campaignsApi.get(campaign.id);
+      setCampaign(fresh);
+    } catch (e: any) {
+      setRetryNotice(e?.message || 'Transient bounce retry could not be completed.');
+    } finally {
+      setRetryingTransient(false);
+    }
+  };
+
   const counters = campaign.recipients.reduce(
     (acc, r) => {
       (['all', 'opened', 'clicked', 'not_opened', 'bounced'] as RecipientFilter[])
@@ -243,11 +274,30 @@ export default function CampaignDetailPage() {
         <StatTile label="Complaints"   value={complained}
                   tone={complained > 0 ? 'red' : 'muted'} />
       </div>
-      <div style={{ ...s.helper, marginTop: 8, marginBottom: 20 }}>
+      <div style={{ ...s.helper, marginTop: 8, marginBottom: bounced > 0 ? 10 : 20 }}>
         Rates use <strong>unique</strong> opens / clicks (each recipient
         counted once). Raw counts include repeat opens. Delivered / Opened /
         Clicked / Bounced / Complained update live from Resend webhooks.
       </div>
+
+      {bounced > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
+          <button
+            type="button"
+            onClick={() => void retryTransientBounces()}
+            disabled={retryingTransient}
+            title="Only transient / soft bounces are retried. Permanent / hard bounces are always excluded."
+            style={{
+              padding: '8px 12px', borderRadius: 10,
+              border: '1.5px solid #B45309', background: retryingTransient ? '#FDE68A' : '#FFFBEB',
+              color: '#92400E', fontSize: 12, fontWeight: 900,
+              cursor: retryingTransient ? 'wait' : 'pointer',
+            }}
+          >
+            {retryingTransient ? 'Retrying transient bounces…' : 'Retry transient bounces'}
+          </button>
+        </div>
+      )}
 
       {retryNotice && (
         <div style={{
