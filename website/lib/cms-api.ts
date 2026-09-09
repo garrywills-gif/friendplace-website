@@ -912,6 +912,10 @@ export type CampaignAudienceFilter = {
   // CRM Phase 2C \u2014 target a saved segment. When set, the resolver
   // intersects the classic filter above with the segment's member list.
   segment_id?: string;
+  // Outreach campaigns tag their audience by kind + category so the
+  // Organisation Groups list can recognise a saved draft for a group.
+  audience_kind?: string;
+  outreach?: { category?: string; status?: string };
 };
 
 export type CampaignStats = {
@@ -960,6 +964,7 @@ export type Campaign = {
   stats: CampaignStats;
   created_at?: string;
   created_by?: string;
+  updated_at?: string;
   scheduled_at?: string;
   sent_at?: string;
   finished_at?: string;

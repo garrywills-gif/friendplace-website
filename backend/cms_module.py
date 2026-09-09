@@ -2194,6 +2194,9 @@ def build_router(db) -> APIRouter:
             },
             "created_at":      c.get("created_at"),
             "created_by":      c.get("created_by"),
+            # iter164bj — surface last-saved time so the Outreach group
+            # list can show "Draft saved · <when>" beside Continue campaign.
+            "updated_at":      c.get("updated_at"),
             "scheduled_at":    c.get("scheduled_at"),
             "sent_at":         c.get("sent_at"),
             "finished_at":     c.get("finished_at"),
