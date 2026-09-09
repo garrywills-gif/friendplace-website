@@ -332,6 +332,7 @@ async def _flag_founder_if_needed(
     recipient: dict,
     evt_type: str,
     at: str,
+    payload_data: dict | None = None,
 ) -> None:
     """Terminal-event flags on the source-of-truth record — protects
     our sender reputation by never re-sending to a bad address or a
@@ -347,20 +348,37 @@ async def _flag_founder_if_needed(
     """
     if evt_type not in ("email.bounced", "email.complained"):
         return
-    # iter164bd: hard suppression — a bounce or complaint permanently
-    # suppresses the address across ALL future sends (provider-independent).
-    try:
-        from services import suppression as _supp
-        email = recipient.get("email")
-        if email:
-            await _supp.suppress_email(
-                db, email,
-                reason=("hard_bounce" if evt_type == "email.bounced" else "spam_complaint"),
-                source="resend_webhook",
-            )
-    except Exception as e:  # noqa: BLE001
-        log.warning("suppression write failed for %s: %s", recipient.get("email"), e)
+    # iter164bg — TRANSIENT / soft bounces are recoverable (mailbox full,
+    # greylisting, temporary DNS) and must NOT permanently suppress the
+    # address, otherwise they could never be retried. Only PERMANENT / hard
+    # bounces (and anything not explicitly transient) suppress. Complaints
+    # always suppress.
+    is_transient_bounce = False
+    if evt_type == "email.bounced":
+        btype = str(((payload_data or {}).get("bounce") or {}).get("type") or "").strip().lower()
+        is_transient_bounce = btype in ("transient", "soft")
+    # iter164bd: hard suppression — a permanent bounce or a complaint
+    # permanently suppresses the address across ALL future sends
+    # (provider-independent).
+    if not is_transient_bounce:
+        try:
+            from services import suppression as _supp
+            email = recipient.get("email")
+            if email:
+                await _supp.suppress_email(
+                    db, email,
+                    reason=("hard_bounce" if evt_type == "email.bounced" else "spam_complaint"),
+                    source="resend_webhook",
+                )
+        except Exception as e:  # noqa: BLE001
+            log.warning("suppression write failed for %s: %s", recipient.get("email"), e)
     # Outreach path — flag against outreach_organisations.
+    # iter164bg — a transient/soft bounce is recoverable; do NOT mark the
+    # organisation/founder email invalid or advance their status. The
+    # recipient row is already status="bounced" (with bounce_type) so the
+    # transient-bounce retry can find and re-send it.
+    if is_transient_bounce:
+        return
     outreach_id = recipient.get("outreach_id")
     if outreach_id:
         try:
@@ -454,7 +472,7 @@ async def handle_event(db: Any, event: dict, raw_body_len: int) -> dict:
         evt_type=evt_type, recipient=recipient, was_first=was_first,
     )
     await _flag_founder_if_needed(
-        db, recipient=recipient, evt_type=evt_type, at=at,
+        db, recipient=recipient, evt_type=evt_type, at=at, payload_data=data,
     )
 
     # Anomaly evaluation — after every bounce / complaint we recheck

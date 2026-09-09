@@ -2791,6 +2791,200 @@ def build_router(db) -> APIRouter:
             await db.campaigns.update_one(
                 {"id": campaign_id}, {"$unset": {"retry_in_progress": ""}},
             )
+
+    @router.post("/campaigns/{campaign_id}/retry-transient-bounces")
+    async def campaigns_retry_transient_bounces(
+        campaign_id: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """iter164bg — resend ONLY recipients whose current state is a
+        TRANSIENT / soft bounce (mailbox full, greylisting, temporary DNS).
+
+        Safety rules:
+          • Eligible set is computed live from ``campaign_recipients``:
+            status == "bounced" AND bounce_type in {transient, soft}.
+          • PERMANENT / hard bounces are NEVER included (they've been
+            suppressed and are excluded by the bounce_type filter AND the
+            per-send suppression guard below).
+          • The ORIGINAL bounce event is preserved in the timeline; the
+            retry result is APPENDED (never replaces history). If it bounces
+            again, the new bounce is appended by the webhook — both are kept.
+          • Same ``retry_in_progress`` guard prevents a concurrent double-send.
+          • Returns counts: attempted / succeeded / failed_again.
+        """
+        import uuid as _uuid
+        from datetime import datetime, timezone
+        from email_service import send_email_detailed  # noqa: WPS433
+
+        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+        if not c:
+            raise HTTPException(404, "Campaign not found")
+        if c.get("retry_in_progress"):
+            raise HTTPException(409, "A retry is already running for this campaign.")
+
+        # Transient/soft bounces only — hard/permanent are excluded.
+        eligible = await db.campaign_recipients.find(
+            {"campaign_id": campaign_id, "status": "bounced",
+             "bounce_type": {"$regex": r"^(transient|soft)$", "$options": "i"}},
+            {"_id": 0},
+        ).to_list(5000)
+        if not eligible:
+            return {"attempted": 0, "succeeded": 0, "failed_again": 0,
+                    "suppressed": 0, "eligible": 0, "stats": c.get("stats")}
+
+        claim = await db.campaigns.update_one(
+            {"id": campaign_id, "retry_in_progress": {"$ne": True}},
+            {"$set": {"retry_in_progress": True}},
+        )
+        if claim.modified_count == 0:
+            raise HTTPException(409, "A retry is already running for this campaign.")
+
+        succeeded = 0
+        failed_again = 0
+        suppressed_n = 0
+        try:
+            for recip in eligible:
+                now = datetime.now(timezone.utc).isoformat()
+                # MANDATORY per-send suppression guard — a suppressed address
+                # is never retried (defence-in-depth; permanent bounces are
+                # already suppressed so this also blocks any misclassified row).
+                from services import suppression as _supp
+                _s = await _supp.get_suppression(db, recip.get("email"))
+                if _s:
+                    await db.campaign_recipient_events.insert_one({
+                        "id": str(_uuid.uuid4()), "campaign_id": campaign_id,
+                        "recipient_id": recip["id"], "type": "email.suppressed",
+                        "at": now, "meta": {"reason": _s.get("suppression_reason")},
+                    })
+                    suppressed_n += 1
+                    continue
+
+                # Preserve the ORIGINAL bounce in the timeline (once). The
+                # webhook normally wrote it already; backfill from the row if
+                # it is somehow missing so history is always intact.
+                has_bounce = await db.campaign_recipient_events.find_one({
+                    "recipient_id": recip["id"], "campaign_id": campaign_id,
+                    "type": "email.bounced",
+                })
+                if not has_bounce:
+                    await db.campaign_recipient_events.insert_one({
+                        "id": str(_uuid.uuid4()), "campaign_id": campaign_id,
+                        "recipient_id": recip["id"], "type": "email.bounced",
+                        "at": recip.get("last_event_at") or recip.get("sent_at") or now,
+                        "meta": {"bounce_type": recip.get("bounce_type"),
+                                 "bounce_msg": recip.get("bounce_message"),
+                                 "subject": recip.get("subject")},
+                    })
+
+                # Re-render this recipient from the campaign (same shared path
+                # as the real send + retry-failed, so greeting/footer/sender
+                # are identical).
+                r = {
+                    "id": recip.get("founder_id"),
+                    "email": recip["email"],
+                    "first_name": recip.get("first_name"),
+                    "founder_number": recip.get("founder_number"),
+                    "outreach_id": recip.get("outreach_id"),
+                    "outreach_number": recip.get("outreach_number"),
+                }
+                overrides: Dict[str, Any] = {}
+                if r.get("first_name"):
+                    overrides["first_name"] = r["first_name"]
+                if r.get("founder_number"):
+                    overrides["founder_number"] = r["founder_number"]
+                companion = c.get("companion") or "george"
+                if c.get("template") == "announcement":
+                    overrides["title"]     = c.get("title") or ""
+                    overrides["body_md"]   = c.get("body_md") or ""
+                    overrides["cta_label"] = c.get("cta_label") or None
+                    overrides["cta_url"]   = c.get("cta_url")   or None
+                    if c.get("greeting") is not None:
+                        overrides["greeting"] = c.get("greeting")
+                    if c.get("show_founder_badge") is not None:
+                        overrides["show_founder_badge"] = c.get("show_founder_badge")
+                _apply_outreach_safety(overrides, c, r)
+                subject, html, text = _preview_render(
+                    c["template"], companion=companion,
+                    subject_override=(c.get("subject") or None),
+                    preheader_override=(c.get("preheader") or None),
+                    data_overrides=overrides,
+                )
+                attachments = None
+                if c.get("attach_file") and isinstance(c.get("attachment"), dict):
+                    _att = c["attachment"]
+                    if _att.get("content_b64") and _att.get("filename"):
+                        attachments = [{
+                            "filename":     _att["filename"],
+                            "content":      _att["content_b64"],
+                            "content_type": _att.get("content_type") or "application/pdf",
+                        }]
+
+                result = await send_email_detailed(
+                    to=r["email"], subject=subject, html=html, text=text,
+                    attachments=attachments,
+                    **({"from_email": OUTREACH_FROM_EMAIL, "from_name": OUTREACH_FROM_NAME}
+                       if _is_outreach_campaign(c) else {}),
+                )
+                now = datetime.now(timezone.utc).isoformat()
+                # APPEND the retry outcome — original bounce stays intact.
+                await db.campaign_recipient_events.insert_one({
+                    "id": str(_uuid.uuid4()), "campaign_id": campaign_id,
+                    "recipient_id": recip["id"],
+                    "type": "email.retry_succeeded" if result.ok else "email.retry_failed",
+                    "at": now,
+                    "meta": {"subject": subject, "message_id": result.message_id,
+                             "error": result.error if not result.ok else None,
+                             "http_status": result.http_status,
+                             "retry_of": "transient_bounce"},
+                })
+                if result.ok:
+                    # Accepted for re-delivery. Move off "bounced" to "sent";
+                    # do NOT inc stats.accepted (already counted at first send).
+                    # A later re-bounce will flip status back via the webhook.
+                    await db.campaign_recipients.update_one(
+                        {"id": recip["id"]},
+                        {"$set": {"status": "sent", "message_id": result.message_id,
+                                  "error": None, "http_status": result.http_status,
+                                  "sent_at": now, "retried_at": now},
+                         "$inc": {"retry_count": 1}},
+                    )
+                    await db.campaigns.update_one(
+                        {"id": campaign_id}, {"$inc": {"stats.bounced": -1}})
+                    succeeded += 1
+                    if result.message_id:
+                        try:
+                            from services.outreach.store import touch_last_contact as _tlc
+                            await _tlc(db, email=r["email"], campaign_id=campaign_id,
+                                       subject=subject,
+                                       send_id=str(recip["id"]) + "@rbounce@" + campaign_id)
+                        except Exception:
+                            pass
+                else:
+                    # Synchronous send failure — keep it "bounced", record error.
+                    await db.campaign_recipients.update_one(
+                        {"id": recip["id"]},
+                        {"$set": {"error": result.error, "http_status": result.http_status,
+                                  "retried_at": now}, "$inc": {"retry_count": 1}},
+                    )
+                    failed_again += 1
+
+            await db.campaigns.update_one(
+                {"id": campaign_id, "stats.bounced": {"$lt": 0}},
+                {"$set": {"stats.bounced": 0}})
+            fresh = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+            return {
+                "attempted":    len(eligible) - suppressed_n,
+                "succeeded":    succeeded,
+                "failed_again": failed_again,
+                "suppressed":   suppressed_n,
+                "eligible":     len(eligible),
+                "stats":        fresh.get("stats") if fresh else c.get("stats"),
+            }
+        finally:
+            await db.campaigns.update_one(
+                {"id": campaign_id}, {"$unset": {"retry_in_progress": ""}},
+            )
+
     @router.patch("/campaigns/{campaign_id}")
     async def campaigns_update(campaign_id: str, payload: Dict[str, Any],
                                admin: dict = Depends(current_cms_admin)):  # noqa: ARG001

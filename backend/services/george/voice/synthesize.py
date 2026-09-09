@@ -22,6 +22,7 @@ Design decisions:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Literal, Optional
 
@@ -94,12 +95,29 @@ async def synthesize_george_speech(
     voice = resolve_voice(persona)
     tts = OpenAITextToSpeech(api_key=_emergent_key())
 
-    # `generate_speech` returns raw MP3 bytes.
-    audio_bytes = await tts.generate_speech(
-        text=body,
-        model=model,
-        voice=voice,  # type: ignore[arg-type]
-        speed=speed,
-        response_format="mp3",
-    )
-    return audio_bytes
+    # iter164bg — silent single retry. TTS synthesis occasionally fails on a
+    # transient upstream hiccup (rate blip, network). One quiet retry recovers
+    # most of them, so an auto-speak playback or a manual "Try again" tap
+    # rarely surfaces an error. IMPORTANT: George's reply TEXT is produced by a
+    # SEPARATE call upstream, so a synth failure here never affects the text he
+    # has already delivered — only the audio is retried, never the answer.
+    last_err: Exception | None = None
+    for attempt in range(2):  # initial attempt + one silent retry
+        try:
+            # `generate_speech` returns raw MP3 bytes.
+            audio_bytes = await tts.generate_speech(
+                text=body,
+                model=model,
+                voice=voice,  # type: ignore[arg-type]
+                speed=speed,
+                response_format="mp3",
+            )
+            return audio_bytes
+        except Exception as e:  # noqa: BLE001 — retry once, then re-raise
+            last_err = e
+            if attempt == 0:
+                await asyncio.sleep(0.4)
+                continue
+            raise
+    # Defensive: loop always returns or raises above.
+    raise last_err  # type: ignore[misc]
