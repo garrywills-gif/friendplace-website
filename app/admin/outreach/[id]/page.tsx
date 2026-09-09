@@ -12,6 +12,8 @@ import {
 } from '@/lib/cms-api';
 import { outreachArchiveApi } from '@/lib/outreach-archive-api';
 
+const OUTREACH_NAV_KEY = 'mcgs.outreach.navlist';
+
 const STATUS_OPTIONS: Array<{ value: OutreachStatus; label: string }> = [
   { value: 'not_contacted', label: 'Not contacted' },
   { value: 'contacted', label: 'Contacted' },
@@ -45,6 +47,10 @@ export default function OutreachOrganisationDetailPage() {
   const [logBody, setLogBody] = useState('');
   const [logging, setLogging] = useState(false);
 
+  // Previous / Next navigation through the contact list you came from.
+  const [navIds, setNavIds] = useState<string[] | null>(null);
+  const [navChecked, setNavChecked] = useState(false);
+
   const load = async () => {
     if (!id) return;
 
@@ -77,6 +83,80 @@ export default function OutreachOrganisationDetailPage() {
   useEffect(() => {
     void load();
   }, [id]);
+
+  // Read the ordered contact-list context saved when a contact was opened
+  // from a group/category list (captures its active search / filter / sort).
+  useEffect(() => {
+    setNavChecked(false);
+    setNavIds(null);
+    if (typeof window === 'undefined') {
+      setNavChecked(true);
+      return;
+    }
+    try {
+      const raw = window.sessionStorage.getItem(OUTREACH_NAV_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const ids = Array.isArray(parsed?.ids) ? parsed.ids.map(String) : [];
+        if (ids.includes(id)) setNavIds(ids);
+      }
+    } catch {
+      // ignore malformed storage
+    }
+    setNavChecked(true);
+  }, [id]);
+
+  // Fallback: opened directly (no list context) → use the default active
+  // organisation list order for this contact's category.
+  useEffect(() => {
+    if (!navChecked || navIds || !org) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await outreachArchiveApi.listActive({ limit: 500 });
+        const all = (res.rows || res.organisations || []) as OutreachOrg[];
+        const cat = (org.category || '').trim();
+        const list = all
+          .filter((o) => (o.category || '').trim() === cat)
+          .sort((a, b) =>
+            (a.organisation_name || '').localeCompare(b.organisation_name || ''),
+          )
+          .map((o) => o.id);
+        if (!cancelled && list.includes(id)) setNavIds(list);
+      } catch {
+        // navigation is a convenience; ignore load failures
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [navChecked, navIds, org, id]);
+
+  const navIndex = navIds ? navIds.indexOf(id) : -1;
+  const prevId = navIndex > 0 ? navIds![navIndex - 1] : null;
+  const nextId =
+    navIndex >= 0 && navIds && navIndex < navIds.length - 1
+      ? navIds[navIndex + 1]
+      : null;
+
+  // Keyboard shortcuts: ← previous, → next — but never while typing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || el?.isContentEditable) return;
+      if (e.key === 'ArrowLeft' && prevId) {
+        e.preventDefault();
+        router.push(`/admin/outreach/${prevId}`);
+      } else if (e.key === 'ArrowRight' && nextId) {
+        e.preventDefault();
+        router.push(`/admin/outreach/${nextId}`);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [prevId, nextId, router]);
 
   const update = <K extends keyof OutreachOrgIn>(
     key: K,
@@ -221,6 +301,42 @@ export default function OutreachOrganisationDetailPage() {
         {' › '}
         {org.organisation_name}
       </p>
+
+      {navIndex >= 0 && navIds && navIds.length > 1 && (
+        <div style={navBar}>
+          <button
+            type="button"
+            onClick={() => prevId && router.push(`/admin/outreach/${prevId}`)}
+            disabled={!prevId}
+            aria-label="Previous contact"
+            title="Previous contact (←)"
+            style={{
+              ...navBtn,
+              opacity: prevId ? 1 : 0.4,
+              cursor: prevId ? 'pointer' : 'not-allowed',
+            }}
+          >
+            ← Previous
+          </button>
+          <span style={navPosition}>
+            {navIndex + 1} of {navIds.length}
+          </span>
+          <button
+            type="button"
+            onClick={() => nextId && router.push(`/admin/outreach/${nextId}`)}
+            disabled={!nextId}
+            aria-label="Next contact"
+            title="Next contact (→)"
+            style={{
+              ...navBtn,
+              opacity: nextId ? 1 : 0.4,
+              cursor: nextId ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Next →
+          </button>
+        </div>
+      )}
 
       {org.email_suppressed && (
         <div style={{
@@ -544,6 +660,32 @@ const crumbLink: React.CSSProperties = {
   color: '#0D9488',
   fontWeight: 700,
   textDecoration: 'none',
+};
+
+const navBar: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  marginTop: -6,
+  marginBottom: 16,
+  flexWrap: 'wrap',
+};
+
+const navBtn: React.CSSProperties = {
+  border: '1px solid #CBD5E1',
+  borderRadius: 999,
+  background: '#FFFFFF',
+  color: '#0F766E',
+  fontSize: 13,
+  fontWeight: 800,
+  padding: '7px 14px',
+};
+
+const navPosition: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+  color: '#475569',
+  fontVariantNumeric: 'tabular-nums',
 };
 
 const identityBar: React.CSSProperties = {

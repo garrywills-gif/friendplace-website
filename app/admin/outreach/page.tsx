@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AdminShell, adminStyles } from '@/components/admin/AdminShell';
-import { campaignsApi, outreachApi, type OutreachOrg, type OutreachOrgIn, type OutreachStatus } from '@/lib/cms-api';
+import { campaignsApi, outreachApi, type Campaign, type OutreachOrg, type OutreachOrgIn, type OutreachStatus } from '@/lib/cms-api';
 import { outreachArchiveApi, type OutreachListResponse } from '@/lib/outreach-archive-api';
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -114,6 +114,22 @@ function rowsFrom(result: OutreachListResponse): OutreachOrg[] {
   return result.rows || result.organisations || [];
 }
 
+function formatSaved(value?: string) {
+  if (!value) return 'recently';
+  try {
+    return new Date(value).toLocaleString('en-AU', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    return value;
+  }
+}
+
 async function sheetJs(): Promise<any> {
   if ((window as any).XLSX) return (window as any).XLSX;
   await new Promise<void>((resolve, reject) => {
@@ -188,6 +204,7 @@ export default function OutreachPage() {
   const [importMessage, setImportMessage] = useState('');
   const [creatingCampaignFor, setCreatingCampaignFor] = useState<string | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
+  const [draftByCat, setDraftByCat] = useState<Record<string, Campaign>>({});
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const load = async (preserveCurrentError = false) => {
@@ -207,6 +224,35 @@ export default function OutreachPage() {
 
   useEffect(() => {
     void load();
+  }, [view]);
+
+  // Recognise saved (draft) campaigns per outreach category so a group
+  // with an unfinished campaign shows "Continue campaign →" instead of
+  // "Create campaign". Most-recent draft wins per category. Sent /
+  // scheduled / sending campaigns are never treated as resumable, so
+  // campaign history is untouched.
+  const loadDrafts = async () => {
+    try {
+      const res = await campaignsApi.list();
+      const map: Record<string, Campaign> = {};
+      for (const c of res.rows || []) {
+        if (c.status !== 'draft') continue;
+        const cat = c.audience_filter?.outreach?.category;
+        if (!cat) continue;
+        const when = (t?: string) => t || '';
+        const existing = map[cat];
+        const cWhen = when(c.updated_at) || when(c.created_at);
+        const eWhen = existing ? (when(existing.updated_at) || when(existing.created_at)) : '';
+        if (!existing || cWhen > eWhen) map[cat] = c;
+      }
+      setDraftByCat(map);
+    } catch {
+      // Draft recognition is a convenience; never block the group list.
+    }
+  };
+
+  useEffect(() => {
+    void loadDrafts();
   }, [view]);
 
   const groups = useMemo(() => aggregateGroups(rows, qLive), [rows, qLive]);
@@ -459,6 +505,7 @@ export default function OutreachPage() {
             const lastLabel = g.lastContactAt ? new Date(g.lastContactAt).toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
             const creating = creatingCampaignFor === g.slug;
             const deleting = deletingGroup === g.slug;
+            const draft = view === 'active' ? draftByCat[g.slug] : undefined;
             return (
               <div key={g.slug} style={rowLine}>
                 <div style={{ flex: '2 1 0', minWidth: 0 }}>
@@ -471,15 +518,29 @@ export default function OutreachPage() {
                 <div style={{ flex: '0.9 1 0', textAlign: 'right' }}><span style={g.contacted ? contactedPill : neutralPill}>{g.contacted}</span></div>
                 <div style={{ flex: '1 1 0', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={g.notContacted ? notContactedPill : neutralPill}>{g.notContacted}</span>
-                  {view === 'active' && g.notContacted > 0 && (
-                    <button
-                      type="button"
-                      style={campaignBtn}
-                      disabled={Boolean(creatingCampaignFor)}
-                      onClick={() => void createCampaignForGroup(g)}
-                    >
-                      {creating ? 'Creating…' : 'Create campaign'}
-                    </button>
+                  {draft ? (
+                    <div style={continueWrap}>
+                      <Link
+                        href={`/admin/campaigns/new?id=${encodeURIComponent(draft.id)}`}
+                        style={continueBtn}
+                      >
+                        Continue campaign →
+                      </Link>
+                      <span style={draftLabel}>
+                        Draft saved · {formatSaved(draft.updated_at || draft.created_at)}
+                      </span>
+                    </div>
+                  ) : (
+                    view === 'active' && g.notContacted > 0 && (
+                      <button
+                        type="button"
+                        style={campaignBtn}
+                        disabled={Boolean(creatingCampaignFor)}
+                        onClick={() => void createCampaignForGroup(g)}
+                      >
+                        {creating ? 'Creating…' : 'Create campaign'}
+                      </button>
+                    )
                   )}
                 </div>
                 <div style={{ flex: '1.2 1 0', fontSize: 13, color: '#475569' }}>{lastLabel}</div>
@@ -521,6 +582,9 @@ const contactedPill: React.CSSProperties = { display: 'inline-block', padding: '
 const notContactedPill: React.CSSProperties = { display: 'inline-block', padding: '3px 10px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontWeight: 800, fontSize: 12, minWidth: 28, textAlign: 'center' };
 const neutralPill: React.CSSProperties = { display: 'inline-block', padding: '3px 10px', borderRadius: 999, background: '#F1F5F9', color: '#64748B', fontWeight: 800, fontSize: 12, minWidth: 28, textAlign: 'center' };
 const campaignBtn: React.CSSProperties = { border: '1px solid #99F6E4', background: '#F0FDFA', color: '#0F766E', borderRadius: 9, padding: '5px 8px', fontSize: 11, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' };
+const continueWrap: React.CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 };
+const continueBtn: React.CSSProperties = { border: '1px solid #0D9488', background: '#0D9488', color: '#FFFFFF', borderRadius: 9, padding: '5px 10px', fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap', textDecoration: 'none' };
+const draftLabel: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#0F766E', whiteSpace: 'nowrap' };
 const deleteBtn: React.CSSProperties = { border: '1px solid #FCA5A5', background: '#FFF', color: '#B91C1C', borderRadius: 8, padding: '5px 8px', fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' };
 const openLink: React.CSSProperties = { color: '#0F766E', fontWeight: 800 };
 const emptyState: React.CSSProperties = { padding: 48, textAlign: 'center', color: '#64748B', background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18 };
