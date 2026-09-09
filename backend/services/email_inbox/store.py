@@ -352,6 +352,68 @@ async def unread_count(db) -> int:
     })
 
 
+# ── Sent view ────────────────────────────────────────────────────────
+async def list_sent(db, *, mailbox: Optional[str] = None, limit: int = 200) -> Dict[str, Any]:
+    """Every outbound reply we've sent, newest first — powers the Sent tab.
+    Each row carries recipient (to_email), subject, sent time, sending
+    mailbox and the exact html/text that went out so it can be reviewed."""
+    lim = max(1, min(int(limit or 200), 500))
+    q: Dict[str, Any] = {"direction": "outbound"}
+    if mailbox:
+        q["mailbox"] = _norm_addr(mailbox)
+    rows = await db[COLL_MESSAGES].find(q, {"_id": 0}).sort("created_at", -1).to_list(lim)
+    return {"count": len(rows), "rows": rows}
+
+
+# ── Permanent delete ─────────────────────────────────────────────────
+async def delete_message(db, message_id: str) -> bool:
+    """HARD delete a single stored message (irreversible). Intended for
+    test junk / duplicates / rubbish. Only the one id is removed — genuine
+    messages and the rest of the thread are untouched."""
+    res = await db[COLL_MESSAGES].delete_one({"id": message_id})
+    return res.deleted_count > 0
+
+
+# ── Shared reply renderer (used by BOTH preview and send) ────────────
+def render_reply_email(
+    *, parent: Dict[str, Any], mailbox: str, subject: Optional[str],
+    text: str, html_override: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Produce the FINAL reply email exactly as the recipient will receive
+    it. Preview and send both call this, so the preview always matches what
+    is actually sent: reply body + built-in FriendPlace sign-off, correct
+    Re: subject, and the sending mailbox / recipient."""
+    to_email = _norm_addr(parent.get("from_email") or "")
+    subj = (subject or "").strip() or parent.get("subject") or "(no subject)"
+    if not subj.lower().startswith("re:"):
+        subj = f"Re: {subj}"
+
+    body = (html_override or "").strip() or (
+        "<div style=\"font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;"
+        "font-size:15px;line-height:1.6;color:#0f172a;white-space:pre-wrap\">"
+        + (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+        + "</div>"
+    )
+    footer_html = (
+        "<div style=\"margin-top:26px;border-top:1px solid #e2e8f0;padding-top:16px;"
+        "font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;"
+        "color:#64748b;line-height:1.6\">"
+        "Warmly,<br><strong style=\"color:#0f172a\">The FriendPlace Team</strong><br>"
+        "<a href=\"https://www.friendplace.com.au\" style=\"color:#0d9488;"
+        "text-decoration:none\">friendplace.com.au</a>"
+        "</div>"
+    )
+    html = (
+        "<div style=\"max-width:640px;margin:0 auto;padding:4px 2px\">"
+        + body + footer_html + "</div>"
+    )
+    text_out = (text or "").rstrip() + "\n\nWarmly,\nThe FriendPlace Team\nfriendplace.com.au"
+    return {
+        "subject": subj, "from_email": mailbox, "to_email": to_email,
+        "html": html, "text": text_out,
+    }
+
+
 async def ensure_inbox_indexes(db) -> None:
     await db[COLL_MAILBOXES].create_index("address", unique=True)
     await db[COLL_MESSAGES].create_index("thread_id")
@@ -366,5 +428,6 @@ __all__ = [
     "store_inbound", "store_outbound_reply", "fetch_received_email",
     "list_messages", "get_thread", "set_read",
     "archive_message", "restore_message", "unread_count",
+    "list_sent", "delete_message", "render_reply_email",
     "ensure_inbox_indexes",
 ]

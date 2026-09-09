@@ -180,6 +180,27 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
             raise HTTPException(404, "Message not found")
         return row
 
+    @router.post("/messages/{message_id}/reply-preview")
+    async def _reply_preview(message_id: str, body: ReplyIn, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Render the FINAL reply email WITHOUT sending it. Uses the exact
+        same renderer as the send path, so what's shown here is byte-for-byte
+        what the recipient receives (body + FriendPlace sign-off, subject,
+        sending mailbox, recipient, spacing/styling)."""
+        text = (body.body_text or "").strip()
+        if not text and not (body.body_html or "").strip():
+            raise HTTPException(400, "Reply body is required")
+        out = await store.get_thread(db, message_id)
+        if not out:
+            raise HTTPException(404, "Message not found")
+        parent = out["message"]
+        if not parent.get("from_email"):
+            raise HTTPException(400, "Original sender address is unknown")
+        rendered = store.render_reply_email(
+            parent=parent, mailbox=parent.get("mailbox"),
+            subject=body.subject, text=text, html_override=body.body_html,
+        )
+        return {"preview": True, **rendered}
+
     @router.post("/messages/{message_id}/reply")
     async def _reply(message_id: str, body: ReplyIn, admin: dict = Depends(current_cms_admin)):
         text = (body.body_text or "").strip()
@@ -193,17 +214,14 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
         to_email = parent.get("from_email")        # reply TO the original sender
         if not to_email:
             raise HTTPException(400, "Original sender address is unknown")
-        subject = (body.subject or "").strip() or parent.get("subject") or "(no subject)"
-        if not subject.lower().startswith("re:"):
-            subject = f"Re: {subject}"
-        html = (body.body_html or "").strip() or (
-            "<div style=\"font-family:system-ui,sans-serif;font-size:15px;"
-            "line-height:1.6;color:#0f172a;white-space:pre-wrap\">"
-            + (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-            + "</div>"
+        # Shared renderer — identical output to the preview endpoint.
+        rendered = store.render_reply_email(
+            parent=parent, mailbox=mailbox,
+            subject=body.subject, text=text, html_override=body.body_html,
         )
+        subject, html, text_out = rendered["subject"], rendered["html"], rendered["text"]
         result = await send_email_detailed(
-            to=to_email, subject=subject, html=html, text=text or None,
+            to=to_email, subject=subject, html=html, text=text_out or None,
             from_email=mailbox, reply_to=mailbox,
         )
         if not result.ok:
@@ -214,11 +232,31 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
         sent_by = admin.get("email") if isinstance(admin, dict) else None
         stored = await store.store_outbound_reply(
             db, parent=parent, mailbox=mailbox, to_email=to_email,
-            subject=subject, text=text, html=html,
+            subject=subject, text=text_out, html=html,
             message_id=result.message_id, sent_by=sent_by,
         )
         await store.set_read(db, message_id, True)
-        return {"ok": True, "message_id": result.message_id, "reply": stored}
+        # `from` is the exact mailbox the reply was sent from — the UI shows
+        # it in the success confirmation ("✓ Reply sent from …").
+        return {"ok": True, "message_id": result.message_id,
+                "from": mailbox, "reply": stored}
+
+    @router.get("/sent")
+    async def _sent(
+        mailbox: Optional[str] = None,
+        limit: int = 200,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        return await store.list_sent(db, mailbox=mailbox, limit=limit)
+
+    @router.delete("/messages/{message_id}")
+    async def _delete(message_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """Permanently delete ONE stored message (irreversible). Separate
+        from Archive; intended for test junk / duplicates / rubbish."""
+        ok = await store.delete_message(db, message_id)
+        if not ok:
+            raise HTTPException(404, "Message not found")
+        return {"ok": True, "deleted": message_id}
 
     @router.get("/unread-count")
     async def _unread(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001

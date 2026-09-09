@@ -50,8 +50,10 @@ function InboxPanel() {
   const [mailboxes, setMailboxes] = useState<Mailbox[]>([]);
   const [rows, setRows] = useState<InboxMessage[] | null>(null);
   const [mailbox, setMailbox] = useState<string>(''); // '' = all
-  const [archived, setArchived] = useState(false);
+  const [view, setView] = useState<'inbox' | 'archived' | 'sent'>('inbox');
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const archived = view === 'archived';
+  const isSent = view === 'sent';
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,6 +64,8 @@ function InboxPanel() {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<{ subject: string; from_email: string; to_email: string; html: string } | null>(null);
 
   // manage mailboxes
   const [manageOpen, setManageOpen] = useState(false);
@@ -72,6 +76,13 @@ function InboxPanel() {
     const silent = Boolean(opts?.silent);
     if (!silent) setLoading(true);
     try {
+      // Sent view: list our outbound replies (no unread chips needed).
+      if (view === 'sent') {
+        const r = await inboxApi.listSent({ mailbox: mailbox || undefined, limit: 300 });
+        setRows(r.rows);
+        setError(null);
+        return;
+      }
       // Fetch the current view and a tiny unread-only view in parallel.
       // The second response lets Mission Control calculate reliable per-mailbox
       // unread badges even if the backend mailbox metadata is stale.
@@ -107,7 +118,7 @@ function InboxPanel() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [mailbox, archived, unreadOnly]);
+  }, [mailbox, view, archived, unreadOnly]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -195,9 +206,11 @@ function InboxPanel() {
     setSending(true);
     setNotice(null);
     try {
-      await inboxApi.reply(selected.id, { body_text: replyText.trim() });
-      setNotice('Reply sent.');
+      const res = await inboxApi.reply(selected.id, { body_text: replyText.trim() });
+      const fromMailbox = res.from || selected.mailbox;
+      setNotice(`✓ Reply sent from ${fromMailbox}`);
       setReplyText('');
+      setPreview(null);
       const r = await inboxApi.get(selected.id);
       setSelected(r.message);
       setThread(r.thread);
@@ -208,6 +221,41 @@ function InboxPanel() {
     } finally {
       setSending(false);
     }
+  };
+
+  const doPreview = async () => {
+    if (!selected || !replyText.trim()) return;
+    setPreviewing(true);
+    setError(null);
+    try {
+      const p = await inboxApi.replyPreview(selected.id, { body_text: replyText.trim() });
+      setPreview({ subject: p.subject, from_email: p.from_email, to_email: p.to_email, html: p.html });
+    } catch (e: any) {
+      setError(e?.message || 'Could not build preview.');
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const deletePermanently = async (m: InboxMessage) => {
+    const who = m.from_name || m.from_email || 'this message';
+    if (!confirm(
+      `Permanently delete "${m.subject || who}"?\n\n` +
+      `This CANNOT be undone — the message is removed for good (not archived). ` +
+      `Only use this for test junk, duplicates or rubbish.`,
+    )) return;
+    setBusy(m.id);
+    try {
+      await inboxApi.deleteMessage(m.id);
+      if (selected?.id === m.id) { setSelected(null); setThread([]); setPreview(null); }
+      await load({ silent: true });
+    } catch (e: any) { setError(e?.message || 'Could not delete message.'); }
+    finally { setBusy(null); }
+  };
+
+  const openSent = (m: InboxMessage) => {
+    setNotice(null); setPreview(null); setReplyText('');
+    setSelected(m); setThread([]);
   };
 
   const addMailbox = async () => {
@@ -280,10 +328,11 @@ function InboxPanel() {
       )}
 
       {/* View toggles */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <Toggle active={!archived} onClick={() => setArchived(false)} label="Inbox" />
-        <Toggle active={archived} onClick={() => setArchived(true)} label="Archived" />
-        <Toggle active={unreadOnly} onClick={() => setUnreadOnly((v) => !v)} label="Unread only" />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        <Toggle active={view === 'inbox'} onClick={() => { setView('inbox'); setSelected(null); setThread([]); setPreview(null); }} label="Inbox" />
+        <Toggle active={view === 'archived'} onClick={() => { setView('archived'); setSelected(null); setThread([]); setPreview(null); }} label="Archived" />
+        <Toggle active={view === 'sent'} onClick={() => { setView('sent'); setSelected(null); setThread([]); setPreview(null); }} label="Sent" />
+        {!isSent && <Toggle active={unreadOnly} onClick={() => setUnreadOnly((v) => !v)} label="Unread only" />}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.1fr)', gap: 20, alignItems: 'start' }}>
@@ -291,9 +340,27 @@ function InboxPanel() {
         <div style={{ ...s.card, padding: 0, overflow: 'hidden' }}>
           {loading && <div style={emptyRow}>Loading…</div>}
           {!loading && (rows?.length ?? 0) === 0 && (
-            <div style={emptyRow}>{archived ? 'No archived messages.' : 'No messages yet.'}</div>
+            <div style={emptyRow}>{isSent ? 'No sent replies yet.' : archived ? 'No archived messages.' : 'No messages yet.'}</div>
           )}
-          {!loading && rows?.map((m) => (
+          {!loading && isSent && rows?.map((m) => (
+            <button key={m.id} type="button" onClick={() => openSent(m)}
+              style={{ ...listRow, background: selected?.id === m.id ? '#F0FDFA' : '#FFFFFF' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                <span style={{ fontWeight: 700, color: '#0A2540', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  To: {m.to_email}
+                </span>
+                <span style={toChip}>from {mailboxLabel(m.mailbox)}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94A3B8', whiteSpace: 'nowrap' }}>{fmt(m.created_at || m.received_at)}</span>
+              </div>
+              <div style={{ fontWeight: 600, color: '#0A2540', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {m.subject}
+              </div>
+              <div style={{ fontSize: 13, color: '#64748B', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {m.snippet}
+              </div>
+            </button>
+          ))}
+          {!loading && !isSent && rows?.map((m) => (
             <button key={m.id} type="button" onClick={() => openMessage(m)}
               style={{
                 ...listRow,
@@ -325,24 +392,55 @@ function InboxPanel() {
               <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <h3 style={{ ...s.cardTitle, marginBottom: 6 }}>{selected.subject}</h3>
-                  <div style={{ fontSize: 13, color: '#475569' }}>
-                    <strong>{selected.from_name || selected.from_email}</strong> &lt;{selected.from_email}&gt;
-                  </div>
-                  <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
-                    to <strong>{mailboxLabel(selected.mailbox)}</strong> ({selected.mailbox})
-                  </div>
+                  {isSent ? (
+                    <>
+                      <div style={{ fontSize: 13, color: '#475569' }}>
+                        to <strong>{selected.to_email}</strong>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                        sent from <strong>{mailboxLabel(selected.mailbox)}</strong> ({selected.mailbox}) · {fmt(selected.created_at || selected.received_at)}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 13, color: '#475569' }}>
+                        <strong>{selected.from_name || selected.from_email}</strong> &lt;{selected.from_email}&gt;
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                        to <strong>{mailboxLabel(selected.mailbox)}</strong> ({selected.mailbox})
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button type="button" onClick={() => toggleRead(selected)} disabled={busy === selected.id} style={ghostSmall}>
-                    {selected.read ? 'Mark unread' : 'Mark read'}
-                  </button>
-                  <button type="button" onClick={() => archiveOrRestore(selected)} disabled={busy === selected.id} style={ghostSmall}>
-                    {archived ? 'Restore' : 'Archive'}
-                  </button>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {!isSent && (
+                    <>
+                      <button type="button" onClick={() => toggleRead(selected)} disabled={busy === selected.id} style={ghostSmall}>
+                        {selected.read ? 'Mark unread' : 'Mark read'}
+                      </button>
+                      <button type="button" onClick={() => archiveOrRestore(selected)} disabled={busy === selected.id} style={ghostSmall}>
+                        {archived ? 'Restore' : 'Archive'}
+                      </button>
+                      <button type="button" onClick={() => deletePermanently(selected)} disabled={busy === selected.id} style={dangerSmall}>
+                        Delete permanently
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 
+              {isSent && (
+                <div style={{ marginTop: 16, borderRadius: 12, padding: 14, border: '1px solid #E2E8F0', background: '#F0FDFA' }}>
+                  <div style={{ fontSize: 12, color: '#64748B', marginBottom: 6 }}>
+                    FriendPlace ({selected.mailbox}) → {selected.to_email}
+                    <span style={{ marginLeft: 8 }}>· {fmt(selected.created_at || selected.received_at)}</span>
+                  </div>
+                  <MessageBody message={selected} />
+                </div>
+              )}
+
               {/* Thread */}
+              {!isSent && (
               <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {thread.map((t) => (
                   <div key={t.id} style={{
@@ -360,24 +458,60 @@ function InboxPanel() {
                   </div>
                 ))}
               </div>
+              )}
 
               {/* Reply */}
+              {!isSent && (
               <div style={{ marginTop: 16 }}>
                 <label style={s.label}>Reply from {selected.mailbox}</label>
-                <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)}
+                <textarea value={replyText} onChange={(e) => { setReplyText(e.target.value); setPreview(null); }}
                   placeholder="Write your reply…" style={{ ...(s.textarea as React.CSSProperties), minHeight: 120 }} />
                 {notice && <div style={noticeBox}>{notice}</div>}
-                <div style={{ marginTop: 10 }}>
+                <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button type="button" onClick={doPreview} disabled={previewing || sending || !replyText.trim()}
+                    style={{ ...ghostSmall, padding: '11px 16px', fontSize: 13, opacity: previewing || sending || !replyText.trim() ? 0.6 : 1 }}>
+                    {previewing ? 'Building preview…' : 'Preview reply'}
+                  </button>
                   <button type="button" onClick={sendReply} disabled={sending || !replyText.trim()}
                     style={{ ...(s.primaryBtn as React.CSSProperties), opacity: sending || !replyText.trim() ? 0.6 : 1 }}>
                     {sending ? 'Sending…' : 'Send reply'}
                   </button>
                 </div>
               </div>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Reply preview modal — the exact final email the recipient receives */}
+      {preview && (
+        <div style={modalOverlay} onClick={() => setPreview(null)}>
+          <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ ...s.cardTitle, marginBottom: 8 }}>Reply preview</p>
+                <div style={metaLine}><strong style={{ color: '#0A2540' }}>From:</strong> {preview.from_email}</div>
+                <div style={metaLine}><strong style={{ color: '#0A2540' }}>To:</strong> {preview.to_email}</div>
+                <div style={metaLine}><strong style={{ color: '#0A2540' }}>Subject:</strong> {preview.subject}</div>
+              </div>
+              <button type="button" onClick={() => setPreview(null)} style={ghostSmall} aria-label="Close preview">Close</button>
+            </div>
+            <p style={s.helper}>This is exactly what the recipient will receive.</p>
+            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #E2E8F0', background: '#FFFFFF', marginTop: 8 }}>
+              <iframe title="Reply preview" srcDoc={preview.html} sandbox=""
+                style={{ display: 'block', width: '100%', minHeight: 420, border: 0, background: '#FFFFFF' }} />
+            </div>
+            <div style={{ marginTop: 14, display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => setPreview(null)} style={ghostSmall}>Keep editing</button>
+              <button type="button" onClick={sendReply} disabled={sending}
+                style={{ ...(s.primaryBtn as React.CSSProperties), opacity: sending ? 0.6 : 1 }}>
+                {sending ? 'Sending…' : 'Send this reply'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -444,6 +578,10 @@ const listRow: React.CSSProperties = { display: 'block', width: '100%', textAlig
 const unreadDot: React.CSSProperties = { width: 8, height: 8, borderRadius: 999, background: '#14B8A6', flexShrink: 0 };
 const toChip: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#0F766E', background: '#F0FDFA', border: '1px solid #99F6E4', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' };
 const ghostSmall: React.CSSProperties = { padding: '7px 12px', borderRadius: 10, border: '1.5px solid #CBD5E1', background: '#FFFFFF', color: '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
+const dangerSmall: React.CSSProperties = { padding: '7px 12px', borderRadius: 10, border: '1.5px solid #FCA5A5', background: '#FEF2F2', color: '#B91C1C', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
+const modalOverlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(10,37,64,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px', zIndex: 1000, overflowY: 'auto' };
+const modalCard: React.CSSProperties = { background: '#FFFFFF', borderRadius: 16, padding: 20, width: '100%', maxWidth: 640, boxShadow: '0 20px 60px rgba(10,37,64,0.25)' };
+const metaLine: React.CSSProperties = { fontSize: 13, color: '#475569', marginTop: 2 };
 const manageBtn: React.CSSProperties = { padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: '1.5px dashed #CBD5E1', background: '#FFFFFF', color: '#475569', marginLeft: 'auto' };
 const mbPill: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: '#0A2540', background: '#F1F5F9', border: '1px solid #E2E8F0', borderRadius: 999, padding: '5px 6px 5px 12px' };
 const mbPillX: React.CSSProperties = { border: 'none', background: '#E2E8F0', color: '#475569', width: 20, height: 20, borderRadius: 999, cursor: 'pointer', fontSize: 14, lineHeight: '18px' };
