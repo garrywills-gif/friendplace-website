@@ -246,6 +246,16 @@ export default function OutreachGroupPage() {
                 <Link
                   key={o.id}
                   href={`/admin/outreach/${o.id}`}
+                  onClick={() => {
+                    try {
+                      window.sessionStorage.setItem(
+                        'mcgs.outreach.navlist',
+                        JSON.stringify({ ids: groupRows.map((r) => r.id) }),
+                      );
+                    } catch {
+                      // navigation context is a convenience only
+                    }
+                  }}
                   style={{ ...rowLine, textDecoration: 'none', color: 'inherit' }}
                 >
                   <div style={{ flex: '2 1 0', minWidth: 0 }}>
