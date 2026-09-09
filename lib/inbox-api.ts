@@ -132,7 +132,19 @@ export const inboxApi = {
   restore: (id: string) =>
     req<InboxMessage>('POST', `/cms/email/messages/${encodeURIComponent(id)}/restore`),
   reply: (id: string, body: { body_text: string; body_html?: string; subject?: string }) =>
-    req<{ ok: true; message_id: string; reply: InboxMessage }>('POST', `/cms/email/messages/${encodeURIComponent(id)}/reply`, body),
+    req<{ ok: true; message_id: string; from: string; reply: InboxMessage }>('POST', `/cms/email/messages/${encodeURIComponent(id)}/reply`, body),
+  replyPreview: (id: string, body: { body_text: string; body_html?: string; subject?: string }) =>
+    req<{ preview: true; subject: string; from_email: string; to_email: string; html: string; text: string }>(
+      'POST', `/cms/email/messages/${encodeURIComponent(id)}/reply-preview`, body),
+  listSent: async (opts?: { mailbox?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (opts?.mailbox) qs.set('mailbox', opts.mailbox);
+    qs.set('limit', String(opts?.limit ?? 200));
+    const r = await req<{ count: number; rows: InboxMessage[] }>('GET', `/cms/email/sent?${qs.toString()}`);
+    return { ...r, rows: (r.rows || []).map(canonicalMessage) };
+  },
+  deleteMessage: (id: string) =>
+    req<{ ok: true; deleted: string }>('DELETE', `/cms/email/messages/${encodeURIComponent(id)}`),
   unreadCount: async () => {
     const r = await req<InboxListResponse>(
       'GET',
