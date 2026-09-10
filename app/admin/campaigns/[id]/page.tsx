@@ -40,12 +40,40 @@ const FILTER_LABEL: Record<RecipientFilter, string> = {
   bounced:    'Bounced / complained',
 };
 
+function currentEventType(r: CampaignRecipient): string {
+  return String(r.last_event_type || '').toLowerCase();
+}
+
+function isCurrentlyBounced(r: CampaignRecipient): boolean {
+  const last = currentEventType(r);
+  if (last) return last === 'email.bounced' || last === 'email.complained';
+
+  const status = String(r.status || '').toLowerCase();
+  if (status) return status === 'bounced' || status === 'complained';
+
+  // Legacy rows may not have last_event_type/status populated.
+  return !!r.bounced_at || !!r.complained_at;
+}
+
+function isCurrentlyDelivered(r: CampaignRecipient): boolean {
+  if (isCurrentlyBounced(r)) return false;
+
+  const last = currentEventType(r);
+  if (last) {
+    return last === 'email.delivered' || last === 'email.opened' || last === 'email.clicked';
+  }
+
+  const status = String(r.status || '').toLowerCase();
+  if (status === 'failed' || status === 'bounced' || status === 'complained') return false;
+
+  return !!r.delivered_at || status === 'delivered' || !!r.first_opened_at || !!r.first_clicked_at;
+}
+
 function matchesFilter(r: CampaignRecipient, f: RecipientFilter): boolean {
-  const status = (r.status || '').toLowerCase();
   const opened = !!r.first_opened_at;
   const clicked = !!r.first_clicked_at;
-  const bounced = !!r.bounced_at || !!r.complained_at || status === 'bounced' || status === 'complained';
-  const delivered = !!r.delivered_at || status === 'delivered' || opened || clicked;
+  const bounced = isCurrentlyBounced(r);
+  const delivered = isCurrentlyDelivered(r);
   switch (f) {
     case 'all':        return true;
     case 'opened':     return opened && !bounced;
@@ -129,8 +157,11 @@ export default function CampaignDetailPage() {
   const accepted = stats.accepted || 0;
   const uniqueOpens  = stats.unique_opens  ?? stats.opened  ?? 0;
   const uniqueClicks = stats.unique_clicks ?? stats.clicked ?? 0;
-  const delivered = stats.delivered || 0;
-  const bounced   = stats.bounced   || 0;
+  // Headline delivery/bounce metrics reflect each recipient's CURRENT/latest
+  // state. The backend aggregate remains historical and is still preserved in
+  // the timeline/raw event data for audit purposes.
+  const delivered = campaign.recipients.filter(isCurrentlyDelivered).length;
+  const bounced = campaign.recipients.filter(isCurrentlyBounced).length;
   const complained = stats.complained || 0;
   const deliveryRate = accepted ? delivered / accepted : 0;
   const openRate     = accepted ? uniqueOpens  / accepted : 0;
@@ -276,8 +307,8 @@ export default function CampaignDetailPage() {
       </div>
       <div style={{ ...s.helper, marginTop: 8, marginBottom: bounced > 0 ? 10 : 20 }}>
         Rates use <strong>unique</strong> opens / clicks (each recipient
-        counted once). Raw counts include repeat opens. Delivered / Opened /
-        Clicked / Bounced / Complained update live from Resend webhooks.
+        counted once). Delivered and Bounced reflect each recipient's current
+        latest state; raw counts and timelines retain the full event history.
       </div>
 
       {bounced > 0 && (
