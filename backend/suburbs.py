@@ -824,6 +824,31 @@ def by_postcode(postcode: str) -> List[Dict]:
     ]
 
 
+def resolve(name: str, state: Optional[str] = None,
+            postcode: Optional[str] = None) -> Optional[Dict]:
+    """Resolve a locality by name (+ optional state/postcode) to a single
+    recognised row with coordinates. Used to validate and geocode a
+    locality chosen anywhere in the app (creation locality, backfill, etc.).
+    Returns None when the name is not a recognised Australian locality.
+    """
+    if not name:
+        return None
+    n = name.strip().lower()
+    st = (state or "").strip().upper() or None
+    pc = (postcode or "").strip() or None
+    best: Optional[Dict] = None
+    for nm, p, s, la, lg in SUBURBS:
+        if nm.lower() != n:
+            continue
+        if pc and p == pc:
+            return {"name": nm, "postcode": p, "state": s, "lat": la, "lng": lg}
+        if st and s == st and best is None:
+            best = {"name": nm, "postcode": p, "state": s, "lat": la, "lng": lg}
+        elif best is None:
+            best = {"name": nm, "postcode": p, "state": s, "lat": la, "lng": lg}
+    return best
+
+
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Distance in km between two lat/lng pairs."""
     R = 6371.0

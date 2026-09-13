@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional, Dict, Set, Any
+from typing import List, Optional, Dict, Set, Any, Tuple
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
@@ -52,7 +52,7 @@ from sudoku import DIFFICULTIES as SD_DIFFS, generate_puzzle as sd_generate, dai
 from spot_difference import THEMES as STD_THEMES, DIFFICULTIES as STD_DIFFS, list_themes as std_list_themes, generate_puzzle as std_generate, daily_pick as std_daily_pick, today_iso as std_today_iso
 from spot_library import list_active_puzzles as lib_active, get_puzzle as lib_get, public_card as lib_card  # noqa: E402
 from milestones import MILESTONES as ML_DEFS, evaluate as ml_evaluate
-from suburbs import search_suburbs as sb_search, by_postcode as sb_by_postcode, haversine_km as sb_haversine
+from suburbs import search_suburbs as sb_search, by_postcode as sb_by_postcode, haversine_km as sb_haversine, resolve as sb_resolve
 
 ROOT_DIR = Path(__file__).parent
 # `settings` already loaded .env via pydantic-settings — we keep load_dotenv()
@@ -357,6 +357,13 @@ class Group(BaseModel):
     emoji: str = "👥"
     description: str = ""
     members: List[str] = []
+    # Local Discovery: recognised-locality fields, stamped at create time
+    # from the creator's suburb. Used for radius filtering on the list.
+    locality: str = ""
+    locality_postcode: str = ""
+    locality_state: str = ""
+    locality_lat: Optional[float] = None
+    locality_lng: Optional[float] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -398,6 +405,13 @@ class Event(BaseModel):
     recurrence: Optional[str] = None     # None | "weekly" | "fortnightly" | "monthly"
     series_id: Optional[str] = None
     series_master: bool = False
+    # Local Discovery: recognised-locality fields, stamped at create time
+    # from the host's suburb. Used for radius filtering on the list.
+    locality: str = ""
+    locality_postcode: str = ""
+    locality_state: str = ""
+    locality_lat: Optional[float] = None
+    locality_lng: Optional[float] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -422,6 +436,13 @@ class Notice(BaseModel):
     solved: bool = False
     reports: List[dict] = Field(default_factory=list)
     edited_at: Optional[str] = None
+    # Local Discovery: recognised-locality fields, stamped at create time
+    # from the author's suburb. Used for radius filtering on the list.
+    locality: str = ""
+    locality_postcode: str = ""
+    locality_state: str = ""
+    locality_lat: Optional[float] = None
+    locality_lng: Optional[float] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -4235,6 +4256,86 @@ async def suburbs_meta():
     }
 
 
+# ── Local Discovery helpers (radius filtering for notices/events/groups) ──
+def _locality_update_from(name: Optional[str], state: Optional[str],
+                          postcode: Optional[str]) -> Dict:
+    """Resolve a chosen locality to the 5 stored fields, or {} if the
+    name is not a recognised Australian locality (no guessing)."""
+    if not name:
+        return {}
+    r = sb_resolve(name, state, postcode)
+    if not r:
+        return {}
+    return {
+        "locality": r["name"],
+        "locality_postcode": r["postcode"],
+        "locality_state": r["state"],
+        "locality_lat": r["lat"],
+        "locality_lng": r["lng"],
+    }
+
+
+async def _default_locality_for_user(user_id: Optional[str]) -> Dict:
+    """Locality fields defaulted from a member's own recognised suburb.
+    Used when creating content without an explicit locality. Returns {}
+    when the member has no recognised suburb (treat such items as All-only)."""
+    if not user_id:
+        return {}
+    u = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "suburb": 1, "suburb_postcode": 1, "suburb_state": 1,
+         "suburb_lat": 1, "suburb_lng": 1},
+    ) or {}
+    lat, lng = u.get("suburb_lat"), u.get("suburb_lng")
+    if lat is not None and lng is not None and u.get("suburb"):
+        return {
+            "locality": u.get("suburb") or "",
+            "locality_postcode": u.get("suburb_postcode") or "",
+            "locality_state": u.get("suburb_state") or "",
+            "locality_lat": lat,
+            "locality_lng": lng,
+        }
+    return _locality_update_from(u.get("suburb"), u.get("suburb_state"), u.get("suburb_postcode"))
+
+
+async def _radius_center(user_id: Optional[str],
+                         near_lat: Optional[float],
+                         near_lng: Optional[float]) -> Optional[Tuple[float, float]]:
+    """Determine the center of a radius query. Prefer explicit coords
+    (rarely used), else the member's own stored suburb coords."""
+    if near_lat is not None and near_lng is not None:
+        return (float(near_lat), float(near_lng))
+    if not user_id:
+        return None
+    u = await db.users.find_one(
+        {"id": user_id}, {"_id": 0, "suburb_lat": 1, "suburb_lng": 1},
+    ) or {}
+    if u.get("suburb_lat") is not None and u.get("suburb_lng") is not None:
+        return (float(u["suburb_lat"]), float(u["suburb_lng"]))
+    return None
+
+
+def _apply_radius(rows: List[Dict], center: Optional[Tuple[float, float]],
+                  radius_km: Optional[float]) -> List[Dict]:
+    """Filter rows to those within `radius_km` of `center`, attaching a
+    rounded `distance_km`. If radius_km is falsy (All) or no center is
+    known, rows are returned unchanged (no distance filtering). Rows
+    without locality coords are excluded from a bounded radius query."""
+    if not radius_km or center is None:
+        return rows
+    clat, clng = center
+    out: List[Dict] = []
+    for r in rows:
+        lat, lng = r.get("locality_lat"), r.get("locality_lng")
+        if lat is None or lng is None:
+            continue
+        d = sb_haversine(clat, clng, float(lat), float(lng))
+        if d <= float(radius_km):
+            r["distance_km"] = round(d, 1)
+            out.append(r)
+    return out
+
+
 @api.post("/users/{user_id}/location")
 async def set_user_location(user_id: str, body: SetLocationBody):
     """Set the user's chosen suburb. If `prefer_not_to_say=True`, clears all
@@ -6302,7 +6403,10 @@ async def table_messages(table_id: str):
 
 # ------------- Groups -------------
 @api.get("/groups")
-async def list_groups(include_pending: bool = False, include_system: bool = False):
+async def list_groups(include_pending: bool = False, include_system: bool = False,
+                      q: Optional[str] = None, user_id: Optional[str] = None,
+                      radius_km: Optional[float] = None,
+                      near_lat: Optional[float] = None, near_lng: Optional[float] = None):
     """Public Community Groups list.
 
     By default hides:
@@ -6312,21 +6416,42 @@ async def list_groups(include_pending: bool = False, include_system: bool = Fals
       • `pending_approval=True` — user-suggested groups waiting on admin
         review. Admin panel passes `include_pending=true` to see them.
 
+    Local Discovery: when `radius_km` is given (5/10/25/50) together with
+    a `user_id` (or explicit near_lat/near_lng), only groups whose locality
+    falls within that radius of the member's suburb are returned, each with
+    a `distance_km`. Omitting radius_km (All) returns everything.
+
     Newest first so newly-approved community groups are discoverable.
     """
-    q: dict = {}
+    query: dict = {}
     if not include_system:
-        q["is_system"] = {"$ne": True}
+        query["is_system"] = {"$ne": True}
     if not include_pending:
-        q["pending_approval"] = {"$ne": True}
-    return await db.groups.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+        query["pending_approval"] = {"$ne": True}
+    if q:
+        safe = re.escape(q)
+        query["$or"] = [
+            {"name": {"$regex": safe, "$options": "i"}},
+            {"description": {"$regex": safe, "$options": "i"}},
+        ]
+    rows = await db.groups.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    center = await _radius_center(user_id, near_lat, near_lng)
+    rows = _apply_radius(rows, center, radius_km)
+    return rows
 
 
 @api.post("/groups")
 async def create_group(body: Group):
     g = Group(**body.dict())
-    await db.groups.insert_one(g.dict())
-    return g.dict()
+    doc = g.dict()
+    # Local Discovery: stamp locality from the creator's suburb when the
+    # group didn't carry its own recognised locality coords.
+    if doc.get("locality_lat") is None:
+        loc = await _default_locality_for_user(getattr(body, "created_by", None) or doc.get("created_by"))
+        if loc:
+            doc.update(loc)
+    await db.groups.insert_one(doc)
+    return doc
 
 
 @api.post("/groups/suggest")
@@ -6369,6 +6494,11 @@ async def suggest_group(body: dict, user=Depends(current_user)):
         "suggested_at": now_iso(),
         "created_at": now_iso(),
     }
+    # Local Discovery: stamp the group's locality from the suggester's suburb
+    # so it can be radius-filtered once approved.
+    loc = await _default_locality_for_user(user["id"])
+    if loc:
+        g.update(loc)
     await db.groups.insert_one(g)
     # Notify admins so they know there's something to review. We send to
     # every admin user — small list, idempotent fan-out.
@@ -6498,8 +6628,24 @@ async def comment_group_post(post_id: str, body: dict):
 
 # ------------- Events -------------
 @api.get("/events")
-async def list_events():
-    return await db.events.find({"archived": {"$ne": True}}, {"_id": 0}).sort("date", 1).to_list(200)
+async def list_events(user_id: Optional[str] = None, q: Optional[str] = None,
+                      radius_km: Optional[float] = None,
+                      near_lat: Optional[float] = None, near_lng: Optional[float] = None):
+    """Local Events list. Local Discovery: pass `radius_km` (5/10/25/50)
+    with a `user_id` to only return events within that distance of the
+    member's suburb (each with `distance_km`); omit radius_km for All."""
+    query: dict = {"archived": {"$ne": True}}
+    if q:
+        safe = re.escape(q)
+        query["$or"] = [
+            {"title": {"$regex": safe, "$options": "i"}},
+            {"description": {"$regex": safe, "$options": "i"}},
+            {"location": {"$regex": safe, "$options": "i"}},
+        ]
+    rows = await db.events.find(query, {"_id": 0}).sort("date", 1).to_list(500)
+    center = await _radius_center(user_id, near_lat, near_lng)
+    rows = _apply_radius(rows, center, radius_km)
+    return rows
 
 
 class EventCreateBody(Event):
@@ -7051,6 +7197,14 @@ async def create_event(body: EventCreateBody):
         master_dict["series_id"] = None
         master_dict["series_master"] = False
     master = Event(**master_dict)
+    master_doc = master.dict()
+    # Local Discovery: stamp locality from the host's suburb when the event
+    # didn't carry its own recognised locality coords.
+    if master_doc.get("locality_lat") is None:
+        loc = await _default_locality_for_user(body.host_id)
+        if loc:
+            master_doc.update(loc)
+            master = Event(**master_doc)
     await db.events.insert_one(master.dict())
 
     # If recurrence is set, generate N additional concrete occurrences.
@@ -7082,6 +7236,11 @@ async def create_event(body: EventCreateBody):
                 recurrence=rec,
                 series_id=master.series_id,
                 series_master=False,
+                locality=master.locality,
+                locality_postcode=master.locality_postcode,
+                locality_state=master.locality_state,
+                locality_lat=master.locality_lat,
+                locality_lng=master.locality_lng,
             )
             await db.events.insert_one(child.dict())
             created_ids.append(child.id)
@@ -8388,7 +8547,9 @@ REACTIONS = {"well_done", "support", "chat", "flutter", "congrats"}
 
 
 @api.get("/notices")
-async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, category: Optional[str] = None):
+async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, category: Optional[str] = None,
+                       radius_km: Optional[float] = None,
+                       near_lat: Optional[float] = None, near_lng: Optional[float] = None):
     query: Dict = {"removed": {"$ne": True}, "auto_hidden": {"$ne": True}}
     if category and category != "All":
         query["category"] = category
@@ -8402,6 +8563,10 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
     docs = await db.notices.find(query, {"_id": 0}).to_list(500)
     # Unsolved first, then newest first; solved Q's sink below.
     docs.sort(key=lambda d: (bool(d.get("solved")), -datetime.fromisoformat(d.get("created_at", now_iso())).timestamp()))
+    # Local Discovery: restrict to the chosen radius of the member's suburb
+    # when radius_km is given (All returns everything).
+    center = await _radius_center(user_id, near_lat, near_lng)
+    docs = _apply_radius(docs, center, radius_km)
     await _attach_founder_flags(docs, "user_id")
     return docs
 
@@ -8446,6 +8611,12 @@ async def create_notice(body: Notice):
     # live counts.
     from services.mcgs import default_origin_for
     doc["origin"] = default_origin_for(body.title, body.body)
+    # Local Discovery: stamp locality from the author's suburb when the
+    # notice didn't carry its own recognised locality coords.
+    if doc.get("locality_lat") is None:
+        loc = await _default_locality_for_user(body.user_id)
+        if loc:
+            doc.update(loc)
     if held:
         # Persist with the hold flags so the shared MCGS queue can
         # find it and admins can approve / reject. `auto_hidden` keeps
