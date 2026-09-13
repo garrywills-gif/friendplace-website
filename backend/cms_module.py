@@ -1147,7 +1147,70 @@ def build_router(db) -> APIRouter:
         return _normalise_fm_row(row) if row else row
 
 
-    @router.delete("/crm/founding-members/{member_id}")
+    @router.post("/crm/founding-members/{member_id}/link-account")
+    async def crm_founding_members_link_account(
+        member_id: str,
+        payload: Dict[str, Any],
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Founder alignment recovery (item #10). When a founder created
+        their app account with a DIFFERENT email so automatic matching
+        couldn't link them, an admin looks up their account here and links
+        it — assigning this interest registration's ORIGINAL founding
+        number to that account (overriding any wrongly-allocated number).
+
+        payload: { "user_id": "<app account id>" } OR
+                 { "email": "<the different email they signed up with>" }
+        No guessing — the admin explicitly chooses who to link.
+        """
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        reg = await db.interest_registrations.find_one({"id": member_id}, {"_id": 0})
+        if not reg:
+            raise HTTPException(404, "Founding member not found")
+        fnum = reg.get("founder_number")
+        if not fnum:
+            raise HTTPException(400, "This registration has no founding number to link")
+
+        user = None
+        if payload.get("user_id"):
+            user = await db.users.find_one({"id": str(payload["user_id"])}, {"_id": 0})
+        elif payload.get("email"):
+            em = str(payload["email"]).strip().lower()
+            user = await db.users.find_one(
+                {"email": {"$regex": f"^{re.escape(em)}$", "$options": "i"}}, {"_id": 0})
+        if not user:
+            raise HTTPException(404, "No app account found for that user_id/email")
+        if user.get("is_demo"):
+            raise HTTPException(400, "Demo accounts cannot be founders")
+
+        clash = await db.users.find_one(
+            {"founder_number": int(fnum), "id": {"$ne": user["id"]}}, {"_id": 0, "id": 1})
+        if clash:
+            raise HTTPException(409, f"Founding number #{int(fnum):04d} is already held by another account")
+
+        badges = list(user.get("badges") or [])
+        if "Founding Member" not in badges:
+            badges.append("Founding Member")
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {"is_founder": True, "founder_number": int(fnum), "badges": badges}},
+        )
+        await db.interest_registrations.update_one(
+            {"id": member_id},
+            {"$set": {"status": "joined", "linked_user_id": user["id"],
+                      "linked_at": now, "linked_by_admin": admin.get("id")},
+             "$push": {"history": {"at": now, "admin_id": admin.get("id"),
+                                   "action": "link_account", "linked_user_id": user["id"]}}},
+        )
+        row = await db.interest_registrations.find_one({"id": member_id}, {"_id": 0})
+        return {
+            "ok": True,
+            "founder_number": int(fnum),
+            "linked_user": {"id": user["id"], "email": user.get("email"),
+                            "first_name": user.get("first_name"), "username": user.get("username")},
+            "member": _normalise_fm_row(row) if row else row,
+        }
     async def crm_founding_members_delete(
         member_id: str,
         admin: dict = Depends(current_cms_admin),

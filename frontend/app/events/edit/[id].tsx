@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Image } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -10,6 +10,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import { DateField, TimeField } from "@/src/components/DateTimePicker";
+import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
 
 const EMOJIS = ["☕", "🍰", "🚌", "🏞️", "🎲", "🎵", "📚", "🌳", "🎨", "🍵", "🥖", "🦋", "🌷"];
 
@@ -24,6 +25,8 @@ export default function EditEvent() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("☕");
+  const [coverImage, setCoverImage] = useState("");
+  const [coverPicker, setCoverPicker] = useState(false);
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [date, setDate] = useState("");
@@ -40,6 +43,7 @@ export default function EditEvent() {
         setEv(e);
         setTitle(e.title || "");
         setEmoji(e.emoji || "☕");
+        setCoverImage(e.cover_image_url || "");
         setDescription(e.description || "");
         setLocation(e.location || "");
         setDate(e.date || "");
@@ -76,6 +80,7 @@ export default function EditEvent() {
         actor_id: user.id,
         title: title.trim(),
         emoji,
+        cover_image_url: coverImage,
         description: description.trim(),
         location: location.trim(),
         date,
@@ -155,6 +160,31 @@ export default function EditEvent() {
               </Pressable>
             ))}
           </View>
+
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Photo <Text style={{ color: c.muted, fontWeight: "600" }}>(optional)</Text></Text>
+          {coverImage ? (
+            <View>
+              {(() => {
+                const src = resolveImageSource(coverImage);
+                return src ? <Image source={src} style={styles.coverPreview} resizeMode="cover" /> : null;
+              })()}
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                <Pressable testID="edit-photo-change" onPress={() => setCoverPicker(true)} style={[styles.coverBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  <Ionicons name="images" size={16} color={c.onSurface} />
+                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>Change photo</Text>
+                </Pressable>
+                <Pressable testID="edit-photo-remove" onPress={() => setCoverImage("")} style={[styles.coverBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  <Ionicons name="close-circle" size={16} color={c.muted} />
+                  <Text style={{ color: c.muted, fontWeight: "800", fontSize: 13 * scale }}>Remove</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Pressable testID="edit-photo-add" onPress={() => setCoverPicker(true)} style={[styles.coverAddBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+              <Ionicons name="camera" size={22} color={c.brand} />
+              <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>Add a photo</Text>
+            </Pressable>
+          )}
 
           <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Description</Text>
           <TextInput value={description} onChangeText={setDescription} multiline maxLength={400} style={[styles.input, inputStyle, { minHeight: 90, textAlignVertical: "top" }]} />
@@ -254,6 +284,13 @@ export default function EditEvent() {
           <Button label="Back" variant="ghost" onPress={() => router.back()} />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <GalleryPicker
+        visible={coverPicker}
+        onClose={() => setCoverPicker(false)}
+        onPick={setCoverImage}
+        currentValue={coverImage}
+      />
     </View>
   );
 }
@@ -264,4 +301,7 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontWeight: "600", marginTop: 4 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   emojiBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
+  coverPreview: { width: "100%", height: 170, borderRadius: 12, backgroundColor: "#E2E8F0", marginTop: 4 },
+  coverBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 12, borderWidth: 1, minHeight: 44 },
+  coverAddBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", marginTop: 4, minHeight: 56 },
 });

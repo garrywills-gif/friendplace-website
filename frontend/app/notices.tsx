@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -14,6 +14,7 @@ import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import { useComposerLock } from "@/src/lib/composer-lock";
 import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
+import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
 
 // Notice Board categories — Garry, 2 Aug 2026. Each category carries
 // its own emoji so the picker feels warm and skimmable, and so the
@@ -58,6 +59,8 @@ export default function Notices() {
   const [pTitle, setPTitle] = useState("");
   const [pBody, setPBody] = useState("");
   const [pCat, setPCat] = useState("Announcement");
+  const [pImage, setPImage] = useState("");
+  const [pImagePicker, setPImagePicker] = useState(false);
   const [openCommentsFor, setOpenCommentsFor] = useState<string | null>(null);
   const [commentText, setCommentText] = useState("");
   const [replyTo, setReplyTo] = useState<{ commentId: string; userName: string } | null>(null);
@@ -84,14 +87,14 @@ export default function Notices() {
   };
   useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radius]));
 
-  const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPosting(true); };
-  const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPosting(true); };
+  const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPosting(true); };
+  const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || ""); setPosting(true); };
 
   const submitPost = async () => {
     if (!user || !pTitle.trim() || !pBody.trim()) { show("Add a title and message"); return; }
     try {
       if (editing) {
-        await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat });
+        await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat, image: pImage });
         show("Notice updated");
       } else {
         // The backend may hold the notice for moderator review if the
@@ -108,6 +111,7 @@ export default function Notices() {
           title: pTitle.trim(),
           body: pBody.trim(),
           category: pCat,
+          image: pImage,
         });
         if (resp && resp.held_for_review) {
           show(resp.moderation_message ||
@@ -232,6 +236,10 @@ export default function Notices() {
 
         <Text style={[styles.title, { color: c.onSurface, fontSize: 18 * scale }]}>{n.title}</Text>
         <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>{n.body}</Text>
+        {n.image ? (() => {
+          const src = resolveImageSource(n.image);
+          return src ? <Image testID={`notice-image-${n.id}`} source={src} style={styles.noticeImage} resizeMode="cover" /> : null;
+        })() : null}
 
         {/* Reactions row */}
         <View style={styles.reactionsRow}>
@@ -406,6 +414,7 @@ export default function Notices() {
                 <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale }}>{editing ? "Edit notice" : "Post a notice"}</Text>
                 <Pressable onPress={() => setPosting(false)} hitSlop={8} style={{ padding: 6 }}><Ionicons name="close" size={26} color={c.onSurface} /></Pressable>
               </View>
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {POST_CATS.map((cat) => (
@@ -418,10 +427,44 @@ export default function Notices() {
               <TextInput testID="post-title" value={pTitle} onChangeText={setPTitle} placeholder="A short headline" placeholderTextColor={c.muted} style={inputStyle} />
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Message</Text>
               <TextInput testID="post-body" value={pBody} onChangeText={setPBody} placeholder="What would you like to share?" placeholderTextColor={c.muted} multiline numberOfLines={5} style={[inputStyle, { height: 120, textAlignVertical: "top" }]} />
+              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Photo (optional)</Text>
+              {pImage ? (
+                <View style={styles.photoPreviewWrap}>
+                  {(() => {
+                    const src = resolveImageSource(pImage);
+                    return src ? <Image source={src} style={styles.photoPreview} resizeMode="cover" /> : null;
+                  })()}
+                  <View style={styles.photoPreviewActions}>
+                    <Pressable testID="post-photo-change" onPress={() => setPImagePicker(true)} style={[styles.photoBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                      <Ionicons name="images" size={16} color={c.onSurface} />
+                      <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>Change photo</Text>
+                    </Pressable>
+                    <Pressable testID="post-photo-remove" onPress={() => setPImage("")} style={[styles.photoBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                      <Ionicons name="close-circle" size={16} color={c.muted} />
+                      <Text style={{ color: c.muted, fontWeight: "800", fontSize: 13 * scale }}>Remove</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <Pressable testID="post-photo-add" onPress={() => setPImagePicker(true)} style={[styles.photoAddBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  <Ionicons name="camera" size={22} color={c.brand} />
+                  <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>Add a photo</Text>
+                </Pressable>
+              )}
               <View style={{ height: 14 }} />
               <Button testID="post-submit" label={editing ? "Save changes" : "Post to Notice Board"} onPress={submitPost} />
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
+          {/* GalleryPicker rendered inline (modal=false) inside this composer
+              Modal — nesting two <Modal>s on iOS breaks the inner one. */}
+          <GalleryPicker
+            visible={pImagePicker}
+            onClose={() => setPImagePicker(false)}
+            onPick={setPImage}
+            currentValue={pImage}
+            modal={false}
+          />
         </View>
       </Modal>
     </View>
@@ -439,6 +482,12 @@ const styles = StyleSheet.create({
   solvedChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   title: { fontWeight: "900", marginTop: 2 },
   body: { lineHeight: 22 },
+  noticeImage: { width: "100%", height: 200, borderRadius: 12, marginTop: 8, backgroundColor: "#E2E8F0" },
+  photoPreviewWrap: { marginTop: 4 },
+  photoPreview: { width: "100%", height: 180, borderRadius: 12, backgroundColor: "#E2E8F0" },
+  photoPreviewActions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  photoBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 12, borderWidth: 1, minHeight: 44 },
+  photoAddBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", marginTop: 4, minHeight: 56 },
   reactionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
   reactBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1, minHeight: 40 },
   commentBox: { padding: 10, borderRadius: 12, borderWidth: 1 },

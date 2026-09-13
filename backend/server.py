@@ -348,6 +348,9 @@ class Event(BaseModel):
     emoji: str = "🎉"
     description: str = ""
     location: str = ""
+    # Optional cover photo (item #6). Data URI (member Library/Camera capture)
+    # or an image URL (built-in FriendPlace gallery pick). Empty = emoji header.
+    cover_image_url: str = ""
     # Local Discovery locality (item 1) — the recognised suburb/town that
     # controls distance filtering. Separate from `location` above, which
     # stays as free-text venue/address detail.
@@ -384,6 +387,10 @@ class Notice(BaseModel):
     title: str
     body: str
     category: str = "Announcement"
+    # Optional photo (item #5). Stored as a data URI (member Library/Camera
+    # capture) or an image URL (built-in FriendPlace gallery pick),
+    # matching how Moments store member photos. Empty = no photo.
+    image: str = ""
     # Local Discovery locality (item 1) — controls distance filtering.
     locality: str = ""
     locality_postcode: str = ""
@@ -6313,6 +6320,7 @@ async def create_event(body: EventCreateBody):
             child = Event(
                 title=master.title,
                 emoji=master.emoji,
+                cover_image_url=master.cover_image_url,
                 description=master.description,
                 location=master.location,
                 date=_next_occurrence(master.date, rec, i),
@@ -6334,6 +6342,7 @@ class EventUpdateBody(BaseModel):
     actor_id: str                      # user making the change (must be host or admin)
     title: Optional[str] = None
     emoji: Optional[str] = None
+    cover_image_url: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
     date: Optional[str] = None
@@ -6358,7 +6367,7 @@ async def update_event(event_id: str, body: EventUpdateBody):
 
     update: Dict = {}
     changes: List[str] = []
-    for field in ("title", "emoji", "description", "location", "date", "time"):
+    for field in ("title", "emoji", "cover_image_url", "description", "location", "date", "time"):
         v = getattr(body, field)
         if v is not None and v != ev.get(field):
             update[field] = v.strip() if isinstance(v, str) else v
@@ -7868,7 +7877,7 @@ async def edit_notice(notice_id: str, payload: dict):
         raise HTTPException(404, "Not found")
     if payload.get("user_id") != n.get("user_id"):
         raise HTTPException(403, "Only the author can edit")
-    update = {k: payload[k] for k in ("title", "body", "category") if k in payload}
+    update = {k: payload[k] for k in ("title", "body", "category", "image") if k in payload}
     update["edited_at"] = now_iso()
     await db.notices.update_one({"id": notice_id}, {"$set": update})
     return {**n, **update}

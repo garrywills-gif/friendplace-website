@@ -1907,6 +1907,7 @@ def waitlist_template(
         + founder_hero_html
         + (
             "<p style=\"margin:0 0 20px 0;\">That number is yours forever. When FriendPlace opens its doors and grows into the community we&rsquo;re building, your Founding Member Number goes with you &mdash; on your profile, on your badge inside the app, and quietly, as our thank-you for being here first.</p>"
+            "<p style=\"margin:0 0 20px 0;\"><strong>One small thing:</strong> when your invitation arrives, please sign up using <strong>this same email address</strong>. That&rsquo;s how we&rsquo;ll recognise you and keep your Founding Member Number linked to your new account.</p>"
             if founder_number else ""
         )
         + "<p style=\"margin:0 0 20px 0;\">FriendPlace is being built quietly and carefully, because places where people belong don&rsquo;t happen by accident. We&rsquo;re inviting friends in a small group at a time so that every new arrival is met with warmth, not silence.</p>"
@@ -1929,6 +1930,10 @@ def waitlist_template(
             "Founding Member Number goes with you — on your profile, on "
             "your badge inside the app, and quietly, as our thank-you "
             "for being here first.\n\n"
+            "One small thing: when your invitation arrives, please sign up "
+            "using THIS SAME EMAIL ADDRESS. That's how we'll recognise you "
+            "and keep your Founding Member Number linked to your new "
+            "account.\n\n"
             if founder_number else ""
         )
         + "FriendPlace is being built quietly and carefully, because places "
@@ -1998,6 +2003,7 @@ def invitation_template(
         + "<p style=\"margin:0 0 20px 0;\">FriendPlace is a quiet, kind space for finding people to share the small and lovely bits of life with &mdash; a coffee, a walk, an event that would be nicer with someone next to you. There&rsquo;s no algorithm chasing your attention, no pressure to perform. Just people, being neighbourly.</p>"
         + "<p style=\"margin:0 0 8px 0;\">Whenever you&rsquo;re ready, your invitation is waiting:</p>"
         + _letter_button_html(label="Accept your invitation", url=accept_url)
+        + "<p style=\"margin:0 0 20px 0;\">When you set up your account, please use <strong>this same email address</strong> &mdash; if you registered your interest earlier, that&rsquo;s how we&rsquo;ll recognise you and keep any Founding Member Number linked to your account.</p>"
         + f"<p style=\"margin:20px 0 20px 0;color:rgba(255,255,255,0.72);font-size:14px;\">This invitation is personal to you and stays open for <strong style=\"color:#FFFFFF;\">{int(expiry_days)} days</strong>. If it expires, simply reply to this email and I&rsquo;ll send you a fresh one.</p>"
         + "<p style=\"margin:24px 0 0 0;\">I hope to see you inside.</p>"
         + _letter_signature_html(signer=companion)
@@ -2015,6 +2021,10 @@ def invitation_template(
         "people, being neighbourly.\n\n"
         "Whenever you're ready, your invitation is waiting:\n"
         f"    {accept_url}\n\n"
+        "When you set up your account, please use THIS SAME EMAIL ADDRESS "
+        "— if you registered your interest earlier, that's how we'll "
+        "recognise you and keep any Founding Member Number linked to your "
+        "account.\n\n"
         f"This invitation is personal to you and stays open for "
         f"{int(expiry_days)} days. If it expires, simply reply to this "
         "email and I'll send you a fresh one.\n\n"

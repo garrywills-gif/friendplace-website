@@ -436,7 +436,7 @@ export const api = {
   },
   /** User-submitted group suggestion. Awaits admin approval before
    *  appearing in the public listing. */
-  suggestGroup: (token: string, body: { name: string; emoji?: string; description?: string; reason?: string }) =>
+  suggestGroup: (token: string, body: { name: string; emoji?: string; description?: string; reason?: string; locality?: string; locality_postcode?: string; locality_state?: string }) =>
     req("/groups/suggest", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -472,7 +472,7 @@ export const api = {
   rsvpEvent: (id: string, uid: string, response: "going" | "maybe" | "cant" = "going") =>
     req(`/events/${id}/rsvp/${uid}`, { method: "POST", body: JSON.stringify({ response }) }),
   unrsvpEvent: (id: string, uid: string) => req(`/events/${id}/unrsvp/${uid}`, { method: "POST" }),
-  createEvent: (body: { title: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; host_id?: string; recurrence?: "weekly" | "fortnightly" | "monthly" | null; recurrence_count?: number | null }) =>
+  createEvent: (body: { title: string; emoji?: string; cover_image_url?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; host_id?: string; recurrence?: "weekly" | "fortnightly" | "monthly" | null; recurrence_count?: number | null }) =>
     req(`/events`, { method: "POST", body: JSON.stringify(body) }),
   // Business-event heuristic preflight — called before createEvent so we
   // can surface the friendly "this looks like a business event" modal.
@@ -508,7 +508,7 @@ export const api = {
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
     }),
-  updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
+  updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; cover_image_url?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
     req(`/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   cancelEvent: (id: string, body: { actor_id: string; reason?: string }) =>
     req(`/events/${id}/cancel`, { method: "POST", body: JSON.stringify(body) }),

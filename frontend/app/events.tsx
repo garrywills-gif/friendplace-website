@@ -10,6 +10,7 @@ import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import { shareIcs } from "@/src/lib/ics";
 import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
+import { resolveImageSource } from "@/src/components/GalleryPicker";
 
 const API_BASE = process.env.EXPO_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
 
@@ -192,6 +193,10 @@ export default function Events() {
                   <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 * scale }}>CANCELLED</Text>
                 </View>
               )}
+              {(() => {
+                const src = resolveImageSource(item.cover_image_url);
+                return src ? <Image source={src} style={styles.eventCover} resizeMode="cover" /> : null;
+              })()}
               <View style={styles.row}>
                 <View style={[styles.emojiBox, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 36 }}>{item.emoji}</Text></View>
                 <View style={{ flex: 1, marginLeft: 14 }}>
@@ -953,6 +958,7 @@ const styles = StyleSheet.create({
   // location line pushed the row to 3+ lines.
   row: { flexDirection: "row", alignItems: "flex-start" },
   emojiBox: { width: 62, height: 62, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  eventCover: { width: "100%", height: 150, borderRadius: 12, marginBottom: 10, backgroundColor: "#E2E8F0" },
   title: { fontWeight: "800" },
   meta: { marginTop: 2, fontWeight: "500" },
   desc: { fontWeight: "500" },

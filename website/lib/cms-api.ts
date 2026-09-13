@@ -826,6 +826,17 @@ export const foundingMembersCrmApi = {
     );
   },
   stats: () => req<CRMFoundingMembersStats>('GET', '/cms/crm/founding-members/stats'),
+  // Founder alignment recovery (item #10): link a founder whose app
+  // account uses a DIFFERENT email to their register-interest record,
+  // assigning their original founding number. Admin supplies user_id
+  // or the email they signed up with — no guessing.
+  linkAccount: (id: string, body: { user_id?: string; email?: string }) =>
+    req<{
+      ok: true;
+      founder_number: number;
+      linked_user: { id: string; email: string | null; first_name: string | null; username: string | null };
+      member: CRMFoundingMember;
+    }>('POST', `/cms/crm/founding-members/${id}/link-account`, body),
   update: (
     id: string,
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,

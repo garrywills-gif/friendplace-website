@@ -8,6 +8,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
+import SuburbField from "@/src/components/SuburbField";
 
 export default function Groups() {
   const { c, scale } = useTheme();
@@ -22,6 +23,7 @@ export default function Groups() {
   const [sEmoji, setSEmoji] = useState("🌟");
   const [sDesc, setSDesc] = useState("");
   const [sReason, setSReason] = useState("");
+  const [sLoc, setSLoc] = useState<{ name: string; postcode?: string; state?: string } | null>(null);
   const [sBusy, setSBusy] = useState(false);
   // Inline error surface — toasts can be missed (they fade out) so we
   // also show the last submission error directly inside the modal until
@@ -247,6 +249,11 @@ export default function Groups() {
                 maxLength={500}
                 style={[styles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 14 * scale, minHeight: 60, textAlignVertical: "top" }]}
               />
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 14 * scale, marginTop: 12 }]}>Where is this group based?</Text>
+              <SuburbField
+                initialValue={sLoc?.name || user?.suburb || ""}
+                onChange={(m) => setSLoc(m ? { name: m.name, postcode: m.postcode, state: m.state } : null)}
+              />
             </ScrollView>
 
             {/* Action row — pinned to the bottom of the modal card so
@@ -274,10 +281,13 @@ export default function Groups() {
                       emoji: sEmoji.trim() || "🌟",
                       description: sDesc.trim(),
                       reason: sReason.trim(),
+                      locality: sLoc?.name,
+                      locality_postcode: sLoc?.postcode,
+                      locality_state: sLoc?.state,
                     });
                     show("Thanks! Your group is awaiting admin approval 🌟");
                     setSuggestOpen(false);
-                    setSName(""); setSEmoji("🌟"); setSDesc(""); setSReason(""); setSError(null);
+                    setSName(""); setSEmoji("🌟"); setSDesc(""); setSReason(""); setSLoc(null); setSError(null);
                   } catch (e: any) {
                     const msg = String(e?.message || "");
                     let friendly = "Could not submit suggestion. Please try again.";
