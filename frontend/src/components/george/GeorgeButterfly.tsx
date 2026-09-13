@@ -13,6 +13,7 @@ import { GeorgeButterflyMark } from './GeorgeButterflyMark';
 import { GeorgeWelcomeBubble } from './GeorgeWelcomeBubble';
 import { GeorgeOnboarding } from './GeorgeOnboarding';
 import { GeorgeEventCreation } from './GeorgeEventCreation';
+import { GeorgeCompanionChat } from './GeorgeCompanionChat';
 import { useGeorge } from '@/src/lib/george-context';
 import { georgeApi, type Presence } from '@/src/lib/george-api';
 import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
@@ -88,6 +89,7 @@ export function GeorgeButterfly() {
   const [showChat, setShowChat] = useState(false);
   // Milestone B5 — event creation & its (now inline) celebration.
   const [showEvent, setShowEvent] = useState(false);
+  const [showCompanion, setShowCompanion] = useState(false);
   const [resumeSessionId, setResumeSessionId] = useState<string | null>(null);
 
   // ---- Reanimated values -------------------------------------------------
@@ -409,9 +411,12 @@ export function GeorgeButterfly() {
           setResumeSessionId(null);
           setShowChat(true);
         } else {
-          // Always start fresh — no silent resume of stale drafts.
+          // Onboarding complete → open the always-available companion
+          // chat by default (core requirement, Sep 2026). Event creation
+          // and feature-finding are things George offers only when they
+          // come up naturally in conversation — never the default surface.
           setResumeSessionId(null);
-          setShowEvent(true);
+          setShowCompanion(true);
         }
       } catch {
         // If we can't check, fall back to onboarding (safer default —
@@ -672,6 +677,17 @@ export function GeorgeButterfly() {
           }}
           onDone={() => { /* inline celebration — no-op */ }}
         />
+      </Modal>
+
+      {/* Always-available companion chat — the default surface for
+          members who've finished onboarding. */}
+      <Modal
+        visible={showCompanion}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowCompanion(false)}
+      >
+        <GeorgeCompanionChat onClose={() => setShowCompanion(false)} />
       </Modal>
     </>
   );

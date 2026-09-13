@@ -289,6 +289,19 @@ export const georgeApi = {
     `/mcgs/george/event/session/${sessionId}/resume`, { method: 'POST' },
   ),
 
+  // Always-available companion — free-form chat with private memory.
+  companionGet: (persona: string) => _req<any>(
+    `/mcgs/george/companion?persona=${encodeURIComponent(persona)}`,
+  ),
+  companionTurn: (text: string, persona: string) => _req<{ message: string; persona: string; at: string }>(
+    '/mcgs/george/companion/turn',
+    { method: 'POST', body: JSON.stringify({ text, persona }) },
+  ),
+  companionReset: (persona: string) => _req<any>(
+    '/mcgs/george/companion/reset',
+    { method: 'POST', body: JSON.stringify({ persona }) },
+  ),
+
   // B7 — George Remembers (persistent inbox)
   remembersInbox: () => _req<{ items: RemembersMessage[] }>('/mcgs/george/remembers/inbox'),
   remembersDismiss: (msgId: string) => _req<RemembersMessage>(
