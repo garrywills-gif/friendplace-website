@@ -24,6 +24,7 @@
 import React, { useState } from "react";
 import { View, Image, Text, Pressable, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
 import ZoomableImageViewer from "./ZoomableImageViewer";
+import { resolvePresetSource } from "@/src/lib/avatar-presets";
 
 type Props = {
   value?: string | null;
@@ -94,17 +95,20 @@ export default function AvatarBubble({
 
   // Treat http(s) URLs as photos; everything else (emoji or empty) as text.
   const isUrl = !!(base && URL_RE.test(base));
-  // Guard against leaking internal avatar tokens (e.g. "preset:portrait-62")
-  // to members. Any non-URL value shaped like an internal key
-  // (`word:value`, ASCII, no spaces) is not a real emoji — fall back to
-  // the friendly default glyph instead of rendering the raw key.
-  const isInternalKey = !!(base && !isUrl && /^[a-z][a-z0-9_]*:\S+$/i.test(base));
+  // Illustrated FriendPlace portrait preset (e.g. "preset:portrait-62") →
+  // resolve to its bundled image so the member's chosen portrait renders.
+  const presetSrc = base && !isUrl ? resolvePresetSource(base) : null;
+  // Guard against leaking OTHER internal avatar tokens to members. Any
+  // non-URL, non-preset value shaped like an internal key (`word:value`,
+  // ASCII, no spaces) is not a real emoji — fall back to the friendly
+  // default glyph instead of rendering the raw key.
+  const isInternalKey = !!(base && !isUrl && !presetSrc && /^[a-z][a-z0-9_]*:\S+$/i.test(base));
   const glyph = isInternalKey ? fallback : (base || fallback);
   const fs = textSize ?? Math.round(size * 0.7);
 
   const imageEl = (
     <Image
-      source={{ uri: base as string }}
+      source={presetSrc ?? { uri: base as string }}
       // resizeMode="cover" ensures the photo fills the circular frame
       // without distortion; combined with overflow:"hidden" it produces
       // a clean circular crop centred on the source. Users who dislike
@@ -143,6 +147,8 @@ export default function AvatarBubble({
     ) : (
       imageEl
     )
+  ) : presetSrc ? (
+    imageEl
   ) : (
     // Emoji avatar — wrap the Text in a fixed-size flex container so the
     // glyph sits perfectly centred (both axes) regardless of the emoji's

@@ -11,6 +11,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 import { shareIcs } from "@/src/lib/ics";
 import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
 import { resolveImageSource } from "@/src/components/GalleryPicker";
+import TappableImage from "@/src/components/TappableImage";
 
 const API_BASE = process.env.EXPO_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
 
@@ -195,7 +196,7 @@ export default function Events() {
               )}
               {(() => {
                 const src = resolveImageSource(item.cover_image_url);
-                return src ? <Image source={src} style={styles.eventCover} resizeMode="cover" /> : null;
+                return src ? <TappableImage source={src} style={styles.eventCover} resizeMode="cover" caption={item.title} accessibilityLabel="View event photo larger" /> : null;
               })()}
               <View style={styles.row}>
                 <View style={[styles.emojiBox, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 36 }}>{item.emoji}</Text></View>

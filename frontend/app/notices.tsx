@@ -15,6 +15,7 @@ import FounderMark from "@/src/components/FounderMark";
 import { useComposerLock } from "@/src/lib/composer-lock";
 import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
 import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
+import TappableImage from "@/src/components/TappableImage";
 
 // Notice Board categories — Garry, 2 Aug 2026. Each category carries
 // its own emoji so the picker feels warm and skimmable, and so the
@@ -238,7 +239,7 @@ export default function Notices() {
         <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>{n.body}</Text>
         {n.image ? (() => {
           const src = resolveImageSource(n.image);
-          return src ? <Image testID={`notice-image-${n.id}`} source={src} style={styles.noticeImage} resizeMode="cover" /> : null;
+          return src ? <TappableImage testID={`notice-image-${n.id}`} source={src} style={styles.noticeImage} resizeMode="cover" caption={n.title} accessibilityLabel="View notice photo larger" /> : null;
         })() : null}
 
         {/* Reactions row */}

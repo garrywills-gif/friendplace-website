@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Image } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -9,6 +9,8 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
 import SuburbField from "@/src/components/SuburbField";
+import { groupImageForName } from "@/src/lib/group-photos";
+import { resolveGallerySource } from "@/src/lib/gallery";
 
 export default function Groups() {
   const { c, scale } = useTheme();
@@ -109,6 +111,14 @@ export default function Groups() {
         renderItem={({ item }) => {
           const joined = user && (item.members || []).includes(user.id);
           const founderLocked = item.is_founder_only && !(user as any)?.is_founder;
+          // Real photograph for the tile (matches Notice Board / Events
+          // gallery). Respects a backend `item.image` gallery ref / URL,
+          // else maps the group name to a bundled gallery photo; falls
+          // back to the emoji tile for unmapped custom groups.
+          const photoOverride = typeof item.image === "string" && item.image.startsWith("gallery:")
+            ? resolveGallerySource(item.image)
+            : (item.image && /^(https?:|data:)/.test(item.image) ? { uri: item.image } : null);
+          const photo = photoOverride || groupImageForName(item.name);
           return (
             <Pressable
               testID={`group-${item.id}`}
@@ -119,7 +129,11 @@ export default function Groups() {
               style={[styles.card, { backgroundColor: c.surfaceSecondary, borderColor: item.is_founder_only ? "#D4A017" : c.border, borderWidth: item.is_founder_only ? 2 : 1 }]}
             >
               <View style={styles.row}>
-                <View style={[styles.emoji, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 32 }}>{item.emoji}</Text></View>
+                {photo ? (
+                  <Image source={photo} style={styles.tilePhoto} resizeMode="cover" accessibilityLabel={`${item.name} photo`} />
+                ) : (
+                  <View style={[styles.emoji, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 32 }}>{item.emoji}</Text></View>
+                )}
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
                     <Text style={[styles.title, { color: c.onSurface, fontSize: 20 * scale }]}>{item.name}</Text>
@@ -325,6 +339,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: 18, padding: 14, borderWidth: 1 },
   row: { flexDirection: "row", alignItems: "center" },
   emoji: { width: 60, height: 60, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  tilePhoto: { width: 60, height: 60, borderRadius: 18, backgroundColor: "#E2E8F0" },
   title: { fontWeight: "800" },
   desc: { marginTop: 2 },
   btn: { paddingHorizontal: 18, paddingVertical: 12, borderRadius: 999, minHeight: 44, justifyContent: "center" },
