@@ -288,10 +288,10 @@ export default function OnboardingWizard() {
     // very first time the member opens the app after onboarding.
     // See `GeorgeButterfly.pickReturningGreeting`.
     AsyncStorage.setItem(GEORGIA_HINT_FLAG, '1').catch(() => {});
-    // Auto-redirect after a warm beat so members have time to read
-    // George's closing line but aren't left staring at a static
-    // screen. ~5.5s reads comfortably on the celebration bubble.
-    setTimeout(goHome, 5500);
+    // Garry (Sep 2026): the celebration must STAY until the member
+    // chooses to continue — it previously auto-redirected after ~5.5s,
+    // which rushed people before they could read/hear George's closing
+    // line. No auto-dismiss now; the member taps "Continue" when ready.
   };
 
   const canNext = step < STEP_COUNT - 1 ? true : true; // interests step allows 0-selected
@@ -333,16 +333,16 @@ export default function OnboardingWizard() {
               {"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces.\n\nAnd remember\u2026 I\u2019m only ever a butterfly tap away. \uD83E\uDD8B"}
             </Text>
           </View>
-
-          <ActivityIndicator size="small" color="#FFFFFF" style={{ marginTop: 24 }} />
         </View>
         <Pressable
           onPress={goHome}
+          testID="onb-celebrate-continue"
+          accessibilityRole="button"
           accessibilityLabel="Continue to Home"
           hitSlop={12}
-          style={{ alignSelf: "center", paddingVertical: 12 }}
+          style={({ pressed }) => [styles.celebrateContinueBtn, pressed && { opacity: 0.85 }]}
         >
-          <Text style={{ color: "rgba(255,255,255,0.75)", fontWeight: "700", fontSize: 14 * scale }}>Tap to continue</Text>
+          <Text style={styles.celebrateContinueText}>Continue</Text>
         </Pressable>
       </View>
     );
@@ -1194,6 +1194,12 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   celebrateHero: { color: "#FFFFFF", fontWeight: "900", textAlign: "center", letterSpacing: 0.5 },
+  celebrateContinueBtn: {
+    alignSelf: "stretch", marginHorizontal: 24, marginBottom: 8,
+    backgroundColor: "#FFFFFF", borderRadius: 16, paddingVertical: 16,
+    alignItems: "center", justifyContent: "center", minHeight: 52,
+  },
+  celebrateContinueText: { color: "#0F766E", fontWeight: "900", fontSize: 17 },
   celebrateHeadline: { color: "#FFFFFF", fontWeight: "800", textAlign: "center" },
   celebrateSub: { color: "rgba(255,255,255,0.9)", textAlign: "center", fontWeight: "600", lineHeight: 24 },
 });

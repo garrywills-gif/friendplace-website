@@ -263,6 +263,18 @@ export const georgeApi = {
     `/mcgs/george/onboarding/session/${sessionId}/reset`,
     { method: 'POST', body: JSON.stringify({}) },
   ),
+  // Always-available companion — free-form chat with private memory.
+  companionGet: (persona: string) => _req<any>(
+    `/mcgs/george/companion?persona=${encodeURIComponent(persona)}`,
+  ),
+  companionTurn: (text: string, persona: string) => _req<{ message: string; persona: string; at: string }>(
+    '/mcgs/george/companion/turn',
+    { method: 'POST', body: JSON.stringify({ text, persona }) },
+  ),
+  companionReset: (persona: string) => _req<any>(
+    '/mcgs/george/companion/reset',
+    { method: 'POST', body: JSON.stringify({ persona }) },
+  ),
   // Event creation (Milestone B5, current_screen added in C1 Slice 3)
   eventStart: (text: string = '', currentScreen?: string | null) => _req<EventSession>(
     '/mcgs/george/event/start',

@@ -11293,6 +11293,15 @@ async def _ensure_mcgs_indexes():
     except Exception:
         logger.exception("George Remembers setup failed (non-fatal)")
 
+    # George & Georgia companion — always-available free-form chat with
+    # private per-member memory. Idempotent indexes.
+    try:
+        from services.george import companion as _companion
+        await _companion.ensure_indexes(db)
+        logger.info("George companion indexes verified.")
+    except Exception:
+        logger.exception("George companion index setup failed (non-fatal)")
+
     # KB grounding telemetry — one collection, shared across MCGS,
     # mobile-app, and website /meet Georges. See
     # `services/george/kb_grounding.py` for the retrieval hook.

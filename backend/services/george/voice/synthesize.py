@@ -39,6 +39,29 @@ _VOICE_MAP: dict[str, str] = {
 }
 _DEFAULT_VOICE: GeorgeVoiceKey = "george"
 
+# Per-persona default pacing (TestFlight Sep 2026 — Garry: "Georgia is
+# too fast"). Slightly under 1.0 for a calmer, warmer delivery; Georgia
+# a touch slower than George. Applied only when the caller hasn't set an
+# explicit non-default speed, so "Preview voice" style overrides win.
+_PERSONA_SPEED: dict[str, float] = {
+    "george":  0.94,
+    "georgia": 0.86,
+}
+
+
+def _add_natural_pauses(text: str) -> str:
+    """Insert gentle pauses between sentences/thoughts so speech doesn't
+    run together. OpenAI TTS lengthens the gap at a line break, so we
+    add one after sentence-ending punctuation. Purely cosmetic for
+    cadence — the words spoken are unchanged."""
+    import re
+    # A newline after . ! ? … when followed by whitespace + a letter.
+    out = re.sub(r"([.!?\u2026])\s+(?=[\"'\u201c\u2018A-Za-z0-9])", r"\1\n", text)
+    # Give em-dashes a small breath too.
+    out = out.replace(" \u2014 ", " \u2014\n")
+    return out
+
+
 # TTS text length cap. OpenAI accepts up to 4096; we cap slightly lower
 # to be safe against multi-byte characters expanding token count.
 _MAX_TTS_CHARS = 4000
@@ -92,7 +115,14 @@ async def synthesize_george_speech(
     if len(body) > _MAX_TTS_CHARS:
         body = body[:_MAX_TTS_CHARS]
 
+    key = (persona or _DEFAULT_VOICE).strip().lower()
     voice = resolve_voice(persona)
+    # Calmer cadence: add gentle inter-sentence pauses, and apply the
+    # persona's default pace unless the caller explicitly overrode speed.
+    body = _add_natural_pauses(body)
+    eff_speed = speed
+    if abs(speed - 1.0) < 1e-6:
+        eff_speed = _PERSONA_SPEED.get(key, 0.94)
     tts = OpenAITextToSpeech(api_key=_emergent_key())
 
     # iter164bg — silent single retry. TTS synthesis occasionally fails on a
@@ -109,7 +139,7 @@ async def synthesize_george_speech(
                 text=body,
                 model=model,
                 voice=voice,  # type: ignore[arg-type]
-                speed=speed,
+                speed=eff_speed,
                 response_format="mp3",
             )
             return audio_bytes

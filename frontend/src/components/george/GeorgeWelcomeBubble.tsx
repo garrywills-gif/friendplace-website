@@ -35,6 +35,7 @@
  */
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 
 export type GeorgeWelcomeBubbleProps = {
   /** The greeting line. Kept as a single string so the parent can
@@ -62,6 +63,9 @@ export function GeorgeWelcomeBubble({
   chatLabel,
   dismissLabel,
 }: GeorgeWelcomeBubbleProps): React.ReactElement {
+  const { voice } = useGeorgeVoice();
+  const personaName = VOICE_LABELS[voice]?.short || 'George';
+  const resolvedChatLabel = chatLabel || `💬  Chat to ${personaName}`;
   return (
     <View>
       <View style={styles.bubble}>
@@ -73,14 +77,14 @@ export function GeorgeWelcomeBubble({
             testID="george-welcome-chat"
             onPress={onChat}
             accessibilityRole="button"
-            accessibilityLabel="Chat to George"
+            accessibilityLabel={`Chat to ${personaName}`}
             style={({ pressed }) => [
               styles.bubbleBtnPrimary,
               { opacity: pressed ? 0.85 : 1 },
             ]}
           >
             <Text style={styles.bubbleBtnPrimaryText} numberOfLines={1}>
-              {chatLabel || '💬  Chat to George'}
+              {resolvedChatLabel}
             </Text>
           </Pressable>
           <Pressable

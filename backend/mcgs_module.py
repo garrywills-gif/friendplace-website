@@ -262,6 +262,15 @@ class GeorgeChatIn(BaseModel):
     surface_context: Optional[dict] = None
 
 
+class CompanionTurnIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    persona: Optional[str] = "george"
+
+
+class CompanionResetIn(BaseModel):
+    persona: Optional[str] = "george"
+
+
 class TicketReplyProposalIn(BaseModel):
     ticket_id: str
 
@@ -1215,6 +1224,30 @@ def build_router(db) -> APIRouter:
         if session.get("actor_id") != actor.get("id"):
             raise HTTPException(403, "Not your conversation.")
         return await reset_onboarding_session(db, session_id)
+
+    # =====================================================================
+    # /api/mcgs/george/companion — always-available free-form companion.
+    # Openly-AI friend for members: listens, remembers, engages. NOT a
+    # questionnaire and NOT a feature-routing bot. Private per-member
+    # memory carries meaningful details across sessions.
+    # =====================================================================
+    @router.get("/mcgs/george/companion")
+    async def api_companion_get(persona: str = "george", actor: dict = Depends(current_george_actor)):
+        from services.george.companion import get_or_create_companion_session
+        return await get_or_create_companion_session(db, actor_id=actor.get("id"), persona=persona)
+
+    @router.post("/mcgs/george/companion/turn")
+    async def api_companion_turn(body: CompanionTurnIn, actor: dict = Depends(current_george_actor)):
+        from services.george.companion import companion_turn
+        text = (body.text or "").strip()
+        if not text:
+            raise HTTPException(422, "Say something first.")
+        return await companion_turn(db, actor_id=actor.get("id"), persona=(body.persona or "george"), user_text=text)
+
+    @router.post("/mcgs/george/companion/reset")
+    async def api_companion_reset(body: CompanionResetIn, actor: dict = Depends(current_george_actor)):
+        from services.george.companion import reset_companion_session
+        return await reset_companion_session(db, actor_id=actor.get("id"), persona=(body.persona or "george"))
 
 
 

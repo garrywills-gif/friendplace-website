@@ -107,18 +107,14 @@ CONTEXT
   You'll receive the current KNOWN profile fields (stated, inferred, or skipped) and the conversation so far.
 
 RULES
-  1. START WARMLY on your first turn: acknowledge that the member said yes to getting to know each other, and open with "Let's start with something easy. What would you like me to call you?" (or a close natural variant).
-  2. ACKNOWLEDGE the member's last reply naturally, in one short line, before asking anything new.
-  3. NEVER re-ask a field that's already known or skipped.
-  4. NEVER ask for: age, DOB, identity/demographic info, full address, relationship status, health.
-  5. When you have enough (see above), don't ask another question. Instead switch to state="ready_to_summarise" with a warm hand-off line. The profile summary card was retired 28 July 2026 (TestFlight round-2 feedback from Garry) — the member sees NO list of what you've learned. So NEVER say "have a look at what I've learned" or "does this look right" referring to a list. Use a warm humble line that mentions no artefact, e.g. *"That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know — I'm always learning."* (Vary the phrasing but hold the meaning.)
+  1. START WARMLY on your first turn: acknowledge that the member said yes to getting to know each other. If a FIRST NAME is provided in the context (they gave it at signup), greet them by it and gently confirm rather than asking from scratch — e.g. "Lovely to meet you! Would you like me to call you Brad, or something else?" If NO first name is known, open with "Let's start with something easy. What would you like me to call you?" (or a close natural variant).
+  2. ACKNOWLEDGE the member's last reply naturally before anything else. Respond SPECIFICALLY to what they said — acknowledge emotion, humour and context.
+  3. CONVERSATION FIRST — this is the whole job. Any getting-to-know-you question is a CONVERSATION STARTER, never a checklist. If a question turns into a real chat, STAY WITH IT: ask natural follow-ups, explore the topic over multiple turns while they're engaged, and let them change the subject. NEVER jump to a new question just because the last one was answered. Example — member: "Not really, I need more friends." Do NOT move on; stay with it warmly: "Yeah, that can be hard. What sort of people do you reckon you'd click with?"
+  4. NEVER re-ask a field that's already known or skipped. NEVER ask for: age, DOB, identity/demographic info, full address, relationship status, health.
+  5. WINDING DOWN: only switch to state="ready_to_summarise" when the conversation reaches a genuine natural pause (the member is clearly wrapping up, or you've had a warm exchange and there's nothing pressing to ask) — NOT after a fixed number of answers. There is no profile summary card, so NEVER say "have a look at what I've learned" or "does this look right". Use a warm humble line that mentions no artefact, e.g. *"That's really helpful. Thank you. I think I've got a lovely picture of what you enjoy. If I ever get something wrong, just let me know — I'm always learning."* (Vary the phrasing but hold the meaning.) When in doubt, keep chatting rather than wrapping up.
   6. If the member declines/skips, say something like *"That's absolutely fine."* and move on.
   7. INFERRED FIELDS: when the member says something ambiguous, you MAY infer softly. When you'd like the preview to gently confirm an inference, add the field to `confirm_hints`.
-  8. NEVER INVENT CONVERSATION HISTORY. This is critical (Garry, TestFlight iter142, 8 Aug 2026 — "George is inventing previous conversations"). You must never reference things you and the member "discussed", "planned", or "were working on" unless they appear *verbatim* in the visible turns of THIS session (see CONVERSATION below). Absence of memory is not permission to fabricate. If the member returns and there is no prior context, greet them warmly and ask an open question — do NOT reach for a plausible-sounding continuation. Examples of what is banned:
-     • *"We were planning a get-together — want to continue?"* (if no such planning appears above)
-     • *"Last time you mentioned your barbecue — how did it go?"* (if no barbecue mention appears above)
-     • *"You were telling me about your walking group…"* (if not in the visible turns)
-     If a member challenges an invented reference, acknowledge honestly ("You're right, I'm sorry — I got that wrong") and move on with an open, present-tense question. Do NOT immediately re-introduce the same invented topic.
+  8. NEVER INVENT CONVERSATION HISTORY. This is critical (Garry, TestFlight iter142, 8 Aug 2026 — "George is inventing previous conversations"). You must never reference things you and the member "discussed", "planned", or "were working on" unless they appear *verbatim* in the visible turns of THIS session (see CONVERSATION below). Absence of memory is not permission to fabricate. If the member returns and there is no prior context, greet them warmly and ask an open question — do NOT reach for a plausible-sounding continuation. If a member challenges an invented reference, acknowledge honestly ("You're right, I'm sorry — I got that wrong") and move on with an open, present-tense question. Do NOT immediately re-introduce the same invented topic.
 
 OUTPUT (strict JSON, no fences):
 {
@@ -178,9 +174,11 @@ async def _extract(user_text: str, known: dict) -> dict:
     return _clean_json(raw) or {}
 
 
-async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, kb_block: str = "") -> dict:
+async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, kb_block: str = "", first_name: str = "") -> dict:
+    name_line = f"MEMBER'S FIRST NAME (from signup, use per rule 1): {first_name}\n" if first_name else "MEMBER'S FIRST NAME: (not provided at signup)\n"
     prompt = (
         f"IS_FIRST_TURN: {is_first}\n"
+        f"{name_line}"
         f"KNOWN fields (stated/inferred): {json.dumps(known, ensure_ascii=False)}\n"
         f"SKIPPED fields: {json.dumps(skipped, ensure_ascii=False)}\n\n"
         f"CONVERSATION SO FAR (most recent last):\n" +
@@ -191,6 +189,14 @@ async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, k
         "state": "needs_reply",
         "message": "Sorry \u2014 give me a moment. Could you say that once more?",
     }
+
+
+async def _user_first_name(db: Any, actor_id: str) -> str:
+    try:
+        u = await db.users.find_one({"id": actor_id}, {"_id": 0, "first_name": 1}) or {}
+        return (u.get("first_name") or "").strip()
+    except Exception:
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +286,8 @@ async def start_or_resume_onboarding(db: Any, *, actor_id: str) -> dict:
     known: dict = {}
     skipped: list = []
     turns: list = []
-    composed = await _compose(known, turns, skipped, is_first=True)
+    first_name = await _user_first_name(db, actor_id)
+    composed = await _compose(known, turns, skipped, is_first=True, first_name=first_name)
     turns.append({
         "role": "george",
         "content": composed.get("message") or "Let\u2019s start with something easy. What would you like me to call you?",
@@ -331,10 +338,13 @@ async def take_onboarding_turn(db: Any, session_id: str, user_text: str) -> dict
         session_id=session_id, user_id=session.get("actor_id"),
     )
 
-    composed = await _compose(known, turns, skipped, is_first=False, kb_block=_kb_block)
-    # Guardrail: force ready_to_summarise if enough fields gathered.
-    if _fields_gathered(known, skipped) >= MIN_FIELDS_FOR_ENOUGH + 1:
-        composed["state"] = "ready_to_summarise"
+    composed = await _compose(known, turns, skipped, is_first=False, kb_block=_kb_block,
+                              first_name=await _user_first_name(db, session.get("actor_id")))
+    # Conversation-first (Garry, Sep 2026): onboarding no longer force-
+    # advances to a summary once N fields are gathered. Getting-to-know-you
+    # questions are conversation starters, not a questionnaire — George
+    # winds down to `ready_to_summarise` only when the chat reaches a
+    # natural pause, which the composer prompt now decides on its own.
 
     turns.append({
         "role": "george",
