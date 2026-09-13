@@ -11,6 +11,7 @@ import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark
 import { groupImageForName } from "@/src/lib/group-photos";
 import { resolveGallerySource } from "@/src/lib/gallery";
 import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
+import SuburbField from "@/src/components/SuburbField";
 
 export default function Groups() {
   const { c, scale } = useTheme();
@@ -26,6 +27,9 @@ export default function Groups() {
   const [sEmoji, setSEmoji] = useState("🌟");
   const [sDesc, setSDesc] = useState("");
   const [sReason, setSReason] = useState("");
+  const [sLocality, setSLocality] = useState<{ name: string; postcode?: string; state?: string } | null>(
+    user?.suburb ? { name: user.suburb, postcode: (user as any)?.suburb_postcode, state: (user as any)?.suburb_state } : null,
+  );
   const [sBusy, setSBusy] = useState(false);
   // Inline error surface — toasts can be missed (they fade out) so we
   // also show the last submission error directly inside the modal until
@@ -120,7 +124,11 @@ export default function Groups() {
                     )}
                   </View>
                   <Text style={[styles.desc, { color: c.muted, fontSize: 14 * scale }]} numberOfLines={2}>{item.description}</Text>
-                  <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 4 }}>👥 {(item.members || []).length} members</Text>
+                  <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 4 }}>
+                    👥 {(item.members || []).length} members
+                    {item.locality ? `   ·   📍 ${item.locality}` : ""}
+                    {item.distance_km != null ? `  ·  ${item.distance_km} km` : ""}
+                  </Text>
                 </View>
                 <Pressable
                   testID={`join-${item.id}`}
@@ -238,6 +246,14 @@ export default function Groups() {
                 maxLength={500}
                 style={[styles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 14 * scale, minHeight: 60, textAlignVertical: "top" }]}
               />
+
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 14 * scale }]}>Suburb / nearest town</Text>
+              <SuburbField
+                testID="suggest-locality"
+                hidePreferNotToSay
+                initialValue={sLocality ? (sLocality.postcode ? `${sLocality.name}, ${sLocality.state || ""} ${sLocality.postcode}`.trim() : sLocality.name) : ""}
+                onChange={(s) => setSLocality(s ? { name: s.name, postcode: s.postcode, state: s.state } : null)}
+              />
             </ScrollView>
 
             {/* Action row — pinned to the bottom of the modal card so
@@ -265,6 +281,9 @@ export default function Groups() {
                       emoji: sEmoji.trim() || "🌟",
                       description: sDesc.trim(),
                       reason: sReason.trim(),
+                      locality: sLocality?.name,
+                      locality_postcode: sLocality?.postcode,
+                      locality_state: sLocality?.state,
                     });
                     show("Thanks! Your group is awaiting admin approval 🌟");
                     setSuggestOpen(false);

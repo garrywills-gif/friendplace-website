@@ -16,6 +16,7 @@ import { useComposerLock } from "@/src/lib/composer-lock";
 import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
 import TappableImage from "@/src/components/TappableImage";
 import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
+import SuburbField from "@/src/components/SuburbField";
 
 // Notice Board categories — Garry, 2 Aug 2026. Each category carries
 // its own emoji so the picker feels warm and skimmable, and so the
@@ -110,6 +111,7 @@ export default function Notices() {
   const [pCat, setPCat] = useState("Announcement");
   // Optional image attached to the notice — gallery ref, data URI or "".
   const [pImage, setPImage] = useState<string>("");
+  const [pLocality, setPLocality] = useState<{ name: string; postcode?: string; state?: string } | null>(null);
   const [pImagePicker, setPImagePicker] = useState<boolean>(false);
   const [openCommentsFor, setOpenCommentsFor] = useState<string | null>(null);
   const [commentText, setCommentText] = useState("");
@@ -136,8 +138,9 @@ export default function Notices() {
   };
   useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radiusKm]));
 
-  const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPosting(true); };
-  const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || ""); setPosting(true); };
+  const memberLocality = () => (user?.suburb ? { name: user.suburb, postcode: (user as any)?.suburb_postcode, state: (user as any)?.suburb_state } : null);
+  const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPLocality(memberLocality()); setPosting(true); };
+  const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || ""); setPLocality(n.locality ? { name: n.locality, postcode: n.locality_postcode, state: n.locality_state } : memberLocality()); setPosting(true); };
 
   const submitPost = async () => {
     if (!user || !pTitle.trim() || !pBody.trim()) { show("Add a title and message"); return; }
@@ -152,7 +155,7 @@ export default function Notices() {
     Keyboard.dismiss();
     try {
       if (editing) {
-        await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat, image: pImage });
+        await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat, image: pImage, locality: pLocality?.name, locality_postcode: pLocality?.postcode, locality_state: pLocality?.state });
         show("Notice updated");
       } else {
         // The backend may hold the notice for moderator review if the
@@ -170,6 +173,9 @@ export default function Notices() {
           body: pBody.trim(),
           category: pCat,
           image: pImage,
+          locality: pLocality?.name,
+          locality_postcode: pLocality?.postcode,
+          locality_state: pLocality?.state,
         });
         if (resp && resp.held_for_review) {
           show(resp.moderation_message ||
@@ -294,6 +300,11 @@ export default function Notices() {
 
         <Text style={[styles.title, { color: c.onSurface, fontSize: 18 * scale }]}>{n.title}</Text>
         <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>{n.body}</Text>
+        {n.locality ? (
+          <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 6 }}>
+            📍 {n.locality}{n.distance_km != null ? `  ·  ${n.distance_km} km` : ""}
+          </Text>
+        ) : null}
         {n.image ? (() => {
           const src = resolveImageSource(n.image);
           return src ? (
@@ -475,6 +486,14 @@ export default function Notices() {
               <TextInput testID="post-title" value={pTitle} onChangeText={setPTitle} placeholder="A short headline" placeholderTextColor={c.muted} style={inputStyle} />
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Message</Text>
               <TextInput testID="post-body" value={pBody} onChangeText={setPBody} placeholder="What would you like to share?" placeholderTextColor={c.muted} multiline numberOfLines={5} style={[inputStyle, { height: 120, textAlignVertical: "top" }]} />
+
+              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Suburb / nearest town</Text>
+              <SuburbField
+                testID="post-locality"
+                hidePreferNotToSay
+                initialValue={pLocality ? (pLocality.postcode ? `${pLocality.name}, ${pLocality.state || ""} ${pLocality.postcode}`.trim() : pLocality.name) : ""}
+                onChange={(s) => setPLocality(s ? { name: s.name, postcode: s.postcode, state: s.state } : null)}
+              />
 
               {/* Optional photo — pick from the FriendPlace gallery or upload
                   your own. Emits a plain string that lands in the Notice's

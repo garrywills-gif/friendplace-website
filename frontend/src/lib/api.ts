@@ -524,7 +524,7 @@ export const api = {
   },
   /** User-submitted group suggestion. Awaits admin approval before
    *  appearing in the public listing. */
-  suggestGroup: (token: string, body: { name: string; emoji?: string; description?: string; reason?: string }) =>
+  suggestGroup: (token: string, body: { name: string; emoji?: string; description?: string; reason?: string; locality?: string; locality_postcode?: string; locality_state?: string }) =>
     req("/groups/suggest", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -595,7 +595,7 @@ export const api = {
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
     }),
-  updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
+  updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; description?: string; location?: string; locality?: string; locality_postcode?: string; locality_state?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
     req(`/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   cancelEvent: (id: string, body: { actor_id: string; reason?: string }) =>
     req(`/events/${id}/cancel`, { method: "POST", body: JSON.stringify(body) }),

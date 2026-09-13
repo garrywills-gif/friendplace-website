@@ -6560,9 +6560,13 @@ async def suggest_group(body: dict, user=Depends(current_user)):
         "suggested_at": now_iso(),
         "created_at": now_iso(),
     }
-    # Local Discovery: stamp the group's locality from the suggester's suburb
-    # so it can be radius-filtered once approved.
-    loc = await _default_locality_for_user(user["id"])
+    # Local Discovery: geocode the chosen locality when supplied, else the
+    # suggester's own saved suburb, so it can be radius-filtered once approved.
+    loc = {}
+    if (body.get("locality") or "").strip():
+        loc = _locality_update_from(body.get("locality"), body.get("locality_state"), body.get("locality_postcode"))
+    if not loc:
+        loc = await _default_locality_for_user(user["id"])
     if loc:
         g.update(loc)
     await db.groups.insert_one(g)
@@ -7323,6 +7327,9 @@ class EventUpdateBody(BaseModel):
     emoji: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
+    locality: Optional[str] = None
+    locality_postcode: Optional[str] = None
+    locality_state: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
     image: Optional[str] = None        # gallery ref / data URI / http URL — "" clears
@@ -7359,6 +7366,14 @@ async def update_event(event_id: str, body: EventUpdateBody):
             update["capacity"] = cap
         if update["capacity"] != ev.get("capacity"):
             changes.append("capacity")
+
+    # Local Discovery: if the host changed the event's locality, re-geocode
+    # from the recognised dataset so radius filtering stays correct.
+    if body.locality is not None and body.locality != ev.get("locality"):
+        loc = _locality_update_from(body.locality, body.locality_state, body.locality_postcode)
+        if loc:
+            update.update(loc)
+            changes.append("locality")
 
     # If date/time changed, clear sent-reminder flags so reminders re-fire correctly.
     if "date" in changes or "time" in changes:
@@ -8681,10 +8696,14 @@ async def create_notice(body: Notice):
     # live counts.
     from services.mcgs import default_origin_for
     doc["origin"] = default_origin_for(body.title, body.body)
-    # Local Discovery: stamp locality from the author's suburb when the
-    # notice didn't carry its own recognised locality coords.
+    # Local Discovery: geocode the author's CHOSEN locality when supplied,
+    # else fall back to their own saved suburb.
     if doc.get("locality_lat") is None:
-        loc = await _default_locality_for_user(body.user_id)
+        loc = {}
+        if doc.get("locality"):
+            loc = _locality_update_from(doc.get("locality"), doc.get("locality_state"), doc.get("locality_postcode"))
+        if not loc:
+            loc = await _default_locality_for_user(body.user_id)
         if loc:
             doc.update(loc)
     if held:
@@ -8756,6 +8775,11 @@ async def edit_notice(notice_id: str, payload: dict):
     if payload.get("user_id") != n.get("user_id"):
         raise HTTPException(403, "Only the author can edit")
     update = {k: payload[k] for k in ("title", "body", "category", "image") if k in payload}
+    # Local Discovery: re-geocode if the author changed the notice's locality.
+    if payload.get("locality") and payload.get("locality") != n.get("locality"):
+        loc = _locality_update_from(payload.get("locality"), payload.get("locality_state"), payload.get("locality_postcode"))
+        if loc:
+            update.update(loc)
     update["edited_at"] = now_iso()
     await db.notices.update_one({"id": notice_id}, {"$set": update})
     return {**n, **update}

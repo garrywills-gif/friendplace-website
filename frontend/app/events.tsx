@@ -371,7 +371,12 @@ export default function Events() {
                       </View>
                     ) : null}
                   </View>
-                  <Text style={[styles.meta, { color: c.muted, fontSize: 14 * scale }]}>📍 {item.location}</Text>
+                  {(item.location || item.locality) ? (
+                    <Text style={[styles.meta, { color: c.muted, fontSize: 14 * scale }]}>
+                      📍 {[item.location, item.locality].filter(Boolean).join(" · ")}
+                      {item.distance_km != null ? `  ·  ${item.distance_km} km` : ""}
+                    </Text>
+                  ) : null}
                 </View>
                 <View style={{ alignItems: "flex-end", gap: 6 }}>
                   <SpeakButton

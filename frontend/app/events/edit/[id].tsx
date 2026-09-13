@@ -10,6 +10,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import { DateField, TimeField } from "@/src/components/DateTimePicker";
+import SuburbField from "@/src/components/SuburbField";
 import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
 
 const EMOJIS = ["☕", "🍰", "🚌", "🏞️", "🎲", "🎵", "📚", "🌳", "🎨", "🍵", "🥖", "🦋", "🌷"];
@@ -27,6 +28,7 @@ export default function EditEvent() {
   const [emoji, setEmoji] = useState("☕");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
+  const [locality, setLocality] = useState<{ name: string; postcode?: string; state?: string } | null>(null);
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [capacity, setCapacity] = useState<number | null>(null);
@@ -45,6 +47,7 @@ export default function EditEvent() {
         setEmoji(e.emoji || "☕");
         setDescription(e.description || "");
         setLocation(e.location || "");
+        setLocality(e.locality ? { name: e.locality, postcode: e.locality_postcode, state: e.locality_state } : (user?.suburb ? { name: user.suburb, postcode: (user as any)?.suburb_postcode, state: (user as any)?.suburb_state } : null));
         setDate(e.date || "");
         setTime(e.time || "");
         setCapacity(e.capacity ?? null);
@@ -82,6 +85,9 @@ export default function EditEvent() {
         emoji,
         description: description.trim(),
         location: location.trim(),
+        locality: locality?.name,
+        locality_postcode: locality?.postcode,
+        locality_state: locality?.state,
         date,
         time,
         image,
@@ -201,8 +207,14 @@ export default function EditEvent() {
             </Pressable>
           )}
 
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Location</Text>
-          <TextInput value={location} onChangeText={setLocation} maxLength={120} style={[styles.input, inputStyle]} />
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Suburb / nearest town</Text>
+          <SuburbField
+            testID="edit-event-locality"
+            initialValue={locality ? (locality.postcode ? `${locality.name}, ${locality.state || ""} ${locality.postcode}`.trim() : locality.name) : ""}
+            onChange={(s) => setLocality(s ? { name: s.name, postcode: s.postcode, state: s.state } : null)}
+          />
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Venue / address (optional)</Text>
+          <TextInput testID="edit-event-venue" value={location} onChangeText={setLocation} maxLength={120} placeholder="e.g. Cafe Belong, level 1" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
 
           <View style={{ flexDirection: "row", gap: 10 }}>
             <View style={{ flex: 1 }}>
