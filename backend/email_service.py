@@ -1805,6 +1805,8 @@ def announcement_template(
     founder_number: int | None = None,
     cta_label: str | None = None,
     cta_url: str | None = None,
+    greeting: str | None = None,
+    show_founder_badge: bool | None = None,
     companion: str = "george",
     subject_override: str | None = None,
     preheader_override: str | None = None,
@@ -1833,9 +1835,25 @@ def announcement_template(
         companion:   Which companion is writing.
     """
     from html import escape as _esc
-    name = (first_name or "there").strip()
+    raw_name = (first_name or "").strip()
+    name = raw_name or "friend"
     display = "Georgia" if str(companion).lower() == "georgia" else "George"
     heading = (title or "").strip() or "A note from FriendPlace"
+
+    # CAMPAIGN_INVARIANT: NO_SARAH_FALLBACK
+    if greeting == "":
+        greeting_html = ""
+        greeting_text = ""
+    elif greeting is None:
+        greeting_html = f'<p style="margin:0 0 20px 0;">Dear {_esc(name)},</p>'
+        greeting_text = f"Dear {name},\n\n"
+    elif "[Contact name]" in greeting:
+        rendered_greeting = greeting.replace("[Contact name]", raw_name) if raw_name else "Hello friend,"
+        greeting_html = f'<p style="margin:0 0 20px 0;">{_esc(rendered_greeting)}</p>'
+        greeting_text = rendered_greeting + "\n\n"
+    else:
+        greeting_html = f'<p style="margin:0 0 20px 0;">{_esc(greeting)}</p>'
+        greeting_text = greeting + "\n\n"
     subject = subject_override or heading
     preheader = (
         preheader_override
@@ -1846,7 +1864,7 @@ def announcement_template(
     # gentle reminder of their permanent identity.
     founder_pill_html = ""
     founder_pill_text = ""
-    if founder_number and founder_number > 0:
+    if show_founder_badge is not False and founder_number and founder_number > 0:
         fno = f"#{int(founder_number):04d}"
         founder_pill_html = (
             f"<p style=\"margin:0 0 20px 0;\">"
@@ -1880,7 +1898,7 @@ def announcement_template(
     body = (
         _letter_body_open()
         + f"<h1 style=\"margin:0 0 20px 0;font-family:'Georgia','Times New Roman',serif;color:#0A2540;font-size:26px;line-height:1.3;font-weight:700;\">{_esc(heading)}</h1>"
-        + f"<p style=\"margin:0 0 20px 0;\">Dear {_esc(name)},</p>"
+        + greeting_html
         + founder_pill_html
         + body_html_joined
         + cta_html
@@ -1894,7 +1912,7 @@ def announcement_template(
     text = (
         f"{heading}\n"
         + ("=" * min(len(heading), 60)) + "\n\n"
-        + f"Dear {name},\n\n"
+        + greeting_text
         + founder_pill_text
         + text_paragraphs + "\n"
         + cta_text

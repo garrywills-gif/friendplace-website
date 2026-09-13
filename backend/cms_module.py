@@ -49,7 +49,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.responses import FileResponse
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field
 
 # ---- Config (env-driven, no hard-coding) ---------------------------------
 CMS_JWT_TTL_HOURS = int(os.getenv("CMS_JWT_TTL_HOURS", "12"))
@@ -495,24 +495,6 @@ def build_router(db) -> APIRouter:
                 locked_until = await _sec.create_lockout(db, "email", email, "bruteforce")
                 await _sec.create_lockout(db, "ip", ip, "bruteforce")
                 locked_flag = True
-                # ── DOOM-LOOP FIX (iter167 hotfix) ─────────────────────
-                # Reset the failed-attempt counters IMMEDIATELY after
-                # the lockout is armed. The 15-min gate is already
-                # covering the brute-force protection window; we don't
-                # need to also carry a stale ≥5 fail_count into the
-                # future. Without this reset, ONE wrong password after
-                # the 15-min timer expires would satisfy
-                # ``count >= LOCKOUT_AFTER`` again and instantly create
-                # a fresh lockout — trapping a legitimate admin who
-                # mistypes once. The reset gives the admin a clean
-                # 5-attempt allowance after each cooldown while
-                # preserving the "5 → 15 min" protection exactly.
-                # Attempts DURING the active lockout continue to be
-                # rejected at the gate above (line 454-466) before
-                # reaching bump_attempt or create_lockout, so a wrong
-                # password mid-lockout still cannot extend or restart
-                # the timer.
-                await _sec.reset_counters(db, email, ip)
                 await _sec.log_event(
                     db, outcome="lockout_created", email=email, ip=ip,
                     user_agent=ua_raw, ua=ua, geo=geo,
@@ -687,7 +669,6 @@ def build_router(db) -> APIRouter:
     async def list_enquiries(
         kind: Optional[str] = None,      # filter to one type: contact|interest|support|report|waitlist
         limit: int = 200,
-        include_archived: bool = False,
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
         """Unified list of every public enquiry / registration.
@@ -695,20 +676,13 @@ def build_router(db) -> APIRouter:
         Returns rows from five collections in a normalised shape so the
         UI can render them side-by-side. Excludes test fixtures. Newest
         first. Capped at `limit` per collection so a spike can't hurt
-        the browser.
-
-        Archive (Aug 2026, Garry): archived records are hidden by
-        default so the MCGS Enquiries surface shows a working queue,
-        not a growing pile. Pass ``include_archived=true`` to also
-        return archived rows (e.g. for audit or an "Archived" tab).
-        """
+        the browser."""
         lim = max(1, min(int(limit or 200), 500))
 
         async def _read(coll: str, mapper) -> list[dict]:
-            q: dict = {"is_test": {"$ne": True}}
-            if not include_archived:
-                q["archived"] = {"$ne": True}
-            docs = await db[coll].find(q, {"_id": 0}).sort("created_at", -1).to_list(lim)
+            docs = await db[coll].find(
+                {"is_test": {"$ne": True}}, {"_id": 0}
+            ).sort("created_at", -1).to_list(lim)
             return [mapper(d) for d in docs]
 
         rows: list[dict] = []
@@ -723,7 +697,6 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("message"),
                 "status":     d.get("status") or "new",
                 "created_at": d.get("created_at"),
-                "archived":   bool(d.get("archived")),
                 "meta":       {"category": d.get("category")},
             })
         if not kind or kind == "interest":
@@ -737,7 +710,6 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("notes") or "",
                 "status":     d.get("status") or "new",
                 "created_at": d.get("created_at"),
-                "archived":   bool(d.get("archived")),
                 "meta":       {"suburb": d.get("suburb"), "state": d.get("state"), "companion": d.get("companion")},
             })
         if not kind or kind == "support":
@@ -751,7 +723,6 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("message"),
                 "status":     d.get("status") or "open",
                 "created_at": d.get("created_at"),
-                "archived":   bool(d.get("archived")),
                 "meta":       {"category": d.get("category"), "ref": d.get("ref")},
             })
         if not kind or kind == "report":
@@ -765,7 +736,6 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("details") or d.get("notes"),
                 "status":     d.get("status") or "open",
                 "created_at": d.get("created_at"),
-                "archived":   bool(d.get("archived")),
                 "meta":       {"target_type": d.get("target_type"), "target_id": d.get("target_id")},
             })
         if not kind or kind == "waitlist":
@@ -779,7 +749,6 @@ def build_router(db) -> APIRouter:
                 "message":    "",
                 "status":     "invited" if d.get("invited") else "waiting",
                 "created_at": d.get("created_at"),
-                "archived":   bool(d.get("archived")),
                 "meta":       {"referral": d.get("referral_source")},
             })
 
@@ -796,794 +765,6 @@ def build_router(db) -> APIRouter:
                 {"key": "waitlist", "label": "Waitlist",          "count": sum(1 for r in rows if r["kind"] == "waitlist")},
             ],
         }
-
-
-    # ------------------------------------------------------------------
-    # Enquiry Archive  ·  used by MCGS → Enquiries "Archive" buttons.
-    # ------------------------------------------------------------------
-    # Each `kind` returned by `/cms/enquiries` maps to a distinct Mongo
-    # collection. Archiving is a soft-delete: we flip `archived=True`
-    # (plus `archived_at` and `archived_by`) so the record is retained
-    # for audit but disappears from the default list. Never a hard
-    # delete — per Garry's launch rule "no customer enquiry can ever
-    # be lost".
-    #
-    # The lookup id semantics match `list_enquiries`:
-    #   • contact    → `contact_submissions.id`
-    #   • interest   → `interest_registrations.id`
-    #   • support    → `support_tickets.ref` OR `support_tickets.id`
-    #     (the list emits `ref` as the display id when present)
-    #   • report     → `reports.id`
-    #   • waitlist   → `waitlist.id`
-
-    _ENQUIRY_COLLECTIONS = {
-        "contact":  "contact_submissions",
-        "interest": "interest_registrations",
-        "support":  "support_tickets",
-        "report":   "reports",
-        "waitlist": "waitlist",
-    }
-
-    async def _find_enquiry_query(kind: str, ident: str) -> Optional[dict]:
-        """Return the Mongo filter for locating an enquiry of `kind`
-        by the id the UI holds. Support tickets are special-cased
-        because the UI receives `ref` as the id."""
-        if kind == "support":
-            # Try ref first (that's what the list returns), fall back
-            # to the raw id.
-            doc = await db.support_tickets.find_one({"ref": ident}, {"_id": 1})
-            if doc:
-                return {"ref": ident}
-            return {"id": ident}
-        return {"id": ident}
-
-    @router.post("/enquiries/{kind}/{ident}/archive")
-    async def archive_enquiry(
-        kind: str,
-        ident: str,
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Archive an enquiry (soft delete). Idempotent — archiving an
-        already-archived record returns ok=True without changing the
-        original `archived_at` timestamp. Records are NEVER deleted;
-        the row remains queryable via ``?include_archived=true``.
-        """
-        from services import audit as _audit  # local import — module boundary
-        if kind not in _ENQUIRY_COLLECTIONS:
-            raise HTTPException(
-                400,
-                f"Unknown enquiry kind '{kind}'. Expected one of: "
-                f"{', '.join(sorted(_ENQUIRY_COLLECTIONS.keys()))}.",
-            )
-        coll = _ENQUIRY_COLLECTIONS[kind]
-        q = await _find_enquiry_query(kind, ident)
-        # Include `id` in the projection so the returned dict is never
-        # empty for a matched record — otherwise the truthiness check
-        # below would 404 a real record that happens to have no
-        # `archived` / `archived_at` fields yet (i.e. every unarchived
-        # record). Explicit `is None` check is used regardless as
-        # belt-and-braces.
-        existing = await db[coll].find_one(
-            q,
-            {"_id": 0, "id": 1, "archived": 1, "archived_at": 1},
-        )
-        if existing is None:
-            raise HTTPException(404, "Enquiry not found")
-
-        # Idempotency — if it's already archived, don't overwrite the
-        # original timestamp / actor. Just return ok.
-        if existing.get("archived") is True:
-            await _audit.log_admin_action(
-                db, admin=admin, action="cms.enquiry.archive.noop",
-                target_type=f"enquiry.{kind}", target_id=ident,
-            )
-            return {
-                "ok": True,
-                "kind": kind,
-                "id": ident,
-                "archived": True,
-                "archived_at": existing.get("archived_at"),
-                "noop": True,
-            }
-
-        now = _now_iso()
-        patch = {
-            "archived": True,
-            "archived_at": now,
-            "archived_by": admin.get("id"),
-            "archived_by_email": admin.get("email"),
-            "updated_at": now,
-        }
-        res = await db[coll].update_one(q, {"$set": patch})
-        if res.matched_count == 0:
-            # Race: record was deleted between find_one and update_one.
-            raise HTTPException(404, "Enquiry not found")
-
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.enquiry.archive",
-            target_type=f"enquiry.{kind}", target_id=ident,
-        )
-        return {
-            "ok": True,
-            "kind": kind,
-            "id": ident,
-            "archived": True,
-            "archived_at": now,
-        }
-
-
-    # ============================================================
-    # ORGANISATION OUTREACH  ·  MCGS → Outreach page (Aug 2026)
-    # ============================================================
-    # Backs the deployed website's `/admin/outreach` page which lists
-    # retirement villages, RSLs, libraries, community organisations
-    # etc. we've reached out to. Data lives in `outreach_organisations`
-    # (production truth — verified 2026-10 to contain the Retirement
-    # Villages #2/#3/#4/Att outreach records with their real
-    # communications history). Previously mis-pointed to `cms_organisations`
-    # (empty), which is why /admin/outreach showed 0 records. All CRUD
-    # + read paths below now read/write the correct collection; no data
-    # migration or copy is performed.
-    #
-    # The deployed frontend hits:
-    #   GET  /api/cms/outreach/organisations?<q|status|category|limit>
-    #   POST /api/cms/outreach/organisations/{id}/archive
-    # Both were 404ing on production because the routes hadn't been
-    # registered yet. See production JS chunk
-    # `_next/static/chunks/app/admin/outreach/page-*.js`.
-
-    # ─── Response shape ─────────────────────────────────────────────
-    # George's deployed frontend (origin/main → Vercel) types
-    # ``OutreachOrg`` as ``{ organisation_name, email, phone, ... }``
-    # while the storage schema uses the older ``{ name, contact_email,
-    # contact_phone, ... }`` naming. ``_outreach_row`` emits BOTH the
-    # canonical frontend names and the legacy aliases so:
-    #   1. George's TypeScript types read cleanly (organisation_name).
-    #   2. Any pre-iter167 caller still sees the fields it expected.
-    #   3. Zero migration of the underlying documents is required —
-    #      Garry explicitly forbade altering historical records.
-    #
-    # ``communications`` is the outbound/inbound contact history array
-    # rendered on the detail page. Each entry:
-    #   { at: iso, kind: "email_sent"|"email_reply"|"note"|"campaign_send",
-    #     direction: "outbound"|"inbound", subject: str, body: str,
-    #     campaign_id: str|None }
-    # Auto-populated on campaign sends (see ``_touch_outreach_on_send``)
-    # and via ``POST .../log`` for manual notes.
-    _OUTREACH_STATUSES = [
-        "not_contacted", "contacted", "awaiting_reply", "replied",
-        "joined", "declined", "bounced", "unsubscribed",
-    ]
-
-    def _outreach_row(d: Dict[str, Any]) -> Dict[str, Any]:
-        # Normalise the legacy "new" status to "not_contacted" so
-        # George's UI never sees an unrecognised value.
-        raw_status = (d.get("status") or "").strip()
-        if raw_status in ("", "new", "registered"):
-            status = "not_contacted"
-        else:
-            status = raw_status
-        name = d.get("organisation_name") or d.get("name") or ""
-        email = d.get("email") or d.get("contact_email") or ""
-        phone = d.get("phone") or d.get("contact_phone") or ""
-        # ``communications`` may not exist on legacy rows — return [] then.
-        comms = d.get("communications") or []
-        return {
-            "id":                 d.get("id"),
-            # Canonical (frontend) names ─────────────────────────────
-            "organisation_name":  name,
-            "email":              email,
-            "phone":              phone,
-            # Legacy aliases ─────────────────────────────────────────
-            "name":               name,
-            "contact_email":      email,
-            "contact_phone":      phone,
-            # Shared fields ──────────────────────────────────────────
-            "outreach_number":    d.get("outreach_number"),
-            "category":           d.get("category") or d.get("type") or "",
-            "status":             status,
-            "contact_name":       d.get("contact_name") or "",
-            "suburb":             d.get("suburb") or "",
-            "state":              d.get("state") or "",
-            "postcode":           d.get("postcode") or "",
-            "website":            d.get("website") or "",
-            "notes":              d.get("notes") or "",
-            "tags":               d.get("tags") or [],
-            "communications":     list(comms),
-            "created_at":         d.get("created_at"),
-            "updated_at":         d.get("updated_at"),
-            "last_contact_at":    d.get("last_contact_at") or d.get("last_contacted_at"),
-            "last_reply_at":      d.get("last_reply_at"),
-            "next_follow_up_at":  d.get("next_follow_up_at"),
-            "archived":           bool(d.get("archived")),
-            "archived_at":        d.get("archived_at"),
-        }
-
-    @router.get("/outreach/organisations")
-    @router.get("/outreach/organisations/")  # tolerate trailing slash — deployed frontend uses it
-    async def outreach_organisations_list(
-        q: Optional[str] = None,
-        status: Optional[str] = None,
-        category: Optional[str] = None,
-        archived: bool = False,
-        limit: int = 200,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """List outreach organisations. Hidden archived rows by default
-        so the working queue is clean. Pass ``?archived=true`` for the
-        archived surface. Returns an empty ``rows`` list (never a 404)
-        when the collection is genuinely empty — that lets the client
-        distinguish an API error (5xx / 4xx) from a legitimate empty
-        state and stop showing the misleading "No outreach
-        organisations yet" when the request actually failed.
-        """
-        lim = max(1, min(int(limit or 200), 500))
-        query: Dict[str, Any] = (
-            {"archived": True} if archived else {"archived": {"$ne": True}}
-        )
-        if status:
-            query["status"] = status
-        if category:
-            # Match either `category` or legacy `type` field.
-            query["$or"] = [{"category": category}, {"type": category}]
-        if q:
-            # Case-insensitive substring across the most useful fields.
-            import re
-            needle = re.escape(q.strip())
-            regex = {"$regex": needle, "$options": "i"}
-            or_clause = [
-                {"name": regex}, {"contact_name": regex},
-                {"contact_email": regex}, {"suburb": regex},
-                {"notes": regex},
-            ]
-            # Merge with any existing $or (from category) safely.
-            existing_or = query.pop("$or", None)
-            if existing_or:
-                query["$and"] = [{"$or": existing_or}, {"$or": or_clause}]
-            else:
-                query["$or"] = or_clause
-        rows_raw = await db.outreach_organisations.find(query, {"_id": 0}) \
-            .sort("created_at", -1).to_list(lim)
-        rows = [_outreach_row(d) for d in rows_raw]
-        # ``organisations`` is a duplicate alias of ``rows`` because
-        # George's ``outreachApi.list`` types the response as
-        # ``{ organisations: OutreachOrg[] }`` while
-        # ``outreach-archive-api.ts`` also accepts ``rows``. Emit
-        # both so both clients read cleanly with no migration.
-        return {"count": len(rows), "rows": rows, "organisations": rows}
-
-    @router.post("/outreach/organisations/{org_id}/archive")
-    async def outreach_organisation_archive(
-        org_id: str,
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Soft-archive an outreach organisation. Record is retained
-        and remains queryable via ``?archived=true``. Idempotent."""
-        from datetime import datetime, timezone
-        from services import audit as _audit  # local import — module boundary
-        existing = await db.outreach_organisations.find_one(
-            {"id": org_id}, {"_id": 0, "id": 1, "archived": 1, "archived_at": 1},
-        )
-        if existing is None:
-            raise HTTPException(404, "Organisation not found")
-        if existing.get("archived") is True:
-            await _audit.log_admin_action(
-                db, admin=admin, action="cms.outreach.archive.noop",
-                target_type="outreach_organisation", target_id=org_id,
-            )
-            return {
-                "ok": True, "id": org_id, "archived": True,
-                "archived_at": existing.get("archived_at"), "noop": True,
-            }
-        now = datetime.now(timezone.utc).isoformat()
-        patch = {
-            "archived": True,
-            "archived_at": now,
-            "archived_by": admin.get("id"),
-            "archived_by_email": admin.get("email"),
-            "updated_at": now,
-        }
-        res = await db.outreach_organisations.update_one({"id": org_id}, {"$set": patch})
-        if res.matched_count == 0:
-            raise HTTPException(404, "Organisation not found")
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.outreach.archive",
-            target_type="outreach_organisation", target_id=org_id,
-        )
-        return {"ok": True, "id": org_id, "archived": True, "archived_at": now}
-
-    @router.post("/outreach/organisations/{org_id}/unarchive")
-    @router.post("/outreach/organisations/{org_id}/restore")  # deployed frontend built-in alias
-    async def outreach_organisation_unarchive(
-        org_id: str,
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Restore an archived outreach organisation. Idempotent.
-
-        Two paths are registered so both the current deployed frontend
-        (which calls ``/unarchive``) and any lingering stale-cache
-        browser (which historically called ``/restore``) both succeed
-        without further Vercel deploys.
-        """
-        from datetime import datetime, timezone
-        from services import audit as _audit  # local import — module boundary
-        existing = await db.outreach_organisations.find_one(
-            {"id": org_id}, {"_id": 0, "id": 1, "archived": 1},
-        )
-        if existing is None:
-            raise HTTPException(404, "Organisation not found")
-        if not existing.get("archived"):
-            return {"ok": True, "id": org_id, "archived": False, "noop": True}
-        now = datetime.now(timezone.utc).isoformat()
-        await db.outreach_organisations.update_one(
-            {"id": org_id},
-            {
-                "$set": {"archived": False, "updated_at": now},
-                "$unset": {"archived_at": "", "archived_by": "", "archived_by_email": ""},
-            },
-        )
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.outreach.unarchive",
-            target_type="outreach_organisation", target_id=org_id,
-        )
-        return {"ok": True, "id": org_id, "archived": False}
-
-    # ─── Create — spreadsheet import + manual "New Organisation" form ───
-    #
-    # The deployed Vercel frontend calls ``POST /cms/outreach/organisations``
-    # from TWO paths:
-    #   1. Spreadsheet import (Outreach page): parses .xlsx/.csv client-side
-    #      with sheetjs, then loops one row per POST with a friendly
-    #      payload shape (organisation_name + email + contact_name + phone
-    #      + category + suburb + state + notes + tags + status).
-    #   2. The `/admin/outreach/new` manual form: identical payload
-    #      shape but with only ONE row.
-    #
-    # Storage schema is the pre-existing ``outreach_organisations`` document
-    # (fields: name, contact_email, contact_phone, category, suburb,
-    # state, notes, tags, status, ...). We normalise the incoming
-    # frontend-shaped keys into that schema so both surfaces read back
-    # cleanly through ``_outreach_row``.
-    #
-    # DATA SAFETY: if the payload's email already exists on ANY
-    # existing organisation (case-insensitive), we return that row
-    # untouched with ``existing: True`` and HTTP 200. Never overwrite,
-    # never duplicate, never re-import — spreadsheet re-runs are safe.
-    #
-    # Body is accepted as a plain ``dict`` (declared via ``Body(...)``)
-    # rather than a nested Pydantic model, because Pydantic v2 will
-    # not rebuild a function-scoped model class at import time and
-    # FastAPI's OpenAPI generator raises PydanticUserError. Field
-    # validation happens inline below.
-    @router.post("/outreach/organisations")
-    @router.post("/outreach/organisations/")  # trailing-slash tolerant
-    async def outreach_organisation_create(
-        payload: Dict[str, Any] = Body(...),
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Create a new outreach organisation. Used by BOTH the
-        spreadsheet import loop and the manual "New Organisation" form
-        on ``/admin/outreach/new``.
-
-        Duplicate protection: if an organisation with the same email
-        already exists (case-insensitive match on ``contact_email``
-        OR the legacy ``email`` field), the EXISTING row is returned
-        with ``existing: True`` and no data is modified. This makes
-        spreadsheet re-runs idempotent and preserves Garry's guarantee
-        that existing records never get overwritten, duplicated, or
-        reset.
-
-        HARDENING (iter169 regression fix): the production
-        ``outreach_organisations`` collection was seeded by an earlier
-        importer that wrote ``email`` (not ``contact_email``) and may
-        carry a unique index on either the legacy ``email`` field or on
-        ``outreach_number``. To keep new creates from 500-ing:
-          • duplicate scan checks BOTH email fields;
-          • the insert mirrors the address into both fields so any
-            legacy unique index is satisfied;
-          • ``outreach_number`` is only stored when a real value is
-            supplied — avoids the null-collision trap on a unique
-            partial index;
-          • pymongo ``DuplicateKeyError`` is caught and converted to
-            the idempotent existing-row response;
-          • any other unexpected DB error surfaces as a controlled
-            HTTP 500 with a safe JSON body (no raw traceback leak).
-        """
-        import re as _re
-        import uuid as _uuid
-        from datetime import datetime as _dt, timezone as _tz
-        from services import audit as _audit
-        try:
-            from pymongo.errors import DuplicateKeyError as _DuplicateKeyError
-        except Exception:  # pragma: no cover — pymongo always present
-            class _DuplicateKeyError(Exception):
-                pass
-
-        def _s(*keys) -> str:
-            """First non-empty string among the given payload keys."""
-            for k in keys:
-                v = payload.get(k)
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-            return ""
-
-        # Normalise the tolerant payload into the storage schema.
-        name = _s("organisation_name", "name")
-        email = _s("email", "contact_email")
-        if not name:
-            raise HTTPException(400, "Organisation name is required")
-        if not email or "@" not in email:
-            raise HTTPException(400, "A valid email address is required")
-        email_lower = email.lower()
-
-        # ── Idempotency — email is the natural key. Scan BOTH the
-        # new (``contact_email``) and legacy (``email``) fields
-        # because production rows were seeded with the legacy shape.
-        rx_email = _re.compile(f"^{_re.escape(email)}$", _re.IGNORECASE)
-        dupe = await db.outreach_organisations.find_one(
-            {"$or": [{"contact_email": rx_email}, {"email": rx_email}]},
-            {"_id": 0},
-        )
-        if dupe is not None:
-            await _audit.log_admin_action(
-                db, admin=admin, action="cms.outreach.create.noop_duplicate",
-                target_type="outreach_organisation", target_id=dupe.get("id"),
-            )
-            return {
-                "ok": True,
-                "id": dupe.get("id"),
-                "existing": True,
-                "organisation": _outreach_row(dupe),
-            }
-
-        # Tags may arrive as a list, a comma-separated string, or None.
-        raw_tags = payload.get("tags")
-        if isinstance(raw_tags, str):
-            tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
-        elif isinstance(raw_tags, list):
-            tags = [str(t).strip() for t in raw_tags if str(t).strip()]
-        else:
-            tags = []
-
-        # Outreach_number: only accept ints; ignore other types.
-        raw_on = payload.get("outreach_number")
-        outreach_number = (
-            int(raw_on)
-            if isinstance(raw_on, (int, float)) and not isinstance(raw_on, bool)
-            else None
-        )
-
-        now = _dt.now(_tz.utc).isoformat()
-        org_id = str(_uuid.uuid4())
-        doc: Dict[str, Any] = {
-            "id": org_id,
-            "name": name,
-            # Mirror the address into BOTH the new and the legacy field
-            # so any pre-existing unique index on either satisfies the
-            # insert. Reads via ``_outreach_row`` prefer ``email``.
-            "email": email_lower,
-            "contact_email": email_lower,
-            "contact_name": _s("contact_name"),
-            "contact_phone": _s("phone", "contact_phone"),
-            "category": _s("category", "type"),
-            "suburb": _s("suburb"),
-            "state": _s("state"),
-            "postcode": _s("postcode"),
-            "website": _s("website"),
-            "notes": _s("notes"),
-            "tags": tags,
-            "status": _s("status") or "not_contacted",
-            "created_at": now,
-            "updated_at": now,
-            "created_by": admin.get("id"),
-            "created_by_email": admin.get("email"),
-            "archived": False,
-        }
-        # Only store ``outreach_number`` when a real value was passed —
-        # avoids a null-collision on any legacy unique partial index.
-        if outreach_number is not None:
-            doc["outreach_number"] = outreach_number
-
-        try:
-            await db.outreach_organisations.insert_one(doc)
-        except _DuplicateKeyError:
-            # A concurrent create for the same email (or any legacy
-            # unique-index collision) — refetch and return the winner
-            # as if this had been an idempotent duplicate.
-            winner = await db.outreach_organisations.find_one(
-                {"$or": [{"contact_email": rx_email}, {"email": rx_email}]},
-                {"_id": 0},
-            )
-            if winner is not None:
-                await _audit.log_admin_action(
-                    db, admin=admin,
-                    action="cms.outreach.create.noop_dupe_key",
-                    target_type="outreach_organisation",
-                    target_id=winner.get("id"),
-                )
-                return {
-                    "ok": True,
-                    "id": winner.get("id"),
-                    "existing": True,
-                    "organisation": _outreach_row(winner),
-                }
-            # Duplicate key but nothing matches by email — a legacy
-            # unique index on a different field is enforcing. Report a
-            # clean 409 so the client can surface a real error rather
-            # than a raw 500.
-            raise HTTPException(
-                409,
-                "This organisation could not be saved because a matching "
-                "record already exists. Please refresh the Outreach list "
-                "and try again.",
-            )
-        except HTTPException:
-            raise
-        except Exception:
-            # Never leak a raw traceback into the JSON body. Log it and
-            # return a controlled 500.
-            import logging as _logging
-            _logging.getLogger("cms.outreach").exception(
-                "outreach_organisation_create failed",
-                extra={"email": email_lower, "admin": admin.get("email")},
-            )
-            raise HTTPException(
-                500,
-                "Could not save this organisation right now. Please try "
-                "again shortly.",
-            )
-
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.outreach.create",
-            target_type="outreach_organisation", target_id=org_id,
-        )
-        return {
-            "ok": True,
-            "id": org_id,
-            "existing": False,
-            "organisation": _outreach_row(doc),
-        }
-
-    # ─── Meta — statuses + categories the frontend renders in filters ───
-    @router.get("/outreach/meta")
-    async def outreach_meta(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
-        """Static metadata for the Outreach page filters."""
-        cats_cursor = db.outreach_organisations.aggregate([
-            {"$match": {"category": {"$type": "string", "$ne": ""}}},
-            {"$group": {"_id": "$category"}},
-            {"$sort": {"_id": 1}},
-        ])
-        cats = [c["_id"] async for c in cats_cursor if c.get("_id")]
-        return {"statuses": _OUTREACH_STATUSES, "categories": cats}
-
-    # ─── Get one — powers the /admin/outreach/{id} detail page ─────
-    @router.get("/outreach/organisations/{org_id}")
-    async def outreach_organisation_get(
-        org_id: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        doc = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
-        if doc is None:
-            raise HTTPException(404, "Organisation not found")
-        return _outreach_row(doc)
-
-    # ─── Update — inline edits from the detail page ────────────────
-    @router.patch("/outreach/organisations/{org_id}")
-    async def outreach_organisation_update(
-        org_id: str,
-        payload: Dict[str, Any] = Body(...),
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Update editable fields. Never touches archived or communications."""
-        from datetime import datetime as _dt, timezone as _tz
-        from services import audit as _audit
-        existing = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
-        if existing is None:
-            raise HTTPException(404, "Organisation not found")
-
-        editable = {
-            "organisation_name": "name", "name": "name",
-            "email": "contact_email", "contact_email": "contact_email",
-            "phone": "contact_phone", "contact_phone": "contact_phone",
-            "contact_name": "contact_name",
-            "category": "category", "suburb": "suburb", "state": "state",
-            "postcode": "postcode", "website": "website",
-            "notes": "notes", "tags": "tags", "status": "status",
-            "outreach_number": "outreach_number",
-        }
-        patch: Dict[str, Any] = {}
-        for k, v in payload.items():
-            if k not in editable:
-                continue
-            storage_key = editable[k]
-            if storage_key == "tags":
-                if isinstance(v, list):
-                    patch["tags"] = [str(t).strip() for t in v if str(t).strip()]
-                continue
-            if storage_key == "status":
-                if v in _OUTREACH_STATUSES:
-                    patch["status"] = v
-                continue
-            if isinstance(v, str):
-                patch[storage_key] = v.strip()
-            elif v is None:
-                patch[storage_key] = ""
-            elif storage_key == "outreach_number" and isinstance(v, (int, float)):
-                patch["outreach_number"] = int(v)
-
-        if "contact_email" in patch and "@" not in patch["contact_email"]:
-            raise HTTPException(400, "A valid email address is required")
-        if "contact_email" in patch:
-            patch["contact_email"] = patch["contact_email"].lower()
-
-        if not patch:
-            return _outreach_row(existing)
-        patch["updated_at"] = _dt.now(_tz.utc).isoformat()
-        await db.outreach_organisations.update_one({"id": org_id}, {"$set": patch})
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.outreach.update",
-            target_type="outreach_organisation", target_id=org_id,
-        )
-        fresh = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
-        return _outreach_row(fresh)
-
-    # ─── Delete → SOFT-ARCHIVE ONLY (iter167 hardening) ────────────
-    # Garry's policy: outreach organisations and their contact-history
-    # audit trail must NEVER be hard-deleted. We keep the DELETE verb
-    # registered so George's frontend calling ``outreachApi.del(id)``
-    # still resolves cleanly — but the semantics are now identical to
-    # the /archive endpoint: the row is marked archived, its
-    # ``communications`` history is preserved, and it remains
-    # inspectable via ``?archived=true``.
-    #
-    # If a genuine hard delete is ever needed (mis-entry cleanup,
-    # duplicate reconciliation) it will be a separate operator-only
-    # tool with an explicit confirmation prompt — never exposed on
-    # the general CMS surface.
-    @router.delete("/outreach/organisations/{org_id}")
-    async def outreach_organisation_delete(
-        org_id: str,
-        admin: dict = Depends(current_cms_admin),
-    ):
-        from datetime import datetime as _dt, timezone as _tz
-        from services import audit as _audit
-        existing = await db.outreach_organisations.find_one(
-            {"id": org_id}, {"_id": 0, "id": 1, "archived": 1},
-        )
-        if existing is None:
-            raise HTTPException(404, "Organisation not found")
-        # Already archived → idempotent no-op, honest response.
-        if existing.get("archived"):
-            return {
-                "ok": True, "id": org_id, "deleted": False,
-                "archived": True, "noop": True,
-                "note": "Outreach organisations are soft-archived, never hard-deleted.",
-            }
-        now = _dt.now(_tz.utc).isoformat()
-        await db.outreach_organisations.update_one(
-            {"id": org_id},
-            {"$set": {
-                "archived":          True,
-                "archived_at":       now,
-                "archived_by":       admin.get("id"),
-                "archived_by_email": admin.get("email"),
-                "updated_at":        now,
-            }},
-        )
-        # Audit as ``delete_soft_archived`` so ops can distinguish the
-        # policy-driven soft-archive from an explicit ``/archive`` click.
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.outreach.delete_soft_archived",
-            target_type="outreach_organisation", target_id=org_id,
-        )
-        return {
-            "ok": True, "id": org_id,
-            "deleted": False, "archived": True,
-            "note": "Outreach organisations are soft-archived, never hard-deleted.",
-        }
-
-    # ─── Mark replied — records an inbound response ───────────────
-    @router.post("/outreach/organisations/{org_id}/mark-replied")
-    async def outreach_organisation_mark_replied(
-        org_id: str,
-        payload: Dict[str, Any] = Body(default={}),
-        admin: dict = Depends(current_cms_admin),
-    ):
-        from datetime import datetime as _dt, timezone as _tz
-        from services import audit as _audit
-        existing = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
-        if existing is None:
-            raise HTTPException(404, "Organisation not found")
-        now = _dt.now(_tz.utc).isoformat()
-        entry = {
-            "at": now, "kind": "email_reply",
-            "direction": (payload.get("direction") or "inbound").strip() or "inbound",
-            "subject": (payload.get("subject") or "").strip(),
-            "body":    (payload.get("body") or "").strip(),
-            "campaign_id": payload.get("campaign_id") or None,
-            "by": admin.get("email"),
-        }
-        await db.outreach_organisations.update_one(
-            {"id": org_id},
-            {"$set": {"status": "replied", "last_reply_at": now, "updated_at": now},
-             "$push": {"communications": entry}},
-        )
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.outreach.mark_replied",
-            target_type="outreach_organisation", target_id=org_id,
-        )
-        fresh = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
-        return _outreach_row(fresh)
-
-    # ─── Log — free-form contact-history entry (no status change) ──
-    @router.post("/outreach/organisations/{org_id}/log")
-    async def outreach_organisation_log(
-        org_id: str,
-        payload: Dict[str, Any] = Body(...),
-        admin: dict = Depends(current_cms_admin),
-    ):
-        from datetime import datetime as _dt, timezone as _tz
-        from services import audit as _audit
-        kind = (payload.get("kind") or "").strip()
-        if not kind:
-            raise HTTPException(400, "kind is required (e.g. 'phone_call', 'note')")
-        existing = await db.outreach_organisations.find_one(
-            {"id": org_id}, {"_id": 0, "id": 1},
-        )
-        if existing is None:
-            raise HTTPException(404, "Organisation not found")
-        now = _dt.now(_tz.utc).isoformat()
-        entry = {
-            "at": now, "kind": kind,
-            "body": (payload.get("body") or "").strip(),
-            "by": admin.get("email"),
-        }
-        await db.outreach_organisations.update_one(
-            {"id": org_id},
-            {"$set": {"updated_at": now}, "$push": {"communications": entry}},
-        )
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.outreach.log",
-            target_type="outreach_organisation", target_id=org_id,
-        )
-        fresh = await db.outreach_organisations.find_one({"id": org_id}, {"_id": 0})
-        return _outreach_row(fresh)
-
-    # ─── Internal: auto-touch outreach org on campaign send ────────
-    # Called from the campaign send worker for every successful
-    # recipient send. If the recipient's email matches an outreach
-    # organisation (case-insensitive), we bump status to ``contacted``
-    # (only if it was ``not_contacted``) and append a ``campaign_send``
-    # entry to its history. Silently no-ops if there's no matching org.
-    async def _touch_outreach_on_send(*, email: str, campaign_id: str,
-                                       subject: str) -> None:
-        if not email:
-            return
-        import re as _re
-        from datetime import datetime as _dt, timezone as _tz
-        rx = _re.compile(f"^{_re.escape(email)}$", _re.IGNORECASE)
-        org = await db.outreach_organisations.find_one(
-            {"contact_email": rx},
-            {"_id": 0, "id": 1, "status": 1},
-        )
-        if not org:
-            return
-        now = _dt.now(_tz.utc).isoformat()
-        update_set: Dict[str, Any] = {"last_contact_at": now, "updated_at": now}
-        if (org.get("status") or "not_contacted") in ("not_contacted", "", None):
-            update_set["status"] = "contacted"
-        entry = {
-            "at": now, "kind": "campaign_send", "direction": "outbound",
-            "subject": subject, "campaign_id": campaign_id,
-        }
-        await db.outreach_organisations.update_one(
-            {"id": org["id"]},
-            {"$set": update_set, "$push": {"communications": entry}},
-        )
-    # Expose the helper to the campaign send worker without cross-file coupling.
-    router._touch_outreach_on_send = _touch_outreach_on_send  # type: ignore[attr-defined]
-
-
 
 
     # EMAIL TEMPLATE PREVIEW
@@ -1689,38 +870,14 @@ def build_router(db) -> APIRouter:
         `total` — they are Founding Members — but excluded from
         `new_today` and `awaiting_contact` because they don't need
         an invite. Their status is always `joined`.
-
-        DATE BOUNDARIES — Australia/Sydney LOCAL (iter167 fix).
-        Previously "new_today" was computed against UTC midnight, which
-        undercounts by ~10 hours every morning because Sydney is
-        UTC+10 (AEST) or UTC+11 (AEDT). We now use Sydney-local day
-        boundaries via ``services.analytics.local_time`` so the number
-        matches what an Australian admin sees in the registration
-        list underneath the dashboard. The helper handles DST
-        transitions automatically.
         """
-        from services.analytics.local_time import (
-            sydney_named_range,
-        )
+        from datetime import datetime, timezone
         base = {"is_test": {"$ne": True}}
         base_public = {**base, "is_reserved": {"$ne": True}}
         total = await db.interest_registrations.count_documents(base)
-
-        today_start_iso, today_end_iso = sydney_named_range("today")
-        yesterday_start_iso, yesterday_end_iso = sydney_named_range("yesterday")
-        week_start_iso, week_end_iso = sydney_named_range("this_week")
-
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         new_today = await db.interest_registrations.count_documents({
-            **base_public,
-            "created_at": {"$gte": today_start_iso, "$lt": today_end_iso},
-        })
-        new_yesterday = await db.interest_registrations.count_documents({
-            **base_public,
-            "created_at": {"$gte": yesterday_start_iso, "$lt": yesterday_end_iso},
-        })
-        new_this_week = await db.interest_registrations.count_documents({
-            **base_public,
-            "created_at": {"$gte": week_start_iso, "$lt": week_end_iso},
+            **base_public, "created_at": {"$gte": today_start.isoformat()},
         })
         awaiting = await db.interest_registrations.count_documents({
             **base_public,
@@ -1749,17 +906,11 @@ def build_router(db) -> APIRouter:
         return {
             "total":            total,
             "new_today":        new_today,
-            "new_yesterday":    new_yesterday,
-            "new_this_week":    new_this_week,
             "awaiting_contact": awaiting,
             "invited":          invited,
             "joined":           joined,
             "opted_out":        opted,
             "latest":           latest_summary,
-            # Timezone metadata so any future consumer (or a browser
-            # devtools inspect) can see we're not on UTC.
-            "timezone":         "Australia/Sydney",
-            "today_range_utc":  {"start": today_start_iso, "end": today_end_iso},
         }
 
     @router.patch("/crm/founding-members/{member_id}")
@@ -1804,6 +955,54 @@ def build_router(db) -> APIRouter:
         row = await db.interest_registrations.find_one({"id": member_id}, {"_id": 0})
         return _normalise_fm_row(row) if row else row
 
+
+    @router.delete("/crm/founding-members/{member_id}")
+    async def crm_founding_members_delete(
+        member_id: str,
+        admin: dict = Depends(current_cms_admin),
+    ):
+        """Permanently delete a Founding Member registration.
+
+        Admin-only, destructive, no soft-delete. Rules:
+          • Refuses when ``is_reserved`` is truthy — reserved slots
+            (#0001 Garry, #0002 George, #0003 Neo, and any future
+            honorary insert) must remain protected. No override
+            mechanism today; the deliberate escape hatch is direct
+            DB Viewer access via the Emergent production console.
+          • Does NOT rewind the ``counters/founder_number`` document.
+            Founding numbers are monotonic by design — a gap in the
+            sequence is preferred over reuse. Reclaiming a specific
+            number requires a separate, deliberate counter edit
+            (which the DB Viewer supports).
+          • Deletes exactly one row from ``interest_registrations``.
+            No cascade to ``users``, ``events``, or any other
+            collection.
+          • Returns the founder_number and email of the deleted row
+            so the client can render a truthful confirmation and
+            audit line.
+        """
+        row = await db.interest_registrations.find_one({"id": member_id}, {"_id": 0})
+        if not row:
+            raise HTTPException(404, "Founding member not found")
+        if bool(row.get("is_reserved")):
+            raise HTTPException(
+                403,
+                "This is a reserved Founding Member slot and cannot be deleted "
+                "from the CRM. If you truly need to remove it, use the "
+                "Emergent Production Database Viewer.",
+            )
+        res = await db.interest_registrations.delete_one({"id": member_id})
+        if res.deleted_count == 0:
+            # Raced with another delete — treat as already gone.
+            raise HTTPException(404, "Founding member not found")
+        return {
+            "ok":              True,
+            "deleted_id":      member_id,
+            "founder_number":  row.get("founder_number"),
+            "email":           row.get("email"),
+            "first_name":      row.get("first_name"),
+            "deleted_by":      admin.get("id"),
+        }
 
 
     from fastapi.responses import HTMLResponse as _HTMLResponse  # noqa: WPS433
@@ -1903,6 +1102,8 @@ def build_router(db) -> APIRouter:
                 founder_number=42,
                 cta_label=None,
                 cta_url=None,
+                greeting="Dear [Contact name],",
+                show_founder_badge=True,
                 companion=companion,
             )
         if name == "password_reset":
@@ -1954,7 +1155,7 @@ def build_router(db) -> APIRouter:
         # already enumerate the whole valid set.
         if data_overrides:
             for k, v in data_overrides.items():
-                if k in kwargs and v not in (None, ""):
+                if k in kwargs and (k == "first_name" or v not in (None, "")):
                     kwargs[k] = v
         # Only pass overrides that are actually set — passing None
         # explicitly would fight the templates' internal defaults.
@@ -2511,6 +1712,8 @@ def build_router(db) -> APIRouter:
             "body_md":         c.get("body_md"),
             "cta_label":       c.get("cta_label"),
             "cta_url":         c.get("cta_url"),
+            "greeting":        c.get("greeting"),
+            "show_founder_badge": c.get("show_founder_badge"),
             "audience_filter": c.get("audience_filter") or {},
             "status":          c.get("status") or "draft",
             "stats":           c.get("stats") or {
@@ -2523,22 +1726,159 @@ def build_router(db) -> APIRouter:
             "sent_at":         c.get("sent_at"),
             "finished_at":     c.get("finished_at"),
             "sample_html":     c.get("sample_html"),
-            # Archive metadata (Aug 2026, Garry) — enables the
-            # "Archive campaign" / "Archived campaigns" UI on the
-            # deployed website. Archiving is a soft delete: every
-            # campaign remains readable via /campaigns/{id} so
-            # history, delivery counts, sent date, audience and
-            # results all stay intact.
-            "archived":        bool(c.get("archived")),
-            "archived_at":     c.get("archived_at"),
         }
 
     async def _resolve_audience(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
+        """iter160a: dispatch across five audience kinds.
+
+        f.audience_kind can be:
+          - 'founding_members' (default; original behaviour)
+          - 'saved_segment'    -> uses f.segment_id
+          - 'custom_filter'    -> uses f.filter (a segment-shape filter, not saved)
+          - 'outreach_contacts' -> f.outreach.{category, tags_any, status, ids}
+          - 'manual_list'      -> f.manual_recipients: list of {name, email}
+                                                       OR one-per-line strings
+          - 'individual'       -> f.recipient_email + f.recipient_name
+
+        Returns a normalised list of {id, first_name, email, companion_choice,
+        founder_number, status, tags, organisation_name?} so the rest of the
+        send pipeline is agnostic to the source.
+        """
+        kind = str((f or {}).get("audience_kind") or "").strip().lower()
+
+        # iter161b defensive auto-detect (25 Feb 2026 production regression):
+        # A draft saved by pre-iter161 frontend code could end up with
+        # outreach/manual/individual data in its filter but no
+        # audience_kind marker — the resolver would then silently fall
+        # through to the founding_members query, returning a count that
+        # tracks Founding Member registrations rather than the audience
+        # Garry actually chose. Guard against that here by inferring the
+        # kind from the filter's shape when the marker is absent AND the
+        # shape is unambiguous. We refuse to guess when the filter is
+        # empty or founding-member-shaped — those correctly default to
+        # the historical founding_members path.
+        if not kind:
+            _outreach_spec = f.get("outreach") if isinstance(f, dict) else None
+            _has_outreach = (
+                isinstance(_outreach_spec, dict)
+                and any(_outreach_spec.get(k) for k in ("category", "status", "tags_any", "ids"))
+            )
+            _has_manual = bool((f or {}).get("manual_recipients"))
+            _has_individual = bool((f or {}).get("recipient_email"))
+            # Founding-member shape has none of these three, so we only
+            # override the default when one of them is present.
+            import logging as _logging
+            _log = _logging.getLogger("friendplace.campaigns")
+            if _has_outreach and not (_has_manual or _has_individual):
+                _log.warning(
+                    "audience resolver: missing audience_kind, auto-routing to "
+                    "outreach_contacts based on filter shape: %r",
+                    _outreach_spec,
+                )
+                kind = "outreach_contacts"
+            elif _has_manual and not (_has_outreach or _has_individual):
+                _log.warning(
+                    "audience resolver: missing audience_kind, auto-routing to "
+                    "manual_list based on filter shape",
+                )
+                kind = "manual_list"
+            elif _has_individual and not (_has_outreach or _has_manual):
+                _log.warning(
+                    "audience resolver: missing audience_kind, auto-routing to "
+                    "individual based on filter shape",
+                )
+                kind = "individual"
+            # else: safely fall through to founding_members (original behaviour).
+
+        # -- 5) Individual send --
+        if kind == "individual":
+            addr = str(f.get("recipient_email") or "").strip()
+            if not addr:
+                return []
+            return [{
+                "id": None,
+                "first_name": (f.get("recipient_name") or "").split(" ", 1)[0],
+                "email": addr,
+                "companion_choice": None,
+                "founder_number": None,
+                "status": None,
+                "tags": [],
+            }][:limit]
+
+        # -- 4) Manual list (pasted addresses) --
+        if kind == "manual_list":
+            raw = f.get("manual_recipients") or []
+            parsed: list[dict] = []
+            if isinstance(raw, str):
+                raw = raw.splitlines()
+            seen: set = set()
+            for item in raw:
+                if isinstance(item, dict):
+                    e = str(item.get("email") or "").strip().lower()
+                    n = str(item.get("name") or "").strip()
+                elif isinstance(item, str):
+                    line = item.strip()
+                    if not line: continue
+                    # Support "Name <email>" and "Name | email" and bare "email"
+                    if "|" in line:
+                        n, e = [p.strip() for p in line.split("|", 1)]
+                        e = e.lower()
+                    elif "<" in line and line.endswith(">"):
+                        n, rest = line.split("<", 1)
+                        n, e = n.strip(), rest[:-1].strip().lower()
+                    else:
+                        n, e = "", line.lower()
+                else:
+                    continue
+                if not e or "@" not in e or e in seen: continue
+                seen.add(e)
+                parsed.append({
+                    "id": None,
+                    "first_name": n.split(" ", 1)[0] if n else "",
+                    "email": e,
+                    "companion_choice": None,
+                    "founder_number": None,
+                    "status": None,
+                    "tags": [],
+                    "recipient_name": n,
+                })
+            return parsed[:limit]
+
+        # -- 3) Outreach contacts --
+        if kind == "outreach_contacts":
+            from services.outreach.store import COLL_ORGS, normalise_category
+            oq: Dict[str, Any] = {"is_test": {"$ne": True}}
+            spec = f.get("outreach") or {}
+            # iter161b (25 Feb 2026): normalise the category so a user
+            # typing "retirement village" or "Retirement Village" also
+            # matches the stored "retirement_village" key. Stored
+            # values are never rewritten — only the query is
+            # canonicalised. Empty / None passes through untouched.
+            _cat = normalise_category(spec.get("category"))
+            if _cat:                 oq["category"] = _cat
+            if spec.get("status"):   oq["status"] = spec["status"]
+            if spec.get("tags_any"): oq["tags"] = {"$in": list(spec["tags_any"])}
+            if spec.get("ids"):      oq["id"] = {"$in": list(spec["ids"])}
+            cur = db[COLL_ORGS].find(oq, {"_id": 0}).sort("updated_at", -1).limit(limit)
+            out: list[dict] = []
+            async for org in cur:
+                out.append({
+                    "id":               org.get("id"),
+                    "first_name":       (org.get("contact_name") or "").split(" ", 1)[0],
+                    "email":            org.get("email"),
+                    "companion_choice": None,
+                    "founder_number":   None,
+                    "status":           org.get("status"),
+                    "tags":             org.get("tags") or [],
+                    "recipient_name":   org.get("contact_name"),
+                    "organisation_name": org.get("organisation_name"),
+                    "outreach_id":      org.get("id"),
+                })
+            return out
+
+        # -- Default & 2) Founding-member-shaped (original behaviour) --
         q = _build_audience_query(f)
-        # CRM Phase 2C — segment integration. If the audience_filter
-        # names a saved segment, resolve it to a set of emails and
-        # intersect. Locked with Garry, 1 Aug 2026: campaigns can be
-        # targeted by segment OR by classic filter, never both required.
+        # Saved segment intersection (existing behaviour preserved).
         segment_id = (f or {}).get("segment_id")
         if segment_id:
             from services import segments as _segments
@@ -2561,97 +1901,9 @@ def build_router(db) -> APIRouter:
         ).sort([("founder_number", 1)]).to_list(limit)
 
     @router.get("/campaigns")
-    async def campaigns_list(
-        archived: bool = False,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """List campaigns. By default returns non-archived campaigns
-        (i.e. the working queue). Pass ``?archived=true`` for the
-        "Archived campaigns" surface.
-
-        Archive semantics (Aug 2026, Garry): archiving is a soft
-        delete. Records are NEVER removed — every archived campaign is
-        still openable via ``/campaigns/{id}``, keeping the full
-        history / audience / delivery record intact for future audit.
-        """
-        q: Dict[str, Any] = {"archived": True} if archived else {"archived": {"$ne": True}}
-        rows = await db.campaigns.find(q, {"_id": 0}).sort(
-            "archived_at" if archived else "created_at", -1,
-        ).to_list(200)
+    async def campaigns_list(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        rows = await db.campaigns.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
         return {"count": len(rows), "rows": [_campaign_summary(r) for r in rows]}
-
-    @router.post("/campaigns/{campaign_id}/archive")
-    async def campaigns_archive(
-        campaign_id: str, admin: dict = Depends(current_cms_admin),
-    ):
-        """Archive a campaign (soft delete — record retained).
-
-        Idempotent: archiving an already-archived campaign returns
-        ``ok:true`` with ``noop:true`` and preserves the original
-        ``archived_at``.
-        """
-        from datetime import datetime, timezone
-        from services import audit as _audit  # local import — module boundary
-        c = await db.campaigns.find_one(
-            {"id": campaign_id},
-            {"_id": 0, "id": 1, "archived": 1, "archived_at": 1},
-        )
-        if c is None:
-            raise HTTPException(404, "Campaign not found")
-        if c.get("archived") is True:
-            await _audit.log_admin_action(
-                db, admin=admin, action="cms.campaign.archive.noop",
-                target_type="campaign", target_id=campaign_id,
-            )
-            return {
-                "ok": True, "id": campaign_id, "archived": True,
-                "archived_at": c.get("archived_at"), "noop": True,
-            }
-        now = datetime.now(timezone.utc).isoformat()
-        patch = {
-            "archived": True,
-            "archived_at": now,
-            "archived_by": admin.get("id"),
-            "archived_by_email": admin.get("email"),
-            "updated_at": now,
-        }
-        res = await db.campaigns.update_one({"id": campaign_id}, {"$set": patch})
-        if res.matched_count == 0:
-            raise HTTPException(404, "Campaign not found")
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.campaign.archive",
-            target_type="campaign", target_id=campaign_id,
-        )
-        return {"ok": True, "id": campaign_id, "archived": True, "archived_at": now}
-
-    @router.post("/campaigns/{campaign_id}/unarchive")
-    async def campaigns_unarchive(
-        campaign_id: str, admin: dict = Depends(current_cms_admin),
-    ):
-        """Restore an archived campaign back to the main queue.
-        Idempotent for already-active campaigns."""
-        from datetime import datetime, timezone
-        from services import audit as _audit  # local import — module boundary
-        c = await db.campaigns.find_one(
-            {"id": campaign_id}, {"_id": 0, "id": 1, "archived": 1},
-        )
-        if c is None:
-            raise HTTPException(404, "Campaign not found")
-        if not c.get("archived"):
-            return {"ok": True, "id": campaign_id, "archived": False, "noop": True}
-        now = datetime.now(timezone.utc).isoformat()
-        await db.campaigns.update_one(
-            {"id": campaign_id},
-            {
-                "$set": {"archived": False, "updated_at": now},
-                "$unset": {"archived_at": "", "archived_by": "", "archived_by_email": ""},
-            },
-        )
-        await _audit.log_admin_action(
-            db, admin=admin, action="cms.campaign.unarchive",
-            target_type="campaign", target_id=campaign_id,
-        )
-        return {"ok": True, "id": campaign_id, "archived": False}
 
     @router.post("/campaigns")
     async def campaigns_create(payload: Dict[str, Any], admin: dict = Depends(current_cms_admin)):
@@ -2672,6 +1924,9 @@ def build_router(db) -> APIRouter:
             "body_md":         str(payload.get("body_md") or "")[:20000],
             "cta_label":       str(payload.get("cta_label") or "")[:60],
             "cta_url":         str(payload.get("cta_url") or "")[:500],
+            # CAMPAIGN_INVARIANT: outreach greeting/badge controls are persisted.
+            "greeting":        payload.get("greeting"),
+            "show_founder_badge": payload.get("show_founder_badge"),
             "audience_filter": payload.get("audience_filter") or {},
             "status":          "draft",
             "stats":           {"targeted": 0, "accepted": 0, "failed": 0,
@@ -2738,7 +1993,8 @@ def build_router(db) -> APIRouter:
             raise HTTPException(400, "Only drafts can be edited")
         updates: Dict[str, Any] = {}
         for key in ("name", "template", "subject", "preheader", "companion",
-                    "title", "body_md", "cta_label", "cta_url", "audience_filter"):
+                    "title", "body_md", "cta_label", "cta_url", "greeting",
+                    "show_founder_badge", "audience_filter"):
             if key in payload:
                 updates[key] = payload[key]
         if "template" in updates and updates["template"] not in _CAMPAIGN_TEMPLATES:
@@ -2765,8 +2021,9 @@ def build_router(db) -> APIRouter:
         c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
         if not c:
             raise HTTPException(404, "Campaign not found")
-        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=1000)
-        return {"count": len(recipients), "sample": recipients[:10]}
+        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
+        # CAMPAIGN_INVARIANT: admins can review every resolved address before send.
+        return {"count": len(recipients), "sample": recipients}
 
     @router.post("/campaigns/{campaign_id}/render-preview")
     async def campaigns_render_preview(campaign_id: str,
@@ -2778,8 +2035,8 @@ def build_router(db) -> APIRouter:
         recipient = recipients[0] if recipients else None
         overrides: Dict[str, Any] = {}
         if recipient:
-            if recipient.get("first_name"):
-                overrides["first_name"] = recipient["first_name"]
+            # CAMPAIGN_INVARIANT: blank outreach names must override Sarah sample data.
+            overrides["first_name"] = recipient.get("first_name") or ""
             if recipient.get("founder_number"):
                 overrides["founder_number"] = recipient["founder_number"]
         if c.get("template") == "announcement":
@@ -2787,6 +2044,8 @@ def build_router(db) -> APIRouter:
             overrides["body_md"]   = c.get("body_md") or ""
             overrides["cta_label"] = c.get("cta_label") or None
             overrides["cta_url"]   = c.get("cta_url")   or None
+            overrides["greeting"] = c.get("greeting")
+            overrides["show_founder_badge"] = c.get("show_founder_badge")
         subject, html, text = _preview_render(
             c["template"],
             companion=c.get("companion") or "george",
@@ -2819,8 +2078,8 @@ def build_router(db) -> APIRouter:
             async def _one(r: dict):
                 nonlocal sample_html_saved
                 overrides: Dict[str, Any] = {}
-                if r.get("first_name"):
-                    overrides["first_name"] = r["first_name"]
+                # CAMPAIGN_INVARIANT: each recipient is rendered independently.
+                overrides["first_name"] = r.get("first_name") or ""
                 if r.get("founder_number"):
                     overrides["founder_number"] = r["founder_number"]
                 companion = c.get("companion") or "george"
@@ -2832,6 +2091,8 @@ def build_router(db) -> APIRouter:
                     overrides["body_md"]   = c.get("body_md") or ""
                     overrides["cta_label"] = c.get("cta_label") or None
                     overrides["cta_url"]   = c.get("cta_url")   or None
+                    overrides["greeting"] = c.get("greeting")
+                    overrides["show_founder_badge"] = c.get("show_founder_badge")
                 subject, html, text = _preview_render(
                     c["template"], companion=companion,
                     subject_override=(c.get("subject") or None),
@@ -2844,6 +2105,8 @@ def build_router(db) -> APIRouter:
                         {"$set": {"sample_html": html, "sample_subject": subject}},
                     )
                     sample_html_saved = True
+                # CAMPAIGN_INVARIANT: INDIVIDUAL_EMAIL_PER_RECIPIENT
+                # Never combine outreach recipients into To/CC/BCC lists.
                 result = await send_email_detailed(
                     to=r["email"], subject=subject, html=html, text=text,
                 )
@@ -2866,6 +2129,19 @@ def build_router(db) -> APIRouter:
                     {"id": campaign_id},
                     {"$inc": {("stats.accepted" if result.ok else "stats.failed"): 1}},
                 )
+                # iter160a: if this recipient is an outreach organisation,
+                # bump their last_contact_at and log the send in their
+                # timeline. Idempotent on the per-recipient row id.
+                if result.ok:
+                    try:
+                        from services.outreach.store import touch_last_contact as _tlc
+                        await _tlc(
+                            db, email=r["email"], campaign_id=campaign_id,
+                            subject=subject,
+                            send_id=str(r.get("id") or r["email"]) + "@" + campaign_id,
+                        )
+                    except Exception:
+                        pass
                 if result.ok and result.message_id:
                     try:
                         await db.email_test_log.insert_one({
@@ -2879,20 +2155,6 @@ def build_router(db) -> APIRouter:
                             "campaign_id": campaign_id,
                         })
                     except Exception:
-                        pass
-                # iter167 — if the recipient email matches an existing
-                # outreach organisation, bump its status to "contacted"
-                # and append the send to its history. Never invents a
-                # new outreach row — a Founding Member campaign that
-                # happens to overlap emails simply no-ops.
-                if result.ok:
-                    try:
-                        await _touch_outreach_on_send(
-                            email=r["email"], campaign_id=campaign_id,
-                            subject=subject,
-                        )
-                    except Exception:
-                        # Never let outreach bookkeeping fail a send.
                         pass
                 # Auto-advance status for invitation campaigns.
                 if result.ok and c["template"] == "invitation":
@@ -5880,6 +5142,7 @@ def build_router(db) -> APIRouter:
         key: str,
         request: Request,
         layout: str = "poster_a4",
+        format: str = "png",
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
         """Render a flyer for print / preview.
@@ -5893,6 +5156,11 @@ def build_router(db) -> APIRouter:
         Returns raw bytes (PNG or PDF) with `inline` disposition so
         the Mission Control print modal can embed via <iframe> and
         trigger `window.print()` without a download step.
+
+        Set ``?format=pdf`` to receive a single-page PDF sized to the
+        layout's real paper size (iter159 marketing launch — used by
+        outbound email attachments). PNG remains the default so the
+        Mission Control iframe preview keeps working unchanged.
 
         Attribution note (Garry, 3 Aug 2026): the founding-flyer engine
         embeds a QR that credits an *app admin* from `users`. CMS
@@ -5929,12 +5197,34 @@ def build_router(db) -> APIRouter:
             )
         except (ValueError, KeyError, FileNotFoundError) as e:
             raise HTTPException(400, str(e))
+
+        # iter159: transparent PDF conversion for outbound email
+        # attachments. We only convert when the underlying render was
+        # a PNG (founding engine). Static-PDF templates already return
+        # `application/pdf` so we pass them through untouched.
+        want_pdf = (format or "").strip().lower() == "pdf"
+        if want_pdf and result.media_type == "image/png":
+            try:
+                from services.flyers.pdf_export import png_bytes_to_pdf_bytes
+                pdf_bytes, _ext = png_bytes_to_pdf_bytes(result.content, layout)
+                content_out = pdf_bytes
+                media_out = "application/pdf"
+                filename_out = result.filename.rsplit(".", 1)[0] + ".pdf"
+            except Exception as exc:  # noqa: BLE001
+                import logging as _logging
+                _logging.getLogger("friendplace.flyers").exception("PDF conversion failed for %s/%s", key, layout)
+                raise HTTPException(500, f"PDF conversion failed: {exc}")
+        else:
+            content_out = result.content
+            media_out = result.media_type
+            filename_out = result.filename
+
         from fastapi.responses import Response  # local import to match cms_module.py pattern
         return Response(
-            content=result.content,
-            media_type=result.media_type,
+            content=content_out,
+            media_type=media_out,
             headers={
-                "Content-Disposition": f'inline; filename="{result.filename}"',
+                "Content-Disposition": f'inline; filename="{filename_out}"',
                 "Cache-Control": "no-store",
                 "X-Content-Type-Options": "nosniff",
                 # A tiny audit breadcrumb — visible in the browser
@@ -5948,6 +5238,103 @@ def build_router(db) -> APIRouter:
         _asyncio.get_event_loop().create_task(_flyers.seed_flyer_templates(db))
     except Exception:
         pass
+
+    # ------------------------------------------------------------------
+    # iter159 — Marketing sub-router (Send Email, preview, sends
+    # history, contacts). Mounted here so it inherits the /cms prefix
+    # AND the same admin auth dependency as every other CMS route.
+    # Effective URLs: /api/cms/marketing/*
+    # ------------------------------------------------------------------
+    try:
+        from services.marketing.router import build_marketing_router as _build_mkt_router
+        from services.marketing.sends import ensure_indexes as _mkt_sends_indexes
+        from services.marketing.contacts import ensure_indexes as _mkt_contacts_indexes
+
+        router.include_router(_build_mkt_router(db, current_cms_admin))
+
+        async def _bootstrap_marketing_indexes():
+            try:
+                await _mkt_sends_indexes(db)
+                await _mkt_contacts_indexes(db)
+            except Exception:  # noqa: BLE001
+                import logging as _logging
+                _logging.getLogger("friendplace.marketing").exception("marketing index bootstrap failed")
+
+        try:
+            _asyncio.get_event_loop().create_task(_bootstrap_marketing_indexes())
+        except Exception:
+            pass
+    except Exception:  # noqa: BLE001
+        # Never crash CMS boot because marketing failed to import —
+        # log and continue with the rest of the admin surface.
+        import logging as _logging
+        _logging.getLogger("friendplace.marketing").exception("marketing router mount failed")
+
+    # ------------------------------------------------------------------
+    # iter160a — Outreach sub-router (organisations CRUD + timeline).
+    # Effective URLs: /api/cms/outreach/*
+    # ------------------------------------------------------------------
+    try:
+        from services.outreach.router import build_outreach_router as _build_outreach_router
+        from services.outreach.store  import ensure_indexes as _outreach_indexes
+        router.include_router(_build_outreach_router(db, current_cms_admin))
+        async def _bootstrap_outreach_indexes():
+            try:
+                await _outreach_indexes(db)
+            except Exception:
+                import logging as _logging
+                _logging.getLogger("friendplace.outreach").exception("outreach index bootstrap failed")
+        try:
+            _asyncio.get_event_loop().create_task(_bootstrap_outreach_indexes())
+        except Exception:
+            pass
+    except Exception:
+        import logging as _logging
+        _logging.getLogger("friendplace.outreach").exception("outreach router mount failed")
+
+    # ------------------------------------------------------------------
+    # iter160b — Replies inbox sub-router (manual "Log a reply" flow).
+    # Effective URLs: /api/cms/replies/*
+    # ------------------------------------------------------------------
+    try:
+        from services.replies.router import build_replies_router as _build_replies_router
+        from services.replies.store  import ensure_indexes as _replies_indexes
+        router.include_router(_build_replies_router(db, current_cms_admin))
+        async def _bootstrap_replies_indexes():
+            try:
+                await _replies_indexes(db)
+            except Exception:
+                import logging as _logging
+                _logging.getLogger("friendplace.replies").exception("replies index bootstrap failed")
+        try:
+            _asyncio.get_event_loop().create_task(_bootstrap_replies_indexes())
+        except Exception:
+            pass
+    except Exception:
+        import logging as _logging
+        _logging.getLogger("friendplace.replies").exception("replies router mount failed")
+
+    # ------------------------------------------------------------------
+    # iter160a — CRM unified-status endpoints (compute-on-the-fly).
+    # ------------------------------------------------------------------
+    @router.get("/crm/status-for/{email}")
+    async def _crm_status_for(email: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        from services.crm.status import status_for_email
+        return await status_for_email(db, email)
+
+    @router.get("/crm/awaiting-reply")
+    async def _crm_awaiting_reply(
+        limit: int = 200, admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        from services.crm.status import list_awaiting_reply
+        return {"rows": await list_awaiting_reply(db, limit=limit)}
+
+    @router.get("/crm/needs-follow-up")
+    async def _crm_needs_follow_up(
+        days: int = 7, limit: int = 200, admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        from services.crm.status import list_needs_follow_up
+        return {"rows": await list_needs_follow_up(db, days_since_last_contact=days, limit=limit)}
 
     return router
 

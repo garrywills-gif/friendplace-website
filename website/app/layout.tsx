@@ -24,19 +24,27 @@ export const metadata: Metadata = {
     'social community',
   ],
   authors: [{ name: 'FriendPlace' }],
-  // Pre-launch privacy: force noindex on EVERY page unless the Vercel
-  // env var FRIENDPLACE_INDEXABLE is explicitly set to "true". Combined
-  // with robots.txt + X-Robots-Tag header this makes three layers of
-  // defence — the site cannot be crawled or listed until launch.
-  robots:
-    process.env.FRIENDPLACE_INDEXABLE === 'true'
+  // Post-launch (Aug 2026): default to index/follow on Vercel production.
+  // Preview and development deploys stay noindex automatically because
+  // VERCEL_ENV is 'preview' or 'development' on those. The admin section
+  // has its own unconditional noindex override in app/admin/layout.tsx,
+  // so /admin/* stays private no matter what we do here. Explicit
+  // FRIENDPLACE_INDEXABLE=true forces indexable anywhere; explicit
+  // =false is the emergency killswitch for prod.
+  robots: (() => {
+    const flag = process.env.FRIENDPLACE_INDEXABLE;
+    const indexable =
+      flag === 'true' ||
+      (flag !== 'false' && process.env.VERCEL_ENV === 'production');
+    return indexable
       ? { index: true, follow: true }
       : {
           index: false,
           follow: false,
           nocache: true,
           googleBot: { index: false, follow: false, noimageindex: true },
-        },
+        };
+  })(),
   openGraph: {
     title: `${site.name} — ${site.tagline}`,
     description: site.description,

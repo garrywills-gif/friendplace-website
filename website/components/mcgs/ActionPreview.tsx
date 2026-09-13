@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { getToken } from '@/lib/cms-auth';
 import { API_BASE } from '@/lib/api-base';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
@@ -9,7 +10,7 @@ const BASE = API_BASE;
 
 export interface ActionPreviewPayload {
   kind: 'action_preview';
-  action_type: 'ticket_reply' | 'submission_decision';
+  action_type: 'ticket_reply' | 'submission_decision' | 'flyer_draft';
   target: { kind: string; id: string };
   what: string;
   why: string;
@@ -22,6 +23,16 @@ export interface ActionPreviewPayload {
   generated_at?: string;
   generated_by?: { kind: string; model: string };
   error?: string;
+  // Flyer authoring: George drafts a flyer, admin opens the Publishing
+  // Centre to preview/print — nothing ships until the admin acts.
+  flyer?: {
+    template_key: string;
+    template_name: string;
+    layout: string;
+    layout_label: string;
+    field_values: Record<string, string>;
+    edit_url: string;
+  };
 }
 
 interface ActionPreviewProps {
@@ -54,6 +65,7 @@ export function ActionPreview({ preview, onResolved }: ActionPreviewProps) {
   const KNOWN_ACTION_TYPES: Array<ActionPreviewPayload['action_type']> = [
     'ticket_reply',
     'submission_decision',
+    'flyer_draft',
   ];
   if (!preview || !KNOWN_ACTION_TYPES.includes(preview.action_type)) {
     if (typeof console !== 'undefined') {
@@ -76,6 +88,7 @@ export function ActionPreview({ preview, onResolved }: ActionPreviewProps) {
   const [dismissed, setDismissed] = useState(false);
   const [showReasoning, setShowReasoning] = useState(false);
   const [undoTimeLeft, setUndoTimeLeft] = useState<number | null>(null);
+  const router = useRouter();
 
   // 30-second undo countdown for ticket replies (state-only rollback is
   // impossible for a sent email; we just remove the mark-resolved and
@@ -92,6 +105,92 @@ export function ActionPreview({ preview, onResolved }: ActionPreviewProps) {
     return <div style={errorBox}>George couldn&apos;t prepare this: {preview.error}</div>;
   }
   if (dismissed) return null;
+
+  // ---- Flyer authoring preview -----------------------------------------
+  // George only sets up the flyer state. Pressing "Open in Flyer
+  // Publishing Centre" navigates to the flyer detail page with the
+  // template + layout + fields pre-populated. Nothing prints or
+  // publishes until Garry taps Print INSIDE the Publishing Centre.
+  if (preview.action_type === 'flyer_draft' && preview.flyer) {
+    const flyer = preview.flyer;
+    const fieldEntries = Object.entries(flyer.field_values || {});
+
+    const openInCentre = () => {
+      const url = flyer.edit_url;
+      try {
+        router.push(url);
+      } catch {
+        try { window.location.assign(url); } catch { /* noop */ }
+      }
+      onResolved?.();
+    };
+
+    return (
+      <div style={card}>
+        <div style={header}>
+          <span style={{ display: 'inline-flex', width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }} aria-hidden>
+            <GeorgeButterflyMark size={18} />
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: '#0F766E', letterSpacing: '0.03em' }}>
+              GEORGE PROPOSES
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#0F172A', marginTop: 2 }}>
+              {preview.what}
+            </div>
+          </div>
+          <span style={{
+            background: CONFIDENCE_STYLES[preview.confidence]?.bg || '#DCFCE7',
+            color:      CONFIDENCE_STYLES[preview.confidence]?.color || '#166534',
+            borderRadius: 6, padding: '2px 10px', fontSize: 10, fontWeight: 800, letterSpacing: '0.02em',
+          }}>
+            {CONFIDENCE_STYLES[preview.confidence]?.label || 'Ready'}
+          </span>
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 13, color: '#334155', lineHeight: 1.55 }}>
+          <strong style={fieldLabel}>Why:</strong> {preview.why}
+        </div>
+
+        <div style={{ marginTop: 10, fontSize: 12, color: '#334155', lineHeight: 1.55 }}>
+          <div><strong style={fieldLabel}>Template:</strong> {flyer.template_name}</div>
+          <div style={{ marginTop: 4 }}><strong style={fieldLabel}>Layout:</strong> {flyer.layout_label}</div>
+          {fieldEntries.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <strong style={fieldLabel}>Field values:</strong>
+              <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                {fieldEntries.map(([k, v]) => (
+                  <li key={k} style={{ fontSize: 12, color: '#334155' }}>
+                    <span style={{ color: '#64748B' }}>{k}:</span> {v}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {preview.confidence_reason && (
+          <div style={{ marginTop: 8, fontSize: 11, color: '#94A3B8', fontStyle: 'italic' }}>
+            {preview.confidence_reason}
+          </div>
+        )}
+
+        <div style={buttonRow}>
+          <button type="button" onClick={openInCentre} style={btnSend}>
+            Open in Flyer Publishing Centre
+          </button>
+          <button
+            type="button"
+            onClick={() => setDismissed(true)}
+            style={btnMuted}
+          >Dismiss</button>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#94A3B8' }}>
+            Nothing prints until you tap Print in the Publishing Centre.
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   const conf = CONFIDENCE_STYLES[preview.confidence] || CONFIDENCE_STYLES.low;
 

@@ -24,14 +24,18 @@ type Props = {
   template: FlyerTemplate;
   layoutCategories: FlyerLayoutCategory[];
   onClose: () => void;
+  // Optional pre-population when the modal is opened via a deep link
+  // (e.g. from George's flyer-draft action preview).
+  initialLayout?: string;
+  initialFields?: Record<string, string>;
 };
 
-export function FlyerPrintModal({ template, layoutCategories, onClose }: Props) {
-  const [selectedLayoutKey, setSelectedLayoutKey] = useState<string>(template.default_layout);
+export function FlyerPrintModal({ template, layoutCategories, onClose, initialLayout, initialFields }: Props) {
+  const [selectedLayoutKey, setSelectedLayoutKey] = useState<string>(initialLayout || template.default_layout);
   // Field values keyed by field.key. Auto-initialised from any
   // defaults on the template so the preview reflects the current
   // saved wording the moment the modal opens.
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>(initialFields || {});
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   // Only show layouts THIS template actually supports.

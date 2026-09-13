@@ -69,7 +69,7 @@ export function FoundingMembersCard() {
             />
             <StatTile
               tone="amber"
-              label="Awaiting contact"
+              label="Awaiting invitation"
               value={stats?.awaiting_contact}
               accent={(stats?.awaiting_contact ?? 0) > 0}
             />

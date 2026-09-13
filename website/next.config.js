@@ -16,12 +16,17 @@ const nextConfig = {
       { protocol: 'https', hostname: '**' },
     ],
   },
-  // Pre-launch: keep the site OUT of search engines until we're ready.
-  // Flipping FRIENDPLACE_INDEXABLE=true in Vercel env makes the site
-  // discoverable. Layered defence: X-Robots-Tag header + robots.txt
-  // + meta robots (in <head>).
+  // Post-launch (Aug 2026): skip the X-Robots-Tag: noindex header on
+  // Vercel production and when explicitly opted-in. Preview /
+  // development deploys still receive the header (VERCEL_ENV=preview
+  // or development). Explicit FRIENDPLACE_INDEXABLE=false forces the
+  // header on as an emergency killswitch even in production.
   async headers() {
-    if (process.env.FRIENDPLACE_INDEXABLE === 'true') return [];
+    const flag = process.env.FRIENDPLACE_INDEXABLE;
+    const indexable =
+      flag === 'true' ||
+      (flag !== 'false' && process.env.VERCEL_ENV === 'production');
+    if (indexable) return [];
     return [
       {
         source: '/:path*',
