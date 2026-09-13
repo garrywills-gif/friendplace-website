@@ -156,6 +156,15 @@ class TTSIn(BaseModel):
     speed: float = Field(1.05, ge=0.5, le=1.5)  # Warmer, more conversational pacing.
 
 
+class CompanionTurnIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    persona: Optional[str] = "george"
+
+
+class CompanionResetIn(BaseModel):
+    persona: Optional[str] = "george"
+
+
 class RhythmSettingsIn(BaseModel):
     """Partial-patch of an admin's Rhythm settings. Only known fields are stored."""
     timezone: Optional[str] = None
@@ -1759,5 +1768,29 @@ def build_router(db) -> APIRouter:
                 "X-George-Speed": f"{speed:.2f}",
             },
         )
+
+    # =====================================================================
+    # /api/mcgs/george/companion — always-available free-form companion.
+    # Openly-AI friend for members: listens, remembers, engages. NOT a
+    # questionnaire and NOT a feature-routing bot. Private per-member
+    # memory carries meaningful details across sessions.
+    # =====================================================================
+    @router.get("/mcgs/george/companion")
+    async def api_companion_get(persona: str = "george", actor: dict = Depends(current_george_actor)):
+        from services.george.companion import get_or_create_companion_session
+        return await get_or_create_companion_session(db, actor_id=actor.get("id"), persona=persona)
+
+    @router.post("/mcgs/george/companion/turn")
+    async def api_companion_turn(body: CompanionTurnIn, actor: dict = Depends(current_george_actor)):
+        from services.george.companion import companion_turn
+        text = (body.text or "").strip()
+        if not text:
+            raise HTTPException(422, "Say something first.")
+        return await companion_turn(db, actor_id=actor.get("id"), persona=(body.persona or "george"), user_text=text)
+
+    @router.post("/mcgs/george/companion/reset")
+    async def api_companion_reset(body: CompanionResetIn, actor: dict = Depends(current_george_actor)):
+        from services.george.companion import reset_companion_session
+        return await reset_companion_session(db, actor_id=actor.get("id"), persona=(body.persona or "george"))
 
     return router

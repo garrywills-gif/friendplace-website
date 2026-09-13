@@ -12200,6 +12200,15 @@ async def _ensure_mcgs_indexes():
     except Exception:
         logger.exception("MCGS index setup failed (non-fatal)")
 
+    # George & Georgia companion — always-available free-form member chat
+    # with private per-member memory. Indexes are idempotent + non-fatal.
+    try:
+        from services.george import companion as _companion
+        await _companion.ensure_indexes(db)
+        logger.info("George companion indexes verified.")
+    except Exception:
+        logger.exception("George companion index setup failed (non-fatal)")
+
     # Phase 2 \u2014 Rhythms collections (briefings, milestones, activity, settings).
     # See /app/memory/mcgs-phase2-plan.md \u00a7Architecture additions.
     try:
