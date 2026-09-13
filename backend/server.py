@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional, Dict, Set, Any
+from typing import List, Optional, Dict, Set, Any, Tuple
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
@@ -52,7 +52,7 @@ from sudoku import DIFFICULTIES as SD_DIFFS, generate_puzzle as sd_generate, dai
 from spot_difference import THEMES as STD_THEMES, DIFFICULTIES as STD_DIFFS, list_themes as std_list_themes, generate_puzzle as std_generate, daily_pick as std_daily_pick, today_iso as std_today_iso
 from spot_library import list_active_puzzles as lib_active, get_puzzle as lib_get, public_card as lib_card  # noqa: E402
 from milestones import MILESTONES as ML_DEFS, evaluate as ml_evaluate
-from suburbs import search_suburbs as sb_search, by_postcode as sb_by_postcode, haversine_km as sb_haversine
+from suburbs import search_suburbs as sb_search, by_postcode as sb_by_postcode, haversine_km as sb_haversine, resolve as sb_resolve
 
 ROOT_DIR = Path(__file__).parent
 # `settings` already loaded .env via pydantic-settings — we keep load_dotenv()
@@ -320,6 +320,13 @@ class Group(BaseModel):
     emoji: str = "👥"
     description: str = ""
     members: List[str] = []
+    # Local Discovery locality (item 1). Optional so seeded/system groups
+    # without a place still work; when set, enables radius filtering.
+    locality: str = ""
+    locality_postcode: str = ""
+    locality_state: str = ""
+    locality_lat: Optional[float] = None
+    locality_lng: Optional[float] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -341,6 +348,14 @@ class Event(BaseModel):
     emoji: str = "🎉"
     description: str = ""
     location: str = ""
+    # Local Discovery locality (item 1) — the recognised suburb/town that
+    # controls distance filtering. Separate from `location` above, which
+    # stays as free-text venue/address detail.
+    locality: str = ""
+    locality_postcode: str = ""
+    locality_state: str = ""
+    locality_lat: Optional[float] = None
+    locality_lng: Optional[float] = None
     date: str = ""
     time: str = ""
     rsvps: List[str] = []                # legacy "going" list — kept for compat
@@ -369,6 +384,12 @@ class Notice(BaseModel):
     title: str
     body: str
     category: str = "Announcement"
+    # Local Discovery locality (item 1) — controls distance filtering.
+    locality: str = ""
+    locality_postcode: str = ""
+    locality_state: str = ""
+    locality_lat: Optional[float] = None
+    locality_lng: Optional[float] = None
     likes: List[str] = []
     comments: List[dict] = []
     # Reaction map: { user_id -> "well_done" | "support" | "chat" | "flutter" | "congrats" }
@@ -787,6 +808,27 @@ async def _assign_founder_status(doc: dict) -> None:
     return
 
 
+async def _interest_founder_number_for_email(email: Optional[str]) -> Optional[dict]:
+    """Founder alignment (item 10): find an existing register-your-interest
+    record whose email matches (case-insensitively) and that already
+    carries a founding number. Returns {id, founder_number} or None. No
+    guessing — an exact normalised-email match only."""
+    if not email:
+        return None
+    norm = str(email).strip().lower()
+    if not norm:
+        return None
+    doc = await db.interest_registrations.find_one(
+        {"email": {"$regex": f"^{re.escape(norm)}$", "$options": "i"},
+         "founder_number": {"$ne": None}},
+        {"_id": 0, "id": 1, "founder_number": 1, "email": 1},
+        sort=[("founder_number", 1)],
+    )
+    if doc and doc.get("founder_number"):
+        return {"id": doc.get("id"), "founder_number": int(doc["founder_number"])}
+    return None
+
+
 async def _promote_existing_user_to_founder(user_id: str) -> dict:
     """Convert an existing, persisted user into a Founding Member.
 
@@ -809,36 +851,44 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
         raise HTTPException(400, "Demo accounts cannot claim Founding Member status")
     if u.get("is_founder"):
         raise HTTPException(409, "You're already a Founding Member")
-    cap = max(0, int(settings.founding_member_cap or 0))
-    if cap <= 0:
-        raise HTTPException(410, "Founding Member programme is closed")
-    # Batch B iter156 (Garry, Aug 2026 — post-P2 audit): the promotion
-    # counter now excludes `is_test=true` seed rows from the cap check so
-    # test fixtures don't quietly consume real launch seats. The next
-    # founder_number is derived from the max(founder_number) already
-    # assigned + 1 — this preserves any historical numbering gaps
-    # (e.g. Alice #1 / Bob #2 as soft-flagged seeds) without colliding
-    # with genuine members who kept their original numbers, and never
-    # re-uses a number once assigned.
-    current = await db.users.count_documents({
-        "is_founder": True,
-        "is_demo": {"$ne": True},
-        "is_test": {"$ne": True},
-    })
-    if current >= cap:
-        raise HTTPException(410, "Founding Member cohort is full")
+    # Founder alignment (item 10): if this member's email matches an
+    # existing register-your-interest founder, LINK to it and preserve
+    # their ORIGINAL founding number instead of allocating a new one.
+    # This bypasses the cohort cap because the seat is already reserved.
+    linked = await _interest_founder_number_for_email(u.get("email"))
+    if linked:
+        founder_number = linked["founder_number"]
+    else:
+        cap = max(0, int(settings.founding_member_cap or 0))
+        if cap <= 0:
+            raise HTTPException(410, "Founding Member programme is closed")
+        # Batch B iter156 (Garry, Aug 2026 — post-P2 audit): the promotion
+        # counter now excludes `is_test=true` seed rows from the cap check so
+        # test fixtures don't quietly consume real launch seats. The next
+        # founder_number is derived from the max(founder_number) already
+        # assigned + 1 — this preserves any historical numbering gaps
+        # (e.g. Alice #1 / Bob #2 as soft-flagged seeds) without colliding
+        # with genuine members who kept their original numbers, and never
+        # re-uses a number once assigned.
+        current = await db.users.count_documents({
+            "is_founder": True,
+            "is_demo": {"$ne": True},
+            "is_test": {"$ne": True},
+        })
+        if current >= cap:
+            raise HTTPException(410, "Founding Member cohort is full")
 
-    # iter164n: Unified allocator. Previously this call site had its
-    # own max(highest+1, current+1) logic that could collide with the
-    # public-registration counter under mixed traffic. The shared
-    # allocator consults the same counter document AND performs a
-    # cross-collection uniqueness check before returning, so an
-    # in-app founder claim can never receive the same number as an
-    # in-flight public registration.
-    founder_number = await _allocate_founder_number(
-        email=u.get("email"),
-        source="founders_claim",
-    )
+        # iter164n: Unified allocator. Previously this call site had its
+        # own max(highest+1, current+1) logic that could collide with the
+        # public-registration counter under mixed traffic. The shared
+        # allocator consults the same counter document AND performs a
+        # cross-collection uniqueness check before returning, so an
+        # in-app founder claim can never receive the same number as an
+        # in-flight public registration.
+        founder_number = await _allocate_founder_number(
+            email=u.get("email"),
+            source="founders_claim",
+        )
     badges = list(u.get("badges") or [])
     if "Founding Member" not in badges:
         badges.append("Founding Member")
@@ -868,6 +918,19 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
         await _release_founder_override_if_consumed_for(founder_number)
         logger.exception("founders/claim: primary promotion write failed for %s", user_id)
         raise HTTPException(500, "We couldn't save your Founding Member status — please try again in a moment.")
+
+    # Founder alignment (item 10): mark the matched interest registration
+    # as joined + linked to this account, so the CRM shows the link and we
+    # never hand the same number to anyone else.
+    if linked and linked.get("id"):
+        try:
+            await db.interest_registrations.update_one(
+                {"id": linked["id"]},
+                {"$set": {"status": "joined", "linked_user_id": user_id,
+                          "linked_at": now_iso()}},
+            )
+        except Exception as e:
+            logger.warning("founder link: could not mark interest registration joined: %s", e)
 
     # Add to the private Founders Lounge group.
     fl = await _ensure_founders_lounge()
@@ -914,6 +977,71 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     # Reload the user so callers get the post-promotion document.
     refreshed = await db.users.find_one({"id": user_id}, {"_id": 0}) or u
     return {"founder_number": founder_number, "user": refreshed}
+
+
+class AdminFounderLinkBody(BaseModel):
+    user_id: str
+    interest_registration_id: str
+
+
+@api.post("/admin/founders/link")
+async def admin_link_founder(body: AdminFounderLinkBody, admin: dict = Depends(current_admin)):
+    """Founder alignment (item 10) — verified admin recovery.
+
+    When a register-your-interest founder accidentally creates their app
+    account with a DIFFERENT email (so automatic email matching can't
+    link them), an authorised admin explicitly selects the account and
+    the interest registration to link. We then assign that registration's
+    ORIGINAL founding number to the account (overriding any wrongly
+    allocated number) and mark the registration joined + linked.
+
+    No guessing — both ids are chosen by a human admin.
+    """
+    u = await db.users.find_one({"id": body.user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "Account not found")
+    if u.get("is_demo"):
+        raise HTTPException(400, "Demo accounts cannot be founders")
+    reg = await db.interest_registrations.find_one({"id": body.interest_registration_id}, {"_id": 0})
+    if not reg:
+        raise HTTPException(404, "Interest registration not found")
+    fnum = reg.get("founder_number")
+    if not fnum:
+        raise HTTPException(400, "That interest registration has no founding number")
+    # Ensure no OTHER account already holds this number.
+    clash = await db.users.find_one(
+        {"founder_number": int(fnum), "id": {"$ne": body.user_id}},
+        {"_id": 0, "id": 1},
+    )
+    if clash:
+        raise HTTPException(409, f"Founding number #{int(fnum):04d} is already held by another account")
+    badges = list(u.get("badges") or [])
+    if "Founding Member" not in badges:
+        badges.append("Founding Member")
+    await db.users.update_one(
+        {"id": body.user_id},
+        {"$set": {"is_founder": True, "founder_number": int(fnum), "badges": badges}},
+    )
+    await db.interest_registrations.update_one(
+        {"id": body.interest_registration_id},
+        {"$set": {"status": "joined", "linked_user_id": body.user_id,
+                  "linked_at": now_iso(), "linked_by_admin": admin.get("id")}},
+    )
+    # Best-effort lounge + table seating so the recovered founder gets the
+    # same access as a normal claim.
+    try:
+        fl = await _ensure_founders_lounge()
+        if fl and fl.get("id"):
+            await db.groups.update_one({"id": fl["id"]}, {"$addToSet": {"members": body.user_id}})
+            await db.users.update_one({"id": body.user_id}, {"$addToSet": {"groups": fl["id"]}})
+        ft = await _ensure_founders_table()
+        if ft and ft.get("id"):
+            await db.tables.update_one({"id": ft["id"]}, {"$addToSet": {"seated": body.user_id}})
+    except Exception as e:
+        logger.warning("admin founder link: lounge/table seating failed: %s", e)
+    refreshed = await db.users.find_one({"id": body.user_id}, {"_id": 0}) or u
+    return {"ok": True, "founder_number": int(fnum),
+            "user": _peer_user(refreshed, viewer_is_owner=True, viewer_is_admin=True)}
 
 
 @api.post("/auth/signup")
@@ -3157,9 +3285,25 @@ class SetLocationBody(BaseModel):
 @api.get("/suburbs/search")
 async def suburbs_search(q: str = "", limit: int = 20):
     """Typeahead — returns up to `limit` matches by name or postcode.
-    Default bumped to 20 (from 10) so signup shows more options — the
-    dataset expanded to ~600+ suburbs so a 10-cap felt too tight."""
+    Backed by the full ~17,500-locality Australian dataset (see
+    suburbs.py). This is the single central locality source used across
+    Signup, Profile, Find Friends, Notice Board, Groups and Events."""
     return {"results": sb_search(q, min(int(limit), 50))}
+
+
+@api.get("/suburbs/meta")
+async def suburbs_meta():
+    """Verification endpoint — proves which locality dataset this
+    (production/TestFlight) backend is actually serving. Lets us confirm
+    the deployed data matches the workspace before declaring the suburb
+    work fixed."""
+    from suburbs import SUBURBS as _ALL, DATASET_VERSION as _VER
+    return {
+        "dataset_version": _VER,
+        "locality_count": len(_ALL),
+        "source": "Matthew Proctor Australian Postcodes (public domain)",
+        "attribution_url": "https://www.matthewproctor.com/australian_postcodes",
+    }
 
 
 @api.get("/suburbs/by-postcode/{postcode}")
@@ -3197,9 +3341,14 @@ async def set_user_location(user_id: str, body: SetLocationBody):
              "$unset": {"suburb_postcode": "", "suburb_state": "", "suburb_lat": "", "suburb_lng": ""}},
         )
         return {"ok": True, "location_visibility": "private"}
-    # Validate the suburb against our dataset when possible.
-    matches = sb_search(body.suburb or "", limit=1) if body.suburb else []
-    chosen = matches[0] if matches else None
+    # Validate + geocode the suburb against our dataset. Prefer an exact
+    # resolve by name (+ state/postcode) so we store the correct
+    # coordinates even for names shared across states (e.g. Windsor).
+    from suburbs import resolve as sb_resolve
+    chosen = sb_resolve(body.suburb or "", body.state, body.postcode) if body.suburb else None
+    if not chosen and body.suburb:
+        matches = sb_search(body.suburb, limit=1)
+        chosen = matches[0] if matches else None
     update: Dict = {"location_visibility": "suburb"}
     if chosen:
         update["suburb"] = chosen["name"]
@@ -5248,9 +5397,103 @@ async def table_messages(table_id: str):
     return docs
 
 
+# ------------- Local Discovery helpers (item 1) -------------
+# Central radius/locality plumbing shared by Notice Board, Community
+# Groups and Local Events. Coordinates are never returned to clients;
+# only a friendly `distance_km` is attached. The center of a radius
+# query is resolved server-side from the requesting member's stored
+# suburb coords, so the app never has to handle raw coordinates.
+
+RADIUS_CHOICES = {5, 10, 25, 50}
+
+
+def _locality_update_from(name: Optional[str], state: Optional[str],
+                          postcode: Optional[str]) -> Dict:
+    """Resolve a chosen locality to the 5 stored fields, or {} if the
+    name is not a recognised Australian locality (no guessing)."""
+    if not name:
+        return {}
+    r = sb_resolve(name, state, postcode)
+    if not r:
+        return {}
+    return {
+        "locality": r["name"],
+        "locality_postcode": r["postcode"],
+        "locality_state": r["state"],
+        "locality_lat": r["lat"],
+        "locality_lng": r["lng"],
+    }
+
+
+async def _default_locality_for_user(user_id: Optional[str]) -> Dict:
+    """Locality fields defaulted from a member's own recognised suburb.
+    Used when creating content without an explicit locality, and for
+    backfilling legacy content. Returns {} when the member has no
+    recognised suburb (item: treat such items as All-only)."""
+    if not user_id:
+        return {}
+    u = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "suburb": 1, "suburb_postcode": 1, "suburb_state": 1,
+         "suburb_lat": 1, "suburb_lng": 1},
+    ) or {}
+    lat, lng = u.get("suburb_lat"), u.get("suburb_lng")
+    if lat is not None and lng is not None and u.get("suburb"):
+        return {
+            "locality": u.get("suburb") or "",
+            "locality_postcode": u.get("suburb_postcode") or "",
+            "locality_state": u.get("suburb_state") or "",
+            "locality_lat": lat,
+            "locality_lng": lng,
+        }
+    # Fall back to resolving the stored suburb name if coords weren't saved.
+    return _locality_update_from(u.get("suburb"), u.get("suburb_state"), u.get("suburb_postcode"))
+
+
+async def _radius_center(user_id: Optional[str],
+                         near_lat: Optional[float],
+                         near_lng: Optional[float]) -> Optional[Tuple[float, float]]:
+    """Determine the center of a radius query. Prefer explicit coords
+    (rarely used), else the member's own stored suburb coords."""
+    if near_lat is not None and near_lng is not None:
+        return (float(near_lat), float(near_lng))
+    if not user_id:
+        return None
+    u = await db.users.find_one(
+        {"id": user_id}, {"_id": 0, "suburb_lat": 1, "suburb_lng": 1},
+    ) or {}
+    if u.get("suburb_lat") is not None and u.get("suburb_lng") is not None:
+        return (float(u["suburb_lat"]), float(u["suburb_lng"]))
+    return None
+
+
+def _apply_radius(rows: List[Dict], center: Optional[Tuple[float, float]],
+                  radius_km: Optional[float]) -> List[Dict]:
+    """Filter rows to those within `radius_km` of `center`, attaching a
+    rounded `distance_km`. If radius_km is falsy (All) or no center is
+    known, rows are returned unchanged (no distance filtering). Rows
+    without locality coords are excluded from a bounded radius query."""
+    if not radius_km or center is None:
+        return rows
+    clat, clng = center
+    out: List[Dict] = []
+    for r in rows:
+        lat, lng = r.get("locality_lat"), r.get("locality_lng")
+        if lat is None or lng is None:
+            continue
+        d = sb_haversine(clat, clng, float(lat), float(lng))
+        if d <= float(radius_km):
+            r["distance_km"] = round(d, 1)
+            out.append(r)
+    return out
+
+
 # ------------- Groups -------------
 @api.get("/groups")
-async def list_groups(include_pending: bool = False, include_system: bool = False):
+async def list_groups(include_pending: bool = False, include_system: bool = False,
+                      q: Optional[str] = None, user_id: Optional[str] = None,
+                      radius_km: Optional[float] = None,
+                      near_lat: Optional[float] = None, near_lng: Optional[float] = None):
     """Public Community Groups list.
 
     By default hides:
@@ -5260,19 +5503,38 @@ async def list_groups(include_pending: bool = False, include_system: bool = Fals
       • `pending_approval=True` — user-suggested groups waiting on admin
         review. Admin panel passes `include_pending=true` to see them.
 
-    Newest first so newly-approved community groups are discoverable.
+    Local Discovery (item 1/7): when `radius_km` is given (5/10/25/50)
+    together with a `user_id` (or explicit near_lat/near_lng), only
+    groups whose locality falls within that radius of the member's
+    suburb are returned, each with a `distance_km`. Omitting radius_km
+    (All) returns everything. `q` is a case-insensitive search over
+    name + description, applied within the current radius.
     """
-    q: dict = {}
+    query: dict = {}
     if not include_system:
-        q["is_system"] = {"$ne": True}
+        query["is_system"] = {"$ne": True}
     if not include_pending:
-        q["pending_approval"] = {"$ne": True}
-    return await db.groups.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+        query["pending_approval"] = {"$ne": True}
+    if q:
+        safe = re.escape(q)
+        query["$or"] = [
+            {"name": {"$regex": safe, "$options": "i"}},
+            {"description": {"$regex": safe, "$options": "i"}},
+        ]
+    rows = await db.groups.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    center = await _radius_center(user_id, near_lat, near_lng)
+    rows = _apply_radius(rows, center, radius_km)
+    return rows
 
 
 @api.post("/groups")
 async def create_group(body: Group):
-    g = Group(**body.dict())
+    data = body.dict()
+    # Resolve/validate the creation locality against the dataset so it
+    # controls distance reliably (no unrestricted free text).
+    loc = _locality_update_from(data.get("locality"), data.get("locality_state"), data.get("locality_postcode"))
+    data.update(loc)
+    g = Group(**data)
     await db.groups.insert_one(g.dict())
     return g.dict()
 
@@ -5294,6 +5556,11 @@ async def suggest_group(body: dict, user=Depends(current_user)):
     emoji = (body.get("emoji") or "🌟").strip()[:4]
     description = (body.get("description") or "").strip()[:500]
     reason = (body.get("reason") or "").strip()[:500]
+    # Creation locality (item 7): resolve the chosen locality, defaulting
+    # to the member's own suburb so every new group has a recognised place.
+    loc = _locality_update_from(body.get("locality"), body.get("locality_state"), body.get("locality_postcode"))
+    if not loc:
+        loc = await _default_locality_for_user(user["id"])
     # Avoid duplicate suggestions while one is pending — protects the
     # admin queue from accidental double-taps.
     existing = await db.groups.find_one(
@@ -5316,6 +5583,7 @@ async def suggest_group(body: dict, user=Depends(current_user)):
         "suggested_reason": reason,
         "suggested_at": now_iso(),
         "created_at": now_iso(),
+        **loc,
     }
     await db.groups.insert_one(g)
     # Notify admins so they know there's something to review. We send to
@@ -5446,8 +5714,26 @@ async def comment_group_post(post_id: str, body: dict):
 
 # ------------- Events -------------
 @api.get("/events")
-async def list_events():
-    return await db.events.find({"archived": {"$ne": True}}, {"_id": 0}).sort("date", 1).to_list(200)
+async def list_events(user_id: Optional[str] = None, q: Optional[str] = None,
+                      radius_km: Optional[float] = None,
+                      near_lat: Optional[float] = None, near_lng: Optional[float] = None):
+    """Local Events list. Local Discovery (item 1/6): pass `radius_km`
+    (5/10/25/50) with a `user_id` to only return events within that
+    distance of the member's suburb (each with `distance_km`); omit
+    radius_km for All. `q` searches title + description + venue, applied
+    within the current radius."""
+    query: dict = {"archived": {"$ne": True}}
+    if q:
+        safe = re.escape(q)
+        query["$or"] = [
+            {"title": {"$regex": safe, "$options": "i"}},
+            {"description": {"$regex": safe, "$options": "i"}},
+            {"location": {"$regex": safe, "$options": "i"}},
+        ]
+    rows = await db.events.find(query, {"_id": 0}).sort("date", 1).to_list(500)
+    center = await _radius_center(user_id, near_lat, near_lng)
+    rows = _apply_radius(rows, center, radius_km)
+    return rows
 
 
 class EventCreateBody(Event):
@@ -5985,11 +6271,18 @@ async def create_event(body: EventCreateBody):
                 {"id": body.host_id},
                 {"$inc": {"business_events_this_period": 1}},
             )
+    # Local Discovery locality (item 6): resolve the chosen locality
+    # against the dataset, else default to the host's own suburb so every
+    # event has a recognised place that controls distance filtering.
+    ev_loc = _locality_update_from(body.locality, body.locality_state, body.locality_postcode)
+    if not ev_loc and body.host_id:
+        ev_loc = await _default_locality_for_user(body.host_id)
     # Sanitise recurrence inputs. We accept None / weekly / fortnightly /
     # monthly only — anything else is silently treated as a one-off.
     rec = body.recurrence if body.recurrence in ("weekly", "fortnightly", "monthly") else None
     # Spawn the master event first.
     master_dict = body.dict(exclude={"recurrence_count"})
+    master_dict.update(ev_loc)
     if rec:
         master_dict["recurrence"] = rec
         master_dict["series_id"] = nid()
@@ -6030,6 +6323,7 @@ async def create_event(body: EventCreateBody):
                 recurrence=rec,
                 series_id=master.series_id,
                 series_master=False,
+                **ev_loc,
             )
             await db.events.insert_one(child.dict())
             created_ids.append(child.id)
@@ -7436,7 +7730,9 @@ REACTIONS = {"well_done", "support", "chat", "flutter", "congrats"}
 
 
 @api.get("/notices")
-async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, category: Optional[str] = None):
+async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, category: Optional[str] = None,
+                       radius_km: Optional[float] = None,
+                       near_lat: Optional[float] = None, near_lng: Optional[float] = None):
     query: Dict = {"removed": {"$ne": True}, "auto_hidden": {"$ne": True}}
     if category and category != "All":
         query["category"] = category
@@ -7450,6 +7746,10 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
     docs = await db.notices.find(query, {"_id": 0}).to_list(500)
     # Unsolved first, then newest first; solved Q's sink below.
     docs.sort(key=lambda d: (bool(d.get("solved")), -datetime.fromisoformat(d.get("created_at", now_iso())).timestamp()))
+    # Local Discovery (item 1): restrict to the chosen radius of the
+    # member's suburb when radius_km is given (All returns everything).
+    center = await _radius_center(user_id, near_lat, near_lng)
+    docs = _apply_radius(docs, center, radius_km)
     await _attach_founder_flags(docs, "user_id")
     return docs
 
@@ -7486,6 +7786,12 @@ async def create_notice(body: Notice):
 
     n = Notice(**body.dict())
     doc = n.dict()
+    # Local Discovery locality (item 1): resolve the chosen locality, else
+    # default to the poster's own suburb so the notice has a place.
+    _nloc = _locality_update_from(doc.get("locality"), doc.get("locality_state"), doc.get("locality_postcode"))
+    if not _nloc:
+        _nloc = await _default_locality_for_user(body.user_id)
+    doc.update(_nloc)
     # iter155: tag every runtime notice as production so it flows through
     # the live Bridge queue. Test/seed inserts explicitly set origin='test'/
     # 'seed' via the fixtures (see /app/backend/tests/conftest.py::TEST_MARKER).
@@ -10883,6 +11189,55 @@ async def _ensure_indexes():
             # exists and Mongo will use it regardless of name.
             logger.info("index %s on %s skipped: %s", opts.get("name"), coll, str(e)[:120])
     logger.info("Indexes verified: %s / %s targets", created, len(targets))
+
+
+@app.on_event("startup")
+async def _backfill_content_localities():
+    """One-time Local Discovery backfill (item 1): give existing notices,
+    groups and events a locality derived from their author's recognised
+    suburb so legacy content stays discoverable under radius filtering.
+    Items whose author has no recognised suburb are left without a
+    locality (treated as All-only — never inventing a location).
+
+    Idempotent: only touches documents that don't yet have
+    `locality_lat` set, and marks the collection done via a small
+    `_migrations` flag so a fully-backfilled DB skips the scan entirely.
+    """
+    try:
+        done = await db["_migrations"].find_one({"_id": "content_locality_backfill_v1"})
+        if done:
+            return
+        # Cache user_id -> locality dict to avoid repeat lookups.
+        cache: Dict[str, Dict] = {}
+
+        async def _loc_for(uid: Optional[str]) -> Dict:
+            if not uid:
+                return {}
+            if uid in cache:
+                return cache[uid]
+            loc = await _default_locality_for_user(uid)
+            cache[uid] = loc
+            return loc
+
+        touched = 0
+        # Notices + groups keyed by user_id / suggested_by; events by host_id.
+        for coll, author_field in (("notices", "user_id"), ("events", "host_id"), ("groups", "suggested_by")):
+            cursor = db[coll].find(
+                {"locality_lat": {"$in": [None, ]}},
+                {"_id": 0, "id": 1, author_field: 1, "locality_lat": 1},
+            )
+            async for d in cursor:
+                if d.get("locality_lat") is not None:
+                    continue
+                loc = await _loc_for(d.get(author_field))
+                if not loc:
+                    continue
+                await db[coll].update_one({"id": d["id"]}, {"$set": loc})
+                touched += 1
+        await db["_migrations"].insert_one({"_id": "content_locality_backfill_v1", "at": now_iso(), "touched": touched})
+        logger.info("Local Discovery backfill complete: %s documents localised", touched)
+    except Exception as e:
+        logger.info("content locality backfill skipped: %s", str(e)[:160])
 
 
 @app.on_event("startup")

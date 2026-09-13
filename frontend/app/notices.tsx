@@ -13,6 +13,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import { useComposerLock } from "@/src/lib/composer-lock";
+import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
 
 // Notice Board categories — Garry, 2 Aug 2026. Each category carries
 // its own emoji so the picker feels warm and skimmable, and so the
@@ -62,6 +63,7 @@ export default function Notices() {
   const [replyTo, setReplyTo] = useState<{ commentId: string; userName: string } | null>(null);
   const [actionMenuFor, setActionMenuFor] = useState<any | null>(null);
   const [reportFor, setReportFor] = useState<any | null>(null);
+  const { radius, setRadius } = useRadius("notices");
 
   // Composer-lock (approved 24 Jun 2026): hold the global composer
   // lock while the member is drafting a notice OR a comment so the
@@ -77,10 +79,10 @@ export default function Notices() {
   const load = async () => {
     if (!user) return;
     try {
-      setNotices(await api.listNotices({ user_id: user.id, q: query || undefined, category }) as any[]);
+      setNotices(await api.listNotices({ user_id: user.id, q: query || undefined, category, radius_km: radius ?? undefined }) as any[]);
     } catch {}
   };
-  useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query]));
+  useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radius]));
 
   const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPosting(true); };
   const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPosting(true); };
@@ -329,15 +331,38 @@ export default function Notices() {
           })}
         </ScrollView>
       </View>
+      <View style={{ paddingHorizontal: 12, paddingBottom: 6 }}>
+        <RadiusFilter value={radius} onChange={setRadius} />
+      </View>
       <FlatList
         data={notices}
         keyExtractor={(n) => n.id}
         contentContainerStyle={{ padding: 12, paddingBottom: 80, gap: 10 }}
         renderItem={renderItem}
         ListEmptyComponent={() => (
-          <View style={{ paddingVertical: 60, alignItems: "center" }}>
+          <View style={{ paddingVertical: 60, alignItems: "center", paddingHorizontal: 24 }}>
             <Ionicons name="newspaper-outline" size={42} color={c.muted} />
-            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 8, fontSize: 16 * scale }}>No notices match. Try another filter or post the first one!</Text>
+            <Text style={{ color: c.onSurface, fontWeight: "800", marginTop: 10, fontSize: 17 * scale, textAlign: "center" }}>
+              {query ? "No notices match your search here yet." : "No notices nearby yet."}
+            </Text>
+            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 6, fontSize: 14 * scale, textAlign: "center" }}>
+              Be the first to post a notice for your area.
+            </Text>
+            <Pressable testID="empty-post-notice" onPress={startCreate} style={{ marginTop: 16, backgroundColor: c.brand, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 999 }}>
+              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Post the first notice</Text>
+            </Pressable>
+            {radius != null && (
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+                {radius < 50 && (
+                  <Pressable testID="empty-try-50" onPress={() => setRadius(50)} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, borderWidth: 2, borderColor: c.border }}>
+                    <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Try 50 km</Text>
+                  </Pressable>
+                )}
+                <Pressable testID="empty-show-all" onPress={() => setRadius(null)} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, borderWidth: 2, borderColor: c.border }}>
+                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Show all</Text>
+                </Pressable>
+              </View>
+            )}
           </View>
         )}
       />

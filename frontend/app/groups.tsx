@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
+import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
 
 export default function Groups() {
   const { c, scale } = useTheme();
@@ -27,9 +28,11 @@ export default function Groups() {
   // the user changes the form. Especially useful for the common case of
   // duplicate group names.
   const [sError, setSError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const { radius, setRadius } = useRadius("groups");
 
-  const load = async () => setGroups(await api.listGroups());
-  useFocusEffect(useCallback(() => { load(); }, []));
+  const load = async () => setGroups(await api.listGroups({ user_id: user?.id, q: query || undefined, radius_km: radius ?? undefined }));
+  useFocusEffect(useCallback(() => { load(); }, [user?.id, query, radius]));
 
   const join = async (g: any) => {
     if (!user) return;
@@ -63,10 +66,44 @@ export default function Groups() {
         emoji="🤝"
         backHref="/home"
       />
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceSecondary }}>
+        <Ionicons name="search" size={18} color={c.muted} />
+        <TextInput testID="group-search" placeholder="Search groups…" placeholderTextColor={c.muted} value={query} onChangeText={setQuery} returnKeyType="search" style={{ flex: 1, color: c.onSurface, fontSize: 15 * scale, paddingVertical: 10 }} />
+        {!!query && <Pressable hitSlop={6} onPress={() => setQuery("")}><Ionicons name="close-circle" size={20} color={c.muted} /></Pressable>}
+      </View>
+      <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
+        <RadiusFilter value={radius} onChange={setRadius} />
+      </View>
       <FlatList
         data={groups}
         keyExtractor={(g) => g.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 12 }}
+        ListEmptyComponent={() => (
+          <View style={{ paddingVertical: 50, alignItems: "center", paddingHorizontal: 24 }}>
+            <Ionicons name="people-outline" size={42} color={c.muted} />
+            <Text style={{ color: c.onSurface, fontWeight: "800", marginTop: 10, fontSize: 17 * scale, textAlign: "center" }}>
+              {query ? "No groups match your search here yet." : "No groups nearby yet."}
+            </Text>
+            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 6, fontSize: 14 * scale, textAlign: "center" }}>
+              Be the first to create a group for your area.
+            </Text>
+            <Pressable testID="empty-suggest-group" onPress={() => setSuggestOpen(true)} style={{ marginTop: 16, backgroundColor: c.brand, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 999 }}>
+              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Create the first group</Text>
+            </Pressable>
+            {radius != null && (
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
+                {radius < 50 && (
+                  <Pressable testID="group-try-50" onPress={() => setRadius(50)} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, borderWidth: 2, borderColor: c.border }}>
+                    <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Try 50 km</Text>
+                  </Pressable>
+                )}
+                <Pressable testID="group-show-all" onPress={() => setRadius(null)} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, borderWidth: 2, borderColor: c.border }}>
+                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Show all</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        )}
         renderItem={({ item }) => {
           const joined = user && (item.members || []).includes(user.id);
           const founderLocked = item.is_founder_only && !(user as any)?.is_founder;

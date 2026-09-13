@@ -23,6 +23,7 @@ import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
 import VoiceInputButton from "@/src/components/VoiceInputButton";
 import ButterflyFlutter from "@/src/components/ButterflyFlutter";
+import AvatarBubble from "@/src/components/AvatarBubble";
 
 type Comment = {
   id: string;
@@ -282,7 +283,7 @@ export default function MomentDetail() {
               hitSlop={6}
               style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}
             >
-              <Text style={{ fontSize: 32 }}>{moment.author_avatar || "👤"}</Text>
+              <AvatarBubble value={moment.author_avatar} size={40} fallback="👤" />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text numberOfLines={1} style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>
                   {moment.author_name || "Someone"}
@@ -421,7 +422,7 @@ export default function MomentDetail() {
                         { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0, opacity: pressed ? 0.6 : 1 },
                       ]}
                     >
-                      <Text style={{ fontSize: 22 }}>{cm.user_avatar || "👤"}</Text>
+                      <AvatarBubble value={cm.user_avatar} size={26} fallback="👤" />
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                           <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>
@@ -588,11 +589,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    flexWrap: "wrap",
+    rowGap: 8,
+    columnGap: 12,
     borderTopWidth: 1,
     borderBottomWidth: 1,
     paddingVertical: 12,
   },
-  likeBtn: { flexDirection: "row", alignItems: "center" },
+  likeBtn: { flexDirection: "row", alignItems: "center", flexShrink: 1 },
   commentRow: {
     flexDirection: "row",
     gap: 10,

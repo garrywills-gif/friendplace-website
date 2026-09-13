@@ -67,6 +67,18 @@ export function withGlasses(value: string, glasses: boolean): string {
   return glasses ? `${base ?? ""}${GLASSES_MARK}` : (base ?? "");
 }
 
+/** Display-safe emoji glyph for a stored avatar value. Returns the emoji
+ *  (glasses marker stripped) or the fallback — never an internal token
+ *  such as "preset:portrait-62" or a photo URL. Use anywhere an avatar is
+ *  rendered as inline text (e.g. DM/thread titles). */
+export function avatarGlyph(value?: string | null, fallback = "🙂"): string {
+  const { base } = parseAvatar(value);
+  if (!base) return fallback;
+  if (URL_RE.test(base)) return fallback;
+  if (/^[a-z][a-z0-9_]*:\S+$/i.test(base)) return fallback;
+  return base;
+}
+
 export default function AvatarBubble({
   value,
   size = 32,
@@ -82,6 +94,12 @@ export default function AvatarBubble({
 
   // Treat http(s) URLs as photos; everything else (emoji or empty) as text.
   const isUrl = !!(base && URL_RE.test(base));
+  // Guard against leaking internal avatar tokens (e.g. "preset:portrait-62")
+  // to members. Any non-URL value shaped like an internal key
+  // (`word:value`, ASCII, no spaces) is not a real emoji — fall back to
+  // the friendly default glyph instead of rendering the raw key.
+  const isInternalKey = !!(base && !isUrl && /^[a-z][a-z0-9_]*:\S+$/i.test(base));
+  const glyph = isInternalKey ? fallback : (base || fallback);
   const fs = textSize ?? Math.round(size * 0.7);
 
   const imageEl = (
@@ -150,7 +168,7 @@ export default function AvatarBubble({
         accessibilityElementsHidden
         importantForAccessibility="no"
       >
-        {base || fallback}
+        {glyph}
       </Text>
     </View>
   );

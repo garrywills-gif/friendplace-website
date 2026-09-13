@@ -21,7 +21,7 @@
  *   - The pickup of any pending `friendplace.invite.ref` (set by the
  *     /invite/[id] landing) is preserved so attribution still flows through.
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -73,10 +73,23 @@ export default function Signup() {
   const [suburb, setSuburb] = useState("");
   const [suburbPostcode, setSuburbPostcode] = useState<string | undefined>(undefined);
   const [suburbState, setSuburbState] = useState<string | undefined>(undefined);
-  const [locationPrivate, setLocationPrivate] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [referrerId, setReferrerId] = useState<string | null>(null);
+
+  // Inline, keyboard-aware validation (item 2): errors render next to the
+  // failing field and we scroll that field into view above the keyboard,
+  // instead of a toast that hides behind the iOS keyboard.
+  const [errors, setErrors] = useState<{ username?: string; email?: string; pw?: string; pw2?: string; suburb?: string }>({});
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldY = useRef<Record<string, number>>({});
+  const onFieldLayout = (key: string) => (e: any) => { fieldY.current[key] = e.nativeEvent.layout.y; };
+  const scrollToField = (key: string) => {
+    const y = fieldY.current[key];
+    if (y != null) setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 24), animated: true }), 50);
+  };
+  const clearError = (key: keyof typeof errors) =>
+    setErrors((p) => (p[key] ? { ...p, [key]: undefined } : p));
 
   useEffect(() => {
     (async () => {
@@ -103,19 +116,35 @@ export default function Signup() {
   // login link, important account updates) and the simplest signal we
   // have to prevent the same person creating multiple accounts.
   const validateStep1 = () => {
+    const next: typeof errors = {};
     const u = username.trim().toLowerCase();
-    if (!u || u.length < 3) { show("Username must be at least 3 characters"); return false; }
+    if (!u || u.length < 3) next.username = "Username must be at least 3 characters";
     const em = email.trim().toLowerCase();
-    if (!em) { show("Email address is required"); return false; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { show("Please enter a valid email address"); return false; }
-    if (!pw || pw.length < 6) { show("Password must be at least 6 characters"); return false; }
-    if (pw !== pw2) { show("Passwords do not match"); return false; }
+    if (!em) next.email = "Email address is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) next.email = "Please enter a valid email address";
+    if (!pw || pw.length < 6) next.pw = "Password must be at least 6 characters";
+    if (pw !== pw2) next.pw2 = "Passwords do not match";
+    setErrors(next);
+    const first = (["username", "email", "pw", "pw2"] as const).find((k) => next[k]);
+    if (first) { scrollToField(first); return false; }
+    return true;
+  };
+
+  // Suburb is now required (item 1) — a locality must be picked from the
+  // dataset (name + postcode + state all set) before the account is created.
+  const validateStep2 = () => {
+    if (!suburb || !suburbPostcode || !suburbState) {
+      setErrors((p) => ({ ...p, suburb: "Please choose your suburb or nearest town" }));
+      scrollToField("suburb");
+      return false;
+    }
     return true;
   };
 
   const continueFromStep1 = () => { if (validateStep1()) setStep(2); };
 
   const submit = async () => {
+    if (!validateStep2()) return;
     setBusy(true);
     try {
       await signup({
@@ -123,10 +152,10 @@ export default function Signup() {
         password: pw,
         email: email.trim() ? email.trim().toLowerCase() : undefined,
         first_name: firstName.trim() || undefined,
-        suburb: locationPrivate ? "" : suburb,
-        suburb_postcode: locationPrivate ? undefined : suburbPostcode,
-        suburb_state: locationPrivate ? undefined : suburbState,
-        location_visibility: locationPrivate ? "private" : "suburb",
+        suburb,
+        suburb_postcode: suburbPostcode,
+        suburb_state: suburbState,
+        location_visibility: "suburb",
         interests,
         avatar,
         birthday: birthdayString || undefined,
@@ -185,18 +214,15 @@ export default function Signup() {
       if (status === 429) {
         show("Too many attempts from this network right now — please wait a few minutes and try again.");
       } else if (detail.includes("Username already taken")) {
-        show("Username already taken"); setStep(1);
+        setErrors((p) => ({ ...p, username: "Username already taken" })); setStep(1); scrollToField("username");
       } else if (detail.includes("Email already registered")) {
-        show("Email already registered"); setStep(1);
+        setErrors((p) => ({ ...p, email: "Email already registered" })); setStep(1); scrollToField("email");
       } else if (detail.toLowerCase().includes("username")) {
-        // "at least 3 characters", "can't contain spaces", "can only
-        // contain letters, numbers, and . _ -" — send them back to
-        // step 1 with the actual reason.
-        show(detail); setStep(1);
+        setErrors((p) => ({ ...p, username: detail })); setStep(1); scrollToField("username");
       } else if (detail.toLowerCase().includes("password")) {
-        show(detail); setStep(1);
+        setErrors((p) => ({ ...p, pw: detail })); setStep(1); scrollToField("pw");
       } else if (detail.toLowerCase().includes("email")) {
-        show(detail); setStep(1);
+        setErrors((p) => ({ ...p, email: detail })); setStep(1); scrollToField("email");
       } else if (detail) {
         // Any other detail — show it verbatim so members aren't left
         // guessing (e.g. a future field validation, a moderation
@@ -225,7 +251,7 @@ export default function Signup() {
         backHref={step === 2 ? "/auth/welcome" : undefined}
       />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           {/* Step indicator — single source of progress, sits above the
               form so it's the first thing the user sees on entry to each step. */}
           <View testID="signup-step-indicator" style={styles.stepperRow}>
@@ -243,8 +269,9 @@ export default function Signup() {
 
           {step === 1 ? (
             <>
-              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Username  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-              <TextInput testID="signup-username" value={username} onChangeText={setUsername} placeholder="e.g. maggie (lowercase)" autoCapitalize="none" autoCorrect={false} placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+              <Text onLayout={onFieldLayout("username")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Username  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <TextInput testID="signup-username" value={username} onChangeText={(t) => { setUsername(t); clearError("username"); }} placeholder="e.g. maggie (lowercase)" autoCapitalize="none" autoCorrect={false} placeholderTextColor={c.muted} style={[styles.input, inputStyle, errors.username ? { borderColor: c.error } : null]} />
+              {errors.username ? <Text testID="signup-err-username" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.username}</Text> : null}
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>First name <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional)</Text></Text>
               <TextInput testID="signup-first-name" value={firstName} onChangeText={setFirstName} placeholder="Shown on your profile" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
@@ -252,17 +279,20 @@ export default function Signup() {
                 Only your first name is shown to other members. Surnames are never displayed.
               </Text>
 
-              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Email address  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-              <TextInput testID="signup-email" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+              <Text onLayout={onFieldLayout("email")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Email address  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <TextInput testID="signup-email" value={email} onChangeText={(t) => { setEmail(t); clearError("email"); }} placeholder="you@example.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholderTextColor={c.muted} style={[styles.input, inputStyle, errors.email ? { borderColor: c.error } : null]} />
+              {errors.email ? <Text testID="signup-err-email" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.email}</Text> : null}
               <Text style={[styles.helper, { color: c.muted, fontSize: 12 * scale }]}>
                 Used for login, password recovery and important account updates.
               </Text>
 
-              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Create password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-              <PasswordField testID="signup-pw" value={pw} onChangeText={setPw} placeholder="At least 6 characters" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
+              <Text onLayout={onFieldLayout("pw")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Create password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <PasswordField testID="signup-pw" value={pw} onChangeText={(t: string) => { setPw(t); clearError("pw"); }} placeholder="At least 6 characters" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle, errors.pw ? { borderColor: c.error } : null]} iconColor={c.brand} />
+              {errors.pw ? <Text testID="signup-err-pw" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.pw}</Text> : null}
 
-              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Confirm password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-              <PasswordField testID="signup-pw2" value={pw2} onChangeText={setPw2} placeholder="Re-enter password" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
+              <Text onLayout={onFieldLayout("pw2")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Confirm password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <PasswordField testID="signup-pw2" value={pw2} onChangeText={(t: string) => { setPw2(t); clearError("pw2"); }} placeholder="Re-enter password" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle, errors.pw2 ? { borderColor: c.error } : null]} iconColor={c.brand} />
+              {errors.pw2 ? <Text testID="signup-err-pw2" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.pw2}</Text> : null}
 
               <View style={{ height: 18 }} />
               <Button
@@ -276,7 +306,7 @@ export default function Signup() {
               {/* Friendly reassurance — these are all optional so people
                   don't feel like they have to finish everything to join. */}
               <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 4, lineHeight: 20 }}>
-                Everything below is optional — you can finish setup later from your Profile.
+                Your suburb is required so we can show you people, groups and events nearby. Everything else is optional — you can finish setup later from your Profile.
               </Text>
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Choose an avatar</Text>
@@ -327,30 +357,24 @@ export default function Signup() {
                 We only use your birthday to wish you a happy day on the community.
               </Text>
 
-              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb <Text style={{ color: c.muted, fontSize: 13 * scale }}>(helps you find neighbours)</Text></Text>
+              <Text onLayout={onFieldLayout("suburb")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text> <Text style={{ color: c.muted, fontSize: 13 * scale }}>(helps you find neighbours)</Text></Text>
               <SuburbField
                 testID="signup-suburb"
                 initialValue={suburb}
-                preferNotToSay={locationPrivate}
-                onChange={(m, pns) => {
-                  if (pns) {
-                    setSuburb("");
-                    setSuburbPostcode(undefined);
-                    setSuburbState(undefined);
-                    setLocationPrivate(true);
-                  } else if (m) {
+                onChange={(m) => {
+                  clearError("suburb");
+                  if (m) {
                     setSuburb(m.name);
                     setSuburbPostcode(m.postcode);
                     setSuburbState(m.state);
-                    setLocationPrivate(false);
                   } else {
                     setSuburb("");
                     setSuburbPostcode(undefined);
                     setSuburbState(undefined);
-                    setLocationPrivate(false);
                   }
                 }}
               />
+              {errors.suburb ? <Text testID="signup-err-suburb" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.suburb}</Text> : null}
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Interests</Text>
               <View style={styles.row}>
@@ -404,6 +428,7 @@ const styles = StyleSheet.create({
   content: { padding: 20, gap: 6, paddingBottom: 40 },
   label: { fontWeight: "700", marginTop: 12 },
   helper: { marginTop: 4, lineHeight: 16 },
+  errText: { fontWeight: "700", marginTop: 4 },
   input: { borderWidth: 2, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, fontWeight: "600" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 2, minHeight: 40 },

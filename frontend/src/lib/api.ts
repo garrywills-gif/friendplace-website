@@ -426,7 +426,14 @@ export const api = {
   leaveTable: (id: string, uid: string) => req(`/tables/${id}/leave/${uid}`, { method: "POST" }),
 
   // groups
-  listGroups: () => req("/groups"),
+  listGroups: (opts: { user_id?: string; q?: string; radius_km?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.user_id) params.set("user_id", opts.user_id);
+    if (opts.q) params.set("q", opts.q);
+    if (opts.radius_km) params.set("radius_km", String(opts.radius_km));
+    const qs = params.toString();
+    return req(`/groups${qs ? `?${qs}` : ""}`);
+  },
   /** User-submitted group suggestion. Awaits admin approval before
    *  appearing in the public listing. */
   suggestGroup: (token: string, body: { name: string; emoji?: string; description?: string; reason?: string }) =>
@@ -454,7 +461,14 @@ export const api = {
   commentGroupPost: (pid: string, b: any) => req(`/groups/posts/${pid}/comment`, { method: "POST", body: JSON.stringify(b) }),
 
   // events
-  listEvents: () => req("/events"),
+  listEvents: (opts: { user_id?: string; q?: string; radius_km?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.user_id) params.set("user_id", opts.user_id);
+    if (opts.q) params.set("q", opts.q);
+    if (opts.radius_km) params.set("radius_km", String(opts.radius_km));
+    const qs = params.toString();
+    return req(`/events${qs ? `?${qs}` : ""}`);
+  },
   rsvpEvent: (id: string, uid: string, response: "going" | "maybe" | "cant" = "going") =>
     req(`/events/${id}/rsvp/${uid}`, { method: "POST", body: JSON.stringify({ response }) }),
   unrsvpEvent: (id: string, uid: string) => req(`/events/${id}/unrsvp/${uid}`, { method: "POST" }),
@@ -541,11 +555,12 @@ export const api = {
   // `/notices` cleared the session, and by the time the member tapped
   // Back they were already signed out on Home. Same posture as the
   // other focus-effect fetches (statusMe, dmConversations, …).
-  listNotices: (opts: { user_id?: string; q?: string; category?: string } = {}) => {
+  listNotices: (opts: { user_id?: string; q?: string; category?: string; radius_km?: number } = {}) => {
     const params = new URLSearchParams();
     if (opts.user_id) params.set("user_id", opts.user_id);
     if (opts.q) params.set("q", opts.q);
     if (opts.category && opts.category !== "All") params.set("category", opts.category);
+    if (opts.radius_km) params.set("radius_km", String(opts.radius_km));
     const qs = params.toString();
     return req(`/notices${qs ? `?${qs}` : ""}`, {}, { silent: true });
   },

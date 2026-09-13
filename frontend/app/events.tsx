@@ -9,6 +9,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import { shareIcs } from "@/src/lib/ics";
+import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
 
 const API_BASE = process.env.EXPO_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
 
@@ -35,6 +36,7 @@ export default function Events() {
   const { user, refresh } = useAuth();
   const { show } = useToast();
   const router = useRouter();
+  const { radius, setRadius } = useRadius("events");
   const [events, setEvents] = useState<any[]>([]);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   // FriendPlace curated events (CMS-driven). Loaded once on focus,
@@ -62,8 +64,8 @@ export default function Events() {
     }
   }, [user?.id]);
 
-  const load = async () => setEvents(await api.listEvents());
-  useFocusEffect(useCallback(() => { load(); loadFp(); }, [loadFp]));
+  const load = async () => setEvents(await api.listEvents({ user_id: user?.id, radius_km: radius ?? undefined }));
+  useFocusEffect(useCallback(() => { load(); loadFp(); }, [loadFp, radius, user?.id]));
 
   // Build the list of months that actually have events, anchored on the
   // Discovery-focused filter set. Answers the primary question a member
@@ -152,6 +154,9 @@ export default function Events() {
             );
           })}
         </ScrollView>
+      </View>
+      <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+        <RadiusFilter value={radius} onChange={setRadius} />
       </View>
 
       {/* Only the events list itself scrolls below — Host button + filter
