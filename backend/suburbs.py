@@ -47,6 +47,11 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 
+# Dataset build marker — surfaced by /api/suburbs/meta so we can prove which
+# locality dataset a deployed (production/TestFlight) backend is serving.
+DATASET_VERSION = "au-localities-1030"
+
+
 # (name, postcode, state, lat, lng)
 SUBURBS: List[Tuple[str, str, str, float, float]] = [
     # ---------- NSW (Sydney & coast) ----------

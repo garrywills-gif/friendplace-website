@@ -4220,6 +4220,21 @@ async def suburbs_nearest(lat: float, lng: float):
     return {"nearest": best}
 
 
+@api.get("/suburbs/meta")
+async def suburbs_meta():
+    """Verification endpoint — proves which locality dataset this
+    (production/TestFlight) backend is actually serving, so we can confirm
+    the deployed data matches the workspace before declaring the suburb
+    work fixed."""
+    from suburbs import SUBURBS as _ALL, DATASET_VERSION as _VER
+    return {
+        "dataset_version": _VER,
+        "locality_count": len(_ALL),
+        "source": "Matthew Proctor Australian Postcodes (public domain)",
+        "attribution_url": "https://www.matthewproctor.com/australian_postcodes",
+    }
+
+
 @api.post("/users/{user_id}/location")
 async def set_user_location(user_id: str, body: SetLocationBody):
     """Set the user's chosen suburb. If `prefer_not_to_say=True`, clears all
