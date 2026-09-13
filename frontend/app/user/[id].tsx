@@ -118,7 +118,7 @@ export default function UserView() {
                 internally rounds its own image via borderRadius,
                 so removing this outer clip has no effect on the
                 avatar shape. */}
-            <AvatarWithBadge value={u.avatar} userId={u.id} size={110} textSize={88} fallback="🙂" />
+            <AvatarWithBadge value={u.avatar} userId={u.id} size={110} textSize={88} fallback="🙂" zoomable />
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" }}>
             <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{u.first_name}</Text>

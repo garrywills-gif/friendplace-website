@@ -47,8 +47,6 @@ export default function NewEvent() {
   const { show } = useToast();
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("☕");
-  const [coverImage, setCoverImage] = useState("");
-  const [coverPicker, setCoverPicker] = useState(false);
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [date, setDate] = useState(""); // YYYY-MM-DD
@@ -57,6 +55,9 @@ export default function NewEvent() {
   const [recurrence, setRecurrence] = useState<Recurrence>("none");
   const [repeatCount, setRepeatCount] = useState<number>(3); // +3 extras = 4 total
   const [busy, setBusy] = useState(false);
+  // Optional cover photo — same gallery/upload picker as Notice Board.
+  const [image, setImage] = useState<string>("");
+  const [imagePicker, setImagePicker] = useState<boolean>(false);
 
   // Composer-lock (approved 24 Jun 2026): hold the global composer
   // lock while the member is filling out a new event so the
@@ -139,11 +140,11 @@ export default function NewEvent() {
       const created: any = await api.createEvent({
         title: title.trim(),
         emoji,
-        cover_image_url: coverImage,
         description: description.trim(),
         location: location.trim(),
         date,
         time,
+        image,
         capacity: capacity ?? null,
         host_id: user.id,
         recurrence: recurrence === "none" ? null : recurrence,
@@ -228,34 +229,48 @@ export default function NewEvent() {
             ))}
           </View>
 
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Add a photo <Text style={{ color: c.muted, fontWeight: "600" }}>(optional)</Text></Text>
-          <Text style={{ color: c.muted, fontSize: 12 * scale, marginBottom: 6 }}>Pick from the FriendPlace gallery or upload your own. Leave blank to use the emoji header.</Text>
-          {coverImage ? (
-            <View>
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Description</Text>
+          <TextInput testID="event-description" value={description} onChangeText={setDescription} multiline maxLength={400} placeholder="What to expect, any costs, what to bring…" placeholderTextColor={c.muted} style={[styles.input, inputStyle, { minHeight: 90, textAlignVertical: "top" }]} />
+
+          {/* Optional cover photo — same picker used by Notice Board. */}
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Cover photo (optional)</Text>
+          {image ? (
+            <View style={{ gap: 8 }}>
               {(() => {
-                const src = resolveImageSource(coverImage);
-                return src ? <Image source={src} style={styles.coverPreview} resizeMode="cover" /> : null;
+                const src = resolveImageSource(image);
+                return src ? (
+                  <Image source={src} style={styles.eventCoverPreview} resizeMode="cover" />
+                ) : null;
               })()}
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-                <Pressable testID="event-photo-change" onPress={() => setCoverPicker(true)} style={[styles.coverBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                <Pressable
+                  testID="event-photo-change"
+                  onPress={() => setImagePicker(true)}
+                  style={[styles.smallActionBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                >
                   <Ionicons name="images" size={16} color={c.onSurface} />
                   <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>Change photo</Text>
                 </Pressable>
-                <Pressable testID="event-photo-remove" onPress={() => setCoverImage("")} style={[styles.coverBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                <Pressable
+                  testID="event-photo-remove"
+                  onPress={() => setImage("")}
+                  style={[styles.smallActionBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                >
                   <Ionicons name="close-circle" size={16} color={c.muted} />
                   <Text style={{ color: c.muted, fontWeight: "800", fontSize: 13 * scale }}>Remove</Text>
                 </Pressable>
               </View>
             </View>
           ) : (
-            <Pressable testID="event-photo-add" onPress={() => setCoverPicker(true)} style={[styles.coverAddBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Pressable
+              testID="event-photo-add"
+              onPress={() => setImagePicker(true)}
+              style={[styles.eventPhotoAddBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+            >
               <Ionicons name="camera" size={22} color={c.brand} />
               <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>Add a photo</Text>
             </Pressable>
           )}
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Description</Text>
-          <TextInput testID="event-description" value={description} onChangeText={setDescription} multiline maxLength={400} placeholder="What to expect, any costs, what to bring…" placeholderTextColor={c.muted} style={[styles.input, inputStyle, { minHeight: 90, textAlignVertical: "top" }]} />
 
           <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Location</Text>
           <TextInput testID="event-location" value={location} onChangeText={setLocation} maxLength={120} placeholder="e.g. Cafe Belong, Manly" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
@@ -367,13 +382,6 @@ export default function NewEvent() {
           <Button label="Cancel" variant="ghost" onPress={() => router.back()} />
         </ScrollView>
       </KeyboardAvoidingView>
-
-      <GalleryPicker
-        visible={coverPicker}
-        onClose={() => setCoverPicker(false)}
-        onPick={setCoverImage}
-        currentValue={coverImage}
-      />
 
       {/* ─── "Looks like you're creating an event for an organisation"
           friendly gate — welcoming to RSL, Rotary, churches, libraries,
@@ -596,6 +604,14 @@ export default function NewEvent() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Cover-photo picker — shared FriendPlace gallery + upload. */}
+      <GalleryPicker
+        visible={imagePicker}
+        onClose={() => setImagePicker(false)}
+        onPick={setImage}
+        currentValue={image}
+      />
     </View>
   );
 }
@@ -636,7 +652,27 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 1.5 },
   emojiBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
-  coverPreview: { width: "100%", height: 170, borderRadius: 12, backgroundColor: "#E2E8F0", marginTop: 4 },
-  coverBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 12, borderWidth: 1, minHeight: 44 },
-  coverAddBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", marginTop: 4, minHeight: 56 },
+  eventCoverPreview: { width: "100%", height: 180, borderRadius: 12, marginTop: 4 },
+  eventPhotoAddBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    minHeight: 52,
+    marginTop: 4,
+  },
+  smallActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    minHeight: 36,
+  },
 });

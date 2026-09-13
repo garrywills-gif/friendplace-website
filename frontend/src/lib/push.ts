@@ -40,14 +40,17 @@ const NUDGE_KEY = "pushNudgeAt";           // used by _layout.tsx too
 
 type PushResult = "granted" | "denied" | "unsupported" | "skipped" | "error";
 
-// The base URL comes from Expo's `expo-constants` extra config. In this
-// codebase the convention is `EXPO_BACKEND_URL` on the .env — we resolve
-// it defensively so this module doesn't crash on web / preview.
+// The base URL comes from Expo's `EXPO_PUBLIC_BACKEND_URL` (public env
+// vars are the only ones inlined into the release JS bundle). The
+// non-public `EXPO_BACKEND_URL` fallback that used to live here has
+// been removed because it silently resolves at dev time but is
+// `undefined` in a Store build — deployment health check flagged that
+// as a release-only reachability risk (11 Aug 2026).
 function backendUrl(): string | null {
-  const fromEnv = process.env.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_BACKEND_URL;
+  const fromEnv = process.env.EXPO_PUBLIC_BACKEND_URL;
   if (fromEnv) return fromEnv;
   const extra = (Constants.expoConfig?.extra || {}) as Record<string, string>;
-  return extra.EXPO_PUBLIC_BACKEND_URL || extra.EXPO_BACKEND_URL || null;
+  return extra.EXPO_PUBLIC_BACKEND_URL || null;
 }
 
 /**

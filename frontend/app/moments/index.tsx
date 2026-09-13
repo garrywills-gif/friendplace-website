@@ -18,7 +18,6 @@ import { api } from "@/src/lib/api";
 import { useToast } from "@/src/lib/toast";
 import SpeakButton from "@/src/components/SpeakButton";
 import ButterflyFlutter from "@/src/components/ButterflyFlutter";
-import AvatarBubble from "@/src/components/AvatarBubble";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 
 /**
@@ -268,7 +267,7 @@ export default function MomentsScreen() {
                       { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0, opacity: pressed ? 0.6 : 1 },
                     ]}
                   >
-                    <AvatarBubble value={m.author_avatar} size={36} fallback="👤" />
+                    <Text style={{ fontSize: 28 }}>{m.author_avatar || "👤"}</Text>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text numberOfLines={1} style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
                         {m.author_name || "Someone"}

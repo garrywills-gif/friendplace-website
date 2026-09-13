@@ -16,7 +16,7 @@ import pytest
 import requests
 from pymongo import MongoClient
 
-BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://outreach-campaigns.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_PUBLIC_BACKEND_URL", "https://iphone-retest-batch.preview.emergentagent.com").rstrip("/")
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "test_database")
 
@@ -133,9 +133,7 @@ class TestFounderClaim:
             # NOTE: there's no single-group GET endpoint (GET /api/groups/{id})
             # exposed; the review request mentioned that URL but the API
             # only ships /api/groups (list). Verified via the list response.
-            # iter164ae: Founders Lounge is now is_system=True — pass
-            # include_system=true to keep it visible in the listing.
-            r = api.get(f"{BASE_URL}/api/groups", params={"include_system": "true"})
+            r = api.get(f"{BASE_URL}/api/groups")
             assert r.status_code == 200
             groups = r.json()
             g = next((x for x in groups if x.get("id") == fl["id"]), None)

@@ -40,8 +40,9 @@ export default function Header({
   right,
   back = true,
   backHref,
+  onBack,
   titleAccessory,
-  showGeorge = true,
+  showGeorge = false,
 }: {
   title: string;
   subtitle?: string;
@@ -49,11 +50,21 @@ export default function Header({
   right?: React.ReactNode;
   back?: boolean;
   backHref?: string;
+  /** Explicit back-handler override. When provided, bypasses the
+   * `router.canGoBack() → router.back()` fallback and just runs this.
+   * Use on screens where the auto-back is unreliable on iOS (e.g.
+   * top-level routes opened via deep link or push notification, where
+   * the internal history stack can silently push you to Login/root).
+   * Batch B iter157 (Garry, Aug 2026 — P0 #2 fix for Notice Board). */
+  onBack?: () => void;
   titleAccessory?: React.ReactNode;
-  /** When false, hides the inline George butterfly on the right of
-   * the banner row. Use on tab screens where the global floating
-   * butterfly is already visible, to avoid rendering two Georges
-   * (Garry, 8 Aug 2026 TestFlight polish). */
+  /** Show the inline George butterfly on the right of the banner
+   * row. Defaults to `false` because the app has a global floating
+   * `<GeorgeGlobalHost />` mounted at the root, and rendering both
+   * produces the "2 Georges" bug reported by Garry (Aug 2026).
+   * Explicitly set `showGeorge={true}` on the handful of screens
+   * where the global host is hidden — the auth flows (`/`,
+   * `/auth/*`), `/onboarding`, and `/waitlist`. */
   showGeorge?: boolean;
 }) {
   const router = useRouter();
@@ -67,6 +78,11 @@ export default function Header({
    * the real browser history, then fall back to a hard navigation.
    */
   const handleBack = () => {
+    // Explicit override wins — screens that can't rely on the auto
+    // back-stack (e.g. Notice Board opened from a push / deep link on
+    // iOS, where `canGoBack()` returned true but back popped to the
+    // Welcome/Login root) pass their own destination in.
+    if (onBack) { try { onBack(); } catch {} return; }
     if (Platform.OS === "web") {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const w: any = (typeof window !== "undefined" ? window : null);

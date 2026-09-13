@@ -464,21 +464,7 @@ export function askGeorge(
     };
     try {
       arm(30_000); // 30s to reach the server and receive the first byte.
-      // iter164d: use plain fetch() here, NOT fetchWithRetry. The
-      // retry wrapper enforces a 10s per-attempt timeout that races
-      // against fetch()'s response-arrival — fine for JSON endpoints,
-      // fatal for SSE streaming. Safari's installed web-app (macOS
-      // PWA / "Add to Dock") buffers streaming responses more
-      // aggressively than Safari's normal window, so the first byte
-      // frequently lands >10s after the request while GPT composes
-      // its opening tokens. The 10s abort was silently killing every
-      // George reply in the PWA even though the backend was responding
-      // correctly (proven by Safari working fine on the same origin).
-      // askGeorge has its OWN watchdog (30s to first byte, 60s between
-      // chunks) which is the right shape for streaming; retries for
-      // this endpoint would be user-facing double replies, not a
-      // desirable behaviour, so we skip the retry loop entirely.
-      const res = await fetch(`${BASE}/api/george/chat`, {
+      const res = await fetchWithRetry(`${BASE}/api/george/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -491,11 +477,6 @@ export function askGeorge(
           surface_context: surfaceContext || undefined,
         }),
         signal: controller.signal,
-        cache: 'no-store',
-        // Preserve cookies / auth in standalone PWA mode where some
-        // WKWebView contexts default to omit; explicit same-origin
-        // matches the JWT-in-Authorization-header pattern above.
-        credentials: 'same-origin',
       });
       if (!res.ok || !res.body) {
         emit({
@@ -562,34 +543,13 @@ export function askGeorge(
 // ---------- Voice ----------
 
 /**
- * POST an audio blob to the transcription endpoint. Returns the
+ * POST a webm audio blob to the transcription endpoint. Returns the
  * transcript text so the caller can prefill an editable input.
- *
- * iter164e: the filename we send must match the actual container
- * inside the blob. Chrome/Firefox produce audio/webm (opus); Safari
- * — including the macOS installed WebApp / WKWebView — produces
- * audio/mp4 (AAC). If we always sent "clip.webm" the backend saved
- * the temp file with a .webm extension and Whisper 502'd because
- * the bytes inside were actually MP4/AAC. We now derive the file
- * extension from ``blob.type``.
  */
-function _extForBlob(blob: Blob): string {
-  const t = (blob.type || '').toLowerCase();
-  if (t.startsWith('audio/webm')) return 'webm';
-  if (t.startsWith('audio/mp4') || t === 'audio/aac' || t === 'audio/x-m4a') return 'm4a';
-  if (t === 'audio/mpeg' || t === 'audio/mp3') return 'mp3';
-  if (t === 'audio/wav' || t === 'audio/x-wav') return 'wav';
-  if (t === 'audio/ogg' || t.startsWith('audio/ogg')) return 'ogg';
-  // Fallback: whatever the browser gave us — the backend has its
-  // own allow-list and will reset to 'webm' if this looks unusable.
-  return 'webm';
-}
-
 export async function transcribeAudio(blob: Blob): Promise<string> {
   const token = getToken();
   const form = new FormData();
-  const ext = _extForBlob(blob);
-  form.append('audio', blob, `clip.${ext}`);
+  form.append('audio', blob, 'clip.webm');
   const res = await fetchWithRetry(`${BASE}/api/george/voice/transcribe`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token || ''}` },
@@ -617,14 +577,6 @@ export async function speakText(text: string, voice: 'george' | 'georgia' = 'geo
   // otherwise replay a stale audio blob (e.g. a female clip after we
   // switched George's persona to male).
   const url = `${BASE}/api/george/voice/speak?_=${Date.now()}`;
-  // iter164l DIAGNOSTIC: split the "speakText took N seconds" into
-  // its constituent phases so Safari's 40 s gap and the Mac PWA
-  // stall become attributable to a specific segment. Diagnostic-only.
-  const _stT0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-  const _stDt = () => ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _stT0).toFixed(1) + 'ms';
-  console.log('[tts-diag] speakText: START fetch', {
-    dt: _stDt(), chars: text.length, voice, speed,
-  });
   const res = await fetchWithRetry(url, {
     method: 'POST',
     headers: {
@@ -635,18 +587,7 @@ export async function speakText(text: string, voice: 'george' | 'georgia' = 'geo
     body: JSON.stringify({ text, voice, speed }),
     signal,
   });
-  console.log('[tts-diag] speakText: RESPONSE headers received', {
-    dt: _stDt(),
-    status: res.status,
-    ok: res.ok,
-    contentType: res.headers.get('content-type'),
-    contentLength: res.headers.get('content-length'),
-  });
   if (!res.ok) throw new Error(`Speech failed: ${res.status}`);
-  const blob = await res.blob();
-  console.log('[tts-diag] speakText: BLOB complete', {
-    dt: _stDt(), blobSize: blob.size, blobType: blob.type,
-  });
-  return blob;
+  return await res.blob();
 }
 

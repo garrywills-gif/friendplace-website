@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions, Image } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions, Image, AppState } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,6 +7,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import { useUserSocket } from "@/src/lib/user-socket";
 import { emitFlutter } from "@/src/lib/flutter-fx";
 import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
@@ -38,6 +39,10 @@ export default function Home() {
   const { show } = useToast();
   const insets = useSafeAreaInsets();
   const [flutters, setFlutters] = useState<any[]>([]);
+  // Batch B iter157 (Garry, Aug 2026 — P0 #5): incoming friend
+  // requests surfaced ON Home so members don't miss them if they never
+  // open the notifications bell. Polled on focus + on pull-to-refresh.
+  const [pendingFriendReqs, setPendingFriendReqs] = useState<any[]>([]);
   const [unread, setUnread] = useState<number>(0);
   // DM unread total surfaces as a badge on the My Chats Home tile
   // (Garry, 4 Aug 2026 TestFlight polish — Chats needed a discoverable
@@ -58,6 +63,22 @@ export default function Home() {
   // celebrates that member's moment with a small banner just above the
   // tile grid; the feed itself still shows a "Featured" badge in place.
   const [featuredMoment, setFeaturedMoment] = useState<any>(null);
+  // Batch B iter158 (Garry, Aug 2026 — real-iPhone bug): the Home
+  // "My Friends" tile subtitle used to render `user.friends.length`
+  // from the cached auth context — which included banned / deleted /
+  // one-way / blocked entries and drifted from what /friends/list
+  // actually showed (4 vs 2 on Garry's device). We now hydrate the
+  // count from the SAME canonical endpoint `/api/friends/{uid}` that
+  // /friends/list consumes, so the two surfaces can never disagree.
+  const [myFriendsCount, setMyFriendsCount] = useState<number | null>(null);
+  // Batch B iter159 (Garry, Aug 2026 — real-iPhone Bug 2): offline
+  // incoming chats weren't surfaced on Home if the WS wasn't running
+  // when they arrived. Poll `myConversationsSilent` on focus/app-
+  // resume so unread DMs land as a Home card the moment the user
+  // returns to the tab. Card persists until the member opens the
+  // chat (the DM screen calls `dmMarkRead` on view, which zeroes
+  // `unread_count` and drops the card on next focus).
+  const [unreadDms, setUnreadDms] = useState<any[]>([]);
   // Butterfly Points details modal — previously the whole tile did a hard
   // navigation to /profile, which made the Home screen "close" behind the
   // user with no context. Now the tile opens an inline modal that shows
@@ -216,6 +237,30 @@ export default function Home() {
     } catch {}
     try { const r: any = await api.notificationCount(user.id); setUnread(r?.unread || 0); } catch {}
     try { const r: any = await api.dmUnreadTotal(user.id); setChatsUnread(Math.max(0, Number(r?.unread) || 0)); } catch {}
+    // Batch B iter157 — poll incoming friend-request inbox for the
+    // Home card. Non-blocking; if it fails we just leave the card
+    // hidden.
+    try {
+      const inbox: any = await api.friendsInbox(user.id);
+      setPendingFriendReqs(Array.isArray(inbox?.incoming) ? inbox.incoming : []);
+    } catch { setPendingFriendReqs([]); }
+    // Same source of truth as /friends/list — see myFriendsCount decl.
+    try {
+      const mine: any = await api.myFriends(user.id);
+      setMyFriendsCount(typeof mine?.count === "number" ? mine.count : (Array.isArray(mine?.friends) ? mine.friends.length : 0));
+    } catch { setMyFriendsCount(null); }
+    // Batch B iter159 Bug 2: fetch unread DM state so the Home card
+    // covers messages that arrived while the app was closed / user
+    // was offline. `myConversationsSilent` returns rows with
+    // `{id, other:{...}, last, unread_count}`. We keep only rows
+    // with unread_count > 0 and cap at 5 on the card (with a
+    // "See all" jump to /messages if there are more).
+    try {
+      const rows: any = await api.myConversationsSilent(user.id, "active");
+      const list = Array.isArray(rows) ? rows : [];
+      const unread = list.filter((r: any) => (r?.unread_count || 0) > 0);
+      setUnreadDms(unread);
+    } catch { setUnreadDms([]); }
     try { await api.heartbeat(user.id); } catch {}
     try { setCommunity(await api.communityToday(user.id)); } catch {}
     try {
@@ -231,6 +276,60 @@ export default function Home() {
     } catch {}
   };
   useFocusEffect(useCallback(() => { loadFlutters(); }, [user?.id]));
+
+  // Batch B iter159→160 (Garry, Aug 2026 — Bug 2 RCA):
+  //
+  // The user's real-iPhone repro showed that iter159's card wasn't
+  // rendering even though the web preview + a backend repro both
+  // confirmed `unread_count > 0`. Digging in, the RCA was that on
+  // native iOS the first useFocusEffect can fire BEFORE the auth
+  // context has hydrated `user` — so `loadFlutters` early-returns
+  // (`if (!user) return`) and setUnreadDms is never called. The tab
+  // is then focused, `user` hydrates, and no further trigger causes
+  // a load. So the card stays hidden until the member manually
+  // pulls to refresh.
+  //
+  // Fix: run `loadFlutters` whenever `user?.id` changes AND whenever
+  // a real-time `dm_update`/`dm_read` event arrives on the per-user
+  // socket. Same pattern the Chats tab uses. This makes the Home
+  // card reflect the truth as soon as ANY of these happen:
+  //   • Tab focus (existing).
+  //   • App resume from background (iter159).
+  //   • User auth hydrates on cold boot (new — this is the iOS fix).
+  //   • Live DM arrives while on Home (new — no need to switch tabs).
+  //   • Peer marks a shared conv read on another device.
+  //   • Socket (re)connect reconciles any drift.
+  useEffect(() => {
+    if (user?.id) loadFlutters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const { subscribe } = useUserSocket();
+  useEffect(() => subscribe("dm_update", () => { loadFlutters(); }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [subscribe, user?.id]);
+  useEffect(() => subscribe("dm_read", () => { loadFlutters(); }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [subscribe, user?.id]);
+  useEffect(() => subscribe("reconnect", () => { loadFlutters(); }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [subscribe, user?.id]);
+
+  // Batch B iter159 Bug 2 support: re-run loadFlutters when the app
+  // returns from background/lock. `useFocusEffect` only fires on tab
+  // focus changes — if the user opens Home, backgrounds the app,
+  // gets a chat message, then reopens the app, the tab is still
+  // focused so useFocusEffect wouldn't fire. AppState makes sure
+  // the unread-DM card actually appears.
+  React.useEffect(() => {
+    const sub = AppState.addEventListener("change", (state: string) => {
+      if (state === "active" && user?.id) {
+        loadFlutters();
+      }
+    });
+    return () => sub?.remove?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   /**
    * Open a DM with the person who flutter-ed us. Locked with Garry
@@ -304,6 +403,23 @@ export default function Home() {
     setFlutters((arr) => arr.filter((x) => x.id !== f.id));
   };
 
+  // ── Friend-request card actions (Batch B iter157 P0 #5) ──────────
+  const acceptFriendReq = async (r: any) => {
+    try {
+      await api.acceptReq(r.id);
+      show(`You and ${r?.other?.first_name || "your new friend"} are now friends 🦋`);
+      // Optimistically remove the card row; loadFlutters will
+      // reconcile the list on next focus / pull-to-refresh.
+      setPendingFriendReqs((arr) => arr.filter((x) => x.id !== r.id));
+    } catch { show("Could not accept — please try again."); }
+  };
+  const declineFriendReq = async (r: any) => {
+    try {
+      await api.declineReq(r.id);
+      setPendingFriendReqs((arr) => arr.filter((x) => x.id !== r.id));
+    } catch { show("Could not update — please try again."); }
+  };
+
   const tiles: Tile[] = [
     // Standard 2×3 grid — pastel backgrounds, dark ink text, short
     // taglines. FP Café now sits at the top of the grid (still important
@@ -319,7 +435,16 @@ export default function Home() {
     // discoverable Home entry for the member's *accepted* friends
     // (distinct from "Find Friends" which is discovery). Sits directly
     // under My Chats so the two "people I know" surfaces read together.
-    { key: "my-friends", title: "My Friends",       icon: "heart",           route: "/friends/list", bg: "#FCE7F3", ink: "#9D174D", sub: (user?.friends?.length ? `${user.friends.length} friend${user.friends.length === 1 ? "" : "s"}` : "Your accepted friends") },
+    { key: "my-friends", title: "My Friends",       icon: "heart",           route: "/friends/list", bg: "#FCE7F3", ink: "#9D174D", sub: (
+      // Prefer the canonical count from /api/friends/{uid} so this
+      // subtitle can NEVER disagree with /friends/list (Batch B
+      // iter158 real-iPhone fix). Fall back to the cached
+      // `user.friends.length` for the brief boot window before the
+      // hydrate call returns.
+      typeof myFriendsCount === "number"
+        ? (myFriendsCount ? `${myFriendsCount} friend${myFriendsCount === 1 ? "" : "s"}` : "Your accepted friends")
+        : (user?.friends?.length ? `${user.friends.length} friend${user.friends.length === 1 ? "" : "s"}` : "Your accepted friends")
+    ) },
     { key: "lounge",  title: "FP Café",           icon: "cafe",            route: "/lounge",   bg: "#DFF2ED", ink: "#0F766E", sub: "Pull up a chair & join a chat" },
     { key: "friends", title: "Find Friends",       icon: "people",          route: "/friends",  bg: "#E0EAFB", ink: "#1E3A8A", sub: "Connect with people like you" },
     { key: "events",  title: "Local Events",       icon: "calendar",        route: "/events",   bg: "#EDE4FA", ink: "#5B21B6", sub: "See what's happening near you" },
@@ -429,6 +554,15 @@ export default function Home() {
               </Text>
               <Text style={[styles.momentHeroSub, { fontSize: 14 * scale }]}>
                 Share a photo, a story, or something that made you smile today.
+              </Text>
+              {/* Butterfly Points reward line (Garry launch-polish
+                  2026-08-14). Members previously didn't know sharing
+                  a Moment earned points until AFTER they posted (toast
+                  said "+8 Butterfly Points"). Surfacing the reward on
+                  the banner itself gives them a reason to tap before
+                  they've committed to writing anything. */}
+              <Text style={[styles.momentHeroSub, { fontSize: 13 * scale, marginTop: 6, fontWeight: "800", color: "#78350F" }]}>
+                🦋 +8 Butterfly Points every time you share
               </Text>
             </Pressable>
 
@@ -560,6 +694,146 @@ export default function Home() {
             follow-ups the organiser hasn't yet dismissed. Silent
             (returns null) when the inbox is empty. */}
         {user?.id ? <GeorgeRemembersBanner /> : null}
+
+        {/* Friend requests — Batch B iter157 (Garry, Aug 2026 — P0 #5).
+            Mirrors the flutter card so incoming friend requests are
+            visible on Home even if the member never opens the
+            notification bell. Shows up to 3; the CTA opens the full
+            list. */}
+        {/* Batch B iter159 Bug 2 — Home unread-DM card. Shown when
+            the member has one or more DM conversations with
+            unread_count > 0 (i.e. offline chat has arrived, or an
+            online chat wasn't opened yet). Persists until the DM
+            screen calls `dmMarkRead`, which zeroes unread_count and
+            drops the card on the next focus/resume. */}
+        {unreadDms.length > 0 && (
+          <View style={[styles.flutterBox, { borderColor: "#10B981", backgroundColor: "#ECFDF5" }]} testID="home-unread-dms-card">
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+              <Ionicons name="chatbubbles" size={22} color="#047857" />
+              <Text style={{ color: "#047857", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>
+                {unreadDms.length === 1 ? "New message" : `${unreadDms.length} new chats`}
+              </Text>
+            </View>
+            {unreadDms.slice(0, 5).map((r: any) => {
+              const other = r?.other || {};
+              const lastText = (r?.last?.text || "").trim();
+              const lastPreview = lastText.length > 60 ? lastText.slice(0, 57) + "…" : lastText;
+              return (
+                <Pressable
+                  key={r.id}
+                  testID={`home-unread-dm-${r.id}`}
+                  onPress={() => router.push(`/dm/${r.id}` as any)}
+                  accessibilityLabel={`Open chat with ${other.first_name || "your friend"}`}
+                  style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#D1FAE5" }]}
+                >
+                  <View style={styles.flutterSenderRow}>
+                    <AvatarBubble value={other.avatar} size={36} fallback="🙂" />
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={{ color: "#0F172A", fontWeight: "900", fontSize: 15 * scale, flex: 1 }} numberOfLines={1}>
+                          {other.first_name || "A friend"}
+                        </Text>
+                        <View style={{ backgroundColor: "#10B981", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, minWidth: 24, alignItems: "center" }}>
+                          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 12 * scale }}>
+                            {r.unread_count > 99 ? "99+" : r.unread_count}
+                          </Text>
+                        </View>
+                      </View>
+                      {!!lastPreview && (
+                        <Text style={{ color: "#475569", fontSize: 13 * scale, fontWeight: "600" }} numberOfLines={1}>
+                          {lastPreview}
+                        </Text>
+                      )}
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                  </View>
+                </Pressable>
+              );
+            })}
+            {unreadDms.length > 5 && (
+              <Pressable
+                testID="home-unread-dms-see-all"
+                onPress={() => router.push("/messages" as any)}
+                style={{ alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 10, paddingVertical: 6 }}
+              >
+                <Text style={{ color: "#047857", fontWeight: "800", fontSize: 13 * scale }}>
+                  See all {unreadDms.length} chats →
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {pendingFriendReqs.length > 0 && (
+          <View style={[styles.flutterBox, { borderColor: "#0EA5E9" }]} testID="home-friend-requests-card">
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
+              <Ionicons name="person-add" size={22} color="#0369A1" />
+              <Text style={{ color: "#0369A1", fontWeight: "900", fontSize: 17 * scale, marginLeft: 6 }}>
+                {pendingFriendReqs.length === 1 ? "New friend request" : `${pendingFriendReqs.length} new friend requests`}
+              </Text>
+            </View>
+            {pendingFriendReqs.slice(0, 3).map((r) => (
+              <View key={r.id} style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#E0F2FE" }]}>
+                <Pressable
+                  testID={`friend-req-open-${r.id}`}
+                  onPress={() => router.push(`/user/${r?.other?.id}` as any)}
+                  accessibilityLabel={`View ${r?.other?.first_name}'s profile`}
+                  style={styles.flutterSenderRow}
+                  hitSlop={4}
+                >
+                  <AvatarBubble value={r?.other?.avatar} size={36} fallback="🙂" />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: "#0F172A", fontWeight: "900", fontSize: 15 * scale }} numberOfLines={1}>
+                      {r?.other?.first_name || "A member"}
+                    </Text>
+                    <Text style={{ color: "#475569", fontSize: 12 * scale, fontWeight: "600" }} numberOfLines={1}>
+                      {r?.other?.suburb ? `📍 ${r.other.suburb} · Tap to see profile` : "Tap to see their profile"}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                </Pressable>
+                <View style={styles.flutterActions}>
+                  <Pressable
+                    testID={`friend-req-accept-${r.id}`}
+                    onPress={() => acceptFriendReq(r)}
+                    style={[styles.flutterActionBtn, { backgroundColor: "#0EA5E9", borderColor: "#0EA5E9" }]}
+                  >
+                    <Ionicons name="checkmark" size={14} color="#FFF" />
+                    <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 * scale }}>Accept</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`friend-req-later-${r.id}`}
+                    onPress={() => show("We'll keep it here for you.")}
+                    style={[styles.flutterActionBtn, { backgroundColor: "#F1F5F9", borderColor: "#CBD5E1" }]}
+                    accessibilityLabel="Decide later — request stays visible"
+                  >
+                    <Ionicons name="time-outline" size={14} color="#64748B" />
+                    <Text style={{ color: "#334155", fontWeight: "800", fontSize: 13 * scale }}>Later</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`friend-req-decline-${r.id}`}
+                    onPress={() => declineFriendReq(r)}
+                    style={styles.dismissBtn}
+                    accessibilityLabel="Decline friend request"
+                  >
+                    <Ionicons name="close" size={18} color="#94A3B8" />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+            {pendingFriendReqs.length > 3 && (
+              <Pressable
+                testID="home-friend-requests-see-all"
+                onPress={() => router.push("/friends/list" as any)}
+                style={{ alignSelf: "flex-start", marginTop: 6, paddingHorizontal: 10, paddingVertical: 6 }}
+              >
+                <Text style={{ color: "#0369A1", fontWeight: "800", fontSize: 13 * scale }}>
+                  See all {pendingFriendReqs.length} requests →
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
 
         {flutters.length > 0 && (
           <Animated.View
@@ -1024,8 +1298,30 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 2,
   },
-  flutterActions: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  flutterActionBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, borderWidth: 1.5 },
+  flutterActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+    marginTop: 10,
+  },
+  flutterActionBtn: {
+    // Bumped the horizontal padding + minHeight so the "Fluttered back"
+    // green pill lines up on the same visual weight as the primary
+    // "Flutter back" pressable — previously the responded state
+    // rendered ~3px taller (extra bottom padding around the ✔ glyph),
+    // which broke horizontal alignment in the Flutter/Fluttered row.
+    // (Launch-polish 2026-08-14.)
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    minHeight: 34,
+  },
   flutterRespondedRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1100,16 +1396,28 @@ const styles = StyleSheet.create({
   momentHeroCta: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#B45309",
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderRadius: 999,
+    minHeight: 44,
   },
   momentHeroSecondary: {
+    // Aligned vertically with the primary "Share a Moment" button
+    // (same 44 minHeight, same center alignment) so the chevron sits
+    // on the same baseline as the Share button's ✚ icon. Right-side
+    // paddingRight adds breathing room so the chevron never sits
+    // flush against the card border on narrow phones (iPhone SE was
+    // pushing it half-off-screen prior to this fix).
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
+    justifyContent: "center",
+    paddingLeft: 12,
+    paddingRight: 14,
     paddingVertical: 10,
+    minHeight: 44,
+    gap: 4,
   },
   // Moment of the Week banner — celebratory amber card mirroring the
   // Founders Wall card treatment, so both "look up on Home" pieces feel

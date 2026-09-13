@@ -73,14 +73,6 @@ MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB per file
 # Surfaced in the Mission Control System Status card.
 APP_VERSION = "1.0.0"
 
-# iter164be — organisation outreach is sent from the Community mailbox
-# (a verified friendplace.com.au sender), never the transactional
-# noreply@ identity. Applied at every outreach send path (real send,
-# retry, and test-send) so the From line reads consistently.
-OUTREACH_FROM_EMAIL = "community@friendplace.com.au"
-OUTREACH_FROM_NAME = "FriendPlace Community Team"
-
-
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
 
@@ -673,38 +665,9 @@ def build_router(db) -> APIRouter:
     # If an outbound confirmation email ever fails to deliver, the
     # underlying record is still here.
 
-    # ── iter164ap: unified enquiry source map ──────────────────────
-    # kind -> (collection, id-matcher). Support tickets are addressable
-    # by their public `ref` OR their internal `id` (the unified list
-    # exposes `ref or id` as the row id), so we match either. Every
-    # other kind is keyed on `id`.
-    _ENQUIRY_COLLECTIONS = {
-        "contact":  "contact_submissions",
-        "interest": "interest_registrations",
-        "support":  "support_tickets",
-        "report":   "reports",
-        "waitlist": "waitlist",
-    }
-
-    def _enquiry_match(kind: str, ident: str) -> Dict[str, Any]:
-        if kind == "support":
-            return {"$or": [{"id": ident}, {"ref": ident}]}
-        return {"id": ident}
-
-    def _require_kind(kind: str) -> str:
-        k = (kind or "").strip().lower()
-        if k not in _ENQUIRY_COLLECTIONS:
-            raise HTTPException(
-                400,
-                f"Unknown enquiry kind {kind!r}. Must be one of: "
-                + ", ".join(_ENQUIRY_COLLECTIONS),
-            )
-        return k
-
     @router.get("/enquiries")
     async def list_enquiries(
         kind: Optional[str] = None,      # filter to one type: contact|interest|support|report|waitlist
-        archived: bool = False,          # iter164ap: active (default) vs archived view
         limit: int = 200,
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
@@ -713,23 +676,12 @@ def build_router(db) -> APIRouter:
         Returns rows from five collections in a normalised shape so the
         UI can render them side-by-side. Excludes test fixtures. Newest
         first. Capped at `limit` per collection so a spike can't hurt
-        the browser.
-
-        iter164ap: soft-archive aware. `archived=False` (default) returns
-        only active records — in MongoDB {"archived_at": None} matches
-        both explicit-null AND missing, so legacy records with no field
-        stay active automatically. `archived=True` returns only archived
-        records.
-        """
+        the browser."""
         lim = max(1, min(int(limit or 200), 500))
-        # Active vs archived filter fragment (see docstring).
-        arch_q: Dict[str, Any] = (
-            {"archived_at": {"$ne": None}} if archived else {"archived_at": None}
-        )
 
         async def _read(coll: str, mapper) -> list[dict]:
             docs = await db[coll].find(
-                {"is_test": {"$ne": True}, **arch_q}, {"_id": 0}
+                {"is_test": {"$ne": True}}, {"_id": 0}
             ).sort("created_at", -1).to_list(lim)
             return [mapper(d) for d in docs]
 
@@ -745,8 +697,6 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("message"),
                 "status":     d.get("status") or "new",
                 "created_at": d.get("created_at"),
-                "archived_at": d.get("archived_at"),
-                "archived_by": d.get("archived_by"),
                 "meta":       {"category": d.get("category")},
             })
         if not kind or kind == "interest":
@@ -760,8 +710,6 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("notes") or "",
                 "status":     d.get("status") or "new",
                 "created_at": d.get("created_at"),
-                "archived_at": d.get("archived_at"),
-                "archived_by": d.get("archived_by"),
                 "meta":       {"suburb": d.get("suburb"), "state": d.get("state"), "companion": d.get("companion")},
             })
         if not kind or kind == "support":
@@ -775,8 +723,6 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("message"),
                 "status":     d.get("status") or "open",
                 "created_at": d.get("created_at"),
-                "archived_at": d.get("archived_at"),
-                "archived_by": d.get("archived_by"),
                 "meta":       {"category": d.get("category"), "ref": d.get("ref")},
             })
         if not kind or kind == "report":
@@ -790,8 +736,6 @@ def build_router(db) -> APIRouter:
                 "message":    d.get("details") or d.get("notes"),
                 "status":     d.get("status") or "open",
                 "created_at": d.get("created_at"),
-                "archived_at": d.get("archived_at"),
-                "archived_by": d.get("archived_by"),
                 "meta":       {"target_type": d.get("target_type"), "target_id": d.get("target_id")},
             })
         if not kind or kind == "waitlist":
@@ -805,8 +749,6 @@ def build_router(db) -> APIRouter:
                 "message":    "",
                 "status":     "invited" if d.get("invited") else "waiting",
                 "created_at": d.get("created_at"),
-                "archived_at": d.get("archived_at"),
-                "archived_by": d.get("archived_by"),
                 "meta":       {"referral": d.get("referral_source")},
             })
 
@@ -823,153 +765,6 @@ def build_router(db) -> APIRouter:
                 {"key": "waitlist", "label": "Waitlist",          "count": sum(1 for r in rows if r["kind"] == "waitlist")},
             ],
         }
-
-    # ── iter164ap: archive / restore / permanent delete ────────────
-    @router.post("/enquiries/{kind}/{ident}/archive")
-    async def archive_enquiry(
-        kind: str, ident: str,
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Soft-archive one enquiry. Preserves the full source record
-        (status, message, history, timestamps) and simply stamps
-        ``archived_at`` / ``archived_by`` so it drops off the active
-        list. Idempotent — re-archiving keeps the original timestamp."""
-        k = _require_kind(kind)
-        coll = _ENQUIRY_COLLECTIONS[k]
-        match = _enquiry_match(k, ident)
-        existing = await db[coll].find_one(match, {"_id": 0})
-        if not existing:
-            raise HTTPException(404, f"{kind} enquiry {ident!r} not found")
-        if not existing.get("archived_at"):
-            from datetime import datetime as _dt, timezone as _tz
-            now = _dt.now(_tz.utc).isoformat()
-            await db[coll].update_one(match, {"$set": {
-                "archived_at": now,
-                "archived_by": admin.get("email") if isinstance(admin, dict) else None,
-            }})
-        doc = await db[coll].find_one(match, {"_id": 0})
-        return {"ok": True, "kind": k, "id": ident, "archived_at": doc.get("archived_at"), "archived_by": doc.get("archived_by")}
-
-    @router.post("/enquiries/{kind}/{ident}/restore")
-    async def restore_enquiry(
-        kind: str, ident: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """Restore a soft-archived enquiry to the active list, leaving
-        every other field untouched."""
-        k = _require_kind(kind)
-        coll = _ENQUIRY_COLLECTIONS[k]
-        match = _enquiry_match(k, ident)
-        existing = await db[coll].find_one(match, {"_id": 0})
-        if not existing:
-            raise HTTPException(404, f"{kind} enquiry {ident!r} not found")
-        await db[coll].update_one(match, {"$set": {
-            "archived_at": None,
-            "archived_by": None,
-        }})
-        return {"ok": True, "kind": k, "id": ident}
-
-    @router.delete("/enquiries/{kind}/{ident}")
-    async def delete_enquiry(
-        kind: str, ident: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """Permanently delete exactly one source record ({kind}/{id}).
-        Never touches any other collection or record."""
-        k = _require_kind(kind)
-        coll = _ENQUIRY_COLLECTIONS[k]
-        match = _enquiry_match(k, ident)
-        res = await db[coll].delete_one(match)
-        if res.deleted_count == 0:
-            raise HTTPException(404, f"{kind} enquiry {ident!r} not found")
-        return {"ok": True, "kind": k, "id": ident, "deleted": res.deleted_count}
-
-    # iter164aw — persist enquiry lifecycle status server-side.
-    _ENQUIRY_STATUSES = ("new", "read", "replied", "resolved")
-    _ENQUIRY_STATUS_TS = {
-        "read":     "read_at",
-        "replied":  "replied_at",
-        "resolved": "resolved_at",
-    }
-
-    @router.patch("/enquiries/{kind}/{ident}/status")
-    async def set_enquiry_status(
-        kind: str, ident: str, payload: Dict[str, Any],
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Persist an enquiry's lifecycle status on the source record.
-
-        Replaces the browser-local "handled" workaround so the badge /
-        read / replied / resolved state survives refreshes, other
-        browsers/devices, cache clears and republishes.
-
-        Body: { "status": "new" | "read" | "replied" | "resolved" }
-
-        Writes `status` plus the matching audit timestamp
-        (`read_at` / `replied_at` / `resolved_at`, stamped once and
-        preserved on repeat) and `status_updated_at` / `status_updated_by`.
-        Nothing else on the record is touched. Because the unread-count
-        only counts contact `status == "new"`, moving a contact to
-        read/replied/resolved now drops it off the badge permanently.
-        """
-        k = _require_kind(kind)
-        status = str(payload.get("status") or "").strip().lower()
-        if status not in _ENQUIRY_STATUSES:
-            raise HTTPException(
-                400, f"status must be one of: {', '.join(_ENQUIRY_STATUSES)}")
-        coll = _ENQUIRY_COLLECTIONS[k]
-        match = _enquiry_match(k, ident)
-        existing = await db[coll].find_one(match, {"_id": 0})
-        if not existing:
-            raise HTTPException(404, f"{kind} enquiry {ident!r} not found")
-
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
-        by = admin.get("email") if isinstance(admin, dict) else None
-        updates: Dict[str, Any] = {
-            "status": status,
-            "status_updated_at": now,
-            "status_updated_by": by,
-        }
-        # Stamp the lifecycle timestamp once (preserve the earliest).
-        ts_field = _ENQUIRY_STATUS_TS.get(status)
-        if ts_field and not existing.get(ts_field):
-            updates[ts_field] = now
-        await db[coll].update_one(match, {"$set": updates})
-        doc = await db[coll].find_one(match, {"_id": 0})
-        return {
-            "ok": True, "kind": k, "id": ident, "status": status,
-            "read_at":     doc.get("read_at"),
-            "replied_at":  doc.get("replied_at"),
-            "resolved_at": doc.get("resolved_at"),
-            "status_updated_at": doc.get("status_updated_at"),
-            "status_updated_by": doc.get("status_updated_by"),
-        }
-
-    @router.get("/enquiries/unread-count")
-    async def enquiries_unread_count(
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """Sidebar badge count for Mission Control (iter164ao/ap).
-
-        Counts ONLY brand-new Contact-form enquiries — i.e.
-        kind == "contact" AND status == "new" — that are NOT archived.
-        Deliberately excludes every other enquiry kind (Register
-        Interest, support, report, waitlist), any contact enquiry that's
-        already been actioned (resolved / replied), archived contacts,
-        and test fixtures (is_test). A missing/empty status is treated
-        as "new" to stay consistent with the unified Enquiries list.
-        """
-        count = await db["contact_submissions"].count_documents({
-            "is_test": {"$ne": True},
-            "archived_at": None,   # iter164ap: archived contacts excluded
-            "$or": [
-                {"status": "new"},
-                {"status": {"$in": [None, ""]}},
-                {"status": {"$exists": False}},
-            ],
-        })
-        return {"count": int(count)}
 
 
     # EMAIL TEMPLATE PREVIEW
@@ -1075,15 +870,29 @@ def build_router(db) -> APIRouter:
         `total` — they are Founding Members — but excluded from
         `new_today` and `awaiting_contact` because they don't need
         an invite. Their status is always `joined`.
-
-        iter163: The counting rules now live in
-        ``services/crm/founding_stats.py`` so this endpoint and
-        George's ``founding_members_summary`` tool share ONE source
-        of truth. "Today" is a Sydney calendar day (Australia/Sydney).
         """
-        from services.crm.founding_stats import compute_founding_members_stats
-        stats = await compute_founding_members_stats(db)
-        latest = stats.get("latest")
+        from datetime import datetime, timezone
+        base = {"is_test": {"$ne": True}}
+        base_public = {**base, "is_reserved": {"$ne": True}}
+        total = await db.interest_registrations.count_documents(base)
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        new_today = await db.interest_registrations.count_documents({
+            **base_public, "created_at": {"$gte": today_start.isoformat()},
+        })
+        awaiting = await db.interest_registrations.count_documents({
+            **base_public,
+            "$or": [
+                {"status": {"$exists": False}},
+                {"status": None},
+                {"status": {"$in": _AWAITING_STATUSES}},
+            ],
+        })
+        invited = await db.interest_registrations.count_documents({**base_public, "status": "invited"})
+        joined  = await db.interest_registrations.count_documents({**base, "status": "joined"})
+        opted   = await db.interest_registrations.count_documents({**base_public, "status": "opted_out"})
+        latest = await db.interest_registrations.find_one(
+            base_public, {"_id": 0}, sort=[("created_at", -1)],
+        )
         latest_summary = None
         if latest:
             latest_summary = {
@@ -1095,12 +904,12 @@ def build_router(db) -> APIRouter:
                 "founder_number":  latest.get("founder_number"),
             }
         return {
-            "total":            stats["total"],
-            "new_today":        stats["new_today"],
-            "awaiting_contact": stats["awaiting_contact"],
-            "invited":          stats["invited"],
-            "joined":           stats["joined"],
-            "opted_out":        stats["opted_out"],
+            "total":            total,
+            "new_today":        new_today,
+            "awaiting_contact": awaiting,
+            "invited":          invited,
+            "joined":           joined,
+            "opted_out":        opted,
             "latest":           latest_summary,
         }
 
@@ -1147,70 +956,7 @@ def build_router(db) -> APIRouter:
         return _normalise_fm_row(row) if row else row
 
 
-    @router.post("/crm/founding-members/{member_id}/link-account")
-    async def crm_founding_members_link_account(
-        member_id: str,
-        payload: Dict[str, Any],
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Founder alignment recovery (item #10). When a founder created
-        their app account with a DIFFERENT email so automatic matching
-        couldn't link them, an admin looks up their account here and links
-        it — assigning this interest registration's ORIGINAL founding
-        number to that account (overriding any wrongly-allocated number).
-
-        payload: { "user_id": "<app account id>" } OR
-                 { "email": "<the different email they signed up with>" }
-        No guessing — the admin explicitly chooses who to link.
-        """
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
-        reg = await db.interest_registrations.find_one({"id": member_id}, {"_id": 0})
-        if not reg:
-            raise HTTPException(404, "Founding member not found")
-        fnum = reg.get("founder_number")
-        if not fnum:
-            raise HTTPException(400, "This registration has no founding number to link")
-
-        user = None
-        if payload.get("user_id"):
-            user = await db.users.find_one({"id": str(payload["user_id"])}, {"_id": 0})
-        elif payload.get("email"):
-            em = str(payload["email"]).strip().lower()
-            user = await db.users.find_one(
-                {"email": {"$regex": f"^{re.escape(em)}$", "$options": "i"}}, {"_id": 0})
-        if not user:
-            raise HTTPException(404, "No app account found for that user_id/email")
-        if user.get("is_demo"):
-            raise HTTPException(400, "Demo accounts cannot be founders")
-
-        clash = await db.users.find_one(
-            {"founder_number": int(fnum), "id": {"$ne": user["id"]}}, {"_id": 0, "id": 1})
-        if clash:
-            raise HTTPException(409, f"Founding number #{int(fnum):04d} is already held by another account")
-
-        badges = list(user.get("badges") or [])
-        if "Founding Member" not in badges:
-            badges.append("Founding Member")
-        await db.users.update_one(
-            {"id": user["id"]},
-            {"$set": {"is_founder": True, "founder_number": int(fnum), "badges": badges}},
-        )
-        await db.interest_registrations.update_one(
-            {"id": member_id},
-            {"$set": {"status": "joined", "linked_user_id": user["id"],
-                      "linked_at": now, "linked_by_admin": admin.get("id")},
-             "$push": {"history": {"at": now, "admin_id": admin.get("id"),
-                                   "action": "link_account", "linked_user_id": user["id"]}}},
-        )
-        row = await db.interest_registrations.find_one({"id": member_id}, {"_id": 0})
-        return {
-            "ok": True,
-            "founder_number": int(fnum),
-            "linked_user": {"id": user["id"], "email": user.get("email"),
-                            "first_name": user.get("first_name"), "username": user.get("username")},
-            "member": _normalise_fm_row(row) if row else row,
-        }
+    @router.delete("/crm/founding-members/{member_id}")
     async def crm_founding_members_delete(
         member_id: str,
         admin: dict = Depends(current_cms_admin),
@@ -1256,201 +1002,6 @@ def build_router(db) -> APIRouter:
             "email":           row.get("email"),
             "first_name":      row.get("first_name"),
             "deleted_by":      admin.get("id"),
-        }
-
-
-    @router.post("/crm/founding-members/retire-duplicate")
-    async def crm_founding_members_retire_duplicate(
-        payload: Dict[str, Any],
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Admin-only cleanup endpoint (iter164).
-
-        Retires a single duplicate Founding-Member registration
-        (created before the iter164 email-uniqueness fix landed) by
-        moving it into ``retired_registrations`` and removing it from
-        the live collection.
-
-        The mirror of ``backend/scripts/retire_duplicate_founding_members.py``,
-        exposed over the CMS API so an admin can trigger it from a
-        deployed environment without needing a production shell.
-
-        Contract:
-          - Requires a valid admin JWT (``current_cms_admin`` dep).
-          - Body must be ``{"founder_number": <int>}``.
-          - Refuses unless the target row has a NORMALISED duplicate
-            (same lowercased/trimmed email as another row that is
-            neither test-flagged nor reserved). The oldest row
-            (lowest founder_number, else earliest created_at) is
-            treated as the keeper and NEVER retired.
-          - Refuses reserved (``is_reserved:true``) rows outright.
-          - Refuses test-flagged (``is_test:true``) rows outright.
-          - Writes an audit row into ``retired_registrations`` with
-            ``retire_keeper_id``, ``retire_keeper_founder_number``,
-            ``retire_reason`` and ``retired_at`` before deleting.
-          - Idempotent: if the founder number is already in
-            ``retired_registrations`` (previously retired), returns
-            ``{"ok": true, "already_retired": true, ...}`` with the
-            recorded keeper — no error, no re-write.
-          - Does NOT rewind ``counters/founder_number``. Founding
-            numbers are monotonic; a gap after retire is intentional.
-          - Never touches any other row.
-        """
-        # ── Validate input ────────────────────────────────────────────
-        raw_num = payload.get("founder_number")
-        try:
-            target_num = int(raw_num)
-        except (TypeError, ValueError):
-            raise HTTPException(
-                400,
-                "founder_number is required and must be an integer.",
-            )
-        if target_num < 3:
-            # #0001/#0002 are always reserved; #0003+ are the only
-            # candidates for retirement.
-            raise HTTPException(
-                400,
-                "Reserved founder numbers (#0001, #0002) cannot be retired.",
-            )
-
-        # ── Idempotency: already retired? ─────────────────────────────
-        prior = await db.retired_registrations.find_one(
-            {"founder_number": target_num},
-            {"_id": 0},
-        )
-        if prior:
-            return {
-                "ok":                True,
-                "already_retired":   True,
-                "retired_founder_number": target_num,
-                "keeper_founder_number":  prior.get("retire_keeper_founder_number"),
-                "keeper_id":         prior.get("retire_keeper_id"),
-                "retired_at":        prior.get("retired_at"),
-                "retire_reason":     prior.get("retire_reason"),
-                "retired_by":        prior.get("retire_admin_id"),
-                "note": "This founder number was already retired on a "
-                        "previous call. No changes made.",
-            }
-
-        # ── Locate the target row ─────────────────────────────────────
-        target = await db.interest_registrations.find_one(
-            {"founder_number": target_num},
-            {"_id": 0},
-        )
-        if not target:
-            raise HTTPException(
-                404,
-                f"No Founding Member with number #{target_num:04d} in the "
-                "live collection. If you already retired it, that action "
-                "is recorded in retired_registrations.",
-            )
-        if bool(target.get("is_reserved")):
-            raise HTTPException(
-                403,
-                f"#{target_num:04d} is a reserved slot and cannot be retired.",
-            )
-        if bool(target.get("is_test")):
-            raise HTTPException(
-                403,
-                f"#{target_num:04d} is a test-flagged row — the retire "
-                "endpoint is for real duplicates only.",
-            )
-
-        # ── Normalise email + find genuine duplicate ─────────────────
-        email_norm = str(target.get("email") or "").strip().lower()
-        if not email_norm:
-            raise HTTPException(
-                422,
-                f"#{target_num:04d} has no email — cannot verify duplicate "
-                "status. Use the DB Viewer if this row needs manual removal.",
-            )
-
-        # Fetch every candidate keeper for this email — same normalised
-        # address, not reserved, not test-flagged, and NOT the target
-        # itself. If none exists, the target is unique — refuse.
-        cohort = await db.interest_registrations.find(
-            {
-                "email":       email_norm,
-                "is_test":     {"$ne": True},
-                "is_reserved": {"$ne": True},
-            },
-            {"_id": 0},
-        ).to_list(None)
-        others = [r for r in cohort if r.get("founder_number") != target_num]
-        if not others:
-            raise HTTPException(
-                409,
-                f"#{target_num:04d} ({email_norm}) is NOT a duplicate — no "
-                "other live row shares that email. Refusing to retire.",
-            )
-
-        # Keeper = lowest founder_number (else earliest created_at).
-        def _sort_key(r):
-            fn = r.get("founder_number")
-            fn_key = fn if isinstance(fn, int) else 10**9
-            return (fn_key, r.get("created_at") or "")
-
-        candidates = sorted(cohort, key=_sort_key)
-        keeper = candidates[0]
-
-        if keeper.get("founder_number") == target_num:
-            # Target IS the oldest row — retiring it would orphan the
-            # duplicate(s). Refuse; caller should ask us to retire the
-            # newer number instead.
-            other_numbers = sorted(
-                r.get("founder_number") for r in others
-                if isinstance(r.get("founder_number"), int)
-            )
-            raise HTTPException(
-                409,
-                f"#{target_num:04d} is the OLDEST row for {email_norm} and "
-                f"must be preserved as the keeper. Retire one of the newer "
-                f"duplicates instead: {[f'#{n:04d}' for n in other_numbers]}.",
-            )
-
-        # ── Write audit row, then delete live row ────────────────────
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
-        audit = dict(target)
-        audit.pop("_id", None)
-        audit["retired_at"]                    = now
-        audit["retire_reason"]                 = (
-            f"iter164 admin retire via CMS API of duplicate "
-            f"#{target_num:04d} (keeper #{keeper.get('founder_number'):04d})"
-        )
-        audit["retire_keeper_id"]              = keeper.get("id")
-        audit["retire_keeper_founder_number"]  = keeper.get("founder_number")
-        audit["retire_admin_id"]               = admin.get("id")
-        audit["retire_admin_email"]            = admin.get("email")
-
-        await db.retired_registrations.insert_one(audit)
-        del_res = await db.interest_registrations.delete_one(
-            {"founder_number": target_num, "email": email_norm},
-        )
-        if del_res.deleted_count == 0:
-            # Somebody else raced us — the audit row we just inserted
-            # is still valid (it records what would have been retired),
-            # but flag it so admins know.
-            return {
-                "ok":                True,
-                "already_retired":   True,
-                "retired_founder_number": target_num,
-                "keeper_founder_number":  keeper.get("founder_number"),
-                "keeper_id":         keeper.get("id"),
-                "note": "Row was already gone at delete time (racy). "
-                        "Audit row still written for the trail.",
-            }
-
-        return {
-            "ok":                     True,
-            "retired_founder_number": target_num,
-            "retired_id":             target.get("id"),
-            "retired_email":          email_norm,
-            "keeper_founder_number":  keeper.get("founder_number"),
-            "keeper_id":              keeper.get("id"),
-            "keeper_created_at":      keeper.get("created_at"),
-            "retired_at":             now,
-            "retired_by":             admin.get("id"),
         }
 
 
@@ -1551,6 +1102,8 @@ def build_router(db) -> APIRouter:
                 founder_number=42,
                 cta_label=None,
                 cta_url=None,
+                greeting="Dear [Contact name],",
+                show_founder_badge=True,
                 companion=companion,
             )
         if name == "password_reset":
@@ -1602,27 +1155,8 @@ def build_router(db) -> APIRouter:
         # already enumerate the whole valid set.
         if data_overrides:
             for k, v in data_overrides.items():
-                if k in kwargs and v not in (None, ""):
+                if k in kwargs and (k == "first_name" or v not in (None, "")):
                     kwargs[k] = v
-        # iter164p: fields whose "" value is meaningful (blank greeting ==
-        # render no greeting line) must bypass the None/"" guard above.
-        # `show_founder_badge` accepts explicit True/False — including
-        # False, which the general guard would treat as truthy anyway,
-        # but keeping the passthrough uniform here.
-        if data_overrides is not None:
-            if "greeting" in data_overrides:
-                kwargs["greeting"] = data_overrides["greeting"]
-            if "show_founder_badge" in data_overrides:
-                kwargs["show_founder_badge"] = data_overrides["show_founder_badge"]
-            # iter164as — first_name may be an intentional "" (a blank
-            # outreach / nameless recipient). The general merge above
-            # drops "" values, so pass it through explicitly here to
-            # guarantee the sample "Sarah" never leaks into a real render.
-            if "first_name" in data_overrides:
-                kwargs["first_name"] = data_overrides["first_name"]
-            # iter164bd — outreach-only unsubscribe footer URL passthrough.
-            if "outreach_unsubscribe_url" in data_overrides and name == "announcement":
-                kwargs["outreach_unsubscribe_url"] = data_overrides["outreach_unsubscribe_url"]
         # Only pass overrides that are actually set — passing None
         # explicitly would fight the templates' internal defaults.
         if subject_override is not None:
@@ -2135,28 +1669,6 @@ def build_router(db) -> APIRouter:
 
     _CAMPAIGN_TEMPLATES = {"announcement", "invitation", "welcome"}
 
-    # iter164at — persisted Outreach greeting presets. The composer
-    # stores the chosen preset verbatim in ``campaigns.greeting``
-    # (str | None):
-    #   • None -> unset/blank -> DEFAULT "Dear [Contact name],"
-    #     (Outreach campaigns must fall back to Dear, never "no greeting")
-    #   • ""   -> "No greeting" -> render no greeting line
-    #   • a named-contact preset ("Dear/Hi/Hello [Contact name],")
-    #     -> rendered with "[Contact name]" substituted per recipient
-    # A resolved Outreach recipient with NO contact name always renders
-    # "Hello friend," when any named-contact preset (or the default) is
-    # in effect — an explicit "No greeting" ("") stays blank for everyone.
-    # Scoped to Outreach ONLY — Founding Member / other campaigns keep
-    # their existing greeting behaviour.
-    OUTREACH_GREETING_DEFAULT   = "Dear [Contact name],"
-    OUTREACH_NO_NAME_GREETING   = "Hello friend,"
-    OUTREACH_GREETING_PRESETS = [
-        {"value": "Dear [Contact name],",  "label": "Dear [Contact name],"},
-        {"value": "Hi [Contact name],",    "label": "Hi [Contact name],"},
-        {"value": "Hello [Contact name],", "label": "Hello [Contact name],"},
-        {"value": "",                       "label": "No greeting"},
-    ]
-
     def _build_audience_query(f: Dict[str, Any]) -> Dict[str, Any]:
         """Turn a campaign's audience filter into a Mongo query."""
         q: Dict[str, Any] = {"is_test": {"$ne": True}}
@@ -2188,42 +1700,6 @@ def build_router(db) -> APIRouter:
             q["$and"] = existing_and + or_clauses
         return q
 
-    # ─── iter164r: campaign attachment helpers ─────────────────────
-    # Per Garry (24 Aug 2026): "Real file attachments on outreach
-    # campaigns — PDFs first, so we can send retirement-village
-    # flyers to Outreach contacts without leaving the composer."
-    #
-    # Scope for the MVP:
-    #   • PDFs only (application/pdf)
-    #   • 5 MB hard cap per attachment
-    #   • Base64 content stored inline on the campaign document
-    #     (single ~5 MB PDF stays well within Mongo's 16 MB doc limit)
-    #   • Mutation only while the campaign is still a draft
-    #   • Attach behaviour is gated by an explicit boolean flag
-    #     (`attach_file`, default OFF) so an uploaded file can be
-    #     staged without automatically going out on the next send.
-    _CAMPAIGN_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
-    _CAMPAIGN_ATTACHMENT_ALLOWED_TYPES = {"application/pdf"}
-
-    def _attachment_meta(att: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        """Return the public-facing subset of an attachment record.
-
-        Callers get ``filename``, ``content_type``, ``size`` and
-        ``uploaded_at`` — never the base64 bytes — so list/detail
-        response payloads stay small and the composer can render a
-        chip like "flyer.pdf · 214 KB" without a second round-trip.
-        """
-        if not isinstance(att, dict):
-            return None
-        if not att.get("filename"):
-            return None
-        return {
-            "filename":     att.get("filename"),
-            "content_type": att.get("content_type"),
-            "size":         att.get("size"),
-            "uploaded_at":  att.get("uploaded_at"),
-        }
-
     def _campaign_summary(c: Dict[str, Any]) -> Dict[str, Any]:
         return {
             "id":              c.get("id"),
@@ -2236,19 +1712,8 @@ def build_router(db) -> APIRouter:
             "body_md":         c.get("body_md"),
             "cta_label":       c.get("cta_label"),
             "cta_url":         c.get("cta_url"),
-            # iter164p — surface the new editable fields on read so the
-            # composer can hydrate its greeting + founder-badge controls.
-            "greeting":            c.get("greeting"),
-            "show_founder_badge":  c.get("show_founder_badge"),
-            # iter164r — attachment metadata only (never `content_b64`);
-            # composers show the filename+size, the send worker reads the
-            # full document to pull the base64 bytes.
-            "attachment":      _attachment_meta(c.get("attachment")),
-            # iter164r — explicit boolean flag deciding whether the
-            # uploaded attachment (if any) is actually included with
-            # the outgoing email. Defaults False so an admin can stage
-            # a file without it going out on the next Send.
-            "attach_file":     bool(c.get("attach_file")),
+            "greeting":        c.get("greeting"),
+            "show_founder_badge": c.get("show_founder_badge"),
             "audience_filter": c.get("audience_filter") or {},
             "status":          c.get("status") or "draft",
             "stats":           c.get("stats") or {
@@ -2257,39 +1722,13 @@ def build_router(db) -> APIRouter:
             },
             "created_at":      c.get("created_at"),
             "created_by":      c.get("created_by"),
-            # iter164bj — surface last-saved time so the Outreach group
-            # list can show "Draft saved · <when>" beside Continue campaign.
-            "updated_at":      c.get("updated_at"),
             "scheduled_at":    c.get("scheduled_at"),
             "sent_at":         c.get("sent_at"),
             "finished_at":     c.get("finished_at"),
             "sample_html":     c.get("sample_html"),
-            # iter164ac — soft-archive metadata. Sent campaigns are
-            # permanent (never hard-deleted); an admin can archive
-            # them to hide from the default list while preserving
-            # every recipient row, delivery record, message-id and
-            # rendered sample HTML for audit + recovery.
-            "is_archived":     bool(c.get("archived_at")),
-            "archived_at":     c.get("archived_at"),
-            "archived_by":     c.get("archived_by"),
-            "archived_by_email": c.get("archived_by_email"),
-            # iter164av — internal-name rename audit (rename-only endpoint).
-            "renamed_at":      c.get("renamed_at"),
-            "renamed_by":      c.get("renamed_by"),
         }
 
-    async def _resolve_audience(f: Dict[str, Any], limit: int = 5000,
-                                include_suppressed: bool = False) -> list[dict]:
-        """Resolve audience, then HARD-EXCLUDE suppressed emails (iter164bd)
-        unless include_suppressed=True (used by preview to report an
-        excluded count). Covers every audience kind + preview/test/send."""
-        rows = await _resolve_audience_raw(f, limit)
-        if include_suppressed:
-            return rows
-        from services import suppression as _supp
-        return await _supp.filter_recipients(db, rows)
-
-    async def _resolve_audience_raw(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
+    async def _resolve_audience(f: Dict[str, Any], limit: int = 5000) -> list[dict]:
         """iter160a: dispatch across five audience kinds.
 
         f.audience_kind can be:
@@ -2307,7 +1746,7 @@ def build_router(db) -> APIRouter:
         """
         kind = str((f or {}).get("audience_kind") or "").strip().lower()
 
-        # iter161 defensive auto-detect (25 Feb 2026 production regression):
+        # iter161b defensive auto-detect (25 Feb 2026 production regression):
         # A draft saved by pre-iter161 frontend code could end up with
         # outreach/manual/individual data in its filter but no
         # audience_kind marker — the resolver would then silently fall
@@ -2408,13 +1847,7 @@ def build_router(db) -> APIRouter:
         # -- 3) Outreach contacts --
         if kind == "outreach_contacts":
             from services.outreach.store import COLL_ORGS, normalise_category
-            # iter164an — exclude soft-archived organisations from all
-            # audience resolution (preview counts + bulk sends). In
-            # MongoDB {"archived_at": None} matches both null and missing,
-            # so pre-migration records stay eligible; only orgs with a
-            # non-null archived_at are excluded. Restore clears the field
-            # and makes them eligible again.
-            oq: Dict[str, Any] = {"is_test": {"$ne": True}, "archived_at": None}
+            oq: Dict[str, Any] = {"is_test": {"$ne": True}}
             spec = f.get("outreach") or {}
             # iter161b (25 Feb 2026): normalise the category so a user
             # typing "retirement village" or "Retirement Village" also
@@ -2440,10 +1873,6 @@ def build_router(db) -> APIRouter:
                     "recipient_name":   org.get("contact_name"),
                     "organisation_name": org.get("organisation_name"),
                     "outreach_id":      org.get("id"),
-                    # iter164ah: permanent outreach number, copied
-                    # through so the send worker can pin it onto the
-                    # campaign_recipients row for historical accuracy.
-                    "outreach_number":  org.get("outreach_number"),
                 })
             return out
 
@@ -2472,36 +1901,8 @@ def build_router(db) -> APIRouter:
         ).sort([("founder_number", 1)]).to_list(limit)
 
     @router.get("/campaigns")
-    async def campaigns_list(
-        include_archived: bool = False,
-        archived: bool = False,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """List campaigns.
-
-        iter164ac — soft-archive filter:
-          • Default (`include_archived=false`, `archived=false`) →
-            only non-archived campaigns. This is what the composer's
-            Campaigns list has always shown.
-          • `?include_archived=true` → non-archived AND archived
-            (union — full audit view).
-          • `?archived=true` → archived campaigns ONLY (recovery /
-            audit page).
-
-        Archived campaigns are never hard-deleted; their `_id`,
-        `recipients` sub-collection rows, message-ids, delivery
-        history, stats, and `sample_html` are all preserved
-        untouched — only the top-level `archived_at` /
-        `archived_by` fields are added.
-        """
-        if archived:
-            q = {"archived_at": {"$ne": None, "$exists": True}}
-        elif include_archived:
-            q = {}
-        else:
-            # Match documents where archived_at is missing OR None.
-            q = {"$or": [{"archived_at": {"$exists": False}}, {"archived_at": None}]}
-        rows = await db.campaigns.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    async def campaigns_list(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        rows = await db.campaigns.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
         return {"count": len(rows), "rows": [_campaign_summary(r) for r in rows]}
 
     @router.post("/campaigns")
@@ -2523,29 +1924,9 @@ def build_router(db) -> APIRouter:
             "body_md":         str(payload.get("body_md") or "")[:20000],
             "cta_label":       str(payload.get("cta_label") or "")[:60],
             "cta_url":         str(payload.get("cta_url") or "")[:500],
-            # iter164p: new fields. `greeting` is a literal template string
-            # (may contain the "[Contact name]" placeholder that gets
-            # substituted per-recipient at render time). Storing None means
-            # "unset -> fall back to the legacy Dear {first_name}, greeting".
-            # Storing "" means "no greeting line".
-            # `show_founder_badge` toggles the Founding Member pill. None
-            # means "legacy behaviour (show if founder_number is set)".
-            "greeting":        (payload["greeting"][:200]
-                                if isinstance(payload.get("greeting"), str) else None),
-            "show_founder_badge": (payload["show_founder_badge"]
-                                if isinstance(payload.get("show_founder_badge"), bool) else None),
-            # iter164r: attachment metadata. Populated by the dedicated
-            # upload endpoint (POST /campaigns/{id}/attachment). Storing
-            # base64 content inline keeps the model self-contained for
-            # the MVP (single ~5 MB PDF is well within Mongo's 16 MB
-            # document limit); projections in list/detail responses
-            # strip `content_b64` so response payloads stay small.
-            "attachment":      None,
-            # iter164r: explicit include-in-outgoing-email flag. Kept
-            # separate from `attachment` so admins can upload/stage a
-            # file without automatically shipping it on the next send.
-            # Accepted on create for symmetry with PATCH; defaults False.
-            "attach_file":     bool(payload.get("attach_file")) if "attach_file" in payload else False,
+            # CAMPAIGN_INVARIANT: outreach greeting/badge controls are persisted.
+            "greeting":        payload.get("greeting"),
+            "show_founder_badge": payload.get("show_founder_badge"),
             "audience_filter": payload.get("audience_filter") or {},
             "status":          "draft",
             "stats":           {"targeted": 0, "accepted": 0, "failed": 0,
@@ -2556,26 +1937,6 @@ def build_router(db) -> APIRouter:
         }
         await db.campaigns.insert_one(dict(campaign))
         return _campaign_summary(campaign)
-
-    @router.get("/campaigns/greeting-presets")
-    async def campaigns_greeting_presets(
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """iter164at — greeting preset options for the Outreach composer
-        selector (replaces the old free-text greeting/addressee field).
-
-        The frontend saves the chosen ``value`` verbatim into
-        ``campaigns.greeting``. Unset/blank (null) on an Outreach
-        campaign falls back to ``default`` ("Dear [Contact name],"), and
-        a resolved recipient with no contact name renders
-        ``no_name_fallback`` ("Hello friend,").
-        """
-        return {
-            "presets":          OUTREACH_GREETING_PRESETS,
-            "default":          OUTREACH_GREETING_DEFAULT,
-            "no_name_fallback": OUTREACH_NO_NAME_GREETING,
-            "applies_to":       "outreach",
-        }
 
     @router.get("/campaigns/{campaign_id}")
     async def campaigns_get(campaign_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
@@ -2608,448 +1969,19 @@ def build_router(db) -> APIRouter:
             {"recipient_id": recipient_id, "campaign_id": campaign_id},
             {"_id": 0, "type": 1, "at": 1, "meta": 1},
         ).sort([("at", 1)]).to_list(200)
-        status = (recip.get("status") or "").lower()
-        if status == "failed":
-            # A failed send never reached the provider successfully, so the
-            # timeline must show the *failure* (with the real provider/API
-            # reason) rather than a misleading "Sent". iter164bb.
-            has_failure = any(
-                e.get("type") in ("email.failed", "email.retry_failed")
-                for e in events
-            )
-            if not has_failure:
-                events.insert(0, {
-                    "type": "email.failed",
-                    "at":   recip.get("sent_at"),
-                    "meta": {
-                        "subject":     recip.get("subject"),
-                        "error":       recip.get("error"),
-                        "http_status": recip.get("http_status"),
-                    },
-                })
-        elif recip.get("sent_at"):
-            # Prepend a "sent" pseudo-event from the recipient row itself,
-            # so campaigns predating the webhook receiver still show a
-            # complete timeline (Resend can also emit email.sent AFTER we
-            # inserted the recipient, which we merge with dedupe). Skip it
-            # when a successful retry already accounts for the send.
+        # Prepend a "sent" pseudo-event from the recipient row itself,
+        # so campaigns predating the webhook receiver still show a
+        # complete timeline (Resend can also emit email.sent AFTER we
+        # inserted the recipient, which we merge with dedupe).
+        if recip.get("sent_at"):
             has_sent = any(e.get("type") == "email.sent" for e in events)
-            has_retry_ok = any(e.get("type") == "email.retry_succeeded" for e in events)
-            if not has_sent and not has_retry_ok:
+            if not has_sent:
                 events.insert(0, {
                     "type": "email.sent",
                     "at":   recip["sent_at"],
                     "meta": {"subject": recip.get("subject")},
                 })
         return {"recipient": recip, "events": events}
-
-    @router.post("/campaigns/{campaign_id}/retry-failed")
-    async def campaigns_retry_failed(
-        campaign_id: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """iter164bb — resend ONLY the recipients whose current state is
-        ``failed`` (e.g. Resend returned a quota error), within the same
-        campaign.
-
-        Safety rules:
-          • Eligible set is computed live from ``campaign_recipients``
-            (status == "failed") — never a stale campaign aggregate.
-          • Recipients that were accepted/sent/delivered/opened/clicked,
-            or bounced/complained/unsubscribed, are NEVER touched (their
-            status is not "failed", so they're excluded by definition).
-          • The original failure is preserved in the timeline; each retry
-            appends a new attempt event rather than replacing history.
-          • A per-campaign ``retry_in_progress`` guard prevents a
-            concurrent double-send.
-          • Successes flip the recipient to "sent" and move the KPI count
-            from failed → accepted; repeat failures keep "failed" and
-            store the fresh provider error.
-        """
-        import uuid as _uuid
-        from datetime import datetime, timezone
-        from email_service import send_email_detailed  # noqa: WPS433
-
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        if c.get("retry_in_progress"):
-            raise HTTPException(409, "A retry is already running for this campaign.")
-
-        failed = await db.campaign_recipients.find(
-            {"campaign_id": campaign_id, "status": "failed"}, {"_id": 0},
-        ).to_list(5000)
-        if not failed:
-            return {"retried": 0, "succeeded": 0, "failed_again": 0,
-                    "eligible": 0, "stats": c.get("stats")}
-
-        # Claim the guard atomically — only one retry at a time.
-        claim = await db.campaigns.update_one(
-            {"id": campaign_id, "retry_in_progress": {"$ne": True}},
-            {"$set": {"retry_in_progress": True}},
-        )
-        if claim.modified_count == 0:
-            raise HTTPException(409, "A retry is already running for this campaign.")
-
-        succeeded = 0
-        failed_again = 0
-        suppressed_n = 0
-        try:
-            for recip in failed:
-                now = datetime.now(timezone.utc).isoformat()
-                # iter164bd — MANDATORY per-retry suppression guard. A
-                # suppressed address is NEVER retried; it's moved out of
-                # "failed" into "suppressed" (not counted as failed).
-                from services import suppression as _supp
-                _s = await _supp.get_suppression(db, recip.get("email"))
-                if _s:
-                    await db.campaign_recipients.update_one(
-                        {"id": recip["id"]},
-                        {"$set": {"status": "suppressed",
-                                  "suppression_reason": _s.get("suppression_reason"),
-                                  "error": None, "retried_at": now}},
-                    )
-                    await db.campaign_recipient_events.insert_one({
-                        "id": str(_uuid.uuid4()), "campaign_id": campaign_id,
-                        "recipient_id": recip["id"], "type": "email.suppressed",
-                        "at": now, "meta": {"reason": _s.get("suppression_reason")},
-                    })
-                    await db.campaigns.update_one(
-                        {"id": campaign_id},
-                        {"$inc": {"stats.failed": -1, "stats.suppressed": 1}})
-                    suppressed_n += 1
-                    continue
-                # 1) Preserve the ORIGINAL failure in the timeline (once).
-                has_orig = await db.campaign_recipient_events.find_one({
-                    "recipient_id": recip["id"], "campaign_id": campaign_id,
-                    "type": {"$in": ["email.failed", "email.retry_failed"]},
-                })
-                if not has_orig:
-                    await db.campaign_recipient_events.insert_one({
-                        "id": str(_uuid.uuid4()),
-                        "campaign_id": campaign_id,
-                        "recipient_id": recip["id"],
-                        "type": "email.failed",
-                        "at": recip.get("sent_at") or now,
-                        "meta": {
-                            "subject": recip.get("subject"),
-                            "error": recip.get("error"),
-                            "http_status": recip.get("http_status"),
-                        },
-                    })
-
-                # 2) Re-render this recipient's email from the campaign.
-                r = {
-                    "id": recip.get("founder_id"),
-                    "email": recip["email"],
-                    "first_name": recip.get("first_name"),
-                    "founder_number": recip.get("founder_number"),
-                    "outreach_id": recip.get("outreach_id"),
-                    "outreach_number": recip.get("outreach_number"),
-                }
-                overrides: Dict[str, Any] = {}
-                if r.get("first_name"):
-                    overrides["first_name"] = r["first_name"]
-                if r.get("founder_number"):
-                    overrides["founder_number"] = r["founder_number"]
-                companion = c.get("companion") or "george"
-                if c.get("template") == "announcement":
-                    overrides["title"]     = c.get("title") or ""
-                    overrides["body_md"]   = c.get("body_md") or ""
-                    overrides["cta_label"] = c.get("cta_label") or None
-                    overrides["cta_url"]   = c.get("cta_url")   or None
-                    if c.get("greeting") is not None:
-                        overrides["greeting"] = c.get("greeting")
-                    if c.get("show_founder_badge") is not None:
-                        overrides["show_founder_badge"] = c.get("show_founder_badge")
-                _apply_outreach_safety(overrides, c, r)
-                subject, html, text = _preview_render(
-                    c["template"], companion=companion,
-                    subject_override=(c.get("subject") or None),
-                    preheader_override=(c.get("preheader") or None),
-                    data_overrides=overrides,
-                )
-                attachments = None
-                if c.get("attach_file") and isinstance(c.get("attachment"), dict):
-                    _att = c["attachment"]
-                    if _att.get("content_b64") and _att.get("filename"):
-                        attachments = [{
-                            "filename":     _att["filename"],
-                            "content":      _att["content_b64"],
-                            "content_type": _att.get("content_type") or "application/pdf",
-                        }]
-
-                # 3) Send + record the retry attempt (never delete history).
-                result = await send_email_detailed(
-                    to=r["email"], subject=subject, html=html, text=text,
-                    attachments=attachments,
-                    **({"from_email": OUTREACH_FROM_EMAIL, "from_name": OUTREACH_FROM_NAME}
-                       if _is_outreach_campaign(c) else {}),
-                )
-                now = datetime.now(timezone.utc).isoformat()
-                await db.campaign_recipient_events.insert_one({
-                    "id": str(_uuid.uuid4()),
-                    "campaign_id": campaign_id,
-                    "recipient_id": recip["id"],
-                    "type": "email.retry_succeeded" if result.ok else "email.retry_failed",
-                    "at": now,
-                    "meta": {
-                        "subject": subject,
-                        "message_id": result.message_id,
-                        "error": result.error if not result.ok else None,
-                        "http_status": result.http_status,
-                    },
-                })
-
-                if result.ok:
-                    await db.campaign_recipients.update_one(
-                        {"id": recip["id"]},
-                        {"$set": {
-                            "status": "sent",
-                            "message_id": result.message_id,
-                            "error": None,
-                            "http_status": result.http_status,
-                            "sent_at": now,
-                            "retried_at": now,
-                        }, "$inc": {"retry_count": 1}},
-                    )
-                    await db.campaigns.update_one(
-                        {"id": campaign_id},
-                        {"$inc": {"stats.accepted": 1, "stats.failed": -1}},
-                    )
-                    succeeded += 1
-                    if result.message_id:
-                        try:
-                            from services.outreach.store import touch_last_contact as _tlc
-                            await _tlc(
-                                db, email=r["email"], campaign_id=campaign_id,
-                                subject=subject,
-                                send_id=str(recip["id"]) + "@retry@" + campaign_id,
-                            )
-                        except Exception:
-                            pass
-                else:
-                    await db.campaign_recipients.update_one(
-                        {"id": recip["id"]},
-                        {"$set": {
-                            "error": result.error,
-                            "http_status": result.http_status,
-                            "retried_at": now,
-                        }, "$inc": {"retry_count": 1}},
-                    )
-                    failed_again += 1
-
-            # Guard against a negative failed count.
-            await db.campaigns.update_one(
-                {"id": campaign_id, "stats.failed": {"$lt": 0}},
-                {"$set": {"stats.failed": 0}},
-            )
-            fresh = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-            return {
-                "retried": len(failed),
-                "succeeded": succeeded,
-                "failed_again": failed_again,
-                "suppressed": suppressed_n,
-                "eligible": len(failed),
-                "stats": fresh.get("stats") if fresh else c.get("stats"),
-            }
-        finally:
-            await db.campaigns.update_one(
-                {"id": campaign_id}, {"$unset": {"retry_in_progress": ""}},
-            )
-
-    @router.post("/campaigns/{campaign_id}/retry-transient-bounces")
-    async def campaigns_retry_transient_bounces(
-        campaign_id: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """iter164bg — resend ONLY recipients whose current state is a
-        TRANSIENT / soft bounce (mailbox full, greylisting, temporary DNS).
-
-        Safety rules:
-          • Eligible set is computed live from ``campaign_recipients``:
-            status == "bounced" AND bounce_type in {transient, soft}.
-          • PERMANENT / hard bounces are NEVER included (they've been
-            suppressed and are excluded by the bounce_type filter AND the
-            per-send suppression guard below).
-          • The ORIGINAL bounce event is preserved in the timeline; the
-            retry result is APPENDED (never replaces history). If it bounces
-            again, the new bounce is appended by the webhook — both are kept.
-          • Same ``retry_in_progress`` guard prevents a concurrent double-send.
-          • Returns counts: attempted / succeeded / failed_again.
-        """
-        import uuid as _uuid
-        from datetime import datetime, timezone
-        from email_service import send_email_detailed  # noqa: WPS433
-
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        if c.get("retry_in_progress"):
-            raise HTTPException(409, "A retry is already running for this campaign.")
-
-        # Transient/soft bounces only — hard/permanent are excluded.
-        eligible = await db.campaign_recipients.find(
-            {"campaign_id": campaign_id, "status": "bounced",
-             "bounce_type": {"$regex": r"^(transient|soft)$", "$options": "i"}},
-            {"_id": 0},
-        ).to_list(5000)
-        if not eligible:
-            return {"attempted": 0, "succeeded": 0, "failed_again": 0,
-                    "suppressed": 0, "eligible": 0, "stats": c.get("stats")}
-
-        claim = await db.campaigns.update_one(
-            {"id": campaign_id, "retry_in_progress": {"$ne": True}},
-            {"$set": {"retry_in_progress": True}},
-        )
-        if claim.modified_count == 0:
-            raise HTTPException(409, "A retry is already running for this campaign.")
-
-        succeeded = 0
-        failed_again = 0
-        suppressed_n = 0
-        try:
-            for recip in eligible:
-                now = datetime.now(timezone.utc).isoformat()
-                # MANDATORY per-send suppression guard — a suppressed address
-                # is never retried (defence-in-depth; permanent bounces are
-                # already suppressed so this also blocks any misclassified row).
-                from services import suppression as _supp
-                _s = await _supp.get_suppression(db, recip.get("email"))
-                if _s:
-                    await db.campaign_recipient_events.insert_one({
-                        "id": str(_uuid.uuid4()), "campaign_id": campaign_id,
-                        "recipient_id": recip["id"], "type": "email.suppressed",
-                        "at": now, "meta": {"reason": _s.get("suppression_reason")},
-                    })
-                    suppressed_n += 1
-                    continue
-
-                # Preserve the ORIGINAL bounce in the timeline (once). The
-                # webhook normally wrote it already; backfill from the row if
-                # it is somehow missing so history is always intact.
-                has_bounce = await db.campaign_recipient_events.find_one({
-                    "recipient_id": recip["id"], "campaign_id": campaign_id,
-                    "type": "email.bounced",
-                })
-                if not has_bounce:
-                    await db.campaign_recipient_events.insert_one({
-                        "id": str(_uuid.uuid4()), "campaign_id": campaign_id,
-                        "recipient_id": recip["id"], "type": "email.bounced",
-                        "at": recip.get("last_event_at") or recip.get("sent_at") or now,
-                        "meta": {"bounce_type": recip.get("bounce_type"),
-                                 "bounce_msg": recip.get("bounce_message"),
-                                 "subject": recip.get("subject")},
-                    })
-
-                # Re-render this recipient from the campaign (same shared path
-                # as the real send + retry-failed, so greeting/footer/sender
-                # are identical).
-                r = {
-                    "id": recip.get("founder_id"),
-                    "email": recip["email"],
-                    "first_name": recip.get("first_name"),
-                    "founder_number": recip.get("founder_number"),
-                    "outreach_id": recip.get("outreach_id"),
-                    "outreach_number": recip.get("outreach_number"),
-                }
-                overrides: Dict[str, Any] = {}
-                if r.get("first_name"):
-                    overrides["first_name"] = r["first_name"]
-                if r.get("founder_number"):
-                    overrides["founder_number"] = r["founder_number"]
-                companion = c.get("companion") or "george"
-                if c.get("template") == "announcement":
-                    overrides["title"]     = c.get("title") or ""
-                    overrides["body_md"]   = c.get("body_md") or ""
-                    overrides["cta_label"] = c.get("cta_label") or None
-                    overrides["cta_url"]   = c.get("cta_url")   or None
-                    if c.get("greeting") is not None:
-                        overrides["greeting"] = c.get("greeting")
-                    if c.get("show_founder_badge") is not None:
-                        overrides["show_founder_badge"] = c.get("show_founder_badge")
-                _apply_outreach_safety(overrides, c, r)
-                subject, html, text = _preview_render(
-                    c["template"], companion=companion,
-                    subject_override=(c.get("subject") or None),
-                    preheader_override=(c.get("preheader") or None),
-                    data_overrides=overrides,
-                )
-                attachments = None
-                if c.get("attach_file") and isinstance(c.get("attachment"), dict):
-                    _att = c["attachment"]
-                    if _att.get("content_b64") and _att.get("filename"):
-                        attachments = [{
-                            "filename":     _att["filename"],
-                            "content":      _att["content_b64"],
-                            "content_type": _att.get("content_type") or "application/pdf",
-                        }]
-
-                result = await send_email_detailed(
-                    to=r["email"], subject=subject, html=html, text=text,
-                    attachments=attachments,
-                    **({"from_email": OUTREACH_FROM_EMAIL, "from_name": OUTREACH_FROM_NAME}
-                       if _is_outreach_campaign(c) else {}),
-                )
-                now = datetime.now(timezone.utc).isoformat()
-                # APPEND the retry outcome — original bounce stays intact.
-                await db.campaign_recipient_events.insert_one({
-                    "id": str(_uuid.uuid4()), "campaign_id": campaign_id,
-                    "recipient_id": recip["id"],
-                    "type": "email.retry_succeeded" if result.ok else "email.retry_failed",
-                    "at": now,
-                    "meta": {"subject": subject, "message_id": result.message_id,
-                             "error": result.error if not result.ok else None,
-                             "http_status": result.http_status,
-                             "retry_of": "transient_bounce"},
-                })
-                if result.ok:
-                    # Accepted for re-delivery. Move off "bounced" to "sent";
-                    # do NOT inc stats.accepted (already counted at first send).
-                    # A later re-bounce will flip status back via the webhook.
-                    await db.campaign_recipients.update_one(
-                        {"id": recip["id"]},
-                        {"$set": {"status": "sent", "message_id": result.message_id,
-                                  "error": None, "http_status": result.http_status,
-                                  "sent_at": now, "retried_at": now},
-                         "$inc": {"retry_count": 1}},
-                    )
-                    await db.campaigns.update_one(
-                        {"id": campaign_id}, {"$inc": {"stats.bounced": -1}})
-                    succeeded += 1
-                    if result.message_id:
-                        try:
-                            from services.outreach.store import touch_last_contact as _tlc
-                            await _tlc(db, email=r["email"], campaign_id=campaign_id,
-                                       subject=subject,
-                                       send_id=str(recip["id"]) + "@rbounce@" + campaign_id)
-                        except Exception:
-                            pass
-                else:
-                    # Synchronous send failure — keep it "bounced", record error.
-                    await db.campaign_recipients.update_one(
-                        {"id": recip["id"]},
-                        {"$set": {"error": result.error, "http_status": result.http_status,
-                                  "retried_at": now}, "$inc": {"retry_count": 1}},
-                    )
-                    failed_again += 1
-
-            await db.campaigns.update_one(
-                {"id": campaign_id, "stats.bounced": {"$lt": 0}},
-                {"$set": {"stats.bounced": 0}})
-            fresh = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-            return {
-                "attempted":    len(eligible) - suppressed_n,
-                "succeeded":    succeeded,
-                "failed_again": failed_again,
-                "suppressed":   suppressed_n,
-                "eligible":     len(eligible),
-                "stats":        fresh.get("stats") if fresh else c.get("stats"),
-            }
-        finally:
-            await db.campaigns.update_one(
-                {"id": campaign_id}, {"$unset": {"retry_in_progress": ""}},
-            )
 
     @router.patch("/campaigns/{campaign_id}")
     async def campaigns_update(campaign_id: str, payload: Dict[str, Any],
@@ -3061,73 +1993,15 @@ def build_router(db) -> APIRouter:
             raise HTTPException(400, "Only drafts can be edited")
         updates: Dict[str, Any] = {}
         for key in ("name", "template", "subject", "preheader", "companion",
-                    "title", "body_md", "cta_label", "cta_url", "audience_filter",
-                    # iter164p — accept new editable fields on PATCH.
-                    "greeting", "show_founder_badge",
-                    # iter164r — accept the include-in-outgoing-email flag.
-                    # The attachment bytes themselves are only mutated via
-                    # POST/DELETE /campaigns/{id}/attachment.
-                    "attach_file"):
+                    "title", "body_md", "cta_label", "cta_url", "greeting",
+                    "show_founder_badge", "audience_filter"):
             if key in payload:
                 updates[key] = payload[key]
-        # iter164p normalisation. Accept:
-        #   greeting            : str | null   (null == "unset")
-        #   show_founder_badge  : bool | null  (null == "unset")
-        if "greeting" in updates and updates["greeting"] is not None:
-            updates["greeting"] = str(updates["greeting"])[:200]
-        if "show_founder_badge" in updates and updates["show_founder_badge"] is not None:
-            if not isinstance(updates["show_founder_badge"], bool):
-                # Coerce loosely-typed clients (e.g. checkbox strings).
-                updates["show_founder_badge"] = str(updates["show_founder_badge"]).lower() in ("true", "1", "yes", "on")
-        # iter164r: `attach_file` is strictly boolean. Coerce loose
-        # truthy strings/ints for the same reason we coerce
-        # `show_founder_badge` — some form serialisers ship checkboxes
-        # as "on"/"1"/"true" rather than a JSON bool.
-        if "attach_file" in updates:
-            v = updates["attach_file"]
-            if not isinstance(v, bool):
-                updates["attach_file"] = str(v).lower() in ("true", "1", "yes", "on")
         if "template" in updates and updates["template"] not in _CAMPAIGN_TEMPLATES:
             raise HTTPException(400, "Unknown template")
         from datetime import datetime, timezone
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
         await db.campaigns.update_one({"id": campaign_id}, {"$set": updates})
-        c2 = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        return _campaign_summary(c2)
-
-    @router.patch("/campaigns/{campaign_id}/rename")
-    async def campaigns_rename(campaign_id: str, payload: Dict[str, Any],
-                               admin: dict = Depends(current_cms_admin)):
-        """iter164av — rename ONLY the internal campaign name, allowed
-        even after a campaign has been sent.
-
-        Everything else stays locked and untouched: subject, body,
-        recipients, the archived sent HTML, delivery history and all
-        tracking (opens / clicks / bounces / complaints). This exists
-        because PATCH /campaigns/{id} correctly rejects edits to sent
-        campaigns — so the rename lives here and is persisted
-        server-side, making the label consistent across browsers and
-        devices (replacing the local-only frontend workaround).
-        """
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        new_name = str(payload.get("name") or "").strip()
-        if not new_name:
-            raise HTTPException(400, "name is required")
-        new_name = new_name[:200]
-        from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
-        # Whitelist: only the name (+ audit metadata) is ever written.
-        await db.campaigns.update_one(
-            {"id": campaign_id},
-            {"$set": {
-                "name":        new_name,
-                "renamed_at":  now,
-                "renamed_by":  admin.get("email") if isinstance(admin, dict) else None,
-                "updated_at":  now,
-            }},
-        )
         c2 = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
         return _campaign_summary(c2)
 
@@ -3141,111 +2015,6 @@ def build_router(db) -> APIRouter:
         await db.campaigns.delete_one({"id": campaign_id})
         return {"ok": True}
 
-    # ─── iter164ac: soft archive / unarchive for sent campaigns ────
-    # Design contract with Garry (25 Aug 2026):
-    #   • Sent campaigns are permanent — never hard-deleted.
-    #   • Archive is a bookkeeping flip only. It NEVER touches
-    #     recipient rows, delivery history, stats, message IDs, the
-    #     rendered sample HTML, or the audience filter. Rendering
-    #     and send behaviour are unchanged.
-    #   • Only completed campaigns (status ∈ {sent, failed}) can be
-    #     archived. In-flight campaigns (`sending`) MUST NOT be
-    #     archived — closing the door while people are walking
-    #     through it is a footgun.
-    #   • Drafts and scheduled campaigns keep the DELETE path; they
-    #     never need archiving because they can be removed outright.
-    _ARCHIVABLE_STATUSES = {"sent", "failed"}
-
-    @router.post("/campaigns/{campaign_id}/archive")
-    async def campaigns_archive(
-        campaign_id: str,
-        admin: dict = Depends(current_cms_admin),
-    ):
-        from datetime import datetime, timezone
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        status = (c.get("status") or "").lower()
-        if status not in _ARCHIVABLE_STATUSES:
-            raise HTTPException(
-                400,
-                f"Only completed campaigns can be archived "
-                f"(status must be one of {sorted(_ARCHIVABLE_STATUSES)}; "
-                f"got {status!r}).",
-            )
-        if c.get("archived_at"):
-            # Idempotent: archiving an already-archived campaign is a
-            # no-op. Returning the current metadata keeps client
-            # retry logic simple.
-            return {
-                "ok":             True,
-                "id":             c.get("id"),
-                "status":         c.get("status"),
-                "is_archived":    True,
-                "archived_at":    c.get("archived_at"),
-                "archived_by":    c.get("archived_by"),
-                "archived_by_email": c.get("archived_by_email"),
-                "already_archived": True,
-            }
-        now = datetime.now(timezone.utc).isoformat()
-        await db.campaigns.update_one(
-            {"id": campaign_id},
-            {"$set": {
-                "archived_at":       now,
-                "archived_by":       admin.get("id"),
-                "archived_by_email": admin.get("email"),
-                # NB: we intentionally do NOT touch `status` — the
-                # domain fact "this campaign was sent" is separate
-                # from the UI fact "we've filed it away".
-            }},
-        )
-        return {
-            "ok":                True,
-            "id":                campaign_id,
-            "status":            c.get("status"),
-            "is_archived":       True,
-            "archived_at":       now,
-            "archived_by":       admin.get("id"),
-            "archived_by_email": admin.get("email"),
-            "already_archived":  False,
-        }
-
-    @router.post("/campaigns/{campaign_id}/unarchive")
-    async def campaigns_unarchive(
-        campaign_id: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """Restore a soft-archived campaign so it shows in the default
-        list again. Idempotent: unarchiving a campaign that isn't
-        archived returns ``{ok: true, already_active: true}``.
-        """
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        if not c.get("archived_at"):
-            return {
-                "ok":              True,
-                "id":              c.get("id"),
-                "status":          c.get("status"),
-                "is_archived":     False,
-                "already_active":  True,
-            }
-        await db.campaigns.update_one(
-            {"id": campaign_id},
-            {"$unset": {
-                "archived_at":       "",
-                "archived_by":       "",
-                "archived_by_email": "",
-            }},
-        )
-        return {
-            "ok":              True,
-            "id":              campaign_id,
-            "status":          c.get("status"),
-            "is_archived":     False,
-            "already_active":  False,
-        }
-
     @router.post("/campaigns/{campaign_id}/preview-audience")
     async def campaigns_preview_audience(campaign_id: str,
                                          admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
@@ -3253,57 +2022,8 @@ def build_router(db) -> APIRouter:
         if not c:
             raise HTTPException(404, "Campaign not found")
         recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
-        # iter164bd — also resolve WITH suppressed rows so we can report an
-        # "Excluded — Do Not Email" count and which records/why. Suppressed
-        # records are NEVER in `recipients`/`count` (the sendable total).
-        raw = await _resolve_audience(c.get("audience_filter") or {}, limit=5000,
-                                      include_suppressed=True)
-        from services import suppression as _supp
-        clean_emails = {(r.get("email") or "").strip().lower() for r in recipients}
-        excluded = []
-        seen = set()
-        for r in raw:
-            e = (r.get("email") or "").strip().lower()
-            if e and e not in clean_emails and e not in seen:
-                seen.add(e)
-                s = await _supp.get_suppression(db, e)
-                excluded.append({
-                    "email": r.get("email"),
-                    "organisation_name": r.get("organisation_name") or r.get("name"),
-                    "reason": (s or {}).get("suppression_reason") or "unsubscribed",
-                    "suppressed_at": (s or {}).get("suppressed_at"),
-                })
-        # iter164as — resolve the FULL audience (up to 5000) and return
-        # the entire resolved list so Mission Control shows the true
-        # recipient set, not a 10-row teaser. `sample` is retained for
-        # frontend compatibility but now carries the full list; the
-        # `recipients` key mirrors it for the backend contract.
-        return {
-            "count": len(recipients),
-            "recipients": recipients,
-            "sample": recipients,
-            "excluded_count": len(excluded),
-            "excluded_do_not_email": excluded,
-        }
-
-    # iter164ag — Reconcile campaign stats from the raw Resend webhook
-    # event log. Admins use this when a campaign's live rollup drifted
-    # from the raw log (e.g. the webhook secret was rotated mid-send,
-    # or events arrived while a bug in the receiver was in play). The
-    # operation is idempotent — replays every raw event we accepted
-    # for the campaign's recipients through the same rollup code path
-    # that the live webhook uses, so a reconciled campaign matches a
-    # freshly-flowed one byte-for-byte. Never triggers a new send.
-    @router.post("/campaigns/{campaign_id}/reconcile-stats")
-    async def campaigns_reconcile_stats(
-        campaign_id: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        from services.campaign_webhooks import reconcile_campaign_stats
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0, "id": 1})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        return await reconcile_campaign_stats(db, campaign_id)
+        # CAMPAIGN_INVARIANT: admins can review every resolved address before send.
+        return {"count": len(recipients), "sample": recipients}
 
     @router.post("/campaigns/{campaign_id}/render-preview")
     async def campaigns_render_preview(campaign_id: str,
@@ -3311,67 +2031,21 @@ def build_router(db) -> APIRouter:
         c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
         if not c:
             raise HTTPException(404, "Campaign not found")
-        # iter164o preview privacy fix: previously we peeked at the FIRST
-        # recipient and used their real first_name in the preview, which
-        # leaked (e.g. "Dear Shelly,") when the audience was 40 Outreach
-        # contacts. For any bulk audience the preview must render with a
-        # neutral placeholder — the actual sent emails still personalise
-        # each recipient in _campaign_send_worker unchanged.
-        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=2)
+        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=1)
+        recipient = recipients[0] if recipients else None
         overrides: Dict[str, Any] = {}
-        is_outreach = _is_outreach_campaign(c)
-        if len(recipients) == 1:
-            # A truly single-recipient campaign — safe to show that
-            # recipient's real data in the preview (it's the one they'll
-            # get regardless).
-            r = recipients[0]
-            # iter164as — force the recipient's first_name through even
-            # when blank ("") so a nameless single recipient never falls
-            # back to the sample "Sarah". _preview_render honours the
-            # explicit empty override (see the passthrough in
-            # _preview_render).
-            overrides["first_name"] = r.get("first_name") or ""
-            if r.get("founder_number"):
-                overrides["founder_number"] = r["founder_number"]
-        else:
-            # Bulk (or empty) — placeholder so no real name leaks.
-            overrides["first_name"] = "[Contact name]"
-            # iter164p: also neutralise the sample `founder_number=42`
-            # from _preview_sample so a bulk preview doesn't display a
-            # fake Founding Member pill (real bulk recipients — e.g. 40
-            # Outreach contacts — have no founder_number). The
-            # show_founder_badge toggle can further suppress this when
-            # a legitimate founder_number is present.
-            overrides["founder_number"] = 0
+        if recipient:
+            # CAMPAIGN_INVARIANT: blank outreach names must override Sarah sample data.
+            overrides["first_name"] = recipient.get("first_name") or ""
+            if recipient.get("founder_number"):
+                overrides["founder_number"] = recipient["founder_number"]
         if c.get("template") == "announcement":
-            # iter164o: pass title through raw — no silent
-            # `or "A note from FriendPlace"` fallback. If the composer
-            # cleared the field, that means "no headline". The
-            # announcement_template renderer handles the empty case by
-            # omitting the h1 entirely.
-            overrides["title"]     = c.get("title") or ""
+            overrides["title"]     = c.get("title") or "A note from FriendPlace"
             overrides["body_md"]   = c.get("body_md") or ""
             overrides["cta_label"] = c.get("cta_label") or None
             overrides["cta_url"]   = c.get("cta_url")   or None
-            # iter164p: forward the new editable fields. `greeting` and
-            # `show_founder_badge` are only overridden when explicitly
-            # set on the campaign; unset (None) leaves the template on
-            # its back-compat default.
-            if c.get("greeting") is not None:
-                overrides["greeting"] = c.get("greeting")
-            if c.get("show_founder_badge") is not None:
-                overrides["show_founder_badge"] = c.get("show_founder_badge")
-        # iter164af — outreach safety envelope for the preview path.
-        # Single-recipient outreach: force first_name / greeting /
-        # founder pill using the actual recipient. Bulk outreach:
-        # keep the "[Contact name]" placeholder but still kill the
-        # founder pill and default the greeting to "Hi …,".
-        if is_outreach:
-            _apply_outreach_safety(
-                overrides, c,
-                (recipients[0] if len(recipients) == 1 else None),
-                bulk_preview=(len(recipients) != 1),
-            )
+            overrides["greeting"] = c.get("greeting")
+            overrides["show_founder_badge"] = c.get("show_founder_badge")
         subject, html, text = _preview_render(
             c["template"],
             companion=c.get("companion") or "george",
@@ -3379,489 +2053,7 @@ def build_router(db) -> APIRouter:
             preheader_override=(c.get("preheader") or None),
             data_overrides=overrides or None,
         )
-        preview_recipient = recipients[0] if len(recipients) == 1 else None
-        # iter164am — surface subject, preheader (extracted from the
-        # rendered HTML's hidden preview div) and headline separately
-        # so the composer preview can render each field in its own
-        # panel. Headline is `c.title` (announcement template) — the
-        # renderer only emits it inside an <h1> when non-empty.
-        import re as _re
-        _h1_match = _re.search(
-            r'<h1[^>]*>([\s\S]*?)</h1>', html,
-        )
-        headline_out = (
-            _re.sub(r'\s+', ' ', _h1_match.group(1)).strip()
-            if _h1_match else ""
-        )
-        return {
-            "subject":       subject,
-            "preheader":     _extract_preheader(html),
-            "headline":      headline_out,
-            "html":          html,
-            "text":          text,
-            "recipient":     preview_recipient,
-            "audience_size": len(recipients) if len(recipients) < 2 else None,
-            "is_outreach":   is_outreach,
-        }
-
-    # ─── iter164ab: campaign preview + test-send helper ────────────
-    # Shared render pipeline so the render-preview, render-recipient,
-    # test-send AND real send worker all produce byte-identical HTML
-    # for the same (campaign, recipient) pair. Keeping this in one
-    # place is what lets George promise the composer preview matches
-    # exactly what lands in an inbox.
-    #
-    # ─── iter164af: outreach personalisation safety envelope ───────
-    # Contract with Garry (26 Aug 2026, P0):
-    #   • Outreach campaigns must NEVER render a Founding Member
-    #     badge/pill, regardless of any stale sample data or
-    #     recipient-level founder_number.
-    #   • Outreach greeting is "Hi <first_name>," when the contact
-    #     has a name, otherwise "Hi friend,". The "Sarah" sample
-    #     first-name from _preview_sample must NEVER survive into an
-    #     outreach render for a contact who happens to have no name.
-    #   • Outreach is determined from the campaign's audience
-    #     (audience_filter.audience_kind ∈ {outreach, outreach_contacts}) —
-    #     NOT from whether a recipient happens to have a founder
-    #     number. This prevents a Founding Member who is also listed
-    #     as an Outreach contact from silently getting the founder
-    #     treatment.
-    #   • Founding Member campaign behaviour is preserved unchanged.
-    _OUTREACH_AUDIENCE_KINDS = {"outreach", "outreach_contacts"}
-
-    def _is_outreach_campaign(c: Dict[str, Any]) -> bool:
-        """True when the campaign's audience is an Outreach contact
-        list. Single source of truth for the outreach safety envelope.
-        """
-        f = c.get("audience_filter") or {}
-        kind = str(f.get("audience_kind") or "").strip().lower()
-        return kind in _OUTREACH_AUDIENCE_KINDS
-
-    def _resolve_outreach_first_name(r: Optional[Dict[str, Any]]) -> str:
-        """Per-recipient first-name resolution for outreach renders.
-
-        Empty, whitespace-only, or missing names collapse to
-        ``"friend"`` so the greeting reads "Hi friend,". Never returns
-        the empty string.
-        """
-        fn = (r or {}).get("first_name") if r else None
-        fn = str(fn or "").strip()
-        return fn or "friend"
-
-    def _apply_outreach_safety(
-        overrides: Dict[str, Any],
-        c: Dict[str, Any],
-        r: Optional[Dict[str, Any]],
-        *,
-        bulk_preview: bool = False,
-    ) -> None:
-        """Enforce the outreach safety envelope on a render context.
-
-        Idempotent — safe to call from any render path. Does nothing
-        on non-outreach campaigns so Founding Member behaviour is
-        preserved untouched.
-
-        For outreach:
-          • ``first_name``          = recipient's first_name (or
-                                      ``"friend"``); ``"[Contact name]"``
-                                      when ``bulk_preview=True``.
-          • ``founder_number``      = 0 (kills the sample "#0042"
-                                      pill defensively, even if some
-                                      caller forgot to override).
-          • ``show_founder_badge``  = False (template-level safety
-                                      invariant — always suppresses
-                                      the pill for outreach).
-          • ``greeting``            = ``"Hi [Contact name],"`` when
-                                      the composer left it unset;
-                                      an explicit composer greeting
-                                      is honoured verbatim.
-        """
-        if not _is_outreach_campaign(c):
-            return
-        if bulk_preview:
-            resolved_first = "[Contact name]"
-        else:
-            resolved_first = _resolve_outreach_first_name(r)
-        overrides["first_name"]         = resolved_first
-        overrides["founder_number"]     = 0
-        overrides["show_founder_badge"] = False
-        # iter164at — Outreach greeting preset resolution (Outreach ONLY).
-        #   campaigns.greeting persists the chosen preset:
-        #     None -> unset/blank -> DEFAULT "Dear [Contact name],"
-        #     ""   -> "No greeting" -> render no greeting line
-        #     a named-contact preset -> honoured verbatim (token
-        #        "[Contact name]" is substituted per recipient by
-        #        announcement_template)
-        #   A no-name recipient only falls back to "Hello friend," when
-        #   the effective greeting is a *named-contact preset* — i.e. it
-        #   contains the "[Contact name]" token that cannot be
-        #   personalised without a name. A LITERAL custom greeting with
-        #   no token (e.g. "Dear COTA Team,") is honoured verbatim even
-        #   for a no-name recipient; an explicit "No greeting" ("") stays
-        #   blank. This ALWAYS sets overrides["greeting"] so the outreach
-        #   envelope wins over any earlier layer.
-        composer_greeting = c.get("greeting")
-        effective = (OUTREACH_GREETING_DEFAULT
-                     if composer_greeting is None else composer_greeting)
-        CONTACT_TOKEN = "[Contact name]"
-        if (not bulk_preview) and resolved_first == "friend" and (CONTACT_TOKEN in effective):
-            overrides["greeting"] = OUTREACH_NO_NAME_GREETING
-        else:
-            overrides["greeting"] = effective
-        # iter164bd — outreach-only unsubscribe footer link. Provide a
-        # recipient-specific secure signed URL for real sends; a neutral
-        # placeholder for bulk preview (never a real recipient's token).
-        from services import suppression as _supp2
-        if bulk_preview or not (r and r.get("email")):
-            overrides["outreach_unsubscribe_url"] = _supp2.unsubscribe_url("preview@friendplace.com.au")
-        else:
-            overrides["outreach_unsubscribe_url"] = _supp2.unsubscribe_url(r["email"])
-
-    def _campaign_overrides_for_recipient(c: Dict[str, Any],
-                                          r: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        overrides: Dict[str, Any] = {}
-        if r:
-            if r.get("first_name"):
-                overrides["first_name"] = r["first_name"]
-            if r.get("founder_number"):
-                overrides["founder_number"] = r["founder_number"]
-            if r.get("companion_choice"):
-                overrides["companion"] = r["companion_choice"]
-        if c.get("template") == "announcement":
-            overrides["title"]     = c.get("title") or ""
-            overrides["body_md"]   = c.get("body_md") or ""
-            overrides["cta_label"] = c.get("cta_label") or None
-            overrides["cta_url"]   = c.get("cta_url")   or None
-            if c.get("greeting") is not None:
-                overrides["greeting"] = c.get("greeting")
-            if c.get("show_founder_badge") is not None:
-                overrides["show_founder_badge"] = c.get("show_founder_badge")
-        # iter164af — apply outreach safety envelope LAST so it wins
-        # over any stale composer/recipient state (esp. missing
-        # first_name / stray founder_number).
-        _apply_outreach_safety(overrides, c, r)
-        return overrides
-
-    def _campaign_attachments_payload(c: Dict[str, Any]) -> Optional[list]:
-        """Return the Resend `attachments=` payload iff the campaign's
-        ``attach_file`` flag is ON AND a real attachment is on disk.
-        Shape matches exactly what the send worker uses.
-        """
-        if not c.get("attach_file"):
-            return None
-        att = c.get("attachment")
-        if not isinstance(att, dict) or not att.get("content_b64") or not att.get("filename"):
-            return None
-        return [{
-            "filename":     att["filename"],
-            "content":      att["content_b64"],
-            "content_type": att.get("content_type") or "application/pdf",
-        }]
-
-    @router.post("/campaigns/{campaign_id}/render-recipient")
-    async def campaigns_render_recipient(
-        campaign_id: str,
-        payload: Dict[str, Any],
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        """Render the *personalised* email for a single recipient
-        without sending it. Powers the composer's "Review emails" list.
-
-        Request body (JSON): either ``{"user_id": "…"}`` or
-        ``{"email": "…"}`` — one of them must identify a real
-        recipient inside the campaign's resolved audience. Returns
-        the exact subject/html/text that the send worker would emit
-        for that recipient.
-        """
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        user_id = (payload or {}).get("user_id")
-        email = (payload or {}).get("email")
-        if not user_id and not email:
-            raise HTTPException(400, "Provide user_id or email")
-        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
-        selected: Optional[Dict[str, Any]] = None
-        for r in recipients:
-            if user_id and r.get("id") == user_id:
-                selected = r
-                break
-            if email and (r.get("email") or "").strip().lower() == str(email).strip().lower():
-                selected = r
-                break
-        if not selected:
-            raise HTTPException(
-                404,
-                "Recipient not found in this campaign's resolved audience",
-            )
-        overrides = _campaign_overrides_for_recipient(c, selected)
-        companion = overrides.pop("companion", None) or c.get("companion") or "george"
-        subject, html, text = _preview_render(
-            c["template"], companion=companion,
-            subject_override=(c.get("subject") or None),
-            preheader_override=(c.get("preheader") or None),
-            data_overrides=overrides,
-        )
-        att = _campaign_attachments_payload(c)
-        return {
-            "subject": subject,
-            "html":    html,
-            "text":    text,
-            "recipient": {
-                "id":             selected.get("id"),
-                "email":          selected.get("email"),
-                "first_name":     selected.get("first_name"),
-                "founder_number": selected.get("founder_number"),
-                "companion":      companion,
-            },
-            "attachment": (
-                {"filename": att[0]["filename"],
-                 "size":     len((c.get("attachment") or {}).get("content_b64") or "") * 3 // 4,
-                 "content_type": att[0]["content_type"]}
-                if att else None
-            ),
-        }
-
-    @router.post("/campaigns/{campaign_id}/test-send")
-    async def campaigns_test_send(
-        campaign_id: str,
-        payload: Optional[Dict[str, Any]] = None,
-        admin: dict = Depends(current_cms_admin),
-    ):
-        """Send a single test copy of the campaign to a safe address.
-
-        The audience is **never** touched. Allowed recipients:
-
-          • The authenticated admin's own email (default when no
-            ``to`` is provided).
-          • Any address in the ``CAMPAIGN_TEST_EMAILS`` env var
-            (comma-separated allow-list).
-
-        Any other value in ``to`` is refused with 400 so a fat-finger
-        can't accidentally spray a real subscriber.
-
-        Personalisation data is taken from the recipient's ``users``
-        row if one exists — otherwise the request falls back to the
-        neutral preview sample (no name leak on a bulk campaign).
-        """
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        payload = payload or {}
-        to = str(payload.get("to") or "").strip().lower()
-        admin_email = (admin.get("email") or "").strip().lower()
-        # Build the allow-list. `CAMPAIGN_TEST_EMAILS` env var is a
-        # comma-separated list (empty by default). The authenticated
-        # admin's own email is always allowed.
-        raw_env = os.environ.get("CAMPAIGN_TEST_EMAILS", "")
-        allow_list = {
-            e.strip().lower()
-            for e in raw_env.split(",")
-            if e.strip()
-        }
-        if admin_email:
-            allow_list.add(admin_email)
-        if not to:
-            to = admin_email
-        if not to:
-            raise HTTPException(400, "No `to` address and admin has no email on file")
-        if to not in allow_list:
-            raise HTTPException(
-                400,
-                "Refusing to send test email to that address — "
-                "only the signed-in admin or a CAMPAIGN_TEST_EMAILS "
-                "allow-list address is permitted.",
-            )
-        # Personalise from the users row if we have one for the test
-        # address. Otherwise fall back to the sample. Never look up
-        # against the campaign audience — this endpoint is deliberately
-        # decoupled from the audience filter.
-        user_row = await db.users.find_one(
-            {"email": {"$regex": f"^{re.escape(to)}$", "$options": "i"}},
-            {"_id": 0, "id": 1, "first_name": 1, "founder_number": 1,
-             "companion_choice": 1, "email": 1},
-        )
-        recipient = user_row or {"email": to, "first_name": "Test",
-                                 "founder_number": None, "companion_choice": None}
-        overrides = _campaign_overrides_for_recipient(c, recipient)
-        # Belt-and-braces marker so a test copy is visually distinct
-        # from a real send — inserted only into the subject, not the
-        # body, so the rendered HTML is otherwise byte-identical to
-        # what the audience would receive.
-        preview_subject_prefix = "[TEST] "
-        companion = overrides.pop("companion", None) or c.get("companion") or "george"
-        subject, html, text = _preview_render(
-            c["template"], companion=companion,
-            subject_override=(c.get("subject") or None),
-            preheader_override=(c.get("preheader") or None),
-            data_overrides=overrides,
-        )
-        subject_with_prefix = f"{preview_subject_prefix}{subject}" if subject else preview_subject_prefix.strip()
-        attachments = _campaign_attachments_payload(c)
-        # Use send_email_detailed exactly as the real worker does —
-        # SAME rendering path, same attachment handling.
-        from email_service import send_email_detailed as _send  # noqa: WPS433
-        result = await _send(
-            to=to, subject=subject_with_prefix, html=html, text=text,
-            attachments=attachments,
-            **({"from_email": OUTREACH_FROM_EMAIL, "from_name": OUTREACH_FROM_NAME}
-               if _is_outreach_campaign(c) else {}),
-        )
-        return {
-            "ok":        bool(getattr(result, "ok", False)),
-            "to":        to,
-            "subject":   subject_with_prefix,
-            "message_id": getattr(result, "message_id", None),
-            "http_status": getattr(result, "http_status", None),
-            "error":     getattr(result, "error", None),
-            "error_code": getattr(result, "error_code", None),
-            "attachment": (
-                {"filename": attachments[0]["filename"],
-                 "content_type": attachments[0]["content_type"]}
-                if attachments else None
-            ),
-            "used_admin_email": to == admin_email,
-        }
-
-
-    # ─── iter164r: campaign attachment endpoints ───────────────────
-    # Contract locked with Garry (24 Aug 2026):
-    #   • Mutation only while the campaign is a draft.
-    #   • PDFs only, 5 MB cap.
-    #   • Base64 content stored inline on the campaign doc.
-    #   • Presence of an attachment does NOT auto-send it — that's
-    #     gated by the separate `attach_file` boolean on the campaign
-    #     (see PATCH /campaigns/{id}).
-    @router.post("/campaigns/{campaign_id}/attachment")
-    async def campaigns_attachment_upload(
-        campaign_id: str,
-        file: UploadFile = File(...),
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        if c.get("status") != "draft":
-            raise HTTPException(400, "Only drafts can have their attachment changed")
-        content_type = (file.content_type or "").lower().split(";")[0].strip()
-        if content_type not in _CAMPAIGN_ATTACHMENT_ALLOWED_TYPES:
-            raise HTTPException(
-                415,
-                "Only PDF attachments are supported (application/pdf).",
-            )
-        # Read the whole file but bail as soon as we cross the size
-        # cap to avoid buffering huge uploads into memory. Also do
-        # a magic-byte sniff so a mislabelled non-PDF can't slip in
-        # under a doctored Content-Type header.
-        raw = await file.read(_CAMPAIGN_ATTACHMENT_MAX_BYTES + 1)
-        try:
-            await file.close()
-        except Exception:
-            pass
-        if not raw:
-            raise HTTPException(400, "Uploaded file is empty")
-        if len(raw) > _CAMPAIGN_ATTACHMENT_MAX_BYTES:
-            raise HTTPException(
-                413,
-                f"Attachment exceeds the {_CAMPAIGN_ATTACHMENT_MAX_BYTES // (1024 * 1024)} MB limit",
-            )
-        if not raw.startswith(b"%PDF"):
-            raise HTTPException(400, "Uploaded file does not appear to be a valid PDF")
-        import base64 as _b64
-        b64 = _b64.b64encode(raw).decode("ascii")
-        filename = (file.filename or "attachment.pdf").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-        filename = filename[:200] or "attachment.pdf"
-        now = datetime.now(timezone.utc).isoformat()
-        attachment_doc = {
-            "filename":     filename,
-            "content_type": "application/pdf",
-            "size":         len(raw),
-            "content_b64":  b64,
-            "uploaded_at":  now,
-        }
-        await db.campaigns.update_one(
-            {"id": campaign_id},
-            {"$set": {"attachment": attachment_doc, "updated_at": now}},
-        )
-        return {"ok": True, "attachment": _attachment_meta(attachment_doc)}
-
-    @router.get("/campaigns/{campaign_id}/attachment")
-    async def campaigns_attachment_meta(
-        campaign_id: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        c = await db.campaigns.find_one(
-            {"id": campaign_id},
-            {"_id": 0, "attachment": 1, "attach_file": 1, "status": 1},
-        )
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        return {
-            "attachment":  _attachment_meta(c.get("attachment")),
-            "attach_file": bool(c.get("attach_file")),
-        }
-
-    @router.get("/campaigns/{campaign_id}/attachment/download")
-    async def campaigns_attachment_download(
-        campaign_id: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        c = await db.campaigns.find_one(
-            {"id": campaign_id},
-            {"_id": 0, "attachment": 1},
-        )
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        att = c.get("attachment") or {}
-        if not att.get("content_b64") or not att.get("filename"):
-            raise HTTPException(404, "This campaign has no attachment")
-        import base64 as _b64
-        from fastapi.responses import Response
-        try:
-            payload = _b64.b64decode(att["content_b64"])
-        except Exception:
-            raise HTTPException(500, "Stored attachment is corrupted")
-        return Response(
-            content=payload,
-            media_type=att.get("content_type") or "application/pdf",
-            headers={
-                "Content-Disposition": f'inline; filename="{att["filename"]}"',
-            },
-        )
-
-    @router.delete("/campaigns/{campaign_id}/attachment")
-    async def campaigns_attachment_delete(
-        campaign_id: str,
-        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
-    ):
-        c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
-        if not c:
-            raise HTTPException(404, "Campaign not found")
-        if c.get("status") != "draft":
-            raise HTTPException(400, "Only drafts can have their attachment removed")
-        if not c.get("attachment"):
-            # Idempotent: removing an already-absent attachment is a no-op.
-            # Force attach_file back to False so the response is
-            # internally consistent with the has-attachment branch and
-            # a stale `attach_file=true, attachment=null` combo can't
-            # linger on the doc.
-            if c.get("attach_file"):
-                now = datetime.now(timezone.utc).isoformat()
-                await db.campaigns.update_one(
-                    {"id": campaign_id},
-                    {"$set": {"attach_file": False, "updated_at": now}},
-                )
-            return {"ok": True, "attachment": None, "attach_file": False}
-        now = datetime.now(timezone.utc).isoformat()
-        # Also flip attach_file back to False so a stale toggle
-        # doesn't cause an empty attachment list to sneak into the
-        # next send (Resend would reject an empty attachment entry,
-        # but this keeps the audit trail sensible either way).
-        await db.campaigns.update_one(
-            {"id": campaign_id},
-            {"$set": {"attachment": None, "attach_file": False, "updated_at": now}},
-        )
-        return {"ok": True, "attachment": None, "attach_file": False}
+        return {"subject": subject, "html": html, "text": text, "recipient": recipient}
 
     async def _campaign_send_worker(campaign_id: str):
         """Background — send the campaign in batches of 5 with 500ms delay."""
@@ -3873,7 +2065,6 @@ def build_router(db) -> APIRouter:
             return
         recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=5000)
         stats = {"targeted": len(recipients), "accepted": 0, "failed": 0,
-                 "suppressed": 0,
                  "delivered": 0, "opened": 0, "clicked": 0, "bounced": 0}
         await db.campaigns.update_one(
             {"id": campaign_id},
@@ -3886,32 +2077,9 @@ def build_router(db) -> APIRouter:
             batch = recipients[i:i + BATCH_SIZE]
             async def _one(r: dict):
                 nonlocal sample_html_saved
-                # iter164bd — MANDATORY final per-send suppression guard.
-                # Re-check the exact address against email_suppressions
-                # immediately before sending. If suppressed, skip the send
-                # entirely and record it as "suppressed" (NOT failed).
-                from services import suppression as _supp
-                _s = await _supp.get_suppression(db, r.get("email"))
-                if _s:
-                    now = datetime.now(timezone.utc).isoformat()
-                    await db.campaign_recipients.insert_one({
-                        "id": str(uuid.uuid4()), "campaign_id": campaign_id,
-                        "founder_id": r.get("id"), "email": r.get("email"),
-                        "first_name": r.get("first_name"),
-                        "status": "suppressed",
-                        "suppression_reason": _s.get("suppression_reason"),
-                        "message_id": None, "sent_at": now, "error": None,
-                        "subject": c.get("subject"),
-                        "audience_kind": (c.get("audience_filter") or {}).get("audience_kind"),
-                        "outreach_id": r.get("outreach_id"),
-                        "outreach_number": r.get("outreach_number"),
-                    })
-                    await db.campaigns.update_one(
-                        {"id": campaign_id}, {"$inc": {"stats.suppressed": 1}})
-                    return
                 overrides: Dict[str, Any] = {}
-                if r.get("first_name"):
-                    overrides["first_name"] = r["first_name"]
+                # CAMPAIGN_INVARIANT: each recipient is rendered independently.
+                overrides["first_name"] = r.get("first_name") or ""
                 if r.get("founder_number"):
                     overrides["founder_number"] = r["founder_number"]
                 companion = c.get("companion") or "george"
@@ -3919,28 +2087,12 @@ def build_router(db) -> APIRouter:
                     companion = r["companion_choice"]
                     overrides["companion"] = companion
                 if c.get("template") == "announcement":
-                    # iter164o: pass title through raw — the composer's
-                    # cleared-field intent must be respected. Renderer
-                    # omits the h1 when title is empty.
-                    overrides["title"]     = c.get("title") or ""
+                    overrides["title"]     = c.get("title") or "A note from FriendPlace"
                     overrides["body_md"]   = c.get("body_md") or ""
                     overrides["cta_label"] = c.get("cta_label") or None
                     overrides["cta_url"]   = c.get("cta_url")   or None
-                    # iter164p: forward the new editable fields per
-                    # recipient. The template does the "[Contact name]"
-                    # -> first_name substitution internally, using the
-                    # first_name we set above from r["first_name"], so
-                    # each recipient sees "Dear <their name>," even
-                    # though the composer stored a single string.
-                    if c.get("greeting") is not None:
-                        overrides["greeting"] = c.get("greeting")
-                    if c.get("show_founder_badge") is not None:
-                        overrides["show_founder_badge"] = c.get("show_founder_badge")
-                # iter164af — outreach safety envelope for the real
-                # send worker. Applied LAST so it wins over any stale
-                # recipient state (esp. missing first_name → "friend"
-                # fallback and forced show_founder_badge=False).
-                _apply_outreach_safety(overrides, c, r)
+                    overrides["greeting"] = c.get("greeting")
+                    overrides["show_founder_badge"] = c.get("show_founder_badge")
                 subject, html, text = _preview_render(
                     c["template"], companion=companion,
                     subject_override=(c.get("subject") or None),
@@ -3953,27 +2105,10 @@ def build_router(db) -> APIRouter:
                         {"$set": {"sample_html": html, "sample_subject": subject}},
                     )
                     sample_html_saved = True
-                # iter164r: attach the staged PDF *only* when the
-                # explicit `attach_file` flag is ON. The flag is
-                # evaluated per-send (not per-recipient) but we
-                # rebuild the attachments list here so an in-flight
-                # toggle can't accidentally desync one batch from the
-                # next. `content` is already base64 on disk, which is
-                # exactly the shape Resend's Emails.send expects.
-                attachments = None
-                if c.get("attach_file") and isinstance(c.get("attachment"), dict):
-                    _att = c["attachment"]
-                    if _att.get("content_b64") and _att.get("filename"):
-                        attachments = [{
-                            "filename":     _att["filename"],
-                            "content":      _att["content_b64"],
-                            "content_type": _att.get("content_type") or "application/pdf",
-                        }]
+                # CAMPAIGN_INVARIANT: INDIVIDUAL_EMAIL_PER_RECIPIENT
+                # Never combine outreach recipients into To/CC/BCC lists.
                 result = await send_email_detailed(
                     to=r["email"], subject=subject, html=html, text=text,
-                    attachments=attachments,
-                    **({"from_email": OUTREACH_FROM_EMAIL, "from_name": OUTREACH_FROM_NAME}
-                       if _is_outreach_campaign(c) else {}),
                 )
                 now = datetime.now(timezone.utc).isoformat()
                 await db.campaign_recipients.insert_one({
@@ -3989,21 +2124,6 @@ def build_router(db) -> APIRouter:
                     "error":           result.error if not result.ok else None,
                     "http_status":     result.http_status,
                     "subject":         subject,
-                    # iter164ag — record the audience *shape* on the
-                    # recipient row so the webhook receiver can flag
-                    # bounces/complaints back to the right source-of-
-                    # truth collection (outreach_organisations for
-                    # outreach recipients, interest_registrations for
-                    # Founding Members). Without this, an outreach
-                    # bounce would silently no-op against founders,
-                    # and we'd keep re-sending to an invalid address.
-                    "audience_kind":   (c.get("audience_filter") or {}).get("audience_kind"),
-                    "outreach_id":     r.get("outreach_id"),
-                    # iter164ah — copy the permanent outreach number
-                    # onto the recipient row so historical campaign
-                    # records still show #20001 even if the active
-                    # outreach organisation is later deleted.
-                    "outreach_number": r.get("outreach_number"),
                 })
                 await db.campaigns.update_one(
                     {"id": campaign_id},
@@ -5820,19 +3940,6 @@ def build_router(db) -> APIRouter:
             "is_founding": bool(u.get("is_founding_member") or u.get("founding_member")),
         }
 
-    # iter164ad — Members Launch View filter.
-    #
-    # Until the genuine (non-test, non-demo) Founding-Member count in
-    # ``db.users`` reaches this threshold, the default ``/members``
-    # view is restricted to Founding Members only. Once the count
-    # crosses the threshold the restriction lifts automatically and
-    # the list falls back to "all genuine non-test members".
-    #
-    # Intentionally a module-level constant so it's easy to grep for
-    # and easy to tweak from a script/test if the launch strategy
-    # changes.
-    MEMBERS_LAUNCH_FOUNDING_THRESHOLD = 250
-
     @router.get("/members")
     async def list_members(
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
@@ -5840,68 +3947,9 @@ def build_router(db) -> APIRouter:
         status: Optional[str] = None,  # banned|suspended|restricted|founding|demo|admin
         limit: int = 50,
         skip: int = 0,
-        include_test: bool = False,  # iter164ad: default excludes QA/test-flagged users
     ):
-        """Search + filter list. `q` matches name, email, username or id (case-insensitive).
-
-        iter164ad — Members Launch View filter:
-
-          * ``include_test`` defaults to ``False`` so QA/test-flagged
-            users (``is_test: true``) are excluded from the normal
-            admin view. Pass ``include_test=true`` for an explicit
-            admin override (used when auditing seeded/test rows).
-
-          * Pre-launch gating: while fewer than
-            :data:`MEMBERS_LAUNCH_FOUNDING_THRESHOLD` genuine
-            (non-test, non-demo) Founding Members exist in the users
-            collection, the *default* Members view is restricted to
-            Founding Members only — this matches the launch-period UX
-            where the Members list *is* the Founding-Member roster.
-            The restriction lifts automatically at the threshold; no
-            code change or redeploy is needed.
-
-          * Explicit ``status=`` filters (banned, suspended,
-            restricted, founding, demo, admin) always take precedence
-            and are NOT affected by the launch gate — an admin
-            filtering by ``status=demo`` sees all demo rows regardless
-            of the Founding-Member count.
-
-          * ``include_test=true`` also lifts the launch gate, since
-            the caller has explicitly asked for the full admin view.
-
-        The response always includes a ``launch_gate`` diagnostic dict
-        so the frontend can surface a small hint like "Pre-launch view
-        — Founding Members only until 250 join".
-        """
+        """Search + filter list. `q` matches name, email, username or id (case-insensitive)."""
         mongo_q: dict = {}
-
-        # iter164ad — test-flag filter (default excludes).
-        if not include_test:
-            mongo_q["is_test"] = {"$ne": True}
-
-        # iter164ad — launch gate applies only to the *default* view:
-        # no explicit status filter, and include_test not overridden.
-        launch_gate_active = False
-        genuine_founder_count: Optional[int] = None
-        if status is None and not include_test:
-            genuine_founder_q = {
-                "is_test": {"$ne": True},
-                "is_demo": {"$ne": True},
-                "$or": [
-                    {"is_founder": True},
-                    {"is_founding_member": True},
-                    {"founding_member": True},
-                ],
-            }
-            genuine_founder_count = await db.users.count_documents(genuine_founder_q)
-            if genuine_founder_count < MEMBERS_LAUNCH_FOUNDING_THRESHOLD:
-                launch_gate_active = True
-                mongo_q["$or"] = [
-                    {"is_founder": True},
-                    {"is_founding_member": True},
-                    {"founding_member": True},
-                ]
-
         if status == "banned":
             mongo_q["banned"] = True
         elif status == "suspended":
@@ -5912,7 +3960,6 @@ def build_router(db) -> APIRouter:
             mongo_q["$or"] = [
                 {"is_founding_member": True},
                 {"founding_member": True},
-                {"is_founder": True},
             ]
         elif status == "demo":
             mongo_q["is_demo"] = True
@@ -5944,24 +3991,7 @@ def build_router(db) -> APIRouter:
             .limit(max(1, min(int(limit), 200)))
         )
         rows = [_project_member_row(u) async for u in cursor]
-        return {
-            "items": rows,
-            "total": total,
-            "limit": limit,
-            "skip": skip,
-            # iter164ad — launch-gate diagnostics for the UI.
-            "launch_gate": {
-                "active":          launch_gate_active,
-                "threshold":       MEMBERS_LAUNCH_FOUNDING_THRESHOLD,
-                "founder_count":   genuine_founder_count,
-                "include_test":    bool(include_test),
-                "reason": (
-                    "Pre-launch: Members view restricted to Founding "
-                    f"Members until {MEMBERS_LAUNCH_FOUNDING_THRESHOLD} "
-                    "genuine Founding Members exist."
-                ) if launch_gate_active else None,
-            },
-        }
+        return {"items": rows, "total": total, "limit": limit, "skip": skip}
 
     @router.get("/members/{user_id}")
     async def get_member(user_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
@@ -7147,14 +5177,6 @@ def build_router(db) -> APIRouter:
             if v is not None and v != "":
                 params[fkey] = v
 
-        # iter164aa: `show_founding_member` is a per-render *toggle*
-        # (not a content field), so it lives outside FIELD_LIBRARY.
-        # The Publishing Centre editor's dedicated switch sends this
-        # as ``true``/``false``; missing → renderer default (True).
-        _sfm = qp.get("show_founding_member")
-        if _sfm is not None and _sfm != "":
-            params["show_founding_member"] = _sfm
-
         # admin_id fallback so previews always work from Mission Control
         # without asking the CMS admin to pick someone.
         if not params.get("admin_id"):
@@ -7271,32 +5293,6 @@ def build_router(db) -> APIRouter:
         _logging.getLogger("friendplace.outreach").exception("outreach router mount failed")
 
     # ------------------------------------------------------------------
-    # MCGS Email — combined FriendPlace inbox sub-router.
-    # Effective URLs: /api/cms/email/*  (+ public /api/cms/email/inbound)
-    # ------------------------------------------------------------------
-    try:
-        from services.email_inbox import (
-            build_email_inbox_router as _build_email_inbox_router,
-            ensure_inbox_indexes as _inbox_indexes,
-            seed_default_mailboxes as _seed_mailboxes,
-        )
-        router.include_router(_build_email_inbox_router(db, current_cms_admin))
-        async def _bootstrap_inbox():
-            try:
-                await _inbox_indexes(db)
-                await _seed_mailboxes(db)
-            except Exception:
-                import logging as _logging
-                _logging.getLogger("friendplace.email_inbox").exception("email inbox bootstrap failed")
-        try:
-            _asyncio.get_event_loop().create_task(_bootstrap_inbox())
-        except Exception:
-            pass
-    except Exception:
-        import logging as _logging
-        _logging.getLogger("friendplace.email_inbox").exception("email inbox router mount failed")
-
-    # ------------------------------------------------------------------
     # iter160b — Replies inbox sub-router (manual "Log a reply" flow).
     # Effective URLs: /api/cms/replies/*
     # ------------------------------------------------------------------
@@ -7317,65 +5313,6 @@ def build_router(db) -> APIRouter:
     except Exception:
         import logging as _logging
         _logging.getLogger("friendplace.replies").exception("replies router mount failed")
-
-    # ------------------------------------------------------------------
-    # iter162 — Reminders (Mission Control small V1).
-    # Effective URLs: /api/cms/reminders/*
-    # ------------------------------------------------------------------
-    try:
-        from services.reminders.router import build_reminders_router as _build_reminders_router
-        from services.reminders.store  import ensure_indexes as _reminders_indexes
-        router.include_router(_build_reminders_router(db, current_cms_admin))
-        async def _bootstrap_reminders_indexes():
-            try:
-                await _reminders_indexes(db)
-            except Exception:
-                import logging as _logging
-                _logging.getLogger("friendplace.reminders").exception("reminders index bootstrap failed")
-        try:
-            _asyncio.get_event_loop().create_task(_bootstrap_reminders_indexes())
-        except Exception:
-            pass
-    except Exception:
-        import logging as _logging
-        _logging.getLogger("friendplace.reminders").exception("reminders router mount failed")
-
-    # ------------------------------------------------------------------
-    # iter164h — Butterfly Points manual recognition (Mission Control).
-    # Effective URLs:
-    #   POST /api/cms/members/{id}/butterfly-points/award
-    #   POST /api/cms/members/{id}/butterfly-points/{ledger_id}/reverse
-    #   GET  /api/cms/members/{id}/butterfly-points
-    #   GET  /api/cms/members/butterfly-points/policy
-    #   POST /api/cms/members/butterfly-points/preview
-    # ------------------------------------------------------------------
-    try:
-        from services.butterfly_points.router import build_points_router as _build_points_router
-        from services.butterfly_points.store  import ensure_indexes as _points_indexes
-        # server.py owns the running-balance + notification helpers we
-        # must delegate to; lazy-import to avoid a circular dep at
-        # module load time.
-        import server as _srv
-        router.include_router(
-            _build_points_router(
-                db, current_cms_admin,
-                award_points_impl=_srv.award_points,
-                push_notification_impl=_srv.push_notification,
-            ),
-        )
-        async def _bootstrap_points_indexes():
-            try:
-                await _points_indexes(db)
-            except Exception:
-                import logging as _logging
-                _logging.getLogger("friendplace.butterfly_points").exception("butterfly_points index bootstrap failed")
-        try:
-            _asyncio.get_event_loop().create_task(_bootstrap_points_indexes())
-        except Exception:
-            pass
-    except Exception:
-        import logging as _logging
-        _logging.getLogger("friendplace.butterfly_points").exception("butterfly_points router mount failed")
 
     # ------------------------------------------------------------------
     # iter160a — CRM unified-status endpoints (compute-on-the-fly).
@@ -7413,83 +5350,6 @@ def build_router(db) -> APIRouter:
 
 def build_public_router(db) -> APIRouter:
     router = APIRouter(prefix="/public", tags=["public"])
-
-    from fastapi.responses import HTMLResponse as _UHTML  # noqa: WPS433
-
-    @router.get("/unsubscribe")
-    async def public_unsubscribe(token: str = ""):
-        """iter164bd — provider-independent, login-free unsubscribe.
-        Verifies the signed token, suppresses that exact address
-        (idempotent), and shows a simple confirmation page. Never
-        exposes another recipient's details."""
-        from services import suppression as _supp
-        email = _supp.verify_token(token)
-        if email:
-            try:
-                await _supp.suppress_email(
-                    db, email, reason="unsubscribed", source="unsubscribe_link")
-                # Mirror onto any matching outreach org for MCGS display.
-                try:
-                    await db.outreach_organisations.update_many(
-                        {"email": email},
-                        {"$set": {"status": "unsubscribed",
-                                  "email_suppressed": True}},
-                    )
-                except Exception:
-                    pass
-            except Exception:
-                pass
-        body = (
-            "<div style=\"font-family:system-ui,sans-serif;max-width:520px;"
-            "margin:64px auto;padding:32px;text-align:center;color:#0A2540\">"
-            "<h1 style=\"font-size:22px\">You've been unsubscribed</h1>"
-            "<p style=\"color:#475569;line-height:1.6\">You won't receive any "
-            "further outreach emails from FriendPlace. Thank you.</p></div>"
-        )
-        return _UHTML(content=body, status_code=200)
-
-
-    @router.get("/email-selftest")
-    async def email_selftest():
-        """iter164be — zero-auth, zero-email production renderer probe.
-
-        Renders a canned OUTREACH sample and a canned MEMBER sample
-        through the SAME `announcement_template` the campaign test-send
-        and real-send worker use, then reports which of the 8 campaign
-        email fixes are present in the LIVE build. Sends no email and
-        touches no data — safe to hit on production at any time to
-        confirm exactly which renderer revision is deployed.
-        """
-        from email_service import announcement_template as _at  # noqa: WPS433
-        _, out_html, out_text = _at(
-            first_name="friend", title="Hello", body_md="This is **bold** text.",
-            companion="team", cta_label="Visit FriendPlace",
-            cta_url="https://www.friendplace.com.au/",
-            outreach_unsubscribe_url="https://x/api/public/unsubscribe?token=ABC.DEF",
-        )
-        _, mem_html, _mt = _at(
-            first_name="Sam", title="Hi", body_md="Body", companion="george")
-        checks = {
-            "navy_shell":            ("#0B1F45" in out_html),
-            "bold_to_strong":        ("<strong>bold</strong>" in out_html and "**bold**" not in out_html),
-            "teal_cta_button":       ("background:#14B8A6" in out_html and "Visit FriendPlace" in out_html),
-            "team_signoff_tagline":  ("The FriendPlace Team</span><br>" in out_html
-                                      and "Because you belong too. \U0001f98b</span>" in out_html),
-            "cold_outreach_footer":  ("publicly listed contact details" in out_html),
-            "no_account_wording":    ("you have a FriendPlace account" not in out_html),
-            "single_disclaimer":     (out_html.count("receiving this email") == 1),
-            "clean_unsubscribe_link":("unsubscribe here</a>" in out_html
-                                      and out_html.count("token=ABC.DEF") == 1),
-            "member_email_unchanged":("you have a FriendPlace account" in mem_html
-                                      and "publicly listed contact details" not in mem_html),
-        }
-        return {
-            "build": "iter164be",
-            "all_fixes_present": all(checks.values()),
-            "checks": checks,
-            "outreach_sender": f"{OUTREACH_FROM_NAME} <{OUTREACH_FROM_EMAIL}>",
-        }
-
 
     async def _content() -> Dict[str, Any]:
         doc = await db.site_content.find_one({"key": "main"}, {"_id": 0})

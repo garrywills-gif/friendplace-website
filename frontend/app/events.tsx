@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, ScrollView, Modal, Image, ActivityIndicator, Linking, TextInput } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, ScrollView, Modal, Image, ActivityIndicator, Linking, TextInput, Platform } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import * as Calendar from "expo-calendar";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
@@ -9,11 +10,84 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import SpeakButton from "@/src/components/SpeakButton";
 import { shareIcs } from "@/src/lib/ics";
-import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
-import { resolveImageSource } from "@/src/components/GalleryPicker";
 import TappableImage from "@/src/components/TappableImage";
+import { resolveImageSource } from "@/src/components/GalleryPicker";
+import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
 
-const API_BASE = process.env.EXPO_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
+const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
+
+// Batch B iter157 (Garry, Aug 2026 — P0 #6): open the OS's native
+// "add event" sheet so iOS/Android members save it straight to Apple
+// Calendar / Google Calendar / Outlook without going through .ics
+// Share Sheet friction. On web we still fall back to the .ics share.
+async function addToNativeCalendar(opts: {
+  title: string;
+  description?: string;
+  location?: string;
+  /** YYYY-MM-DD */
+  date: string;
+  /** HH:mm (24h) */
+  time: string;
+  durationMinutes?: number;
+}): Promise<"created" | "cancelled" | "web" | "error"> {
+  if (Platform.OS === "web") return "web";
+  try {
+    const perm = await Calendar.requestCalendarPermissionsAsync();
+    if (!perm.granted) return "error";
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(opts.date || "");
+    const t = /^(\d{2}):(\d{2})$/.exec(opts.time || "");
+    if (!m || !t) return "error";
+    const startDate = new Date(
+      parseInt(m[1], 10),
+      parseInt(m[2], 10) - 1,
+      parseInt(m[3], 10),
+      parseInt(t[1], 10),
+      parseInt(t[2], 10),
+      0,
+    );
+    const endDate = new Date(
+      startDate.getTime() + (opts.durationMinutes || 90) * 60_000,
+    );
+    // SDK 51+: `createEventInCalendarAsync` opens the native "New Event"
+    // UI so the member can pick which calendar to save into. We prefer
+    // this over silently writing to the default calendar — some members
+    // have multiple accounts and would be surprised.
+    const anyCal: any = Calendar as any;
+    if (typeof anyCal.createEventInCalendarAsync === "function") {
+      const res = await anyCal.createEventInCalendarAsync({
+        title: opts.title,
+        notes: opts.description || "",
+        location: opts.location || "",
+        startDate,
+        endDate,
+      });
+      // Response shape varies by platform; treat anything with an id or
+      // action === "saved" as success.
+      if (res && (res.action === "saved" || res.id)) return "created";
+      if (res && res.action === "canceled") return "cancelled";
+      return "created";
+    }
+    // Older SDKs — fall back to writing to the default calendar (still
+    // native, just no picker UI).
+    const calendars = await Calendar.getCalendarsAsync(
+      Calendar.EntityTypes.EVENT,
+    );
+    const writable = calendars.find(
+      (c: any) => c.allowsModifications && (c.source?.name || c.source?.type),
+    );
+    if (!writable) return "error";
+    await Calendar.createEventAsync(writable.id, {
+      title: opts.title,
+      notes: opts.description || "",
+      location: opts.location || "",
+      startDate,
+      endDate,
+    });
+    return "created";
+  } catch (e) {
+    return "error";
+  }
+}
 
 /** Format "YYYY-MM-DD" → "Sat 14 Jun 2026" — friendly for older eyes. */
 function formatPrettyDate(iso: string): string {
@@ -38,8 +112,8 @@ export default function Events() {
   const { user, refresh } = useAuth();
   const { show } = useToast();
   const router = useRouter();
-  const { radius, setRadius } = useRadius("events");
   const [events, setEvents] = useState<any[]>([]);
+  const [radiusKm, setRadiusKm] = useState<number | null>(DEFAULT_RADIUS_KM);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   // FriendPlace curated events (CMS-driven). Loaded once on focus,
   // then re-fetched after every RSVP so counts update immediately.
@@ -66,8 +140,8 @@ export default function Events() {
     }
   }, [user?.id]);
 
-  const load = async () => setEvents(await api.listEvents({ user_id: user?.id, radius_km: radius ?? undefined }));
-  useFocusEffect(useCallback(() => { load(); loadFp(); }, [loadFp, radius, user?.id]));
+  const load = async () => setEvents(await api.listEvents({ user_id: user?.id, radius_km: radiusKm ?? undefined }));
+  useFocusEffect(useCallback(() => { load(); loadFp(); }, [loadFp, user?.id, radiusKm]));
 
   // Build the list of months that actually have events, anchored on the
   // Discovery-focused filter set. Answers the primary question a member
@@ -85,21 +159,47 @@ export default function Events() {
   // eyeball ("is this in my area?"). If the user has no suburb set
   // we surface a friendly nudge to add it — see the empty-state
   // handling in the list below.
-  type FilterKey = "all" | "today" | "this_week" | "this_weekend" | "this_month" | "near_me";
+  type FilterKey = "all" | "today" | "this_week" | "this_weekend" | "next_week" | "this_month" | "near_me";
   const filterOptions: { value: FilterKey; label: string }[] = useMemo(() => ([
     { value: "all",           label: "All upcoming" },
     { value: "today",         label: "Today" },
     { value: "this_week",     label: "This week" },
     { value: "this_weekend",  label: "This weekend" },
+    { value: "next_week",     label: "Next week" },
     { value: "this_month",    label: "This month" },
     { value: "near_me",       label: "Near me" },
   ]), []);
   const [filter, setFilter] = useState<FilterKey>("all");
+  // Batch B (Garry, 10 Aug 2026 #4) — search box above the filter pills.
+  // Case-insensitive substring match across title, description,
+  // location, venue name, venue address, host name, and organiser tags
+  // so members can find "coffee", "walk", "book club", or a suburb like
+  // "Manly" without needing exact wording.
+  const [query, setQuery] = useState<string>("");
 
   const visibleEvents = useMemo(() => {
-    if (filter === "all") return events;
-    return events.filter((e) => matchesEventFilter(e, filter, user));
-  }, [events, filter, user]);
+    const q = query.trim().toLowerCase();
+    let list = events;
+    if (filter !== "all") {
+      list = list.filter((e) => matchesEventFilter(e, filter, user));
+    }
+    if (q) {
+      list = list.filter((e) => {
+        const hay = [
+          e?.title,
+          e?.description,
+          e?.location,
+          e?.venue_name,
+          e?.venue_address,
+          e?.host_name,
+          Array.isArray(e?.tags) ? e.tags.join(" ") : "",
+          Array.isArray(e?.interests) ? e.interests.join(" ") : "",
+        ].filter(Boolean).join(" ").toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    return list;
+  }, [events, filter, user, query]);
 
   const setRsvp = async (e: any, resp: "going" | "maybe" | "cant") => {
     if (!user) return;
@@ -125,6 +225,39 @@ export default function Events() {
         <Ionicons name="add-circle" size={20} color="#FFF" />
         <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Host a new event</Text>
       </Pressable>
+
+      {/* Batch B (Garry, 10 Aug 2026 #4) — pinned search box above the
+          filter pills. Wraps the input in a rounded pill with a leading
+          magnifier and a trailing clear (×) affordance so members can
+          reset the query without clearing the field character-by-character. */}
+      <View style={{ marginHorizontal: 16, marginTop: 10 }}>
+        <View style={[styles.searchPill, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+          <Ionicons name="search" size={16} color={c.muted} />
+          <TextInput
+            testID="event-search-input"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search events, suburbs, hosts…"
+            placeholderTextColor={c.muted}
+            style={[styles.searchInput, { color: c.onSurface, fontSize: 14 * scale }]}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <Pressable
+              testID="event-search-clear"
+              onPress={() => setQuery("")}
+              hitSlop={8}
+              style={{ padding: 2 }}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
+              <Ionicons name="close-circle" size={18} color={c.muted} />
+            </Pressable>
+          )}
+        </View>
+      </View>
 
       {/* Filter pills — Garry, 2 Aug 2026: PINNED above the list so
           "Today / This week / This month / All upcoming" always stay
@@ -157,9 +290,8 @@ export default function Events() {
           })}
         </ScrollView>
       </View>
-      <View style={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-        <RadiusFilter value={radius} onChange={setRadius} />
-      </View>
+
+      <RadiusFilter value={radiusKm} onChange={setRadiusKm} />
 
       {/* Only the events list itself scrolls below — Host button + filter
           pills remain sticky at the top. */}
@@ -168,7 +300,7 @@ export default function Events() {
         keyExtractor={(e) => e.id}
         contentContainerStyle={{ padding: 16, gap: 12 }}
         ListEmptyComponent={
-          <EventsEmptyState filter={filter} user={user} onClearFilter={() => setFilter("all")} c={c} scale={scale} />
+          <EventsEmptyState filter={filter} query={query} user={user} onClearFilter={() => setFilter("all")} onClearQuery={() => setQuery("")} c={c} scale={scale} />
         }
         ListHeaderComponent={
           <View style={{ marginBottom: 8 }}>
@@ -194,10 +326,23 @@ export default function Events() {
                   <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 * scale }}>CANCELLED</Text>
                 </View>
               )}
-              {(() => {
-                const src = resolveImageSource(item.cover_image_url);
-                return src ? <TappableImage source={src} style={styles.eventCover} resizeMode="cover" caption={item.title} accessibilityLabel="View event photo larger" /> : null;
-              })()}
+              {/* Community-event cover photo (added launch batch). Wired
+                  through the shared TappableImage so members can tap to
+                  enlarge. `resolveImageSource` accepts the three storage
+                  formats: gallery:<theme>/NN, data:image/... URI, http(s) URL. */}
+              {item.image ? (() => {
+                const src = resolveImageSource(item.image);
+                return src ? (
+                  <TappableImage
+                    source={src}
+                    style={{ width: "100%", height: 160, borderRadius: 12, marginBottom: 12 }}
+                    resizeMode="cover"
+                    caption={item.title}
+                    accessibilityLabel="View event cover larger"
+                    testID={`event-cover-${item.id}`}
+                  />
+                ) : null;
+              })() : null}
               <View style={styles.row}>
                 <View style={[styles.emojiBox, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 36 }}>{item.emoji}</Text></View>
                 <View style={{ flex: 1, marginLeft: 14 }}>
@@ -330,6 +475,28 @@ export default function Events() {
                       <Pressable
                         testID={`event-add-cal-${item.id}`}
                         onPress={async () => {
+                          // Batch B iter157 (Garry, Aug 2026 — P0 #6):
+                          // prefer the native "New Event" sheet on
+                          // iOS/Android; fall back to .ics share
+                          // (email/AirDrop/etc.) if the native path
+                          // isn't available or the user hasn't granted
+                          // Calendar access.
+                          const nativeRes = await addToNativeCalendar({
+                            title: item.title || "FriendPlace event",
+                            description: item.description || "",
+                            location: item.location || "",
+                            date: item.date,
+                            time: item.time,
+                          });
+                          if (nativeRes === "created") {
+                            show("Added to your calendar 📅");
+                            return;
+                          }
+                          if (nativeRes === "cancelled") return;
+                          // Non-native path (web) or Calendar permission
+                          // refused — fall back to the .ics share so
+                          // members can still get the event into their
+                          // calendar of choice.
                           const ok = await shareIcs({
                             uid: item.id,
                             title: item.title || "FriendPlace event",
@@ -659,7 +826,37 @@ function FpEventDetailModal({
     }
   };
 
-  const openIcs = () => {
+  const openIcs = async () => {
+    if (!event) return;
+    // Batch B iter157 P0 #6: prefer native calendar sheet on
+    // iOS/Android; fall back to the backend .ics URL on web (or if
+    // native fails). FP events store `starts_at` as an ISO datetime.
+    try {
+      const starts = event?.starts_at ? new Date(event.starts_at) : null;
+      if (starts && !Number.isNaN(starts.getTime()) && Platform.OS !== "web") {
+        const y = starts.getFullYear();
+        const mo = String(starts.getMonth() + 1).padStart(2, "0");
+        const d = String(starts.getDate()).padStart(2, "0");
+        const hh = String(starts.getHours()).padStart(2, "0");
+        const mm = String(starts.getMinutes()).padStart(2, "0");
+        const durationMs = event?.ends_at
+          ? new Date(event.ends_at).getTime() - starts.getTime()
+          : 90 * 60_000;
+        const durationMinutes = durationMs > 0 ? Math.round(durationMs / 60_000) : 90;
+        const nativeRes = await addToNativeCalendar({
+          title: event.title || "FriendPlace event",
+          description: event.description || "",
+          location: event.is_online
+            ? (event.meeting_url || "Online")
+            : [event.venue_name, event.venue_address].filter(Boolean).join(" · "),
+          date: `${y}-${mo}-${d}`,
+          time: `${hh}:${mm}`,
+          durationMinutes,
+        });
+        if (nativeRes === "created") { show("Added to your calendar 📅"); return; }
+        if (nativeRes === "cancelled") return;
+      }
+    } catch { /* fall through to .ics */ }
     if (!event?.slug) return;
     const url = `${API_BASE}/api/public/events/${encodeURIComponent(event.slug)}.ics`;
     Linking.openURL(url).catch(() => show("Could not open calendar"));
@@ -840,6 +1037,20 @@ function matchesEventFilter(e: any, key: string, user: any): boolean {
       nextMonday.setDate(nextMonday.getDate() + 7);
       return eventDate >= monday && eventDate < nextMonday;
     }
+    case "next_week": {
+      // Batch B (Garry, 10 Aug 2026 #4) — next Monday 00:00 → the
+      // Monday after (7 days later). Sunday-of-this-week (getDay===0)
+      // is folded back to 7 so the calculation always anchors on
+      // Monday-of-this-week, exactly like "this_week" above.
+      const dow = now.getDay() === 0 ? 7 : now.getDay();
+      const thisMonday = new Date(startOfToday);
+      thisMonday.setDate(thisMonday.getDate() - (dow - 1));
+      const nextMonday = new Date(thisMonday);
+      nextMonday.setDate(nextMonday.getDate() + 7);
+      const mondayAfter = new Date(nextMonday);
+      mondayAfter.setDate(mondayAfter.getDate() + 7);
+      return eventDate >= nextMonday && eventDate < mondayAfter;
+    }
     case "this_weekend": {
       // Saturday 00:00 → Monday 00:00 (whichever weekend is upcoming
       // from *today*: if today is Mon-Fri, use this coming Sat/Sun;
@@ -884,19 +1095,28 @@ function matchesEventFilter(e: any, key: string, user: any): boolean {
    ------------------------------------------------------------------ */
 
 function EventsEmptyState({
-  filter, user, onClearFilter, c, scale,
+  filter, query, user, onClearFilter, onClearQuery, c, scale,
 }: {
   filter: string;
+  query: string;
   user: any;
   onClearFilter: () => void;
+  onClearQuery: () => void;
   c: any;
   scale: number;
 }) {
   const router = useRouter();
   const suburb = (user?.suburb || "").toString().trim();
   const needsSuburb = filter === "near_me" && !suburb;
+  const hasQuery = (query || "").trim().length > 0;
 
   const copy: { emoji: string; title: string; body: string; cta?: { label: string; onPress: () => void } } =
+    hasQuery ? {
+      emoji: "🔎",
+      title: `No matches for "${query.trim()}"`,
+      body: "Try a different keyword, a nearby suburb, or clear the search to see everything.",
+      cta: { label: "Clear search", onPress: onClearQuery },
+    } :
     needsSuburb ? {
       emoji: "📍",
       title: "Add your suburb to see nearby events",
@@ -921,6 +1141,11 @@ function EventsEmptyState({
       emoji: "🗓️",
       title: "Nothing on this week",
       body: "Have a look further ahead or plant the seed by posting your own event.",
+      cta: { label: "See all upcoming", onPress: onClearFilter },
+    } : filter === "next_week" ? {
+      emoji: "📆",
+      title: "Nothing on next week yet",
+      body: "The diary's still open — how about starting a coffee, walk, or catch-up for next week?",
       cta: { label: "See all upcoming", onPress: onClearFilter },
     } : filter === "this_month" ? {
       emoji: "📅",
@@ -952,6 +1177,21 @@ function EventsEmptyState({
 
 const styles = StyleSheet.create({
   card: { borderRadius: 18, padding: 14, borderWidth: 1, gap: 10 },
+  // Batch B (Garry, 10 Aug 2026 #4) — Local Events search pill.
+  searchPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === "ios" ? 10 : 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 0,
+    minHeight: 22,
+  },
   // alignItems: "flex-start" so multi-line event details (title + date +
   // location on three lines) don't vertically-centre the SpeakButton /
   // Edit column against the middle of the writing — previously the
@@ -959,7 +1199,6 @@ const styles = StyleSheet.create({
   // location line pushed the row to 3+ lines.
   row: { flexDirection: "row", alignItems: "flex-start" },
   emojiBox: { width: 62, height: 62, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  eventCover: { width: "100%", height: 150, borderRadius: 12, marginBottom: 10, backgroundColor: "#E2E8F0" },
   title: { fontWeight: "800" },
   meta: { marginTop: 2, fontWeight: "500" },
   desc: { fontWeight: "500" },

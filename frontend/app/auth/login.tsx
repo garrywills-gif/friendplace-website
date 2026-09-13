@@ -213,7 +213,7 @@ export default function Login() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Log In" />
+      <Header title="Log In" showGeorge />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={[styles.intro, { color: c.onSurfaceSecondary, fontSize: 17 * scale }]}>Welcome back!</Text>

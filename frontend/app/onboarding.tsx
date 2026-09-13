@@ -46,6 +46,8 @@ import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
+import SpeakButton from "@/src/components/SpeakButton";
+import { useGeorgeVoice, VOICE_LABELS, hasChosenCompanion, type GeorgeVoice } from "@/src/lib/george-voice";
 
 // FriendPlace teal butterfly — the primary brand mark for every step
 // header. Using the app icon so the artwork stays consistent with the
@@ -86,8 +88,21 @@ type TourPage = {
 };
 const TOUR_STEPS: TourPage[] = [
   {
+    // Added 2026-08-14 (Garry launch-polish): Share a Moment sits at
+    // the start of the tour and is paired with FP Café as the two
+    // obvious first social actions. Uses the same hero-card shape and
+    // decoration pattern as the existing steps — no wizard-navigation
+    // plumbing changes; STEP_COUNT / STEP_* derived constants
+    // recompute automatically off TOUR_STEPS.length.
+    icon: "\uD83D\uDCF8", title: "Share a Moment",
+    bubble: "First up \u2014 Share a Moment.",
+    body: "Post a photo or a short story about something that made you smile today. You'll earn Butterfly Points every time you share.",
+    heroBg: "#FEF3F7", heroBorder: "#F9A8D4",
+    decorations: ["\uD83D\uDCF8", "\uD83E\uDD8B", "\u2728", "\uD83D\uDCAB"],
+  },
+  {
     icon: "\u2615", title: "FP Café",
-    bubble: "Let\u2019s start with the FP Café.",
+    bubble: "Then, the FP Café.",
     body: "Imagine walking into your local caf\u00e9. Drop in anytime and chat with people who are online.",
     heroBg: "#FEF3E2", heroBorder: "#F5C99B",
     decorations: ["\u2615", "\uD83E\uDD50", "\uD83C\uDF75", "\uD83E\uDDC1"],
@@ -181,6 +196,38 @@ export default function OnboardingWizard() {
   const { c, scale } = useTheme();
   const { user, refresh } = useAuth() as any;
   const { show } = useToast();
+
+  // Companion-aware labels — reuse the persisted preference already
+  // powering SpeakButton/getVoice() so header + intro copy matches the
+  // voice the member picked in Accessibility. No new state, no
+  // separate migration — the hook subscribes to the same store.
+  // (Launch-polish 2026-08-14, follow-up to Session 2.)
+  const { voice: savedVoice } = useGeorgeVoice();
+
+  // ── Random tour host (TestFlight 1028, Garry, Sep 2026) ───────────
+  // The onboarding tour is delivered by a randomly chosen host — either
+  // George or Georgia — so first-time members don't always meet the
+  // same companion. The pick is made ONCE per onboarding session and
+  // kept in local state so every step of the tour uses the same voice.
+  // On the final "You're all set!" screen we then hand off to the
+  // member's saved companion when — and only when — they've explicitly
+  // chosen one already (see `hasChosenCompanion` in george-voice.ts).
+  const [tourHost] = useState<GeorgeVoice>(() =>
+    Math.random() < 0.5 ? 'george' : 'georgia',
+  );
+  const [chosenBefore, setChosenBefore] = useState(false);
+  useEffect(() => {
+    void hasChosenCompanion().then(setChosenBefore);
+  }, []);
+  const voice = tourHost;                       // tour speaks as this
+  const companionName = VOICE_LABELS[voice].short;             // "George" | "Georgia"
+  const companionUpper = companionName.toUpperCase();           // "GEORGE" | "GEORGIA"
+  const otherName = voice === 'george' ? 'Georgia' : 'George';
+  const savedCompanionShort = VOICE_LABELS[savedVoice]?.short || 'George';
+  // Only announce a handoff when the tour host differs from the
+  // member's PRE-CHOSEN companion. Never invent a preference just to
+  // trigger a handoff (Garry's explicit rule).
+  const showHandoff = chosenBefore && savedVoice !== tourHost;
 
   const [step, setStep] = useState(0);
   const [interests, setInterests] = useState<string[]>([]);
@@ -288,10 +335,12 @@ export default function OnboardingWizard() {
     // very first time the member opens the app after onboarding.
     // See `GeorgeButterfly.pickReturningGreeting`.
     AsyncStorage.setItem(GEORGIA_HINT_FLAG, '1').catch(() => {});
-    // Garry (Sep 2026): the celebration must STAY until the member
-    // chooses to continue — it previously auto-redirected after ~5.5s,
-    // which rushed people before they could read/hear George's closing
-    // line. No auto-dismiss now; the member taps "Continue" when ready.
+    // TestFlight 1028 (Garry, Sep 2026 — P0 tour timing): the
+    // celebration screen previously auto-dismissed after 5.5s which
+    // cut George/Georgia's closing line off on some devices and made
+    // slower readers feel rushed. It now stays put until the member
+    // taps "Tap to continue" (or the whole screen, see the Pressable
+    // wrapper on the render side). Audio can also finish uninterrupted.
   };
 
   const canNext = step < STEP_COUNT - 1 ? true : true; // interests step allows 0-selected
@@ -326,23 +375,60 @@ export default function OnboardingWizard() {
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <GeorgeButterflyMark size={26} />
               <Text style={{ color: "#0F766E", fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
-                GEORGE
+                {companionUpper}
               </Text>
+              {/* Read-aloud on the final "You're all set" screen (Session 2
+                  launch-polish 2026-08-14). Same SpeakButton, same
+                  companion-voice branching. Ensures audio is available
+                  from the first George/Georgia intro through to the
+                  very last screen of the tour. */}
+              <View style={{ marginLeft: "auto" }}>
+                <SpeakButton
+                  text={"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces. And remember, I\u2019m only ever a butterfly tap away."}
+                  color="#0F766E"
+                  bg="rgba(255,255,255,0.85)"
+                  size={20}
+                  testID="onb-celebrate-speak"
+                />
+              </View>
             </View>
             <Text style={{ color: "#0A2540", fontSize: 15 * scale, fontWeight: "700", lineHeight: 22 }}>
               {"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces.\n\nAnd remember\u2026 I\u2019m only ever a butterfly tap away. \uD83E\uDD8B"}
             </Text>
+            {showHandoff ? (
+              <Text
+                testID="onb-celebrate-handoff"
+                style={{ color: "#0F766E", fontSize: 15 * scale, fontWeight: "800", lineHeight: 22, marginTop: 12 }}
+              >
+                {`That\u2019s the tour from me \u2014 ${savedCompanionShort} will be around whenever you feel like a chat. \uD83D\uDC4B`}
+              </Text>
+            ) : null}
           </View>
+
+          {/* Whole-screen tap target so members can tap anywhere to
+              continue. The dedicated "Tap to continue" pill sits at
+              the bottom for members who look for it. */}
         </View>
         <Pressable
-          onPress={goHome}
           testID="onb-celebrate-continue"
-          accessibilityRole="button"
+          onPress={goHome}
           accessibilityLabel="Continue to Home"
-          hitSlop={12}
-          style={({ pressed }) => [styles.celebrateContinueBtn, pressed && { opacity: 0.85 }]}
+          accessibilityRole="button"
+          hitSlop={16}
+          style={({ pressed }) => ({
+            alignSelf: "center",
+            paddingVertical: 14,
+            paddingHorizontal: 26,
+            marginBottom: 12,
+            borderRadius: 999,
+            backgroundColor: pressed ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.10)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.55)",
+          })}
         >
-          <Text style={styles.celebrateContinueText}>Continue</Text>
+          <Text style={{ color: "#FFFFFF", fontWeight: "800", fontSize: 15 * scale }}>
+            Tap to continue →
+          </Text>
         </Pressable>
       </View>
     );
@@ -382,9 +468,9 @@ export default function OnboardingWizard() {
         contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, paddingTop: 36 }}
         keyboardShouldPersistTaps="handled"
       >
-        {step === 0 ? <StepWelcome scale={scale} c={c} /> : null}
+        {step === 0 ? <StepWelcome scale={scale} c={c} companionName={companionName} companionUpper={companionUpper} otherName={otherName} /> : null}
         {step >= 1 && step <= TOUR_STEPS.length ? (
-          <StepFeatureTour scale={scale} c={c} page={TOUR_STEPS[step - 1]} />
+          <StepFeatureTour scale={scale} c={c} page={TOUR_STEPS[step - 1]} companionUpper={companionUpper} />
         ) : null}
         {step === STEP_ACCESSIBILITY ? <StepAccessibility scale={scale} c={c} /> : null}
         {step === STEP_PRIVACY       ? <StepPrivacy       scale={scale} c={c} /> : null}
@@ -492,7 +578,7 @@ export default function OnboardingWizard() {
 // exactly where they'll find him later. His speech bubble carries the
 // intro copy (Garry, 23 July 2026) and a small info card teaches
 // members where he lives and when to tap him.
-function StepWelcome({ scale, c }: { scale: number; c: any }) {
+function StepWelcome({ scale, c, companionName, companionUpper, otherName }: { scale: number; c: any; companionName: string; companionUpper: string; otherName: string }) {
   // Reanimated: George flies out of the FriendPlace logo, curves down
   // to the top-right edge of the speech bubble, and perches there —
   // half-off the card so he feels like a companion who's just landed,
@@ -591,6 +677,23 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
           hangs half-off the card like a bird on a windowsill. */}
       {bubble ? (
         <View style={{ position: "relative", overflow: "visible", marginTop: 12 }} testID="onb-george-bubble-wrap">
+          {/* Read-aloud button (Session 2 launch-polish 2026-08-14).
+              Sits absolutely-positioned inside the bubble's top-right
+              corner so it's discoverable from the very first George/
+              Georgia introduction, and reuses the app-wide SpeakButton
+              which automatically picks the member's companion voice
+              (George → OpenAI "ash"; Georgia → OpenAI "nova"). No
+              second audio system was built — same SpeakButton used
+              on Home, Notice Board, DM, Moments and every game. */}
+          <View style={{ position: "absolute", top: 6, right: 6, zIndex: 2 }} pointerEvents="box-none">
+            <SpeakButton
+              text={`Hi, I\u2019m ${companionName}. Welcome to FriendPlace! I\u2019ll be your guide while you\u2019re getting started. I\u2019ll show you around, answer questions and help you find your way whenever you need me. You\u2019ll also meet ${otherName}. We know the same things \u2014 we just have different personalities, so you can chat with whichever of us feels right for you.`}
+              color="#0F766E"
+              bg="rgba(255,255,255,0.85)"
+              size={22}
+              testID="onb-welcome-speak"
+            />
+          </View>
           <View
             style={[
               styles.georgeBubble,
@@ -599,14 +702,14 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
           >
             <View style={styles.georgeBubbleHead}>
               <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 13 * scale }}>
-                GEORGE
+                {companionUpper}
               </Text>
             </View>
             <Text
               testID="onb-george-bubble"
               style={[styles.georgeBubbleText, { color: c.onSurface, fontSize: 16 * scale }]}
             >
-              {"Hi, I\u2019m George \uD83D\uDC4B\n\nWelcome to FriendPlace! I\u2019ll be your guide while you\u2019re getting started.\n\nI\u2019ll show you around, answer questions and help you find your way whenever you need me.\n\nYou\u2019ll also meet Georgia. We know the same things \u2014 we just have different personalities, so you can chat with whichever of us feels right for you."}
+              {`Hi, I\u2019m ${companionName} \uD83D\uDC4B\n\nWelcome to FriendPlace! I\u2019ll be your guide while you\u2019re getting started.\n\nI\u2019ll show you around, answer questions and help you find your way whenever you need me.\n\nYou\u2019ll also meet ${otherName}. We know the same things \u2014 we just have different personalities, so you can chat with whichever of us feels right for you.`}
             </Text>
           </View>
           {/* George perches half-off the top-right edge of the bubble */}
@@ -641,7 +744,7 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
           {"\uD83E\uDD8B Need a hand?"}
         </Text>
         <Text style={[styles.helpCardBody, { color: c.muted, fontSize: 14 * scale }]}>
-          {"You\u2019ll usually find me (or Georgia) in the top corner of your screen. Just tap the butterfly whenever you\u2019d like some help, aren\u2019t sure where to go, or simply feel like a chat."}
+          {`You\u2019ll usually find me (or ${otherName}) in the top corner of your screen. Just tap the butterfly whenever you\u2019d like some help, aren\u2019t sure where to go, or simply feel like a chat.`}
         </Text>
       </View>
 
@@ -657,7 +760,7 @@ function StepWelcome({ scale, c }: { scale: number; c: any }) {
 // User-paced tour (Garry, 23 July 2026): one page per feature, George
 // in the corner with a short speech bubble, then a big illustration
 // and one warm paragraph. Explicit Next tap — never auto-advances.
-function StepFeatureTour({ scale, c, page }: { scale: number; c: any; page: TourPage }) {
+function StepFeatureTour({ scale, c, page, companionUpper }: { scale: number; c: any; page: TourPage; companionUpper: string }) {
   return (
     <View style={{ gap: 14, paddingTop: 6 }}>
       {/* George bubble — anchored top-right so he feels like a companion
@@ -667,8 +770,21 @@ function StepFeatureTour({ scale, c, page }: { scale: number; c: any; page: Tour
           <View style={styles.georgeBubbleHead}>
             <GeorgeButterflyMark size={26} />
             <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
-              GEORGE
+              {companionUpper}
             </Text>
+            {/* Read-aloud (Session 2 launch-polish 2026-08-14) —
+                available on every tour step. Reuses SpeakButton so
+                the companion voice preference (George/Georgia) is
+                honoured automatically. */}
+            <View style={{ marginLeft: "auto" }}>
+              <SpeakButton
+                text={page.bubble}
+                color={c.brand}
+                bg="rgba(255,255,255,0.7)"
+                size={20}
+                testID={`onb-tour-speak-${page.title.toLowerCase().replace(/\s+/g, "-")}`}
+              />
+            </View>
           </View>
           <Text style={{ color: c.onSurface, fontSize: 15 * scale, fontWeight: "700", lineHeight: 21 }}>
             {page.bubble}
@@ -1194,12 +1310,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   celebrateHero: { color: "#FFFFFF", fontWeight: "900", textAlign: "center", letterSpacing: 0.5 },
-  celebrateContinueBtn: {
-    alignSelf: "stretch", marginHorizontal: 24, marginBottom: 8,
-    backgroundColor: "#FFFFFF", borderRadius: 16, paddingVertical: 16,
-    alignItems: "center", justifyContent: "center", minHeight: 52,
-  },
-  celebrateContinueText: { color: "#0F766E", fontWeight: "900", fontSize: 17 },
   celebrateHeadline: { color: "#FFFFFF", fontWeight: "800", textAlign: "center" },
   celebrateSub: { color: "rgba(255,255,255,0.9)", textAlign: "center", fontWeight: "600", lineHeight: 24 },
 });

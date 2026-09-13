@@ -7,10 +7,10 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
-import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
-import SuburbField from "@/src/components/SuburbField";
+import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { groupImageForName } from "@/src/lib/group-photos";
 import { resolveGallerySource } from "@/src/lib/gallery";
+import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
 
 export default function Groups() {
   const { c, scale } = useTheme();
@@ -18,6 +18,7 @@ export default function Groups() {
   const { show } = useToast();
   const router = useRouter();
   const [groups, setGroups] = useState<any[]>([]);
+  const [radiusKm, setRadiusKm] = useState<number | null>(DEFAULT_RADIUS_KM);
   // Suggest-a-group modal state. Anyone signed-in can submit; admin
   // approves via the Admin tab before the group goes live to others.
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -25,18 +26,15 @@ export default function Groups() {
   const [sEmoji, setSEmoji] = useState("🌟");
   const [sDesc, setSDesc] = useState("");
   const [sReason, setSReason] = useState("");
-  const [sLoc, setSLoc] = useState<{ name: string; postcode?: string; state?: string } | null>(null);
   const [sBusy, setSBusy] = useState(false);
   // Inline error surface — toasts can be missed (they fade out) so we
   // also show the last submission error directly inside the modal until
   // the user changes the form. Especially useful for the common case of
   // duplicate group names.
   const [sError, setSError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const { radius, setRadius } = useRadius("groups");
 
-  const load = async () => setGroups(await api.listGroups({ user_id: user?.id, q: query || undefined, radius_km: radius ?? undefined }));
-  useFocusEffect(useCallback(() => { load(); }, [user?.id, query, radius]));
+  const load = async () => setGroups(await api.listGroups({ user_id: user?.id, radius_km: radiusKm ?? undefined }));
+  useFocusEffect(useCallback(() => { load(); }, [user?.id, radiusKm]));
 
   const join = async (g: any) => {
     if (!user) return;
@@ -70,51 +68,21 @@ export default function Groups() {
         emoji="🤝"
         backHref="/home"
       />
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginTop: 12, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surfaceSecondary }}>
-        <Ionicons name="search" size={18} color={c.muted} />
-        <TextInput testID="group-search" placeholder="Search groups…" placeholderTextColor={c.muted} value={query} onChangeText={setQuery} returnKeyType="search" style={{ flex: 1, color: c.onSurface, fontSize: 15 * scale, paddingVertical: 10 }} />
-        {!!query && <Pressable hitSlop={6} onPress={() => setQuery("")}><Ionicons name="close-circle" size={20} color={c.muted} /></Pressable>}
-      </View>
-      <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
-        <RadiusFilter value={radius} onChange={setRadius} />
-      </View>
+      <RadiusFilter value={radiusKm} onChange={setRadiusKm} />
       <FlatList
         data={groups}
         keyExtractor={(g) => g.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 12 }}
-        ListEmptyComponent={() => (
-          <View style={{ paddingVertical: 50, alignItems: "center", paddingHorizontal: 24 }}>
-            <Ionicons name="people-outline" size={42} color={c.muted} />
-            <Text style={{ color: c.onSurface, fontWeight: "800", marginTop: 10, fontSize: 17 * scale, textAlign: "center" }}>
-              {query ? "No groups match your search here yet." : "No groups nearby yet."}
-            </Text>
-            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 6, fontSize: 14 * scale, textAlign: "center" }}>
-              Be the first to create a group for your area.
-            </Text>
-            <Pressable testID="empty-suggest-group" onPress={() => setSuggestOpen(true)} style={{ marginTop: 16, backgroundColor: c.brand, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 999 }}>
-              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Create the first group</Text>
-            </Pressable>
-            {radius != null && (
-              <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-                {radius < 50 && (
-                  <Pressable testID="group-try-50" onPress={() => setRadius(50)} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, borderWidth: 2, borderColor: c.border }}>
-                    <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Try 50 km</Text>
-                  </Pressable>
-                )}
-                <Pressable testID="group-show-all" onPress={() => setRadius(null)} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, borderWidth: 2, borderColor: c.border }}>
-                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Show all</Text>
-                </Pressable>
-              </View>
-            )}
-          </View>
-        )}
         renderItem={({ item }) => {
           const joined = user && (item.members || []).includes(user.id);
           const founderLocked = item.is_founder_only && !(user as any)?.is_founder;
-          // Real photograph for the tile (matches Notice Board / Events
-          // gallery). Respects a backend `item.image` gallery ref / URL,
-          // else maps the group name to a bundled gallery photo; falls
-          // back to the emoji tile for unmapped custom groups.
+          // TestFlight Fix Batch 1 (Garry, Aug 2026 — P2 #4):
+          // Real photograph for the tile, matching the visual style
+          // introduced in the Notice Board / Events gallery. Falls
+          // back to the emoji tile when no mapping exists (custom
+          // member-suggested groups etc.). Also respects a
+          // backend-supplied `item.image` if one is present, so
+          // admins can override the mapping via the DB.
           const photoOverride = typeof item.image === "string" && item.image.startsWith("gallery:")
             ? resolveGallerySource(item.image)
             : (item.image && /^(https?:|data:)/.test(item.image) ? { uri: item.image } : null);
@@ -130,9 +98,16 @@ export default function Groups() {
             >
               <View style={styles.row}>
                 {photo ? (
-                  <Image source={photo} style={styles.tilePhoto} resizeMode="cover" accessibilityLabel={`${item.name} photo`} />
+                  <Image
+                    source={photo}
+                    style={styles.tilePhoto}
+                    resizeMode="cover"
+                    accessibilityLabel={`${item.name} photo`}
+                  />
                 ) : (
-                  <View style={[styles.emoji, { backgroundColor: c.brandTertiary }]}><Text style={{ fontSize: 32 }}>{item.emoji}</Text></View>
+                  <View style={[styles.emoji, { backgroundColor: c.brandTertiary }]}>
+                    <Text style={{ fontSize: 32 }}>{item.emoji}</Text>
+                  </View>
                 )}
                 <View style={{ flex: 1, marginLeft: 12 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
@@ -263,11 +238,6 @@ export default function Groups() {
                 maxLength={500}
                 style={[styles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 14 * scale, minHeight: 60, textAlignVertical: "top" }]}
               />
-              <Text style={[styles.label, { color: c.onSurface, fontSize: 14 * scale, marginTop: 12 }]}>Where is this group based?</Text>
-              <SuburbField
-                initialValue={sLoc?.name || user?.suburb || ""}
-                onChange={(m) => setSLoc(m ? { name: m.name, postcode: m.postcode, state: m.state } : null)}
-              />
             </ScrollView>
 
             {/* Action row — pinned to the bottom of the modal card so
@@ -295,13 +265,10 @@ export default function Groups() {
                       emoji: sEmoji.trim() || "🌟",
                       description: sDesc.trim(),
                       reason: sReason.trim(),
-                      locality: sLoc?.name,
-                      locality_postcode: sLoc?.postcode,
-                      locality_state: sLoc?.state,
                     });
                     show("Thanks! Your group is awaiting admin approval 🌟");
                     setSuggestOpen(false);
-                    setSName(""); setSEmoji("🌟"); setSDesc(""); setSReason(""); setSLoc(null); setSError(null);
+                    setSName(""); setSEmoji("🌟"); setSDesc(""); setSReason(""); setSError(null);
                   } catch (e: any) {
                     const msg = String(e?.message || "");
                     let friendly = "Could not submit suggestion. Please try again.";
@@ -339,7 +306,7 @@ const styles = StyleSheet.create({
   card: { borderRadius: 18, padding: 14, borderWidth: 1 },
   row: { flexDirection: "row", alignItems: "center" },
   emoji: { width: 60, height: 60, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  tilePhoto: { width: 60, height: 60, borderRadius: 18, backgroundColor: "#E2E8F0" },
+  tilePhoto: { width: 72, height: 72, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.06)" },
   title: { fontWeight: "800" },
   desc: { marginTop: 2 },
   btn: { paddingHorizontal: 18, paddingVertical: 12, borderRadius: 999, minHeight: 44, justifyContent: "center" },

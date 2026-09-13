@@ -3,77 +3,101 @@ import { site } from '@/lib/brand';
 import './globals.css';
 import SiteHeader from '@/components/SiteHeader';
 import SiteFooter from '@/components/SiteFooter';
-import MetaPixel from '@/components/MetaPixel';
 import { CompanionProvider } from '@/lib/companion-context';
 import { ConciergeOverlay } from '@/components/site/ConciergeOverlay';
 import { LeadingButterfly } from '@/components/site/LeadingButterfly';
 
-const indexable = process.env.FRIENDPLACE_INDEXABLE === 'true' || (process.env.FRIENDPLACE_INDEXABLE !== 'false' && process.env.VERCEL_ENV === 'production');
-
 export const metadata: Metadata = {
   metadataBase: new URL(site.urlProduction),
-  title: { default: `${site.name} — ${site.tagline}`, template: `%s — ${site.name}` },
+  title: {
+    default: `${site.name} — ${site.tagline}`,
+    template: `%s — ${site.name}`,
+  },
   description: site.description,
   keywords: [
     'FriendPlace',
     'friendship app Australia',
-    'make friends as an adult',
-    'make new friends Australia',
-    'meet people near me',
-    'social groups near me',
-    'local community groups',
-    'friends over 50 Australia',
-    'retirement social groups',
-    'local events Australia',
     'community app',
+    'make new friends',
+    'local meetups',
     'belonging',
+    'social community',
   ],
   authors: [{ name: 'FriendPlace' }],
-  creator: 'FriendPlace',
-  publisher: 'FriendPlace',
-  category: 'Social community',
-  robots: indexable ? { index: true, follow: true } : { index: false, follow: false, nocache: true, googleBot: { index: false, follow: false, noimageindex: true } },
-  openGraph: { title: `${site.name} — ${site.tagline}`, description: site.description, url: site.urlProduction, siteName: site.name, locale: 'en_AU', type: 'website' },
-  twitter: { card: 'summary_large_image', title: `${site.name} — ${site.tagline}`, description: site.description },
-  icons: { icon: '/brand-assets/favicon.png', apple: '/brand-assets/favicon.png' },
+  // Post-launch (Aug 2026): default to index/follow on Vercel production.
+  // Preview and development deploys stay noindex automatically because
+  // VERCEL_ENV is 'preview' or 'development' on those. The admin section
+  // has its own unconditional noindex override in app/admin/layout.tsx,
+  // so /admin/* stays private no matter what we do here. Explicit
+  // FRIENDPLACE_INDEXABLE=true forces indexable anywhere; explicit
+  // =false is the emergency killswitch for prod.
+  robots: (() => {
+    const flag = process.env.FRIENDPLACE_INDEXABLE;
+    const indexable =
+      flag === 'true' ||
+      (flag !== 'false' && process.env.VERCEL_ENV === 'production');
+    return indexable
+      ? { index: true, follow: true }
+      : {
+          index: false,
+          follow: false,
+          nocache: true,
+          googleBot: { index: false, follow: false, noimageindex: true },
+        };
+  })(),
+  openGraph: {
+    title: `${site.name} — ${site.tagline}`,
+    description: site.description,
+    url: site.urlProduction,
+    siteName: site.name,
+    locale: 'en_AU',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${site.name} — ${site.tagline}`,
+    description: site.description,
+  },
+  icons: {
+    icon: '/brand-assets/favicon.png',
+    apple: '/brand-assets/favicon.png',
+  },
 };
 
-export const viewport: Viewport = { themeColor: '#0A2540', width: 'device-width', initialScale: 1 };
-
-const structuredData = {
-  '@context': 'https://schema.org',
-  '@graph': [
-    {
-      '@type': 'Organization',
-      '@id': `${site.urlProduction}/#organization`,
-      name: site.name,
-      url: site.urlProduction,
-      description: site.description,
-      email: site.emailContact,
-    },
-    {
-      '@type': 'WebSite',
-      '@id': `${site.urlProduction}/#website`,
-      url: site.urlProduction,
-      name: site.name,
-      description: site.description,
-      inLanguage: 'en-AU',
-      publisher: { '@id': `${site.urlProduction}/#organization` },
-    },
-  ],
+// Next.js 14 wants viewport-related fields in a separate `viewport`
+// export (rather than the deprecated position inside `metadata`). Kept
+// here so the browser tab colour matches our navy brand.
+export const viewport: Viewport = {
+  themeColor: '#0A2540',
+  width: 'device-width',
+  initialScale: 1,
 };
-
-const metaPixelBaseCode = `!function(f,b,e,v,n,t,s)
-{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-n.queue=[];t=b.createElement(e);t.async=!0;
-t.src=v;s=b.getElementsByTagName(e)[0];
-s.parentNode.insertBefore(t,s)}(window, document,'script',
-'https://connect.facebook.net/en_US/fbevents.js');
-fbq('init', '4256953884595956');
-fbq('track', 'PageView');`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en-AU"><head><link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous"/><link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/><script id="friendplace-meta-pixel" dangerouslySetInnerHTML={{ __html: metaPixelBaseCode }} /><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} /></head><body><MetaPixel/><CompanionProvider><SiteHeader/><main>{children}</main><SiteFooter/><ConciergeOverlay/><LeadingButterfly/></CompanionProvider></body></html>;
+  return (
+    <html lang="en-AU">
+      <head>
+        {/* Public Sans — our closest free web equivalent of the mobile
+            app's Plus Jakarta Sans. Preconnect keeps first paint fast. */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700;800;900&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body>
+        <CompanionProvider>
+          <SiteHeader />
+          <main>{children}</main>
+          <SiteFooter />
+          {/* Concierge overlay — a global welcome that any surface can
+              summon by dispatching `friendplace:meet-george`. Renders
+              nothing until invited. */}
+          <ConciergeOverlay />
+          <LeadingButterfly />
+        </CompanionProvider>
+      </body>
+    </html>
+  );
 }

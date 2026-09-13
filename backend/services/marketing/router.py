@@ -59,17 +59,7 @@ class PreviewIn(BaseModel):
     suburb: str = ""
     subject_override: Optional[str] = None
     additional_message: str = ""
-    # iter164ai — personal reply mode. When provided, templates that
-    # support it (enquiry_reply) treat this as the ENTIRE editable
-    # body — no canned intro, no template body + additional_message
-    # concatenation. Preserves newlines / blank-line paragraphs
-    # exactly; HTML is safely escaped before wrapping.
-    body_text: Optional[str] = None
     flyer: Optional[FlyerAttachModel] = None
-    # iter164aq — shared optional CTA button.
-    cta_choice: Optional[str] = None
-    cta_label: Optional[str] = None
-    cta_url: Optional[str] = None
 
 
 class SendIn(BaseModel):
@@ -81,14 +71,9 @@ class SendIn(BaseModel):
     suburb: str = ""
     subject_override: Optional[str] = None
     additional_message: str = ""
-    body_text: Optional[str] = None       # iter164ai — see PreviewIn
     flyer: Optional[FlyerAttachModel] = None
     campaign_id: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
-    # iter164aq — shared optional CTA button.
-    cta_choice: Optional[str] = None
-    cta_label: Optional[str] = None
-    cta_url: Optional[str] = None
 
 
 class SendOut(BaseModel):
@@ -163,16 +148,9 @@ def build_marketing_router(db, current_cms_admin) -> APIRouter:
             recipient_type=body.recipient_type or "person",
             organisation_name=body.organisation_name,
             additional_message=body.additional_message,
-            # iter164ai — pass body_text through so enquiry_reply
-            # renders in personal-reply mode when the client sends it.
-            body_text=body.body_text or "",
             suburb=body.suburb,
             subject_override=body.subject_override,
             flyer_name=flyer_name,
-            # iter164aq — shared optional CTA button.
-            cta_choice=body.cta_choice or "",
-            cta_label=body.cta_label or "",
-            cta_url=body.cta_url or "",
         )
         try:
             rendered = render_template(body.template_id, ctx)
@@ -203,9 +181,6 @@ def build_marketing_router(db, current_cms_admin) -> APIRouter:
                 suburb=body.suburb,
                 subject_override=body.subject_override,
                 additional_message=body.additional_message,
-                # iter164ai — pipe body_text into the send worker so
-                # the delivered email matches the preview byte-for-byte.
-                body_text=body.body_text or "",
                 flyer=(
                     FlyerAttachmentRequest(
                         template_key=body.flyer.template_key,
@@ -217,10 +192,6 @@ def build_marketing_router(db, current_cms_admin) -> APIRouter:
                 campaign_id=body.campaign_id,
                 initiator=admin.get("email") if isinstance(admin, dict) else None,
                 tags=list(body.tags or []),
-                # iter164aq — shared optional CTA button.
-                cta_choice=body.cta_choice or "",
-                cta_label=body.cta_label or "",
-                cta_url=body.cta_url or "",
             )
             outcome = await send_marketing_email(db, req)
         except ValueError as exc:

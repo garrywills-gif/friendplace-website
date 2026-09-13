@@ -293,6 +293,30 @@ export function findHint(state: GameState): HintMove | null {
     return -1;
   };
 
+  // TestFlight Fix Batch 1 (Garry, Aug 2026 — P1 #5, defensive):
+  // A hint may only be surfaced if the ACTUAL move would succeed via
+  // `moveTableauToTableau`. In normal play the face-up sub-run above
+  // any position is always a legal descending alt-colour run (that's
+  // the only way cards get placed), so this validator is a belt-and-
+  // braces guard against a corrupted or hand-crafted state. Returns
+  // `true` iff the slice starting at `fromIndex` is a legal Klondike
+  // sub-run AND `canDropOnTableau` accepts its head on `dest`.
+  const isValidTableauMove = (
+    src: Card[],
+    fromIndex: number,
+    dest: Card[],
+  ): boolean => {
+    if (fromIndex < 0 || fromIndex >= src.length) return false;
+    const slice = src.slice(fromIndex);
+    if (slice.some((c) => !c.faceUp)) return false;
+    for (let i = 0; i < slice.length - 1; i++) {
+      const a = slice[i], b = slice[i + 1];
+      if ((a.rank as number) - 1 !== (b.rank as number)) return false;
+      if (isRed(a.suit) === isRed(b.suit)) return false;
+    }
+    return canDropOnTableau(slice[0], dest);
+  };
+
   // 3) tableau → tableau that REVEALS a face-down card. This is the
   //    most valuable non-foundation move — it unlocks new options.
   for (let p = 0; p < 7; p++) {
@@ -307,7 +331,7 @@ export function findHint(state: GameState): HintMove | null {
       if (head.rank === 13 && state.tableau[q].length === 0 && firstUp === src.length - 1 && src.length > 1 && !src[src.length - 2].faceUp) {
         // That still reveals a face-down, keep it — fall through.
       }
-      if (canDropOnTableau(head, state.tableau[q])) {
+      if (isValidTableauMove(src, firstUp, state.tableau[q])) {
         return { kind: "tableau-to-tableau", fromPile: p, fromIndex: firstUp, toPile: q };
       }
     }
@@ -340,7 +364,7 @@ export function findHint(state: GameState): HintMove | null {
       if (!head.faceUp) continue;
       for (let q = 0; q < 7; q++) {
         if (q === p) continue;
-        if (!canDropOnTableau(head, state.tableau[q])) continue;
+        if (!isValidTableauMove(src, idx, state.tableau[q])) continue;
         // Filter no-op King shuffles.
         if (head.rank === 13 && state.tableau[q].length === 0) {
           // If source column has NO face-down cards then moving the

@@ -1,6 +1,6 @@
-import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image } from "react-native";
-import { useFocusEffect } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
+import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image, Keyboard } from "react-native";
+import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
@@ -13,9 +13,9 @@ import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import { useComposerLock } from "@/src/lib/composer-lock";
-import RadiusFilter, { useRadius } from "@/src/components/RadiusFilter";
 import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
 import TappableImage from "@/src/components/TappableImage";
+import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
 
 // Notice Board categories — Garry, 2 Aug 2026. Each category carries
 // its own emoji so the picker feels warm and skimmable, and so the
@@ -52,22 +52,70 @@ export default function Notices() {
   const { c, scale, prefs } = useTheme();
   const { user } = useAuth();
   const { show, confirm } = useToast();
+  const router = useRouter();
+  const navigation = useNavigation();
+
+  // ── Batch B iter159 (Garry, Aug 2026 — real-iPhone Bug 1) ─────
+  // RCA of the "Back → Login" bug: two paths could exit this screen
+  //   (a) our Header's back button (Pressable in <Header>) — used our
+  //       `onBack` prop.
+  //   (b) iOS's swipe-back gesture on the underlying react-navigation
+  //       Stack — bypassed our Header entirely and popped the router
+  //       stack. When Notice Board was opened from Home, the stack
+  //       underneath was `/` (Welcome), NOT `/home`. Popping landed
+  //       on Welcome, whose `useEffect` auto-redirected back to /home
+  //       — but for a split second Welcome rendered with its "Login"
+  //       button visible, which is what Garry saw.
+  //
+  // Fix (belt-and-braces so BOTH paths can only land on /home):
+  //   1. Header `onBack` now uses `router.replace("/home")` — matches
+  //      every other screen. The `/(tabs)/home` form was an outlier
+  //      and doesn't resolve consistently across expo-router
+  //      versions on iOS.
+  //   2. Intercept the react-navigation `beforeRemove` event so ANY
+  //      pop attempt (swipe-back, hardware back, programmatic) is
+  //      redirected to `/home` explicitly, cancelling the default
+  //      pop that would drop to Welcome.
+  useEffect(() => {
+    const unsub = navigation.addListener("beforeRemove", (e: any) => {
+      // If we're navigating deliberately elsewhere (e.g. router.push
+      // to open a notice detail modal), let it through. `data.action`
+      // is set for programmatic navigations we control.
+      const action = e?.data?.action;
+      const type = action?.type;
+      // Only intercept the "GO_BACK" / "POP" actions — everything
+      // else is a legitimate forward/lateral navigation we should
+      // permit.
+      if (type && type !== "GO_BACK" && type !== "POP") return;
+      // eslint-disable-next-line no-console
+      console.log("[notices/back] beforeRemove intercepted", { type });
+      e.preventDefault();
+      // Small delay so react-navigation can settle its internal
+      // beforeRemove state before we push the new route.
+      setTimeout(() => {
+        try { router.replace("/home" as any); }
+        catch { /* noop */ }
+      }, 0);
+    });
+    return unsub;
+  }, [navigation, router]);
   const [notices, setNotices] = useState<any[]>([]);
   const [category, setCategory] = useState("All");
+  const [radiusKm, setRadiusKm] = useState<number | null>(DEFAULT_RADIUS_KM);
   const [query, setQuery] = useState("");
   const [posting, setPosting] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [pTitle, setPTitle] = useState("");
   const [pBody, setPBody] = useState("");
   const [pCat, setPCat] = useState("Announcement");
-  const [pImage, setPImage] = useState("");
-  const [pImagePicker, setPImagePicker] = useState(false);
+  // Optional image attached to the notice — gallery ref, data URI or "".
+  const [pImage, setPImage] = useState<string>("");
+  const [pImagePicker, setPImagePicker] = useState<boolean>(false);
   const [openCommentsFor, setOpenCommentsFor] = useState<string | null>(null);
   const [commentText, setCommentText] = useState("");
   const [replyTo, setReplyTo] = useState<{ commentId: string; userName: string } | null>(null);
   const [actionMenuFor, setActionMenuFor] = useState<any | null>(null);
   const [reportFor, setReportFor] = useState<any | null>(null);
-  const { radius, setRadius } = useRadius("notices");
 
   // Composer-lock (approved 24 Jun 2026): hold the global composer
   // lock while the member is drafting a notice OR a comment so the
@@ -83,16 +131,25 @@ export default function Notices() {
   const load = async () => {
     if (!user) return;
     try {
-      setNotices(await api.listNotices({ user_id: user.id, q: query || undefined, category, radius_km: radius ?? undefined }) as any[]);
+      setNotices(await api.listNotices({ user_id: user.id, q: query || undefined, category, radius_km: radiusKm ?? undefined }) as any[]);
     } catch {}
   };
-  useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radius]));
+  useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radiusKm]));
 
   const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPosting(true); };
   const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || ""); setPosting(true); };
 
   const submitPost = async () => {
     if (!user || !pTitle.trim() || !pBody.trim()) { show("Add a title and message"); return; }
+    // TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #2):
+    // Dismiss the keyboard BEFORE closing the composer Modal. On iOS,
+    // if the keyboard is still up when the Modal starts its slide-down
+    // dismissal, the keyboard can become "orphaned" from the modal's
+    // input, leaving the underlying screen unresponsive to touches
+    // ("freeze"). This is a well-known iOS Modal + KeyboardAvoidingView
+    // interaction bug. Explicit Keyboard.dismiss() lets the keyboard
+    // retract first, then the modal closes cleanly.
+    Keyboard.dismiss();
     try {
       if (editing) {
         await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat, image: pImage });
@@ -239,7 +296,16 @@ export default function Notices() {
         <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>{n.body}</Text>
         {n.image ? (() => {
           const src = resolveImageSource(n.image);
-          return src ? <TappableImage testID={`notice-image-${n.id}`} source={src} style={styles.noticeImage} resizeMode="cover" caption={n.title} accessibilityLabel="View notice photo larger" /> : null;
+          return src ? (
+            <TappableImage
+              source={src}
+              style={styles.noticeCardImage}
+              resizeMode="cover"
+              caption={n.title}
+              accessibilityLabel="View notice photo larger"
+              testID={`notice-photo-${n.id}`}
+            />
+          ) : null;
         })() : null}
 
         {/* Reactions row */}
@@ -316,10 +382,14 @@ export default function Notices() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title="Notice Board" backHref="/home" emoji="📋" subtitle="Local notices · Share what's on" right={(
+      <Header title="Notice Board" backHref="/home" emoji="📋" subtitle="Local notices · Share what's on" onBack={() => { console.log("[notices/back] Header onBack tapped"); router.replace("/home" as any); }} right={(
         <Pressable testID="new-notice" onPress={startCreate} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brand, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
           <Ionicons name="add" size={20} color="#FFF" />
-          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale }}>Add Post</Text>
+          {/* Renamed 2026-08-14 (Garry launch-polish): explicit "Add a
+              post" reads as a clear action rather than a cryptic "+"
+              icon alone. Matches app-wide voice ("share a moment",
+              "create an event"). */}
+          <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale }}>Add a post</Text>
         </Pressable>
       )} />
       <View style={[styles.searchBar, { borderColor: c.border, backgroundColor: c.surfaceSecondary }]}>
@@ -340,38 +410,16 @@ export default function Notices() {
           })}
         </ScrollView>
       </View>
-      <View style={{ paddingHorizontal: 12, paddingBottom: 6 }}>
-        <RadiusFilter value={radius} onChange={setRadius} />
-      </View>
+      <RadiusFilter value={radiusKm} onChange={setRadiusKm} />
       <FlatList
         data={notices}
         keyExtractor={(n) => n.id}
         contentContainerStyle={{ padding: 12, paddingBottom: 80, gap: 10 }}
         renderItem={renderItem}
         ListEmptyComponent={() => (
-          <View style={{ paddingVertical: 60, alignItems: "center", paddingHorizontal: 24 }}>
+          <View style={{ paddingVertical: 60, alignItems: "center" }}>
             <Ionicons name="newspaper-outline" size={42} color={c.muted} />
-            <Text style={{ color: c.onSurface, fontWeight: "800", marginTop: 10, fontSize: 17 * scale, textAlign: "center" }}>
-              {query ? "No notices match your search here yet." : "No notices nearby yet."}
-            </Text>
-            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 6, fontSize: 14 * scale, textAlign: "center" }}>
-              Be the first to post a notice for your area.
-            </Text>
-            <Pressable testID="empty-post-notice" onPress={startCreate} style={{ marginTop: 16, backgroundColor: c.brand, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 999 }}>
-              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>Post the first notice</Text>
-            </Pressable>
-            {radius != null && (
-              <View style={{ flexDirection: "row", gap: 10, marginTop: 14 }}>
-                {radius < 50 && (
-                  <Pressable testID="empty-try-50" onPress={() => setRadius(50)} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, borderWidth: 2, borderColor: c.border }}>
-                    <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Try 50 km</Text>
-                  </Pressable>
-                )}
-                <Pressable testID="empty-show-all" onPress={() => setRadius(null)} style={{ paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, borderWidth: 2, borderColor: c.border }}>
-                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>Show all</Text>
-                </Pressable>
-              </View>
-            )}
+            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 8, fontSize: 16 * scale }}>No notices match. Try another filter or post the first one!</Text>
           </View>
         )}
       />
@@ -415,7 +463,6 @@ export default function Notices() {
                 <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale }}>{editing ? "Edit notice" : "Post a notice"}</Text>
                 <Pressable onPress={() => setPosting(false)} hitSlop={8} style={{ padding: 6 }}><Ionicons name="close" size={26} color={c.onSurface} /></Pressable>
               </View>
-              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {POST_CATS.map((cat) => (
@@ -428,37 +475,60 @@ export default function Notices() {
               <TextInput testID="post-title" value={pTitle} onChangeText={setPTitle} placeholder="A short headline" placeholderTextColor={c.muted} style={inputStyle} />
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Message</Text>
               <TextInput testID="post-body" value={pBody} onChangeText={setPBody} placeholder="What would you like to share?" placeholderTextColor={c.muted} multiline numberOfLines={5} style={[inputStyle, { height: 120, textAlignVertical: "top" }]} />
+
+              {/* Optional photo — pick from the FriendPlace gallery or upload
+                  your own. Emits a plain string that lands in the Notice's
+                  `image` field (gallery ref / data URI / empty). */}
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Photo (optional)</Text>
               {pImage ? (
                 <View style={styles.photoPreviewWrap}>
                   {(() => {
                     const src = resolveImageSource(pImage);
-                    return src ? <Image source={src} style={styles.photoPreview} resizeMode="cover" /> : null;
+                    return src ? (
+                      <Image source={src} style={styles.photoPreview} resizeMode="cover" />
+                    ) : null;
                   })()}
                   <View style={styles.photoPreviewActions}>
-                    <Pressable testID="post-photo-change" onPress={() => setPImagePicker(true)} style={[styles.photoBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                    <Pressable
+                      testID="post-photo-change"
+                      onPress={() => setPImagePicker(true)}
+                      style={[styles.photoBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                    >
                       <Ionicons name="images" size={16} color={c.onSurface} />
                       <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>Change photo</Text>
                     </Pressable>
-                    <Pressable testID="post-photo-remove" onPress={() => setPImage("")} style={[styles.photoBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                    <Pressable
+                      testID="post-photo-remove"
+                      onPress={() => setPImage("")}
+                      style={[styles.photoBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                    >
                       <Ionicons name="close-circle" size={16} color={c.muted} />
                       <Text style={{ color: c.muted, fontWeight: "800", fontSize: 13 * scale }}>Remove</Text>
                     </Pressable>
                   </View>
                 </View>
               ) : (
-                <Pressable testID="post-photo-add" onPress={() => setPImagePicker(true)} style={[styles.photoAddBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                <Pressable
+                  testID="post-photo-add"
+                  onPress={() => setPImagePicker(true)}
+                  style={[styles.photoAddBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                >
                   <Ionicons name="camera" size={22} color={c.brand} />
                   <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>Add a photo</Text>
                 </Pressable>
               )}
+
               <View style={{ height: 14 }} />
               <Button testID="post-submit" label={editing ? "Save changes" : "Post to Notice Board"} onPress={submitPost} />
-              </ScrollView>
             </View>
           </KeyboardAvoidingView>
-          {/* GalleryPicker rendered inline (modal=false) inside this composer
-              Modal — nesting two <Modal>s on iOS breaks the inner one. */}
+          {/* TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #2):
+              Gallery picker is rendered INSIDE the composer Modal in
+              inline (non-Modal) mode. Nesting two <Modal>s on iOS causes
+              the second one to fail to present and swallow all taps
+              ("Choose Photo doesn't work"). Inline mode paints the
+              picker as an absolute overlay within this Modal's own view
+              tree so gestures and animations behave correctly. */}
           <GalleryPicker
             visible={pImagePicker}
             onClose={() => setPImagePicker(false)}
@@ -483,12 +553,7 @@ const styles = StyleSheet.create({
   solvedChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   title: { fontWeight: "900", marginTop: 2 },
   body: { lineHeight: 22 },
-  noticeImage: { width: "100%", height: 200, borderRadius: 12, marginTop: 8, backgroundColor: "#E2E8F0" },
-  photoPreviewWrap: { marginTop: 4 },
-  photoPreview: { width: "100%", height: 180, borderRadius: 12, backgroundColor: "#E2E8F0" },
-  photoPreviewActions: { flexDirection: "row", gap: 8, marginTop: 8 },
-  photoBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 12, borderWidth: 1, minHeight: 44 },
-  photoAddBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", marginTop: 4, minHeight: 56 },
+  noticeCardImage: { width: "100%", height: 180, borderRadius: 12, marginTop: 8 },
   reactionsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 6 },
   reactBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 999, borderWidth: 1, minHeight: 40 },
   commentBox: { padding: 10, borderRadius: 12, borderWidth: 1 },
@@ -497,6 +562,30 @@ const styles = StyleSheet.create({
   replyPill: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, width: "100%", justifyContent: "space-between" },
   sendBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
+  photoPreviewWrap: { gap: 8 },
+  photoPreview: { width: "100%", height: 160, borderRadius: 12 },
+  photoPreviewActions: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  photoBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    minHeight: 36,
+  },
+  photoAddBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    minHeight: 52,
+  },
   modalSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, maxHeight: "85%" },
   modalHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   label: { fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },

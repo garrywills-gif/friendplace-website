@@ -132,6 +132,21 @@ async def ensure_indexes(db: Any) -> None:
         await db.admin_login_attempts.create_index(
             [("scope", 1), ("key", 1)], unique=True,
         )
+        # TTL cleanup (iter167 hotfix): stale failed-attempt rows age
+        # out 24 hours after the last recorded failure. Two reasons:
+        #   1. Belt-and-braces on top of the lockout-time counter reset
+        #      — if a reset ever fails silently (Mongo hiccup, etc.),
+        #      old counters won't linger indefinitely and re-lock a
+        #      returning admin the next day.
+        #   2. Keeps the collection small over long horizons.
+        # 24h is long enough that a slow-motion brute-force spread over
+        # a whole day still trips the counter, but short enough that a
+        # single mistype yesterday isn't held against you today.
+        await db.admin_login_attempts.create_index(
+            "last_fail_at",
+            expireAfterSeconds=60 * 60 * 24,
+            name="admin_login_attempts_ttl",
+        )
         await db.admin_lockouts.create_index(
             [("scope", 1), ("key", 1)], unique=True,
         )

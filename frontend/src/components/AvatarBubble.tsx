@@ -24,7 +24,7 @@
 import React, { useState } from "react";
 import { View, Image, Text, Pressable, StyleProp, TextStyle, ImageStyle, ViewStyle } from "react-native";
 import ZoomableImageViewer from "./ZoomableImageViewer";
-import { resolvePresetSource } from "@/src/lib/avatar-presets";
+import { resolvePresetSource, isPresetAvatar } from "@/src/lib/avatar-presets";
 
 type Props = {
   value?: string | null;
@@ -49,8 +49,15 @@ type Props = {
   zoomable?: boolean;
 };
 
-const URL_RE = /^https?:\/\//i;
+// Match http(s) URLs and base64 data URIs. `data:` URIs come from the
+// Edit Profile / signup "Upload your own photo" flow which encodes the
+// picked image as `data:image/jpeg;base64,…` and stores it directly in
+// `user.avatar`. Without this AvatarBubble rendered the raw base64 as
+// an emoji glyph (the "broken avatar everywhere except Edit Profile"
+// bug this fix addresses).
+const IMAGE_RE = /^(https?:|data:)/i;
 const GLASSES_MARK = "::g";
+const PRESET_RE = /^preset:/i;
 
 /** Strip the trailing `::g` marker (if any) and return the bare avatar
  * value plus a boolean indicating whether glasses should be overlaid. */
@@ -62,22 +69,33 @@ export function parseAvatar(value?: string | null): { base: string | null; glass
   return { base: value, glasses: false };
 }
 
+/**
+ * Safe text glyph for member-facing captions.
+ *
+ * Callers sometimes want to prefix a member's name with their emoji
+ * avatar in plain text (e.g. `"👨 Harry"` in a DM header). This helper
+ * returns:
+ *   • the raw glyph      → for legacy emoji avatars
+ *   • ``null``           → for preset avatars (`"preset:portrait-62"`),
+ *                          http/data URIs, or empty values
+ *
+ * That prevents the "preset:portrait-62 Harry" leak seen on DM headers,
+ * event hosts, and any other member-facing surface that concatenates
+ * avatars with names. Rendering the actual avatar image is still the
+ * responsibility of ``<AvatarBubble>``.
+ */
+export function avatarDisplayGlyph(value?: string | null): string | null {
+  const { base } = parseAvatar(value);
+  if (!base) return null;
+  if (PRESET_RE.test(base)) return null;
+  if (IMAGE_RE.test(base)) return null;
+  return base;
+}
+
 /** Append the `::g` marker to an avatar value. Idempotent — won't double up. */
 export function withGlasses(value: string, glasses: boolean): string {
   const { base } = parseAvatar(value);
   return glasses ? `${base ?? ""}${GLASSES_MARK}` : (base ?? "");
-}
-
-/** Display-safe emoji glyph for a stored avatar value. Returns the emoji
- *  (glasses marker stripped) or the fallback — never an internal token
- *  such as "preset:portrait-62" or a photo URL. Use anywhere an avatar is
- *  rendered as inline text (e.g. DM/thread titles). */
-export function avatarGlyph(value?: string | null, fallback = "🙂"): string {
-  const { base } = parseAvatar(value);
-  if (!base) return fallback;
-  if (URL_RE.test(base)) return fallback;
-  if (/^[a-z][a-z0-9_]*:\S+$/i.test(base)) return fallback;
-  return base;
 }
 
 export default function AvatarBubble({
@@ -93,22 +111,20 @@ export default function AvatarBubble({
   const { base, glasses } = parseAvatar(value);
   const [zoomOpen, setZoomOpen] = useState(false);
 
-  // Treat http(s) URLs as photos; everything else (emoji or empty) as text.
-  const isUrl = !!(base && URL_RE.test(base));
-  // Illustrated FriendPlace portrait preset (e.g. "preset:portrait-62") →
-  // resolve to its bundled image so the member's chosen portrait renders.
-  const presetSrc = base && !isUrl ? resolvePresetSource(base) : null;
-  // Guard against leaking OTHER internal avatar tokens to members. Any
-  // non-URL, non-preset value shaped like an internal key (`word:value`,
-  // ASCII, no spaces) is not a real emoji — fall back to the friendly
-  // default glyph instead of rendering the raw key.
-  const isInternalKey = !!(base && !isUrl && !presetSrc && /^[a-z][a-z0-9_]*:\S+$/i.test(base));
-  const glyph = isInternalKey ? fallback : (base || fallback);
+  // Preset avatars ship bundled inside the app and resolve to a
+  // `require()`d image source. If the string is a preset ref but the
+  // id is unknown (e.g. an app update removed a portrait), we fall
+  // through to the emoji-text branch which renders the fallback
+  // glyph rather than crashing.
+  const presetSource = isPresetAvatar(base) ? resolvePresetSource(base) : null;
+  // Treat http(s) URLs AND base64 data URIs AND resolved presets as
+  // photos; everything else (emoji or empty) as text.
+  const isImage = !!presetSource || !!(base && IMAGE_RE.test(base));
   const fs = textSize ?? Math.round(size * 0.7);
 
   const imageEl = (
     <Image
-      source={presetSrc ?? { uri: base as string }}
+      source={presetSource ? presetSource : { uri: base as string }}
       // resizeMode="cover" ensures the photo fills the circular frame
       // without distortion; combined with overflow:"hidden" it produces
       // a clean circular crop centred on the source. Users who dislike
@@ -123,13 +139,11 @@ export default function AvatarBubble({
     />
   );
 
-  const inner = isUrl ? (
-    zoomable ? (
-      // Safari on iPad/iOS is strict about Fragments-containing-Modal
-      // when the parent has overflow:"hidden" (which the Profile avatar
-      // circle uses to clip the photo). Wrapping in an explicit View
-      // gives React Native Web a stable container to portal the Modal
-      // off, and avoids the blank-tab crash we hit on the Profile page.
+  const inner = isImage ? (
+    // Zoomable when we have EITHER a preset avatar (bundled require()d
+    // source) OR a real photo (http(s) URL or data: URI). Emoji is
+    // never zoomable — nothing to see at higher resolution.
+    zoomable && (presetSource || (base && /^(https?:|data:)/i.test(base))) ? (
       <View style={{ width: size, height: size }}>
         <Pressable
           onPress={() => setZoomOpen(true)}
@@ -140,15 +154,17 @@ export default function AvatarBubble({
           {imageEl}
         </Pressable>
         <ZoomableImageViewer
-          uri={zoomOpen ? (base as string) : null}
+          // Forward whichever shape we have. `source` wins over `uri`
+          // when both are set — the viewer accepts either. Guarded by
+          // `zoomOpen` so the modal doesn't preload assets before tap.
+          source={zoomOpen && presetSource ? presetSource : null}
+          uri={zoomOpen && !presetSource && base ? base : null}
           onClose={() => setZoomOpen(false)}
         />
       </View>
     ) : (
       imageEl
     )
-  ) : presetSrc ? (
-    imageEl
   ) : (
     // Emoji avatar — wrap the Text in a fixed-size flex container so the
     // glyph sits perfectly centred (both axes) regardless of the emoji's
@@ -174,7 +190,7 @@ export default function AvatarBubble({
         accessibilityElementsHidden
         importantForAccessibility="no"
       >
-        {glyph}
+        {avatarDisplayGlyph(value) || fallback}
       </Text>
     </View>
   );

@@ -72,10 +72,7 @@ export function AskGeorgeBar() {
       // Second tap → stop and transcribe.
       const blob = await rec.stop();
       if (!blob) {
-        // iter164c: null blob = no speech detected (silence-only clip
-        // rejected by the recorder). Show a warm nudge and DO NOT
-        // touch the input — the previous typed content stays intact.
-        setMicError("I didn\u2019t catch any speech — the input stays as it was. Try again a little closer to the mic.");
+        setMicError("Nothing recorded yet \u2014 give it another go when you\u2019re ready.");
         return;
       }
       try {
@@ -117,9 +114,7 @@ export function AskGeorgeBar() {
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      // iter164i: pass the DOM value explicitly to bypass any stale
-      // React-state/closure in WKWebView (installed Mac web app).
-      submit(inputRef.current?.value);
+      submit();
     }
   }
 
@@ -191,38 +186,11 @@ export function AskGeorgeBar() {
 
           <span style={cmdHint} aria-hidden>⌘K</span>
 
-          {/*
-           * iter164g production bug (Mac installed WebApp): the Ask
-           * button was previously gated on `rec.recording` as well as
-           * `!input.trim()`. In Safari WKWebView (the runtime powering
-           * installed Mac web apps) the MediaRecorder `onstop` event
-           * has known race conditions — it can fire twice, or its
-           * state transition to `'inactive'` doesn't cleanly propagate
-           * to React — which left `rec.recording` stale-true after a
-           * successful transcription. The transcript would land in
-           * the input (chunks flush fine) but the Ask button stayed
-           * disabled and the click never reached `submit()`.
-           *
-           * Safari proper masks the same bug; only the WKWebView PWA
-           * exposes it. Fix: drop `rec.recording` from this guard.
-           * The input is already `disabled` while recording (correct
-           * UX — no typing over live speech) and the mic button is
-           * the primary "stop recording" control. Gating Ask on
-           * `rec.recording` was defensive coverage that became a
-           * footgun when the state got stuck. Ask now purely reflects
-           * "is there content to send?".
-           */}
           <button
             type="button"
-            /* iter164i: pass the DOM value explicitly so that on WKWebView
-             * (installed Mac web app) a stale React-state closure after
-             * voice transcription can't strand the submit. Normal typed
-             * input and programmatic submits still work because submit()
-             * resolves `msg ?? input` — a defined DOM value simply wins
-             * over the (possibly-stale) React state. */
-            onClick={() => submit(inputRef.current?.value)}
-            disabled={!input.trim()}
-            style={{ ...askBtn, opacity: input.trim() ? 1 : 0.5 }}
+            onClick={() => submit()}
+            disabled={!input.trim() || rec.recording}
+            style={{ ...askBtn, opacity: input.trim() && !rec.recording ? 1 : 0.5 }}
           >Ask</button>
         </div>
 

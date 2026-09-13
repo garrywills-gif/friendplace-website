@@ -826,17 +826,6 @@ export const foundingMembersCrmApi = {
     );
   },
   stats: () => req<CRMFoundingMembersStats>('GET', '/cms/crm/founding-members/stats'),
-  // Founder alignment recovery (item #10): link a founder whose app
-  // account uses a DIFFERENT email to their register-interest record,
-  // assigning their original founding number. Admin supplies user_id
-  // or the email they signed up with — no guessing.
-  linkAccount: (id: string, body: { user_id?: string; email?: string }) =>
-    req<{
-      ok: true;
-      founder_number: number;
-      linked_user: { id: string; email: string | null; first_name: string | null; username: string | null };
-      member: CRMFoundingMember;
-    }>('POST', `/cms/crm/founding-members/${id}/link-account`, body),
   update: (
     id: string,
     patch: Partial<Pick<CRMFoundingMember, 'status' | 'admin_notes' | 'tags'>>,
@@ -923,10 +912,6 @@ export type CampaignAudienceFilter = {
   // CRM Phase 2C \u2014 target a saved segment. When set, the resolver
   // intersects the classic filter above with the segment's member list.
   segment_id?: string;
-  // Outreach campaigns tag their audience by kind + category so the
-  // Organisation Groups list can recognise a saved draft for a group.
-  audience_kind?: string;
-  outreach?: { category?: string; status?: string };
 };
 
 export type CampaignStats = {
@@ -951,31 +936,16 @@ export type Campaign = {
   template: 'announcement' | 'invitation' | 'welcome';
   subject?: string;
   preheader?: string;
-  // iter164o: expanded from {george, georgia} to also accept
-  // {team, none} so Community/Outreach campaigns can be signed by
-  // The FriendPlace Team, and campaigns whose body already contains
-  // its own closing can suppress the appended sign-off entirely.
-  companion?: 'george' | 'georgia' | 'team' | 'none';
+  companion?: 'george' | 'georgia';
   title?: string;
   body_md?: string;
   cta_label?: string;
   cta_url?: string;
-  // iter164q composer wiring for iter164p backend fields:
-  //   greeting == null     -> legacy "Dear <first_name>," greeting
-  //   greeting == ""       -> no greeting line at all
-  //   greeting == "Dear [Contact name]," -> per-recipient substitution
-  //   greeting == any other string       -> rendered verbatim
-  greeting?: string | null;
-  //   show_founder_badge == null  -> legacy (show pill iff founder_number)
-  //   true                        -> show pill iff founder_number set
-  //   false                       -> hard-suppress even when set
-  show_founder_badge?: boolean | null;
   audience_filter: CampaignAudienceFilter;
   status: CampaignStatus;
   stats: CampaignStats;
   created_at?: string;
   created_by?: string;
-  updated_at?: string;
   scheduled_at?: string;
   sent_at?: string;
   finished_at?: string;
@@ -1025,9 +995,6 @@ export type CampaignRecipientEvent = {
     link_url?: string;
     bounce_type?: string;
     bounce_msg?: string;
-    error?: string;
-    http_status?: number;
-    message_id?: string;
   };
 };
 
@@ -1043,7 +1010,7 @@ export const campaignsApi = {
     req<Campaign>('PATCH', `/cms/campaigns/${id}`, patch),
   remove: (id: string) => req<{ ok: boolean }>('DELETE', `/cms/campaigns/${id}`),
   previewAudience: (id: string) =>
-    req<{ count: number; excluded_count?: number; excluded_do_not_email?: Array<{ email: string; organisation_name?: string; reason: string; suppressed_at?: string | null }>; sample: Array<{ id: string; first_name?: string; email: string; founder_number?: number; status?: string; tags?: string[] }> }>(
+    req<{ count: number; sample: Array<{ id: string; first_name?: string; email: string; founder_number?: number; status?: string; tags?: string[] }> }>(
       'POST', `/cms/campaigns/${id}/preview-audience`,
     ),
   renderPreview: (id: string) =>
@@ -1058,10 +1025,6 @@ export const campaignsApi = {
     req<Campaign>('POST', `/cms/campaigns/${id}/schedule`, { scheduled_at: scheduledAtIso }),
   unschedule: (id: string) =>
     req<Campaign>('POST', `/cms/campaigns/${id}/unschedule`),
-  retryFailed: (id: string) =>
-    req<{ retried: number; succeeded: number; failed_again: number; eligible: number; stats: Record<string, number> }>(
-      'POST', `/cms/campaigns/${id}/retry-failed`,
-    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -1234,7 +1197,7 @@ export const flyersApi = {
     const token = getToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetchWithRetry(
+    const res = await fetch(
       `${BASE}/api/cms/flyer-templates/${key}/render?${q.toString()}`,
       { headers, cache: 'no-store' },
     );
@@ -1530,11 +1493,6 @@ export type OutreachOrg = {
   communications: Array<{ kind: string; at: string; [k: string]: any }>;
   created_at: string;
   updated_at: string;
-  // iter164bd — hard suppression state (annotated by the backend).
-  email_suppressed?: boolean;
-  suppression_reason?: 'unsubscribed' | 'hard_bounce' | 'spam_complaint' | 'manual' | null;
-  suppressed_at?: string | null;
-  suppressed_source?: string | null;
 };
 
 export type OutreachOrgIn = {
@@ -1603,8 +1561,6 @@ export const crmApi = {
 
 export type ReplyChannel = 'email' | 'phone' | 'in_person' | 'sms' | 'other';
 
-export type ReplyResolutionKind = 'replied' | 'no_reply_needed';
-
 export type InboundReply = {
   id: string;
   from_email: string;
@@ -1624,26 +1580,7 @@ export type InboundReply = {
   resolved: boolean;
   resolved_at: string | null;
   resolved_by: string | null;
-  /**
-   * iter164g: resolution audit fields. Populated when the reply is
-   * closed. ``resolution_kind === "no_reply_needed"`` means the admin
-   * used the "Resolve without sending" action — no outbound email was
-   * sent, but the row stays in history with the reason preserved on
-   * ``resolution_note``.
-   */
-  resolution_kind: ReplyResolutionKind | null;
-  resolution_note: string | null;
   notes: string;
-};
-
-export type StaleRepliesResponse = {
-  days: number;
-  count: number;
-  replies: Array<Pick<
-    InboundReply,
-    'id' | 'from_email' | 'from_name' | 'subject' | 'channel' |
-    'campaign_id' | 'campaign_name' | 'received_at' | 'read'
-  >>;
 };
 
 export type ReplyIn = {
@@ -1681,138 +1618,8 @@ export const repliesApi = {
   markRead: (id: string, read = true) => req<InboundReply>(
     'PATCH', `/cms/replies/${id}/read`, { read },
   ),
-  /**
-   * iter164g: pass an optional resolution kind + note when closing a
-   * reply. When ``resolved === true`` and no ``resolution_kind`` is
-   * given, the backend leaves it null (legacy path, treated as an
-   * outbound reply for outreach-status purposes). Explicit
-   * ``"no_reply_needed"`` marks the item as resolved without sending
-   * any outbound email — the note is retained on the reply document
-   * for audit.
-   */
-  markResolved: (
-    id: string,
-    resolved = true,
-    opts?: { resolution_kind?: ReplyResolutionKind; resolution_note?: string },
-  ) => req<InboundReply>(
-    'PATCH', `/cms/replies/${id}/resolve`,
-    {
-      resolved,
-      ...(opts?.resolution_kind ? { resolution_kind: opts.resolution_kind } : {}),
-      ...(opts?.resolution_note ? { resolution_note: opts.resolution_note } : {}),
-    },
+  markResolved: (id: string, resolved = true) => req<InboundReply>(
+    'PATCH', `/cms/replies/${id}/resolve`, { resolved },
   ),
-  stale: (params?: { days?: number; limit?: number }) => {
-    const qs = new URLSearchParams();
-    if (params?.days)  qs.set('days',  String(params.days));
-    if (params?.limit) qs.set('limit', String(params.limit));
-    const s = qs.toString();
-    return req<StaleRepliesResponse>('GET', `/cms/replies/stale${s ? `?${s}` : ''}`);
-  },
   del: (id: string) => req<{ ok: true }>('DELETE', `/cms/replies/${id}`),
-};
-
-
-// ============================================================================
-// Reminders (iter162; api-client migration iter164g)
-// ============================================================================
-
-export type ReminderRecurrence = 'none' | 'daily' | 'weekly' | 'monthly';
-export type ReminderStatus = 'pending' | 'completed' | 'cancelled';
-
-export type Reminder = {
-  id: string;
-  title: string;
-  note: string;
-  due_at: string;
-  recurrence: ReminderRecurrence;
-  status: ReminderStatus;
-  created_at: string;
-  completed_at: string | null;
-  created_by?: string | null;
-};
-
-export type ReminderIn = {
-  title: string;
-  note?: string;
-  due_at: string;
-  recurrence?: ReminderRecurrence;
-};
-
-/**
- * iter164g: routed through the shared ``req`` client so reminders
- * gain the same retry + 401 auto-clear behaviour every other admin
- * surface already has. Behaviour identical to the previous inline
- * ``apiFetch`` used by ``/admin/reminders``.
- */
-export const remindersApi = {
-  list: (status?: ReminderStatus | 'all') => {
-    const s = status && status !== 'all' ? `?status=${status}` : '';
-    return req<{ items: Reminder[] }>('GET', `/cms/reminders${s}`);
-  },
-  create: (body: ReminderIn) => req<Reminder>('POST', '/cms/reminders', body),
-  patch:  (id: string, body: Partial<ReminderIn>) =>
-    req<Reminder>('PATCH', `/cms/reminders/${id}`, body),
-  complete: (id: string) => req<Reminder>('POST', `/cms/reminders/${id}/complete`),
-  del: (id: string) => req<{ ok: true }>('DELETE', `/cms/reminders/${id}`),
-};
-
-
-// ============================================================================
-// Butterfly Points — manual recognition (iter164h)
-// ============================================================================
-
-export type BpPersona = 'george' | 'georgia';
-export type BpLedgerKind = 'award' | 'reversal';
-
-export type BpLedgerEntry = {
-  id: string;
-  user_id: string;
-  amount: number;
-  reason: string;
-  persona: BpPersona | null;
-  kind: BpLedgerKind;
-  reverses_id: string | null;
-  reversed_at: string | null;
-  reversed_by_ledger_id: string | null;
-  admin_id: string | null;
-  admin_email: string | null;
-  admin_name: string | null;
-  notification_id: string | null;
-  created_at: string;
-};
-
-export type BpPolicy = {
-  amount_min: number;
-  amount_max: number;
-  amount_soft_warn: number;
-  reason_min: number;
-  reason_max: number;
-  personas: BpPersona[];
-};
-
-export type BpPreview = {
-  title: string;
-  body: string;
-  persona_name: string;
-  persona_avatar: string;
-};
-
-export const butterflyPointsApi = {
-  policy: () =>
-    req<BpPolicy>('GET', '/cms/members/butterfly-points/policy'),
-  preview: (body: { amount: number; reason: string; persona: BpPersona }) =>
-    req<BpPreview>('POST', '/cms/members/butterfly-points/preview', body),
-  list: (userId: string) =>
-    req<{ user_id: string; points: number; badges: string[]; ledger: BpLedgerEntry[] }>(
-      'GET', `/cms/members/${userId}/butterfly-points`,
-    ),
-  award: (userId: string, body: { amount: number; reason: string; persona: BpPersona }) =>
-    req<BpLedgerEntry>(
-      'POST', `/cms/members/${userId}/butterfly-points/award`, body,
-    ),
-  reverse: (userId: string, ledgerId: string, body: { reason: string }) =>
-    req<{ original: BpLedgerEntry; reversal: BpLedgerEntry }>(
-      'POST', `/cms/members/${userId}/butterfly-points/${ledgerId}/reverse`, body,
-    ),
 };

@@ -57,6 +57,25 @@ export default function Signup() {
 
   const [step, setStep] = useState<1 | 2>(1);
 
+  // Ref used to (a) snap the About-You screen to the very top when the
+  // wizard advances to Step 2 (previously the second step opened
+  // partly-scrolled on some devices because the ScrollView kept its
+  // scroll position from Step 1), and (b) scroll a validation error
+  // into view so the on-screen keyboard never hides it.
+  const scrollRef = useRef<ScrollView>(null);
+
+  // Inline validation errors — displayed above the affected field so
+  // they stay visible when the keyboard is up (toast alone was hidden
+  // behind the keyboard on iOS). Cleared on user edit.
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [suburbError, setSuburbError]     = useState<string | null>(null);
+
+  // Track whether the member picked a suburb from the recognised list.
+  // Free-text suburbs must never be accepted — Garry hit this with
+  // "Schofields" — so we block submission unless picked OR the member
+  // has chosen "Prefer not to say".
+  const [suburbPicked, setSuburbPicked] = useState(false);
+
   // Step 1 — account essentials
   const [firstName, setFirstName] = useState("");
   const [username, setUsername] = useState("");
@@ -73,23 +92,10 @@ export default function Signup() {
   const [suburb, setSuburb] = useState("");
   const [suburbPostcode, setSuburbPostcode] = useState<string | undefined>(undefined);
   const [suburbState, setSuburbState] = useState<string | undefined>(undefined);
+  const [locationPrivate, setLocationPrivate] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [referrerId, setReferrerId] = useState<string | null>(null);
-
-  // Inline, keyboard-aware validation (item 2): errors render next to the
-  // failing field and we scroll that field into view above the keyboard,
-  // instead of a toast that hides behind the iOS keyboard.
-  const [errors, setErrors] = useState<{ username?: string; email?: string; pw?: string; pw2?: string; suburb?: string }>({});
-  const scrollRef = useRef<ScrollView>(null);
-  const fieldY = useRef<Record<string, number>>({});
-  const onFieldLayout = (key: string) => (e: any) => { fieldY.current[key] = e.nativeEvent.layout.y; };
-  const scrollToField = (key: string) => {
-    const y = fieldY.current[key];
-    if (y != null) setTimeout(() => scrollRef.current?.scrollTo({ y: Math.max(0, y - 24), animated: true }), 50);
-  };
-  const clearError = (key: keyof typeof errors) =>
-    setErrors((p) => (p[key] ? { ...p, [key]: undefined } : p));
 
   useEffect(() => {
     (async () => {
@@ -99,6 +105,20 @@ export default function Signup() {
       } catch { /* no-op */ }
     })();
   }, []);
+
+  // When we transition to Step 2 ("About You") snap the ScrollView to
+  // the top. Fixes the "opens halfway down the page" report on
+  // TestFlight 1.0.24 (1028) where the second step inherited the
+  // first step's scroll offset on iOS.
+  useEffect(() => {
+    if (step === 2) {
+      // requestAnimationFrame + microtask so the ScrollView has
+      // rendered its new content before we scroll.
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ y: 0, animated: false });
+      });
+    }
+  }, [step]);
 
   const birthdayString = useMemo(() => {
     if (!bdayMonth || !bdayDay) return "";
@@ -115,36 +135,61 @@ export default function Signup() {
   // required because it's the primary recovery channel (password reset,
   // login link, important account updates) and the simplest signal we
   // have to prevent the same person creating multiple accounts.
+  //
+  // Every failure ALSO writes an inline error message that renders
+  // above the affected field. Toasts alone were being hidden by the
+  // on-screen keyboard on iOS, so users typing an invalid display name
+  // never saw the reason (TestFlight 1028 report).
   const validateStep1 = () => {
-    const next: typeof errors = {};
+    setUsernameError(null);
     const u = username.trim().toLowerCase();
-    if (!u || u.length < 3) next.username = "Username must be at least 3 characters";
-    const em = email.trim().toLowerCase();
-    if (!em) next.email = "Email address is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) next.email = "Please enter a valid email address";
-    if (!pw || pw.length < 6) next.pw = "Password must be at least 6 characters";
-    if (pw !== pw2) next.pw2 = "Passwords do not match";
-    setErrors(next);
-    const first = (["username", "email", "pw", "pw2"] as const).find((k) => next[k]);
-    if (first) { scrollToField(first); return false; }
-    return true;
-  };
-
-  // Suburb is now required (item 1) — a locality must be picked from the
-  // dataset (name + postcode + state all set) before the account is created.
-  const validateStep2 = () => {
-    if (!suburb || !suburbPostcode || !suburbState) {
-      setErrors((p) => ({ ...p, suburb: "Please choose your suburb or nearest town" }));
-      scrollToField("suburb");
+    if (!u || u.length < 3) {
+      const msg = "Username must be at least 3 characters";
+      setUsernameError(msg);
+      show(msg);
+      requestAnimationFrame(() =>
+        scrollRef.current?.scrollTo({ y: 0, animated: true }),
+      );
       return false;
     }
+    if (!/^[a-z0-9._-]+$/.test(u)) {
+      const msg = "Username can only contain letters, numbers, dots, dashes and underscores";
+      setUsernameError(msg);
+      show(msg);
+      requestAnimationFrame(() =>
+        scrollRef.current?.scrollTo({ y: 0, animated: true }),
+      );
+      return false;
+    }
+    const em = email.trim().toLowerCase();
+    if (!em) { show("Email address is required"); return false; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { show("Please enter a valid email address"); return false; }
+    if (!pw || pw.length < 6) { show("Password must be at least 6 characters"); return false; }
+    if (pw !== pw2) { show("Passwords do not match"); return false; }
     return true;
   };
 
   const continueFromStep1 = () => { if (validateStep1()) setStep(2); };
 
   const submit = async () => {
-    if (!validateStep2()) return;
+    // ── Suburb: enforce recognised-list selection ───────────────
+    // The member either picked a suburb from the searchable list or
+    // toggled "Prefer not to say". Free-text is never accepted —
+    // silently registering an unrecognised suburb (Garry's Schofields
+    // report on 1028) hurts local-neighbours discovery and gives the
+    // impression the app accepted invalid input.
+    if (!locationPrivate && !suburbPicked) {
+      const msg = "Please pick your suburb from the list, or tap “Prefer not to say”.";
+      setSuburbError(msg);
+      show(msg);
+      // Scroll the suburb section back into view — it sits near the
+      // bottom of Step 2 so this brings the error near the keyboard.
+      requestAnimationFrame(() =>
+        scrollRef.current?.scrollToEnd({ animated: true }),
+      );
+      return;
+    }
+    setSuburbError(null);
     setBusy(true);
     try {
       await signup({
@@ -152,10 +197,10 @@ export default function Signup() {
         password: pw,
         email: email.trim() ? email.trim().toLowerCase() : undefined,
         first_name: firstName.trim() || undefined,
-        suburb,
-        suburb_postcode: suburbPostcode,
-        suburb_state: suburbState,
-        location_visibility: "suburb",
+        suburb: locationPrivate ? "" : suburb,
+        suburb_postcode: locationPrivate ? undefined : suburbPostcode,
+        suburb_state: locationPrivate ? undefined : suburbState,
+        location_visibility: locationPrivate ? "private" : "suburb",
         interests,
         avatar,
         birthday: birthdayString || undefined,
@@ -174,6 +219,20 @@ export default function Signup() {
       // led to Garry's TestFlight incident where a genuinely-new email
       // signup kept failing without any hint as to why.
       //
+      // Follow-up (launch QA, 29 Aug 2026): the previous fix still
+      // hid ONE class of failure — messages that api.ts synthesised
+      // WITHOUT a numeric status prefix (Cloudflare intercepts, HTML
+      // bodies at 2xx, timeouts). Those arrive as e.g. "We can't
+      // reach FriendPlace right now…"; our regex saw no leading
+      // \d{3} so status became 0 and we fell through to the generic
+      // toast, silently swallowing the real reason. TestFlight 1.0.21
+      // showed this exactly.
+      //
+      // The fix: (a) always console.warn the raw error so
+      // Sentry/dev-console captures it, (b) if we can't parse a
+      // status+detail, surface the friendly message VERBATIM instead
+      // of overwriting it with the generic fallback.
+      //
       // `api.ts` wraps failures as `new Error(\`${status} ${text}\`)`,
       // so the message begins with the HTTP status followed by the
       // JSON body (which is either `{"detail":"..."}` for HTTPException
@@ -182,6 +241,13 @@ export default function Signup() {
       // where relevant. Only truly unexpected shapes (network drop,
       // non-JSON body) fall through to the generic toast.
       const raw = String(e?.message || "");
+
+      // Full raw trail for diagnostics — this is picked up by Sentry
+      // (when SENTRY_DSN_FRONTEND is set) AND by the automation
+      // console-log capture during TestFlight investigation. Never
+      // catch a signup failure silently again.
+      console.warn("[signup] failure raw:", raw);
+
       const m = raw.match(/^(\d{3})\s+(.*)$/s);
       const status = m ? parseInt(m[1], 10) : 0;
       let payload: any = null;
@@ -214,24 +280,30 @@ export default function Signup() {
       if (status === 429) {
         show("Too many attempts from this network right now — please wait a few minutes and try again.");
       } else if (detail.includes("Username already taken")) {
-        setErrors((p) => ({ ...p, username: "Username already taken" })); setStep(1); scrollToField("username");
+        show("Username already taken"); setStep(1);
       } else if (detail.includes("Email already registered")) {
-        setErrors((p) => ({ ...p, email: "Email already registered" })); setStep(1); scrollToField("email");
+        show("Email already registered"); setStep(1);
       } else if (detail.toLowerCase().includes("username")) {
-        setErrors((p) => ({ ...p, username: detail })); setStep(1); scrollToField("username");
+        // "at least 3 characters", "can't contain spaces", "can only
+        // contain letters, numbers, and . _ -" — send them back to
+        // step 1 with the actual reason.
+        show(detail); setStep(1);
       } else if (detail.toLowerCase().includes("password")) {
-        setErrors((p) => ({ ...p, pw: detail })); setStep(1); scrollToField("pw");
+        show(detail); setStep(1);
       } else if (detail.toLowerCase().includes("email")) {
-        setErrors((p) => ({ ...p, email: detail })); setStep(1); scrollToField("email");
+        show(detail); setStep(1);
       } else if (detail) {
         // Any other detail — show it verbatim so members aren't left
         // guessing (e.g. a future field validation, a moderation
         // block, etc.).
         show(detail);
-      } else if (status >= 500 || status === 0) {
-        // Network drop / non-JSON body / server crash — the only
-        // scenario where the generic fallback is appropriate.
-        show("Could not create account. Try again.");
+      } else if (raw) {
+        // No status prefix / no parseable detail — but we DO have a
+        // human message from api.ts (Cloudflare/HTML/timeout branch).
+        // Surface it as-is rather than hiding it behind a generic
+        // "try again" that stops us diagnosing the real cause. This
+        // is the fix for the TestFlight 1.0.21 silent-failure bug.
+        show(raw);
       } else {
         show("Could not create account. Try again.");
       }
@@ -245,10 +317,14 @@ export default function Signup() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header
         title={headerTitle}
-        // Step 2's header "back" goes to the welcome interstitial; the
-        // in-page "Back to Step 1" link below the form is the primary way
-        // to return — visible without scrolling on Step 2.
-        backHref={step === 2 ? "/auth/welcome" : undefined}
+        showGeorge
+        // Step 2's header "back" must NOT navigate away — that used to
+        // pop the whole Signup component and lose every field the
+        // member had filled in (TestFlight 1028 report). We intercept
+        // the back gesture with a custom handler so it just returns
+        // to Step 1 with state intact. Step 1 uses the default header
+        // back which navigates to Welcome as before.
+        onBack={step === 2 ? () => setStep(1) : undefined}
       />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -269,9 +345,25 @@ export default function Signup() {
 
           {step === 1 ? (
             <>
-              <Text onLayout={onFieldLayout("username")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Username  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-              <TextInput testID="signup-username" value={username} onChangeText={(t) => { setUsername(t); clearError("username"); }} placeholder="e.g. maggie (lowercase)" autoCapitalize="none" autoCorrect={false} placeholderTextColor={c.muted} style={[styles.input, inputStyle, errors.username ? { borderColor: c.error } : null]} />
-              {errors.username ? <Text testID="signup-err-username" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.username}</Text> : null}
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Username  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <TextInput
+                testID="signup-username"
+                value={username}
+                onChangeText={(t) => { setUsername(t); if (usernameError) setUsernameError(null); }}
+                placeholder="e.g. maggie (lowercase)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholderTextColor={c.muted}
+                style={[styles.input, inputStyle, usernameError ? { borderColor: c.error } : null]}
+              />
+              {usernameError ? (
+                <Text
+                  testID="signup-username-error"
+                  style={{ color: c.error, marginTop: 4, marginBottom: 8, fontSize: 13 * scale, fontWeight: "600" }}
+                >
+                  {usernameError}
+                </Text>
+              ) : null}
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>First name <Text style={{ color: c.muted, fontSize: 13 * scale }}>(optional)</Text></Text>
               <TextInput testID="signup-first-name" value={firstName} onChangeText={setFirstName} placeholder="Shown on your profile" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
@@ -279,20 +371,17 @@ export default function Signup() {
                 Only your first name is shown to other members. Surnames are never displayed.
               </Text>
 
-              <Text onLayout={onFieldLayout("email")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Email address  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-              <TextInput testID="signup-email" value={email} onChangeText={(t) => { setEmail(t); clearError("email"); }} placeholder="you@example.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholderTextColor={c.muted} style={[styles.input, inputStyle, errors.email ? { borderColor: c.error } : null]} />
-              {errors.email ? <Text testID="signup-err-email" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.email}</Text> : null}
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Email address  <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <TextInput testID="signup-email" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" autoCorrect={false} keyboardType="email-address" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
               <Text style={[styles.helper, { color: c.muted, fontSize: 12 * scale }]}>
                 Used for login, password recovery and important account updates.
               </Text>
 
-              <Text onLayout={onFieldLayout("pw")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Create password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-              <PasswordField testID="signup-pw" value={pw} onChangeText={(t: string) => { setPw(t); clearError("pw"); }} placeholder="At least 6 characters" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle, errors.pw ? { borderColor: c.error } : null]} iconColor={c.brand} />
-              {errors.pw ? <Text testID="signup-err-pw" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.pw}</Text> : null}
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Create password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <PasswordField testID="signup-pw" value={pw} onChangeText={setPw} placeholder="At least 6 characters" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
 
-              <Text onLayout={onFieldLayout("pw2")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Confirm password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
-              <PasswordField testID="signup-pw2" value={pw2} onChangeText={(t: string) => { setPw2(t); clearError("pw2"); }} placeholder="Re-enter password" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle, errors.pw2 ? { borderColor: c.error } : null]} iconColor={c.brand} />
-              {errors.pw2 ? <Text testID="signup-err-pw2" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.pw2}</Text> : null}
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Confirm password <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text></Text>
+              <PasswordField testID="signup-pw2" value={pw2} onChangeText={setPw2} placeholder="Re-enter password" placeholderTextColor={c.muted} inputStyle={[styles.input, inputStyle]} iconColor={c.brand} />
 
               <View style={{ height: 18 }} />
               <Button
@@ -306,7 +395,7 @@ export default function Signup() {
               {/* Friendly reassurance — these are all optional so people
                   don't feel like they have to finish everything to join. */}
               <Text style={{ color: c.muted, fontSize: 14 * scale, marginTop: 4, lineHeight: 20 }}>
-                Your suburb is required so we can show you people, groups and events nearby. Everything else is optional — you can finish setup later from your Profile.
+                Everything below is optional — you can finish setup later from your Profile.
               </Text>
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Choose an avatar</Text>
@@ -357,24 +446,42 @@ export default function Signup() {
                 We only use your birthday to wish you a happy day on the community.
               </Text>
 
-              <Text onLayout={onFieldLayout("suburb")} style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb <Text style={{ color: c.error, fontSize: 14 * scale }}>*</Text> <Text style={{ color: c.muted, fontSize: 13 * scale }}>(helps you find neighbours)</Text></Text>
+              <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb <Text style={{ color: c.muted, fontSize: 13 * scale }}>(helps you find neighbours)</Text></Text>
               <SuburbField
                 testID="signup-suburb"
                 initialValue={suburb}
-                onChange={(m) => {
-                  clearError("suburb");
-                  if (m) {
+                preferNotToSay={locationPrivate}
+                onChange={(m, pns) => {
+                  if (suburbError) setSuburbError(null);
+                  if (pns) {
+                    setSuburb("");
+                    setSuburbPostcode(undefined);
+                    setSuburbState(undefined);
+                    setLocationPrivate(true);
+                    setSuburbPicked(false);
+                  } else if (m) {
                     setSuburb(m.name);
                     setSuburbPostcode(m.postcode);
                     setSuburbState(m.state);
+                    setLocationPrivate(false);
+                    setSuburbPicked(true);
                   } else {
                     setSuburb("");
                     setSuburbPostcode(undefined);
                     setSuburbState(undefined);
+                    setLocationPrivate(false);
+                    setSuburbPicked(false);
                   }
                 }}
               />
-              {errors.suburb ? <Text testID="signup-err-suburb" style={[styles.errText, { color: c.error, fontSize: 13 * scale }]}>{errors.suburb}</Text> : null}
+              {suburbError ? (
+                <Text
+                  testID="signup-suburb-error"
+                  style={{ color: c.error, marginTop: 4, marginBottom: 8, fontSize: 13 * scale, fontWeight: "600" }}
+                >
+                  {suburbError}
+                </Text>
+              ) : null}
 
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Interests</Text>
               <View style={styles.row}>
@@ -428,7 +535,6 @@ const styles = StyleSheet.create({
   content: { padding: 20, gap: 6, paddingBottom: 40 },
   label: { fontWeight: "700", marginTop: 12 },
   helper: { marginTop: 4, lineHeight: 16 },
-  errText: { fontWeight: "700", marginTop: 4 },
   input: { borderWidth: 2, borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, fontWeight: "600" },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 2, minHeight: 40 },

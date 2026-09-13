@@ -105,8 +105,6 @@ async def send_email_detailed(
     text: Optional[str] = None,
     reply_to: Optional[str] = None,
     attachments: Optional[list] = None,
-    from_email: Optional[str] = None,
-    from_name: Optional[str] = None,
 ) -> SendResult:
     """Send a transactional email via Resend and return a rich result.
 
@@ -117,15 +115,8 @@ async def send_email_detailed(
 
     This is the primary implementation. `send_email()` remains for
     callers that only want a boolean.
-
-    ``from_email`` optionally overrides the configured sender (used by
-    the MCGS Inbox so a reply goes out *from* the FriendPlace mailbox
-    the original message was sent to, e.g. support@friendplace.com.au).
-    The address must belong to a Resend-verified domain.
     """
-    api_key, cfg_from_email, cfg_from_name, env_reply_to = _config()
-    from_email = (from_email or cfg_from_email)
-    from_name = (from_name or cfg_from_name)
+    api_key, from_email, from_name, env_reply_to = _config()
 
     if resend is None:
         return SendResult(
@@ -548,11 +539,11 @@ _BRAND_BUTTERFLY_B64 = _load_brand_butterfly_b64()
 def _brand_lockup_html() -> str:
     """Full-logo lockup (butterfly + FriendPlace wordmark), centred.
 
-    iter164ak — unified full-navy design. The butterfly is embedded as
-    a data-URI PNG so no third-party CDN is involved. Wordmark below
-    it is HTML text so it stays crisp at any size. Both sit on the
-    same FriendPlace navy as the surrounding shell — no light band
-    around the logo.
+    The butterfly is embedded as a data-URI PNG so no third-party CDN
+    is involved — no domain-verification delay, no image blocking by
+    corporate mail policies, no "click to load images" prompt on
+    Outlook. The wordmark below it is HTML text so it stays crisp at
+    any size and matches the website header exactly.
     """
     img_src = (
         f"data:image/png;base64,{_BRAND_BUTTERFLY_B64}"
@@ -560,19 +551,16 @@ def _brand_lockup_html() -> str:
     )
     img_tag = (
         f'<img src="{img_src}" alt="FriendPlace" width="96" height="94" '
-        f'style="display:block;margin:0 auto;border:0;outline:none;background:{_INK_NAVY_DEEP};" />'
+        f'style="display:block;margin:0 auto;border:0;outline:none;" />'
         if img_src else ""
     )
     return f"""\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;">
   <tr>
-    <td align="center" style="background:{_INK_NAVY_DEEP};padding:56px 24px 8px 24px;">
+    <td align="center" style="background:#FFFFFF;padding:56px 24px 8px 24px;">
       {img_tag}
       <div style="margin-top:18px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:26px;font-weight:900;letter-spacing:-0.5px;line-height:1;">
-        <span style="color:#FFFFFF;">Friend</span><span style="color:#14B8A6;">Place</span>
-      </div>
-      <div style="margin-top:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.78);">
-        Because you belong too. 🦋
+        <span style="color:#0A2540;">Friend</span><span style="color:#14B8A6;">Place</span>
       </div>
     </td>
   </tr>
@@ -580,37 +568,29 @@ def _brand_lockup_html() -> str:
 """
 
 
-def _letter_footer_html(show_account_disclaimer: bool = True) -> str:
-    """Minimal, quiet footer for letter-style emails on navy.
+def _letter_footer_html() -> str:
+    """Minimal, quiet footer for letter-style emails.
 
-    iter164ak — unified navy design: keeps the quiet feel but flips
-    the contrast so it stays legible on the navy shell background.
-    Hairline uses a translucent white so it doesn't compete with
-    body copy for attention.
+    No colour, no logos, no marketing — just a thin divider, the two
+    contact links, and one small line of legal/context text. This keeps
+    the email feeling like a personal note right down to the last line.
     """
-    account_disclaimer = (
-        """<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:11px;color:rgba(255,255,255,0.55);line-height:16px;margin-top:22px;max-width:420px;">
-        You&rsquo;re receiving this email because you have a FriendPlace account or expressed interest in joining our community.
-      </div>"""
-        if show_account_disclaimer else ""
-    )
     return """\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0B1F45;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;">
   <tr>
-    <td align="center" style="background:#0B1F45;padding:8px 24px 48px 24px;">
-      <div style="height:1px;background:rgba(255,255,255,0.18);max-width:120px;margin:0 auto 24px auto;line-height:1px;font-size:1px;">&nbsp;</div>
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;color:rgba(255,255,255,0.78);line-height:20px;">
-        <a href="mailto:hello@friendplace.com.au" style="color:#5EEAD4;text-decoration:none;font-weight:600;">hello@friendplace.com.au</a>
+    <td align="center" style="background:#FFFFFF;padding:8px 24px 48px 24px;">
+      <div style="height:1px;background:#E5E9EF;max-width:120px;margin:0 auto 24px auto;line-height:1px;font-size:1px;">&nbsp;</div>
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;color:#64748B;line-height:20px;">
+        <a href="mailto:hello@friendplace.com.au" style="color:#0F766E;text-decoration:none;font-weight:600;">hello@friendplace.com.au</a>
         &nbsp;&middot;&nbsp;
-        <a href="https://www.friendplace.com.au" style="color:#5EEAD4;text-decoration:none;font-weight:600;">friendplace.com.au</a>
+        <a href="https://www.friendplace.com.au" style="color:#0F766E;text-decoration:none;font-weight:600;">friendplace.com.au</a>
       </div>
-      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:13px;line-height:20px;margin-top:8px;">
-        """ + _facebook_link_html("#5EEAD4") + """
+      <div style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:13px;color:#94A3B8;font-style:italic;line-height:20px;margin-top:14px;">
+        Because you belong too.
       </div>
-      <div style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:13px;color:rgba(255,255,255,0.72);font-style:italic;line-height:20px;margin-top:14px;">
-        Because you belong too. 🦋
+      <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;font-size:11px;color:#B4BFCD;line-height:16px;margin-top:22px;max-width:420px;">
+        You&rsquo;re receiving this email because you have a FriendPlace account or expressed interest in joining our community.
       </div>
-      """ + account_disclaimer + """
     </td>
   </tr>
 </table>
@@ -618,19 +598,14 @@ def _letter_footer_html(show_account_disclaimer: bool = True) -> str:
 
 
 def _letter_body_open() -> str:
-    """Open the letter-body table (serif body copy on navy).
-
-    iter164ak — unified navy shell: switches body copy from
-    dark-navy-on-white to white-on-navy so all branded emails read
-    consistently across the family.
-    """
+    """Open the letter-body table (serif body copy on white)."""
     return (
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        'style="background:#0B1F45;">'
-        '<tr><td style="background:#0B1F45;padding:24px 48px 8px 48px;'
+        'style="background:#FFFFFF;">'
+        '<tr><td style="background:#FFFFFF;padding:24px 48px 8px 48px;'
         'font-family:Georgia,\'Iowan Old Style\',\'Palatino Linotype\','
         '\'Book Antiqua\',Palatino,\'Times New Roman\',serif;'
-        'font-size:17px;line-height:28px;color:#FFFFFF;">'
+        'font-size:17px;line-height:28px;color:#0A2540;">'
     )
 
 
@@ -654,250 +629,6 @@ def _letter_button_html(*, label: str, url: str) -> str:
 """
 
 
-# ── iter164aq: shared Facebook link + reusable CTA button system ────
-# One definition, used by every outbound email surface (enquiry
-# replies, outreach / individual sends, campaigns, transactional) so
-# the footer Facebook link, the CTA copy, the URL presets and the teal
-# button styling never drift per email type.
-
-FACEBOOK_URL = "https://www.facebook.com/profile.php?id=61593250883842"
-
-
-def _facebook_link_html(link_color: str) -> str:
-    """Clickable Facebook link: a small Facebook-style "f" badge + the
-    word Facebook. Inline-styled so it survives email clients; degrades
-    to plain "f Facebook" text if a client strips the badge background.
-    """
-    return (
-        f'<a href="{FACEBOOK_URL}" style="color:{link_color};text-decoration:none;font-weight:600;">'
-        '<span style="display:inline-block;width:16px;height:16px;line-height:16px;'
-        "background:#1877F2;color:#FFFFFF;border-radius:4px;font-weight:700;"
-        "text-align:center;font-size:12px;vertical-align:middle;"
-        "font-family:Georgia,'Times New Roman',serif;\">f</span>"
-        "&nbsp;Facebook</a>"
-    )
-
-
-# CTA presets exactly mirror the Mission Control UI options. Keys are
-# the stable contract George's frontend sends as ``cta_choice``.
-CTA_PRESETS = {
-    "visit":    ("Visit FriendPlace",      "https://friendplace.com.au"),
-    "register": ("Register your interest", "https://www.friendplace.com.au/register-interest"),
-    # Points at the website's app/download section until the final
-    # App Store / Google Play URLs are live.
-    "get_app":  ("Get the app",            "https://friendplace.com.au/#download"),
-}
-
-
-def resolve_cta(cta_choice=None, cta_label=None, cta_url=None):
-    """Resolve a CTA selection into a concrete ``(label, url)`` or None.
-
-    Mission Control's five options map as:
-      - "none" / "no_button"            -> None (no button)
-      - "visit" | "register" | "get_app" -> the matching preset
-      - "custom"                        -> uses cta_label + cta_url
-    Back-compat: when no choice is supplied but both cta_label and
-    cta_url are present (how Campaign Composer already sends), that
-    explicit pair is used. Returns None whenever a full button can't be
-    formed, so the CTA is always strictly optional.
-    """
-    choice = (cta_choice or "").strip().lower()
-    label = (cta_label or "").strip()
-    url = (cta_url or "").strip()
-    if choice in ("none", "no_button"):
-        return None
-    if choice == "custom":
-        return (label, url) if label and url else None
-    if choice in CTA_PRESETS:
-        return CTA_PRESETS[choice]
-    if label and url:            # no/unknown choice -> explicit pair
-        return (label, url)
-    return None
-
-
-# iter164o duplicate-signoff guarantee. Compiled once, module-level, so
-# it isn't rebuilt on every render call. The pattern is deliberately
-# conservative: it only strips a closing that appears at the END of the
-# body, on its own line, with a signature line (or two) after it. That
-# way an in-body phrase like "we send our warm regards to everyone"
-# is untouched but a proper closing like:
-#     Warm regards,
-#     The FriendPlace Team
-# is removed so the renderer's own signer block is the one and only
-# closing on the sent email.
-import re as _re
-
-_TRAILING_SIGNOFF_RE = _re.compile(
-    # 1) One or two blank-line paragraph break OR just a newline before
-    #    the closing (people sometimes put the closing on the very next
-    #    line without a blank line above it).
-    r"(?:\n\s*\n|\n)"
-    # 2) The closing word / phrase, on its own visual line. Accept a
-    #    trailing punctuation mark (usually comma) and optional trailing
-    #    whitespace.
-    r"[ \t]*"
-    r"(?:"
-        r"warmly|warm\s+regards|"
-        r"best\s+regards|kind\s+regards|"
-        r"sincerely|regards|cheers|"
-        r"yours\s+truly|yours\s+sincerely|"
-        r"best,?|kindly,?|"
-        # covers e.g. "Thanks," used as a closing at the tail
-        r"thanks|thank\s+you"
-    r")"
-    r"[ \t]*[,.]?[ \t]*\n"
-    # 3) Signer line — up to ~80 chars, must contain SOMETHING visible.
-    r"[ \t]*\S[^\n]{0,79}"
-    # 4) Optional second signer/title line (e.g. "Your friend at
-    #    FriendPlace"). Also up to ~80 chars.
-    r"(?:\n[ \t]*\S[^\n]{0,79})?"
-    # 5) Trailing whitespace / blank lines up to end of body.
-    r"\s*$",
-    _re.IGNORECASE,
-)
-
-
-def _strip_trailing_signoff(body_md: str) -> str:
-    """Remove a recognisable trailing sign-off block from an authored
-    body, so the renderer's own signer block can be appended without
-    producing a duplicate closing.
-
-    Only strips when a closing sits at the tail of the body — an
-    in-body phrase like "regards" is left alone.
-
-    Idempotent — applying twice is the same as once.
-    """
-    if not body_md:
-        return body_md
-    stripped = _TRAILING_SIGNOFF_RE.sub("", body_md).rstrip()
-    return stripped
-
-
-# ─── iter164ab: campaign body_md → safe markdown-lite renderer ──────
-#
-# Motivation:
-#   The Campaign Composer needed to move beyond plain paragraphs so
-#   Founding Member updates can use light emphasis (bold/italic),
-#   inline links, and bullet lists without hand-writing HTML in the
-#   composer. Every byte of user input still gets HTML-escaped BEFORE
-#   any markdown transforms are applied — the transforms then act on
-#   the escaped output and only re-emit HTML for the recognised
-#   markdown syntax. That's the safe order: escape first, mark up
-#   second, so no raw HTML from the composer can leak through.
-#
-# Supported subset (intentionally small):
-#   • **bold**              → <strong>
-#   • *italic* / _italic_   → <em>
-#   • [text](url)           → <a href=url>text</a>  (http/https/mailto only)
-#   • Lines beginning with  → <ul><li>…</li></ul>
-#     "- " or "* "
-#   • Blank line            → paragraph break
-#
-# Everything else prints as literal escaped text. No headings, no
-# code blocks, no images, no HTML pass-through.
-import re as _md_re
-
-_MD_LINK_RE = _md_re.compile(
-    r"\[([^\]\n]+?)\]\((https?://[^\s)]+|mailto:[^\s)]+)\)",
-)
-_MD_BOLD_RE = _md_re.compile(r"\*\*(.+?)\*\*", _md_re.DOTALL)
-# Single-star italic: must NOT be preceded/followed by another star
-# (otherwise we'd eat the innards of a bold token that already ran).
-_MD_ITALIC_STAR_RE = _md_re.compile(r"(?<!\*)\*(?!\*)([^*\n]+?)(?<!\*)\*(?!\*)")
-# Underscore italic: only when flanked by whitespace/punctuation, so
-# `foo_bar_baz` variable-style tokens aren't butchered.
-_MD_ITALIC_UNDER_RE = _md_re.compile(
-    r"(?<![A-Za-z0-9_])_([^_\n]+?)_(?![A-Za-z0-9_])"
-)
-_MD_BULLET_LINE_RE = _md_re.compile(r"^[\-\*]\s+(.+)$")
-
-
-def _md_inline(escaped_text: str) -> str:
-    """Apply inline markdown to already-HTML-escaped text.
-
-    Order matters: **bold** must run before *italic* so the outer
-    stars don't get eaten as italic delimiters. Links run last on
-    the transformed string so their inner label can carry bold or
-    italic if needed.
-    """
-    out = _MD_BOLD_RE.sub(r"<strong>\1</strong>", escaped_text)
-    out = _MD_ITALIC_STAR_RE.sub(r"<em>\1</em>", out)
-    out = _MD_ITALIC_UNDER_RE.sub(r"<em>\1</em>", out)
-
-    def _link_sub(m: "_md_re.Match[str]") -> str:
-        label = m.group(1)
-        href = m.group(2)
-        # href is already HTML-escaped (escape ran BEFORE markdown), and
-        # we restricted the scheme to http/https/mailto via the regex,
-        # so this is safe to embed as an attribute value.
-        return (
-            f'<a href="{href}" '
-            f'style="color:#0F766E;text-decoration:underline;">{label}</a>'
-        )
-    out = _MD_LINK_RE.sub(_link_sub, out)
-    return out
-
-
-def _render_campaign_body_md_to_html(body_md: str) -> str:
-    """Convert a campaign body from safe markdown-lite to HTML.
-
-    Returns the joined HTML for every paragraph/list in the input
-    (no wrapping container — the letter shell already provides one).
-    Returns an empty string for empty input so callers can render an
-    "(No body content yet.)" placeholder.
-    """
-    from html import escape as _esc
-    if not body_md or not body_md.strip():
-        return ""
-    blocks = [b.strip("\n") for b in body_md.split("\n\n") if b.strip()]
-    html_parts: list[str] = []
-    for block in blocks:
-        lines = block.split("\n")
-        bullets = [_MD_BULLET_LINE_RE.match(ln.strip()) for ln in lines]
-        if lines and all(b is not None for b in bullets):
-            items = "".join(
-                f"<li style=\"margin:0 0 6px 0;\">"
-                f"{_md_inline(_esc(b.group(1).strip()))}</li>"
-                for b in bullets  # type: ignore[union-attr]
-            )
-            html_parts.append(
-                f"<ul style=\"margin:0 0 20px 20px;padding:0 0 0 4px;\">"
-                f"{items}</ul>"
-            )
-            continue
-        escaped = _esc(block).replace("\n", "<br>")
-        html_parts.append(
-            f"<p style=\"margin:0 0 20px 0;\">{_md_inline(escaped)}</p>"
-        )
-    return "".join(html_parts)
-
-
-def _render_campaign_body_md_to_text(body_md: str) -> str:
-    """Plain-text form for the text/plain part of the email.
-
-    We leave markdown markers legible (``**bold**``, ``*italic*``,
-    ``- item``) and expand links to ``label (url)``. This gives text
-    clients (and screen readers) an unambiguous, faithful rendering
-    that mirrors what the recipient sees in the HTML part.
-    """
-    if not body_md or not body_md.strip():
-        return ""
-    def _link_text(m: "_md_re.Match[str]") -> str:
-        return f"{m.group(1)} ({m.group(2)})"
-    blocks = [b.strip("\n") for b in body_md.split("\n\n") if b.strip()]
-    out_blocks: list[str] = []
-    for block in blocks:
-        # Expand links inline; leave bold/italic markers as-is so a
-        # plain-text reader still sees the emphasis.
-        expanded = _MD_LINK_RE.sub(_link_text, block)
-        out_blocks.append(expanded)
-    return "\n\n".join(out_blocks)
-
-
-
-
-
-
 def _letter_signature_html(*, signer: str = "george") -> str:
     """Signature block. Warm sign-off for personal/community emails,
     a plain team signature for operational/security emails.
@@ -907,46 +638,28 @@ def _letter_signature_html(*, signer: str = "george") -> str:
       • "georgia" — personal emails signed by Georgia (same voice,
                     different companion — the visitor's original pick
                     on the marketing page).
-      • "team"    — operational (support, password reset). Also the
-                    default for Community / Outreach campaigns.
-      • "none"    — iter164o: append no closing at all. Used when the
-                    body already contains its own sign-off, so we don't
-                    render a duplicate.
-
-    iter164am — all sign-off text uses white (#FFFFFF) or a light
-    muted white (rgba(255,255,255,0.72)) so it stays readable on the
-    unified navy shell. Explicit inline colours only — no CSS
-    inheritance, which Gmail / Outlook happily strip.
+      • "team"    — operational (support, password reset).
     """
-    if signer == "none":
-        return ""
     if signer == "team":
         return """\
-<p style="margin:36px 0 0 0;color:#FFFFFF;">
-  <span style="color:#FFFFFF;">Warmly,</span><br>
-  <span style="font-weight:700;color:#FFFFFF;">The FriendPlace Team</span><br>
-  <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:rgba(255,255,255,0.72);font-style:italic;">Because you belong too. 🦋</span>
+<p style="margin:36px 0 0 0;">
+  Warmly,<br>
+  <span style="font-weight:700;color:#0A2540;">The FriendPlace Team</span>
 </p>
 """
     # Personal signer — proper case for the display name ("Georgia"/"George").
     display = signer.capitalize() if signer else "George"
     return f"""\
-<p style="margin:36px 0 0 0;color:#FFFFFF;">
-  <span style="color:#FFFFFF;">Warmly,</span><br>
-  <span style="font-weight:700;color:#FFFFFF;">{display}</span><br>
-  <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:rgba(255,255,255,0.72);font-style:italic;">Your friend at FriendPlace</span>
+<p style="margin:36px 0 0 0;">
+  Warmly,<br>
+  <span style="font-weight:700;color:#0A2540;">{display}</span><br>
+  <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:#64748B;font-style:italic;">Your friend at FriendPlace</span>
 </p>
 """
 
 
-def _letter_shell(*, preheader: str, body_html: str, show_account_disclaimer: bool = True) -> str:
+def _letter_shell(*, preheader: str, body_html: str) -> str:
     """Wrap letter content in the master email template.
-
-    iter164ak — unified full-navy design. The entire shell — outer
-    body, lockup, letter body, footer — sits on the FriendPlace navy
-    background so every branded email in this family reads the same
-    way. Templates keep their own content and CTA buttons; only the
-    surrounding chrome is standardised here.
 
     Args:
         preheader: The tiny line that appears in the inbox preview next
@@ -965,22 +678,22 @@ def _letter_shell(*, preheader: str, body_html: str, show_account_disclaimer: bo
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="dark only">
-  <meta name="supported-color-schemes" content="dark">
+  <meta name="color-scheme" content="light only">
+  <meta name="supported-color-schemes" content="light">
   <title>FriendPlace</title>
 </head>
-<body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};">
+<body style="margin:0;padding:0;background:#FFFFFF;">
   <!-- Preheader: hidden visually, shown in inbox preview after subject -->
-  <div style="display:none;font-size:1px;color:{_INK_NAVY_DEEP};line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+  <div style="display:none;font-size:1px;color:#FFFFFF;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
     {safe_pre}
   </div>
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FFFFFF;">
     <tr>
-      <td align="center" style="background:{_INK_NAVY_DEEP};">
-        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:{_INK_NAVY_DEEP};">
-          <tr><td style="background:{_INK_NAVY_DEEP};">{_brand_lockup_html()}</td></tr>
-          <tr><td style="background:{_INK_NAVY_DEEP};">{body_html}</td></tr>
-          <tr><td style="background:{_INK_NAVY_DEEP};">{_letter_footer_html(show_account_disclaimer)}</td></tr>
+      <td align="center" style="background:#FFFFFF;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;background:#FFFFFF;">
+          <tr><td style="background:#FFFFFF;">{_brand_lockup_html()}</td></tr>
+          <tr><td style="background:#FFFFFF;">{body_html}</td></tr>
+          <tr><td style="background:#FFFFFF;">{_letter_footer_html()}</td></tr>
         </table>
       </td>
     </tr>
@@ -990,20 +703,15 @@ def _letter_shell(*, preheader: str, body_html: str, show_account_disclaimer: bo
 """
 
 
-def _letter_footer_text(show_account_disclaimer: bool = True) -> str:
+def _letter_footer_text() -> str:
     """Plain-text counterpart to `_letter_footer_html`."""
-    disclaimer = (
-        "\n\nYou're receiving this email because you have a FriendPlace "
-        "account or expressed interest in joining our community."
-        if show_account_disclaimer else ""
-    )
     return (
         "\n\n"
         "— — —\n\n"
         "hello@friendplace.com.au  ·  friendplace.com.au\n"
-        "Facebook: https://www.facebook.com/profile.php?id=61593250883842\n"
-        "Because you belong too."
-        + disclaimer
+        "Because you belong too.\n\n"
+        "You're receiving this email because you have a FriendPlace "
+        "account or expressed interest in joining our community."
     )
 
 
@@ -1056,10 +764,6 @@ def _branded_footer_html() -> str:
         &nbsp;·&nbsp;
         <a href="https://www.friendplace.com.au" style="color:#DBEAFE;text-decoration:none;">www.friendplace.com.au</a>
       </div>
-      <!-- Facebook -->
-      <div style="color:#93C5FD;font-size:13px;line-height:22px;margin-top:8px;">
-        """ + _facebook_link_html("#DBEAFE") + """
-      </div>
       <!-- Divider -->
       <div style="height:1px;background:#1E3A6B;margin:22px auto 14px;max-width:280px;"></div>
       <!-- Disclaimer -->
@@ -1084,7 +788,6 @@ def _branded_footer_text() -> str:
         "— FriendPlace —\n"
         "Because you belong too.\n\n"
         "hello@friendplace.com.au  ·  www.friendplace.com.au\n\n"
-        "Facebook: https://www.facebook.com/profile.php?id=61593250883842\n\n"
         "You're receiving this email from FriendPlace because you have a "
         "FriendPlace account."
     )
@@ -1122,12 +825,12 @@ def password_reset_template(
         _letter_body_open()
         + f"<p style=\"margin:0 0 20px 0;\">Hi {_esc(name)},</p>"
         + "<p style=\"margin:0 0 20px 0;\">We received a request to reset the password on your FriendPlace account. If that was you, use the secure code below to finish resetting it.</p>"
-        + f"<p style=\"margin:0 0 12px 0;color:rgba(255,255,255,0.72);font-size:14px;letter-spacing:1.4px;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:600;text-align:center;\">YOUR RESET CODE</p>"
+        + f"<p style=\"margin:0 0 12px 0;color:#64748B;font-size:14px;letter-spacing:1.4px;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:600;text-align:center;\">YOUR RESET CODE</p>"
         + f'<div style="text-align:center;margin:0 0 24px 0;">'
         + f'  <div style="display:inline-block;padding:20px 32px;border-radius:14px;background:#F0FDFA;border:1px solid #99F6E4;font-family:-apple-system,\'SF Mono\',Menlo,Consolas,monospace;font-size:40px;font-weight:800;letter-spacing:12px;color:#0F766E;">{_esc(code)}</div>'
         + f'</div>'
         + f"<p style=\"margin:0 0 20px 0;\">For your security, this code will expire in <strong>{ttl_minutes} minutes</strong>.</p>"
-        + "<p style=\"margin:0 0 20px 0;color:rgba(255,255,255,0.72);font-size:15px;\">If you didn&rsquo;t request a password reset, you can safely ignore this email. Your account will remain secure and no changes will be made.</p>"
+        + "<p style=\"margin:0 0 20px 0;color:#64748B;font-size:15px;\">If you didn&rsquo;t request a password reset, you can safely ignore this email. Your account will remain secure and no changes will be made.</p>"
         + _letter_signature_html(signer="team")
         + _letter_body_close()
     )
@@ -1216,7 +919,7 @@ def support_acknowledgement_template(
     safe_snippet = _esc(snippet) if snippet else ""
 
     snippet_html = (
-        f'<p style="margin:8px 0 0 0;color:rgba(255,255,255,0.72);font-size:14px;font-style:italic;">&ldquo;{safe_snippet}&rdquo;</p>'
+        f'<p style="margin:8px 0 0 0;color:#64748B;font-size:14px;font-style:italic;">&ldquo;{safe_snippet}&rdquo;</p>'
         if safe_snippet else ""
     )
 
@@ -1228,8 +931,8 @@ def support_acknowledgement_template(
         + '<div style="text-align:center;margin:28px 0 12px 0;">'
         + '  <div style="display:inline-block;padding:18px 26px;border-radius:14px;background:#F0FDFA;border:1px solid #99F6E4;text-align:left;min-width:220px;">'
         + '    <div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:11px;letter-spacing:1.6px;font-weight:700;color:#0F766E;">YOUR SUPPORT TICKET</div>'
-        + f'    <div style="font-family:-apple-system,\'SF Mono\',Menlo,Consolas,monospace;font-size:22px;font-weight:800;letter-spacing:2px;color:#FFFFFF;margin-top:6px;">{safe_ref}</div>'
-        + f'    <div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:13px;color:rgba(255,255,255,0.72);margin-top:8px;">{safe_category}</div>'
+        + f'    <div style="font-family:-apple-system,\'SF Mono\',Menlo,Consolas,monospace;font-size:22px;font-weight:800;letter-spacing:2px;color:#0A2540;margin-top:6px;">{safe_ref}</div>'
+        + f'    <div style="font-family:-apple-system,\'Segoe UI\',Roboto,sans-serif;font-size:13px;color:#64748B;margin-top:8px;">{safe_category}</div>'
         + f'    {snippet_html}'
         + '  </div>'
         + '</div>'
@@ -1339,94 +1042,118 @@ def event_rsvp_confirmation_template(
         "Outlook in one tap."
     )
 
-    html = _letter_shell(
-        preheader=email_subject,
-        body_html=f"""\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
-  <tr><td align="center" style="padding:0 22px 6px 22px;">
-    <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;">
-      EVENTS · RSVP CONFIRMED
-    </div>
-  </td></tr>
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+            <!-- Header -->
+            <tr>
+              <td align="center" style="padding:8px 22px 6px 22px;">
+                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+                </div>
+                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
+                  EVENTS · RSVP CONFIRMED
+                </div>
+              </td>
+            </tr>
 
-  <!-- Opening -->
-  <tr>
-    <td style="padding:24px 22px 6px 22px;">
-      <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-        {opening_html}
-      </div>
-    </td>
-  </tr>
+            <!-- Opening -->
+            <tr>
+              <td style="padding:24px 22px 6px 22px;">
+                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+                  {opening_html}
+                </div>
+              </td>
+            </tr>
 
-  <!-- Status chip -->
-  <tr>
-    <td align="center" style="padding:22px 22px 4px 22px;">
-      <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:{chip_bg};border:1px solid {chip_border};">
-        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">{chip_label}</div>
-        <div style="color:{chip_color};font-size:20px;font-weight:900;letter-spacing:0.5px;line-height:1;margin-top:8px;">
-          {_esc(event_title)}
-        </div>
-        {guest_line_html}
-      </div>
-    </td>
-  </tr>
+            <!-- Status chip -->
+            <tr>
+              <td align="center" style="padding:22px 22px 4px 22px;">
+                <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:{chip_bg};border:1px solid {chip_border};">
+                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">{chip_label}</div>
+                  <div style="color:{chip_color};font-size:20px;font-weight:900;letter-spacing:0.5px;line-height:1;margin-top:8px;">
+                    {_esc(event_title)}
+                  </div>
+                  {guest_line_html}
+                </div>
+              </td>
+            </tr>
 
-  <!-- Details block -->
-  <tr>
-    <td style="padding:22px 22px 4px 22px;">
-      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(148,163,184,0.18);border-radius:14px;padding:16px 18px;font-size:14px;line-height:22px;color:#E2E8F0;">
-        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHEN</div>
-        <div>{_esc(event_when_display)}</div>
-        <div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>
-        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHERE</div>
-        <div>{_esc(event_where_display)}</div>
-        {(
-          f'<div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>'
-          f'<div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">COST</div>'
-          f'<div>{_esc(event_cost_display)}</div>'
-        ) if event_cost_display else ""}
-      </div>
-    </td>
-  </tr>
+            <!-- Details block -->
+            <tr>
+              <td style="padding:22px 22px 4px 22px;">
+                <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(148,163,184,0.18);border-radius:14px;padding:16px 18px;font-size:14px;line-height:22px;color:#E2E8F0;">
+                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHEN</div>
+                  <div>{_esc(event_when_display)}</div>
+                  <div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>
+                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">WHERE</div>
+                  <div>{_esc(event_where_display)}</div>
+                  {(
+                    f'<div style="height:1px;background:rgba(148,163,184,0.2);margin:12px 0;"></div>'
+                    f'<div style="color:#93C5FD;font-size:11px;letter-spacing:1.4px;font-weight:700;margin-bottom:8px;">COST</div>'
+                    f'<div>{_esc(event_cost_display)}</div>'
+                  ) if event_cost_display else ""}
+                </div>
+              </td>
+            </tr>
 
-  <!-- Buttons: event page + manage RSVP -->
-  <tr>
-    <td align="center" style="padding:20px 22px 4px 22px;">
-      <a href="{_esc(event_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#38BDF8;color:#0B1F45;font-weight:800;text-decoration:none;font-size:14px;margin:0 4px;">View event page</a>
-      <a href="{_esc(manage_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:rgba(255,255,255,0.06);color:#E2E8F0;font-weight:800;text-decoration:none;font-size:14px;border:1px solid rgba(148,163,184,0.35);margin:0 4px;">View / cancel RSVP</a>
-    </td>
-  </tr>
+            <!-- Buttons: event page + manage RSVP -->
+            <tr>
+              <td align="center" style="padding:20px 22px 4px 22px;">
+                <a href="{_esc(event_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#38BDF8;color:#0B1F45;font-weight:800;text-decoration:none;font-size:14px;margin:0 4px;">View event page</a>
+                <a href="{_esc(manage_url)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:rgba(255,255,255,0.06);color:#E2E8F0;font-weight:800;text-decoration:none;font-size:14px;border:1px solid rgba(148,163,184,0.35);margin:0 4px;">View / cancel RSVP</a>
+              </td>
+            </tr>
 
-  <!-- ICS note -->
-  <tr>
-    <td style="padding:20px 22px 4px 22px;">
-      <div style="font-size:14px;line-height:22px;color:#94A3B8;">
-        {ics_note_html}
-      </div>
-    </td>
-  </tr>
+            <!-- ICS note -->
+            <tr>
+              <td style="padding:20px 22px 4px 22px;">
+                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
+                  {ics_note_html}
+                </div>
+              </td>
+            </tr>
 
-  <!-- Ticket ref -->
-  <tr>
-    <td style="padding:8px 22px 4px 22px;">
-      <div style="font-size:12px;color:#64748B;">
-        Your booking reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
-      </div>
-    </td>
-  </tr>
+            <!-- Ticket ref for their records -->
+            <tr>
+              <td style="padding:8px 22px 4px 22px;">
+                <div style="font-size:12px;color:#64748B;">
+                  Your booking reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
+                </div>
+              </td>
+            </tr>
 
-  <!-- Sign-off -->
-  <tr>
-    <td style="padding:24px 22px 4px 22px;">
-      <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-        See you there.<br><br>
-        💜 The FriendPlace Events Team
-      </div>
-    </td>
-  </tr>
-</table>
-""",
-    )
+            <!-- Sign-off -->
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+                  See you there.<br><br>
+                  💜 The FriendPlace Events Team
+                </div>
+              </td>
+            </tr>
+
+            <!-- Spacer -->
+            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+
+            <!-- Branded footer -->
+            <tr>
+              <td style="padding:0 12px;">
+                {_branded_footer_html()}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
 
     text = (
         f"{opening_text}\n\n"
@@ -1441,7 +1168,7 @@ def event_rsvp_confirmation_template(
         f"{ics_note_text}\n\n"
         f"See you there.\n\n"
         f"💜 The FriendPlace Events Team"
-        f"{_letter_footer_text()}"
+        f"{_branded_footer_text()}"
     )
     return email_subject, html, text
 
@@ -1476,63 +1203,81 @@ def event_cancelled_template(
         f"\n\nMessage from the organiser:\n  {reason.strip()}\n" if (reason or "").strip() else ""
     )
 
-    html = _letter_shell(
-        preheader=email_subject,
-        body_html=f"""\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
-  <tr>
-    <td align="center" style="padding:0 22px 6px 22px;">
-      <div style="color:#FCA5A5;font-size:12px;letter-spacing:2.4px;font-weight:700;">
-        EVENT CANCELLED
-      </div>
-    </td>
-  </tr>
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+            <tr>
+              <td align="center" style="padding:8px 22px 6px 22px;">
+                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+                </div>
+                <div style="color:#FCA5A5;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
+                  EVENT CANCELLED
+                </div>
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:24px 22px 6px 22px;">
-      <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-        Hi {_esc(name)},<br><br>
-        Sorry to be the bearer of not-great news — <strong style="color:#FFFFFF;">{_esc(event_title)}</strong> ({_esc(event_when_display)}) has been <strong style="color:#FFFFFF;">cancelled</strong>.<br><br>
-        Your RSVP has been released and your spot is no longer being held. Your calendar should update automatically if you accepted our invite.
-      </div>
-    </td>
-  </tr>
+            <tr>
+              <td style="padding:24px 22px 6px 22px;">
+                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+                  Hi {_esc(name)},<br><br>
+                  Sorry to be the bearer of not-great news — <strong style="color:#FFFFFF;">{_esc(event_title)}</strong> ({_esc(event_when_display)}) has been <strong style="color:#FFFFFF;">cancelled</strong>.<br><br>
+                  Your RSVP has been released and your spot is no longer being held. Your calendar should update automatically if you accepted our invite.
+                </div>
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:0 22px 4px 22px;">
-      {reason_html}
-    </td>
-  </tr>
+            <tr>
+              <td style="padding:0 22px 4px 22px;">
+                {reason_html}
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:20px 22px 4px 22px;">
-      <div style="font-size:14px;line-height:22px;color:#94A3B8;">
-        Keep an eye on our
-        <a href="https://www.friendplace.com.au/events" style="color:#5EEAD4;text-decoration:none;font-weight:600;">events page</a>
-        — there&rsquo;s always another one being planned.
-      </div>
-    </td>
-  </tr>
+            <tr>
+              <td style="padding:20px 22px 4px 22px;">
+                <div style="font-size:14px;line-height:22px;color:#94A3B8;">
+                  Keep an eye on our
+                  <a href="https://www.friendplace.com.au/events" style="color:#93C5FD;text-decoration:none;font-weight:600;">events page</a>
+                  — there&rsquo;s always another one being planned.
+                </div>
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:8px 22px 4px 22px;">
-      <div style="font-size:12px;color:#64748B;">
-        Reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
-      </div>
-    </td>
-  </tr>
+            <tr>
+              <td style="padding:8px 22px 4px 22px;">
+                <div style="font-size:12px;color:#64748B;">
+                  Reference: <strong style="color:#CBD5E1;letter-spacing:0.8px;">{_esc(ticket_ref)}</strong>
+                </div>
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:24px 22px 4px 22px;">
-      <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-        Thank you for understanding.<br><br>
-        💜 The FriendPlace Events Team
-      </div>
-    </td>
-  </tr>
-</table>
-""",
-    )
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+                  Thank you for understanding.<br><br>
+                  💜 The FriendPlace Events Team
+                </div>
+              </td>
+            </tr>
+
+            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+            <tr>
+              <td style="padding:0 12px;">
+                {_branded_footer_html()}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
 
     text = (
         f"Hi {name},\n\n"
@@ -1546,7 +1291,7 @@ def event_cancelled_template(
         f"Reference: {ticket_ref}\n\n"
         f"Thank you for understanding.\n\n"
         f"💜 The FriendPlace Events Team"
-        f"{_letter_footer_text()}"
+        f"{_branded_footer_text()}"
     )
     return email_subject, html, text
 
@@ -1577,68 +1322,82 @@ def business_welcome_template(
         "trial": "Free 1-month trial",
     }.get((requested_plan or "trial").lower(), "Free 1-month trial")
 
-    html = _letter_shell(
-        preheader=email_subject,
-        body_html=f"""\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
-  <tr>
-    <td align="center" style="padding:0 22px 6px 22px;">
-      <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;">
-        ORGANISATIONS · WELCOME
-      </div>
-    </td>
-  </tr>
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#F1F5F9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+            <tr>
+              <td align="center" style="padding:8px 22px 6px 22px;">
+                <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                  <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+                </div>
+                <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
+                  ORGANISATIONS · WELCOME
+                </div>
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:24px 22px 6px 22px;">
-      <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-        Hi {_esc(name)},<br><br>
-        Thanks for registering <strong style="color:#FFFFFF;">{safe_biz}</strong> on FriendPlace. We&rsquo;re delighted to have you as part of the community.
-      </div>
-    </td>
-  </tr>
+            <tr>
+              <td style="padding:24px 22px 6px 22px;">
+                <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+                  Hi {_esc(name)},<br><br>
+                  Thanks for registering <strong style="color:#FFFFFF;">{safe_biz}</strong> on FriendPlace. We&rsquo;re delighted to have you as part of the community.
+                </div>
+              </td>
+            </tr>
 
-  <tr>
-    <td align="center" style="padding:22px 22px 4px 22px;">
-      <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
-        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR TRIAL IS ACTIVE</div>
-        <div style="color:#5EEAD4;font-size:22px;font-weight:900;line-height:1;margin-top:8px;">
-          {trial_limit} listings · {trial_days} days
-        </div>
-        <div style="color:#CBD5E1;font-size:12px;margin-top:6px;">
-          Requested: {_esc(plan_label)}
-        </div>
-      </div>
-    </td>
-  </tr>
+            <tr>
+              <td align="center" style="padding:22px 22px 4px 22px;">
+                <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
+                  <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR TRIAL IS ACTIVE</div>
+                  <div style="color:#5EEAD4;font-size:22px;font-weight:900;line-height:1;margin-top:8px;">
+                    {trial_limit} listings · {trial_days} days
+                  </div>
+                  <div style="color:#CBD5E1;font-size:12px;margin-top:6px;">
+                    Requested: {_esc(plan_label)}
+                  </div>
+                </div>
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:24px 22px 4px 22px;">
-      <div style="font-size:15px;line-height:24px;color:#E2E8F0;">
-        Post your events straight from the mobile app — they&rsquo;ll appear in the community feed with your organisation shown as the host.
-      </div>
-    </td>
-  </tr>
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:24px;color:#E2E8F0;">
+                  Post your events straight from the mobile app — they&rsquo;ll appear in the community feed with your organisation shown as the host.
+                </div>
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:18px 22px 4px 22px;">
-      <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
-        We&rsquo;re finalising our organisation plans and will email you the pricing before your trial ends, so there are no surprises.
-      </div>
-    </td>
-  </tr>
+            <tr>
+              <td style="padding:18px 22px 4px 22px;">
+                <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
+                  We&rsquo;re finalising our organisation plans and will email you the pricing before your trial ends, so there are no surprises.
+                </div>
+              </td>
+            </tr>
 
-  <tr>
-    <td style="padding:24px 22px 4px 22px;">
-      <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-        If you have any questions in the meantime, just reply to this email — it&rsquo;ll come straight through to us.<br><br>
-        💜 The FriendPlace Team
-      </div>
-    </td>
-  </tr>
-</table>
-""",
-    )
+            <tr>
+              <td style="padding:24px 22px 4px 22px;">
+                <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+                  If you have any questions in the meantime, just reply to this email — it&rsquo;ll come straight through to us.<br><br>
+                  💜 The FriendPlace Team
+                </div>
+              </td>
+            </tr>
+
+            <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+            <tr><td style="padding:0 12px;">{_branded_footer_html()}</td></tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+"""
 
     text = (
         f"Hi {name},\n\n"
@@ -1649,7 +1408,7 @@ def business_welcome_template(
         f"We're finalising our organisation plans and will email you the pricing before your trial ends, so there are no surprises.\n\n"
         f"If you have any questions in the meantime, just reply to this email — it'll come straight through to us.\n\n"
         f"💜 The FriendPlace Team"
-        f"{_letter_footer_text()}"
+        f"{_branded_footer_text()}"
     )
     return email_subject, html, text
 
@@ -1674,54 +1433,65 @@ def event_submission_ack_template(
 
     email_subject = f"We've received your event — {submission_ref}"
 
-    html = _letter_shell(
-        preheader=email_subject,
-        body_html=f"""\
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};">
-  <tr>
-    <td align="center" style="padding:0 22px 6px 22px;">
-      <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;">
-        EVENT · SUBMITTED FOR REVIEW
-      </div>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:24px 22px 6px 22px;">
-      <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
-        Hi {_esc(name)},<br><br>
-        Thanks — your event has been submitted for review.<br><br>
-        The FriendPlace team will check the details and contact you if anything further is needed. We&rsquo;ll let you know once it has been approved and published.
-      </div>
-    </td>
-  </tr>
-  <tr>
-    <td align="center" style="padding:22px 22px 4px 22px;">
-      <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
-        <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR REFERENCE</div>
-        <div style="color:#5EEAD4;font-size:24px;font-weight:900;letter-spacing:2px;line-height:1;margin-top:6px;">{safe_ref}</div>
-        <div style="color:#CBD5E1;font-size:13px;margin-top:10px;">{safe_title}</div>
-        <div style="color:#94A3B8;font-size:12px;margin-top:2px;">Submitted by {safe_org}</div>
-      </div>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:18px 22px 4px 22px;">
-      <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
-        Reviews usually take under a day. If you spotted a typo or need to update anything, just reply to this email and we&rsquo;ll update it for you.
-      </div>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:22px 22px 4px 22px;">
-      <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
-        Thanks for helping to build FriendPlace.<br><br>
-        💜 The FriendPlace Team
-      </div>
-    </td>
-  </tr>
-</table>
-""",
-    )
+    html = f"""\
+<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background:{_INK_NAVY_DEEP};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#F1F5F9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_INK_NAVY_DEEP};padding:28px 12px;">
+      <tr><td align="center">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+          <tr>
+            <td align="center" style="padding:8px 22px 6px 22px;">
+              <div style="font-size:24px;font-weight:900;letter-spacing:-0.4px;line-height:1;">
+                <span style="color:#FFFFFF;">Friend</span><span style="color:{_INK_SKY};">Place</span>
+              </div>
+              <div style="color:#93C5FD;font-size:12px;letter-spacing:2.4px;font-weight:700;margin-top:10px;">
+                EVENT · SUBMITTED FOR REVIEW
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 22px 6px 22px;">
+              <div style="font-size:17px;line-height:26px;color:#E2E8F0;">
+                Hi {_esc(name)},<br><br>
+                Thanks — your event has been submitted for review.<br><br>
+                The FriendPlace team will check the details and contact you if anything further is needed. We&rsquo;ll let you know once it has been approved and published.
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:22px 22px 4px 22px;">
+              <div style="display:inline-block;padding:14px 22px;border-radius:14px;background:rgba(20,184,166,0.12);border:1px solid rgba(94,234,212,0.35);">
+                <div style="color:#93C5FD;font-size:11px;letter-spacing:1.8px;font-weight:700;">YOUR REFERENCE</div>
+                <div style="color:#5EEAD4;font-size:24px;font-weight:900;letter-spacing:2px;line-height:1;margin-top:6px;">{safe_ref}</div>
+                <div style="color:#CBD5E1;font-size:13px;margin-top:10px;">{safe_title}</div>
+                <div style="color:#94A3B8;font-size:12px;margin-top:2px;">Submitted by {safe_org}</div>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 22px 4px 22px;">
+              <div style="font-size:14px;line-height:22px;color:#CBD5E1;padding:14px 16px;border-radius:12px;background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);">
+                Reviews usually take under a day. If you spotted a typo or need to update anything, just reply to this email and we&rsquo;ll update it for you.
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:22px 22px 4px 22px;">
+              <div style="font-size:15px;line-height:22px;color:#E2E8F0;">
+                Thanks for helping to build FriendPlace.<br><br>
+                💜 The FriendPlace Team
+              </div>
+            </td>
+          </tr>
+          <tr><td style="height:20px;line-height:20px;">&nbsp;</td></tr>
+          <tr><td style="padding:0 12px;">{_branded_footer_html()}</td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body>
+</html>
+"""
 
     text = (
         f"Hi {name},\n\n"
@@ -1735,7 +1505,7 @@ def event_submission_ack_template(
         f"just reply to this email and we'll update it for you.\n\n"
         f"Thanks for helping to build FriendPlace.\n\n"
         f"💜 The FriendPlace Team"
-        f"{_letter_footer_text()}"
+        f"{_branded_footer_text()}"
     )
     return email_subject, html, text
 
@@ -1891,7 +1661,7 @@ def waitlist_template(
     # deliberately never appears alongside the founder number
     # (they'd fight for the same "you're this-number" spotlight).
     position_html = (
-        f"<p style=\"margin:0 0 20px 0;color:rgba(255,255,255,0.72);font-size:15px;font-style:italic;\">You&rsquo;re currently number <strong style=\"color:#FFFFFF;font-style:normal;\">{int(position)}</strong> on our list &mdash; thank you for the trust.</p>"
+        f"<p style=\"margin:0 0 20px 0;color:#64748B;font-size:15px;font-style:italic;\">You&rsquo;re currently number <strong style=\"color:#0A2540;font-style:normal;\">{int(position)}</strong> on our list &mdash; thank you for the trust.</p>"
         if position and position > 0 and not founder_number else ""
     )
     position_text = (
@@ -1907,7 +1677,6 @@ def waitlist_template(
         + founder_hero_html
         + (
             "<p style=\"margin:0 0 20px 0;\">That number is yours forever. When FriendPlace opens its doors and grows into the community we&rsquo;re building, your Founding Member Number goes with you &mdash; on your profile, on your badge inside the app, and quietly, as our thank-you for being here first.</p>"
-            "<p style=\"margin:0 0 20px 0;\"><strong>One small thing:</strong> when your invitation arrives, please sign up using <strong>this same email address</strong>. That&rsquo;s how we&rsquo;ll recognise you and keep your Founding Member Number linked to your new account.</p>"
             if founder_number else ""
         )
         + "<p style=\"margin:0 0 20px 0;\">FriendPlace is being built quietly and carefully, because places where people belong don&rsquo;t happen by accident. We&rsquo;re inviting friends in a small group at a time so that every new arrival is met with warmth, not silence.</p>"
@@ -1930,10 +1699,6 @@ def waitlist_template(
             "Founding Member Number goes with you — on your profile, on "
             "your badge inside the app, and quietly, as our thank-you "
             "for being here first.\n\n"
-            "One small thing: when your invitation arrives, please sign up "
-            "using THIS SAME EMAIL ADDRESS. That's how we'll recognise you "
-            "and keep your Founding Member Number linked to your new "
-            "account.\n\n"
             if founder_number else ""
         )
         + "FriendPlace is being built quietly and carefully, because places "
@@ -1984,7 +1749,7 @@ def invitation_template(
     preheader = preheader_override or default_preheader
 
     inviter_line = (
-        f"<p style=\"margin:0 0 20px 0;color:#FFFFFF;\"><strong style=\"color:#FFFFFF;\">{_esc(inviter)}</strong> thought you&rsquo;d feel at home here &mdash; and asked me to send you a personal invitation to join us at FriendPlace.</p>"
+        f"<p style=\"margin:0 0 20px 0;\"><strong style=\"color:#0A2540;\">{_esc(inviter)}</strong> thought you&rsquo;d feel at home here &mdash; and asked me to send you a personal invitation to join us at FriendPlace.</p>"
         if inviter else
         "<p style=\"margin:0 0 20px 0;\">A member of FriendPlace thought you&rsquo;d feel at home here, and asked me to send you a personal invitation to join us.</p>"
     )
@@ -2003,8 +1768,7 @@ def invitation_template(
         + "<p style=\"margin:0 0 20px 0;\">FriendPlace is a quiet, kind space for finding people to share the small and lovely bits of life with &mdash; a coffee, a walk, an event that would be nicer with someone next to you. There&rsquo;s no algorithm chasing your attention, no pressure to perform. Just people, being neighbourly.</p>"
         + "<p style=\"margin:0 0 8px 0;\">Whenever you&rsquo;re ready, your invitation is waiting:</p>"
         + _letter_button_html(label="Accept your invitation", url=accept_url)
-        + "<p style=\"margin:0 0 20px 0;\">When you set up your account, please use <strong>this same email address</strong> &mdash; if you registered your interest earlier, that&rsquo;s how we&rsquo;ll recognise you and keep any Founding Member Number linked to your account.</p>"
-        + f"<p style=\"margin:20px 0 20px 0;color:rgba(255,255,255,0.72);font-size:14px;\">This invitation is personal to you and stays open for <strong style=\"color:#FFFFFF;\">{int(expiry_days)} days</strong>. If it expires, simply reply to this email and I&rsquo;ll send you a fresh one.</p>"
+        + f"<p style=\"margin:20px 0 20px 0;color:#64748B;font-size:14px;\">This invitation is personal to you and stays open for <strong>{int(expiry_days)} days</strong>. If it expires, simply reply to this email and I&rsquo;ll send you a fresh one.</p>"
         + "<p style=\"margin:24px 0 0 0;\">I hope to see you inside.</p>"
         + _letter_signature_html(signer=companion)
         + _letter_body_close()
@@ -2021,10 +1785,6 @@ def invitation_template(
         "people, being neighbourly.\n\n"
         "Whenever you're ready, your invitation is waiting:\n"
         f"    {accept_url}\n\n"
-        "When you set up your account, please use THIS SAME EMAIL ADDRESS "
-        "— if you registered your interest earlier, that's how we'll "
-        "recognise you and keep any Founding Member Number linked to your "
-        "account.\n\n"
         f"This invitation is personal to you and stays open for "
         f"{int(expiry_days)} days. If it expires, simply reply to this "
         "email and I'll send you a fresh one.\n\n"
@@ -2045,12 +1805,11 @@ def announcement_template(
     founder_number: int | None = None,
     cta_label: str | None = None,
     cta_url: str | None = None,
+    greeting: str | None = None,
+    show_founder_badge: bool | None = None,
     companion: str = "george",
     subject_override: str | None = None,
     preheader_override: str | None = None,
-    greeting: str | None = None,
-    show_founder_badge: bool | None = None,
-    outreach_unsubscribe_url: str | None = None,
 ) -> tuple[str, str, str]:
     """The Founding Member Update template — used by campaigns.
 
@@ -2076,64 +1835,36 @@ def announcement_template(
         companion:   Which companion is writing.
     """
     from html import escape as _esc
-    name = (first_name or "there").strip()
-    # iter164o: signer resolution.
-    # `companion` on this endpoint accepts:
-    #   • "george" / "georgia" — personal companion signature
-    #   • "team"               — The FriendPlace Team closing
-    #   • "none"               — no closing appended (body owns it)
-    signer_norm = str(companion or "george").lower().strip()
-    if signer_norm not in {"george", "georgia", "team", "none"}:
-        signer_norm = "george"
-    is_personal = signer_norm in {"george", "georgia"}
-    display = "Georgia" if signer_norm == "georgia" else "George"
-    # iter164o: honour explicitly-empty title. Blank means "no headline",
-    # not "silently restore the default". Preview and worker both pass
-    # title through raw now.
-    raw_title = (title or "").strip()
-    has_heading = bool(raw_title)
-    heading = raw_title  # empty allowed — used only when has_heading
-    subject = subject_override or heading or "A note from FriendPlace"
-    if preheader_override:
-        preheader = preheader_override
-    elif is_personal:
-        preheader = f"An update from {display} at FriendPlace."
-    else:
-        preheader = "An update from FriendPlace."
+    raw_name = (first_name or "").strip()
+    name = raw_name or "friend"
+    display = "Georgia" if str(companion).lower() == "georgia" else "George"
+    heading = (title or "").strip() or "A note from FriendPlace"
 
-    # iter164p greeting resolution.
-    # `greeting` accepts:
-    #   • None (unset, back-compat) -> "Dear <first_name>,"
-    #   • ""   (explicitly blank)   -> render no greeting line
-    #   • any string with the literal token "[Contact name]" ->
-    #     substituted per-recipient at render time (bulk preview keeps
-    #     the placeholder unchanged because `first_name` is set to
-    #     "[Contact name]" by the composer's bulk preview path)
-    #   • any other string          -> rendered verbatim (e.g. "Hi there,")
-    CONTACT_TOKEN = "[Contact name]"
-    if greeting is None:
-        greeting_rendered = f"Dear {name},"
-    elif greeting == "":
-        greeting_rendered = ""
+    # CAMPAIGN_INVARIANT: NO_SARAH_FALLBACK
+    if greeting == "":
+        greeting_html = ""
+        greeting_text = ""
+    elif greeting is None:
+        greeting_html = f'<p style="margin:0 0 20px 0;">Dear {_esc(name)},</p>'
+        greeting_text = f"Dear {name},\n\n"
+    elif "[Contact name]" in greeting:
+        rendered_greeting = greeting.replace("[Contact name]", raw_name) if raw_name else "Hello friend,"
+        greeting_html = f'<p style="margin:0 0 20px 0;">{_esc(rendered_greeting)}</p>'
+        greeting_text = rendered_greeting + "\n\n"
     else:
-        greeting_rendered = greeting.replace(CONTACT_TOKEN, name)
-
-    # iter164p Founder-badge toggle. Back-compat semantics:
-    #   • None  (unset)  -> render iff founder_number is a positive int
-    #                       (previous behaviour)
-    #   • True           -> render iff founder_number is a positive int
-    #   • False          -> suppress even when founder_number is present
-    show_pill = (
-        (show_founder_badge is not False)
-        and bool(founder_number)
-        and int(founder_number) > 0
+        greeting_html = f'<p style="margin:0 0 20px 0;">{_esc(greeting)}</p>'
+        greeting_text = greeting + "\n\n"
+    subject = subject_override or heading
+    preheader = (
+        preheader_override
+        or f"An update from {display} at FriendPlace."
     )
 
     # Founder number pill — smaller than the waitlist hero, just a
     # gentle reminder of their permanent identity.
     founder_pill_html = ""
     founder_pill_text = ""
-    if show_pill:
+    if show_founder_badge is not False and founder_number and founder_number > 0:
         fno = f"#{int(founder_number):04d}"
         founder_pill_html = (
             f"<p style=\"margin:0 0 20px 0;\">"
@@ -2145,38 +1876,16 @@ def announcement_template(
         )
         founder_pill_text = f"[Founding Member {fno}]\n\n"
 
-    # iter164o duplicate-signoff guarantee:
-    # If the composer body ends with its own closing (e.g. "Warm regards,
-    # The FriendPlace Team"), we must NOT append a second closing. The
-    # renderer strips a recognisable trailing sign-off block whenever the
-    # selected signer will render one — so the pipeline produces exactly
-    # one closing regardless of what the author typed.
-    #   signer='team'    -> strip trailing signoff, then append Team block
-    #   signer='george'  -> strip trailing signoff, then append George block
-    #   signer='georgia' -> strip trailing signoff, then append Georgia block
-    #   signer='none'    -> KEEP whatever closing the body owns; append nothing
-    body_md_effective = body_md or ""
-    if signer_norm != "none":
-        body_md_effective = _strip_trailing_signoff(body_md_effective)
-
-    # iter164ab: minimal, safe markdown-lite renderer for campaign
-    # bodies. Supports **bold**, *italic* / _italic_, [text](url) for
-    # http(s)/mailto URLs, `-`/`*` bullet lists, and blank-line
-    # paragraph breaks. Everything is HTML-escaped BEFORE markdown
-    # transforms run so no raw HTML from the composer can leak into
-    # the letter. Old callers (single-line paragraphs, no markdown)
-    # render byte-identically to the pre-iter164ab shell.
-    body_html_joined = _render_campaign_body_md_to_html(body_md_effective)
-    if not body_html_joined:
-        body_html_joined = (
-            "<p style=\"margin:0 0 20px 0;color:rgba(255,255,255,0.72);font-style:italic;\">"
-            "(No body content yet.)</p>"
-        )
-    # Plain-text form used by the text/plain part of the email. We
-    # keep markdown markers legible for text-only readers (bold →
-    # **bold**, italic → *italic*, links → text (url), bullets stay
-    # as `- item` per RFC 5147 conventions) — no double-escape.
-    text_body_joined = _render_campaign_body_md_to_text(body_md_effective)
+    # Paragraph split on blank lines, escaping each and wrapping in <p>.
+    paragraphs = [p.strip() for p in (body_md or "").split("\n\n") if p.strip()]
+    body_html_parts = [
+        f"<p style=\"margin:0 0 20px 0;\">{_esc(p).replace(chr(10), '<br>')}</p>"
+        for p in paragraphs
+    ] or [
+        f"<p style=\"margin:0 0 20px 0;color:#94A3B8;font-style:italic;\">"
+        f"(No body content yet.)</p>"
+    ]
+    body_html_joined = "".join(body_html_parts)
 
     cta_html = (
         _letter_button_html(label=cta_label, url=cta_url)
@@ -2186,91 +1895,31 @@ def announcement_template(
         f"\n{cta_label}: {cta_url}\n" if cta_label and cta_url else ""
     )
 
-    # iter164bd — outreach-only unsubscribe footer. Rendered ONLY when a
-    # recipient-specific signed URL is supplied (organisation outreach
-    # sends); transactional/member emails never pass this, so they never
-    # get the wording.
-    outreach_footer_html = ""
-    outreach_footer_text = ""
-    if outreach_unsubscribe_url:
-        outreach_footer_html = (
-            "<p style=\"margin:28px 0 0 0;padding-top:16px;"
-            "border-top:1px solid rgba(255,255,255,0.18);"
-            "color:rgba(255,255,255,0.62);font-size:12px;line-height:1.6;\">"
-            "You\u2019re receiving this email because your organisation\u2019s "
-            "publicly listed contact details indicated FriendPlace may be "
-            "relevant to your community. If you\u2019d prefer not to hear from "
-            "FriendPlace again, "
-            f"<a href=\"{outreach_unsubscribe_url}\" style=\"color:#99F6E4;"
-            "text-decoration:underline;\">unsubscribe here</a>.</p>"
-        )
-        outreach_footer_text = (
-            "\n\n---\nYou're receiving this email because your organisation's "
-            "publicly listed contact details indicated FriendPlace may be "
-            "relevant to your community. If you'd prefer not to hear from "
-            f"FriendPlace again, unsubscribe here: {outreach_unsubscribe_url}\n"
-        )
-
     body = (
         _letter_body_open()
-        + (
-            # iter164am — headline must be readable on navy. Was
-            # color:#0A2540 (navy on navy → invisible); now explicit
-            # white with a subtle light-teal accent underline via
-            # border-bottom to keep the "letter headline" feel.
-            f"<h1 style=\"margin:0 0 20px 0;font-family:'Georgia','Times New Roman',serif;color:#FFFFFF;font-size:26px;line-height:1.3;font-weight:700;\">{_esc(heading)}</h1>"
-            if has_heading else ""
-        )
-        + (
-            # iter164am — greeting paragraph inherits body colour but
-            # some clients drop parent styles; set explicit white.
-            f"<p style=\"margin:0 0 20px 0;color:#FFFFFF;\">{_esc(greeting_rendered)}</p>"
-            if greeting_rendered else ""
-        )
+        + f"<h1 style=\"margin:0 0 20px 0;font-family:'Georgia','Times New Roman',serif;color:#0A2540;font-size:26px;line-height:1.3;font-weight:700;\">{_esc(heading)}</h1>"
+        + greeting_html
         + founder_pill_html
         + body_html_joined
-        + (
-            # iter164am — closing paragraph gets explicit white too.
-            "<p style=\"margin:24px 0 0 0;color:#FFFFFF;\">Thank you, as always, for being here from the start.</p>"
-            if is_personal else ""
-        )
-        + _letter_signature_html(signer=signer_norm)
-        # iter164av — CTA button now renders AFTER the sign-off
-        # (body → sign-off → CTA → footer). Text/URL/styling/tracking
-        # unchanged; only its position moved.
         + cta_html
-        + outreach_footer_html
+        + "<p style=\"margin:24px 0 0 0;\">Thank you, as always, for being here from the start.</p>"
+        + _letter_signature_html(signer=companion)
         + _letter_body_close()
     )
-    html = _letter_shell(preheader=preheader, body_html=body,
-                         show_account_disclaimer=not bool(outreach_unsubscribe_url))
+    html = _letter_shell(preheader=preheader, body_html=body)
 
-    text_paragraphs = text_body_joined or "(No body content yet.)"
-    # iter164o: conditional heading + signer-aware plain-text closing.
-    heading_text = (
-        f"{heading}\n{'=' * min(len(heading), 60)}\n\n"
-        if has_heading else ""
-    )
-    closing_intro = (
-        "\nThank you, as always, for being here from the start.\n\n"
-        if is_personal else "\n"
-    )
-    if signer_norm == "none":
-        closing_signoff = ""
-    elif signer_norm == "team":
-        closing_signoff = "Warmly,\nThe FriendPlace Team\nBecause you belong too."
-    else:
-        closing_signoff = f"Warmly,\n{display}\nYour friend at FriendPlace"
+    text_paragraphs = "\n\n".join(paragraphs) if paragraphs else "(No body content yet.)"
     text = (
-        heading_text
-        + (f"{greeting_rendered}\n\n" if greeting_rendered else "")
+        f"{heading}\n"
+        + ("=" * min(len(heading), 60)) + "\n\n"
+        + greeting_text
         + founder_pill_text
         + text_paragraphs + "\n"
-        + closing_intro
-        + closing_signoff
-        # iter164av — CTA after the sign-off in plain text too.
         + cta_text
-        + outreach_footer_text
-        + _letter_footer_text(show_account_disclaimer=not bool(outreach_unsubscribe_url))
+        + "\nThank you, as always, for being here from the start.\n\n"
+        "Warmly,\n"
+        f"{display}\n"
+        "Your friend at FriendPlace"
+        + _letter_footer_text()
     )
     return subject, html, text

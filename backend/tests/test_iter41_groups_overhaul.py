@@ -17,7 +17,7 @@ import uuid
 import pytest
 import requests
 
-BASE_URL = os.environ.get("EXPO_BACKEND_URL", "https://outreach-campaigns.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("EXPO_BACKEND_URL", "https://iphone-retest-batch.preview.emergentagent.com").rstrip("/")
 
 
 def _demo_login(username: str) -> dict:
@@ -87,21 +87,17 @@ class TestGroupListFiltering:
         r = requests.get(f"{BASE_URL}/api/groups", params={"include_system": "true"}, timeout=15)
         assert r.status_code == 200
         names = {g["name"] for g in r.json()}
-        # iter164ae: system-group naming changed — the second seeded
-        # system group is now "FP Café Crew" (the legacy "Coffee
-        # Lounge Crew" fixture was renamed). Backfill should have
-        # stamped both; both should appear with include_system=true.
+        # Backfill should have stamped them; both should appear with include_system=true
         assert "Founders Lounge" in names, "Founders Lounge missing with include_system=true"
-        assert "FP Café Crew" in names, "FP Café Crew missing with include_system=true"
+        assert "Coffee Lounge Crew" in names, "Coffee Lounge Crew missing with include_system=true"
 
     def test_is_system_flag_backfilled(self):
-        """Backfill must stamp is_system=True on the seeded system groups."""
+        """Backfill must stamp is_system=True on the two seeded system groups."""
         r = requests.get(f"{BASE_URL}/api/groups", params={"include_system": "true"}, timeout=15)
         assert r.status_code == 200
         by_name = {g["name"]: g for g in r.json()}
-        # iter164ae: "Coffee Lounge Crew" was renamed to "FP Café Crew".
-        for n in ("Founders Lounge", "FP Café Crew"):
-            if n in by_name:  # seeded only on fresh DBs
+        for n in ("Founders Lounge", "Coffee Lounge Crew"):
+            if n in by_name:  # Coffee Lounge Crew is seeded only on fresh DBs
                 assert by_name[n].get("is_system") is True, f"{n} should have is_system=True after backfill"
 
 

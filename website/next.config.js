@@ -16,51 +16,25 @@ const nextConfig = {
       { protocol: 'https', hostname: '**' },
     ],
   },
-  // Pre-launch: keep the site OUT of search engines until we're ready.
-  // Flipping FRIENDPLACE_INDEXABLE=true in Vercel env makes the site
-  // discoverable. Layered defence: X-Robots-Tag header + robots.txt
-  // + meta robots (in <head>).
+  // Post-launch (Aug 2026): skip the X-Robots-Tag: noindex header on
+  // Vercel production and when explicitly opted-in. Preview /
+  // development deploys still receive the header (VERCEL_ENV=preview
+  // or development). Explicit FRIENDPLACE_INDEXABLE=false forces the
+  // header on as an emergency killswitch even in production.
   async headers() {
-    // iter157 Safari hardening (Garry, 7 Aug 2026): after a Vercel
-    // deploy, Safari sometimes serves an OLD cached HTML that still
-    // references the previous build's JS chunk hashes — those
-    // chunks still work but the sticky-header GPU composited-layer
-    // regression compounds. We hint every marketing HTML entry as
-    // `no-store` so Safari always re-fetches the HTML (which points
-    // to the correct fingerprinted chunk); the chunks themselves
-    // stay long-cached because Next.js fingerprints their filenames
-    // and Vercel serves them with `immutable` by default. Applied
-    // to top-level marketing routes only — admin/api paths keep
-    // their own semantics. `X-Accel-Buffering: no` also stops
-    // some intermediate proxies from stitching stale HTML fragments.
-    const marketingHtmlHeaders = [
-      { key: 'Cache-Control', value: 'no-store, must-revalidate' },
-      { key: 'X-Accel-Buffering', value: 'no' },
-    ];
-    const marketingRoutes = [
-      '/', '/about', '/how-it-works', '/features',
-      '/events', '/events/:slug*',
-      '/success-stories', '/success-stories/:slug*',
-      '/faqs', '/contact', '/meet',
-      '/register-interest', '/list-your-event',
-      '/privacy', '/terms', '/butterfly-lab',
-    ].map((src) => ({ source: src, headers: marketingHtmlHeaders }));
-
     const flag = process.env.FRIENDPLACE_INDEXABLE;
-const indexable =
-  flag === 'true' ||
-  (flag !== 'false' && process.env.VERCEL_ENV === 'production');
-
-const noindex = indexable
-  ? []
-  : [{
-      source: '/:path*',
-      headers: [
-        { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive, nosnippet' },
-      ],
-    }];
-
-    return [...noindex, ...marketingRoutes];
+    const indexable =
+      flag === 'true' ||
+      (flag !== 'false' && process.env.VERCEL_ENV === 'production');
+    if (indexable) return [];
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive, nosnippet' },
+        ],
+      },
+    ];
   },
 };
 

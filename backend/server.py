@@ -127,6 +127,43 @@ api = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("friendplace")
 
+
+# ---------------- Unhandled-exception middleware ----------------
+# Launch-QA (29 Aug 2026): the TestFlight 1.0.21 (1025) signup regression
+# showed us that an unhandled exception anywhere in an API path used to
+# bubble up as a bare 500 with no body — the frontend couldn't parse it
+# and fell back to a generic "Could not create account" toast, hiding
+# the real cause. This middleware catches every unhandled exception,
+# logs a full traceback with the request path/method/IP, and returns
+# a truthful JSON body the frontend can surface verbatim.
+#
+# HTTPException raised deliberately by our own code (e.g. 400
+# "Username already taken") is a separate FastAPI mechanism and is
+# NOT caught here — it flows through normally with its intended body.
+@app.middleware("http")
+async def _unhandled_error_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except HTTPException:
+        # Re-raise so FastAPI's built-in handler serialises it as
+        # `{"detail": "..."}` with the intended status code.
+        raise
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        client_ip = (request.client.host if request.client else "unknown") or "unknown"
+        logger.error(
+            "unhandled.exception path=%s method=%s ip=%s exc=%s\n%s",
+            request.url.path, request.method, client_ip, repr(e), tb,
+        )
+        # Return a JSON body the frontend can parse. Truthful without
+        # leaking traceback / stack / internal identifiers.
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Something went wrong on our end. Please try again in a moment."},
+        )
+
 # ---------------- Sentry (no-op when DSN unset) ----------------
 # Init *after* logger creation so the LoggingIntegration captures our own
 # logs too. When `settings.sentry_dsn` is None / empty the SDK initialises
@@ -320,8 +357,8 @@ class Group(BaseModel):
     emoji: str = "👥"
     description: str = ""
     members: List[str] = []
-    # Local Discovery locality (item 1). Optional so seeded/system groups
-    # without a place still work; when set, enables radius filtering.
+    # Local Discovery: recognised-locality fields, stamped at create time
+    # from the creator's suburb. Used for radius filtering on the list.
     locality: str = ""
     locality_postcode: str = ""
     locality_state: str = ""
@@ -348,19 +385,11 @@ class Event(BaseModel):
     emoji: str = "🎉"
     description: str = ""
     location: str = ""
-    # Optional cover photo (item #6). Data URI (member Library/Camera capture)
-    # or an image URL (built-in FriendPlace gallery pick). Empty = emoji header.
-    cover_image_url: str = ""
-    # Local Discovery locality (item 1) — the recognised suburb/town that
-    # controls distance filtering. Separate from `location` above, which
-    # stays as free-text venue/address detail.
-    locality: str = ""
-    locality_postcode: str = ""
-    locality_state: str = ""
-    locality_lat: Optional[float] = None
-    locality_lng: Optional[float] = None
     date: str = ""
     time: str = ""
+    # Optional cover image for the event. Same three-format rule as
+    # `Notice.image` — gallery ref / data URI / http URL.
+    image: str = ""
     rsvps: List[str] = []                # legacy "going" list — kept for compat
     rsvps_maybe: List[str] = []
     rsvps_cant: List[str] = []
@@ -376,6 +405,13 @@ class Event(BaseModel):
     recurrence: Optional[str] = None     # None | "weekly" | "fortnightly" | "monthly"
     series_id: Optional[str] = None
     series_master: bool = False
+    # Local Discovery: recognised-locality fields, stamped at create time
+    # from the host's suburb. Used for radius filtering on the list.
+    locality: str = ""
+    locality_postcode: str = ""
+    locality_state: str = ""
+    locality_lat: Optional[float] = None
+    locality_lng: Optional[float] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -387,16 +423,12 @@ class Notice(BaseModel):
     title: str
     body: str
     category: str = "Announcement"
-    # Optional photo (item #5). Stored as a data URI (member Library/Camera
-    # capture) or an image URL (built-in FriendPlace gallery pick),
-    # matching how Moments store member photos. Empty = no photo.
+    # Optional image attached to the notice. One of:
+    #   - "gallery:coffee-catchups/01" — resolves to a bundled asset
+    #   - "data:image/jpeg;base64,…"    — member-uploaded photo
+    #   - "https://…"                   — future object-storage URL
+    # Empty string = no image.
     image: str = ""
-    # Local Discovery locality (item 1) — controls distance filtering.
-    locality: str = ""
-    locality_postcode: str = ""
-    locality_state: str = ""
-    locality_lat: Optional[float] = None
-    locality_lng: Optional[float] = None
     likes: List[str] = []
     comments: List[dict] = []
     # Reaction map: { user_id -> "well_done" | "support" | "chat" | "flutter" | "congrats" }
@@ -404,6 +436,13 @@ class Notice(BaseModel):
     solved: bool = False
     reports: List[dict] = Field(default_factory=list)
     edited_at: Optional[str] = None
+    # Local Discovery: recognised-locality fields, stamped at create time
+    # from the author's suburb. Used for radius filtering on the list.
+    locality: str = ""
+    locality_postcode: str = ""
+    locality_state: str = ""
+    locality_lat: Optional[float] = None
+    locality_lng: Optional[float] = None
     created_at: str = Field(default_factory=now_iso)
 
 
@@ -815,27 +854,6 @@ async def _assign_founder_status(doc: dict) -> None:
     return
 
 
-async def _interest_founder_number_for_email(email: Optional[str]) -> Optional[dict]:
-    """Founder alignment (item 10): find an existing register-your-interest
-    record whose email matches (case-insensitively) and that already
-    carries a founding number. Returns {id, founder_number} or None. No
-    guessing — an exact normalised-email match only."""
-    if not email:
-        return None
-    norm = str(email).strip().lower()
-    if not norm:
-        return None
-    doc = await db.interest_registrations.find_one(
-        {"email": {"$regex": f"^{re.escape(norm)}$", "$options": "i"},
-         "founder_number": {"$ne": None}},
-        {"_id": 0, "id": 1, "founder_number": 1, "email": 1},
-        sort=[("founder_number", 1)],
-    )
-    if doc and doc.get("founder_number"):
-        return {"id": doc.get("id"), "founder_number": int(doc["founder_number"])}
-    return None
-
-
 async def _promote_existing_user_to_founder(user_id: str) -> dict:
     """Convert an existing, persisted user into a Founding Member.
 
@@ -858,44 +876,32 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
         raise HTTPException(400, "Demo accounts cannot claim Founding Member status")
     if u.get("is_founder"):
         raise HTTPException(409, "You're already a Founding Member")
-    # Founder alignment (item 10): if this member's email matches an
-    # existing register-your-interest founder, LINK to it and preserve
-    # their ORIGINAL founding number instead of allocating a new one.
-    # This bypasses the cohort cap because the seat is already reserved.
-    linked = await _interest_founder_number_for_email(u.get("email"))
-    if linked:
-        founder_number = linked["founder_number"]
-    else:
-        cap = max(0, int(settings.founding_member_cap or 0))
-        if cap <= 0:
-            raise HTTPException(410, "Founding Member programme is closed")
-        # Batch B iter156 (Garry, Aug 2026 — post-P2 audit): the promotion
-        # counter now excludes `is_test=true` seed rows from the cap check so
-        # test fixtures don't quietly consume real launch seats. The next
-        # founder_number is derived from the max(founder_number) already
-        # assigned + 1 — this preserves any historical numbering gaps
-        # (e.g. Alice #1 / Bob #2 as soft-flagged seeds) without colliding
-        # with genuine members who kept their original numbers, and never
-        # re-uses a number once assigned.
-        current = await db.users.count_documents({
-            "is_founder": True,
-            "is_demo": {"$ne": True},
-            "is_test": {"$ne": True},
-        })
-        if current >= cap:
-            raise HTTPException(410, "Founding Member cohort is full")
+    cap = max(0, int(settings.founding_member_cap or 0))
+    if cap <= 0:
+        raise HTTPException(410, "Founding Member programme is closed")
+    # Batch B iter156 (Garry, Aug 2026 — post-P2 audit): the promotion
+    # counter now excludes `is_test=true` seed rows from the cap check so
+    # test fixtures don't quietly consume real launch seats. The next
+    # founder_number is derived from the max(founder_number) already
+    # assigned + 1 — this preserves any historical numbering gaps
+    # (e.g. Alice #1 / Bob #2 as soft-flagged seeds) without colliding
+    # with genuine members who kept their original numbers, and never
+    # re-uses a number once assigned.
+    current = await db.users.count_documents({
+        "is_founder": True,
+        "is_demo": {"$ne": True},
+        "is_test": {"$ne": True},
+    })
+    if current >= cap:
+        raise HTTPException(410, "Founding Member cohort is full")
 
-        # iter164n: Unified allocator. Previously this call site had its
-        # own max(highest+1, current+1) logic that could collide with the
-        # public-registration counter under mixed traffic. The shared
-        # allocator consults the same counter document AND performs a
-        # cross-collection uniqueness check before returning, so an
-        # in-app founder claim can never receive the same number as an
-        # in-flight public registration.
-        founder_number = await _allocate_founder_number(
-            email=u.get("email"),
-            source="founders_claim",
-        )
+    highest = await db.users.find_one(
+        {"is_founder": True, "founder_number": {"$exists": True, "$ne": None}},
+        {"_id": 0, "founder_number": 1},
+        sort=[("founder_number", -1)],
+    )
+    highest_num = int((highest or {}).get("founder_number") or 0)
+    founder_number = max(highest_num + 1, current + 1)
     badges = list(u.get("badges") or [])
     if "Founding Member" not in badges:
         badges.append("Founding Member")
@@ -905,39 +911,15 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     # claims is acceptable at MVP traffic — the count is rechecked next
     # time and self-corrects to "at most cap + a few", same as the old
     # auto-assignment flow).
-    # iter164n: if the primary promotion write fails after the shared
-    # allocator has already handed us a number, release the one-time
-    # #0011 override so a subsequent successful claim can still take
-    # it. Best-effort side effects below (lounge, table, notification)
-    # do NOT release — by then the founder_number is committed to the
-    # user and the number is legitimately spent.
-    try:
-        await db.users.update_one(
-            {"id": user_id},
-            {"$set": {
-                "is_founder": True,
-                "founder_number": founder_number,
-                "badges": badges,
-                "points": new_points,
-            }},
-        )
-    except Exception:
-        await _release_founder_override_if_consumed_for(founder_number)
-        logger.exception("founders/claim: primary promotion write failed for %s", user_id)
-        raise HTTPException(500, "We couldn't save your Founding Member status — please try again in a moment.")
-
-    # Founder alignment (item 10): mark the matched interest registration
-    # as joined + linked to this account, so the CRM shows the link and we
-    # never hand the same number to anyone else.
-    if linked and linked.get("id"):
-        try:
-            await db.interest_registrations.update_one(
-                {"id": linked["id"]},
-                {"$set": {"status": "joined", "linked_user_id": user_id,
-                          "linked_at": now_iso()}},
-            )
-        except Exception as e:
-            logger.warning("founder link: could not mark interest registration joined: %s", e)
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {
+            "is_founder": True,
+            "founder_number": founder_number,
+            "badges": badges,
+            "points": new_points,
+        }},
+    )
 
     # Add to the private Founders Lounge group.
     fl = await _ensure_founders_lounge()
@@ -986,71 +968,6 @@ async def _promote_existing_user_to_founder(user_id: str) -> dict:
     return {"founder_number": founder_number, "user": refreshed}
 
 
-class AdminFounderLinkBody(BaseModel):
-    user_id: str
-    interest_registration_id: str
-
-
-@api.post("/admin/founders/link")
-async def admin_link_founder(body: AdminFounderLinkBody, admin: dict = Depends(current_admin)):
-    """Founder alignment (item 10) — verified admin recovery.
-
-    When a register-your-interest founder accidentally creates their app
-    account with a DIFFERENT email (so automatic email matching can't
-    link them), an authorised admin explicitly selects the account and
-    the interest registration to link. We then assign that registration's
-    ORIGINAL founding number to the account (overriding any wrongly
-    allocated number) and mark the registration joined + linked.
-
-    No guessing — both ids are chosen by a human admin.
-    """
-    u = await db.users.find_one({"id": body.user_id}, {"_id": 0})
-    if not u:
-        raise HTTPException(404, "Account not found")
-    if u.get("is_demo"):
-        raise HTTPException(400, "Demo accounts cannot be founders")
-    reg = await db.interest_registrations.find_one({"id": body.interest_registration_id}, {"_id": 0})
-    if not reg:
-        raise HTTPException(404, "Interest registration not found")
-    fnum = reg.get("founder_number")
-    if not fnum:
-        raise HTTPException(400, "That interest registration has no founding number")
-    # Ensure no OTHER account already holds this number.
-    clash = await db.users.find_one(
-        {"founder_number": int(fnum), "id": {"$ne": body.user_id}},
-        {"_id": 0, "id": 1},
-    )
-    if clash:
-        raise HTTPException(409, f"Founding number #{int(fnum):04d} is already held by another account")
-    badges = list(u.get("badges") or [])
-    if "Founding Member" not in badges:
-        badges.append("Founding Member")
-    await db.users.update_one(
-        {"id": body.user_id},
-        {"$set": {"is_founder": True, "founder_number": int(fnum), "badges": badges}},
-    )
-    await db.interest_registrations.update_one(
-        {"id": body.interest_registration_id},
-        {"$set": {"status": "joined", "linked_user_id": body.user_id,
-                  "linked_at": now_iso(), "linked_by_admin": admin.get("id")}},
-    )
-    # Best-effort lounge + table seating so the recovered founder gets the
-    # same access as a normal claim.
-    try:
-        fl = await _ensure_founders_lounge()
-        if fl and fl.get("id"):
-            await db.groups.update_one({"id": fl["id"]}, {"$addToSet": {"members": body.user_id}})
-            await db.users.update_one({"id": body.user_id}, {"$addToSet": {"groups": fl["id"]}})
-        ft = await _ensure_founders_table()
-        if ft and ft.get("id"):
-            await db.tables.update_one({"id": ft["id"]}, {"$addToSet": {"seated": body.user_id}})
-    except Exception as e:
-        logger.warning("admin founder link: lounge/table seating failed: %s", e)
-    refreshed = await db.users.find_one({"id": body.user_id}, {"_id": 0}) or u
-    return {"ok": True, "founder_number": int(fnum),
-            "user": _peer_user(refreshed, viewer_is_owner=True, viewer_is_admin=True)}
-
-
 @api.post("/auth/signup")
 async def signup(body: SignupBody, request: Request):
     # Anti-spam: cap signups per source IP. Bumped from `5 / 10 min` to
@@ -1062,20 +979,46 @@ async def signup(body: SignupBody, request: Request):
     # bot floods dead (the per-account brute-force lockout on
     # /auth/login is the real defence against credential stuffing).
     client_ip = (request.client.host if request.client else "unknown") or "unknown"
-    rate_limit(f"signup:{client_ip}", max_calls=20, window_seconds=3600)
+
+    # Launch-QA breadcrumb (29 Aug 2026): whenever signup fails from
+    # here on, we log the reason with a masked email + client IP so
+    # production TestFlight failures leave a clear trail without
+    # exposing PII. Wrapped in an inner function so every raise site
+    # shares the same shape. `_mask_email` keeps first char + tld
+    # only, e.g. "j***@example.com" — enough to correlate across
+    # attempts, not enough to identify the person.
+    def _mask_email(e: str) -> str:
+        if not e or "@" not in e:
+            return "(none)"
+        local, dom = e.split("@", 1)
+        return f"{local[:1]}***@{dom}"
+
+    def _fail(reason: str, http_status: int) -> HTTPException:
+        logger.warning(
+            "signup.reject ip=%s email=%s username=%r reason=%r status=%d",
+            client_ip, _mask_email(body.email or ""), body.username, reason, http_status,
+        )
+        return HTTPException(http_status, reason)
+
+    try:
+        rate_limit(f"signup:{client_ip}", max_calls=20, window_seconds=3600)
+    except HTTPException as e:
+        logger.warning("signup.rate_limited ip=%s email=%s", client_ip, _mask_email(body.email or ""))
+        raise e
+
     uname = body.username.strip()
     if len(uname) < 3:
-        raise HTTPException(400, "Username must be at least 3 characters")
+        raise _fail("Username must be at least 3 characters", 400)
     if any(ch.isspace() for ch in uname):
-        raise HTTPException(400, "Username can't contain spaces")
+        raise _fail("Username can't contain spaces", 400)
     if not re.match(r"^[A-Za-z0-9_.\-]+$", uname):
-        raise HTTPException(400, "Username can only contain letters, numbers, and . _ -")
+        raise _fail("Username can only contain letters, numbers, and . _ -", 400)
     if len(body.password) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+        raise _fail("Password must be at least 6 characters", 400)
     if await db.users.find_one({"username": {"$regex": f"^{re.escape(uname)}$", "$options": "i"}}):
-        raise HTTPException(400, "Username already taken")
+        raise _fail("Username already taken", 400)
     if body.email and await db.users.find_one({"email": {"$regex": f"^{re.escape(body.email)}$", "$options": "i"}}):
-        raise HTTPException(400, "Email already registered")
+        raise _fail("Email already registered", 400)
 
     user = User(
         first_name=body.first_name or "",
@@ -1453,9 +1396,30 @@ async def auth_google(body: GoogleAuthBody):
 
 _APPLE_JWKS_URL = "https://appleid.apple.com/auth/keys"
 _APPLE_ISSUER = "https://appleid.apple.com"
-_APPLE_AUDIENCES = (
-    os.getenv("APPLE_CLIENT_ID_IOS") or "au.com.friendplace.app",
-    os.getenv("APPLE_CLIENT_ID_WEB") or "au.com.friendplace.app.web",
+
+# FriendPlace's canonical Sign-in-with-Apple audiences. These are the
+# CURRENT production bundle IDs and are ALWAYS accepted — they cannot
+# be turned off by env vars. Environment overrides are treated as
+# ADDITIVE (staging / legacy / future Service IDs), never replacement.
+#
+# Historical bug this guards against: a stale `APPLE_CLIENT_ID_IOS`
+# env value on the production backend (e.g. left over from the YouBelong
+# rebrand) previously replaced the FriendPlace default via `or`,
+# causing every real FriendPlace TestFlight token to fail with
+# "aud not in allowlist". Additive semantics fix that permanently.
+_APPLE_CANONICAL_IOS_AUD = "au.com.friendplace.app"
+_APPLE_CANONICAL_WEB_AUD = "au.com.friendplace.app.web"
+
+_APPLE_AUDIENCES = tuple(
+    dict.fromkeys(  # dedupe while preserving order
+        a for a in (
+            _APPLE_CANONICAL_IOS_AUD,
+            _APPLE_CANONICAL_WEB_AUD,
+            os.getenv("APPLE_CLIENT_ID_IOS"),
+            os.getenv("APPLE_CLIENT_ID_WEB"),
+        )
+        if a and a.strip()
+    )
 )
 
 # Cache the JWK set in-memory for an hour. Apple rotates keys roughly twice a
@@ -1983,6 +1947,965 @@ async def founders_claim(user=Depends(current_user)):
         "ok": True,
         "founder_number": result["founder_number"],
         "user": _safe_user(result["user"]),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TEMPORARY (Batch C, 2026-08-13): admin endpoint that promotes the real
+# George member from #3 → #2, and releases @fw_test_bob's hidden
+# reservation on #2 (unsets his `founder_number` while keeping him
+# `is_test=true` so he stays out of the public wall + cap count).
+# Gaz (#1) is NOT touched.
+#
+# Same pattern / safety rails as Batch-B: dry_run default, commit and
+# rollback both require the batch-specific confirm token, MCGS admin JWT
+# auth, snapshots captured and returned. Endpoint MUST be removed once
+# the promotion has been committed and verified.
+# ─────────────────────────────────────────────────────────────────────
+_FOUNDER_RESET_BATCH_C_CONFIRM_TOKEN = "batch-c-george-promotion-20260813"
+_BATCH_C_REASON_TAG = "Batch-C 2026-08-13"
+
+# Reuse the same MCGS-admin verifier pattern from Batch-B (that helper
+# was removed with Batch-B; we re-declare it locally here so the file
+# is self-contained and cms_module.py stays untouched).
+from cms_module import _decode as _cms_decode_c, bearer as _cms_bearer_c  # noqa: E402
+
+
+async def _current_cms_admin_for_reset_c(
+    creds: HTTPAuthorizationCredentials = Depends(_cms_bearer_c),
+) -> Dict[str, Any]:
+    """MCGS-compatible admin auth dependency for the Batch-C endpoint.
+    Bit-for-bit identical to `cms_module.build_router.current_cms_admin`
+    (token purpose check → cms_admins lookup → session revocation gate)."""
+    if not creds or not creds.credentials:
+        raise HTTPException(401, "Not authenticated")
+    payload = _cms_decode_c(creds.credentials, "cms_admin")
+    admin = await db.cms_admins.find_one(
+        {"id": payload["sub"]}, {"_id": 0, "password_hash": 0}
+    )
+    if not admin:
+        raise HTTPException(401, "Admin no longer exists")
+    try:
+        from services import security as _sec  # optional dep — keep import lazy
+        if not await _sec.session_is_valid(db, payload.get("jti")):
+            raise HTTPException(401, "Session revoked")
+    except HTTPException:
+        raise
+    except Exception:
+        # Never block auth on optional-dep failure — matches cms_module behaviour.
+        pass
+    return admin
+
+
+# Fields captured in every BEFORE / AFTER snapshot — same set as the
+# script used for Batch-B, plus the two new Batch-C audit fields.
+_BATCH_C_SNAPSHOT_FIELDS = {
+    "_id": 0,
+    "id": 1,
+    "username": 1,
+    "first_name": 1,
+    "email": 1,
+    "is_founder": 1,
+    "is_test": 1,
+    "is_demo": 1,
+    "is_admin": 1,
+    "founder_number": 1,
+    "former_founder_number": 1,
+    "founder_slot_released_at": 1,
+    "founder_slot_released_reason": 1,
+    "founder_promoted_at": 1,
+    "founder_promoted_reason": 1,
+    "created_at": 1,
+}
+
+
+async def _batch_c_snapshot() -> Dict[str, Any]:
+    """Snapshot the three rows relevant to Batch-C so callers can eyeball
+    identity BEFORE and confirm state AFTER."""
+    gaz = await db.users.find_one({"username": "gaz"}, _BATCH_C_SNAPSHOT_FIELDS)
+    bob = await db.users.find_one({"username": "fw_test_bob"}, _BATCH_C_SNAPSHOT_FIELDS)
+    george = await db.users.find_one(
+        {"is_founder": True, "founder_number": 3},
+        _BATCH_C_SNAPSHOT_FIELDS,
+    )
+    return {"gaz": gaz, "bob": bob, "george_at_number_3": george}
+
+
+def _batch_c_precondition_errors(snap: Dict[str, Any]) -> list[str]:
+    """Return a list of human-readable pre-condition failures. Empty
+    list == safe to commit."""
+    errs: list[str] = []
+    gaz = snap.get("gaz")
+    bob = snap.get("bob")
+    george = snap.get("george_at_number_3")
+
+    if not gaz:
+        errs.append("gaz (username='gaz') not found")
+    else:
+        if gaz.get("founder_number") != 1:
+            errs.append(f"gaz.founder_number expected 1, got {gaz.get('founder_number')!r}")
+        if not gaz.get("is_founder"):
+            errs.append("gaz.is_founder expected True")
+
+    if not bob:
+        errs.append("bob (username='fw_test_bob') not found")
+    else:
+        if bob.get("founder_number") != 2:
+            errs.append(f"bob.founder_number expected 2, got {bob.get('founder_number')!r}")
+        if not bob.get("is_test"):
+            errs.append("bob.is_test expected True (must stay hidden)")
+        if not bob.get("is_founder"):
+            errs.append("bob.is_founder expected True")
+
+    if not george:
+        errs.append("No user found with is_founder=True and founder_number=3 (George)")
+    else:
+        if not george.get("is_founder"):
+            errs.append("george.is_founder expected True")
+        if george.get("is_test"):
+            errs.append("george.is_test must NOT be True (he is a real member)")
+
+    return errs
+
+
+class AdminFounderLinkBody(BaseModel):
+    user_id: str
+    interest_registration_id: str
+
+
+@api.post("/admin/founders/link")
+async def admin_link_founder(body: AdminFounderLinkBody, admin: dict = Depends(current_admin)):
+    """Founder alignment (item 10) — verified admin recovery.
+
+    When a register-your-interest founder accidentally creates their app
+    account with a DIFFERENT email (so automatic email matching can't
+    link them), an authorised admin explicitly selects the account and
+    the interest registration to link. We then assign that registration's
+    ORIGINAL founding number to the account (overriding any wrongly
+    allocated number) and mark the registration joined + linked.
+
+    No guessing — both ids are chosen by a human admin.
+    """
+    u = await db.users.find_one({"id": body.user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "Account not found")
+    if u.get("is_demo"):
+        raise HTTPException(400, "Demo accounts cannot be founders")
+    reg = await db.interest_registrations.find_one({"id": body.interest_registration_id}, {"_id": 0})
+    if not reg:
+        raise HTTPException(404, "Interest registration not found")
+    fnum = reg.get("founder_number")
+    if not fnum:
+        raise HTTPException(400, "That interest registration has no founding number")
+    # Ensure no OTHER account already holds this number.
+    clash = await db.users.find_one(
+        {"founder_number": int(fnum), "id": {"$ne": body.user_id}},
+        {"_id": 0, "id": 1},
+    )
+    if clash:
+        raise HTTPException(409, f"Founding number #{int(fnum):04d} is already held by another account")
+    badges = list(u.get("badges") or [])
+    if "Founding Member" not in badges:
+        badges.append("Founding Member")
+    await db.users.update_one(
+        {"id": body.user_id},
+        {"$set": {"is_founder": True, "founder_number": int(fnum), "badges": badges}},
+    )
+    await db.interest_registrations.update_one(
+        {"id": body.interest_registration_id},
+        {"$set": {"status": "joined", "linked_user_id": body.user_id,
+                  "linked_at": now_iso(), "linked_by_admin": admin.get("id")}},
+    )
+    # Best-effort lounge + table seating so the recovered founder gets the
+    # same access as a normal claim.
+    try:
+        fl = await _ensure_founders_lounge()
+        if fl and fl.get("id"):
+            await db.groups.update_one({"id": fl["id"]}, {"$addToSet": {"members": body.user_id}})
+            await db.users.update_one({"id": body.user_id}, {"$addToSet": {"groups": fl["id"]}})
+        ft = await _ensure_founders_table()
+        if ft and ft.get("id"):
+            await db.tables.update_one({"id": ft["id"]}, {"$addToSet": {"seated": body.user_id}})
+    except Exception as e:
+        logger.warning("admin founder link: lounge/table seating failed: %s", e)
+    refreshed = await db.users.find_one({"id": body.user_id}, {"_id": 0}) or u
+    return {"ok": True, "founder_number": int(fnum),
+            "user": _peer_user(refreshed, viewer_is_owner=True, viewer_is_admin=True)}
+
+
+
+@api.post("/admin/founders/reset-batch-c")
+async def admin_founders_reset_batch_c(
+    payload: dict,
+    _me: dict = Depends(_current_cms_admin_for_reset_c),
+):
+    """Promote the real George member from #3 → #2 and release
+    @fw_test_bob's hidden reservation on #2. Gaz (#1) is not touched.
+
+    Body:
+        {
+            "mode": "dry_run" | "commit" | "rollback",
+            "confirm_token": "<required for commit/rollback>",
+            "expected_george_username": "<required for commit; guards
+                against writing to the wrong row if founder_number=3 no
+                longer maps to George at the moment of commit>"
+        }
+
+    Auth: MCGS admin JWT (`purpose=cms_admin`, subject in `cms_admins`).
+    Same auth as every other `/api/cms/*` route — send the MCGS
+    localStorage token (`fp_cms_token`) as Bearer.
+
+    Safety rails:
+      • `dry_run` is default and NEVER writes. Returns BEFORE snapshot
+        and the exact ops that WOULD run.
+      • `commit` refuses to write if any pre-condition fails (Gaz not at
+        #1, Bob not at #2 with is_test=true, George not at #3, or the
+        supplied `expected_george_username` doesn't match the row at
+        #3).
+      • `rollback` reverses the two updates using `former_founder_number`
+        as the restore source.
+
+    Response:
+        {
+            "ok": true | false,
+            "mode": "<mode>",
+            "log": "<captured stdout>",
+            "before": {...},
+            "after":  {...} | null,
+            "precondition_errors": [ ... ],   // empty on happy path
+            "public_wall_after": {
+                "total_visible_founders": <int>,
+                "next_founder_number_estimate": <int>
+            }
+        }
+    """
+    import io
+    from contextlib import redirect_stdout
+    from datetime import datetime, timezone
+
+    mode = str((payload or {}).get("mode") or "dry_run").strip().lower()
+    confirm_token = str((payload or {}).get("confirm_token") or "").strip()
+    expected_george = str((payload or {}).get("expected_george_username") or "").strip()
+
+    if mode not in {"dry_run", "commit", "rollback", "diagnose"}:
+        raise HTTPException(400, "mode must be one of: dry_run, commit, rollback, diagnose")
+    if mode in {"commit", "rollback"} and confirm_token != _FOUNDER_RESET_BATCH_C_CONFIRM_TOKEN:
+        raise HTTPException(
+            400,
+            f"confirm_token is required for mode={mode} and must match the "
+            "hard-coded batch identifier",
+        )
+    if mode == "commit" and not expected_george:
+        raise HTTPException(
+            400,
+            "expected_george_username is required for mode=commit as a "
+            "safety check — pass the exact username you saw at founder_number=3 "
+            "in the dry-run BEFORE snapshot",
+        )
+
+    before = await _batch_c_snapshot()
+    pre_errors = _batch_c_precondition_errors(before)
+
+    buf = io.StringIO()
+    now = datetime.now(timezone.utc)
+
+    with redirect_stdout(buf):
+        print("=" * 72)
+        print(f"Batch-C founder promotion — mode={mode}")
+        print("=" * 72)
+        print("BEFORE snapshot (three relevant rows):")
+        print(f"  gaz               : {before.get('gaz')}")
+        print(f"  fw_test_bob       : {before.get('bob')}")
+        print(f"  user at #3 (george candidate): {before.get('george_at_number_3')}")
+        print("")
+        if pre_errors:
+            print("PRE-CONDITION FAILURES:")
+            for e in pre_errors:
+                print(f"  ✗ {e}")
+        else:
+            print("Pre-conditions: OK ✓")
+        print("")
+
+        if mode == "dry_run":
+            print("Ops that would run on commit:")
+            print("  (1) fw_test_bob:")
+            print("        $unset founder_number")
+            print(f"        $set former_founder_number=2, founder_slot_released_at=<now>,")
+            print(f"             founder_slot_released_reason='{_BATCH_C_REASON_TAG}: George promoted; hidden reservation released'")
+            g = before.get("george_at_number_3") or {}
+            print(f"  (2) {g.get('username') or '<no-george>'} (id={g.get('id')!r}):")
+            print("        $set founder_number=2, former_founder_number=3,")
+            print(f"             founder_promoted_at=<now>,")
+            print(f"             founder_promoted_reason='{_BATCH_C_REASON_TAG}: Real George member promoted from #3 to #2'")
+            print("  (3) gaz (Gaz): NO CHANGE — deliberately untouched")
+            print("")
+            print("Predicted public outcome after commit + redeploy:")
+            print("  /api/founders/status  →  {\"cap\":250,\"taken\":2,\"remaining\":248,\"open\":true}")
+            print("  /api/founders         →  Gaz #1, George #2 (2 rows)")
+            print("  Next genuine signup   →  #3")
+            print("")
+            print("Nothing was written. Re-run with mode=commit + confirm_token + expected_george_username to apply.")
+        elif mode == "diagnose":
+            # Read-only diagnostic — searches BOTH `db.users` and
+            # `db.interest_registrations` for anyone who might be
+            # George, cross-references the founder-number counter, and
+            # returns everything as structured data. Never writes.
+            print("(diagnose is read-only — full report is in the JSON body under `diagnosis`)")
+        elif mode == "commit":
+            if pre_errors:
+                raise HTTPException(
+                    409,
+                    "Cannot commit — pre-conditions failed: " + "; ".join(pre_errors),
+                )
+            george_row = before.get("george_at_number_3") or {}
+            actual_george_username = george_row.get("username")
+            if actual_george_username != expected_george:
+                raise HTTPException(
+                    409,
+                    f"expected_george_username={expected_george!r} does not match "
+                    f"the actual row at founder_number=3 (username={actual_george_username!r}). "
+                    "Aborting write.",
+                )
+
+            # (1) Bob — release seat #2.
+            r1 = await db.users.update_one(
+                {"username": "fw_test_bob", "founder_number": 2, "is_test": True},
+                {
+                    "$unset": {"founder_number": ""},
+                    "$set": {
+                        "former_founder_number": 2,
+                        "founder_slot_released_at": now,
+                        "founder_slot_released_reason": f"{_BATCH_C_REASON_TAG}: George promoted; hidden reservation released",
+                    },
+                },
+            )
+            print(f"  bob update: matched={r1.matched_count} modified={r1.modified_count}")
+
+            # (2) George — promote 3 → 2.
+            r2 = await db.users.update_one(
+                {"id": george_row["id"], "founder_number": 3, "is_founder": True},
+                {
+                    "$set": {
+                        "founder_number": 2,
+                        "former_founder_number": 3,
+                        "founder_promoted_at": now,
+                        "founder_promoted_reason": f"{_BATCH_C_REASON_TAG}: Real George member promoted from #3 to #2",
+                    },
+                },
+            )
+            print(f"  george update: matched={r2.matched_count} modified={r2.modified_count}")
+
+            # (3) Gaz — deliberately not touched.
+            print("  gaz: not touched (by design)")
+        elif mode == "rollback":
+            # Reverse only if the current state looks like a post-commit state.
+            bob_now = await db.users.find_one({"username": "fw_test_bob"}, _BATCH_C_SNAPSHOT_FIELDS)
+            george_now = await db.users.find_one(
+                {"is_founder": True, "founder_number": 2, "is_test": {"$ne": True}},
+                _BATCH_C_SNAPSHOT_FIELDS,
+            )
+            if not bob_now or not george_now:
+                raise HTTPException(
+                    409,
+                    "Rollback pre-conditions not met — could not locate a post-commit "
+                    "state (Bob without founder_number and a non-test user at #2).",
+                )
+            if bob_now.get("former_founder_number") != 2:
+                raise HTTPException(
+                    409,
+                    f"bob.former_founder_number expected 2, got {bob_now.get('former_founder_number')!r}. "
+                    "Aborting rollback.",
+                )
+            if george_now.get("former_founder_number") != 3:
+                raise HTTPException(
+                    409,
+                    f"george.former_founder_number expected 3, got {george_now.get('former_founder_number')!r}. "
+                    "Aborting rollback.",
+                )
+
+            r1 = await db.users.update_one(
+                {"username": "fw_test_bob"},
+                {
+                    "$set": {"founder_number": 2},
+                    "$unset": {
+                        "former_founder_number": "",
+                        "founder_slot_released_at": "",
+                        "founder_slot_released_reason": "",
+                    },
+                },
+            )
+            print(f"  bob rollback: matched={r1.matched_count} modified={r1.modified_count}")
+            r2 = await db.users.update_one(
+                {"id": george_now["id"]},
+                {
+                    "$set": {"founder_number": 3},
+                    "$unset": {
+                        "former_founder_number": "",
+                        "founder_promoted_at": "",
+                        "founder_promoted_reason": "",
+                    },
+                },
+            )
+            print(f"  george rollback: matched={r2.matched_count} modified={r2.modified_count}")
+
+    after = None if mode in ("dry_run", "diagnose") else await _batch_c_snapshot()
+
+    total_visible = await db.users.count_documents(_FOUNDER_PUBLIC_FILTER)
+    highest = await db.users.find_one(
+        {"is_founder": True, "founder_number": {"$exists": True, "$ne": None}},
+        {"_id": 0, "founder_number": 1},
+        sort=[("founder_number", -1)],
+    )
+    next_est = max(int((highest or {}).get("founder_number") or 0) + 1, total_visible + 1)
+
+    # ── DIAGNOSE mode: read-only cross-collection search for George ──
+    diagnosis: Optional[Dict[str, Any]] = None
+    if mode == "diagnose":
+        # Fields we surface for a users-row candidate.
+        _USER_FIELDS = {
+            "_id": 0, "id": 1, "username": 1, "first_name": 1, "email": 1,
+            "is_founder": 1, "founder_number": 1, "former_founder_number": 1,
+            "is_test": 1, "is_demo": 1, "is_admin": 1, "created_at": 1,
+            "founder_promoted_at": 1, "founder_slot_released_at": 1,
+        }
+        # Fields for an interest_registrations row.
+        _IR_FIELDS = {
+            "_id": 0, "id": 1, "first_name": 1, "email": 1,
+            "founder_number": 1, "founder_number_locked": 1,
+            "is_reserved": 1, "is_test": 1, "status": 1, "source": 1,
+            "companion_choice": 1, "created_at": 1, "updated_at": 1,
+            "state_country": 1, "heard_from": 1,
+        }
+
+        george_email_candidates = [
+            "hello@friendplace.com.au",       # the support email you mentioned
+            "george@friendplace.com.au",
+            "georgie@friendplace.com.au",
+        ]
+        george_name_regex = {"$regex": "george", "$options": "i"}
+
+        # 1) users candidates — any row that could plausibly be George.
+        users_by_email = await db.users.find(
+            {"email": {"$in": george_email_candidates}}, _USER_FIELDS
+        ).to_list(20)
+        users_by_username = await db.users.find(
+            {"username": george_name_regex}, _USER_FIELDS
+        ).to_list(20)
+        users_by_first_name = await db.users.find(
+            {"first_name": george_name_regex}, _USER_FIELDS
+        ).to_list(20)
+        users_with_founder_number_3 = await db.users.find(
+            {"founder_number": 3}, _USER_FIELDS
+        ).to_list(20)
+        users_all_founders = await db.users.find(
+            {"is_founder": True}, _USER_FIELDS
+        ).sort("founder_number", 1).to_list(50)
+
+        # 2) interest_registrations candidates — this is where MCGS reads.
+        ir_by_email = await db.interest_registrations.find(
+            {"email": {"$in": george_email_candidates}}, _IR_FIELDS
+        ).to_list(20)
+        ir_by_first_name = await db.interest_registrations.find(
+            {"first_name": george_name_regex}, _IR_FIELDS
+        ).to_list(20)
+        ir_at_number_3 = await db.interest_registrations.find(
+            {"founder_number": 3}, _IR_FIELDS
+        ).to_list(20)
+        ir_at_number_2 = await db.interest_registrations.find(
+            {"founder_number": 2}, _IR_FIELDS
+        ).to_list(20)
+        ir_at_number_1 = await db.interest_registrations.find(
+            {"founder_number": 1}, _IR_FIELDS
+        ).to_list(20)
+        ir_top_10 = await db.interest_registrations.find(
+            {}, _IR_FIELDS
+        ).sort("founder_number", 1).limit(10).to_list(10)
+
+        # 3) counter state — this is what a NEW /public/register-interest
+        #    submission would increment.
+        counter_doc = await db.counters.find_one(
+            {"id": _FOUNDER_NUMBER_COUNTER_ID}, {"_id": 0}
+        )
+
+        # 4) recent users (last 72h) — helps spot George if he was
+        #    created with an unusual username/email we didn't guess.
+        from datetime import timedelta
+        cutoff_72h = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
+        recent_users = await db.users.find(
+            {"created_at": {"$gt": cutoff_72h}},
+            {**_USER_FIELDS, "created_at": 1},
+        ).sort("created_at", -1).limit(20).to_list(20)
+
+        diagnosis = {
+            "collections_reference": {
+                "users_collection_purpose": "In-app member accounts; source of truth for is_founder, /api/founders, wall.",
+                "interest_registrations_collection_purpose": "Marketing waitlist; source of truth for MCGS Founding Members CRM.",
+                "counter_id": _FOUNDER_NUMBER_COUNTER_ID,
+                "counter_purpose": "Atomic $inc for the marketing waitlist; separate from users.founder_number.",
+            },
+            "counter_state": counter_doc,
+            "users_collection": {
+                "by_email":                    users_by_email,
+                "by_username_ilike_george":    users_by_username,
+                "by_first_name_ilike_george":  users_by_first_name,
+                "with_founder_number_eq_3":    users_with_founder_number_3,
+                "all_founders":                users_all_founders,
+                "recent_users_last_72h":       recent_users,
+            },
+            "interest_registrations_collection": {
+                "by_email":                   ir_by_email,
+                "by_first_name_ilike_george": ir_by_first_name,
+                "at_founder_number_1":        ir_at_number_1,
+                "at_founder_number_2":        ir_at_number_2,
+                "at_founder_number_3":        ir_at_number_3,
+                "top_10_by_founder_number":   ir_top_10,
+            },
+        }
+
+    return {
+        "ok": (len(pre_errors) == 0) if mode == "dry_run" else True,
+        "mode": mode,
+        "log": buf.getvalue(),
+        "before": before,
+        "after": after,
+        "precondition_errors": pre_errors,
+        "public_wall_after": {
+            "total_visible_founders": total_visible,
+            "next_founder_number_estimate": next_est,
+        },
+        "diagnosis": diagnosis,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TEMPORARY (Batch D, 2026-08-13): retire the duplicate
+# support@friendplace.com.au registration that landed at
+# interest_registrations.founder_number=3, and reset the marketing
+# founder-number counter from 3 → 2 so the next genuine registrant
+# receives #0003.
+#
+# Same MCGS-authed dry_run/commit/rollback pattern as Batch-C. Explicitly
+# refuses to touch:
+#   • the reserved locked seats at #1 (Garry) and #2 (George)
+#   • db.users (Batch-D does NOT touch app member accounts)
+# ─────────────────────────────────────────────────────────────────────
+_FOUNDER_RESET_BATCH_D_CONFIRM_TOKEN = "batch-d-duplicate-cleanup-20260813"
+_BATCH_D_REASON_TAG = "Batch-D 2026-08-13"
+_BATCH_D_DUPLICATE_EMAIL = "support@friendplace.com.au"
+
+# Exact target row id captured from the production diagnose call. This
+# is hard-coded on purpose — combined with the required email + number
+# + counter checks below it forms a four-way lock so the write cannot
+# possibly land on the wrong document even if the body params drift.
+_BATCH_D_TARGET_ROW_ID = "d01087d9-7540-42df-a07d-a7852fe85e6c"
+
+# Exact identity expected on the reserved seeds — verified before EVERY
+# write and NEVER touched by this endpoint. If any of these fields
+# differ in prod at commit time, the endpoint aborts.
+_BATCH_D_EXPECTED_SEAT_1 = {
+    "first_name": "Garry",
+    "email": "garry@friendplace.com.au",
+    "is_reserved": True,
+    "founder_number_locked": True,
+}
+_BATCH_D_EXPECTED_SEAT_2 = {
+    "first_name": "George",
+    "email": "george@friendplace.com.au",
+    "is_reserved": True,
+    "founder_number_locked": True,
+}
+
+
+async def _current_cms_admin_for_reset_d(
+    creds: HTTPAuthorizationCredentials = Depends(_cms_bearer_c),
+) -> Dict[str, Any]:
+    """Same MCGS admin verifier used by Batch-C; re-declared under a
+    distinct name so this block stays self-contained and easy to remove."""
+    if not creds or not creds.credentials:
+        raise HTTPException(401, "Not authenticated")
+    payload = _cms_decode_c(creds.credentials, "cms_admin")
+    admin = await db.cms_admins.find_one(
+        {"id": payload["sub"]}, {"_id": 0, "password_hash": 0}
+    )
+    if not admin:
+        raise HTTPException(401, "Admin no longer exists")
+    try:
+        from services import security as _sec
+        if not await _sec.session_is_valid(db, payload.get("jti")):
+            raise HTTPException(401, "Session revoked")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    return admin
+
+
+_BATCH_D_IR_FIELDS = {
+    "_id": 0, "id": 1, "first_name": 1, "email": 1,
+    "founder_number": 1, "former_founder_number": 1, "founder_number_locked": 1,
+    "is_reserved": 1, "is_test": 1, "status": 1, "source": 1,
+    "companion_choice": 1, "created_at": 1, "updated_at": 1,
+    "duplicate_of_founder_number": 1, "duplicate_of_email": 1,
+    "duplicate_flagged_at": 1, "duplicate_flagged_reason": 1,
+}
+
+
+async def _batch_d_snapshot() -> Dict[str, Any]:
+    """Snapshot everything relevant to Batch-D: the two reserved locked
+    seats, the target duplicate row, and the counter state."""
+    seat_1 = await db.interest_registrations.find_one(
+        {"founder_number": 1}, _BATCH_D_IR_FIELDS
+    )
+    seat_2 = await db.interest_registrations.find_one(
+        {"founder_number": 2}, _BATCH_D_IR_FIELDS
+    )
+    seat_3 = await db.interest_registrations.find_one(
+        {"founder_number": 3}, _BATCH_D_IR_FIELDS
+    )
+    target_by_email = await db.interest_registrations.find(
+        {"email": _BATCH_D_DUPLICATE_EMAIL},
+        _BATCH_D_IR_FIELDS,
+    ).to_list(20)
+    counter = await db.counters.find_one(
+        {"id": _FOUNDER_NUMBER_COUNTER_ID}, {"_id": 0}
+    )
+    return {
+        "seat_1": seat_1,
+        "seat_2": seat_2,
+        "seat_3": seat_3,
+        "rows_with_target_email": target_by_email,
+        "counter": counter,
+    }
+
+
+def _batch_d_precondition_errors(snap: Dict[str, Any]) -> list[str]:
+    """Return a list of human-readable pre-condition failures. Empty
+    list means the commit is safe to run.
+
+    Revised for the actual production shape (iter after 2026-08-13
+    diagnose): genuine website registrations legitimately carry
+    `founder_number_locked=True` (server.py:12475 sets that on every
+    /public/register-interest write). The correct discriminator between
+    "reserved seed" and "genuine registration" is `is_reserved` alone.
+    """
+    errs: list[str] = []
+
+    seat_1 = snap.get("seat_1") or {}
+    seat_2 = snap.get("seat_2") or {}
+    seat_3 = snap.get("seat_3") or {}
+    counter = snap.get("counter") or {}
+    target_rows = snap.get("rows_with_target_email") or []
+
+    # ── Reserved seat #1 (Garry) — exhaustively verified, never touched ──
+    if not seat_1:
+        errs.append("Reserved seat #1 (Garry) not found in interest_registrations")
+    else:
+        for k, expected in _BATCH_D_EXPECTED_SEAT_1.items():
+            actual = seat_1.get(k)
+            if actual != expected:
+                errs.append(f"seat #1 field {k!r} expected {expected!r}, got {actual!r}")
+
+    # ── Reserved seat #2 (George) — exhaustively verified, never touched ──
+    if not seat_2:
+        errs.append("Reserved seat #2 (George) not found in interest_registrations")
+    else:
+        for k, expected in _BATCH_D_EXPECTED_SEAT_2.items():
+            actual = seat_2.get(k)
+            if actual != expected:
+                errs.append(f"seat #2 field {k!r} expected {expected!r}, got {actual!r}")
+
+    # ── Target duplicate row must exist at #3 and match on all four locks ──
+    if not seat_3:
+        errs.append("No row found at interest_registrations.founder_number=3 — nothing to clean up")
+    else:
+        # Lock 1: ID must match exactly the diagnosed target.
+        if seat_3.get("id") != _BATCH_D_TARGET_ROW_ID:
+            errs.append(
+                f"row at founder_number=3 id={seat_3.get('id')!r}, expected {_BATCH_D_TARGET_ROW_ID!r}"
+            )
+        # Lock 2: founder_number must be exactly 3 (implicit from the
+        # query, but explicit here as belt-and-braces).
+        if seat_3.get("founder_number") != 3:
+            errs.append(
+                f"row at founder_number=3 has founder_number={seat_3.get('founder_number')!r} (expected 3)"
+            )
+        # Lock 3: email must match the diagnosed duplicate email.
+        if (seat_3.get("email") or "").strip().lower() != _BATCH_D_DUPLICATE_EMAIL:
+            errs.append(
+                f"row at founder_number=3 email={seat_3.get('email')!r}, expected {_BATCH_D_DUPLICATE_EMAIL!r}"
+            )
+        # Lock 4: must NOT be a reserved seed row.
+        if seat_3.get("is_reserved"):
+            errs.append(
+                "SAFETY ABORT: row at founder_number=3 has is_reserved=True — refusing to touch a reserved seed"
+            )
+        # NOTE: founder_number_locked=True is EXPECTED on this row
+        # because every website submission is auto-locked by design
+        # (server.py:12475). We do NOT require it to be false.
+
+    # ── There must be exactly one row with the target email ──
+    if len(target_rows) != 1:
+        errs.append(
+            f"expected exactly 1 row with email={_BATCH_D_DUPLICATE_EMAIL!r}, found {len(target_rows)}"
+        )
+    elif target_rows[0].get("id") != _BATCH_D_TARGET_ROW_ID:
+        errs.append(
+            f"row with email={_BATCH_D_DUPLICATE_EMAIL!r} has id={target_rows[0].get('id')!r}, "
+            f"expected {_BATCH_D_TARGET_ROW_ID!r}"
+        )
+
+    # ── Counter must be exactly 3 ──
+    if not counter:
+        errs.append(f"counter '{_FOUNDER_NUMBER_COUNTER_ID}' not found")
+    else:
+        if int(counter.get("value") or 0) != 3:
+            errs.append(
+                f"counter '{_FOUNDER_NUMBER_COUNTER_ID}'.value expected 3, got {counter.get('value')!r}"
+            )
+
+    return errs
+
+
+@api.post("/admin/founders/reset-batch-d")
+async def admin_founders_reset_batch_d(
+    payload: dict,
+    _me: dict = Depends(_current_cms_admin_for_reset_d),
+):
+    """Retire duplicate support@friendplace.com.au registration at
+    interest_registrations.founder_number=3 and reset the marketing
+    counter 3 → 2.
+
+    Body:
+        {
+            "mode": "dry_run" | "commit" | "rollback" | "diagnose",
+            "confirm_token": "<required for commit/rollback>",
+            "expected_duplicate_email": "<required for commit; must
+                exactly match the email on the target row>",
+            "expected_target_id": "<required for commit; must exactly
+                match the hard-coded diagnosed row id — belt-and-braces
+                on top of the hard-coded server constant>"
+        }
+
+    Auth: MCGS admin JWT.
+
+    Safety rails:
+      • dry_run / diagnose NEVER write.
+      • commit / rollback both require confirm_token.
+      • commit additionally requires expected_duplicate_email AND
+        expected_target_id; both must exactly match the hard-coded
+        server constants. Refuses to write if either mismatches.
+      • Commit refuses if pre-conditions fail (target row id matches,
+        founder_number=3, email matches, is_reserved=false, seats #1
+        and #2 exhaustively verified, exactly 1 row with target email,
+        counter=3).
+      • Write order: (1) update the duplicate row (soft-archive) —
+        matched on id + founder_number + email + is_reserved:{$ne:true}.
+        (2) reset the counter 3→2, guarded on value=3. Counter reset
+        runs ONLY after step (1) confirms matched=1. If (2) fails,
+        state is safe — next $inc issues #4 (which the caller can
+        hand-fix or call rollback + retry).
+      • db.users is NEVER touched by this endpoint.
+    """
+    import io
+    from contextlib import redirect_stdout
+    from datetime import datetime, timezone
+
+    mode = str((payload or {}).get("mode") or "dry_run").strip().lower()
+    confirm_token = str((payload or {}).get("confirm_token") or "").strip()
+    expected_email = str((payload or {}).get("expected_duplicate_email") or "").strip().lower()
+    expected_target_id = str((payload or {}).get("expected_target_id") or "").strip()
+
+    if mode not in {"dry_run", "commit", "rollback", "diagnose"}:
+        raise HTTPException(400, "mode must be one of: dry_run, commit, rollback, diagnose")
+    if mode in {"commit", "rollback"} and confirm_token != _FOUNDER_RESET_BATCH_D_CONFIRM_TOKEN:
+        raise HTTPException(
+            400,
+            f"confirm_token is required for mode={mode} and must match the "
+            "hard-coded batch identifier",
+        )
+    if mode == "commit":
+        if expected_email != _BATCH_D_DUPLICATE_EMAIL:
+            raise HTTPException(
+                400,
+                f"expected_duplicate_email is required for mode=commit and must be "
+                f"exactly {_BATCH_D_DUPLICATE_EMAIL!r}",
+            )
+        if expected_target_id != _BATCH_D_TARGET_ROW_ID:
+            raise HTTPException(
+                400,
+                f"expected_target_id is required for mode=commit and must be "
+                f"exactly {_BATCH_D_TARGET_ROW_ID!r}",
+            )
+
+    before = await _batch_d_snapshot()
+    pre_errors = _batch_d_precondition_errors(before)
+
+    buf = io.StringIO()
+    now = datetime.now(timezone.utc)
+
+    with redirect_stdout(buf):
+        print("=" * 72)
+        print(f"Batch-D duplicate-cleanup — mode={mode}")
+        print("=" * 72)
+        print("BEFORE snapshot:")
+        print(f"  seat #1 (reserved Garry)   : {before.get('seat_1')}")
+        print(f"  seat #2 (reserved George)  : {before.get('seat_2')}")
+        print(f"  seat #3 (duplicate target) : {before.get('seat_3')}")
+        print(f"  counter                    : {before.get('counter')}")
+        print(f"  rows w/ target email       : {len(before.get('rows_with_target_email') or [])}")
+        for r in before.get("rows_with_target_email") or []:
+            print(f"    {r}")
+        print("")
+        print("Hard-coded target identity:")
+        print(f"  row id                : {_BATCH_D_TARGET_ROW_ID}")
+        print(f"  email                 : {_BATCH_D_DUPLICATE_EMAIL}")
+        print(f"  expected founder_number: 3")
+        print("")
+        if pre_errors:
+            print("PRE-CONDITION FAILURES:")
+            for e in pre_errors:
+                print(f"  ✗ {e}")
+        else:
+            print("Pre-conditions: OK ✓")
+        print("")
+
+        if mode == "dry_run":
+            print("Ops that would run on commit (in order):")
+            print("  (1) interest_registrations soft-hide — 4-way match lock:")
+            print(f"        match: {{")
+            print(f"                 id: {_BATCH_D_TARGET_ROW_ID!r},")
+            print(f"                 founder_number: 3,")
+            print(f"                 email: {_BATCH_D_DUPLICATE_EMAIL!r},")
+            print(f"                 is_reserved: {{$ne: true}}")
+            print(f"               }}")
+            print("        $unset founder_number")
+            print("        $set   is_test=true, status='opted_out',")
+            print("               duplicate_of_founder_number=2,")
+            print(f"               duplicate_of_email='george@friendplace.com.au',")
+            print(f"               duplicate_flagged_at=<now>,")
+            print(f"               duplicate_flagged_reason='{_BATCH_D_REASON_TAG}: duplicate George registration; canonical seat is #2',")
+            print("               former_founder_number=3,")
+            print("               updated_at=<now-iso>")
+            print("  (2) counters reset 3 → 2 (ONLY if step 1 matched=1):")
+            print(f"        match: {{ id: {_FOUNDER_NUMBER_COUNTER_ID!r}, value: 3 }}")
+            print(f"        $set   value=2, reset_at=<now>, reset_reason='{_BATCH_D_REASON_TAG}: duplicate #3 retired'")
+            print("  (3) reserved seats #1 and #2: NOT TOUCHED (deliberately, pre-verified above)")
+            print("  (4) db.users:                 NOT TOUCHED (deliberately)")
+            print("")
+            print("Predicted result after commit:")
+            print("  MCGS /admin/crm/founding-members → visible: Garry #1, George #2 only")
+            print("  db.counters.founder_number.value → 2 (next $inc returns 3)")
+            print("  Next genuine registrant on marketing site → #0003")
+            print("  db.users / /api/founders / /api/founders/status → unchanged")
+            print("")
+            print("Nothing written. Re-run with mode=commit + confirm_token + expected_duplicate_email + expected_target_id to apply.")
+        elif mode == "diagnose":
+            print("(diagnose = read-only same snapshot as above; no additional collections queried)")
+        elif mode == "commit":
+            if pre_errors:
+                raise HTTPException(
+                    409,
+                    "Cannot commit — pre-conditions failed: " + "; ".join(pre_errors),
+                )
+
+            target_id = _BATCH_D_TARGET_ROW_ID
+
+            # (1) Retire the duplicate row FIRST — four-way match lock
+            # (id + founder_number + email + is_reserved:{$ne:true}).
+            # If this doesn't match exactly one document, we abort and
+            # never touch the counter.
+            r1 = await db.interest_registrations.update_one(
+                {
+                    "id": target_id,
+                    "founder_number": 3,
+                    "email": _BATCH_D_DUPLICATE_EMAIL,
+                    "is_reserved": {"$ne": True},
+                },
+                {
+                    "$unset": {"founder_number": ""},
+                    "$set": {
+                        "is_test": True,
+                        "status": "opted_out",
+                        "duplicate_of_founder_number": 2,
+                        "duplicate_of_email": "george@friendplace.com.au",
+                        "duplicate_flagged_at": now,
+                        "duplicate_flagged_reason": f"{_BATCH_D_REASON_TAG}: duplicate George registration; canonical seat is #2",
+                        "former_founder_number": 3,
+                        "updated_at": now.isoformat(),
+                    },
+                },
+            )
+            print(f"  (1) row retire: matched={r1.matched_count} modified={r1.modified_count}")
+            if r1.matched_count != 1:
+                raise HTTPException(
+                    409,
+                    f"row retire did not match exactly one document (matched={r1.matched_count}). "
+                    "Aborting before counter reset — DB state is safe.",
+                )
+
+            # (2) Reset counter — guarded on value=3. If value != 3
+            # (race), we do NOT roll back the row retire; instead we
+            # surface the state so the caller can hand-fix.
+            r2 = await db.counters.update_one(
+                {"id": _FOUNDER_NUMBER_COUNTER_ID, "value": 3},
+                {
+                    "$set": {
+                        "value": 2,
+                        "reset_at": now,
+                        "reset_reason": f"{_BATCH_D_REASON_TAG}: duplicate #3 retired",
+                    },
+                },
+            )
+            print(f"  (2) counter reset: matched={r2.matched_count} modified={r2.modified_count}")
+            if r2.matched_count != 1:
+                print(
+                    "  ⚠ WARNING: counter reset did not match (raced?). Row was already retired. "
+                    "Next registration will get founder_number > 3 until counter is manually fixed."
+                )
+            print(f"  target row id: {target_id}")
+        elif mode == "rollback":
+            # Undo (1) and (2) in reverse order, both guarded.
+            r_counter = await db.counters.update_one(
+                {"id": _FOUNDER_NUMBER_COUNTER_ID, "value": 2},
+                {
+                    "$set": {"value": 3},
+                    "$unset": {"reset_at": "", "reset_reason": ""},
+                },
+            )
+            print(f"  counter rollback: matched={r_counter.matched_count} modified={r_counter.modified_count}")
+
+            r_row = await db.interest_registrations.update_one(
+                {"email": _BATCH_D_DUPLICATE_EMAIL, "former_founder_number": 3},
+                {
+                    "$set": {"founder_number": 3, "status": "registered"},
+                    "$unset": {
+                        "is_test": "",
+                        "duplicate_of_founder_number": "",
+                        "duplicate_of_email": "",
+                        "duplicate_flagged_at": "",
+                        "duplicate_flagged_reason": "",
+                        "former_founder_number": "",
+                    },
+                },
+            )
+            print(f"  row rollback: matched={r_row.matched_count} modified={r_row.modified_count}")
+
+    after = None if mode in ("dry_run", "diagnose") else await _batch_d_snapshot()
+
+    # Compute predicted "next issued" number after this batch so the caller
+    # can eyeball parity with the desired outcome (#3 for next genuine reg).
+    counter_now = (after or before or {}).get("counter") or {}
+    counter_value = int(counter_now.get("value") or 0)
+    predicted_next_ir_number = counter_value + 1  # _next_founder_number does $inc first
+
+    return {
+        "ok": (len(pre_errors) == 0) if mode == "dry_run" else True,
+        "mode": mode,
+        "log": buf.getvalue(),
+        "before": before,
+        "after": after,
+        "precondition_errors": pre_errors,
+        "predicted_next_marketing_founder_number": predicted_next_ir_number,
     }
 
 
@@ -2577,6 +3500,72 @@ async def send_friend_request(body: FriendRequest):
 async def my_requests(user_id: str):
     docs = await db.friend_requests.find({"to_id": user_id, "status": "pending"}, {"_id": 0}).to_list(200)
     return docs
+
+
+# ── Batch B iter158 (Garry, Aug 2026) ───────────────────────────────
+# Real-iPhone bug: Home tile ("N friends") disagreed with `/friends/list`
+# because Home was counting the raw `user.friends` array from the client
+# auth cache, which included banned / deleted / soft-hidden / one-way
+# entries. `/friends/list` hydrated each id via `GET /users/{id}` and
+# silently dropped the ones that failed, so the two counts drifted
+# apart (e.g. 4 vs 2). This endpoint is now the single source of truth
+# for BOTH surfaces. Applies exactly the same filters as `/users`
+# (banned/hidden), plus a "resolves both ways" sanity check so a
+# lingering one-way reference (from an old manual DB edit or a
+# half-completed migration) doesn't inflate the count.
+@api.get("/friends/{user_id}")
+async def list_accepted_friends(user_id: str, me: dict = Depends(current_user)):
+    # Only the owner or an admin may read the full accepted list. Other
+    # members should use `/friends/inbox/{uid}` or the public profile.
+    if me.get("id") != user_id and not me.get("is_admin"):
+        raise HTTPException(403, "Not permitted")
+    me_doc = await db.users.find_one(
+        {"id": user_id}, {"_id": 0, "friends": 1, "blocked": 1}
+    )
+    if not me_doc:
+        raise HTTPException(404, "User not found")
+    raw_ids: List[str] = list(dict.fromkeys([fid for fid in (me_doc.get("friends") or []) if fid]))
+    blocked_by_me: List[str] = me_doc.get("blocked") or []
+    if not raw_ids:
+        return {"user_id": user_id, "count": 0, "friends": []}
+    # Fetch all candidate friends in ONE query so we can't drift with
+    # the client-side .filter(Boolean) dance.
+    docs = await db.users.find(
+        {
+            "id": {"$in": [fid for fid in raw_ids if fid not in blocked_by_me]},
+            "banned": {"$ne": True},
+            "profile_hidden": {"$ne": True},
+            # Bidirectional sanity: I must be in their `friends` array
+            # too. This filters out stray one-way entries from manual
+            # DB edits or aborted migrations (root cause of the 4-vs-2
+            # mismatch on Garry's iPhone).
+            "friends": user_id,
+            # They must not have blocked me either.
+            "blocked": {"$ne": user_id},
+        },
+        {"_id": 0},
+    ).to_list(1000)
+    # Preserve the original ordering from `me_doc.friends` so the list
+    # feels stable — dict keys preserve insertion order in Python 3.7+.
+    by_id = {u["id"]: u for u in docs}
+    ordered = [by_id[fid] for fid in raw_ids if fid in by_id]
+    peers = [
+        _peer_user(u, viewer_is_owner=False, viewer_is_admin=bool(me.get("is_admin")))
+        for u in ordered
+    ]
+    # Slim peer projection down to what both surfaces (Home tile & My
+    # Friends list) actually render, plus `id` so the row can navigate.
+    slim = [
+        {
+            "id": p.get("id"),
+            "first_name": p.get("first_name") or p.get("username") or "Friend",
+            "username": p.get("username") or "",
+            "avatar": p.get("avatar") or "🙂",
+            "suburb": p.get("suburb") or "",
+        }
+        for p in peers
+    ]
+    return {"user_id": user_id, "count": len(slim), "friends": slim}
 
 
 @api.get("/friends/inbox/{user_id}")
@@ -3292,25 +4281,9 @@ class SetLocationBody(BaseModel):
 @api.get("/suburbs/search")
 async def suburbs_search(q: str = "", limit: int = 20):
     """Typeahead — returns up to `limit` matches by name or postcode.
-    Backed by the full ~17,500-locality Australian dataset (see
-    suburbs.py). This is the single central locality source used across
-    Signup, Profile, Find Friends, Notice Board, Groups and Events."""
+    Default bumped to 20 (from 10) so signup shows more options — the
+    dataset expanded to ~600+ suburbs so a 10-cap felt too tight."""
     return {"results": sb_search(q, min(int(limit), 50))}
-
-
-@api.get("/suburbs/meta")
-async def suburbs_meta():
-    """Verification endpoint — proves which locality dataset this
-    (production/TestFlight) backend is actually serving. Lets us confirm
-    the deployed data matches the workspace before declaring the suburb
-    work fixed."""
-    from suburbs import SUBURBS as _ALL, DATASET_VERSION as _VER
-    return {
-        "dataset_version": _VER,
-        "locality_count": len(_ALL),
-        "source": "Matthew Proctor Australian Postcodes (public domain)",
-        "attribution_url": "https://www.matthewproctor.com/australian_postcodes",
-    }
 
 
 @api.get("/suburbs/by-postcode/{postcode}")
@@ -3334,6 +4307,101 @@ async def suburbs_nearest(lat: float, lng: float):
     return {"nearest": best}
 
 
+@api.get("/suburbs/meta")
+async def suburbs_meta():
+    """Verification endpoint — proves which locality dataset this
+    (production/TestFlight) backend is actually serving, so we can confirm
+    the deployed data matches the workspace before declaring the suburb
+    work fixed."""
+    from suburbs import SUBURBS as _ALL, DATASET_VERSION as _VER
+    return {
+        "dataset_version": _VER,
+        "locality_count": len(_ALL),
+        "source": "Matthew Proctor Australian Postcodes (public domain)",
+        "attribution_url": "https://www.matthewproctor.com/australian_postcodes",
+    }
+
+
+# ── Local Discovery helpers (radius filtering for notices/events/groups) ──
+def _locality_update_from(name: Optional[str], state: Optional[str],
+                          postcode: Optional[str]) -> Dict:
+    """Resolve a chosen locality to the 5 stored fields, or {} if the
+    name is not a recognised Australian locality (no guessing)."""
+    if not name:
+        return {}
+    r = sb_resolve(name, state, postcode)
+    if not r:
+        return {}
+    return {
+        "locality": r["name"],
+        "locality_postcode": r["postcode"],
+        "locality_state": r["state"],
+        "locality_lat": r["lat"],
+        "locality_lng": r["lng"],
+    }
+
+
+async def _default_locality_for_user(user_id: Optional[str]) -> Dict:
+    """Locality fields defaulted from a member's own recognised suburb.
+    Used when creating content without an explicit locality. Returns {}
+    when the member has no recognised suburb (treat such items as All-only)."""
+    if not user_id:
+        return {}
+    u = await db.users.find_one(
+        {"id": user_id},
+        {"_id": 0, "suburb": 1, "suburb_postcode": 1, "suburb_state": 1,
+         "suburb_lat": 1, "suburb_lng": 1},
+    ) or {}
+    lat, lng = u.get("suburb_lat"), u.get("suburb_lng")
+    if lat is not None and lng is not None and u.get("suburb"):
+        return {
+            "locality": u.get("suburb") or "",
+            "locality_postcode": u.get("suburb_postcode") or "",
+            "locality_state": u.get("suburb_state") or "",
+            "locality_lat": lat,
+            "locality_lng": lng,
+        }
+    return _locality_update_from(u.get("suburb"), u.get("suburb_state"), u.get("suburb_postcode"))
+
+
+async def _radius_center(user_id: Optional[str],
+                         near_lat: Optional[float],
+                         near_lng: Optional[float]) -> Optional[Tuple[float, float]]:
+    """Determine the center of a radius query. Prefer explicit coords
+    (rarely used), else the member's own stored suburb coords."""
+    if near_lat is not None and near_lng is not None:
+        return (float(near_lat), float(near_lng))
+    if not user_id:
+        return None
+    u = await db.users.find_one(
+        {"id": user_id}, {"_id": 0, "suburb_lat": 1, "suburb_lng": 1},
+    ) or {}
+    if u.get("suburb_lat") is not None and u.get("suburb_lng") is not None:
+        return (float(u["suburb_lat"]), float(u["suburb_lng"]))
+    return None
+
+
+def _apply_radius(rows: List[Dict], center: Optional[Tuple[float, float]],
+                  radius_km: Optional[float]) -> List[Dict]:
+    """Filter rows to those within `radius_km` of `center`, attaching a
+    rounded `distance_km`. If radius_km is falsy (All) or no center is
+    known, rows are returned unchanged (no distance filtering). Rows
+    without locality coords are excluded from a bounded radius query."""
+    if not radius_km or center is None:
+        return rows
+    clat, clng = center
+    out: List[Dict] = []
+    for r in rows:
+        lat, lng = r.get("locality_lat"), r.get("locality_lng")
+        if lat is None or lng is None:
+            continue
+        d = sb_haversine(clat, clng, float(lat), float(lng))
+        if d <= float(radius_km):
+            r["distance_km"] = round(d, 1)
+            out.append(r)
+    return out
+
+
 @api.post("/users/{user_id}/location")
 async def set_user_location(user_id: str, body: SetLocationBody):
     """Set the user's chosen suburb. If `prefer_not_to_say=True`, clears all
@@ -3348,14 +4416,9 @@ async def set_user_location(user_id: str, body: SetLocationBody):
              "$unset": {"suburb_postcode": "", "suburb_state": "", "suburb_lat": "", "suburb_lng": ""}},
         )
         return {"ok": True, "location_visibility": "private"}
-    # Validate + geocode the suburb against our dataset. Prefer an exact
-    # resolve by name (+ state/postcode) so we store the correct
-    # coordinates even for names shared across states (e.g. Windsor).
-    from suburbs import resolve as sb_resolve
-    chosen = sb_resolve(body.suburb or "", body.state, body.postcode) if body.suburb else None
-    if not chosen and body.suburb:
-        matches = sb_search(body.suburb, limit=1)
-        chosen = matches[0] if matches else None
+    # Validate the suburb against our dataset when possible.
+    matches = sb_search(body.suburb or "", limit=1) if body.suburb else []
+    chosen = matches[0] if matches else None
     update: Dict = {"location_visibility": "suburb"}
     if chosen:
         update["suburb"] = chosen["name"]
@@ -5404,97 +6467,6 @@ async def table_messages(table_id: str):
     return docs
 
 
-# ------------- Local Discovery helpers (item 1) -------------
-# Central radius/locality plumbing shared by Notice Board, Community
-# Groups and Local Events. Coordinates are never returned to clients;
-# only a friendly `distance_km` is attached. The center of a radius
-# query is resolved server-side from the requesting member's stored
-# suburb coords, so the app never has to handle raw coordinates.
-
-RADIUS_CHOICES = {5, 10, 25, 50}
-
-
-def _locality_update_from(name: Optional[str], state: Optional[str],
-                          postcode: Optional[str]) -> Dict:
-    """Resolve a chosen locality to the 5 stored fields, or {} if the
-    name is not a recognised Australian locality (no guessing)."""
-    if not name:
-        return {}
-    r = sb_resolve(name, state, postcode)
-    if not r:
-        return {}
-    return {
-        "locality": r["name"],
-        "locality_postcode": r["postcode"],
-        "locality_state": r["state"],
-        "locality_lat": r["lat"],
-        "locality_lng": r["lng"],
-    }
-
-
-async def _default_locality_for_user(user_id: Optional[str]) -> Dict:
-    """Locality fields defaulted from a member's own recognised suburb.
-    Used when creating content without an explicit locality, and for
-    backfilling legacy content. Returns {} when the member has no
-    recognised suburb (item: treat such items as All-only)."""
-    if not user_id:
-        return {}
-    u = await db.users.find_one(
-        {"id": user_id},
-        {"_id": 0, "suburb": 1, "suburb_postcode": 1, "suburb_state": 1,
-         "suburb_lat": 1, "suburb_lng": 1},
-    ) or {}
-    lat, lng = u.get("suburb_lat"), u.get("suburb_lng")
-    if lat is not None and lng is not None and u.get("suburb"):
-        return {
-            "locality": u.get("suburb") or "",
-            "locality_postcode": u.get("suburb_postcode") or "",
-            "locality_state": u.get("suburb_state") or "",
-            "locality_lat": lat,
-            "locality_lng": lng,
-        }
-    # Fall back to resolving the stored suburb name if coords weren't saved.
-    return _locality_update_from(u.get("suburb"), u.get("suburb_state"), u.get("suburb_postcode"))
-
-
-async def _radius_center(user_id: Optional[str],
-                         near_lat: Optional[float],
-                         near_lng: Optional[float]) -> Optional[Tuple[float, float]]:
-    """Determine the center of a radius query. Prefer explicit coords
-    (rarely used), else the member's own stored suburb coords."""
-    if near_lat is not None and near_lng is not None:
-        return (float(near_lat), float(near_lng))
-    if not user_id:
-        return None
-    u = await db.users.find_one(
-        {"id": user_id}, {"_id": 0, "suburb_lat": 1, "suburb_lng": 1},
-    ) or {}
-    if u.get("suburb_lat") is not None and u.get("suburb_lng") is not None:
-        return (float(u["suburb_lat"]), float(u["suburb_lng"]))
-    return None
-
-
-def _apply_radius(rows: List[Dict], center: Optional[Tuple[float, float]],
-                  radius_km: Optional[float]) -> List[Dict]:
-    """Filter rows to those within `radius_km` of `center`, attaching a
-    rounded `distance_km`. If radius_km is falsy (All) or no center is
-    known, rows are returned unchanged (no distance filtering). Rows
-    without locality coords are excluded from a bounded radius query."""
-    if not radius_km or center is None:
-        return rows
-    clat, clng = center
-    out: List[Dict] = []
-    for r in rows:
-        lat, lng = r.get("locality_lat"), r.get("locality_lng")
-        if lat is None or lng is None:
-            continue
-        d = sb_haversine(clat, clng, float(lat), float(lng))
-        if d <= float(radius_km):
-            r["distance_km"] = round(d, 1)
-            out.append(r)
-    return out
-
-
 # ------------- Groups -------------
 @api.get("/groups")
 async def list_groups(include_pending: bool = False, include_system: bool = False,
@@ -5510,12 +6482,12 @@ async def list_groups(include_pending: bool = False, include_system: bool = Fals
       • `pending_approval=True` — user-suggested groups waiting on admin
         review. Admin panel passes `include_pending=true` to see them.
 
-    Local Discovery (item 1/7): when `radius_km` is given (5/10/25/50)
-    together with a `user_id` (or explicit near_lat/near_lng), only
-    groups whose locality falls within that radius of the member's
-    suburb are returned, each with a `distance_km`. Omitting radius_km
-    (All) returns everything. `q` is a case-insensitive search over
-    name + description, applied within the current radius.
+    Local Discovery: when `radius_km` is given (5/10/25/50) together with
+    a `user_id` (or explicit near_lat/near_lng), only groups whose locality
+    falls within that radius of the member's suburb are returned, each with
+    a `distance_km`. Omitting radius_km (All) returns everything.
+
+    Newest first so newly-approved community groups are discoverable.
     """
     query: dict = {}
     if not include_system:
@@ -5528,7 +6500,7 @@ async def list_groups(include_pending: bool = False, include_system: bool = Fals
             {"name": {"$regex": safe, "$options": "i"}},
             {"description": {"$regex": safe, "$options": "i"}},
         ]
-    rows = await db.groups.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    rows = await db.groups.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     center = await _radius_center(user_id, near_lat, near_lng)
     rows = _apply_radius(rows, center, radius_km)
     return rows
@@ -5536,14 +6508,16 @@ async def list_groups(include_pending: bool = False, include_system: bool = Fals
 
 @api.post("/groups")
 async def create_group(body: Group):
-    data = body.dict()
-    # Resolve/validate the creation locality against the dataset so it
-    # controls distance reliably (no unrestricted free text).
-    loc = _locality_update_from(data.get("locality"), data.get("locality_state"), data.get("locality_postcode"))
-    data.update(loc)
-    g = Group(**data)
-    await db.groups.insert_one(g.dict())
-    return g.dict()
+    g = Group(**body.dict())
+    doc = g.dict()
+    # Local Discovery: stamp locality from the creator's suburb when the
+    # group didn't carry its own recognised locality coords.
+    if doc.get("locality_lat") is None:
+        loc = await _default_locality_for_user(getattr(body, "created_by", None) or doc.get("created_by"))
+        if loc:
+            doc.update(loc)
+    await db.groups.insert_one(doc)
+    return doc
 
 
 @api.post("/groups/suggest")
@@ -5563,11 +6537,6 @@ async def suggest_group(body: dict, user=Depends(current_user)):
     emoji = (body.get("emoji") or "🌟").strip()[:4]
     description = (body.get("description") or "").strip()[:500]
     reason = (body.get("reason") or "").strip()[:500]
-    # Creation locality (item 7): resolve the chosen locality, defaulting
-    # to the member's own suburb so every new group has a recognised place.
-    loc = _locality_update_from(body.get("locality"), body.get("locality_state"), body.get("locality_postcode"))
-    if not loc:
-        loc = await _default_locality_for_user(user["id"])
     # Avoid duplicate suggestions while one is pending — protects the
     # admin queue from accidental double-taps.
     existing = await db.groups.find_one(
@@ -5590,8 +6559,12 @@ async def suggest_group(body: dict, user=Depends(current_user)):
         "suggested_reason": reason,
         "suggested_at": now_iso(),
         "created_at": now_iso(),
-        **loc,
     }
+    # Local Discovery: stamp the group's locality from the suggester's suburb
+    # so it can be radius-filtered once approved.
+    loc = await _default_locality_for_user(user["id"])
+    if loc:
+        g.update(loc)
     await db.groups.insert_one(g)
     # Notify admins so they know there's something to review. We send to
     # every admin user — small list, idempotent fan-out.
@@ -5724,11 +6697,9 @@ async def comment_group_post(post_id: str, body: dict):
 async def list_events(user_id: Optional[str] = None, q: Optional[str] = None,
                       radius_km: Optional[float] = None,
                       near_lat: Optional[float] = None, near_lng: Optional[float] = None):
-    """Local Events list. Local Discovery (item 1/6): pass `radius_km`
-    (5/10/25/50) with a `user_id` to only return events within that
-    distance of the member's suburb (each with `distance_km`); omit
-    radius_km for All. `q` searches title + description + venue, applied
-    within the current radius."""
+    """Local Events list. Local Discovery: pass `radius_km` (5/10/25/50)
+    with a `user_id` to only return events within that distance of the
+    member's suburb (each with `distance_km`); omit radius_km for All."""
     query: dict = {"archived": {"$ne": True}}
     if q:
         safe = re.escape(q)
@@ -6278,18 +7249,11 @@ async def create_event(body: EventCreateBody):
                 {"id": body.host_id},
                 {"$inc": {"business_events_this_period": 1}},
             )
-    # Local Discovery locality (item 6): resolve the chosen locality
-    # against the dataset, else default to the host's own suburb so every
-    # event has a recognised place that controls distance filtering.
-    ev_loc = _locality_update_from(body.locality, body.locality_state, body.locality_postcode)
-    if not ev_loc and body.host_id:
-        ev_loc = await _default_locality_for_user(body.host_id)
     # Sanitise recurrence inputs. We accept None / weekly / fortnightly /
     # monthly only — anything else is silently treated as a one-off.
     rec = body.recurrence if body.recurrence in ("weekly", "fortnightly", "monthly") else None
     # Spawn the master event first.
     master_dict = body.dict(exclude={"recurrence_count"})
-    master_dict.update(ev_loc)
     if rec:
         master_dict["recurrence"] = rec
         master_dict["series_id"] = nid()
@@ -6299,6 +7263,14 @@ async def create_event(body: EventCreateBody):
         master_dict["series_id"] = None
         master_dict["series_master"] = False
     master = Event(**master_dict)
+    master_doc = master.dict()
+    # Local Discovery: stamp locality from the host's suburb when the event
+    # didn't carry its own recognised locality coords.
+    if master_doc.get("locality_lat") is None:
+        loc = await _default_locality_for_user(body.host_id)
+        if loc:
+            master_doc.update(loc)
+            master = Event(**master_doc)
     await db.events.insert_one(master.dict())
 
     # If recurrence is set, generate N additional concrete occurrences.
@@ -6320,7 +7292,6 @@ async def create_event(body: EventCreateBody):
             child = Event(
                 title=master.title,
                 emoji=master.emoji,
-                cover_image_url=master.cover_image_url,
                 description=master.description,
                 location=master.location,
                 date=_next_occurrence(master.date, rec, i),
@@ -6331,7 +7302,11 @@ async def create_event(body: EventCreateBody):
                 recurrence=rec,
                 series_id=master.series_id,
                 series_master=False,
-                **ev_loc,
+                locality=master.locality,
+                locality_postcode=master.locality_postcode,
+                locality_state=master.locality_state,
+                locality_lat=master.locality_lat,
+                locality_lng=master.locality_lng,
             )
             await db.events.insert_one(child.dict())
             created_ids.append(child.id)
@@ -6342,11 +7317,11 @@ class EventUpdateBody(BaseModel):
     actor_id: str                      # user making the change (must be host or admin)
     title: Optional[str] = None
     emoji: Optional[str] = None
-    cover_image_url: Optional[str] = None
     description: Optional[str] = None
     location: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
+    image: Optional[str] = None        # gallery ref / data URI / http URL — "" clears
     capacity: Optional[int] = None     # None to clear (unlimited); use 0 = unlimited too
     notify_changes: bool = True        # blast a notification to all RSVPs
 
@@ -6367,7 +7342,7 @@ async def update_event(event_id: str, body: EventUpdateBody):
 
     update: Dict = {}
     changes: List[str] = []
-    for field in ("title", "emoji", "cover_image_url", "description", "location", "date", "time"):
+    for field in ("title", "emoji", "description", "location", "date", "time", "image"):
         v = getattr(body, field)
         if v is not None and v != ev.get(field):
             update[field] = v.strip() if isinstance(v, str) else v
@@ -6504,77 +7479,6 @@ class AdminHardDeleteBody(BaseModel):
     reason: Optional[str] = None
 
 
-# iter164y — Module-level, memoised TTF resolver shared by every flyer
-# render. The old `font()` closure inside `admin_invite_flyer` walked
-# the filesystem for every size combination on every call — with the
-# founding poster asking for ~12 different (size, bold, condensed)
-# combinations via `fit_centred`'s binary search, that added up.
-# Caching by (size, bold, italic, condensed) collapses repeat resolves
-# to O(1) after the first call, saving ~50-150 ms per render on both
-# warm and cold paths without changing what the caller sees.
-_FONT_CACHE: dict = {}
-
-
-def _resolve_font_cached(size: int, bold: bool, italic: bool, condensed: bool):
-    from PIL import ImageFont
-    key = (int(size), bool(bold), bool(italic), bool(condensed))
-    cached = _FONT_CACHE.get(key)
-    if cached is not None:
-        return cached
-    bases: list = []
-    if condensed:
-        if bold and italic:
-            bases += [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-BoldOblique.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-BoldItalic.ttf",
-            ]
-        elif bold:
-            bases += [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf",
-            ]
-        elif italic:
-            bases += [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Oblique.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Italic.ttf",
-            ]
-        else:
-            bases += [
-                "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
-                "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Regular.ttf",
-            ]
-    if italic and bold:
-        bases += [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
-        ]
-    elif italic:
-        bases += [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
-        ]
-    elif bold:
-        bases += [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        ]
-    bases += [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-    ]
-    for cand in bases:
-        try:
-            fnt = ImageFont.truetype(cand, size)
-            _FONT_CACHE[key] = fnt
-            return fnt
-        except Exception:
-            continue
-    fnt = ImageFont.load_default()
-    _FONT_CACHE[key] = fnt
-    return fnt
-
-
-
 @api.get("/admin/invite-flyer")
 async def admin_invite_flyer(
     admin_id: str,
@@ -6583,9 +7487,6 @@ async def admin_invite_flyer(
     flyer_id: str = "",
     qr_code_id: str = "",
     campaign_id: str = "",
-    headline: str = "",
-    supporting_text: str = "",
-    show_founding_member: bool = True,
 ):
     """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
     for printing and pinning up at noticeboards. The layout is intentionally
@@ -6601,13 +7502,6 @@ async def admin_invite_flyer(
       contains only public info (app name, QR code, admin's referral id)
       so treating the admin_id as a capability token is acceptable —
       guessing a UUID v4 is cryptographically infeasible.
-
-    iter164t (Garry, 24 Aug 2026): ``headline`` and ``supporting_text``
-    are optional overrides so the Flyer Publishing Centre editor can
-    live-preview per-flyer wording (e.g. "REGISTER YOUR INTEREST" with
-    a matching sub-line for RYI). When empty, the historic defaults
-    ("FIND YOUR PEOPLE." + the four-icon lead line) render exactly as
-    before — no visual regression for existing prints.
     """
     await _require_admin(admin_id)
     import io
@@ -6665,12 +7559,56 @@ async def admin_invite_flyer(
         that ignores the requested size, which makes the whole poster look
         like 6pt text. Always prefer a real TTF.
         """
-        # iter164y: delegate to a module-level, cached resolver so a
-        # single flyer render (which asks for a dozen+ font/size
-        # combinations via `fit_centred`'s binary search) doesn't
-        # walk the filesystem for every one. Cuts ~50-150 ms off both
-        # warm and cold renders with zero behaviour change.
-        return _resolve_font_cached(size, bold, italic, condensed)
+        bases: list[str] = []
+        if condensed:
+            # Condensed variants → DejaVu first, Liberation Sans Narrow as
+            # the modern fallback (Narrow has ~85% width of regular Sans).
+            if bold and italic:
+                bases += [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-BoldOblique.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-BoldItalic.ttf",
+                ]
+            elif bold:
+                bases += [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf",
+                ]
+            elif italic:
+                bases += [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Oblique.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Italic.ttf",
+                ]
+            else:
+                bases += [
+                    "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed.ttf",
+                    "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Regular.ttf",
+                ]
+        # Regular (non-condensed) variants — same priority order.
+        if italic and bold:
+            bases += [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
+            ]
+        elif italic:
+            bases += [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+            ]
+        elif bold:
+            bases += [
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            ]
+        bases += [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        ]
+        for cand in bases:
+            try:
+                return ImageFont.truetype(cand, size)
+            except Exception:
+                continue
+        return ImageFont.load_default()
 
     def text_w(text: str, fnt: ImageFont.FreeTypeFont) -> int:
         b = d.textbbox((0, 0), text, font=fnt)
@@ -6825,51 +7763,19 @@ async def admin_invite_flyer(
     # a room). 170pt condensed bold lets the line fit within the side
     # margins of a 1240px-wide page. Extra breathing room below the taller
     # branded banner keeps the whole layout balanced.
-    #
-    # iter164t: honour a per-flyer `headline` override so the Publishing
-    # Centre editor can retitle the poster. We uppercase for consistent
-    # visual weight with the legacy default and cap the length so
-    # `fit_centred` still lands in a readable size range.
-    #
-    # iter164z: new pre-launch default is "REGISTER YOUR INTEREST" — the
-    # Founding Member Invite doubles as the Register-Your-Interest flyer
-    # until the app is live, so the default matches the primary use case.
-    _headline_override = (headline or "").strip()
-    _headline_text = (_headline_override.upper()[:60] if _headline_override
-                      else "REGISTER YOUR INTEREST")
     HEAD_Y = BANNER_H + 35
-    fit_centred(_headline_text, HEAD_Y, W - 2 * SIDE,
+    fit_centred("FIND YOUR PEOPLE.", HEAD_Y, W - 2 * SIDE,
                 start_size=180, min_size=130, fill=NAVY, bold=True,
                 condensed=True)
 
-    # ─── Supporting text ─────────────────────────────────────────────────
-    # iter164t: honour a per-flyer `supporting_text` override. Whitespace
-    # is collapsed so a multi-line textarea input still renders cleanly.
-    #
-    # iter164z: new pre-launch default explains what people are signing
-    # up FOR. Slightly smaller (36pt) so the two-line version fits above
-    # the feature row without crowding; `wrap_centre` returns the final
-    # y-coordinate so the feature row below can start UNDER the actual
-    # supporting-text block — no more overlap when the text runs long.
-    _support_override = (supporting_text or "").strip()
-    if _support_override:
-        lead = " ".join(_support_override.split())[:400]
-    else:
-        lead = (
-            "FriendPlace is launching soon. Register your interest to be "
-            "among the first to know when the app is ready."
-        )
-    _support_top = HEAD_Y + 185
-    _support_end_y = wrap_centre(lead, _support_top, font(36, bold=False),
-                                 SLATE, max_w=W - 2 * SIDE, line_gap=10)
+    # ─── Short tagline (single line — readable from ~2m). 38pt slate. ────
+    lead = "Meet new friends. Join local events. Feel connected."
+    wrap_centre(lead, HEAD_Y + 185, font(38, bold=False), SLATE,
+                max_w=W - 2 * SIDE, line_gap=10)
 
-    # ─── Four feature icons. Vertical origin flows from the actual
-    # supporting-text block height rather than a fixed offset, so a
-    # 2- or 3-line supporting line never collides with the icon row.
-    # iter164z: floor of HEAD_Y + 250 keeps the layout identical for
-    # the short single-line legacy tagline; the `max()` only kicks in
-    # when the supporting text is genuinely tall.
-    ICON_Y = max(HEAD_Y + 250, _support_end_y + 30)
+    # ─── Four feature icons. Slightly tighter to make room for the ribbon
+    # immediately below them; circles still big enough to read at a glance.
+    ICON_Y = HEAD_Y + 250
     ICON_SIZE = 105
     LABEL_Y = ICON_Y + ICON_SIZE + 12
     cols = 4
@@ -6894,6 +7800,12 @@ async def admin_invite_flyer(
             b = d.textbbox((0, 0), label, font=fnt)
             d.text((cx - (b[2] - b[0]) / 2, LABEL_Y), label, font=fnt, fill=INK)
 
+    def icon_coffee(cx, cy):
+        d.rounded_rectangle([cx - 28, cy - 16, cx + 18, cy + 24], radius=8, fill="#FFFFFF")
+        d.ellipse([cx + 12, cy - 6, cx + 32, cy + 16], outline="#FFFFFF", width=5)
+        for off in (-14, -2, 10):
+            d.line([cx + off, cy - 30, cx + off + 3, cy - 18], fill="#FFFFFF", width=3)
+
     def icon_calendar(cx, cy):
         d.rounded_rectangle([cx - 28, cy - 22, cx + 28, cy + 24], radius=7, fill="#FFFFFF")
         d.rectangle([cx - 28, cy - 22, cx + 28, cy - 10], fill="#DC2626")
@@ -6916,29 +7828,9 @@ async def admin_invite_flyer(
         d.arc([cx - 12, cy - 30, cx + 12, cy + 30], 0, 360, fill="#10B981", width=3)
         d.line([cx, cy - 28, cx, cy + 28], fill="#10B981", width=3)
 
-    # iter164z: "Share a Moment" icon — a simple camera. Same white-fill
-    # style as the other three so the row reads as a consistent set.
-    # The "lens" is a small dark disc so the icon doesn't look like a
-    # solid brick from a distance; small viewfinder square is included
-    # for the classic camera silhouette.
-    def icon_camera(cx, cy):
-        d.rounded_rectangle([cx - 32, cy - 18, cx + 32, cy + 22], radius=7, fill="#FFFFFF")
-        # viewfinder bump on top
-        d.rounded_rectangle([cx - 12, cy - 26, cx + 12, cy - 14], radius=3, fill="#FFFFFF")
-        # lens outer ring
-        d.ellipse([cx - 15, cy - 9, cx + 15, cy + 21], fill="#0F172A")
-        # lens inner highlight
-        d.ellipse([cx - 9, cy - 3, cx + 9, cy + 15], fill="#FFFFFF")
-        # tiny shutter LED dot
-        d.ellipse([cx + 22, cy - 12, cx + 27, cy - 7], fill="#DC2626")
-
-    # iter164z: feature row is now Make Friends · Local Events ·
-    # Share a Moment · Community Groups. FP Café removed — it's not
-    # a headline pre-launch feature. Palette rebalanced so warm/cool
-    # alternate along the row.
-    draw_chip(0, "#7C3AED", "Make Friends", icon_people)
+    draw_chip(0, "#92400E", "FP Café", icon_coffee)
     draw_chip(1, "#0369A1", "Local Events", icon_calendar)
-    draw_chip(2, "#E11D48", "Share a Moment", icon_camera)
+    draw_chip(2, "#7C3AED", "Make Friends", icon_people)
     draw_chip(3, "#0F766E", "Community Groups", icon_globe)
 
     # ─── "Become a Founding Member" gold ribbon ───────────────────────────
@@ -6951,30 +7843,18 @@ async def admin_invite_flyer(
     # regardless of whether it rendered or was hidden. This is the key
     # to avoiding the earlier bug where a hardcoded qr_y=960 overlapped
     # the ribbon at ~y=1050.
-    #
-    # iter164aa: opt-out flag. The pre-launch Register Your Interest
-    # flow doesn't want the "Founding Member" call-to-action on the
-    # flyer (people are being asked to register interest, not claim
-    # a founding-member seat). Setting `show_founding_member=False`
-    # hides the whole ribbon and lets the QR block flow up cleanly
-    # via the same `ribbon_bottom_y = LABEL_Y + 60` default we
-    # already use when the cohort programme is closed.
     ribbon_bottom_y = LABEL_Y + 60  # sensible default when ribbon is hidden
-    if show_founding_member:
-        try:
-            cohort_cap = int(settings.founding_member_cap or 0)
-        except Exception:
-            cohort_cap = 500
-        try:
-            founder_count = await db.users.count_documents(
-                {"is_founder": True, "is_demo": {"$ne": True}}
-            )
-        except Exception:
-            founder_count = 0
-    else:
-        cohort_cap = 0
+    try:
+        cohort_cap = int(settings.founding_member_cap or 0)
+    except Exception:
+        cohort_cap = 500
+    try:
+        founder_count = await db.users.count_documents(
+            {"is_founder": True, "is_demo": {"$ne": True}}
+        )
+    except Exception:
         founder_count = 0
-    if show_founding_member and cohort_cap > 0 and founder_count < cohort_cap:
+    if cohort_cap > 0 and founder_count < cohort_cap:
         remaining = max(0, cohort_cap - founder_count)
         GOLD_FILL = "#FBBF24"
         GOLD_DARK = "#7C5300"
@@ -7125,20 +8005,14 @@ async def admin_invite_flyer(
 
     # ─── CTA stack ────────────────────────────────────────────────────────
     # Layout budget from qr_y+qr_size onward:
-    #   +22px gap → SCAN TO REGISTER YOUR INTEREST (~72pt / auto-shrinks)
+    #   +22px gap → SCAN TO JOIN FREE (~78pt / 82px)
     #   +82px → Because You Belong Too. (~34pt / 42px)
     # Total: ~146px trailing content. Page height 1754, so we need
     # qr_y + qr_size ≤ ~1580. With qr_y ≈ 1077 and qr_size = 520 we sit
     # at 1597 — leaving 157px for the CTA + tagline which fits neatly.
-    #
-    # iter164z: CTA copy shifted from "SCAN TO JOIN FREE" to
-    # "SCAN TO REGISTER YOUR INTEREST" to match the flyer's pre-launch
-    # purpose. The line is longer so `fit_centred`'s min_size now goes
-    # down to 44pt to keep the whole phrase on a single line without
-    # cropping the page margins.
     cta_y = qr_y + qr_size + 22
-    fit_centred("SCAN TO REGISTER YOUR INTEREST", cta_y, W - 2 * SIDE,
-                start_size=72, min_size=44, fill=NAVY, bold=True,
+    fit_centred("SCAN TO JOIN FREE", cta_y, W - 2 * SIDE,
+                start_size=72, min_size=56, fill=NAVY, bold=True,
                 condensed=True)
     centre("Because You Belong Too.", cta_y + 78, font(30, italic=True), TEAL)
 
@@ -7755,8 +8629,8 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
     docs = await db.notices.find(query, {"_id": 0}).to_list(500)
     # Unsolved first, then newest first; solved Q's sink below.
     docs.sort(key=lambda d: (bool(d.get("solved")), -datetime.fromisoformat(d.get("created_at", now_iso())).timestamp()))
-    # Local Discovery (item 1): restrict to the chosen radius of the
-    # member's suburb when radius_km is given (All returns everything).
+    # Local Discovery: restrict to the chosen radius of the member's suburb
+    # when radius_km is given (All returns everything).
     center = await _radius_center(user_id, near_lat, near_lng)
     docs = _apply_radius(docs, center, radius_km)
     await _attach_founder_flags(docs, "user_id")
@@ -7795,12 +8669,6 @@ async def create_notice(body: Notice):
 
     n = Notice(**body.dict())
     doc = n.dict()
-    # Local Discovery locality (item 1): resolve the chosen locality, else
-    # default to the poster's own suburb so the notice has a place.
-    _nloc = _locality_update_from(doc.get("locality"), doc.get("locality_state"), doc.get("locality_postcode"))
-    if not _nloc:
-        _nloc = await _default_locality_for_user(body.user_id)
-    doc.update(_nloc)
     # iter155: tag every runtime notice as production so it flows through
     # the live Bridge queue. Test/seed inserts explicitly set origin='test'/
     # 'seed' via the fixtures (see /app/backend/tests/conftest.py::TEST_MARKER).
@@ -7809,6 +8677,12 @@ async def create_notice(body: Notice):
     # live counts.
     from services.mcgs import default_origin_for
     doc["origin"] = default_origin_for(body.title, body.body)
+    # Local Discovery: stamp locality from the author's suburb when the
+    # notice didn't carry its own recognised locality coords.
+    if doc.get("locality_lat") is None:
+        loc = await _default_locality_for_user(body.user_id)
+        if loc:
+            doc.update(loc)
     if held:
         # Persist with the hold flags so the shared MCGS queue can
         # find it and admins can approve / reject. `auto_hidden` keeps
@@ -10914,6 +11788,117 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                         {"dm_id": conv_id, "user_id": user_id}
                     )
                     is_chat_request = sender_msg_count <= 1
+                    # ── Batch B iter157 (Garry, Aug 2026 — P0 #3) ────────
+                    # Auto-friendship after a two-way DM. If THIS is the
+                    # sender's first message in this conversation AND the
+                    # OTHER participant has at least one message here,
+                    # both people have now written to each other → treat
+                    # them as friends (bidirectional). Fires once per
+                    # conversation; a subsequent message is a no-op
+                    # because `friends` uses $addToSet and we short-
+                    # circuit when already friends.
+                    try:
+                        if sender_msg_count == 1 and others:
+                            other_id = others[0]
+                            other_msg_count = await db.messages.count_documents(
+                                {"dm_id": conv_id, "user_id": other_id}
+                            )
+                            if other_msg_count >= 1:
+                                # Batch B iter161 (Garry, Aug 2026 — regression fix):
+                                # the previous `already_friends` check read ONLY the
+                                # sender's friends list, so a stale one-way link
+                                # (A had B, but B never had A — possible after an
+                                # earlier unfriend where the reciprocal $pull failed
+                                # or a manual DB edit) caused the whole auto-friend
+                                # block to short-circuit when B replied, leaving the
+                                # link permanently one-way.
+                                #
+                                # Read BOTH sides, always $addToSet on both sides
+                                # (idempotent), and only suppress the notification
+                                # when the pair was already fully bidirectional
+                                # (which is a genuine no-op case) OR the pair was
+                                # already one-way (silent repair — no need to
+                                # ping a member about a friendship they thought
+                                # they already had).
+                                me_doc = await db.users.find_one(
+                                    {"id": user_id}, {"_id": 0, "friends": 1}
+                                ) or {}
+                                other_doc = await db.users.find_one(
+                                    {"id": other_id}, {"_id": 0, "friends": 1}
+                                ) or {}
+                                me_had_other = other_id in (me_doc.get("friends") or [])
+                                other_had_me = user_id in (other_doc.get("friends") or [])
+                                was_fully_friends = me_had_other and other_had_me
+                                if not was_fully_friends:
+                                    # Ensure both sides have the link, regardless
+                                    # of prior state. `$addToSet` is idempotent, so
+                                    # this is a no-op on the side that already had it.
+                                    await db.users.update_one(
+                                        {"id": user_id},
+                                        {"$addToSet": {"friends": other_id}},
+                                    )
+                                    await db.users.update_one(
+                                        {"id": other_id},
+                                        {"$addToSet": {"friends": user_id}},
+                                    )
+                                    # Auto-resolve any pending friend request
+                                    # in either direction so the inbox
+                                    # doesn't dangle a stale "pending" row.
+                                    await db.friend_requests.update_many(
+                                        {
+                                            "status": "pending",
+                                            "$or": [
+                                                {"from_id": user_id, "to_id": other_id},
+                                                {"from_id": other_id, "to_id": user_id},
+                                            ],
+                                        },
+                                        {"$set": {"status": "accepted"}},
+                                    )
+                                    # Warm "you are now friends" notification
+                                    # to both parties so the social moment
+                                    # is visible outside of this DM.
+                                    #
+                                    # iter161 refinement: ONLY fire the "you
+                                    # are now friends" notification when the
+                                    # pair was genuinely fresh (neither had
+                                    # the other). If we just silently repaired
+                                    # a one-way link, don't ping the member
+                                    # about a friendship they already thought
+                                    # they had — that would be confusing.
+                                    truly_fresh = (not me_had_other) and (not other_had_me)
+                                    if truly_fresh:
+                                        me_prof = await db.users.find_one(
+                                            {"id": user_id},
+                                            {"_id": 0, "first_name": 1, "avatar": 1},
+                                        ) or {}
+                                        other_prof = await db.users.find_one(
+                                            {"id": other_id},
+                                            {"_id": 0, "first_name": 1, "avatar": 1},
+                                        ) or {}
+                                        me_name = me_prof.get("first_name") or "Someone"
+                                        me_av = me_prof.get("avatar") or "🦋"
+                                        other_name = other_prof.get("first_name") or "Someone"
+                                        other_av = other_prof.get("avatar") or "🦋"
+                                        try:
+                                            await push_notification(
+                                                user_id,
+                                                "friend_accepted",
+                                                f"{other_av} You and {other_name} are now friends 🦋",
+                                                "You've been chatting, so we've added each other.",
+                                                {"friend_id": other_id},
+                                            )
+                                            await push_notification(
+                                                other_id,
+                                                "friend_accepted",
+                                                f"{me_av} You and {me_name} are now friends 🦋",
+                                                "You've been chatting, so we've added each other.",
+                                                {"friend_id": user_id},
+                                            )
+                                        except Exception:
+                                            logger.exception("auto-friend notification failed")
+                    except Exception:
+                        logger.exception("auto-friend after two-way DM failed")
+
                     n_type = "dm_request" if is_chat_request else "dm"
                     title = (
                         f"{sender_avatar} {sender_name} started a chat with you"
@@ -11201,55 +12186,6 @@ async def _ensure_indexes():
 
 
 @app.on_event("startup")
-async def _backfill_content_localities():
-    """One-time Local Discovery backfill (item 1): give existing notices,
-    groups and events a locality derived from their author's recognised
-    suburb so legacy content stays discoverable under radius filtering.
-    Items whose author has no recognised suburb are left without a
-    locality (treated as All-only — never inventing a location).
-
-    Idempotent: only touches documents that don't yet have
-    `locality_lat` set, and marks the collection done via a small
-    `_migrations` flag so a fully-backfilled DB skips the scan entirely.
-    """
-    try:
-        done = await db["_migrations"].find_one({"_id": "content_locality_backfill_v1"})
-        if done:
-            return
-        # Cache user_id -> locality dict to avoid repeat lookups.
-        cache: Dict[str, Dict] = {}
-
-        async def _loc_for(uid: Optional[str]) -> Dict:
-            if not uid:
-                return {}
-            if uid in cache:
-                return cache[uid]
-            loc = await _default_locality_for_user(uid)
-            cache[uid] = loc
-            return loc
-
-        touched = 0
-        # Notices + groups keyed by user_id / suggested_by; events by host_id.
-        for coll, author_field in (("notices", "user_id"), ("events", "host_id"), ("groups", "suggested_by")):
-            cursor = db[coll].find(
-                {"locality_lat": {"$in": [None, ]}},
-                {"_id": 0, "id": 1, author_field: 1, "locality_lat": 1},
-            )
-            async for d in cursor:
-                if d.get("locality_lat") is not None:
-                    continue
-                loc = await _loc_for(d.get(author_field))
-                if not loc:
-                    continue
-                await db[coll].update_one({"id": d["id"]}, {"$set": loc})
-                touched += 1
-        await db["_migrations"].insert_one({"_id": "content_locality_backfill_v1", "at": now_iso(), "touched": touched})
-        logger.info("Local Discovery backfill complete: %s documents localised", touched)
-    except Exception as e:
-        logger.info("content locality backfill skipped: %s", str(e)[:160])
-
-
-@app.on_event("startup")
 async def _ensure_mcgs_indexes():
     """Create/verify indexes for the Mission Control George System (MCGS).
 
@@ -11263,6 +12199,15 @@ async def _ensure_mcgs_indexes():
         logger.info("MCGS indexes verified.")
     except Exception:
         logger.exception("MCGS index setup failed (non-fatal)")
+
+    # George & Georgia companion — always-available free-form member chat
+    # with private per-member memory. Indexes are idempotent + non-fatal.
+    try:
+        from services.george import companion as _companion
+        await _companion.ensure_indexes(db)
+        logger.info("George companion indexes verified.")
+    except Exception:
+        logger.exception("George companion index setup failed (non-fatal)")
 
     # Phase 2 \u2014 Rhythms collections (briefings, milestones, activity, settings).
     # See /app/memory/mcgs-phase2-plan.md \u00a7Architecture additions.
@@ -11301,15 +12246,6 @@ async def _ensure_mcgs_indexes():
         logger.info("George Remembers sweep loop scheduled.")
     except Exception:
         logger.exception("George Remembers setup failed (non-fatal)")
-
-    # George & Georgia companion — always-available free-form chat with
-    # private per-member memory. Idempotent indexes.
-    try:
-        from services.george import companion as _companion
-        await _companion.ensure_indexes(db)
-        logger.info("George companion indexes verified.")
-    except Exception:
-        logger.exception("George companion index setup failed (non-fatal)")
 
     # KB grounding telemetry — one collection, shared across MCGS,
     # mobile-app, and website /meet Georges. See
@@ -11881,17 +12817,11 @@ async def public_register_interest(payload: dict, request: Request):
        side-effects and response shape are LOCKED. See
        /app/website/APPROVED_ONBOARDING_JOURNEY.md before changing.
 
-    🔒 iter164 amendment (Aug 2026):
-       One normalised email = one registration. A partial unique index
-       on ``email`` (where ``is_test=false``) enforces this at the DB
-       level. The endpoint returns the existing row idempotently for
-       any re-submission, whether it comes seconds or months later —
-       so no visitor ever ends up with two Founding Member numbers.
-
     Persists to `interest_registrations` and fires a warm confirmation
-    email from the visitor's chosen companion. Idempotent forever.
+    email from the visitor's chosen companion. Idempotent within 24h so
+    the visitor never gets duplicate confirmations from double-clicks or
+    refresh-and-resubmit.
     """
-    from pymongo.errors import DuplicateKeyError  # local — race guard below
     first_name = str(payload.get("first_name") or "").strip()[:80]
     email = str(payload.get("email") or "").strip().lower()[:180]
     state_country = str(payload.get("state_country") or "").strip()[:120] or None
@@ -11924,89 +12854,47 @@ async def public_register_interest(payload: dict, request: Request):
     if recent >= 20:
         raise HTTPException(429, "Too many registrations from this address — please try again in an hour.")
 
-    # iter164: Enforce one normalised email = one registration, no matter
-    # how much time has passed. Previously we only dedup'd within a 10-min
-    # window, which meant a visitor coming back the next day would get a
-    # SECOND row and a SECOND founder number (real bug: #0011 was a repeat
-    # of #0010 registered 14 h later). Now any existing row for the same
-    # normalised email is returned idempotently — the visitor gets their
-    # original founder number back with a warm receipt, never a duplicate.
-    # Backend-level enforcement below (partial unique index + insert-time
-    # race guard) makes this impossible even under concurrent bursts or
-    # a stale UI cache. The 10-min window is preserved semantically for
-    # the "resend acknowledgement" behaviour: rapid re-submits still get
-    # their letter resent so a Resend hiccup isn't fatal.
+    # Idempotency: if this email already registered in the last 10 minutes,
+    # treat it as the same submission (double-click, refresh-and-resubmit,
+    # etc.) — we return the existing record AND resend the acknowledgement
+    # so the visitor still gets their receipt. Deliberately short (10 min,
+    # not 24h): people should never be stranded because they registered
+    # months ago and now can't get back on the list.
+    dedup_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
     existing = None
     try:
         existing = await db.interest_registrations.find_one(
-            {"email": email, "is_test": {"$ne": True}},
+            {"email": email, "created_at": {"$gt": dedup_cutoff}},
             {"_id": 0, "id": 1, "email": 1, "created_at": 1, "first_name": 1,
              "companion_choice": 1, "founder_number": 1},
         )
     except Exception:
         existing = None
     if existing:
-        # iter164: This is the "already registered" flow the user's
-        # spec calls for — the visitor gets:
-        #   1. Their ORIGINAL founder number back in the response, so
-        #      the thank-you page shows #0010 (never a fresh #0011).
-        #   2. The same warm acknowledgement letter resent with their
-        #      original founder number. Receiving the welcome letter
-        #      again — signed by the same companion, quoting the same
-        #      number — IS the "you're already registered as #0010"
-        #      message. We don't have (and don't need) a separate
-        #      "duplicate" template; the reassurance is that the same
-        #      warm letter lands in their inbox again.
-        #
-        # Light spam guard: don't resend twice within 60 seconds. Bots
-        # that hammer the form (or a stuck client retry loop) can't
-        # weaponise the resend, but every legitimate return visit
-        # (minutes, hours, days later) reliably fires the message.
-        should_resend = True
-        try:
-            from datetime import datetime as _dt
-            last_iso = existing.get("last_re_registered_at") or existing.get("created_at")
-            last = _dt.fromisoformat(str(last_iso).replace("Z", "+00:00"))
-            if (datetime.now(timezone.utc) - last).total_seconds() < 60:
-                should_resend = False
-        except Exception:
-            should_resend = True
-
         logger.info(
-            "RYI already-registered: email=%s existing_id=%s founder=%s "
-            "created_at=%s ip=%s resend=%s",
-            email, existing.get("id"), existing.get("founder_number"),
-            existing.get("created_at"), ip, should_resend,
+            "RYI dedup: email=%s existing_id=%s created_at=%s ip=%s",
+            email, existing.get("id"), existing.get("created_at"), ip,
         )
-        if should_resend:
-            try:
-                from email_service import send_email_detailed, waitlist_template
-                effective_companion = (existing.get("companion_choice") or "george")
-                subj, html_body, text_body = waitlist_template(
-                    first_name=existing.get("first_name") or first_name,
-                    founder_number=existing.get("founder_number"),
-                    companion=effective_companion,
-                )
-                await send_email_detailed(
-                    to=email, subject=subj, html=html_body, text=text_body,
-                )
-                # Stamp the resend so the cooldown works even if a
-                # bot loops the endpoint.
-                try:
-                    await db.interest_registrations.update_one(
-                        {"id": existing.get("id")},
-                        {"$set": {"last_re_registered_at": now_iso()}},
-                    )
-                except Exception:
-                    logger.exception("RYI dedup timestamp update failed for %s", email)
-            except Exception:
-                logger.exception("RYI dedup resend failed for %s", email)
+        # Best-effort resend of the acknowledgement — if it originally
+        # failed (Resend hiccup, wrong domain, etc.) the visitor still
+        # gets a receipt on retry. Never fail the request.
+        try:
+            from email_service import send_email_detailed, waitlist_template
+            effective_companion = (existing.get("companion_choice") or "george")
+            subj, html_body, text_body = waitlist_template(
+                first_name=existing.get("first_name") or first_name,
+                founder_number=existing.get("founder_number"),
+                companion=effective_companion,
+            )
+            await send_email_detailed(
+                to=email, subject=subj, html=html_body, text=text_body,
+            )
+        except Exception:
+            logger.exception("RYI dedup resend failed for %s", email)
         return {
             "ok":             True,
             "id":             existing.get("id"),
             "deduplicated":   True,
-            "already_registered": True,
-            "acknowledgement_resent": bool(should_resend),
             "founder_number": existing.get("founder_number"),
             "founder_number_display": _fmt_founder_no(existing.get("founder_number")),
         }
@@ -12016,9 +12904,7 @@ async def public_register_interest(payload: dict, request: Request):
     # Numbers 1 and 2 are reserved for Garry / George — the counter
     # was rebased on startup so this returns 3+ for the first public
     # registration.
-    # iter164n: email passed so the shared allocator can identify a
-    # test/demo email pattern and skip the one-time #0011 override.
-    founder_number = await _next_founder_number(email=email)
+    founder_number = await _next_founder_number()
 
     # Acquisition attribution (Commit-2 rollout). Captures which flyer /
     # QR / campaign brought this visitor here. Best-effort — historical
@@ -12066,44 +12952,11 @@ async def public_register_interest(payload: dict, request: Request):
             doc["id"], email, first_name, companion, ip,
             acquisition.get("channel"),
         )
-    except DuplicateKeyError:
-        # iter164: race condition — another request for the SAME email
-        # slipped past our find_one() check and landed the row first.
-        # Refetch and return that row so both requests give the visitor
-        # a consistent founder number, never a duplicate. Do NOT try to
-        # roll back the counter $inc — a small gap in numbering is far
-        # safer than the risk of reassigning a live number.
-        # iter164n: the one-time #0011 override, however, IS releasable
-        # — if that's the number we just allocated and the insert
-        # failed for ANY reason, restore it so a genuine subsequent
-        # registration can still receive it.
-        await _release_founder_override_if_consumed_for(founder_number)
-        logger.info("RYI race guard: duplicate email %s — refetching existing row", email)
-        existing = await db.interest_registrations.find_one(
-            {"email": email, "is_test": {"$ne": True}},
-            {"_id": 0, "id": 1, "email": 1, "created_at": 1, "first_name": 1,
-             "companion_choice": 1, "founder_number": 1},
-        )
-        if not existing:
-            logger.error("RYI race guard: DuplicateKeyError but no existing row found for %s", email)
-            raise HTTPException(500, "We couldn't save your details just now — please try again in a moment.")
-        return {
-            "ok":             True,
-            "id":             existing.get("id"),
-            "deduplicated":   True,
-            "already_registered": True,
-            "founder_number": existing.get("founder_number"),
-            "founder_number_display": _fmt_founder_no(existing.get("founder_number")),
-        }
     except Exception:
         # If the DB write itself fails, we DO fail the request — silently
         # persisting nowhere would be worse than telling the visitor to
         # try again. Contact form does the opposite; here we're stricter
         # because the visitor is explicitly leaving contact details.
-        # iter164n: same override release semantics as the DuplicateKey
-        # branch — a failed insert must never permanently consume the
-        # one-time #0011 slot.
-        await _release_founder_override_if_consumed_for(founder_number)
         logger.exception("failed to persist interest_registration")
         raise HTTPException(500, "We couldn't save your details just now — please try again in a moment.")
 
@@ -12731,40 +13584,6 @@ async def _ensure_segment_indexes():
 
 _FOUNDER_NUMBER_COUNTER_ID = "founder_number"
 
-# iter164n: one-time correction. #0011 originally belonged to a
-# duplicate Dora record that was retired via the retire-duplicate
-# endpoint. This override reserves #0011 for the next GENUINE public
-# registration, then transparently steps aside so #0021 → #0022 → …
-# resumes via the normal $inc counter (which is at 20 in production
-# right now). Fully documented on the counter document itself so it's
-# self-describing to any future admin who pokes at Mongo.
-_FOUNDER_OVERRIDE_ID = "founder_number_next_override"
-_FOUNDER_OVERRIDE_VALUE = 11
-_FOUNDER_OVERRIDE_NOTE = (
-    "iter164n: Dora duplicate retired, #0011 slot restored to allocation queue"
-)
-
-
-def _looks_like_test_email(email: Optional[str]) -> bool:
-    """Return True if the email pattern indicates a test / QA / demo
-    registration that must NOT consume the one-time #0011 override.
-    Genuine visitors will never match these patterns; every automated
-    test fixture in this codebase does.
-    """
-    if not email or "@" not in email:
-        # No email or malformed — definitely not a genuine reg. Skip
-        # the override so a broken client can't burn #0011 by accident.
-        return True
-    local, _, domain = email.lower().partition("@")
-    if any(marker in local for marker in ("+iter", "+test", "+qa", "+demo")):
-        return True
-    if domain in {"example.com", "example.org", "example.net", "example"}:
-        return True
-    if domain.endswith((".test", ".invalid", ".example")):
-        return True
-    return False
-
-
 _RESERVED_FOUNDERS: list[dict] = [
     {
         "founder_number": 1,
@@ -12798,145 +13617,22 @@ def _fmt_founder_no(n: Optional[int]) -> str:
         return ""
     return f"#{n:04d}"
 
-async def _founder_number_in_use(candidate: int) -> bool:
-    """Cross-collection presence check for a candidate Founding Member
-    Number. Returns True if the number is already assigned to a
-    non-test row in EITHER ``interest_registrations`` or ``users``.
+async def _next_founder_number() -> int:
+    """Atomically get the next Founding Member Number.
 
-    iter164n hard uniqueness guard. Called by
-    :func:`_allocate_founder_number` BEFORE the number is returned,
-    so a caller can never receive a value that already belongs to a
-    different identity. Test/demo rows (``is_test: true``,
-    ``is_demo: true``) do not count — they are allowed to share
-    numbers freely because they never touch production allocation.
-    """
-    ir_count = await db.interest_registrations.count_documents({
-        "founder_number": candidate,
-        "is_test": {"$ne": True},
-    })
-    if ir_count:
-        return True
-    usr_count = await db.users.count_documents({
-        "founder_number": candidate,
-        "is_test": {"$ne": True},
-        "is_demo": {"$ne": True},
-    })
-    return bool(usr_count)
-
-
-async def _allocate_founder_number(email: Optional[str] = None,
-                                   source: str = "public_registration") -> int:
-    """Unified atomic allocator used by BOTH founder-number code paths
-    (public interest_registrations and in-app founders/claim).
-
-    Guarantees under concurrent registrations + retries:
-      1. Atomic override claim — only one caller wins #0011.
-      2. Atomic $inc on the shared counter — no two callers can
-         receive the same $inc value.
-      3. Cross-collection uniqueness check BEFORE returning — even if
-         a legacy row somehow ended up carrying counter+1, the
-         allocator advances past it. Bounded to 20 iterations so
-         a catastrophic misalignment fails fast instead of looping.
-      4. Test/demo emails skip the override entirely.
-
-    The returned number is guaranteed unused across both
-    ``interest_registrations`` (non-test) and ``users`` (non-test,
-    non-demo) at the instant of return. Partial unique indexes
-    installed by :func:`_ensure_founder_number_unique_indexes`
-    provide a second layer of DB-level enforcement.
+    Uses find_one_and_update with $inc + upsert=True so it's safe
+    under concurrent registration bursts. The counter is initialised
+    to 2 (after the reserved seeds) so the first public registration
+    receives #0003 as requested.
     """
     from pymongo import ReturnDocument
-    log = logging.getLogger("friendplace")
-
-    # --- Step 1: try the one-time #0011 override, but only for
-    # genuine registrations. Test/demo emails NEVER consume it.
-    if not _looks_like_test_email(email):
-        override = await db.counters.find_one_and_update(
-            {"id": _FOUNDER_OVERRIDE_ID, "consumed": False},
-            {"$set": {"consumed": True, "consumed_at": now_iso(),
-                      "consumed_by_source": source}},
-            return_document=ReturnDocument.AFTER,
-        )
-        if override:
-            candidate = int(override["value"])
-            # Even the override must clear the cross-collection guard —
-            # if #0011 has SOMEHOW been assigned since seeding, back out
-            # and fall through to the normal $inc.
-            if not await _founder_number_in_use(candidate):
-                log.info(
-                    "iter164n: allocated override #%04d via %s (email=%s)",
-                    candidate, source, email or "?",
-                )
-                return candidate
-            # Slot just got taken — release the override and log clearly.
-            await db.counters.update_one(
-                {"id": _FOUNDER_OVERRIDE_ID},
-                {"$set": {"consumed": False}, "$unset": {"consumed_at": 1,
-                                                        "consumed_by_source": 1}},
-            )
-            log.error(
-                "iter164n: override #%04d found in use at claim time — "
-                "released marker and falling through to $inc",
-                candidate,
-            )
-
-    # --- Step 2: normal $inc path with cross-collection retry.
-    for _attempt in range(20):
-        doc = await db.counters.find_one_and_update(
-            {"id": _FOUNDER_NUMBER_COUNTER_ID},
-            {"$inc": {"value": 1}},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
-        candidate = int(doc.get("value") or 3)
-        if not await _founder_number_in_use(candidate):
-            return candidate
-        # Extremely rare: counter drifted behind a legacy row. Advance.
-        log.warning(
-            "founder-allocator: counter value #%04d already in use "
-            "cross-collection; advancing counter",
-            candidate,
-        )
-    # If we still can't find a free number after 20 tries, something is
-    # deeply wrong with the data. Fail loudly rather than hand out a
-    # dupe.
-    raise RuntimeError(
-        "founder-allocator: could not find a free founder_number after "
-        "20 counter advances — manual intervention required"
-    )
-
-
-async def _next_founder_number(email: Optional[str] = None) -> int:
-    """Thin wrapper preserved for existing call sites. Delegates to
-    :func:`_allocate_founder_number` which is the unified atomic
-    allocator with the cross-collection uniqueness guard.
-    """
-    return await _allocate_founder_number(email=email,
-                                          source="public_registration")
-
-
-async def _release_founder_override_if_consumed_for(num: int) -> None:
-    """Undo a consumption of the one-time #0011 override when the
-    downstream registration failed. Safe no-op for any other value
-    (i.e. the normal $inc path). Atomic under concurrency: the filter
-    ``consumed: True`` + ``value: num`` ensures we only touch our own
-    consumption, never one belonging to a subsequent successful
-    registration.
-    """
-    if num != _FOUNDER_OVERRIDE_VALUE:
-        return
-    from pymongo import ReturnDocument
-    result = await db.counters.find_one_and_update(
-        {"id": _FOUNDER_OVERRIDE_ID, "consumed": True, "value": num},
-        {"$set": {"consumed": False},
-         "$unset": {"consumed_at": 1, "consumed_by_source": 1}},
+    doc = await db.counters.find_one_and_update(
+        {"id": _FOUNDER_NUMBER_COUNTER_ID},
+        {"$inc": {"value": 1}},
+        upsert=True,
         return_document=ReturnDocument.AFTER,
     )
-    if result:
-        logging.getLogger("friendplace").info(
-            "iter164n: released override #%04d back to available "
-            "(downstream registration failed)", num,
-        )
+    return int(doc.get("value") or 3)
 
 @app.on_event("startup")
 async def _seed_founder_numbers():  # noqa: D401
@@ -13043,221 +13739,12 @@ async def _seed_founder_numbers():  # noqa: D401
 
 
 @app.on_event("startup")
-async def _seed_founder_override_0011():  # noqa: D401
-    """iter164n one-time correction: reserve #0011 for the next
-    GENUINE public registration because the original #0011 (a Dora
-    duplicate) was retired via the retire-duplicate endpoint. After
-    #0011 is successfully consumed the normal $inc counter (at 20
-    in production) picks up naturally with #0021.
-
-    Fully idempotent — safe on every boot. HARD REFUSES to seed the
-    override if #0011 is currently in use in either
-    ``interest_registrations`` or ``users`` (both non-test, non-demo).
-    """
-    log = logging.getLogger("friendplace")
-    try:
-        existing = await db.counters.find_one({"id": _FOUNDER_OVERRIDE_ID})
-        if existing:
-            # Already seeded (consumed or still available) — do nothing.
-            return
-        # Verify #0011 genuinely unused before we create the marker.
-        if await _founder_number_in_use(_FOUNDER_OVERRIDE_VALUE):
-            log.error(
-                "iter164n: refusing to seed override — #%04d is already "
-                "in use in interest_registrations or users. No change made.",
-                _FOUNDER_OVERRIDE_VALUE,
-            )
-            return
-        await db.counters.insert_one({
-            "id":         _FOUNDER_OVERRIDE_ID,
-            "value":      _FOUNDER_OVERRIDE_VALUE,
-            "consumed":   False,
-            "note":       _FOUNDER_OVERRIDE_NOTE,
-            "created_at": now_iso(),
-        })
-        log.info(
-            "iter164n: seeded one-time override — next GENUINE public "
-            "registration will be assigned Founding Member #%04d.",
-            _FOUNDER_OVERRIDE_VALUE,
-        )
-    except Exception:
-        log.exception("iter164n: override seeding failed — will retry next boot")
-
-
-@app.on_event("startup")
-async def _ensure_founder_number_unique_indexes():  # noqa: D401
-    """iter164n defense-in-depth: partial unique indexes on
-    ``founder_number`` in both ``interest_registrations`` and
-    ``users``, so a hypothetical allocator bug can never persist a
-    duplicate number.
-
-    Partial filters (MongoDB partial indexes only allow equality /
-    $exists / $type / range, NOT $ne — same constraint the existing
-    email-unique index handles by backfilling ``is_test: false`` for
-    legacy rows before building the index):
-      - interest_registrations: ``founder_number: {$type: 'int'}``
-        AND ``is_test: false``.
-      - users: ``founder_number: {$type: 'int'}`` AND
-        ``is_test: false`` AND ``is_demo: false``.
-
-    Non-fatal on failure — if an index refuses to build because of
-    existing dupes we LOG which numbers are duplicated and continue
-    startup; the allocator's runtime cross-collection check is still
-    protective.
-    """
-    log = logging.getLogger("friendplace")
-    # (a) Backfill legacy rows missing the flag so equality-based
-    # partial filters cover them. Idempotent — sets only if unset.
-    try:
-        await db.interest_registrations.update_many(
-            {"is_test": {"$exists": False}},
-            {"$set": {"is_test": False}},
-        )
-    except Exception:
-        log.exception("iter164n: interest_registrations is_test backfill failed")
-    try:
-        await db.users.update_many(
-            {"is_test": {"$exists": False}},
-            {"$set": {"is_test": False}},
-        )
-        await db.users.update_many(
-            {"is_demo": {"$exists": False}},
-            {"$set": {"is_demo": False}},
-        )
-    except Exception:
-        log.exception("iter164n: users is_test/is_demo backfill failed")
-
-    plans = [
-        {
-            "coll":   "interest_registrations",
-            "name":   "ix_ir_founder_number_unique",
-            "filter": {"founder_number": {"$type": "int"},
-                       "is_test": False},
-        },
-        {
-            "coll":   "users",
-            "name":   "ix_users_founder_number_unique",
-            "filter": {"founder_number": {"$type": "int"},
-                       "is_test": False,
-                       "is_demo": False},
-        },
-    ]
-    for plan in plans:
-        try:
-            await db[plan["coll"]].create_index(
-                [("founder_number", 1)],
-                name=plan["name"],
-                unique=True,
-                partialFilterExpression=plan["filter"],
-            )
-            log.info(
-                "iter164n: created partial unique index %s on %s",
-                plan["name"], plan["coll"],
-            )
-        except Exception as e:
-            try:
-                pipeline = [
-                    {"$match": plan["filter"]},
-                    {"$group": {"_id": "$founder_number",
-                                "count": {"$sum": 1}}},
-                    {"$match": {"count": {"$gt": 1}}},
-                    {"$sort":  {"_id": 1}},
-                ]
-                dupes = await db[plan["coll"]].aggregate(pipeline).to_list(None)
-            except Exception:
-                dupes = None
-            log.error(
-                "iter164n: could not create %s on %s (dupes=%s): %s. "
-                "Startup continues; runtime cross-collection guard remains active.",
-                plan["name"], plan["coll"], dupes, e,
-            )
-
-
-@app.on_event("startup")
 async def _status_startup_indexes():  # noqa: D401
     """Idempotent — safe to run on every boot."""
     try:
         await _ensure_status_indexes(db)
     except Exception:
         logging.exception("member_status ensure_indexes failed")
-
-
-@app.on_event("startup")
-async def _interest_registrations_unique_email_index():  # noqa: D401
-    """iter164: enforce one normalised email = one Founding Member row
-    at the DATABASE level, not just in application code.
-
-    Partial unique index restricted to ``is_test: false`` so QA
-    fixtures can still share test emails (they always set ``is_test:
-    true``). Reserved seeds have ``is_test: false`` but their emails
-    (garry@ / george@ @friendplace.com.au) are unique anyway.
-
-    Startup order:
-      1. Backfill any legacy row missing ``is_test`` to ``false`` so
-         the partial filter covers every real registration.
-      2. Log a warning for any duplicate emails still in the DB so an
-         admin can retire them with
-         ``scripts/retire_duplicate_founding_members.py``. We do NOT
-         auto-delete data — that's a manual, audited action.
-      3. Create the index. If duplicates remain, the index creation
-         will fail loudly; the warning above tells the admin what to
-         do about it.
-    """
-    log = logging.getLogger("friendplace")
-    try:
-        # (1) Backfill missing is_test flag.
-        try:
-            res = await db.interest_registrations.update_many(
-                {"is_test": {"$exists": False}},
-                {"$set": {"is_test": False}},
-            )
-            if res.modified_count:
-                log.info(
-                    "iter164: backfilled is_test=false on %d legacy registrations",
-                    res.modified_count,
-                )
-        except Exception:
-            log.exception("iter164: is_test backfill failed")
-
-        # (2) Warn on duplicates so admins know to run the retire script
-        # BEFORE index creation (it will otherwise raise DuplicateKey).
-        try:
-            pipeline = [
-                {"$match": {"is_test": False, "email": {"$type": "string"}}},
-                {"$group": {"_id": "$email", "n": {"$sum": 1},
-                            "founder_numbers": {"$push": "$founder_number"}}},
-                {"$match": {"n": {"$gt": 1}}},
-            ]
-            dupes = await db.interest_registrations.aggregate(pipeline).to_list(None)
-            for d in dupes:
-                log.warning(
-                    "iter164: duplicate email in interest_registrations — "
-                    "email=%s count=%d founder_numbers=%s. Run "
-                    "backend/scripts/retire_duplicate_founding_members.py "
-                    "to retire the later duplicates safely.",
-                    d.get("_id"), d.get("n"), d.get("founder_numbers"),
-                )
-        except Exception:
-            log.exception("iter164: duplicate scan failed")
-
-        # (3) Create the partial unique index. Idempotent: Mongo silently
-        # no-ops if the identical index already exists.
-        try:
-            await db.interest_registrations.create_index(
-                [("email", 1)],
-                name="uniq_email_where_not_test",
-                unique=True,
-                partialFilterExpression={"is_test": False},
-                background=True,
-            )
-            log.info("iter164: uniq_email_where_not_test index in place")
-        except Exception as e:
-            # Duplicates blocking creation are logged so an admin can
-            # act. Don't crash the boot — the endpoint still enforces
-            # uniqueness at the application layer.
-            log.error("iter164: could not create uniq_email index: %s", e)
-    except Exception:
-        logging.exception("iter164 email uniqueness setup failed")
 
 # Static assets — currently used for Spot the Difference lifelike backdrops.
 # Files live at /app/backend/static/spot_bg/<theme>.jpg and are served under
@@ -13300,23 +13787,13 @@ _CORS_DEFAULT = (
 _cors_env = os.getenv("CORS_ORIGINS", _CORS_DEFAULT)
 _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
 _cors_regex = os.getenv("CORS_ORIGIN_REGEX", r"^https://[a-z0-9-]+\.emergentagent\.com$")
-# iter164l TEMPORARY: also allow FriendPlace's Vercel preview deployments
-# so the TTS diagnostic branch preview can reach the admin API. Narrowly
-# scoped to the friendplace-website project on vercel.app only — any
-# other Vercel project cannot exploit this. Union with the env-configured
-# regex above so the Emergent preview allowance is preserved.
-# Remove this block once iter164l diagnostics are complete.
-_FRIENDPLACE_VERCEL_PREVIEW = (
-    r"^https://friendplace-website(?:-[a-z0-9-]+)*\.vercel\.app$"
-)
-_cors_regex = f"({_cors_regex})|({_FRIENDPLACE_VERCEL_PREVIEW})"
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=_cors_origins,
     allow_origin_regex=_cors_regex,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Requested-With", "Cache-Control", "Pragma"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
 
@@ -13375,52 +13852,3 @@ async def _event_reminder_loop():
 @app.on_event("startup")
 async def _start_event_reminders():
     asyncio.create_task(_event_reminder_loop())
-
-
-
-# iter164y — Flyer renderer warm-up
-# ────────────────────────────────────────────────────────────────────
-# Purpose:
-#   The founding-flyer PIL pipeline (PIL fonts + qrcode + a 1240×1754
-#   canvas) costs ~3 s of *cold* import + first-render work but only
-#   ~0.3 s once everything is paged in. On Emergent's preview backend
-#   pods that hibernate between admin sessions, the first Publishing
-#   Centre preview click would eat that cold cost and sometimes graze
-#   the front-end retry-wrapper's per-attempt timeout, giving Garry
-#   the dreaded "The server took a moment too long to respond."
-#
-#   Firing one throwaway render at startup pre-warms the caches so the
-#   first real click is already on the fast path. Fully guarded — a
-#   missing admin, missing template, or renderer exception is logged
-#   and swallowed. Uses `asyncio.create_task` so startup isn't blocked.
-async def _warm_flyer_renderer():
-    log = logging.getLogger("friendplace")
-    try:
-        # Wait for the seed pass to finish so we know an admin exists.
-        await asyncio.sleep(2)
-        admin = await db.users.find_one(
-            {"is_admin": True, "is_test": {"$ne": True}, "is_demo": {"$ne": True}},
-            {"_id": 0, "id": 1},
-        ) or await db.users.find_one({"is_admin": True}, {"_id": 0, "id": 1})
-        if not admin:
-            log.info("iter164y: warm-up skipped — no admin user available.")
-            return
-        # Deferred import to avoid a startup-time circular dependency.
-        from services.flyers import render_flyer
-        t0 = _time.perf_counter()
-        await render_flyer(
-            db, "founding_member_invite", "poster_a4",
-            {"admin_id": admin["id"], "qr_code_id": "warmup"},
-        )
-        log.info(
-            "iter164y: flyer renderer warm-up complete (%.0f ms) — fonts, "
-            "qrcode module and PIL caches are hot.",
-            (_time.perf_counter() - t0) * 1000,
-        )
-    except Exception:
-        log.exception("iter164y: flyer renderer warm-up failed (non-fatal).")
-
-
-@app.on_event("startup")
-async def _start_flyer_warm_up():
-    asyncio.create_task(_warm_flyer_renderer())

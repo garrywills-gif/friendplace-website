@@ -345,9 +345,6 @@ function MemberRow({
   const [notesDraft, setNotesDraft] = useState(row.admin_notes || '');
   const [tagInput, setTagInput] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
-  const [linkInput, setLinkInput] = useState('');
-  const [linkBusy, setLinkBusy] = useState(false);
-  const [linkMsg, setLinkMsg] = useState<string | null>(null);
   const notesInitial = useRef(row.admin_notes || '');
 
   useEffect(() => {
@@ -384,24 +381,6 @@ function MemberRow({
   const removeTag = (t: string) => {
     const next = (row.tags || []).filter(x => x !== t);
     void onUpdate(row.id, { tags: next }, { tags: next });
-  };
-
-  const linkAccount = async () => {
-    const v = linkInput.trim();
-    if (!v || linkBusy) return;
-    setLinkBusy(true);
-    setLinkMsg(null);
-    try {
-      const body = v.includes('@') ? { email: v } : { user_id: v };
-      const res = await foundingMembersCrmApi.linkAccount(row.id, body);
-      setLinkMsg(`✓ Linked to ${res.linked_user.first_name || res.linked_user.email || res.linked_user.id} — founding number #${String(res.founder_number).padStart(4, '0')} preserved.`);
-      setLinkInput('');
-      void onUpdate(row.id, {}, { status: 'joined' as CRMFoundingMemberStatus });
-    } catch (e: any) {
-      setLinkMsg(`Couldn't link: ${String(e?.message || 'error').replace(/^\d+\s*/, '')}`);
-    } finally {
-      setLinkBusy(false);
-    }
   };
 
   return (
@@ -506,51 +485,6 @@ function MemberRow({
       {expanded && (
         <div style={expandPanel} onClick={e => e.stopPropagation()}>
           <FoundingMemberTimeline memberId={row.id} />
-          <div style={{
-            marginBottom: 16, padding: '12px 14px', borderRadius: 12,
-            background: (row as any).linked_user_id ? '#F0FDF4' : '#FFF7ED',
-            border: `1px solid ${(row as any).linked_user_id ? '#BBF7D0' : '#FED7AA'}`,
-          }}>
-            <div style={{ fontSize: 12, fontWeight: 900, color: '#0A2540', marginBottom: 4 }}>
-              Founder account recovery
-            </div>
-            {(row as any).linked_user_id ? (
-              <div style={{ fontSize: 12.5, color: '#166534', fontWeight: 700 }}>
-                ✓ Already linked to an app account — founding number #{row.founder_number ? String(row.founder_number).padStart(4, '0') : '—'} is preserved.
-              </div>
-            ) : (
-              <>
-                <div style={{ fontSize: 12, color: '#7C2D12', marginBottom: 8 }}>
-                  If this founder signed up in the app with a <strong>different email</strong>, link their account here to keep founding number #{row.founder_number ? String(row.founder_number).padStart(4, '0') : '—'}.
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <input
-                    value={linkInput}
-                    onChange={e => setLinkInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void linkAccount(); } }}
-                    placeholder="Their app account email or user ID"
-                    style={{
-                      flex: '1 1 240px', minWidth: 200, padding: '8px 10px',
-                      border: '1.5px solid #CBD5E1', borderRadius: 10, fontSize: 13, background: '#FFFFFF',
-                    }}
-                  />
-                  <button
-                    onClick={() => void linkAccount()}
-                    disabled={linkBusy || !linkInput.trim() || !row.founder_number}
-                    style={{
-                      padding: '8px 16px', borderRadius: 10, border: 'none',
-                      background: (linkBusy || !linkInput.trim() || !row.founder_number) ? '#CBD5E1' : '#0D9488',
-                      color: '#FFFFFF', fontWeight: 800, fontSize: 13,
-                      cursor: (linkBusy || !linkInput.trim()) ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    {linkBusy ? 'Linking…' : 'Link account'}
-                  </button>
-                </div>
-              </>
-            )}
-            {linkMsg && <div style={{ marginTop: 8, fontSize: 12.5, fontWeight: 700, color: linkMsg.startsWith('✓') ? '#166534' : '#B91C1C' }}>{linkMsg}</div>}
-          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 20 }}>
             <div>
               <label style={s.label}>Admin notes</label>

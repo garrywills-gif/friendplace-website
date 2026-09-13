@@ -4,10 +4,7 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { clearAuth, getAdmin, isAuthed, type CmsAdmin } from '@/lib/cms-auth';
-import { cmsApi, repliesApi } from '@/lib/cms-api';
-import { enquiriesBadgeApi } from '@/lib/enquiries-badge-api';
-import { inboxApi } from '@/lib/inbox-api';
-import { ENQUIRY_HANDLED_EVENT } from '@/lib/enquiry-handled';
+import { cmsApi } from '@/lib/cms-api';
 import { AskGeorgeBar } from '@/components/mcgs/AskGeorgeBar';
 import { GeorgeButterfly } from '@/components/george/GeorgeButterfly';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
@@ -22,7 +19,7 @@ type NavItem = {
   href: string;
   label: string;
   icon: string;
-  badgeKey?: 'submissions' | 'replies' | 'enquiries' | 'inbox';
+  badgeKey?: 'submissions' | 'replies';
   soon?: boolean;
 };
 
@@ -34,17 +31,17 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/admin/bridge',    label: 'The Bridge',           icon: '🌉' },
       { href: '/admin/george',    label: "George's Workspace",   icon: '🦋' },
-      { href: '/admin/inbox',     label: 'Inbox',                 icon: '📧', badgeKey: 'inbox' },
     ],
   },
   {
     label: 'Community',
     items: [
-{ href: '/admin/crm', label: 'CRM Navigator', icon: '🧭' },
+      { href: '/admin/crm',              label: 'CRM Navigator',    icon: '🧭' },
       { href: '/admin/members',          label: 'Members',          icon: '👤' },
-      { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥', badgeKey: 'enquiries' },
-      { href: '/admin/replies',          label: 'Replies',          icon: '💌', badgeKey: 'replies' },     
+      { href: '/admin/enquiries',        label: 'Enquiries',        icon: '📥' },
+      { href: '/admin/replies',          label: 'Replies',          icon: '💌', badgeKey: 'replies' },
       { href: '/admin/crm/founding-members', label: 'Founding Members', icon: '🌟' },
+      { href: '/admin/outreach',         label: 'Outreach',         icon: '🏘️' },
       { href: '/admin/campaigns',        label: 'Campaigns',        icon: '📮' },
       { href: '/admin/segments',         label: 'Segments',         icon: '🦋' },
       { href: '/admin/moments',          label: 'Moments',          icon: '✨' },
@@ -54,7 +51,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/admin/events',           label: 'Events',           icon: '📅' },
       { href: '/admin/event-submissions',label: 'Event submissions',icon: '📝', badgeKey: 'submissions' },
       { href: '/admin/announcements',    label: 'Announcements',    icon: '📣', soon: true },
-      { href: '/admin/flyers',           label: 'Marketing',        icon: '🖨️' },
+      { href: '/admin/flyers',           label: 'Flyers',           icon: '🖨️' },
     ],
   },
   {
@@ -105,8 +102,6 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
   const [admin, setLocalAdmin] = useState<CmsAdmin | null>(null);
   const [pendingSubmissions, setPendingSubmissions] = useState<number>(0);
   const [unreadReplies, setUnreadReplies] = useState<number>(0);
-  const [unreadEnquiries, setUnreadEnquiries] = useState<number>(0);
-  const [unreadInbox, setUnreadInbox] = useState<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -124,92 +119,27 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
      
   }, []);
 
-  // Refresh sidebar badges whenever the route changes so admins see an
-  // up-to-date count after handling an enquiry, reply or submission.
+  // Refresh the pending submissions badge whenever the route changes so
+  // admins see an up-to-date count after approving / rejecting an entry.
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await cmsApi.listEventSubmissions('pending');
-        if (!cancelled) setPendingSubmissions(res.counts?.pending ?? 0);
+        const [subs, reps] = await Promise.all([
+          cmsApi.listEventSubmissions('pending').catch(() => null),
+          // iter160b: reply badge in CRM nav
+          (await import('@/lib/cms-api')).repliesApi.unreadCount().catch(() => null),
+        ]);
+        if (cancelled) return;
+        if (subs) setPendingSubmissions(subs.counts?.pending ?? 0);
+        if (reps) setUnreadReplies(reps.unread_count ?? 0);
       } catch {
-        // Silent fail — badge just stays at last known value.
-      }
-      try {
-        const res = await repliesApi.unreadCount();
-        if (!cancelled) setUnreadReplies(res.unread_count ?? 0);
-      } catch {
-        // Silent fail — replies badge stays at last known value.
-      }
-      try {
-        const res = await enquiriesBadgeApi.unreadCount();
-        if (!cancelled) setUnreadEnquiries(res.count ?? 0);
-      } catch {
-        // Silent fail — enquiries badge stays at last known value.
-      }
-      try {
-        const res = await inboxApi.unreadCount();
-        if (!cancelled) setUnreadInbox(res.count ?? 0);
-      } catch {
-        // Silent fail — inbox badge stays at last known value.
+        // Silent fail — badges just stay at last known value.
       }
     })();
     return () => { cancelled = true; };
   }, [ready, pathname]);
-
-  // Inbox messages can arrive while the admin stays on the same page. Keep the
-  // navigator Inbox badge live just like the Inbox page itself: refresh every
-  // 10 seconds while visible and immediately when the tab/window regains focus.
-  useEffect(() => {
-    if (!ready) return;
-    let cancelled = false;
-
-    const refreshInboxBadge = async () => {
-      if (document.visibilityState !== 'visible') return;
-      try {
-        const res = await inboxApi.unreadCount();
-        if (!cancelled) setUnreadInbox(res.count ?? 0);
-      } catch {
-        // Silent fail — preserve the last known Inbox badge value.
-      }
-    };
-
-    void refreshInboxBadge();
-    const timer = window.setInterval(refreshInboxBadge, 10000);
-    window.addEventListener('focus', refreshInboxBadge);
-    document.addEventListener('visibilitychange', refreshInboxBadge);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      window.removeEventListener('focus', refreshInboxBadge);
-      document.removeEventListener('visibilitychange', refreshInboxBadge);
-    };
-  }, [ready]);
-
-  // Enquiry status changes happen without a route change. Listen for the
-  // shared lifecycle event so the sidebar badge updates immediately instead
-  // of waiting until the admin navigates somewhere else.
-  useEffect(() => {
-    if (!ready) return;
-    let cancelled = false;
-
-    const refreshEnquiriesBadge = async () => {
-      try {
-        const res = await enquiriesBadgeApi.unreadCount();
-        if (!cancelled) setUnreadEnquiries(res.count ?? 0);
-      } catch {
-        // Silent fail — preserve the last known badge value.
-      }
-    };
-
-    window.addEventListener(ENQUIRY_HANDLED_EVENT, refreshEnquiriesBadge);
-    return () => {
-      cancelled = true;
-      window.removeEventListener(ENQUIRY_HANDLED_EVENT, refreshEnquiriesBadge);
-    };
-  }, [ready]);
 
   const signOut = () => {
     clearAuth();
@@ -257,15 +187,9 @@ export function AdminShell({ children, title }: { children: ReactNode; title?: s
                   pathname === item.href ||
                   (pathname?.startsWith(item.href + '/') ?? false);
                 const badgeCount =
-                  item.badgeKey === 'submissions'
-                    ? pendingSubmissions
-                    : item.badgeKey === 'replies'
-                      ? unreadReplies
-                      : item.badgeKey === 'enquiries'
-                        ? unreadEnquiries
-                        : item.badgeKey === 'inbox'
-                          ? unreadInbox
-                          : 0;
+                  item.badgeKey === 'submissions' ? pendingSubmissions :
+                  item.badgeKey === 'replies'     ? unreadReplies      :
+                  0;
                 return (
                   <Link
                     key={item.href}

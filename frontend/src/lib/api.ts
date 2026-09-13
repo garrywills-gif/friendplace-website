@@ -87,9 +87,91 @@ async function req<T = any>(path: string, opts: RequestInit = {}, options: { sil
       }
     }
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${text}`);
+    throw new Error(_friendlyErrorMessage(res.status, text));
   }
-  return res.json() as Promise<T>;
+  // Success status but the body might still be non-JSON (e.g. a Cloudflare
+  // interstitial that returned 200 with an HTML challenge page, or a proxy
+  // that swallowed the FastAPI body). Read as text first so we can decide.
+  const raw = await res.text().catch(() => "");
+  if (!raw) {
+    // Some backends return 204 / empty bodies for POSTs; treat as `{}`.
+    return {} as T;
+  }
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    // Non-JSON body under a 2xx — treat identically to a Cloudflare/HTML
+    // error and raise a friendly message instead of a JSON.parse trace.
+    throw new Error(_friendlyErrorMessage(res.status, raw));
+  }
+}
+
+/**
+ * Convert an HTTP error (status + raw body) into a friendly, user-safe
+ * message. We deliberately do NOT surface raw HTML/Cloudflare response
+ * bodies to the UI — they leak infra details, look broken, and confuse
+ * end users. Backend JSON errors of the shape `{"detail": "..."}` are
+ * preserved as-is because they're written for end users.
+ *
+ * Recognises:
+ *   • Cloudflare error/challenge pages (block, 1020, "Attention Required")
+ *   • Generic HTML bodies (any `<html`, `<!doctype`)
+ *   • Empty / non-text bodies
+ *   • FastAPI JSON `{detail: "..."}` — pass through
+ *   • Anything else — best-effort truncated summary
+ */
+function _friendlyErrorMessage(status: number, body: string): string {
+  const trimmed = (body || "").trim();
+  const lower = trimmed.toLowerCase();
+
+  // 1) FastAPI JSON detail — keep verbatim (already user-facing).
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const j = JSON.parse(trimmed);
+      const detail =
+        (typeof j?.detail === "string" && j.detail) ||
+        (typeof j?.message === "string" && j.message) ||
+        (typeof j?.error === "string" && j.error) ||
+        "";
+      if (detail) return `${status} ${detail}`;
+    } catch { /* fall through */ }
+  }
+
+  // 2) Cloudflare / generic HTML — never surface raw markup.
+  const isCloudflare =
+    lower.includes("cloudflare") ||
+    lower.includes("attention required") ||
+    lower.includes("error 1020") ||
+    lower.includes("cf-ray") ||
+    lower.includes("cf-error");
+  const isHtml =
+    lower.startsWith("<!doctype") ||
+    lower.startsWith("<html") ||
+    lower.includes("<body");
+
+  if (isCloudflare) {
+    return "We can't reach FriendPlace right now. Please check your connection and try again in a moment.";
+  }
+  if (isHtml) {
+    if (status >= 500) {
+      return "Something went wrong on our end. Please try again in a moment.";
+    }
+    if (status === 0 || status === 408) {
+      return "The connection timed out. Please check your network and try again.";
+    }
+    return "We couldn't complete that request. Please try again in a moment.";
+  }
+
+  // 3) Plain-text body from FastAPI or middleware — safe to show if short.
+  if (trimmed.length > 0 && trimmed.length <= 240) {
+    return `${status} ${trimmed}`;
+  }
+
+  // 4) Unknown / empty — status-only.
+  if (status >= 500) return "Something went wrong on our end. Please try again in a moment.";
+  if (status === 429) return "You're going a bit fast — please wait a moment and try again.";
+  if (status === 0)   return "No connection. Please check your network and try again.";
+  return `Request failed (${status}). Please try again.`;
 }
 
 export const api = {
@@ -167,6 +249,12 @@ export const api = {
     req("/friends/request", { method: "POST", body: JSON.stringify({ from_id, to_id }) }),
   myRequests: (uid: string) => req(`/friends/requests/${uid}`),
   friendsInbox: (uid: string) => req(`/friends/inbox/${uid}`),
+  // Canonical accepted-friends list for THIS user. Backed by
+  // `/api/friends/{user_id}` — the single source of truth used by
+  // BOTH the Home "My Friends" tile subtitle count AND the /friends/list
+  // screen. Filters out banned / hidden / one-way / blocked users so
+  // Home and My Friends can never disagree. Batch B iter158 fix.
+  myFriends: (uid: string) => req(`/friends/${uid}`),
   acceptReq: (rid: string) => req(`/friends/accept/${rid}`, { method: "POST" }),
   declineReq: (rid: string) => req(`/friends/decline/${rid}`, { method: "POST" }),
   cancelReq: (rid: string) => req(`/friends/cancel/${rid}`, { method: "POST" }),
@@ -436,7 +524,7 @@ export const api = {
   },
   /** User-submitted group suggestion. Awaits admin approval before
    *  appearing in the public listing. */
-  suggestGroup: (token: string, body: { name: string; emoji?: string; description?: string; reason?: string; locality?: string; locality_postcode?: string; locality_state?: string }) =>
+  suggestGroup: (token: string, body: { name: string; emoji?: string; description?: string; reason?: string }) =>
     req("/groups/suggest", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
@@ -461,10 +549,9 @@ export const api = {
   commentGroupPost: (pid: string, b: any) => req(`/groups/posts/${pid}/comment`, { method: "POST", body: JSON.stringify(b) }),
 
   // events
-  listEvents: (opts: { user_id?: string; q?: string; radius_km?: number } = {}) => {
+  listEvents: (opts: { user_id?: string; radius_km?: number } = {}) => {
     const params = new URLSearchParams();
     if (opts.user_id) params.set("user_id", opts.user_id);
-    if (opts.q) params.set("q", opts.q);
     if (opts.radius_km) params.set("radius_km", String(opts.radius_km));
     const qs = params.toString();
     return req(`/events${qs ? `?${qs}` : ""}`);
@@ -472,7 +559,7 @@ export const api = {
   rsvpEvent: (id: string, uid: string, response: "going" | "maybe" | "cant" = "going") =>
     req(`/events/${id}/rsvp/${uid}`, { method: "POST", body: JSON.stringify({ response }) }),
   unrsvpEvent: (id: string, uid: string) => req(`/events/${id}/unrsvp/${uid}`, { method: "POST" }),
-  createEvent: (body: { title: string; emoji?: string; cover_image_url?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; host_id?: string; recurrence?: "weekly" | "fortnightly" | "monthly" | null; recurrence_count?: number | null }) =>
+  createEvent: (body: { title: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; host_id?: string; recurrence?: "weekly" | "fortnightly" | "monthly" | null; recurrence_count?: number | null }) =>
     req(`/events`, { method: "POST", body: JSON.stringify(body) }),
   // Business-event heuristic preflight — called before createEvent so we
   // can surface the friendly "this looks like a business event" modal.
@@ -508,7 +595,7 @@ export const api = {
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(payload),
     }),
-  updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; cover_image_url?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
+  updateEvent: (id: string, body: { actor_id: string; title?: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; notify_changes?: boolean }) =>
     req(`/events/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   cancelEvent: (id: string, body: { actor_id: string; reason?: string }) =>
     req(`/events/${id}/cancel`, { method: "POST", body: JSON.stringify(body) }),

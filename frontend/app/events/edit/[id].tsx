@@ -25,14 +25,14 @@ export default function EditEvent() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("☕");
-  const [coverImage, setCoverImage] = useState("");
-  const [coverPicker, setCoverPicker] = useState(false);
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
   const [capacity, setCapacity] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [image, setImage] = useState<string>("");
+  const [imagePicker, setImagePicker] = useState<boolean>(false);
 
   useEffect(() => {
     (async () => {
@@ -43,12 +43,12 @@ export default function EditEvent() {
         setEv(e);
         setTitle(e.title || "");
         setEmoji(e.emoji || "☕");
-        setCoverImage(e.cover_image_url || "");
         setDescription(e.description || "");
         setLocation(e.location || "");
         setDate(e.date || "");
         setTime(e.time || "");
         setCapacity(e.capacity ?? null);
+        setImage(e.image || "");
       } catch { show("Could not load event"); }
       finally { setLoading(false); }
     })();
@@ -80,11 +80,11 @@ export default function EditEvent() {
         actor_id: user.id,
         title: title.trim(),
         emoji,
-        cover_image_url: coverImage,
         description: description.trim(),
         location: location.trim(),
         date,
         time,
+        image,
         capacity: capacity ?? 0,  // 0 = unlimited per backend
         notify_changes: true,
       });
@@ -161,33 +161,45 @@ export default function EditEvent() {
             ))}
           </View>
 
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Photo <Text style={{ color: c.muted, fontWeight: "600" }}>(optional)</Text></Text>
-          {coverImage ? (
-            <View>
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Description</Text>
+          <TextInput value={description} onChangeText={setDescription} multiline maxLength={400} style={[styles.input, inputStyle, { minHeight: 90, textAlignVertical: "top" }]} />
+
+          {/* Cover photo — shared gallery picker + upload. */}
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Cover photo (optional)</Text>
+          {image ? (
+            <View style={{ gap: 8 }}>
               {(() => {
-                const src = resolveImageSource(coverImage);
-                return src ? <Image source={src} style={styles.coverPreview} resizeMode="cover" /> : null;
+                const src = resolveImageSource(image);
+                return src ? (
+                  <Image source={src} style={styles.coverPreview} resizeMode="cover" />
+                ) : null;
               })()}
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-                <Pressable testID="edit-photo-change" onPress={() => setCoverPicker(true)} style={[styles.coverBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+              <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                <Pressable
+                  onPress={() => setImagePicker(true)}
+                  style={[styles.smallBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                >
                   <Ionicons name="images" size={16} color={c.onSurface} />
                   <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>Change photo</Text>
                 </Pressable>
-                <Pressable testID="edit-photo-remove" onPress={() => setCoverImage("")} style={[styles.coverBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                <Pressable
+                  onPress={() => setImage("")}
+                  style={[styles.smallBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+                >
                   <Ionicons name="close-circle" size={16} color={c.muted} />
                   <Text style={{ color: c.muted, fontWeight: "800", fontSize: 13 * scale }}>Remove</Text>
                 </Pressable>
               </View>
             </View>
           ) : (
-            <Pressable testID="edit-photo-add" onPress={() => setCoverPicker(true)} style={[styles.coverAddBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Pressable
+              onPress={() => setImagePicker(true)}
+              style={[styles.photoAdd, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
+            >
               <Ionicons name="camera" size={22} color={c.brand} />
               <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>Add a photo</Text>
             </Pressable>
           )}
-
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Description</Text>
-          <TextInput value={description} onChangeText={setDescription} multiline maxLength={400} style={[styles.input, inputStyle, { minHeight: 90, textAlignVertical: "top" }]} />
 
           <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Location</Text>
           <TextInput value={location} onChangeText={setLocation} maxLength={120} style={[styles.input, inputStyle]} />
@@ -285,11 +297,12 @@ export default function EditEvent() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* Cover-photo picker — shared FriendPlace gallery + upload. */}
       <GalleryPicker
-        visible={coverPicker}
-        onClose={() => setCoverPicker(false)}
-        onPick={setCoverImage}
-        currentValue={coverImage}
+        visible={imagePicker}
+        onClose={() => setImagePicker(false)}
+        onPick={setImage}
+        currentValue={image}
       />
     </View>
   );
@@ -301,7 +314,27 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontWeight: "600", marginTop: 4 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
   emojiBtn: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
-  coverPreview: { width: "100%", height: 170, borderRadius: 12, backgroundColor: "#E2E8F0", marginTop: 4 },
-  coverBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 12, borderWidth: 1, minHeight: 44 },
-  coverAddBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12, borderWidth: 1.5, borderStyle: "dashed", marginTop: 4, minHeight: 56 },
+  coverPreview: { width: "100%", height: 180, borderRadius: 12, marginTop: 4 },
+  photoAdd: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    minHeight: 52,
+    marginTop: 4,
+  },
+  smallBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    minHeight: 36,
+  },
 });

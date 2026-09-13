@@ -28,7 +28,7 @@
  *   <ZoomableImageViewer uri={zoom} onClose={() => setZoom(null)} />
  */
 import React, { useCallback, useEffect } from "react";
-import { Modal, Pressable, StyleSheet, View, Text, useWindowDimensions } from "react-native";
+import { Modal, Pressable, StyleSheet, View, Text, useWindowDimensions, ImageSourcePropType } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   useAnimatedStyle,
@@ -36,12 +36,19 @@ import Animated, {
   withTiming,
   runOnJS,
 } from "react-native-reanimated";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type Props = {
-  /** URI of the image to display. `null` hides the modal. */
-  uri: string | null;
+  /** URI of the image to display. `null` hides the modal. Kept for
+   * backward compatibility with existing callers (DM chat photos,
+   * profile hero, edit-profile preview). Prefer `source` for new code
+   * so bundled `require()`d assets can also be zoomed. */
+  uri?: string | null;
+  /** Bundled image source (require()d asset) — enables preset avatars
+   * and gallery photos to zoom. When both `uri` and `source` are set,
+   * `source` wins. Modal shows whenever either is truthy. */
+  source?: ImageSourcePropType | null;
   /** Called when the user dismisses the viewer. */
   onClose: () => void;
   /** Optional caption shown at the bottom (e.g. "Sent by Alice"). */
@@ -54,9 +61,19 @@ const MIN_SCALE = 1;
 const MAX_SCALE = 5;
 const DOUBLE_TAP_SCALE = 2.5;
 
-export default function ZoomableImageViewer({ uri, onClose, caption, testID }: Props) {
+export default function ZoomableImageViewer({ uri, source, onClose, caption, testID }: Props) {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
+  // The viewer is "active" when either a URI OR a bundled source is
+  // supplied. Callers can pass whichever they have — presets ship as
+  // require()d ImageSourcePropType, uploaded photos & Google avatars
+  // ship as URIs.
+  const visible = !!(uri || source);
+  const imageSource: ImageSourcePropType | undefined = source
+    ? source
+    : uri
+      ? ({ uri } as ImageSourcePropType)
+      : undefined;
 
   // Reanimated shared values — driven by the gesture handlers on the
   // UI thread so the transform stays glass-smooth even on old iPads.
@@ -70,7 +87,7 @@ export default function ZoomableImageViewer({ uri, onClose, caption, testID }: P
   // Reset every time a new image opens so the viewer never inherits
   // the previous image's zoom state.
   useEffect(() => {
-    if (uri) {
+    if (visible) {
       scale.value = 1;
       savedScale.value = 1;
       tx.value = 0;
@@ -78,7 +95,7 @@ export default function ZoomableImageViewer({ uri, onClose, caption, testID }: P
       savedTx.value = 0;
       savedTy.value = 0;
     }
-  }, [uri, scale, savedScale, tx, ty, savedTx, savedTy]);
+  }, [visible, scale, savedScale, tx, ty, savedTx, savedTy]);
 
   const closeAnd = useCallback(() => {
     onClose();
@@ -181,50 +198,62 @@ export default function ZoomableImageViewer({ uri, onClose, caption, testID }: P
 
   return (
     <Modal
-      visible={!!uri}
+      visible={visible}
       transparent
       animationType="fade"
       onRequestClose={onClose}
       statusBarTranslucent
       testID={testID}
     >
-      <View style={styles.backdrop}>
-        {/* The image itself — wrapped in the gesture detector so pinch
-            and pan happen on the image (not the backdrop). */}
-        <GestureDetector gesture={composed}>
-          <Animated.View style={[styles.imgWrap, animStyle]}>
-            {uri && (
-              <Animated.Image
-                source={{ uri }}
-                style={styles.img}
-                resizeMode="contain"
-                accessibilityLabel="Zoomable image"
-              />
-            )}
-          </Animated.View>
-        </GestureDetector>
+      {/* TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #3):
+          Pinch/zoom didn't work on TestFlight. Root cause: on iOS,
+          React Native's <Modal> presents its content in a SEPARATE
+          UIWindow that sits OUTSIDE the app's root
+          <GestureHandlerRootView>. Gesture handlers registered inside
+          the modal therefore never receive touches. Fix per official
+          react-native-gesture-handler v2 docs: wrap the modal content
+          in its OWN GestureHandlerRootView. This is a no-op on web
+          preview (where the previous implementation appeared to work
+          via bubble-up), so the fix is safe across all surfaces. */}
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View style={styles.backdrop}>
+          {/* The image itself — wrapped in the gesture detector so pinch
+              and pan happen on the image (not the backdrop). */}
+          <GestureDetector gesture={composed}>
+            <Animated.View style={[styles.imgWrap, animStyle]}>
+              {imageSource && (
+                <Animated.Image
+                  source={imageSource}
+                  style={styles.img}
+                  resizeMode="contain"
+                  accessibilityLabel="Zoomable image"
+                />
+              )}
+            </Animated.View>
+          </GestureDetector>
 
-        {/* Close button — always visible, tap target 44+ */}
-        <Pressable
-          testID="zoom-close-btn"
-          onPress={onClose}
-          hitSlop={16}
-          accessibilityLabel="Close image"
-          style={[styles.close, { top: insets.top + 12 }]}
-        >
-          <Ionicons name="close-circle" size={44} color="#FFFFFFEE" />
-        </Pressable>
+          {/* Close button — always visible, tap target 44+ */}
+          <Pressable
+            testID="zoom-close-btn"
+            onPress={onClose}
+            hitSlop={16}
+            accessibilityLabel="Close image"
+            style={[styles.close, { top: insets.top + 12 }]}
+          >
+            <Ionicons name="close-circle" size={44} color="#FFFFFFEE" />
+          </Pressable>
 
-        {/* Zoom hint — visible when at 1×, disappears when zoomed */}
-        <View
-          pointerEvents="none"
-          style={[styles.hint, { bottom: insets.bottom + 18 }]}
-        >
-          <Text style={styles.hintText}>
-            {caption ? caption : "Pinch or double-tap to zoom"}
-          </Text>
+          {/* Zoom hint — visible when at 1×, disappears when zoomed */}
+          <View
+            pointerEvents="none"
+            style={[styles.hint, { bottom: insets.bottom + 18 }]}
+          >
+            <Text style={styles.hintText}>
+              {caption ? caption : "Pinch or double-tap to zoom"}
+            </Text>
+          </View>
         </View>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

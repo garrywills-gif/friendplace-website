@@ -16,6 +16,7 @@ import { GeorgeEventCreation } from './GeorgeEventCreation';
 import { GeorgeCompanionChat } from './GeorgeCompanionChat';
 import { useGeorge } from '@/src/lib/george-context';
 import { georgeApi, type Presence } from '@/src/lib/george-api';
+import { useGeorgeVoice, VOICE_LABELS } from '@/src/lib/george-voice';
 
 /**
  * George's butterfly on FriendPlace mobile.
@@ -75,6 +76,12 @@ type Phase = 'idle' | 'arriving' | 'landed' | 'resting' | 'intro';
 export function GeorgeButterfly() {
   const insets = useSafeAreaInsets();
   const { landedFrom, consumeLanded, currentScreen, openRequested, currentPathname } = useGeorge();
+  // Persisted companion pick — drives the "Chat to George" / "Chat to
+  // Georgia" CTA label on the welcome bubble. Falls back to George
+  // until the AsyncStorage cache hydrates so the first frame after a
+  // cold start doesn't flash the wrong name.
+  const { voice: companionVoice } = useGeorgeVoice();
+  const companionShortName = VOICE_LABELS[companionVoice]?.short || 'George';
   const [phase, setPhase] = useState<Phase>('idle');
   const [, setPresence] = useState<Presence | null>(null);
   const [greeting, setGreeting] = useState<string | null>(null);
@@ -591,6 +598,7 @@ export function GeorgeButterfly() {
                 Welcome Back experience. */}
             <GeorgeWelcomeBubble
               greeting={greeting}
+              chatLabel={`💬  Chat to ${companionShortName}`}
               onChat={flutterAndOpenChat}
               onDismiss={() => {
                 bubbleOpacity.value = withTiming(0, { duration: 160 });
@@ -697,15 +705,23 @@ function pickReturningGreeting(pres: Presence | null, warmWelcome: boolean, geor
     hour < 17 ? 'Afternoon' :
     hour < 21 ? 'Evening' : 'Hi';
 
-  // First greeting after onboarding — take the chance to gently
-  // introduce Georgia so members know they can switch anytime.
-  // This overrides the standard rotations for exactly one session.
-  // TestFlight round-2 v2 (Garry, 28 July 2026): the original one-
-  // paragraph greeting rendered ~6 lines high and its top edge slid
-  // beneath the iPhone Dynamic Island. Trimmed to 2 short lines so
-  // the bubble stays well below the notch area on every device.
+  // First greeting after onboarding — the ONLY moment we treat a
+  // member as genuinely new. `georgiaHint` is set exactly once by the
+  // onboarding wizard on tour completion (server.py flips
+  // `onboarding_completed=true` at the same moment; see
+  // `GEORGIA_HINT_FLAG` below and `pickReturningGreeting` callers).
+  // Returning members never re-enter this branch — they fall through
+  // to `rotations` — and a reinstall or device change does NOT
+  // resurrect the flag, so an established member cannot be
+  // incorrectly greeted as new (Session 2 launch-polish 2026-08-14).
+  //
+  // Copy corrected 2026-08-14 (Garry launch-polish #4): the previous
+  // "Lovely to see you again" line read as returning-member language
+  // to a genuinely new member. First-time members now hear "Nice to
+  // meet you"; the Georgia introduction still slips in warmly at the
+  // end of the same sentence.
   if (georgiaHint) {
-    return `${partOfDay}${first ? ', ' + first : ''}. Lovely to see you again \u2014 tap Settings anytime to chat with Georgia instead.`;
+    return `${partOfDay}${first ? ', ' + first : ''}. Nice to meet you \u2014 tap Settings anytime to chat with Georgia instead.`;
   }
 
   const unfinished = pres?.unfinished?.[0];

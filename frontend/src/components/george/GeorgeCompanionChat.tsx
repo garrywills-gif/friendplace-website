@@ -130,12 +130,13 @@ export function GeorgeCompanionChat({ onClose }: Props) {
         <GeorgeButterflyMark size={40} />
         <Text style={styles.headerName}>{voiceLabel}</Text>
         <Pressable onPress={confirmClearChat} disabled={busy} hitSlop={8}
+          testID="companion-clear"
           style={({ pressed }) => [styles.clearChatBtn, busy && { opacity: 0.4 }, pressed && styles.pressed]}
           accessibilityRole="button" accessibilityLabel="Clear chat and start over">
           <Ionicons name="refresh" size={14} color="#0F766E" />
           <Text style={styles.clearChatText}>Clear chat</Text>
         </Pressable>
-        <Pressable onPress={onClose} hitSlop={8}>
+        <Pressable onPress={onClose} hitSlop={8} testID="companion-close">
           <Text style={styles.finishLater}>Close</Text>
         </Pressable>
       </View>
@@ -172,6 +173,7 @@ export function GeorgeCompanionChat({ onClose }: Props) {
           <View style={styles.composer}>
             <TextInput
               style={styles.input}
+              testID="companion-input"
               value={input}
               onChangeText={setInput}
               placeholder={`Chat with ${voiceLabel}…`}
@@ -181,6 +183,7 @@ export function GeorgeCompanionChat({ onClose }: Props) {
               onFocus={() => { requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true })); }}
             />
             <Pressable onPress={send} disabled={busy || !input.trim() || isRecording || isTranscribing}
+              testID="companion-send"
               style={({ pressed }) => [styles.sendBtn, (busy || !input.trim() || isRecording || isTranscribing) && { opacity: 0.5 }, pressed && styles.pressed]}>
               <Text style={styles.sendBtnText}>Send</Text>
             </Pressable>

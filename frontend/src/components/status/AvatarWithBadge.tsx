@@ -58,6 +58,12 @@ type Props = {
    *  and notification feeds (design §5.4 "surfaces intentionally NOT
    *  receiving the badge"). */
   showBadge?: boolean;
+  /** When true AND the avatar is a real photo (preset / uploaded /
+   *  Google URL), tapping opens the shared full-screen zoom viewer.
+   *  Emoji avatars are never zoomable — nothing to see. Callers on
+   *  member-profile hero surfaces should pass this; message-bubble
+   *  and notification-feed avatars should leave it off. */
+  zoomable?: boolean;
   testID?: string;
 };
 
@@ -74,6 +80,7 @@ export default function AvatarWithBadge({
   containerStyle,
   corner = "br",
   showBadge = true,
+  zoomable = false,
   testID,
 }: Props) {
   const { c } = useTheme();
@@ -142,6 +149,7 @@ export default function AvatarWithBadge({
         fallback={fallback}
         textStyle={textStyle}
         imageStyle={imageStyle}
+        zoomable={zoomable}
       />
       {shouldShowBadge && meta ? (
         <View

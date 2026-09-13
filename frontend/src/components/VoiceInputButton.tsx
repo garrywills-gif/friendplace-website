@@ -107,12 +107,14 @@ type Props = {
 // Metro/Babel from statically inlining the value on native builds, so
 // physical devices ended up POSTing to a relative `/api/voice/...`
 // URL and native `fetch` rejected it as `Invalid URL`. Reference the
-// env vars WITHOUT the `as any` cast so Metro's transform can replace
-// them at bundle time.
-const BACKEND_URL: string =
-  process.env.EXPO_PUBLIC_BACKEND_URL ||
-  process.env.EXPO_BACKEND_URL ||
-  "";
+// env var WITHOUT the `as any` cast so Metro's transform can replace
+// it at bundle time.
+//
+// Deployment health check (11 Aug 2026): removed the
+// `EXPO_BACKEND_URL` (non-public) fallback — only `EXPO_PUBLIC_*` vars
+// are inlined into the release JS bundle, so the fallback silently
+// resolved at dev time but was `undefined` in Store builds.
+const BACKEND_URL: string = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 
 export default function VoiceInputButton({
   value,

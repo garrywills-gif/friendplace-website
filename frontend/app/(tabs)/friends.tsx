@@ -76,6 +76,18 @@ export default function Friends() {
   };
   useFocusEffect(useCallback(() => { load(); }, [q, user?.id, nearMe?.lat, nearMe?.lng, radius]));
 
+  // Batch B iter157 (Garry, Aug 2026 — P0 #1): re-fetch the members
+  // list whenever the user toggles Near Me on/off OR changes the radius
+  // WHILE staying on this screen. `useFocusEffect` alone only re-runs
+  // its effect on focus events, so tapping 5 → 10 → 25 km did nothing
+  // until the tab was left and re-entered. This effect keeps the list
+  // in sync with the selected radius in real time.
+  React.useEffect(() => {
+    if (!user?.id) return;
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearMe?.lat, nearMe?.lng, radius]);
+
   // Hydrate the outbound-request set so previously-sent requests still
   // show "Request Sent ✓" after coming back to this tab. Best-effort —
   // we don't block the row render on it, and a failure just leaves the
@@ -130,40 +142,219 @@ export default function Friends() {
   );
 
   const requestNearMe = async () => {
+    // Batch B iter159 (Garry, Aug 2026 — real-iPhone Bug 3 RCA)
+    // ────────────────────────────────────────────────────────────
+    // iter158 already added the `getCurrentPositionAsync` timeout,
+    // but the flow could still stall silently BEFORE ever reaching
+    // that call because:
+    //   • `Location.hasServicesEnabledAsync()` — no timeout, some
+    //     iOS builds hang for 10+ s on cold boot.
+    //   • `Location.getForegroundPermissionsAsync()` — no timeout,
+    //     seen to hang when Screen Time / MDM restrictions are on.
+    //   • `Location.requestForegroundPermissionsAsync()` — hangs
+    //     until user taps, but if the OS dialog fails to present
+    //     (bug seen when a Modal is still animating out on iOS),
+    //     it never resolves.
+    //
+    // Every silent hang killed the "Use my location" flow with no
+    // visible feedback — user tapped, modal closed, then nothing.
+    //
+    // Fix: wrap EVERY expo-location call in an explicit
+    // `withTimeout(...)` promise race, and add a single top-level
+    // 20 s watchdog that ALWAYS resets `askingLoc` and surfaces a
+    // clear toast. Location accuracy also dropped from Balanced →
+    // Low (~1 km, more than enough for suburb matching) which
+    // typically returns in 1-3 s on iOS instead of the 8-15 s
+    // Balanced sometimes needs on a device that's been indoors.
+    const N = (stage: string, extra?: any) => {
+      try { // eslint-disable-next-line no-console
+        console.log(`[friends/near-me] ${stage}`, extra ?? "");
+      } catch { /* noop */ }
+    };
+    // Race any promise against a hard timeout. Rejects with the
+    // given label so we can identify which stage timed out.
+    const withTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`timeout:${label}`)), ms)),
+      ]);
+
+    N("tap");
     setShowRationale(false);
+    // iOS animation-frame gap so the rationale modal's underlying
+    // UIViewController isn't still on-screen when the OS permission
+    // alert or Location Services call is made. Empirically 350 ms
+    // is enough on iPhone 16 across iOS 18/19.
+    if (Platform.OS === "ios") {
+      await new Promise((r) => setTimeout(r, 350));
+    }
     setAskingLoc(true);
+
+    // Top-level watchdog: if we haven't returned in 20 s for ANY
+    // reason (silent expo-location hang, backend suburbs endpoint
+    // stalling, weird ANR-like state), force the loading flag off
+    // and drop a toast so the button is tappable again and the
+    // user knows what happened. This runs INDEPENDENT of the inner
+    // Promise.race timeouts.
+    let handledByFinally = false;
+    const globalWatchdog = setTimeout(() => {
+      if (handledByFinally) return;
+      N("watchdog:fired");
+      setAskingLoc(false);
+      setLocationDeclined(true);
+      show("Location took too long. Please try again or type a suburb above.");
+    }, 20_000);
+
     try {
-      // Check permission state first — respect handle_permissions_contract
-      const current = await Location.getForegroundPermissionsAsync();
+      N("services:check");
+      let servicesOn = true;
+      try {
+        servicesOn = await withTimeout(
+          Location.hasServicesEnabledAsync(),
+          3_000,
+          "hasServicesEnabled",
+        );
+      } catch (e: any) {
+        // Not fatal — most devices have services on; if the check
+        // hangs, we proceed and let the permission prompt clarify.
+        N("services:timeout", { message: e?.message });
+      }
+      N("services:result", { servicesOn });
+      if (!servicesOn) {
+        setLocationDeclined(true);
+        show("Location Services are turned off on this device. Turn them on in Settings to use Near Me, or type a suburb above.");
+        return;
+      }
+
+      N("perm:check");
+      let current: any;
+      try {
+        current = await withTimeout(
+          Location.getForegroundPermissionsAsync(),
+          3_000,
+          "getForegroundPermissions",
+        );
+      } catch (e: any) {
+        // If the permission-state check itself hangs, fall through
+        // to a fresh request — the OS will always answer the ASK
+        // path even when the QUERY path is stalling.
+        N("perm:checkTimeout", { message: e?.message });
+        current = { granted: false, canAskAgain: true, status: "undetermined" };
+      }
+      N("perm:current", { granted: current.granted, canAskAgain: current.canAskAgain, status: current.status });
       if (!current.granted) {
         if (!current.canAskAgain) {
+          N("perm:blocked");
           setShowDeniedHelp(true);
           setLocationDeclined(true);
           return;
         }
-        const req = await Location.requestForegroundPermissionsAsync();
+        N("perm:request");
+        let req: any;
+        try {
+          req = await withTimeout(
+            Location.requestForegroundPermissionsAsync(),
+            60_000,       // wait up to 60s for user to tap Allow/Deny
+            "requestForegroundPermissions",
+          );
+        } catch (e: any) {
+          N("perm:requestTimeout", { message: e?.message });
+          setLocationDeclined(true);
+          show("The Location permission prompt didn't appear. Please close and reopen the app.");
+          return;
+        }
+        N("perm:requestResult", { granted: req.granted, canAskAgain: req.canAskAgain, status: req.status });
         if (!req.granted) {
           if (!req.canAskAgain) setShowDeniedHelp(true);
           setLocationDeclined(true);
+          show("Location permission is needed for Near Me. You can still find friends by typing a suburb.");
           return;
         }
       }
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Lowest });
-      // Reverse-lookup to nearest known suburb (we never store the device coords)
-      const nearest: any = await api.suburbsNearest(pos.coords.latitude, pos.coords.longitude);
-      const n = nearest?.nearest;
-      if (n) {
-        setNearMe({ lat: n.lat, lng: n.lng, suburb: n.name });
+
+      // Fast path: cached last-known position.
+      N("lastKnown:start");
+      let coords: { latitude: number; longitude: number } | null = null;
+      try {
+        const last = await withTimeout(
+          Location.getLastKnownPositionAsync({
+            maxAge: 5 * 60_000,
+            requiredAccuracy: 500,
+          }),
+          3_000,
+          "getLastKnown",
+        );
+        if (last?.coords) {
+          coords = { latitude: last.coords.latitude, longitude: last.coords.longitude };
+          N("lastKnown:hit", { lat: coords.latitude.toFixed(3), lng: coords.longitude.toFixed(3) });
+        } else {
+          N("lastKnown:miss");
+        }
+      } catch (e: any) {
+        N("lastKnown:error", { message: e?.message });
+      }
+
+      if (!coords) {
+        N("current:start");
+        // Use `Accuracy.Low` (~1 km) — plenty precise for suburb
+        // matching, and typically returns in 1-3 s on iOS instead
+        // of the 8-15 s Balanced can take indoors. Hard 12 s cap.
+        try {
+          const pos: any = await withTimeout(
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }),
+            12_000,
+            "getCurrentPosition",
+          );
+          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+          N("current:done", { lat: coords.latitude.toFixed(3), lng: coords.longitude.toFixed(3) });
+        } catch (e: any) {
+          N("current:error", { message: e?.message });
+          setLocationDeclined(true);
+          if (String(e?.message || "").startsWith("timeout:")) {
+            show("Couldn't get your location in time. Try again outdoors, or type a suburb above.");
+          } else {
+            show("Couldn't read your location. You can still find friends by typing a suburb.");
+          }
+          return;
+        }
+      }
+
+      // Reverse-lookup to nearest known suburb. Non-fatal — if it
+      // fails or times out, we fall back to raw coords which
+      // /users?near_lat=&near_lng=&radius_km= handles fine.
+      N("suburb:lookup");
+      let matchedSuburb: { name: string; lat: number; lng: number } | null = null;
+      try {
+        const nearest: any = await withTimeout(
+          api.suburbsNearest(coords.latitude, coords.longitude),
+          5_000,
+          "suburbsNearest",
+        );
+        const n = nearest?.nearest;
+        if (n?.lat && n?.lng) matchedSuburb = { name: n.name, lat: n.lat, lng: n.lng };
+        N("suburb:result", { name: matchedSuburb?.name });
+      } catch (e: any) {
+        N("suburb:error", { message: e?.message });
+        // fall through — raw coords work fine for radius filtering.
+      }
+
+      if (matchedSuburb) {
+        setNearMe({ lat: matchedSuburb.lat, lng: matchedSuburb.lng, suburb: matchedSuburb.name });
         setLocationDeclined(false);
-        show(`Showing members near ${n.name}`);
+        show(`Showing members near ${matchedSuburb.name}`);
       } else {
-        setNearMe({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setNearMe({ lat: coords.latitude, lng: coords.longitude });
         setLocationDeclined(false);
         show("Showing members near you");
       }
+      N("done");
     } catch (e: any) {
+      N("fatal", { message: e?.message, name: e?.name });
       setLocationDeclined(true);
+      show(e?.message || "Couldn't turn on Near Me — please try again.");
     } finally {
+      handledByFinally = true;
+      clearTimeout(globalWatchdog);
       setAskingLoc(false);
     }
   };
@@ -406,15 +597,21 @@ export default function Friends() {
                       testID={`add-friend-sent-${item.id}`}
                       style={[styles.actionBtn, { backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.border }]}
                     >
-                      <Ionicons name="checkmark" size={18} color={c.brand} />
-                      <Text style={[styles.actionText, { color: c.onSurface }]}>Request Sent</Text>
+                      <Ionicons name="checkmark" size={16} color={c.brand} />
+                      <Text
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        style={[styles.actionText, { color: c.onSurface }]}
+                      >
+                        Sent
+                      </Text>
                     </View>
                   );
                 }
                 return (
                   <Pressable testID={`add-friend-${item.id}`} onPress={() => sendReq(item)} style={[styles.actionBtn, { backgroundColor: c.brand }]}>
-                    <Ionicons name="person-add" size={18} color="#FFF" />
-                    <Text style={[styles.actionText]}>Add</Text>
+                    <Ionicons name="person-add" size={16} color="#FFF" />
+                    <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.actionText]}>Add</Text>
                   </Pressable>
                 );
               })()}
@@ -431,19 +628,32 @@ export default function Friends() {
               >
                 {flutteredIds.has(item.id) ? (
                   <>
-                    <Ionicons name="checkmark" size={16} color={c.brand} />
-                    <Text style={[styles.actionText, { color: c.onSurface }]}>Fluttered</Text>
+                    {/* Batch C follow-up (Garry, Aug 2026): keep the
+                        Flutter completed state as "Fluttered ✓" — it
+                        has a different meaning to a friend request.
+                        Tightened spacing + adjustsFontSizeToFit lets
+                        the longer word sit on one line on 375-wide
+                        iPhones without wrapping. */}
+                    <Ionicons name="checkmark" size={14} color={c.brand} />
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                      style={[styles.actionText, { color: c.onSurface, fontSize: 13 }]}
+                    >
+                      Fluttered
+                    </Text>
                   </>
                 ) : (
                   <>
                     <GeorgeButterflyMark size={16} />
-                    <Text style={[styles.actionText]}>Flutter</Text>
+                    <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.actionText]}>Flutter</Text>
                   </>
                 )}
               </Pressable>
               <Pressable testID={`msg-${item.id}`} onPress={() => startDm(item)} style={[styles.actionBtn, { backgroundColor: c.brandSecondary }]}>
-                <Ionicons name="chatbubble-ellipses" size={18} color="#FFF" />
-                <Text style={[styles.actionText]}>Msg</Text>
+                <Ionicons name="chatbubble-ellipses" size={16} color="#FFF" />
+                <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.actionText]}>Msg</Text>
               </Pressable>
             </View>
           </View>
@@ -475,8 +685,8 @@ const styles = StyleSheet.create({
   name: { fontWeight: "800" },
   metaText: { marginTop: 2, fontWeight: "500" },
   actionRow: { flexDirection: "row", gap: 8 },
-  actionBtn: { flex: 1, minHeight: 48, borderRadius: 999, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6 },
-  actionText: { color: "#FFF", fontWeight: "700", fontSize: 15 },
+  actionBtn: { flex: 1, minHeight: 48, borderRadius: 999, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 6, paddingHorizontal: 8, minWidth: 0 },
+  actionText: { color: "#FFF", fontWeight: "700", fontSize: 14, flexShrink: 1 },
 });
 
 const modalStyles = StyleSheet.create({
