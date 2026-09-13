@@ -198,8 +198,9 @@ async def deliver_briefing(
     Dedup rule: skip email/push if `bridge_seen_at` is set. That's
     Garry's "don't re-send what I already read" rule.
 
-    Channel policy varies by rhythm type (Garry's matrix, 2026-07-19):
-      - morning   : Bridge + email + push
+    Channel policy varies by rhythm type (Garry's matrix, 2026-07-19,
+    email row updated 2026-08-16):
+      - morning   : Bridge + push (email intentionally OFF — MCGS in-app only)
       - midday    : Bridge + push (no routine emails, silent by default)
       - eod       : Bridge + optional email (no push unless urgent)
       - milestone : Bridge only (folded into next Rhythm)
@@ -212,15 +213,21 @@ async def deliver_briefing(
     if not briefing_id or not admin_id:
         return {"skipped": "missing_ids"}
 
-    # Per-rhythm channel policy — Garry's delivery matrix, 2026-07-19.
+    # Per-rhythm channel policy — Garry's delivery matrix, 2026-07-19,
+    # updated 2026-08-16 to silence the morning email channel (Garry:
+    # "Keep the Morning Briefing inside MCGS; drop the email copy").
+    # Composer, Bridge card, push notifications and every OTHER
+    # FriendPlace email (welcome, RYI ack, RSVP, password reset,
+    # support, security, campaigns) are untouched — this only flips
+    # the morning-Rhythm email flag off.
     if rhythm_type == "midday":
         allow_email, allow_push = False, True
     elif rhythm_type == "eod":
         allow_email, allow_push = True, False
     elif rhythm_type == "milestone":
         allow_email, allow_push = False, False
-    else:  # morning + anything else
-        allow_email, allow_push = True, True
+    else:  # morning + anything else — email intentionally OFF
+        allow_email, allow_push = False, True
 
     # Always work from the latest row so a race between Bridge-view and
     # the scheduler is resolved by the freshest bridge_seen_at.

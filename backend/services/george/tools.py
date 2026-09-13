@@ -458,102 +458,21 @@ async def _count_organisations(db: Any, args: dict) -> int:
 #
 # Test-flagged rows (`is_test: true`) are excluded by default so QA
 # fixtures never inflate the real numbers.
-#
-# TIMEZONE (iter167).
-# ~~~~~~~~~~~~~~~~~~
-# All "day-bound" windows below (today / yesterday / this_week /
-# this_month) are computed against Australia/Sydney local midnight,
-# not UTC midnight. FriendPlace's audience — and Garry — think in
-# Sydney time; a "New Today" number computed on UTC midnight would
-# undercount by 10-11 hours every morning. See
-# ``services.analytics.local_time`` for the single source of truth.
-# The legacy ``since_days`` argument (rolling 24h window) is retained
-# for questions like "in the last 3 days" where a day boundary would
-# be surprising.
-#
-# REGISTERED vs JOINED-APP (iter167).
-# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# `interest_registrations.status = "joined"` is a MANUAL CRM ladder
-# flag — it does NOT prove a FriendPlace user account exists. When
-# Garry asks "how many people joined the app?", the honest answer
-# needs the ``count_founding_members_joined_app`` tool below, which
-# resolves the registration email against ``db.users``. Never
-# conflate the two.
-
-# Whitelist of Sydney-local windows George can request. The value is
-# the argument George passes; the mapping to a UTC range lives in
-# ``services.analytics.local_time.sydney_named_range``.
-_LOCAL_WINDOWS = {
-    "today", "yesterday",
-    "this_week", "last_week",
-    "this_month", "last_month",
-    "this_year",
-}
-
-
-def _apply_time_window(q: dict, args: dict) -> Optional[str]:
-    """Attach a ``created_at`` bound to the query based on the caller's
-    time-window arguments. Returns a short human label of the window
-    (or ``None`` if no window was requested) so the tool result can be
-    self-describing for the synthesizer.
-
-    Priority: ``since`` (Sydney-local named window) beats ``since_days``
-    (legacy rolling 24h window). This matches how Garry talks about
-    time — he means "today in Sydney", not "the last 24 hours".
-    """
-    from services.analytics.local_time import sydney_named_range
-
-    since = args.get("since")
-    if since:
-        start_iso, end_iso = sydney_named_range(since)  # type: ignore[arg-type]
-        q["created_at"] = {"$gte": start_iso, "$lt": end_iso}
-        return since
-    if "since_days" in args:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
-        q["created_at"] = {"$gte": cutoff.isoformat()}
-        return f"last_{int(args['since_days'])}_days"
-    return None
-
-
-def _apply_heard_from(q: dict, args: dict) -> None:
-    """Apply an optional ``heard_from`` substring filter.
-
-    ``heard_from`` is a free-text field the visitor types on the
-    Register Your Interest form. Values in production include
-    "Facebook", "Friend", "Google", "AI Companion", "Founder",
-    "A friend", "Newspaper", etc. We do case-insensitive substring
-    matching so "facebook" catches "Facebook", "FB", "via Facebook",
-    "Facebook ad", etc. Never invent a stricter enum — Garry's users
-    type whatever they want and we should be honest about that.
-    """
-    if not args.get("heard_from"):
-        return
-    rx = re.compile(re.escape(str(args["heard_from"])), re.IGNORECASE)
-    q["heard_from"] = rx
-
 
 @register(
     "count_interest_registrations",
     "Count website visitors who Registered their Interest (a.k.a. Founding Members). "
     "Filter by status (registered/invited/joined/opted_out — 'registered' also matches "
     "the legacy 'new' status i.e. anyone awaiting contact), companion_choice (george/georgia), "
-    "state_country (case-insensitive substring, e.g. 'Sydney', 'NSW', 'Melbourne'), "
-    "heard_from (case-insensitive substring on the free-text acquisition field, "
-    "e.g. 'Facebook', 'Google', 'Friend'), or a time window. "
-    "For time windows PREFER the ``since`` argument (Sydney-local: 'today', 'yesterday', "
-    "'this_week', 'last_week', 'this_month', 'last_month', 'this_year') — that matches how "
-    "Garry thinks about dates. Only fall back to ``since_days`` (rolling 24h) when the "
-    "question truly is 'in the last N days'. IMPORTANT: this counts REGISTERED interest "
-    "on the website, not joined-app accounts. If Garry asks 'how many joined the app?' "
-    "use ``count_founding_members_joined_app`` instead. Test-flagged rows excluded by default.",
+    "state_country (case-insensitive substring, e.g. 'Sydney', 'NSW', 'Melbourne'), or "
+    "since_days for a rolling window (use since_days=1 for 'today', 7 for 'this week'). "
+    "Test-flagged rows are excluded by default.",
     args={
         "status": {"type": "str", "required": False,
                    "enum": {"registered", "invited", "joined", "opted_out"}},
         "companion_choice": {"type": "str", "required": False,
                              "enum": {"george", "georgia"}},
         "state_country": {"type": "str", "required": False},
-        "heard_from": {"type": "str", "required": False},
-        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
         "since_days": {"type": "int", "required": False},
         "include_test_data": {"type": "bool", "required": False},
     },
@@ -574,8 +493,9 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
     if "state_country" in args:
         rx = re.compile(re.escape(args["state_country"]), re.IGNORECASE)
         q["state_country"] = rx
-    _apply_heard_from(q, args)
-    _apply_time_window(q, args)
+    if "since_days" in args:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
+        q["created_at"] = {"$gte": cutoff.isoformat()}
     if not _should_include_test_data(args):
         q["is_test"] = {"$ne": True}
     return await db.interest_registrations.count_documents(q)
@@ -586,8 +506,7 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
     "List website visitors who Registered their Interest (a.k.a. Founding Members), "
     "newest first. Returns a small list with first_name, email, state_country, heard_from, "
     "companion_choice, status and created_at. Capped at 50 rows. Same filters as "
-    "count_interest_registrations — including the Sydney-local ``since`` window and the "
-    "``heard_from`` substring filter. Use limit=1 to fetch just the most recent registration. "
+    "count_interest_registrations. Use limit=1 to fetch just the most recent registration. "
     "Test-flagged rows are excluded by default.",
     args={
         "status": {"type": "str", "required": False,
@@ -595,8 +514,6 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
         "companion_choice": {"type": "str", "required": False,
                              "enum": {"george", "georgia"}},
         "state_country": {"type": "str", "required": False},
-        "heard_from": {"type": "str", "required": False},
-        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
         "since_days": {"type": "int", "required": False},
         "limit": {"type": "int", "required": False},
         "include_test_data": {"type": "bool", "required": False},
@@ -618,8 +535,9 @@ async def _list_interest_registrations(db: Any, args: dict) -> list:
     if "state_country" in args:
         rx = re.compile(re.escape(args["state_country"]), re.IGNORECASE)
         q["state_country"] = rx
-    _apply_heard_from(q, args)
-    _apply_time_window(q, args)
+    if "since_days" in args:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
+        q["created_at"] = {"$gte": cutoff.isoformat()}
     if not _should_include_test_data(args):
         q["is_test"] = {"$ne": True}
     limit = max(1, min(int(args.get("limit") or 20), 50))
@@ -639,126 +557,25 @@ async def _list_interest_registrations(db: Any, args: dict) -> list:
     return rows
 
 
-async def _joined_app_email_count(db: Any, *, base: dict) -> int:
-    """Count Founding Member registrations whose ``email`` is present in
-    ``db.users`` (i.e. they actually created a FriendPlace app account).
-
-    ``base`` is the base Mongo filter to apply to
-    ``interest_registrations`` — typically ``{"is_test": {"$ne": True}}``
-    plus an optional time window.
-
-    The match is on ``email`` because that's the only field guaranteed
-    to be present on both sides of the funnel. Users without a matching
-    email (e.g. they later joined with a different address) are honestly
-    counted as NOT joined-app — false negatives are safer than false
-    positives when reporting to Garry.
-
-    CASE-INSENSITIVITY (iter167 hotfix).
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    ``interest_registrations.email`` is normalised to ``.strip().lower()``
-    on insert (see ``server.py`` RYI handlers). ``users.email`` is
-    stored verbatim in whatever case the visitor typed on signup — every
-    other user lookup in the codebase (``get_user_by_email``, signup
-    dedupe, login) works around this with a case-insensitive regex.
-    We must do the same here, otherwise a Founding Member whose signup
-    email contains any uppercase character (e.g. ``Neo@Example.com``)
-    silently fails to match and gets miscounted as "not joined".
-    """
-    # Pull just the emails from the filtered registrations. Even at
-    # scale this collection is small (Founding Members cap = ~500) so
-    # a plain projection + in-memory lookup is fine.
-    emails: list[str] = []
-    cursor = db.interest_registrations.find(
-        {**base, "email": {"$type": "string", "$ne": ""}},
-        {"_id": 0, "email": 1},
-    )
-    async for r in cursor:
-        e = (r.get("email") or "").strip().lower()
-        if e:
-            emails.append(e)
-    if not emails:
-        return 0
-    # De-dupe first — a visitor can appear multiple times in interest
-    # registrations if they registered twice.
-    unique_emails = sorted(set(emails))
-    # Build a regex per email: anchored (^…$) and fully escaped so
-    # ``.`` and ``+`` in local-parts don't turn into wildcards, then
-    # case-insensitive so mixed-case ``users.email`` still matches.
-    # This mirrors the pattern used throughout server.py for user
-    # lookups. Mongo will use the index on ``email`` with the
-    # ``^…$`` anchor as long as it's a real index (not a text index).
-    regexes = [
-        re.compile(f"^{re.escape(e)}$", re.IGNORECASE) for e in unique_emails
-    ]
-    return await db.users.count_documents({"email": {"$in": regexes}})
-
-
-@register(
-    "count_founding_members_joined_app",
-    "Count Founding Members who have actually created a FriendPlace app account. "
-    "This is NOT the CRM ladder flag ``status='joined'`` (which is a manual toggle "
-    "an admin flips). It matches an ``interest_registrations`` row to a real user "
-    "in the ``users`` collection by email. Use this whenever Garry asks 'how many "
-    "have joined the app?', 'how many have actually signed up?', 'how many of the "
-    "waitlist have become members?'. Optional Sydney-local ``since`` window filters "
-    "on the REGISTRATION date. If no window is given the count spans all time. "
-    "Test-flagged rows are excluded by default.",
-    args={
-        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
-        "since_days": {"type": "int", "required": False},
-        "include_test_data": {"type": "bool", "required": False},
-    },
-)
-async def _count_founding_members_joined_app(db: Any, args: dict) -> dict:
-    base: dict = {}
-    _apply_time_window(base, args)
-    if not _should_include_test_data(args):
-        base["is_test"] = {"$ne": True}
-    total_registered = await db.interest_registrations.count_documents(base)
-    joined_app = await _joined_app_email_count(db, base=base)
-    return {
-        "joined_app_count": joined_app,
-        "total_registered": total_registered,
-        "metric": "joined_app_account",  # explicit for the synthesizer
-        "match_field": "email",
-        "window": args.get("since") or (
-            f"last_{int(args['since_days'])}_days" if "since_days" in args else None
-        ),
-        "timezone": "Australia/Sydney" if args.get("since") in _LOCAL_WINDOWS else None,
-    }
-
-
 @register(
     "founding_members_summary",
-    "One-shot dashboard summary of the Founding Members CRM. Returns TWO distinct "
-    "'joined' numbers — never conflate them: "
-    "(a) ``joined_status_count`` — the manual CRM-ladder flag status='joined' (an admin "
-    "toggled this by hand); "
-    "(b) ``joined_app_count`` — Founding Members whose email is present in the users "
-    "collection (i.e. they actually created a FriendPlace app account). "
-    "Also includes total registered, new today, new yesterday, new this week, awaiting "
-    "contact, invited, opted out, and the most-recent registration. All day-bound "
-    "counts use Australia/Sydney local boundaries. Use this when the admin asks for a "
-    "general overview ('how are Founding Members doing?'). Test-flagged rows excluded.",
+    "One-shot dashboard summary of the Founding Members CRM: total registered, new today, "
+    "awaiting invitation (people who registered and already received the automatic "
+    "registration email but are still waiting for the personal invitation), invited, "
+    "joined, opted out, plus the most-recent registration. "
+    "IMPORTANT: `awaiting_contact` in the response is a legacy field name — it means "
+    "'awaiting personal invitation'. These members HAVE received the auto-registration "
+    "email at signup. Never say they have not been emailed. Use this when the admin asks "
+    "for a general overview (e.g. 'how are Founding Members doing?') rather than a "
+    "specific slice. Test-flagged rows are excluded.",
     args={},
 )
 async def _founding_members_summary(db: Any, args: dict) -> dict:
-    from services.analytics.local_time import sydney_named_range
     base = {"is_test": {"$ne": True}}
     total = await db.interest_registrations.count_documents(base)
-
-    today_start, today_end = sydney_named_range("today")
-    yesterday_start, yesterday_end = sydney_named_range("yesterday")
-    week_start, week_end = sydney_named_range("this_week")
-
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     new_today = await db.interest_registrations.count_documents({
-        **base, "created_at": {"$gte": today_start, "$lt": today_end},
-    })
-    new_yesterday = await db.interest_registrations.count_documents({
-        **base, "created_at": {"$gte": yesterday_start, "$lt": yesterday_end},
-    })
-    new_this_week = await db.interest_registrations.count_documents({
-        **base, "created_at": {"$gte": week_start, "$lt": week_end},
+        **base, "created_at": {"$gte": today_start.isoformat()},
     })
     awaiting = await db.interest_registrations.count_documents({
         **base,
@@ -769,130 +586,62 @@ async def _founding_members_summary(db: Any, args: dict) -> dict:
         ],
     })
     invited = await db.interest_registrations.count_documents({**base, "status": "invited"})
-    joined_status_count = await db.interest_registrations.count_documents({**base, "status": "joined"})
-    opted = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
-    joined_app_count = await _joined_app_email_count(db, base=base)
+    joined  = await db.interest_registrations.count_documents({**base, "status": "joined"})
+    opted   = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
     latest = await db.interest_registrations.find_one(
         base,
-        {"_id": 0, "first_name": 1, "email": 1, "state_country": 1, "created_at": 1,
-         "heard_from": 1, "founder_number": 1},
+        {"_id": 0, "first_name": 1, "email": 1, "state_country": 1, "created_at": 1},
         sort=[("created_at", -1)],
     )
     return {
-        "total":               total,
-        "new_today":           new_today,
-        "new_yesterday":       new_yesterday,
-        "new_this_week":       new_this_week,
-        "awaiting_contact":    awaiting,
-        "invited":             invited,
-        # Legacy field kept for the mission-control dashboard card. It
-        # counts the MANUAL CRM ladder flag, not real app signups —
-        # George must never quote this as "joined the app".
-        "joined_status_count": joined_status_count,
-        # The honest number: emails present in ``db.users``.
-        "joined_app_count":    joined_app_count,
-        # Alias so pre-existing callers that still ask for "joined"
-        # don't crash. The tool description tells George to prefer
-        # the explicit fields above.
-        "joined":              joined_status_count,
-        "opted_out":           opted,
-        "latest":              latest,
-        "timezone":            "Australia/Sydney",
-    }
-
-
-@register(
-    "founding_members_by_source",
-    "Group Founding Member registrations by acquisition source (the free-text "
-    "``heard_from`` field the visitor types on the Register Your Interest form — "
-    "'Facebook', 'Friend', 'Google', etc.). Returns a list of "
-    "{source, count} rows sorted by count DESC, plus an ``unknown`` bucket for "
-    "registrations with no source captured. Optional Sydney-local ``since`` "
-    "window scopes the breakdown to today / yesterday / this_week / this_month. "
-    "Use this when Garry asks 'where did this week's registrations come from?', "
-    "'how many from Facebook yesterday?', 'what's our best source this month?'. "
-    "Sources are NEVER invented — if the field is empty it goes in ``unknown``. "
-    "Test-flagged rows are excluded by default.",
-    args={
-        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
-        "since_days": {"type": "int", "required": False},
-        "include_test_data": {"type": "bool", "required": False},
-    },
-)
-async def _founding_members_by_source(db: Any, args: dict) -> dict:
-    match: dict = {}
-    window_label = _apply_time_window(match, args)
-    if not _should_include_test_data(args):
-        match["is_test"] = {"$ne": True}
-    pipeline = [
-        {"$match": match},
-        {
-            "$group": {
-                "_id": {
-                    "$let": {
-                        "vars": {
-                            "hf": {"$trim": {"input": {"$ifNull": ["$heard_from", ""]}}}
-                        },
-                        "in": {
-                            "$cond": [
-                                {"$eq": ["$$hf", ""]},
-                                None,   # empty → unknown bucket
-                                {"$toLower": "$$hf"},
-                            ]
-                        },
-                    }
-                },
-                "count": {"$sum": 1},
-                "sample_label": {"$first": "$heard_from"},
-            }
+        "total":            total,
+        "new_today":        new_today,
+        "awaiting_contact": awaiting,
+        # iter161c (25 Feb 2026): expose the correct semantics as a
+        # first-class field so George doesn't have to infer it from
+        # tone. `awaiting_invitation` and `awaiting_contact` are the
+        # SAME number — the second name is preserved for API back-
+        # compat with existing consumers.
+        "awaiting_invitation": awaiting,
+        "invited":          invited,
+        "joined":           joined,
+        "opted_out":        opted,
+        "latest":           latest,
+        # Ground-truth semantic note George can quote verbatim. Comes
+        # from the CRM/tool layer, not the prompt — so it stays in
+        # sync with the actual behaviour of the registration flow.
+        "_semantics": {
+            "awaiting_contact_meaning": (
+                "These members registered their interest and received the "
+                "automatic registration acknowledgement email at signup. "
+                "They are now awaiting the personal FriendPlace invitation "
+                "email — this is what admins send from the Founding Members "
+                "page or via a campaign. Do NOT say these people have not "
+                "been emailed."
+            ),
+            "preferred_label": "awaiting invitation",
+            "auto_registration_email_sent": True,
+            "personal_invitation_sent":     False,
         },
-        {"$sort": {"count": -1, "_id": 1}},
-    ]
-    rows: list[dict] = []
-    unknown = 0
-    total = 0
-    async for r in db.interest_registrations.aggregate(pipeline):
-        cnt = int(r.get("count") or 0)
-        total += cnt
-        key = r.get("_id")
-        if key is None:
-            unknown += cnt
-            continue
-        # Prefer the original casing of the first row we saw for that
-        # normalized key ("Facebook" reads better than "facebook").
-        label = (r.get("sample_label") or key or "").strip() or key
-        rows.append({"source": label, "count": cnt})
-    return {
-        "total":     total,
-        "sources":   rows,   # already sorted DESC by count
-        "unknown":   unknown,
-        "window":    window_label,
-        "timezone":  "Australia/Sydney" if args.get("since") in _LOCAL_WINDOWS else None,
-        "note":      (
-            "Sources come from the free-text 'heard_from' field the visitor "
-            "types on the RYI form. Empty values are reported honestly as 'unknown' "
-            "rather than guessed at."
-        ),
     }
 
 
 @register(
     "founding_members_conversion",
     "Funnel + conversion metrics for the Founding Members CRM. Returns counts at every "
-    "stage (registered, invited, joined-status-flag, joined-app-account, opted_out), "
-    "plus derived rates: invite_rate (invited / (total - opted_out)), "
-    "join_app_rate (joined_app / (total - opted_out)), invited_to_joined "
-    "(joined_app / invited). Use this when the admin asks about conversion, funnel, "
-    "ratios, or 'how are we tracking'. Optional Sydney-local ``since`` window scopes "
-    "the whole funnel. Test-flagged rows are excluded.",
+    "stage (registered, invited, joined, opted_out), plus derived rates: "
+    "invite_rate (invited / (total - opted_out)), join_rate (joined / (total - opted_out)), "
+    "invited_to_joined (joined / invited). Use this when the admin asks about conversion, "
+    "funnel, ratios, or 'how are we tracking'. Test-flagged rows are excluded.",
     args={
-        "since": {"type": "str", "required": False, "enum": _LOCAL_WINDOWS},
         "since_days": {"type": "int", "required": False},
     },
 )
 async def _founding_members_conversion(db: Any, args: dict) -> dict:
     base: dict = {"is_test": {"$ne": True}}
-    window_label = _apply_time_window(base, args)
+    if "since_days" in args:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
+        base["created_at"] = {"$gte": cutoff.isoformat()}
     total = await db.interest_registrations.count_documents(base)
     awaiting = await db.interest_registrations.count_documents({
         **base,
@@ -902,32 +651,28 @@ async def _founding_members_conversion(db: Any, args: dict) -> dict:
             {"status": {"$in": ["registered", "new"]}},
         ],
     })
-    invited     = await db.interest_registrations.count_documents({**base, "status": "invited"})
-    joined_flag = await db.interest_registrations.count_documents({**base, "status": "joined"})
-    opted_out   = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
-    joined_app  = await _joined_app_email_count(db, base=base)
+    invited   = await db.interest_registrations.count_documents({**base, "status": "invited"})
+    joined    = await db.interest_registrations.count_documents({**base, "status": "joined"})
+    opted_out = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
 
     def pct(numer: int, denom: int) -> Optional[float]:
         return round((numer / denom) * 100, 1) if denom > 0 else None
 
     active = max(total - opted_out, 0)  # exclude opt-outs from the denominator
-    # Anyone whose registration email is now in `users` has, by definition,
-    # reached the "joined the app" endpoint. We use that for join rates.
+    # Invited count is conservative — anyone who has been invited OR later
+    # joined counts as "reached invite stage".
+    reached_invite = invited + joined
     return {
-        "window":                window_label,
-        "timezone":              "Australia/Sydney" if args.get("since") in _LOCAL_WINDOWS else None,
-        "total":                 total,
-        "registered":            awaiting,
-        "invited":               invited,
-        # Kept for legacy callers — this is the manual ladder flag.
-        "joined_status_count":   joined_flag,
-        # The honest number based on `users` collection.
-        "joined_app_count":      joined_app,
-        "opted_out":             opted_out,
-        "active_pool":           active,
-        "invite_rate_pct":       pct(invited + joined_app, active),
-        "join_app_rate_pct":     pct(joined_app, active),
-        "invited_to_joined_pct": pct(joined_app, invited) if invited else None,
+        "window_days":       int(args["since_days"]) if "since_days" in args else None,
+        "total":             total,
+        "registered":        awaiting,
+        "invited":           invited,
+        "joined":            joined,
+        "opted_out":         opted_out,
+        "active_pool":       active,
+        "invite_rate_pct":   pct(reached_invite, active),
+        "join_rate_pct":     pct(joined, active),
+        "invited_to_joined_pct": pct(joined, reached_invite),
     }
 
 
@@ -1010,6 +755,256 @@ async def _propose_submission_decision(db: Any, args: dict) -> dict:
     return await propose_submission_decision(
         db, args["submission_id"], args["decision"], admin={},
     )
+
+
+# ---------------------------------------------------------------------------
+# Flyer authoring tools (Garry, iter158 launch polish)
+# ---------------------------------------------------------------------------
+# Two tools so George can help Garry set up a flyer conversationally:
+#
+#   list_flyer_templates  \u2014 read-only browse of the published catalogue.
+#                            George uses this to suggest a starting
+#                            template that fits the admin's request
+#                            (e.g. "I need a poster for the Kellyville
+#                            Library"). Returns the compact metadata
+#                            the LLM needs to reason about fit:
+#                            key, name, description, category, engine,
+#                            supported layouts, default layout, and the
+#                            template's own `george_hint` field.
+#
+#   draft_flyer           \u2014 write-proposal tool. Given a template key,
+#                            an optional layout, and an optional
+#                            field_values dict, it composes an
+#                            ``action_preview`` payload the admin can
+#                            review and \u2014 by pressing "Open in Flyer
+#                            Publishing Centre" \u2014 open on the flyer
+#                            detail page with the print modal
+#                            pre-populated. It NEVER prints, downloads,
+#                            or publishes on its own \u2014 the admin's
+#                            manual click in the modal remains the only
+#                            way to ship a flyer.
+
+@register(
+    "list_flyer_templates",
+    "Browse the Flyer Publishing Centre catalogue. Returns published "
+    "templates with their category, description, supported layouts, "
+    "default layout, editable fields and the template's own george_hint "
+    "so you can suggest the best starting point. Use this whenever Garry "
+    "asks for help creating a flyer, a poster, a noticeboard invite, or "
+    "wants to see what templates are available. Read-only.",
+    args={},
+)
+async def _list_flyer_templates(db: Any, args: dict) -> list[dict]:
+    from services import flyers as _flyers
+    rows = await _flyers.list_templates(db, status="published")
+    out: list[dict] = []
+    for r in rows:
+        out.append({
+            "key":               r.get("key"),
+            "name":              r.get("name"),
+            "description":       r.get("description"),
+            "category":          r.get("category"),
+            "engine":            r.get("engine"),
+            "supported_layouts": r.get("supported_layouts") or [],
+            "default_layout":    r.get("default_layout"),
+            "fields": [
+                {
+                    "key":      f.get("key"),
+                    "label":    f.get("label"),
+                    "type":     f.get("type"),
+                    "required": bool(f.get("required")),
+                    "help":     f.get("help"),
+                }
+                for f in (r.get("fields") or [])
+                if f.get("type") != "hidden"
+            ],
+            "george_hint":  r.get("george_hint"),
+        })
+    return out
+
+
+# Human-readable labels for layout keys. Kept in lock-step with
+# ``services/flyers/registry.LAYOUTS`` \u2014 imported lazily inside the
+# tool so registry import failures don't break the whole module load.
+def _flyer_layout_label(layout_key: str) -> str:
+    try:
+        from services.flyers import layout as _layout_lookup
+        spec = _layout_lookup(layout_key)
+        if spec is not None:
+            return getattr(spec, "label", None) or layout_key
+    except Exception:
+        pass
+    return layout_key
+
+
+@register(
+    "draft_flyer",
+    "Set up a flyer draft (template + layout + optional field values) "
+    "and hand Garry an Action Preview he can open in the Flyer "
+    "Publishing Centre. Use this after `list_flyer_templates` when Garry "
+    "asks you to create / draft / prepare / set up a flyer. Requires "
+    "template_key. Optional: layout (must be one the template supports "
+    "\u2014 defaults to the template's default_layout), field_values "
+    "(dict of field_key -> string). This NEVER prints, downloads or "
+    "publishes on its own \u2014 the admin taps Print in the Publishing "
+    "Centre to actually ship a flyer.",
+    args={
+        "template_key":  {"type": "str",  "required": True},
+        "layout":        {"type": "str",  "required": False},
+        "field_values":  {"type": "dict", "required": False},
+        "notes":         {"type": "str",  "required": False},
+    },
+    min_role="moderator",
+)
+async def _draft_flyer(db: Any, args: dict) -> dict:
+    import json as _json
+    import base64 as _b64
+    from services import flyers as _flyers
+
+    tpl_key = str(args.get("template_key") or "").strip()
+    tpl = await _flyers.get_template(db, tpl_key)
+    if not tpl:
+        return {
+            "kind": "action_preview",
+            "action_type": "flyer_draft",
+            "error": f"I couldn't find a flyer template named '{tpl_key}'. "
+                     "Would you like me to list what's available?",
+            "target": {"kind": "flyer_template", "id": tpl_key},
+            "what": "Draft flyer",
+            "why": "Template not found.",
+            "sources": [],
+            "confidence": "low",
+            "draft": "",
+        }
+
+    if str(tpl.get("status")) != "published":
+        return {
+            "kind": "action_preview",
+            "action_type": "flyer_draft",
+            "error": (
+                f"The '{tpl.get('name') or tpl_key}' template isn't published, "
+                "so it can't be drafted from chat. Publish it first from the "
+                "Flyer Publishing Centre."
+            ),
+            "target": {"kind": "flyer_template", "id": tpl_key},
+            "what": "Draft flyer",
+            "why": "Template not published.",
+            "sources": [],
+            "confidence": "low",
+            "draft": "",
+        }
+
+    supported = list(tpl.get("supported_layouts") or [])
+    default_layout = tpl.get("default_layout") or (supported[0] if supported else None)
+    layout_key = str(args.get("layout") or "").strip() or default_layout
+    if not layout_key:
+        return {
+            "kind": "action_preview",
+            "action_type": "flyer_draft",
+            "error": f"The '{tpl.get('name')}' template has no supported layouts configured.",
+            "target": {"kind": "flyer_template", "id": tpl_key},
+            "what": "Draft flyer",
+            "why": "No layout available.",
+            "sources": [],
+            "confidence": "low",
+            "draft": "",
+        }
+    if supported and layout_key not in supported:
+        return {
+            "kind": "action_preview",
+            "action_type": "flyer_draft",
+            "error": (
+                f"'{layout_key}' isn't one of the '{tpl.get('name')}' template's "
+                f"supported layouts. Try one of: {', '.join(supported)}."
+            ),
+            "target": {"kind": "flyer_template", "id": tpl_key},
+            "what": "Draft flyer",
+            "why": "Requested layout is not supported by this template.",
+            "sources": [],
+            "confidence": "low",
+            "draft": "",
+        }
+
+    # Filter field_values to KNOWN field keys the template declares, so
+    # George can't smuggle unknown params through the URL. Values are
+    # coerced to strings (the flyer render endpoint expects strings).
+    template_field_keys = {
+        f.get("key") for f in (tpl.get("fields") or []) if f.get("key")
+    }
+    incoming = args.get("field_values") or {}
+    field_values: dict[str, str] = {}
+    for k, v in incoming.items():
+        if k in template_field_keys and v is not None:
+            field_values[str(k)] = str(v)
+
+    # Build the deep-link URL that opens the Flyer Publishing Centre's
+    # print modal with the layout + fields pre-populated. Query params
+    # keep the state fully client-visible so the admin can see exactly
+    # what George set up before doing anything with it.
+    fields_b64 = ""
+    if field_values:
+        try:
+            fields_b64 = _b64.urlsafe_b64encode(
+                _json.dumps(field_values, ensure_ascii=False, sort_keys=True).encode("utf-8"),
+            ).decode("ascii").rstrip("=")
+        except Exception:
+            fields_b64 = ""
+
+    from urllib.parse import urlencode
+    qs_parts: list[tuple[str, str]] = [
+        ("open", "preview"),
+        ("layout", layout_key),
+    ]
+    if fields_b64:
+        qs_parts.append(("fields", fields_b64))
+    edit_url = f"/admin/flyers/{tpl_key}?{urlencode(qs_parts)}"
+
+    layout_label = _flyer_layout_label(layout_key)
+
+    # Human-readable summary for the draft body \u2014 shown in the
+    # ActionPreview card so the admin can eyeball what George set up.
+    summary_lines: list[str] = [
+        f"Template: {tpl.get('name')} ({tpl_key})",
+        f"Layout:   {layout_label}",
+    ]
+    if field_values:
+        summary_lines.append("Fields:")
+        for k in sorted(field_values.keys()):
+            summary_lines.append(f"  \u2022 {k}: {field_values[k]}")
+    else:
+        summary_lines.append("Fields:   (none pre-filled \u2014 use the defaults)")
+    if args.get("notes"):
+        summary_lines += ["", f"Note: {args['notes']}"]
+
+    return {
+        "kind": "action_preview",
+        "action_type": "flyer_draft",
+        "target": {"kind": "flyer_template", "id": tpl_key},
+        "what": f"Draft a \u201c{tpl.get('name')}\u201d flyer ({layout_label})",
+        "why": (
+            args.get("notes")
+            or tpl.get("george_hint")
+            or "Set up the flyer with your chosen layout and fields ready for preview."
+        ),
+        "sources": [
+            {"label": tpl.get("name") or tpl_key,
+             "kind": "flyer_template", "id": tpl_key},
+        ],
+        "confidence": "high",
+        "confidence_reason": (
+            "This preview only sets up the flyer state \u2014 nothing prints "
+            "or publishes until you tap Print in the Publishing Centre."
+        ),
+        "draft": "\n".join(summary_lines),
+        "flyer": {
+            "template_key":   tpl_key,
+            "template_name":  tpl.get("name"),
+            "layout":         layout_key,
+            "layout_label":   layout_label,
+            "field_values":   field_values,
+            "edit_url":       edit_url,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1407,4 +1402,174 @@ async def _run_analytics_query(db: Any, args: dict) -> dict:
             for row in result.breakdown[:10]  # cap for token efficiency
         ]
     return envelope
+
+
+
+# ---------------------------------------------------------------------------
+# iter160c — Unified CRM tools (Outreach + Replies + Awaiting)
+# ---------------------------------------------------------------------------
+#
+# These tools give George the ability to see the WHOLE contact-status
+# picture in one glance — Founding Members, Enquiries, Outreach
+# organisations, and manually-logged Replies — so that when Garry asks
+# *"who's waiting on us?"* George prioritises OUTSTANDING INBOUND
+# REPLIES first (people who wrote in and haven't heard back), then
+# outreach organisations we've contacted but not heard from.
+#
+# All three tools are read-only. They cite the unified status service
+# in `services/crm/status.py` and the outreach store in
+# `services/outreach/store.py`.
+
+@register(
+    "list_awaiting_reply",
+    "The single source of truth for 'who's waiting on us'. Returns EVERY "
+    "contact we owe a response to across the CRM: outreach organisations "
+    "explicitly in 'awaiting_reply' state PLUS unresolved inbound replies "
+    "from the Replies inbox. Ordered oldest-first so genuinely stale "
+    "threads surface at the top. USE THIS FIRST whenever Garry asks "
+    "'who's waiting on me?', 'who owes a reply?', 'any outstanding "
+    "responses?', 'who should I contact next?', or similar. Empty list "
+    "means everyone we've heard from has been answered.",
+    args={"limit": {"type": "int", "required": False}},
+)
+async def _list_awaiting_reply(db: Any, args: dict) -> list[dict]:
+    from services.crm.status import list_awaiting_reply
+    limit = int(args.get("limit") or 20)
+    rows = await list_awaiting_reply(db, limit=min(limit, 200))
+    # Compact the rows for the LLM — drop empty fields, keep the
+    # oldest inbound at the top so George naturally leads with them.
+    out: list[dict] = []
+    for r in rows:
+        item = {
+            "email":            r.get("email"),
+            "name":             r.get("name"),
+            "organisation":     r.get("organisation"),
+            "source":           r.get("source"),        # "outreach_organisation" | "inbound_reply"
+            "last_inbound_at":  r.get("last_inbound_at"),
+            "last_outbound_at": r.get("last_outbound_at"),
+        }
+        if r.get("subject"):     item["subject"] = r["subject"]
+        if r.get("campaign_id"): item["campaign_id"] = r["campaign_id"]
+        out.append({k: v for k, v in item.items() if v is not None})
+    return out
+
+
+@register(
+    "count_replies",
+    "Count inbound replies in the Replies inbox. Returns "
+    "{unread, awaiting_our_reply, total}. Use when Garry asks how many "
+    "replies are outstanding, how many are unread, or how big the "
+    "inbox is right now.",
+    args={},
+)
+async def _count_replies(db: Any, args: dict) -> dict:  # noqa: ARG001
+    from services.replies.store import unread_count, awaiting_count
+    total = await db.inbound_replies.count_documents({})
+    return {
+        "unread":              await unread_count(db),
+        "awaiting_our_reply":  await awaiting_count(db),
+        "total":               int(total),
+    }
+
+
+@register(
+    "list_outreach_organisations",
+    "List external outreach organisations (retirement villages, "
+    "community centres, libraries, clubs, councils, etc.) from the "
+    "Outreach CRM. Filter by status (not_contacted | contacted | "
+    "awaiting_reply | replied | joined | declined | bounced | "
+    "unsubscribed), by category, or by free-text query. Ordered "
+    "most-recently-updated first.",
+    args={
+        "status":   {"type": "str", "required": False,
+                     "enum": {"not_contacted", "contacted", "awaiting_reply",
+                              "replied", "joined", "declined", "bounced",
+                              "unsubscribed"}},
+        "category": {"type": "str", "required": False},
+        "q":        {"type": "str", "required": False},
+        "limit":    {"type": "int", "required": False},
+    },
+)
+async def _list_outreach_organisations(db: Any, args: dict) -> list[dict]:
+    from services.outreach.store import list_orgs
+    limit = int(args.get("limit") or 25)
+    rows = await list_orgs(
+        db, status=args.get("status"), category=args.get("category"),
+        q=args.get("q"), limit=min(limit, 200),
+    )
+    return [{
+        "id":                r.get("id"),
+        "organisation_name": r.get("organisation_name"),
+        "contact_name":      r.get("contact_name"),
+        "email":             r.get("email"),
+        "status":            r.get("status"),
+        "category":          r.get("category"),
+        "suburb":            r.get("suburb"),
+        "state":             r.get("state"),
+        "last_contact_at":   r.get("last_contact_at"),
+        "last_reply_at":     r.get("last_reply_at"),
+    } for r in rows]
+
+
+@register(
+    "count_outreach_organisations",
+    "Count outreach organisations in the CRM. Optional status/category "
+    "filter. Handy for questions like 'how many retirement villages "
+    "have we contacted?' or 'how many outreach orgs are awaiting our "
+    "reply?'.",
+    args={
+        "status":   {"type": "str", "required": False,
+                     "enum": {"not_contacted", "contacted", "awaiting_reply",
+                              "replied", "joined", "declined", "bounced",
+                              "unsubscribed"}},
+        "category": {"type": "str", "required": False},
+    },
+)
+async def _count_outreach_organisations(db: Any, args: dict) -> int:
+    q: dict[str, Any] = {"is_test": {"$ne": True}}
+    if args.get("status"):   q["status"] = args["status"]
+    if args.get("category"): q["category"] = args["category"]
+    return await db.outreach_organisations.count_documents(q)
+
+
+@register(
+    "list_needs_follow_up",
+    "Outreach organisations we contacted N or more days ago and have "
+    "NOT heard back from. Different from list_awaiting_reply — those "
+    "are people we OWE a reply. This is the reverse: people who owe US "
+    "a reply and are going cold. Ordered oldest-first.",
+    args={
+        "days":  {"type": "int", "required": False},
+        "limit": {"type": "int", "required": False},
+    },
+)
+async def _list_needs_follow_up(db: Any, args: dict) -> list[dict]:
+    from services.crm.status import list_needs_follow_up
+    days = int(args.get("days") or 7)
+    limit = int(args.get("limit") or 20)
+    rows = await list_needs_follow_up(
+        db, days_since_last_contact=days, limit=min(limit, 200),
+    )
+    return [{
+        "email":            r.get("email"),
+        "name":             r.get("name"),
+        "organisation":     r.get("organisation"),
+        "last_outbound_at": r.get("last_outbound_at"),
+        "source":           r.get("source"),
+    } for r in rows]
+
+
+@register(
+    "get_contact_status",
+    "Return the unified CRM status for a single email — checks "
+    "founding_members, outreach_organisations, marketing sends, and "
+    "inbound replies simultaneously. Returns {status, reason, "
+    "last_outbound_at, last_inbound_at, sources}. Use this when Garry "
+    "asks about ONE specific person ('what's the story with jane@…?', "
+    "'where are we with Elizabeth?').",
+    args={"email": {"type": "str", "required": True}},
+)
+async def _get_contact_status(db: Any, args: dict) -> dict:
+    from services.crm.status import status_for_email
+    return await status_for_email(db, args["email"])
 
