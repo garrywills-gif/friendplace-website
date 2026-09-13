@@ -10,6 +10,7 @@ import Header from "@/src/components/Header";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { groupImageForName } from "@/src/lib/group-photos";
 import { resolveGallerySource } from "@/src/lib/gallery";
+import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
 
 export default function Groups() {
   const { c, scale } = useTheme();
@@ -17,6 +18,7 @@ export default function Groups() {
   const { show } = useToast();
   const router = useRouter();
   const [groups, setGroups] = useState<any[]>([]);
+  const [radiusKm, setRadiusKm] = useState<number | null>(DEFAULT_RADIUS_KM);
   // Suggest-a-group modal state. Anyone signed-in can submit; admin
   // approves via the Admin tab before the group goes live to others.
   const [suggestOpen, setSuggestOpen] = useState(false);
@@ -31,8 +33,8 @@ export default function Groups() {
   // duplicate group names.
   const [sError, setSError] = useState<string | null>(null);
 
-  const load = async () => setGroups(await api.listGroups());
-  useFocusEffect(useCallback(() => { load(); }, []));
+  const load = async () => setGroups(await api.listGroups({ user_id: user?.id, radius_km: radiusKm ?? undefined }));
+  useFocusEffect(useCallback(() => { load(); }, [user?.id, radiusKm]));
 
   const join = async (g: any) => {
     if (!user) return;
@@ -66,6 +68,7 @@ export default function Groups() {
         emoji="🤝"
         backHref="/home"
       />
+      <RadiusFilter value={radiusKm} onChange={setRadiusKm} />
       <FlatList
         data={groups}
         keyExtractor={(g) => g.id}

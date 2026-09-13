@@ -15,6 +15,7 @@ import FounderMark from "@/src/components/FounderMark";
 import { useComposerLock } from "@/src/lib/composer-lock";
 import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
 import TappableImage from "@/src/components/TappableImage";
+import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
 
 // Notice Board categories — Garry, 2 Aug 2026. Each category carries
 // its own emoji so the picker feels warm and skimmable, and so the
@@ -100,6 +101,7 @@ export default function Notices() {
   }, [navigation, router]);
   const [notices, setNotices] = useState<any[]>([]);
   const [category, setCategory] = useState("All");
+  const [radiusKm, setRadiusKm] = useState<number | null>(DEFAULT_RADIUS_KM);
   const [query, setQuery] = useState("");
   const [posting, setPosting] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
@@ -129,10 +131,10 @@ export default function Notices() {
   const load = async () => {
     if (!user) return;
     try {
-      setNotices(await api.listNotices({ user_id: user.id, q: query || undefined, category }) as any[]);
+      setNotices(await api.listNotices({ user_id: user.id, q: query || undefined, category, radius_km: radiusKm ?? undefined }) as any[]);
     } catch {}
   };
-  useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query]));
+  useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radiusKm]));
 
   const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPosting(true); };
   const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || ""); setPosting(true); };
@@ -408,6 +410,7 @@ export default function Notices() {
           })}
         </ScrollView>
       </View>
+      <RadiusFilter value={radiusKm} onChange={setRadiusKm} />
       <FlatList
         data={notices}
         keyExtractor={(n) => n.id}

@@ -12,6 +12,7 @@ import SpeakButton from "@/src/components/SpeakButton";
 import { shareIcs } from "@/src/lib/ics";
 import TappableImage from "@/src/components/TappableImage";
 import { resolveImageSource } from "@/src/components/GalleryPicker";
+import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
 
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_API_URL || "";
 
@@ -112,6 +113,7 @@ export default function Events() {
   const { show } = useToast();
   const router = useRouter();
   const [events, setEvents] = useState<any[]>([]);
+  const [radiusKm, setRadiusKm] = useState<number | null>(DEFAULT_RADIUS_KM);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   // FriendPlace curated events (CMS-driven). Loaded once on focus,
   // then re-fetched after every RSVP so counts update immediately.
@@ -138,8 +140,8 @@ export default function Events() {
     }
   }, [user?.id]);
 
-  const load = async () => setEvents(await api.listEvents());
-  useFocusEffect(useCallback(() => { load(); loadFp(); }, [loadFp]));
+  const load = async () => setEvents(await api.listEvents({ user_id: user?.id, radius_km: radiusKm ?? undefined }));
+  useFocusEffect(useCallback(() => { load(); loadFp(); }, [loadFp, user?.id, radiusKm]));
 
   // Build the list of months that actually have events, anchored on the
   // Discovery-focused filter set. Answers the primary question a member
@@ -288,6 +290,8 @@ export default function Events() {
           })}
         </ScrollView>
       </View>
+
+      <RadiusFilter value={radiusKm} onChange={setRadiusKm} />
 
       {/* Only the events list itself scrolls below — Host button + filter
           pills remain sticky at the top. */}
