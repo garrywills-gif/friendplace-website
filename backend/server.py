@@ -2068,6 +2068,72 @@ def _batch_c_precondition_errors(snap: Dict[str, Any]) -> list[str]:
     return errs
 
 
+class AdminFounderLinkBody(BaseModel):
+    user_id: str
+    interest_registration_id: str
+
+
+@api.post("/admin/founders/link")
+async def admin_link_founder(body: AdminFounderLinkBody, admin: dict = Depends(current_admin)):
+    """Founder alignment (item 10) — verified admin recovery.
+
+    When a register-your-interest founder accidentally creates their app
+    account with a DIFFERENT email (so automatic email matching can't
+    link them), an authorised admin explicitly selects the account and
+    the interest registration to link. We then assign that registration's
+    ORIGINAL founding number to the account (overriding any wrongly
+    allocated number) and mark the registration joined + linked.
+
+    No guessing — both ids are chosen by a human admin.
+    """
+    u = await db.users.find_one({"id": body.user_id}, {"_id": 0})
+    if not u:
+        raise HTTPException(404, "Account not found")
+    if u.get("is_demo"):
+        raise HTTPException(400, "Demo accounts cannot be founders")
+    reg = await db.interest_registrations.find_one({"id": body.interest_registration_id}, {"_id": 0})
+    if not reg:
+        raise HTTPException(404, "Interest registration not found")
+    fnum = reg.get("founder_number")
+    if not fnum:
+        raise HTTPException(400, "That interest registration has no founding number")
+    # Ensure no OTHER account already holds this number.
+    clash = await db.users.find_one(
+        {"founder_number": int(fnum), "id": {"$ne": body.user_id}},
+        {"_id": 0, "id": 1},
+    )
+    if clash:
+        raise HTTPException(409, f"Founding number #{int(fnum):04d} is already held by another account")
+    badges = list(u.get("badges") or [])
+    if "Founding Member" not in badges:
+        badges.append("Founding Member")
+    await db.users.update_one(
+        {"id": body.user_id},
+        {"$set": {"is_founder": True, "founder_number": int(fnum), "badges": badges}},
+    )
+    await db.interest_registrations.update_one(
+        {"id": body.interest_registration_id},
+        {"$set": {"status": "joined", "linked_user_id": body.user_id,
+                  "linked_at": now_iso(), "linked_by_admin": admin.get("id")}},
+    )
+    # Best-effort lounge + table seating so the recovered founder gets the
+    # same access as a normal claim.
+    try:
+        fl = await _ensure_founders_lounge()
+        if fl and fl.get("id"):
+            await db.groups.update_one({"id": fl["id"]}, {"$addToSet": {"members": body.user_id}})
+            await db.users.update_one({"id": body.user_id}, {"$addToSet": {"groups": fl["id"]}})
+        ft = await _ensure_founders_table()
+        if ft and ft.get("id"):
+            await db.tables.update_one({"id": ft["id"]}, {"$addToSet": {"seated": body.user_id}})
+    except Exception as e:
+        logger.warning("admin founder link: lounge/table seating failed: %s", e)
+    refreshed = await db.users.find_one({"id": body.user_id}, {"_id": 0}) or u
+    return {"ok": True, "founder_number": int(fnum),
+            "user": _peer_user(refreshed, viewer_is_owner=True, viewer_is_admin=True)}
+
+
+
 @api.post("/admin/founders/reset-batch-c")
 async def admin_founders_reset_batch_c(
     payload: dict,
