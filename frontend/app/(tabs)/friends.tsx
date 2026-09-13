@@ -12,6 +12,7 @@ import * as Location from "expo-location";
 import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
+import SuburbField from "@/src/components/SuburbField";
 
 // Primary FriendPlace butterfly logo — surfaces in every header so the
 // brand mark is present even on tabs that don't render the full lockup.
@@ -463,11 +464,30 @@ export default function Friends() {
           <Ionicons name="search" size={22} color={c.muted} />
           <TextInput
             testID="friends-search"
-            placeholder="Search by name, interest or suburb"
+            placeholder="Search by name or interest"
             value={q}
             onChangeText={setQ}
             placeholderTextColor={c.muted}
             style={{ flex: 1, marginLeft: 8, color: c.onSurface, fontSize: 16 * scale, paddingVertical: 12 }}
+          />
+        </View>
+        {/* Search a recognised suburb/town — centres the radius search on
+            that area (uses the same locality finder as the rest of the app).
+            Selecting one turns on the km chips below. (Garry, 1031.) */}
+        <View style={{ marginTop: 8 }}>
+          <SuburbField
+            testID="friends-suburb"
+            hidePreferNotToSay
+            placeholder="Search a suburb or town"
+            initialValue={nearMe?.suburb || ""}
+            onChange={(s) => {
+              if (s && s.lat != null && s.lng != null) {
+                setNearMe({ lat: s.lat, lng: s.lng, suburb: s.name });
+                setLocationDeclined(false);
+              } else if (!s) {
+                setNearMe(null);
+              }
+            }}
           />
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>

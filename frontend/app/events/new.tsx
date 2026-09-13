@@ -9,6 +9,7 @@ import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import Button from "@/src/components/Button";
 import { DateField, TimeField } from "@/src/components/DateTimePicker";
+import SuburbField from "@/src/components/SuburbField";
 import { useComposerLock } from "@/src/lib/composer-lock";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicker";
@@ -48,13 +49,22 @@ export default function NewEvent() {
   const [title, setTitle] = useState("");
   const [emoji, setEmoji] = useState("☕");
   const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
+  const [location, setLocation] = useState(""); // optional venue / address
+  // Recognised locality (suburb/nearest town) — replaces free-text location so
+  // events are geocoded for radius/Find-a-Friend. Defaults to the member's
+  // saved suburb. (Garry, 1031.)
+  const [locality, setLocality] = useState<{ name: string; postcode?: string; state?: string } | null>(
+    user?.suburb ? { name: user.suburb, postcode: (user as any)?.suburb_postcode, state: (user as any)?.suburb_state } : null,
+  );
+  const [errors, setErrors] = useState<{ title?: string; locality?: string; date?: string; time?: string }>({});
   const [date, setDate] = useState(""); // YYYY-MM-DD
   const [time, setTime] = useState(""); // HH:MM (24h)
   const [capacity, setCapacity] = useState<number | null>(20);
   const [recurrence, setRecurrence] = useState<Recurrence>("none");
   const [repeatCount, setRepeatCount] = useState<number>(3); // +3 extras = 4 total
   const [busy, setBusy] = useState(false);
+  const scrollRef = React.useRef<ScrollView>(null);
+  const fieldY = React.useRef<{ [k: string]: number }>({});
   // Optional cover photo — same gallery/upload picker as Notice Board.
   const [image, setImage] = useState<string>("");
   const [imagePicker, setImagePicker] = useState<boolean>(false);
@@ -102,10 +112,27 @@ export default function NewEvent() {
 
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
   const validTime = /^\d{2}:\d{2}$/.test(time);
-  const canSubmit = title.trim().length >= 3 && validDate && validTime && !busy;
+  const canSubmit = !busy;
+
+  // Inline validation with scroll-to-first-error, so a missing required field
+  // never fails silently. (Garry, 1031 real-device feedback.)
+  const validate = (): boolean => {
+    const e: { title?: string; locality?: string; date?: string; time?: string } = {};
+    if (title.trim().length < 3) e.title = "Please add a title (at least 3 characters).";
+    if (!locality?.name) e.locality = "Please choose a suburb or nearest town.";
+    if (!validDate) e.date = "Please choose a date.";
+    if (!validTime) e.time = "Please choose a time.";
+    setErrors(e);
+    const firstKey = (["title", "locality", "date", "time"] as const).find((k) => e[k]);
+    if (firstKey && fieldY.current[firstKey] != null) {
+      scrollRef.current?.scrollTo({ y: Math.max(fieldY.current[firstKey] - 14, 0), animated: true });
+    }
+    return Object.keys(e).length === 0;
+  };
 
   const submit = async () => {
-    if (!canSubmit) return;
+    if (busy) return;
+    if (!validate()) return;
     setBusy(true);
     // ── Step 1 — preflight the heuristic. Only blocks if the host
     // hasn't already self-identified as a business; once flagged, future
@@ -142,6 +169,9 @@ export default function NewEvent() {
         emoji,
         description: description.trim(),
         location: location.trim(),
+        locality: locality?.name,
+        locality_postcode: locality?.postcode,
+        locality_state: locality?.state,
         date,
         time,
         image,
@@ -216,9 +246,10 @@ export default function NewEvent() {
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Create event" />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Title <Text style={{ color: c.error }}>*</Text></Text>
-          <TextInput testID="event-title" value={title} onChangeText={setTitle} maxLength={80} placeholder="e.g. Friday Coffee Morning" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+        <ScrollView ref={scrollRef} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <Text onLayout={(ev) => { fieldY.current.title = ev.nativeEvent.layout.y; }} style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Title <Text style={{ color: c.error }}>*</Text></Text>
+          <TextInput testID="event-title" value={title} onChangeText={(t) => { setTitle(t); if (errors.title) setErrors((e) => ({ ...e, title: undefined })); }} maxLength={80} placeholder="e.g. Friday Coffee Morning" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+          {!!errors.title && <Text testID="event-title-error" style={{ color: c.error, fontSize: 13 * scale, marginTop: 4 }}>{errors.title}</Text>}
 
           <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Pick an emoji</Text>
           <View style={styles.row}>
@@ -272,17 +303,27 @@ export default function NewEvent() {
             </Pressable>
           )}
 
-          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Location</Text>
-          <TextInput testID="event-location" value={location} onChangeText={setLocation} maxLength={120} placeholder="e.g. Cafe Belong, Manly" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+          <Text onLayout={(ev) => { fieldY.current.locality = ev.nativeEvent.layout.y; }} style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Suburb / nearest town <Text style={{ color: c.error }}>*</Text></Text>
+          <SuburbField
+            testID="event-locality"
+            initialValue={locality ? (locality.postcode ? `${locality.name}, ${locality.state || ""} ${locality.postcode}`.trim() : locality.name) : ""}
+            onChange={(s) => { setLocality(s ? { name: s.name, postcode: s.postcode, state: s.state } : null); if (errors.locality) setErrors((e) => ({ ...e, locality: undefined })); }}
+          />
+          {!!errors.locality && <Text testID="event-locality-error" style={{ color: c.error, fontSize: 13 * scale, marginTop: 4 }}>{errors.locality}</Text>}
 
-          <View style={{ flexDirection: "row", gap: 10 }}>
+          <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Venue / address (optional)</Text>
+          <TextInput testID="event-venue" value={location} onChangeText={setLocation} maxLength={120} placeholder="e.g. Cafe Belong, level 1" placeholderTextColor={c.muted} style={[styles.input, inputStyle]} />
+
+          <View style={{ flexDirection: "row", gap: 10 }} onLayout={(ev) => { fieldY.current.date = ev.nativeEvent.layout.y; fieldY.current.time = ev.nativeEvent.layout.y; }}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Date <Text style={{ color: c.error }}>*</Text></Text>
-              <DateField value={date} onChange={setDate} testID="event-date" />
+              <DateField value={date} onChange={(v) => { setDate(v); if (errors.date) setErrors((e) => ({ ...e, date: undefined })); }} testID="event-date" />
+              {!!errors.date && <Text testID="event-date-error" style={{ color: c.error, fontSize: 13 * scale, marginTop: 4 }}>{errors.date}</Text>}
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Time <Text style={{ color: c.error }}>*</Text></Text>
-              <TimeField value={time} onChange={setTime} testID="event-time" />
+              <TimeField value={time} onChange={(v) => { setTime(v); if (errors.time) setErrors((e) => ({ ...e, time: undefined })); }} testID="event-time" />
+              {!!errors.time && <Text testID="event-time-error" style={{ color: c.error, fontSize: 13 * scale, marginTop: 4 }}>{errors.time}</Text>}
             </View>
           </View>
 

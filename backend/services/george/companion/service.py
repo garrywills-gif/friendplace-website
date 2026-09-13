@@ -53,10 +53,20 @@ def _today() -> str:
 
 async def ensure_indexes(db: Any) -> None:
     try:
-        await db[COLL_CHAT].create_index("actor_id", unique=True, sparse=True)
+        # Migrate off the old single-field unique index (one session per member)
+        # to a per-persona one so George & Georgia keep separate histories.
+        try:
+            await db[COLL_CHAT].drop_index("actor_id_1")
+        except Exception:
+            pass
+        await db[COLL_CHAT].create_index([("actor_id", 1), ("persona", 1)], unique=True, sparse=True)
         await db[COLL_MEMORY].create_index("actor_id", unique=True, sparse=True)
     except Exception:  # pragma: no cover
         log.exception("companion indexes non-fatal error")
+
+
+def _chat_filter(actor_id: str, persona: str) -> dict:
+    return {"actor_id": actor_id, "persona": _persona_key(persona)}
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +74,16 @@ async def ensure_indexes(db: Any) -> None:
 # ---------------------------------------------------------------------------
 
 def _system_prompt(name: str) -> str:
+    other = "Georgia" if name == "George" else "George"
     return f"""You are {name}, an openly-AI companion inside FriendPlace — a friendship app for people (often older adults) who want genuine connection. You are talking one-to-one with a member, often when nobody else is online and they just want company.
+
+YOUR IDENTITY (non-negotiable)
+- Your name is {name}. You are {name} and only {name}. You are NOT {other}. If asked who you are or what your name is, you always say you are {name}. Never introduce yourself as {other}, never switch names mid-conversation.
+
+USING THEIR NAME (non-negotiable)
+- Below you may be told the member's confirmed name. If — and ONLY if — a confirmed name is given, you may use it naturally and occasionally.
+- If NO confirmed name is given, do NOT use a name at all. Never guess, infer, or invent one. Never call them "My", "Me", "Us", "friend", "mate" as if it were their name, and never make up a name from something they said.
+- Never ask them to repeat their name if a confirmed name is already given below. If no name is given, you may let it come up naturally in conversation, but never interrogate them for it.
 
 WHO YOU ARE
 - You are a FRIEND, not an assistant, not an interviewer, not a form. You are funny, warm, empathetic, curious and caring.
@@ -79,18 +98,13 @@ HOW YOU CONVERSE (this is the whole job)
 - One thought at a time. Do not stack multiple questions. Keep replies to roughly 1–4 short sentences unless the moment calls for more.
 - The conversation itself is the purpose. You do NOT need to complete a task, move them through a flow, or recommend a feature.
 
-GETTING TO KNOW THEM
-- Any "getting to know you" question is just a CONVERSATION STARTER, never a checklist. If a question turns into a long chat, that is a success — do not drag them back to "the next question".
-- Example — Member: "Not really, I need more friends." WRONG: move to the next question. RIGHT: stay with it warmly — "Yeah, that can be hard. What sort of people do you reckon you'd click with?"
-
 MEMORY
 - You are given the member's remembered details below. Refer back to them naturally when relevant — it should feel like they were heard and remembered, not like they're starting from scratch.
 - If something time-bound is due (e.g. an interview, an appointment, a trip), you may gently ask how it went — but only once, and only if it fits the flow.
 - Never invent shared history. Only reference things that are in the remembered details or visible in this conversation. If you get something wrong and they correct you, own it warmly and move on.
 
 FRIENDPLACE FEATURES
-- Only bring up a FriendPlace feature (finding a group, an event, meeting people nearby) when it is genuinely relevant to what they're talking about. If they'd clearly love a local walking group and they're talking about wanting company on walks, you can mention it — gently, once. Otherwise, just chat.
-- Never turn into a feature-routing bot. If they want help finding a group or event, help them. If they want to talk about their day, their garden, their family, feeling bored or lonely — just be there and talk.
+- Only bring up a FriendPlace feature (finding a group, an event, meeting people nearby) when it is genuinely relevant to what they're talking about. Otherwise, just chat. Never turn into a feature-routing bot.
 
 Reply with ONLY your next message to the member — plain text, no labels, no JSON, no quotes."""
 
@@ -154,21 +168,81 @@ def _persona_name(persona: Optional[str]) -> str:
     return "Georgia" if (persona or "").lower() == "georgia" else "George"
 
 
+def _persona_key(persona: Optional[str]) -> str:
+    return "georgia" if (persona or "").lower() == "georgia" else "george"
+
+
+# Tokens that are never a real preferred name — guards against the onboarding
+# inferring junk like "My"/"Me"/"Us" and the companion then using it.
+_BANNED_NAME_TOKENS = {
+    "my", "me", "us", "mine", "myself", "i", "you", "your", "yours", "we",
+    "they", "them", "someone", "somebody", "anybody", "friend", "mate",
+    "buddy", "pal", "there", "hi", "hello", "hey", "hiya", "ok", "okay",
+    "yeah", "yes", "no", "nah", "name", "unknown", "none", "null", "n/a",
+    "na", "nobody", "person", "member", "user", "sure", "not", "dunno",
+}
+
+
+def _clean_name(raw: Optional[str]) -> Optional[str]:
+    """Return a usable first name, or None if the value isn't clearly a real
+    name. Rejects pronouns/filler and obvious non-names — we would rather use
+    NO name than invent or mangle one."""
+    if not raw or not isinstance(raw, str):
+        return None
+    n = raw.strip().strip(".,!?\"'").strip()
+    if not n or len(n) < 2 or len(n) > 40:
+        return None
+    words = n.lower().split()
+    if any(w in _BANNED_NAME_TOKENS for w in words):
+        return None
+    if not any(c.isalpha() for c in n):
+        return None
+    return n
+
+
+async def _confirmed_name(db: Any, actor_id: str) -> Optional[str]:
+    """The member's CONFIRMED preferred/display name only. Uses a stated
+    (not inferred) onboarding preferred_name first, then explicit profile
+    fields, then the signup first name. Returns None if nothing is trustworthy
+    — the companion must then use no name rather than guessing."""
+    try:
+        u = await db.users.find_one(
+            {"id": actor_id},
+            {"_id": 0, "first_name": 1, "preferred_name": 1,
+             "display_name": 1, "george_profile": 1},
+        ) or {}
+    except Exception:
+        return None
+    prof = u.get("george_profile") or {}
+    pn = prof.get("preferred_name")
+    if isinstance(pn, dict) and (pn.get("source") or "").lower() == "stated":
+        c = _clean_name(pn.get("value"))
+        if c:
+            return c
+    for f in ("preferred_name", "display_name", "first_name"):
+        c = _clean_name(u.get(f))
+        if c:
+            return c
+    return None
+
+
 async def _profile_block(db: Any, actor_id: str) -> str:
     try:
         u = await db.users.find_one(
             {"id": actor_id},
-            {"_id": 0, "first_name": 1, "george_profile": 1, "suburb": 1},
+            {"_id": 0, "george_profile": 1, "suburb": 1},
         ) or {}
     except Exception:
         u = {}
     bits: List[str] = []
-    if u.get("first_name"):
-        bits.append(f"First name: {u['first_name']}")
     if u.get("suburb"):
         bits.append(f"Suburb: {u['suburb']}")
     prof = u.get("george_profile") or {}
     for field, val in prof.items():
+        # Name is handled separately with strict confirmation — never leak an
+        # inferred preferred_name into the prompt.
+        if field in ("preferred_name", "first_name", "display_name"):
+            continue
         v = val.get("value") if isinstance(val, dict) else val
         if v:
             bits.append(f"{field}: {v}")
@@ -270,7 +344,19 @@ async def _build_user_prompt(db: Any, actor_id: str, turns: List[dict],
     mem = await _memory_doc(db, actor_id)
     mem_block, due = _memory_block(mem.get("items") or [])
     prof_block = await _profile_block(db, actor_id)
+    name = await _confirmed_name(db, actor_id)
     parts: List[str] = []
+    if name:
+        parts.append(
+            f"THE MEMBER'S CONFIRMED NAME: {name}\n"
+            f"You may use \"{name}\" naturally. Do NOT ask them their name — you already know it."
+        )
+    else:
+        parts.append(
+            "THE MEMBER'S NAME IS NOT CONFIRMED.\n"
+            "Do NOT use any name for them, and do NOT guess or invent one. "
+            "Never call them \"My\", \"Me\", \"Us\" or a made-up name."
+        )
     if prof_block:
         parts.append("WHAT YOU KNOW ABOUT THEM (from their profile):\n" + prof_block)
     if mem_block:
@@ -299,7 +385,8 @@ async def get_or_create_companion_session(db: Any, *, actor_id: str, persona: st
     time-bound memory (e.g. an interview yesterday), prepends a gentle
     fresh opening that may ask about it — so it feels remembered."""
     name = _persona_name(persona)
-    doc = await db[COLL_CHAT].find_one({"actor_id": actor_id}, {"_id": 0})
+    pkey = _persona_key(persona)
+    doc = await db[COLL_CHAT].find_one(_chat_filter(actor_id, persona), {"_id": 0})
 
     if not doc:
         prompt, _ = await _build_user_prompt(db, actor_id, [], None)
@@ -311,7 +398,7 @@ async def get_or_create_companion_session(db: Any, *, actor_id: str, persona: st
         doc = {
             "id": str(uuid.uuid4()),
             "actor_id": actor_id,
-            "persona": persona,
+            "persona": pkey,
             "turns": turns,
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
@@ -331,16 +418,13 @@ async def get_or_create_companion_session(db: Any, *, actor_id: str, persona: st
             opening = await _llm(_system_prompt(name), prompt, COMPANION_MODEL)
             turns.append({"role": "george", "content": opening.strip(), "at": _now_iso(), "is_reopen": True})
             await db[COLL_CHAT].update_one(
-                {"actor_id": actor_id},
-                {"$set": {"turns": turns, "updated_at": _now_iso(), "last_active_at": _now_iso(), "persona": persona}},
+                _chat_filter(actor_id, persona),
+                {"$set": {"turns": turns, "updated_at": _now_iso(), "last_active_at": _now_iso()}},
             )
             await _mark_followed_up(db, actor_id, due_texts)
             doc["turns"] = turns
         except Exception:
             pass
-    if doc.get("persona") != persona:
-        await db[COLL_CHAT].update_one({"actor_id": actor_id}, {"$set": {"persona": persona}})
-        doc["persona"] = persona
     return doc
 
 
@@ -350,7 +434,8 @@ def _build_memory_due(mem: dict) -> tuple[str, List[str]]:
 
 async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str) -> dict:
     name = _persona_name(persona)
-    doc = await db[COLL_CHAT].find_one({"actor_id": actor_id}, {"_id": 0})
+    pkey = _persona_key(persona)
+    doc = await db[COLL_CHAT].find_one(_chat_filter(actor_id, persona), {"_id": 0})
     turns = list((doc or {}).get("turns") or [])
     turns.append({"role": "user", "content": user_text, "at": _now_iso()})
 
@@ -363,8 +448,8 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
 
     turns.append({"role": "george", "content": reply, "at": _now_iso()})
     await db[COLL_CHAT].update_one(
-        {"actor_id": actor_id},
-        {"$set": {"actor_id": actor_id, "persona": persona, "turns": turns[-200:],
+        _chat_filter(actor_id, persona),
+        {"$set": {"actor_id": actor_id, "persona": pkey, "turns": turns[-200:],
                   "updated_at": _now_iso(), "last_active_at": _now_iso()},
          "$setOnInsert": {"id": str(uuid.uuid4()), "created_at": _now_iso()}},
         upsert=True,
@@ -372,12 +457,12 @@ async def companion_turn(db: Any, *, actor_id: str, persona: str, user_text: str
     # Mark any due follow-ups we just surfaced, and learn from the exchange.
     await _mark_followed_up(db, actor_id, due)
     await _extract_memory(db, actor_id, name, user_text, reply)
-    return {"message": reply, "persona": persona, "at": _now_iso()}
+    return {"message": reply, "persona": pkey, "at": _now_iso()}
 
 
 async def reset_companion_session(db: Any, *, actor_id: str, persona: str = "george") -> dict:
     """Clear the visible conversation and start fresh. Private memory is
     intentionally preserved — clearing the chat doesn't make the member
     a stranger again."""
-    await db[COLL_CHAT].delete_one({"actor_id": actor_id})
+    await db[COLL_CHAT].delete_one(_chat_filter(actor_id, persona))
     return await get_or_create_companion_session(db, actor_id=actor_id, persona=persona)

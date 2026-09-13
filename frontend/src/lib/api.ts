@@ -559,7 +559,7 @@ export const api = {
   rsvpEvent: (id: string, uid: string, response: "going" | "maybe" | "cant" = "going") =>
     req(`/events/${id}/rsvp/${uid}`, { method: "POST", body: JSON.stringify({ response }) }),
   unrsvpEvent: (id: string, uid: string) => req(`/events/${id}/unrsvp/${uid}`, { method: "POST" }),
-  createEvent: (body: { title: string; emoji?: string; description?: string; location?: string; date?: string; time?: string; capacity?: number | null; host_id?: string; recurrence?: "weekly" | "fortnightly" | "monthly" | null; recurrence_count?: number | null }) =>
+  createEvent: (body: { title: string; emoji?: string; description?: string; location?: string; locality?: string; locality_postcode?: string; locality_state?: string; date?: string; time?: string; capacity?: number | null; host_id?: string; recurrence?: "weekly" | "fortnightly" | "monthly" | null; recurrence_count?: number | null; image?: string }) =>
     req(`/events`, { method: "POST", body: JSON.stringify(body) }),
   // Business-event heuristic preflight — called before createEvent so we
   // can surface the friendly "this looks like a business event" modal.

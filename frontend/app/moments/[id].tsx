@@ -17,6 +17,7 @@ import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
+import AvatarBubble from "@/src/components/AvatarBubble";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
@@ -283,7 +284,7 @@ export default function MomentDetail() {
               hitSlop={6}
               style={{ flexDirection: "row", alignItems: "center", gap: 10, flex: 1 }}
             >
-              <Text style={{ fontSize: 32 }}>{moment.author_avatar || "👤"}</Text>
+              <AvatarBubble value={moment.author_avatar} size={40} textSize={28} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text numberOfLines={1} style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>
                   {moment.author_name || "Someone"}
@@ -379,7 +380,7 @@ export default function MomentDetail() {
                   style={{ top: -4, left: 4, right: 0 }}
                 />
               </View>
-              <Text style={{ color: c.onSurface, fontWeight: "800", marginLeft: 8, fontSize: 15 * scale }}>
+              <Text numberOfLines={1} style={{ color: c.onSurface, fontWeight: "800", marginLeft: 8, fontSize: 15 * scale, flexShrink: 1 }}>
                 {(moment.likes_count || 0) === 0
                   ? "Be the first to like this"
                   : `${moment.likes_count} ${moment.likes_count === 1 ? "Like" : "Likes"}`}
@@ -426,7 +427,7 @@ export default function MomentDetail() {
                         { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0, opacity: pressed ? 0.6 : 1 },
                       ]}
                     >
-                      <Text style={{ fontSize: 22 }}>{cm.user_avatar || "👤"}</Text>
+                      <AvatarBubble value={cm.user_avatar} size={30} textSize={20} />
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                           <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>
@@ -596,8 +597,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderBottomWidth: 1,
     paddingVertical: 12,
+    gap: 12,
   },
-  likeBtn: { flexDirection: "row", alignItems: "center" },
+  likeBtn: { flexDirection: "row", alignItems: "center", flexShrink: 1, flex: 1 },
   commentRow: {
     flexDirection: "row",
     gap: 10,

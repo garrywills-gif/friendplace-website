@@ -7264,10 +7264,14 @@ async def create_event(body: EventCreateBody):
         master_dict["series_master"] = False
     master = Event(**master_dict)
     master_doc = master.dict()
-    # Local Discovery: stamp locality from the host's suburb when the event
-    # didn't carry its own recognised locality coords.
+    # Local Discovery: geocode the host's CHOSEN locality (suburb/nearest town)
+    # when supplied; otherwise fall back to the host's own saved suburb.
     if master_doc.get("locality_lat") is None:
-        loc = await _default_locality_for_user(body.host_id)
+        loc: Dict = {}
+        if master_doc.get("locality"):
+            loc = _locality_update_from(master_doc.get("locality"), master_doc.get("locality_state"), master_doc.get("locality_postcode"))
+        if not loc:
+            loc = await _default_locality_for_user(body.host_id)
         if loc:
             master_doc.update(loc)
             master = Event(**master_doc)

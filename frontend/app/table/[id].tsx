@@ -14,6 +14,7 @@ import { api, wsUrl } from "@/src/lib/api";
 import Header from "@/src/components/Header";
 import CoffeeTableSeating from "@/src/components/CoffeeTableSeating";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import SpeakButton from "@/src/components/SpeakButton";
 import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
 import ZoomableImageViewer from "@/src/components/ZoomableImageViewer";
@@ -322,6 +323,17 @@ export default function TableChat() {
                     <Text style={[styles.body, { color: mine ? "#FFF" : c.onSurface, fontSize: 16 * scale, paddingHorizontal: hasImg ? 6 : 0, paddingTop: hasImg ? 6 : 0, paddingBottom: hasImg ? 4 : 0 }]}>{item.text}</Text>
                   )}
                 </View>
+                {/* Manual read-aloud on every café message (accessibility) —
+                    tap to hear it. Never auto-plays. (Garry, 1031.) */}
+                {!!item.text && (
+                  <SpeakButton
+                    text={item.user_name ? `${item.user_name} says. ${item.text}` : item.text}
+                    color={c.muted}
+                    bg={c.surfaceTertiary}
+                    size={18}
+                    testID={`cafe-speak-${item.id}`}
+                  />
+                )}
               </View>
             );
           }}

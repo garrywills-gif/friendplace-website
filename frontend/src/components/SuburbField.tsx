@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, Keyboard } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import { api } from "@/src/lib/api";
@@ -10,15 +10,19 @@ type Props = {
   initialValue?: string;
   preferNotToSay?: boolean;
   onChange: (
-    suburb: { name: string; postcode?: string; state?: string } | null,
+    suburb: { name: string; postcode?: string; state?: string; lat?: number; lng?: number } | null,
     prefer_not_to_say?: boolean,
   ) => void;
   testID?: string;
+  /** Hide the profile-only "Prefer not to say" control + privacy note — used
+   *  when the field is a search/area picker (e.g. Find Friends). */
+  hidePreferNotToSay?: boolean;
+  placeholder?: string;
 };
 
 /** Searchable Australian suburb picker with "Prefer not to say" option.
  *  Optional Near-Me hook can be passed by parent (we surface it as a button). */
-export default function SuburbField({ initialValue = "", preferNotToSay = false, onChange, testID }: Props) {
+export default function SuburbField({ initialValue = "", preferNotToSay = false, onChange, testID, hidePreferNotToSay = false, placeholder }: Props) {
   const { c, scale } = useTheme();
   const [text, setText] = useState(initialValue);
   const [matches, setMatches] = useState<SuburbMatch[]>([]);
@@ -27,8 +31,14 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
   const [pickedSuburb, setPickedSuburb] = useState<SuburbMatch | null>(null);
   const [pns, setPns] = useState(preferNotToSay);
   const timer = useRef<any>(null);
+  // After a member taps a result we set the field text to the chosen suburb.
+  // That text change would otherwise re-trigger the search effect and reopen
+  // the list — this guard swallows exactly that one re-run so the list stays
+  // closed. (Garry, 1031 real-device feedback.)
+  const justPicked = useRef(false);
 
   useEffect(() => {
+    if (justPicked.current) { justPicked.current = false; setOpen(false); return; }
     if (pns || !text || text.length < 2) { setMatches([]); return; }
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
@@ -43,11 +53,15 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
   }, [text, pns]);
 
   const choose = (m: SuburbMatch) => {
+    justPicked.current = true;
+    if (timer.current) clearTimeout(timer.current);
     setPickedSuburb(m);
     setText(`${m.name}, ${m.state} ${m.postcode}`);
+    setMatches([]);
     setOpen(false);
     setPns(false);
-    onChange({ name: m.name, postcode: m.postcode, state: m.state }, false);
+    Keyboard.dismiss();
+    onChange({ name: m.name, postcode: m.postcode, state: m.state, lat: m.lat, lng: m.lng }, false);
   };
 
   const togglePns = () => {
@@ -71,7 +85,7 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
           testID={testID || "suburb-field"}
           value={text}
           onChangeText={(t) => { setText(t); if (pns) setPns(false); }}
-          placeholder="Start typing your suburb"
+          placeholder={placeholder || "Start typing your suburb"}
           placeholderTextColor={c.muted}
           editable={!pns}
           style={[styles.input, { backgroundColor: pns ? c.surfaceTertiary : c.surfaceSecondary, color: c.onSurface, borderColor: c.border, fontSize: 16 * scale }]}
@@ -137,12 +151,14 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
       <Pressable
         testID="suburb-pns"
         onPress={togglePns}
-        style={[styles.pns, { backgroundColor: pns ? c.brand : c.surfaceSecondary, borderColor: pns ? c.brand : c.border }]}
+        style={[styles.pns, { display: hidePreferNotToSay ? "none" : "flex", backgroundColor: pns ? c.brand : c.surfaceSecondary, borderColor: pns ? c.brand : c.border }]}
       >
         <Ionicons name={pns ? "checkmark-circle" : "lock-closed"} size={18} color={pns ? "#FFF" : c.onSurface} />
         <Text style={{ color: pns ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 14 * scale, marginLeft: 8 }}>Prefer not to say</Text>
       </Pressable>
-      <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6 }}>We only ever show your suburb publicly — never your street address.</Text>
+      {!hidePreferNotToSay && (
+        <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6 }}>We only ever show your suburb publicly — never your street address.</Text>
+      )}
     </View>
   );
 }

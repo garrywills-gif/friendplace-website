@@ -13,6 +13,7 @@ import { useFocusEffect, useRouter, Stack } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
+import AvatarBubble from "@/src/components/AvatarBubble";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { useToast } from "@/src/lib/toast";
@@ -267,7 +268,7 @@ export default function MomentsScreen() {
                       { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, minWidth: 0, opacity: pressed ? 0.6 : 1 },
                     ]}
                   >
-                    <Text style={{ fontSize: 28 }}>{m.author_avatar || "👤"}</Text>
+                    <AvatarBubble value={m.author_avatar} size={36} textSize={24} />
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Text numberOfLines={1} style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>
                         {m.author_name || "Someone"}

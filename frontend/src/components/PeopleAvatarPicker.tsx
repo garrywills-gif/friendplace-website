@@ -96,12 +96,12 @@ type Props = {
 };
 
 function seedMode(value?: string | null): Mode {
-  if (!value) return "preset";
-  if (isPresetAvatar(value)) return "preset";
-  const { base } = parseAvatar(value);
-  if (base && /^data:/i.test(base)) return "upload";
-  if (base && /^https?:/i.test(base)) return "upload";
-  return "emoji";
+  // The FriendPlace portrait ("preset") tab is ALWAYS the default opening
+  // tab on About You — even if the member currently has a legacy emoji or
+  // an uploaded photo. Their existing avatar still shows in the preview and
+  // stays selected; Fun emoji / Upload remain one tap away, just never open
+  // first. (Garry, 1031 real-device feedback.)
+  return "preset";
 }
 
 export default function PeopleAvatarPicker({
