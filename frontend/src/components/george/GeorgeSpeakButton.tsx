@@ -21,7 +21,7 @@ import { Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useToast } from '@/src/lib/toast';
 import { georgeApi } from '@/src/lib/george-api';
-import { subscribeVoice, getVoice, DEFAULT_VOICE } from '@/src/lib/george-voice';
+import { subscribeVoice, getVoice, DEFAULT_VOICE, type GeorgeVoice } from '@/src/lib/george-voice';
 import { playAudioUri, type PlaybackController } from '@/src/lib/george-playback';
 import {
   claimActiveSpeaker,
@@ -37,6 +37,13 @@ type Props = {
   bg?: string;
   size?: number;
   testID?: string;
+  /** Explicit persona for this bubble. When set (e.g. from the
+   *  companion chat, which knows whether it is George or Georgia), the
+   *  spoken voice is forced to this persona and never re-derived from
+   *  the global preference — so the voice can't diverge from the
+   *  on-screen persona. When omitted, falls back to the persisted
+   *  global voice preference. */
+  voice?: GeorgeVoice;
 };
 
 // TestFlight round-5 (Feb 2026): active-speaker coordination is now
@@ -50,6 +57,7 @@ export default function GeorgeSpeakButton({
   bg,
   size = 22,
   testID,
+  voice: voiceProp,
 }: Props) {
   const { show } = useToast();
   const [phase, setPhase] = React.useState<'idle' | 'loading' | 'playing'>('idle');
@@ -70,10 +78,10 @@ export default function GeorgeSpeakButton({
     setPhase('loading');
     claimActiveSpeaker(stopRef.current);
     try {
-      const voice = (await getVoice()) ?? DEFAULT_VOICE;
+      const voice = voiceProp ?? (await getVoice()) ?? DEFAULT_VOICE;
       let uri = getCachedUri(voice, text);
       if (!uri) {
-        uri = await georgeApi.speak(text);
+        uri = await georgeApi.speak(text, voice);
         setCachedUri(voice, text, uri);
       }
       const ctrl = playAudioUri(uri);
@@ -95,7 +103,7 @@ export default function GeorgeSpeakButton({
       setPhase('idle');
       releaseActiveSpeaker(stopRef.current);
     }
-  }, [text, phase, stop, show]);
+  }, [text, phase, stop, show, voiceProp]);
 
   React.useEffect(() => () => {
     try { activeCtrlRef.current?.stop(); } catch { /* noop */ }

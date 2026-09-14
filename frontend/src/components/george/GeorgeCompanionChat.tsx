@@ -34,7 +34,7 @@ type Turn = { role: 'user' | 'george'; content: string };
 
 export function GeorgeCompanionChat({ onClose }: Props) {
   const insets = useSafeAreaInsets();
-  const { voice } = useGeorgeVoice();
+  const { voice, hydrated } = useGeorgeVoice();
   const voiceLabel = VOICE_LABELS[voice]?.short || 'George';
   const { prefs } = useTheme();
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -56,15 +56,24 @@ export function GeorgeCompanionChat({ onClose }: Props) {
     const t = turns[last];
     if (!t || t.role !== 'george' || !t.content?.trim()) return;
     spokenIdxRef.current = last;
-    void speakGeorgeAloud(t.content);
-  }, [turns, prefs?.autoReadNewMessages]);
+    void speakGeorgeAloud(t.content, voice);
+  }, [turns, prefs?.autoReadNewMessages, voice]);
 
   useEffect(() => () => { stopGeorgeAutoRead(); }, []);
 
   useEffect(() => {
+    // Wait for the persona preference to hydrate before loading the
+    // session, and reload if the persona changes — otherwise a cold
+    // start could capture the default 'george' before AsyncStorage
+    // resolves to 'georgia', loading the wrong persona's history (and
+    // making the on-screen persona disagree with the conversation).
+    if (!hydrated) return;
+    let cancelled = false;
+    setBusy(true);
     (async () => {
       try {
         const s = await georgeApi.companionGet(voice);
+        if (cancelled) return;
         const loaded = (s.turns || []).map((t: any) => ({ role: t.role, content: t.content }));
         // Do NOT auto-replay prior messages on reopen — only genuinely
         // new George turns should be read aloud (and only if the setting
@@ -72,12 +81,12 @@ export function GeorgeCompanionChat({ onClose }: Props) {
         spokenIdxRef.current = loaded.length - 1;
         setTurns(loaded);
       } catch {
+        if (cancelled) return;
         setTurns([{ role: 'george', content: "Sorry — I couldn't quite connect. Give it a moment and try again?" }]);
-      } finally { setBusy(false); }
+      } finally { if (!cancelled) setBusy(false); }
     })();
-    // Intentionally run once on open; persona is captured at mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => { cancelled = true; };
+  }, [hydrated, voice]);
 
   useEffect(() => {
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
@@ -151,7 +160,7 @@ export function GeorgeCompanionChat({ onClose }: Props) {
               <Text style={t.role === 'george' ? styles.bubbleText : styles.userBubbleText}>{t.content}</Text>
               {t.role === 'george' && t.content?.trim() ? (
                 <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-                  <GeorgeSpeakButton text={t.content} color="#FFFFFF" size={18} />
+                  <GeorgeSpeakButton text={t.content} color="#FFFFFF" size={18} voice={voice} />
                 </View>
               ) : null}
             </View>

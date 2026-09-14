@@ -16,6 +16,7 @@
  */
 import { georgeApi } from './george-api';
 import { playAudioUri, type PlaybackController } from './george-playback';
+import type { GeorgeVoice } from './george-voice';
 
 let activeCtrl: PlaybackController | null = null;
 let generation = 0;
@@ -29,12 +30,15 @@ export function stopGeorgeAutoRead(): void {
   activeCtrl = null;
 }
 
-/** Speak a fresh George message using the persisted cloud persona
- *  voice (via `/mcgs/george/tts`). If the cloud call fails, we go
- *  silent — device TTS (which plays the OS default voice regardless
- *  of persona) is NEVER used as a fallback. Errors are logged in
- *  __DEV__ but never surfaced. */
-export async function speakGeorgeAloud(text: string): Promise<void> {
+/** Speak a fresh George message using the cloud persona voice (via
+ *  `/mcgs/george/speak`). Pass an explicit `persona` when the caller
+ *  already knows which companion is active (e.g. the companion chat) so
+ *  the spoken voice can never diverge from the on-screen persona; when
+ *  omitted, `georgeApi.speak` falls back to the persisted global
+ *  preference. If the cloud call fails, we go silent — device TTS
+ *  (which plays the OS default voice regardless of persona) is NEVER
+ *  used as a fallback. Errors are logged in __DEV__ but never surfaced. */
+export async function speakGeorgeAloud(text: string, persona?: GeorgeVoice): Promise<void> {
   const trimmed = (text || '').trim();
   if (!trimmed) return;
   generation += 1;
@@ -42,7 +46,7 @@ export async function speakGeorgeAloud(text: string): Promise<void> {
   try { activeCtrl?.stop(); } catch { /* noop */ }
   activeCtrl = null;
   try {
-    const uri = await georgeApi.speak(trimmed);
+    const uri = await georgeApi.speak(trimmed, persona);
     if (myGen !== generation) return;
     const ctrl = playAudioUri(uri);
     activeCtrl = ctrl;

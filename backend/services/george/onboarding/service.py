@@ -235,6 +235,18 @@ async def active_onboarding_session(db: Any, *, actor_id: str) -> Optional[dict]
     with a `cancel_reason` so it stops appearing in future presence
     calls — a one-time cleanup that scales safely because it only
     runs when both flags disagree.
+
+    IMPORTANT (real-device fix, Jun 2026): staleness is keyed to
+    ``profile_complete`` ONLY — the flag set exclusively by
+    ``approve_onboarding`` when George's get-to-know-you chat is
+    finished. It is NOT keyed to ``onboarding_completed``, which is the
+    unrelated *app signup* onboarding flag (set in server.py after a
+    member finishes the sign-up flow). Every real member has
+    ``onboarding_completed == True`` well before they ever chat with
+    George, so conflating the two caused an in-progress get-to-know-you
+    session (with real answers) to be wrongly discarded the moment they
+    tapped "Finish later" and reopened the butterfly — George then
+    greeted them as a stranger and the answers were lost.
     """
     active = await db[COLL_ONBOARDING].find_one(
         {"actor_id": actor_id, "status": {"$in": ["in_progress", "drafted"]}},
@@ -243,20 +255,19 @@ async def active_onboarding_session(db: Any, *, actor_id: str) -> Optional[dict]
     )
     if not active:
         return None
-    # Cross-check with the user's profile-complete flag. If the user
-    # is a member whose onboarding has already been approved, this
-    # session is stale — never re-route them back into onboarding.
+    # Cross-check with George's OWN completion flag (`profile_complete`,
+    # set only by approve_onboarding). If the get-to-know-you chat has
+    # already been approved, this lingering session is stale — never
+    # re-route them back into onboarding. Deliberately does NOT consider
+    # the app-level `onboarding_completed` signup flag (see docstring).
     try:
         user_doc = await db.users.find_one(
             {"id": actor_id},
-            {"_id": 0, "profile_complete": 1, "onboarding_completed": 1},
+            {"_id": 0, "profile_complete": 1},
         )
     except Exception:
         user_doc = None
-    if user_doc and (
-        user_doc.get("profile_complete") is True
-        or user_doc.get("onboarding_completed") is True
-    ):
+    if user_doc and user_doc.get("profile_complete") is True:
         # Best-effort cleanup so subsequent presence lookups are
         # cheap and the session doesn't linger indefinitely.
         try:
