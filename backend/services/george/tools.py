@@ -464,9 +464,13 @@ async def _count_organisations(db: Any, args: dict) -> int:
     "Count website visitors who Registered their Interest (a.k.a. Founding Members). "
     "Filter by status (registered/invited/joined/opted_out — 'registered' also matches "
     "the legacy 'new' status i.e. anyone awaiting contact), companion_choice (george/georgia), "
-    "state_country (case-insensitive substring, e.g. 'Sydney', 'NSW', 'Melbourne'), or "
-    "since_days for a rolling window (use since_days=1 for 'today', 7 for 'this week'). "
-    "Test-flagged rows are excluded by default.",
+    "state_country (case-insensitive substring, e.g. 'Sydney', 'NSW', 'Melbourne'), "
+    "since_days for a rolling window (e.g. since_days=7 for a rolling week), or "
+    "today=true for the *Sydney calendar-day* boundary (matches the dashboard's "
+    "'New today' card exactly — use this when the admin asks 'how many registered "
+    "today?'; never use since_days=1 for that, it's a rolling 24-hour window and "
+    "will drift from the card). Test-flagged rows and reserved slots (#0001 Garry, "
+    "#0002 George) are excluded from public-facing counts.",
     args={
         "status": {"type": "str", "required": False,
                    "enum": {"registered", "invited", "joined", "opted_out"}},
@@ -474,11 +478,22 @@ async def _count_organisations(db: Any, args: dict) -> int:
                              "enum": {"george", "georgia"}},
         "state_country": {"type": "str", "required": False},
         "since_days": {"type": "int", "required": False},
+        "today": {"type": "bool", "required": False},
         "include_test_data": {"type": "bool", "required": False},
     },
 )
 async def _count_interest_registrations(db: Any, args: dict) -> int:
     q: dict = {}
+    # iter163: `today=true` matches the dashboard's "New today" — Sydney
+    # calendar boundary, reserved slots excluded. `joined` intentionally
+    # keeps reserved rows because Garry & George count as joined founders
+    # in the card, so mirror that.
+    if args.get("today") is True:
+        from ..time_boundaries import sydney_today_start_iso
+        q["created_at"] = {"$gte": sydney_today_start_iso()}
+        # Only exclude reserved for public statuses (matches card).
+        if args.get("status") != "joined":
+            q["is_reserved"] = {"$ne": True}
     if "status" in args:
         if args["status"] == "registered":
             q["$or"] = [
@@ -493,7 +508,7 @@ async def _count_interest_registrations(db: Any, args: dict) -> int:
     if "state_country" in args:
         rx = re.compile(re.escape(args["state_country"]), re.IGNORECASE)
         q["state_country"] = rx
-    if "since_days" in args:
+    if "since_days" in args and args.get("today") is not True:
         cutoff = datetime.now(timezone.utc) - timedelta(days=int(args["since_days"]))
         q["created_at"] = {"$gte": cutoff.isoformat()}
     if not _should_include_test_data(args):
@@ -571,59 +586,12 @@ async def _list_interest_registrations(db: Any, args: dict) -> list:
     args={},
 )
 async def _founding_members_summary(db: Any, args: dict) -> dict:
-    base = {"is_test": {"$ne": True}}
-    total = await db.interest_registrations.count_documents(base)
-    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    new_today = await db.interest_registrations.count_documents({
-        **base, "created_at": {"$gte": today_start.isoformat()},
-    })
-    awaiting = await db.interest_registrations.count_documents({
-        **base,
-        "$or": [
-            {"status": {"$exists": False}},
-            {"status": None},
-            {"status": {"$in": ["registered", "new"]}},
-        ],
-    })
-    invited = await db.interest_registrations.count_documents({**base, "status": "invited"})
-    joined  = await db.interest_registrations.count_documents({**base, "status": "joined"})
-    opted   = await db.interest_registrations.count_documents({**base, "status": "opted_out"})
-    latest = await db.interest_registrations.find_one(
-        base,
-        {"_id": 0, "first_name": 1, "email": 1, "state_country": 1, "created_at": 1},
-        sort=[("created_at", -1)],
-    )
-    return {
-        "total":            total,
-        "new_today":        new_today,
-        "awaiting_contact": awaiting,
-        # iter161c (25 Feb 2026): expose the correct semantics as a
-        # first-class field so George doesn't have to infer it from
-        # tone. `awaiting_invitation` and `awaiting_contact` are the
-        # SAME number — the second name is preserved for API back-
-        # compat with existing consumers.
-        "awaiting_invitation": awaiting,
-        "invited":          invited,
-        "joined":           joined,
-        "opted_out":        opted,
-        "latest":           latest,
-        # Ground-truth semantic note George can quote verbatim. Comes
-        # from the CRM/tool layer, not the prompt — so it stays in
-        # sync with the actual behaviour of the registration flow.
-        "_semantics": {
-            "awaiting_contact_meaning": (
-                "These members registered their interest and received the "
-                "automatic registration acknowledgement email at signup. "
-                "They are now awaiting the personal FriendPlace invitation "
-                "email — this is what admins send from the Founding Members "
-                "page or via a campaign. Do NOT say these people have not "
-                "been emailed."
-            ),
-            "preferred_label": "awaiting invitation",
-            "auto_registration_email_sent": True,
-            "personal_invitation_sent":     False,
-        },
-    }
+    # iter163: delegate to the shared canonical stats function so this
+    # tool can never drift from the dashboard's counting rules.
+    # "Today" is Sydney-calendar-day, reserved slots are excluded from
+    # every headline metric except total/joined — same as the card.
+    from ..crm.founding_stats import compute_founding_members_stats
+    return await compute_founding_members_stats(db)
 
 
 @register(
@@ -680,8 +648,362 @@ async def _founding_members_conversion(db: Any, args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Placeholders that honestly say "not yet built"
+# Chief-of-Staff one-shot overview (iter164bf)
 # ---------------------------------------------------------------------------
+
+@register(
+    "mission_control_overview",
+    "ONE-SHOT executive overview of the whole Mission Control operation — the single "
+    "tool to call for BROAD status questions like 'how's everything going?', 'how are "
+    "things?', 'give me an overview', 'what's the latest?', 'how are we doing?', "
+    "'anything I should know?'. Returns LIVE data in one shot: founding-member "
+    "registrations (total, new_today, awaiting_invitation, invited, joined, opted_out, "
+    "most_recent), the Bridge workload + Signal Feed alerts, recent campaign performance "
+    "and any campaigns with FAILED sends, the inbox (new contact enquiries + "
+    "unread/awaiting/stale replies), and a derived `attention` list of anything "
+    "high-priority, overdue or abnormal. ALWAYS prefer this single tool over calling "
+    "several count_* tools for a general status question. Test-flagged rows excluded.",
+    args={},
+)
+async def _mission_control_overview(db: Any, args: dict) -> dict:  # noqa: ARG001
+    from ..crm.founding_stats import compute_founding_members_stats
+    from services.mcgs import compute_bridge_summary
+    from services.replies.store import (
+        unread_count as _ru,
+        awaiting_count as _aw,
+        stale_reply_count as _sr,
+    )
+
+    fm = await compute_founding_members_stats(db)
+    bridge = await compute_bridge_summary(db)
+
+    # Inbox / enquiries needing attention.
+    enquiries_new = await db["contact_submissions"].count_documents({
+        "is_test": {"$ne": True},
+        "archived_at": None,
+        "$or": [
+            {"status": "new"},
+            {"status": {"$in": [None, ""]}},
+            {"status": {"$exists": False}},
+        ],
+    })
+    replies_unread   = int(await _ru(db))
+    replies_awaiting = int(await _aw(db))
+    replies_stale    = int(await _sr(db, days=7))
+
+    # Campaigns — most recent send + any campaign with failed sends.
+    camp_rows = await db.campaigns.find(
+        {"is_test": {"$ne": True}}, {"_id": 0}
+    ).sort([("sent_at", -1), ("created_at", -1)]).to_list(15)
+    recent_campaign = None
+    campaigns_with_failures: list[dict] = []
+    for r in camp_rows:
+        summ = _summarise_campaign(r)
+        failed = int((r.get("stats") or {}).get("failed") or 0)
+        if recent_campaign is None and r.get("status") in (
+            "sent", "sending", "partially_sent", "completed"
+        ):
+            recent_campaign = {**summ, "failed": failed}
+        if failed > 0:
+            campaigns_with_failures.append({
+                "id": summ["id"], "title": summ["title"],
+                "status": summ["status"], "accepted": summ["accepted"],
+                "failed": failed,
+            })
+
+    # Compact Bridge view (only categories with open work + alerts).
+    open_categories = [
+        {"label": c["label"], "open": c["open"],
+         "oldest_waiting_seconds": c.get("oldest_waiting_seconds")}
+        for c in (bridge.get("categories") or []) if int(c.get("open") or 0) > 0
+    ]
+    total_actionable = int(bridge.get("total_actionable") or 0)
+    milestones_open = int((bridge.get("milestones") or {}).get("open") or 0)
+
+    # Derived attention list — anything high-priority / overdue / abnormal.
+    attention: list[str] = []
+    if campaigns_with_failures:
+        nfail = sum(c["failed"] for c in campaigns_with_failures)
+        attention.append(
+            f"{nfail} failed campaign send(s) across "
+            f"{len(campaigns_with_failures)} campaign(s)"
+        )
+    if replies_stale:
+        attention.append(f"{replies_stale} reply(ies) waiting more than 7 days")
+    if enquiries_new:
+        attention.append(f"{enquiries_new} new contact enquiry(ies) awaiting a response")
+    if total_actionable:
+        attention.append(f"{total_actionable} item(s) awaiting action on the Bridge")
+
+    return {
+        "founding_members": {
+            "total":                fm.get("total"),
+            "new_today":            fm.get("new_today"),
+            "awaiting_invitation":  fm.get("awaiting_invitation", fm.get("awaiting_contact")),
+            "invited":              fm.get("invited"),
+            "joined":               fm.get("joined"),
+            "opted_out":            fm.get("opted_out"),
+            "most_recent":          fm.get("most_recent"),
+        },
+        "bridge": {
+            "total_actionable":  total_actionable,
+            "open_categories":   open_categories,
+            "signal_alerts_open": milestones_open,
+        },
+        "campaigns": {
+            "most_recent":   recent_campaign,
+            "with_failures": campaigns_with_failures,
+        },
+        "inbox": {
+            "new_enquiries":              int(enquiries_new),
+            "replies_unread":             replies_unread,
+            "replies_awaiting_our_reply": replies_awaiting,
+            "replies_stale_over_7d":      replies_stale,
+        },
+        "attention":        attention,
+        "all_clear":        (len(attention) == 0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# General-purpose read-only analytics (iter164bi)
+# ---------------------------------------------------------------------------
+
+_WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                  "Friday", "Saturday", "Sunday"]
+
+# Curated, READ-ONLY analytics surface. Each dataset whitelists a collection,
+# a base filter (so counts match the dashboards), a timestamp field, and the
+# dimensions George may group/filter by. This keeps analytics flexible but
+# safe — no arbitrary queries, no writes.
+_ANALYTICS_DATASETS: Dict[str, Any] = {
+    "registrations": {
+        "collection": "interest_registrations",
+        "base_filter": {"is_test": {"$ne": True}},
+        "timestamp_field": "created_at",
+        "label": "founding-member registrations",
+        "dimensions": {
+            "hour_of_day":     {"kind": "time", "part": "hour"},
+            "day_of_week":     {"kind": "time", "part": "weekday"},
+            "weekday_weekend": {"kind": "time", "part": "weekday_weekend"},
+            "date":            {"kind": "time", "part": "date"},
+            "month":           {"kind": "time", "part": "month"},
+            "state":           {"kind": "field", "field": "state_country"},
+            "source":          {"kind": "field", "field": "source"},
+            "heard_from":      {"kind": "field", "field": "heard_from"},
+            "companion":       {"kind": "field", "field": "companion_choice"},
+            "status":          {"kind": "field", "field": "status"},
+        },
+    },
+    "enquiries": {
+        "collection": "contact_submissions",
+        "base_filter": {"is_test": {"$ne": True}},
+        "timestamp_field": "created_at",
+        "label": "contact enquiries",
+        "dimensions": {
+            "hour_of_day":     {"kind": "time", "part": "hour"},
+            "day_of_week":     {"kind": "time", "part": "weekday"},
+            "weekday_weekend": {"kind": "time", "part": "weekday_weekend"},
+            "date":            {"kind": "time", "part": "date"},
+            "status":          {"kind": "field", "field": "status"},
+        },
+    },
+    "inbox": {
+        "collection": "inbox_messages",
+        "base_filter": {"direction": "inbound"},
+        "timestamp_field": "received_at",
+        "label": "inbound inbox messages",
+        "dimensions": {
+            "hour_of_day":     {"kind": "time", "part": "hour"},
+            "day_of_week":     {"kind": "time", "part": "weekday"},
+            "weekday_weekend": {"kind": "time", "part": "weekday_weekend"},
+            "date":            {"kind": "time", "part": "date"},
+            "mailbox":         {"kind": "field", "field": "mailbox"},
+        },
+    },
+    "campaigns": {
+        "collection": "campaigns",
+        "base_filter": {"is_test": {"$ne": True}},
+        "timestamp_field": "sent_at",
+        "label": "campaigns",
+        "dimensions": {
+            "status":          {"kind": "field", "field": "status"},
+            "template":        {"kind": "field", "field": "template"},
+            "date":            {"kind": "time", "part": "date"},
+            "day_of_week":     {"kind": "time", "part": "weekday"},
+            "hour_of_day":     {"kind": "time", "part": "hour"},
+        },
+    },
+}
+
+
+def _parse_dt_sydney(raw: Any):
+    """Parse a stored timestamp (ISO string or datetime) → Australia/Sydney."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    syd = ZoneInfo("Australia/Sydney")
+    dt = None
+    if isinstance(raw, datetime):
+        dt = raw
+    elif isinstance(raw, str) and raw.strip():
+        s = raw.strip().replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                try:
+                    dt = datetime.strptime(s[:19], fmt)
+                    break
+                except ValueError:
+                    continue
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)  # stored timestamps are UTC
+    return dt.astimezone(syd)
+
+
+@register(
+    "analyze_data",
+    "GENERAL-PURPOSE read-only analytics. Dynamically group / filter / count / "
+    "summarise existing FriendPlace operational data on demand — use this to "
+    "answer analytical questions instead of ever saying a query 'doesn't exist'. "
+    "Give `dataset` (one of: registrations, enquiries, inbox, campaigns) and "
+    "`group_by` (a dimension). Time dimensions (hour_of_day, day_of_week, "
+    "weekday_weekend, date, month) are computed in Australia/Sydney local time. "
+    "Field dimensions include: registrations→state, source, heard_from, "
+    "companion, status; enquiries→status; inbox→mailbox; campaigns→status, "
+    "template. Returns {total, analysed, buckets:[{key,count,pct}], top, and "
+    "for hour_of_day a strongest_window + weekday_vs_weekend split}. Example: "
+    "'what time do people register?' → dataset=registrations, group_by=hour_of_day. "
+    "Optional `filters` is a flat object of field-dimension equals values. If a "
+    "requested dataset/dimension isn't available the tool returns what IS "
+    "available so you can tell Garry exactly what data is missing.",
+    args={
+        "dataset":  {"type": "str", "required": True},
+        "group_by": {"type": "str", "required": True},
+        "filters":  {"type": "dict", "required": False},
+        "limit":    {"type": "int", "required": False},
+    },
+)
+async def _analyze_data(db: Any, args: dict) -> dict:
+    dataset = str(args.get("dataset") or "").strip().lower()
+    group_by = str(args.get("group_by") or "").strip().lower()
+    filters = args.get("filters") or {}
+    limit = max(1, min(int(args.get("limit") or 50000), 50000))
+
+    spec = _ANALYTICS_DATASETS.get(dataset)
+    if not spec:
+        return {"error": f"No dataset named '{dataset}'.",
+                "available_datasets": sorted(_ANALYTICS_DATASETS.keys())}
+    dims = spec["dimensions"]
+    if group_by not in dims:
+        return {"error": f"Dataset '{dataset}' has no dimension '{group_by}'.",
+                "dataset": dataset,
+                "available_dimensions": sorted(dims.keys())}
+
+    # Build a safe read-only filter: base + only whitelisted field-dimension equals.
+    q = dict(spec.get("base_filter") or {})
+    applied_filters, ignored_filters = {}, []
+    for k, v in (filters.items() if isinstance(filters, dict) else []):
+        dk = dims.get(str(k).strip().lower())
+        if dk and dk["kind"] == "field":
+            q[dk["field"]] = v
+            applied_filters[k] = v
+        else:
+            ignored_filters.append(k)
+
+    ts_field = spec["timestamp_field"]
+    dim = dims[group_by]
+    proj = {"_id": 0, ts_field: 1}
+    if dim["kind"] == "field":
+        proj[dim["field"]] = 1
+    docs = await db[spec["collection"]].find(q, proj).limit(limit).to_list(limit)
+
+    counts: Dict[str, int] = {}
+    wk_we = {"Weekday": 0, "Weekend": 0}
+    hour_counts = [0] * 24
+    analysed = 0
+    skipped_no_timestamp = 0
+
+    for d in docs:
+        if dim["kind"] == "time":
+            local = _parse_dt_sydney(d.get(ts_field))
+            if local is None:
+                skipped_no_timestamp += 1
+                continue
+            part = dim["part"]
+            if part == "hour":
+                key = f"{local.hour:02d}:00"
+                hour_counts[local.hour] += 1
+            elif part == "weekday":
+                key = _WEEKDAY_NAMES[local.weekday()]
+            elif part == "weekday_weekend":
+                key = "Weekend" if local.weekday() >= 5 else "Weekday"
+            elif part == "date":
+                key = local.strftime("%Y-%m-%d")
+            elif part == "month":
+                key = local.strftime("%Y-%m")
+            else:
+                key = "(unknown)"
+            wk_we["Weekend" if local.weekday() >= 5 else "Weekday"] += 1
+        else:
+            val = d.get(dim["field"])
+            key = str(val).strip() if val not in (None, "") else "(unknown)"
+        counts[key] = counts.get(key, 0) + 1
+        analysed += 1
+
+    def _pct(n: int) -> float:
+        return round((n / analysed) * 100, 1) if analysed else 0.0
+
+    # Sort buckets sensibly per dimension.
+    part = dim.get("part")
+    if part == "hour":
+        ordered = [f"{h:02d}:00" for h in range(24) if f"{h:02d}:00" in counts]
+    elif part == "weekday":
+        ordered = [w for w in _WEEKDAY_NAMES if w in counts]
+    elif part in ("date", "month"):
+        ordered = sorted(counts.keys())
+    elif part == "weekday_weekend":
+        ordered = [k for k in ("Weekday", "Weekend") if k in counts]
+    else:
+        ordered = [k for k, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+    buckets = [{"key": k, "count": counts[k], "pct": _pct(counts[k])} for k in ordered]
+    top = sorted(buckets, key=lambda b: -b["count"])[:5]
+
+    result: Dict[str, Any] = {
+        "dataset": dataset, "label": spec["label"], "group_by": group_by,
+        "total_matched": len(docs), "analysed": analysed,
+        "skipped_no_timestamp": skipped_no_timestamp,
+        "buckets": buckets, "top": top,
+        "applied_filters": applied_filters,
+        "ignored_filters": ignored_filters,
+    }
+    if dim["kind"] == "time":
+        result["timezone"] = "Australia/Sydney"
+    if part == "hour" and analysed:
+        # Strongest contiguous 3-hour window (wrapping midnight).
+        best_start, best_sum = 0, -1
+        for start in range(24):
+            s = sum(hour_counts[(start + i) % 24] for i in range(3))
+            if s > best_sum:
+                best_sum, best_start = s, start
+        result["strongest_window"] = {
+            "from": f"{best_start:02d}:00",
+            "to": f"{(best_start + 3) % 24:02d}:00",
+            "count": best_sum, "pct": _pct(best_sum),
+        }
+        result["peak_hour"] = top[0] if top else None
+    if dim["kind"] == "time" and analysed:
+        result["weekday_vs_weekend"] = {
+            "weekday": {"count": wk_we["Weekday"], "pct": _pct(wk_we["Weekday"])},
+            "weekend": {"count": wk_we["Weekend"], "pct": _pct(wk_we["Weekend"])},
+        }
+    return result
+
+
+
 
 @register(
     "get_system_health",
@@ -1473,6 +1795,37 @@ async def _count_replies(db: Any, args: dict) -> dict:  # noqa: ARG001
 
 
 @register(
+    "list_stale_replies",
+    "List inbound replies that are unresolved AND older than `days` days "
+    "(default 7). Returns {days, count, replies:[{id, from_email, from_name, "
+    "subject, channel, campaign_name, received_at, read}]}. Use this when "
+    "Garry asks about stale replies, the reply backlog, replies sitting for "
+    "a week, unanswered replies, or 'anything I'm dropping the ball on?'. "
+    "Oldest first so the most urgent are at the top. Nothing is auto-sent; "
+    "this is a read-only nudge. Cite the Mission Control Replies page as "
+    "the place to open them.",
+    args={
+        "days":  {"type": "int", "required": False},
+        "limit": {"type": "int", "required": False},
+    },
+)
+async def _list_stale_replies(db: Any, args: dict) -> dict:
+    from services.replies.store import (
+        stale_reply_count as _srcount,
+        list_stale_replies as _lsr,
+    )
+    days = int(args.get("days") or 7)
+    limit = int(args.get("limit") or 20)
+    days = max(1, min(days, 90))
+    limit = max(1, min(limit, 200))
+    return {
+        "days":    days,
+        "count":   await _srcount(db, days=days),
+        "replies": await _lsr(db, days=days, limit=limit),
+    }
+
+
+@register(
     "list_outreach_organisations",
     "List external outreach organisations (retirement villages, "
     "community centres, libraries, clubs, councils, etc.) from the "
@@ -1572,4 +1925,93 @@ async def _list_needs_follow_up(db: Any, args: dict) -> list[dict]:
 async def _get_contact_status(db: Any, args: dict) -> dict:
     from services.crm.status import status_for_email
     return await status_for_email(db, args["email"])
+
+
+
+# ---------------------------------------------------------------------------
+# iter162 — Mission Control Reminders (V1, launch-safe)
+# ---------------------------------------------------------------------------
+# Guardrails:
+#  - Reminders NEVER send emails, publish content, or trigger any
+#    moderation/action. They are DB rows only.
+#  - Only call `create_reminder` after an EXPLICIT admin request such
+#    as "remind me to X on Y". Never speculatively create one.
+#  - Never claim a reminder exists until the tool returns a stored
+#    document with an `id` — that's the save-succeeded signal. If the
+#    tool raises or returns nothing, admit it in this turn.
+
+@register(
+    "create_reminder",
+    "Save a single reminder to Mission Control. Only call this after "
+    "Garry has explicitly asked for a reminder ('remind me to X on Y', "
+    "'set a weekly reminder for Z'). Do NOT create reminders "
+    "speculatively. Reminders never send emails or trigger any "
+    "moderation — they are notes in Mission Control. Returns the "
+    "persisted document (with `id`) only after the Mongo write "
+    "succeeds. If this tool errors or the returned doc is missing, "
+    "tell Garry the reminder was not saved — never pretend it exists.",
+    args={
+        "title":      {"type": "str", "required": True},
+        "due_at":     {"type": "str", "required": True,
+                       "description": "ISO 8601 UTC (e.g. '2026-03-01T09:00:00Z')"},
+        "recurrence": {"type": "str", "required": False,
+                       "description": "one of none, daily, weekly, monthly"},
+        "note":       {"type": "str", "required": False},
+    },
+)
+async def _create_reminder(db: Any, args: dict) -> dict:
+    from services.reminders.store import create_reminder
+    return await create_reminder(
+        db,
+        title=args.get("title", ""),
+        due_at=args.get("due_at"),
+        recurrence=args.get("recurrence") or "none",
+        note=args.get("note") or "",
+        created_by="george",
+    )
+
+
+@register(
+    "list_reminders",
+    "List reminders in Mission Control, oldest-due first. Optional "
+    "status filter (pending / completed / cancelled). Use when Garry "
+    "asks 'what reminders do I have?' or similar.",
+    args={
+        "status": {"type": "str", "required": False},
+        "limit":  {"type": "int", "required": False},
+    },
+)
+async def _list_reminders(db: Any, args: dict) -> list[dict]:
+    from services.reminders.store import list_reminders
+    status = args.get("status")
+    limit = int(args.get("limit") or 50)
+    return await list_reminders(db, status=status, limit=min(limit, 200))
+
+
+@register(
+    "complete_reminder",
+    "Mark a reminder as completed. For one-off reminders this closes "
+    "them. For recurring reminders (daily/weekly/monthly) the due_at "
+    "rolls forward by one period so the next occurrence is queued. "
+    "Requires the reminder's `id`.",
+    args={"id": {"type": "str", "required": True}},
+)
+async def _complete_reminder(db: Any, args: dict) -> dict:
+    from services.reminders.store import complete_reminder
+    doc = await complete_reminder(db, args["id"])
+    if not doc:
+        return {"error": "not_found", "id": args.get("id")}
+    return doc
+
+
+@register(
+    "delete_reminder",
+    "Delete a reminder from Mission Control. Irreversible. Requires "
+    "the reminder's `id`.",
+    args={"id": {"type": "str", "required": True}},
+)
+async def _delete_reminder(db: Any, args: dict) -> dict:
+    from services.reminders.store import delete_reminder
+    ok = await delete_reminder(db, args["id"])
+    return {"deleted": bool(ok), "id": args.get("id")}
 

@@ -31,6 +31,9 @@ from typing import Callable, Dict, List, Optional
 
 from email_service import (
     _load_brand_butterfly_b64,  # reuse the same base64 mark used by transactional emails
+    _facebook_link_html,        # iter164aq — shared Facebook footer link
+    _letter_button_html,        # iter164aq — shared teal CTA button
+    resolve_cta,                # iter164aq — shared CTA preset resolver
 )
 
 
@@ -51,9 +54,29 @@ class TemplateContext:
     # Ad-hoc body content the sender may add via the Send Email form.
     additional_message: str = ""
 
+    # iter164ai — Personal reply mode. When ``body_text`` is provided,
+    # a template that opts into it (currently only ``enquiry_reply``)
+    # uses this string as the ENTIRE editable body — no canned intro,
+    # no template-body + additional_message concatenation. The
+    # renderer preserves paragraph breaks (blank-line separated) and
+    # single newlines (as <br />) exactly. All HTML is escaped before
+    # being wrapped for email — no admin markup passes through raw.
+    body_text: str = ""
+
     # Optional supplementary metadata
     suburb: str = ""
     subject_override: Optional[str] = None
+
+    # iter164aq — shared, optional CTA button. `cta_choice` mirrors the
+    # Mission Control UI ("none" | "visit" | "register" | "get_app" |
+    # "custom"); for "custom" the caller also supplies cta_label +
+    # cta_url. Resolved centrally via email_service.resolve_cta so every
+    # marketing template (enquiry_reply, outreach, individual) gets the
+    # same teal button + plain-text URL fallback without per-template
+    # HTML. Strictly optional — no choice means no button.
+    cta_choice: str = ""
+    cta_label: str = ""
+    cta_url: str = ""
 
     # If a flyer is attached, the sender may want to reference it
     # inline in the copy (used by outreach template).
@@ -93,11 +116,16 @@ _BRAND_NAVY = "#0A2540"
 _BRAND_TEAL = "#0D9488"
 _TEXT_DARK = "#0F172A"
 _TEXT_MUTED = "#475569"
-_FACEBOOK_URL = "https://www.facebook.com/profile.php?id=61593250883842"
 
 
 def _brand_shell_html(*, preheader: str, greeting: str, body_html: str) -> str:
     """Wrap a template's body in the shared FriendPlace shell.
+
+    iter164ak — unified full-navy design: the entire email is on the
+    FriendPlace navy background with white body copy. There is
+    intentionally NO white content card; the middle content sits
+    directly on the navy surface for a more intimate, one-to-one
+    feel across every branded template.
 
     ``body_html`` is the middle content only — the shell adds the
     lockup, the "Hi X," greeting, the sign-off, and the footer.
@@ -113,6 +141,12 @@ def _brand_shell_html(*, preheader: str, greeting: str, body_html: str) -> str:
         if mark_b64 else ""
     )
 
+    # Palette for the navy shell.
+    text_light         = "#FFFFFF"
+    text_muted_on_navy = "rgba(255,255,255,0.78)"
+    hairline_on_navy   = "rgba(255,255,255,0.18)"
+    accent_link        = "#5EEAD4"  # teal-300, WCAG AA on navy
+
     # NOTE: table-based layout for max email-client compatibility
     # (Gmail iOS mangles flexbox). Inline styles everywhere — some
     # clients strip <style> blocks. Kept intentionally small.
@@ -121,7 +155,7 @@ def _brand_shell_html(*, preheader: str, greeting: str, body_html: str) -> str:
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="color-scheme" content="light only" />
+  <meta name="color-scheme" content="dark only" />
   <title>FriendPlace</title>
 </head>
 <body style="margin:0;padding:0;background:{_BRAND_NAVY};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
@@ -131,32 +165,31 @@ def _brand_shell_html(*, preheader: str, greeting: str, body_html: str) -> str:
       <td align="center" style="padding:32px 16px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="600" style="max-width:600px;width:100%;">
           <tr>
-            <td align="center" style="padding-bottom:20px;">
+            <td align="center" style="padding-bottom:24px;">
               {mark_img}
-              <div style="margin-top:10px;color:#FFFFFF;font-weight:800;font-size:20px;letter-spacing:0.02em;">FriendPlace</div>
-              <div style="margin-top:2px;color:rgba(255,255,255,0.75);font-size:12px;letter-spacing:0.14em;text-transform:uppercase;">Because you belong too.</div>
+              <div style="margin-top:10px;color:{text_light};font-weight:800;font-size:20px;letter-spacing:0.02em;">FriendPlace</div>
+              <div style="margin-top:2px;color:{text_muted_on_navy};font-size:12px;letter-spacing:0.14em;text-transform:uppercase;">Because you belong too. 🦋</div>
             </td>
           </tr>
           <tr>
-            <td style="background:#FFFFFF;border-radius:20px;padding:28px 28px 24px;box-shadow:0 20px 40px rgba(10,37,64,0.25);">
-              <div style="font-size:18px;font-weight:700;color:{_TEXT_DARK};margin-bottom:16px;">
+            <td style="padding:8px 28px 0;">
+              <div style="font-size:18px;font-weight:700;color:{text_light};margin-bottom:16px;">
                 {_html_escape(greeting)}
               </div>
-              <div style="font-size:15px;line-height:1.6;color:{_TEXT_DARK};">
+              <div style="font-size:15px;line-height:1.6;color:{text_light};">
                 {body_html}
               </div>
-              <div style="margin-top:24px;padding-top:16px;border-top:1px solid #E2E8F0;font-size:14px;color:{_TEXT_MUTED};line-height:1.55;">
+              <div style="margin-top:24px;padding-top:16px;border-top:1px solid {hairline_on_navy};font-size:14px;color:{text_muted_on_navy};line-height:1.55;">
                 Warmly,<br />
-                <strong style="color:{_TEXT_DARK};">The FriendPlace team</strong><br />
-                <span style="color:{_TEXT_MUTED};">Because you belong too.</span>
+                <strong style="color:{text_light};">The FriendPlace team</strong>
               </div>
             </td>
           </tr>
           <tr>
-            <td align="center" style="padding:20px 8px 12px;color:rgba(255,255,255,0.75);font-size:12px;line-height:1.55;">
+            <td align="center" style="padding:28px 8px 12px;color:{text_muted_on_navy};font-size:12px;line-height:1.55;">
               FriendPlace is a friendship platform for older Australians.<br />
-              <a href="https://friendplace.com.au" style="color:#8ED0F0;text-decoration:none;">friendplace.com.au</a><br />
-              <a href="{_FACEBOOK_URL}" style="display:inline-block;margin-top:8px;color:#8ED0F0;text-decoration:none;font-weight:700;">ⓕ Facebook</a>
+              <a href="https://friendplace.com.au" style="color:{accent_link};text-decoration:none;">friendplace.com.au</a>
+              <div style="margin-top:8px;font-size:13px;">{_facebook_link_html(accent_link)}</div>
             </td>
           </tr>
         </table>
@@ -172,11 +205,17 @@ def _brand_shell_text(*, greeting: str, body_text: str) -> str:
         f"{greeting}\n\n"
         f"{body_text.strip()}\n\n"
         f"Warmly,\n"
-        f"The FriendPlace team\n"
-        f"Because you belong too.\n\n"
+        f"The FriendPlace team\n\n"
+        f"— Because you belong too.\n"
         f"https://friendplace.com.au\n"
-        f"Facebook: {_FACEBOOK_URL}\n"
+        f"Facebook: https://www.facebook.com/profile.php?id=61593250883842\n"
     )
+
+
+# iter164ak — the full-navy design that was briefly a variant here
+# is now the default shell (see _brand_shell_html above). This file
+# no longer keeps a separate `_brand_shell_html_navy` — all branded
+# templates use the same navy shell.
 
 
 def _html_escape(s: str) -> str:
@@ -231,7 +270,7 @@ def _intro_body_html(ctx: TemplateContext) -> str:
     lead_html = (
         '<p style="margin:0 0 12px;">Thanks for being part of the FriendPlace story. '
         "We're building a friendly place for older Australians to meet, "
-        "catch up and belong — online and in person.</p>"
+        "catch up and belong \u2014 online and in person.</p>"
     )
     flyer_note = ""
     if ctx.flyer_name:
@@ -280,7 +319,7 @@ def _rv_body_html(ctx: TemplateContext) -> str:
     who = _html_escape(ctx.organisation_name or "your community")
     intro = (
         f'<p style="margin:0 0 12px;">I hope this note finds you well. I lead a small team building '
-        '<strong>FriendPlace</strong> — a friendship platform for older '
+        '<strong>FriendPlace</strong> \u2014 a friendship platform for older '
         'Australians. It helps neighbours find each other, meet up for coffee, '
         'and stay socially connected.</p>'
     )
@@ -296,18 +335,18 @@ def _rv_body_html(ctx: TemplateContext) -> str:
             f'(<strong>{_html_escape(ctx.flyer_name)}</strong>) with the basics. '
             "If you feel it's a fit, we'd be so grateful if you could put it up on "
             "the community noticeboard, share it in a newsletter, or pass it along to "
-            "any residents you think might enjoy it. No pressure whatsoever — "
+            "any residents you think might enjoy it. No pressure whatsoever \u2014 "
             "we know your residents' inboxes and noticeboards are precious.</p>"
         )
     else:
         flyer_ask = (
             '<p style="margin:0 0 12px;">If you\'d like a printable flyer we can send you '
-            "one that fits an A4 noticeboard — just reply and we'll pop it over.</p>"
+            "one that fits an A4 noticeboard \u2014 just reply and we'll pop it over.</p>"
         )
     extra = _paragraph_html(ctx.additional_message)
     close = (
         '<p style="margin:16px 0 0;">Happy to answer any questions, or to visit in person if '
-        "that's easier. Thank you for what you do for your residents — "
+        "that's easier. Thank you for what you do for your residents \u2014 "
         "we'd love to be a small part of it.</p>"
     )
     return intro + why + flyer_ask + extra + close
@@ -351,11 +390,20 @@ def _rv_body_text(ctx: TemplateContext) -> str:
 
 # ------- Registry ---------------------------------------------------------
 
-# ---- Template: enquiry_reply (iter160a) -----------------------------------
+# ---- Template: enquiry_reply (iter160a; personal-reply mode iter164ai) ----
 # One-off personal reply to somebody who contacted us via the website
 # enquiry forms. Deliberately plain and warm - NO Founding Member
 # number/badge, NO founding-member-specific copy - because this template
 # is used for members of the public who may or may not be founders.
+#
+# iter164ai — TRUE personal reply mode: when the caller supplies
+# ``ctx.body_text`` the template treats it as the ENTIRE editable body
+# (no canned intro, no fallback prose, no "Warm wishes," pre-line —
+# the shared brand shell still renders the FriendPlace sign-off
+# "Warmly, / The FriendPlace team" so nothing is lost). If body_text
+# is empty the template falls back to the legacy
+# template-body + additional_message flow so existing callers stay
+# working.
 
 def _reply_subject(ctx: TemplateContext) -> str:
     if ctx.subject_override:
@@ -364,6 +412,16 @@ def _reply_subject(ctx: TemplateContext) -> str:
 
 
 def _reply_body_html(ctx: TemplateContext) -> str:
+    # iter164ai: personal reply mode — body_text is the whole email
+    # body. Escape & wrap safely; no intro, no sign-off (the shell
+    # already adds "Warmly, / The FriendPlace team" beneath).
+    body_text = (ctx.body_text or "").strip()
+    if body_text:
+        return _paragraph_html(body_text)
+
+    # Legacy fallback: canned intro + optional additional_message +
+    # inline "Warm wishes,". Kept for backwards-compatibility with any
+    # caller that hasn't migrated to body_text yet.
     intro = (
         '<p style="margin:0 0 12px;">Thanks so much for reaching out. '
         'I wanted to reply personally rather than send a template.</p>'
@@ -380,6 +438,12 @@ def _reply_body_html(ctx: TemplateContext) -> str:
 
 
 def _reply_body_text(ctx: TemplateContext) -> str:
+    # iter164ai — personal reply mode: use body_text verbatim.
+    body_text = (ctx.body_text or "").strip()
+    if body_text:
+        return body_text
+
+    # Legacy fallback (see _reply_body_html).
     lines = ["Thanks so much for reaching out. I wanted to reply personally rather than send a template.", ""]
     if ctx.additional_message:
         lines += [ctx.additional_message.strip(), ""]
@@ -392,7 +456,7 @@ def _reply_body_text(ctx: TemplateContext) -> str:
 MARKETING_TEMPLATES: Dict[str, MarketingTemplate] = {
     "friendplace_intro": MarketingTemplate(
         id="friendplace_intro",
-        name="FriendPlace — Blue Branded",
+        name="FriendPlace \u2014 Blue Branded",
         description="The default FriendPlace-branded email. Personalised greeting, "
                     "friendly intro, optional flyer attachment, teal CTA button.",
         audience="any",
@@ -406,7 +470,7 @@ MARKETING_TEMPLATES: Dict[str, MarketingTemplate] = {
         name="Retirement Village Outreach",
         description="For emailing retirement villages, community centres, libraries and "
                     "similar organisations. Explains FriendPlace, asks if they'll share "
-                    "the attached flyer with residents — no pressure wording.",
+                    "the attached flyer with residents \u2014 no pressure wording.",
         audience="organisation",
         build_subject=_rv_subject,
         build_body_html=_rv_body_html,
@@ -450,6 +514,9 @@ def render_template(template_id: str, ctx: TemplateContext) -> RenderedEmail:
     """Render a template with the given context.
 
     Raises ValueError if template_id is unknown.
+
+    iter164ak — every branded template renders through the same
+    full-navy shell now. No template-specific shell dispatch.
     """
     tpl = MARKETING_TEMPLATES.get(template_id)
     if not tpl:
@@ -459,6 +526,16 @@ def render_template(template_id: str, ctx: TemplateContext) -> RenderedEmail:
     greeting = _greeting(ctx, tpl.default_greeting_prefix)
     body_html = tpl.build_body_html(ctx)
     body_text = tpl.build_body_text(ctx)
+
+    # iter164aq — shared optional CTA button. Appended to the body so it
+    # sits above the "Warmly, / The FriendPlace team" sign-off, rendered
+    # identically across every marketing template. resolve_cta returns
+    # None when no button was chosen, keeping the CTA strictly optional.
+    cta = resolve_cta(ctx.cta_choice, ctx.cta_label, ctx.cta_url)
+    if cta:
+        cta_label, cta_url = cta
+        body_html = body_html + _letter_button_html(label=cta_label, url=cta_url)
+        body_text = (body_text or "").rstrip() + f"\n\n{cta_label}: {cta_url}\n"
 
     shell_html = _brand_shell_html(
         preheader=subject,

@@ -22,6 +22,7 @@ Design decisions:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Literal, Optional
 
@@ -37,6 +38,29 @@ _VOICE_MAP: dict[str, str] = {
     "georgia": "nova",   # bright, friendly female
 }
 _DEFAULT_VOICE: GeorgeVoiceKey = "george"
+
+# Per-persona default pacing (TestFlight Sep 2026 — Garry: "Georgia is
+# too fast"). Slightly under 1.0 for a calmer, warmer delivery; Georgia
+# a touch slower than George. Applied only when the caller hasn't set an
+# explicit non-default speed, so "Preview voice" style overrides win.
+_PERSONA_SPEED: dict[str, float] = {
+    "george":  0.94,
+    "georgia": 0.86,
+}
+
+
+def _add_natural_pauses(text: str) -> str:
+    """Insert gentle pauses between sentences/thoughts so speech doesn't
+    run together. OpenAI TTS lengthens the gap at a line break, so we
+    add one after sentence-ending punctuation. Purely cosmetic for
+    cadence — the words spoken are unchanged."""
+    import re
+    # A newline after . ! ? … when followed by whitespace + a letter.
+    out = re.sub(r"([.!?\u2026])\s+(?=[\"'\u201c\u2018A-Za-z0-9])", r"\1\n", text)
+    # Give em-dashes a small breath too.
+    out = out.replace(" \u2014 ", " \u2014\n")
+    return out
+
 
 # TTS text length cap. OpenAI accepts up to 4096; we cap slightly lower
 # to be safe against multi-byte characters expanding token count.
@@ -91,15 +115,39 @@ async def synthesize_george_speech(
     if len(body) > _MAX_TTS_CHARS:
         body = body[:_MAX_TTS_CHARS]
 
+    key = (persona or _DEFAULT_VOICE).strip().lower()
     voice = resolve_voice(persona)
+    # Calmer cadence: add gentle inter-sentence pauses, and apply the
+    # persona's default pace unless the caller explicitly overrode speed.
+    body = _add_natural_pauses(body)
+    eff_speed = speed
+    if abs(speed - 1.0) < 1e-6:
+        eff_speed = _PERSONA_SPEED.get(key, 0.94)
     tts = OpenAITextToSpeech(api_key=_emergent_key())
 
-    # `generate_speech` returns raw MP3 bytes.
-    audio_bytes = await tts.generate_speech(
-        text=body,
-        model=model,
-        voice=voice,  # type: ignore[arg-type]
-        speed=speed,
-        response_format="mp3",
-    )
-    return audio_bytes
+    # iter164bg — silent single retry. TTS synthesis occasionally fails on a
+    # transient upstream hiccup (rate blip, network). One quiet retry recovers
+    # most of them, so an auto-speak playback or a manual "Try again" tap
+    # rarely surfaces an error. IMPORTANT: George's reply TEXT is produced by a
+    # SEPARATE call upstream, so a synth failure here never affects the text he
+    # has already delivered — only the audio is retried, never the answer.
+    last_err: Exception | None = None
+    for attempt in range(2):  # initial attempt + one silent retry
+        try:
+            # `generate_speech` returns raw MP3 bytes.
+            audio_bytes = await tts.generate_speech(
+                text=body,
+                model=model,
+                voice=voice,  # type: ignore[arg-type]
+                speed=eff_speed,
+                response_format="mp3",
+            )
+            return audio_bytes
+        except Exception as e:  # noqa: BLE001 — retry once, then re-raise
+            last_err = e
+            if attempt == 0:
+                await asyncio.sleep(0.4)
+                continue
+            raise
+    # Defensive: loop always returns or raises above.
+    raise last_err  # type: ignore[misc]

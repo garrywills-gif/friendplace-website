@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 from services.outreach.store import (
     OUTREACH_STATUSES, OUTREACH_CATEGORIES,
     upsert_org, get_org, list_orgs, delete_org,
+    archive_org, restore_org,
     log_communication, mark_replied,
+    reclassify_libraries, delete_group, GroupNotEmptyError,
 )
 
 
@@ -41,6 +43,30 @@ class LogCommIn(BaseModel):
 def build_outreach_router(db, current_cms_admin) -> APIRouter:
     router = APIRouter(prefix="/outreach", tags=["outreach"])
 
+    async def _annotate_suppression(rows: list) -> list:
+        """iter164bd — decorate each org with hard-suppression state so
+        MCGS can render the DO NOT EMAIL treatment. Source of truth is the
+        email-keyed email_suppressions collection, so this reflects
+        suppression even for freshly re-imported records."""
+        from services import suppression as _supp
+        emails = [r.get("email") for r in rows if r.get("email")]
+        supp_map = {}
+        norm = list({(e or "").strip().lower() for e in emails if e})
+        if norm:
+            cur = db[_supp.COLL].find({"email": {"$in": norm}}, {"_id": 0})
+            async for d in cur:
+                supp_map[d["email"]] = d
+        for r in rows:
+            s = supp_map.get((r.get("email") or "").strip().lower())
+            if s:
+                r["email_suppressed"] = True
+                r["suppression_reason"] = s.get("suppression_reason")
+                r["suppressed_at"] = s.get("suppressed_at")
+                r["suppressed_source"] = s.get("suppressed_source")
+            else:
+                r["email_suppressed"] = False
+        return rows
+
     @router.get("/meta")
     async def _meta(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
         return {"statuses": OUTREACH_STATUSES, "categories": OUTREACH_CATEGORIES}
@@ -50,11 +76,15 @@ def build_outreach_router(db, current_cms_admin) -> APIRouter:
         q: Optional[str] = None,
         category: Optional[str] = None,
         status: Optional[str] = None,
+        archived: bool = Query(default=False),
         limit: int = Query(default=500, le=2000),
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
-        rows = await list_orgs(db, q=q, category=category, status=status, limit=limit)
-        return {"organisations": rows}
+        rows = await list_orgs(
+            db, q=q, category=category, status=status,
+            archived=archived, limit=limit,
+        )
+        return {"organisations": await _annotate_suppression(rows)}
 
     @router.post("/organisations")
     async def _create(
@@ -75,6 +105,7 @@ def build_outreach_router(db, current_cms_admin) -> APIRouter:
         row = await get_org(db, org_id)
         if not row:
             raise HTTPException(404, "Organisation not found")
+        (await _annotate_suppression([row]))
         return row
 
     @router.patch("/organisations/{org_id}")
@@ -101,6 +132,36 @@ def build_outreach_router(db, current_cms_admin) -> APIRouter:
         if not ok:
             raise HTTPException(404, "Organisation not found")
         return {"ok": True}
+
+    @router.post("/organisations/{org_id}/archive")
+    async def _archive(org_id: str, admin: dict = Depends(current_cms_admin)):
+        """Soft-archive an org. Preserves the entire record + history;
+        excludes it from the active list and campaign audiences."""
+        row = await archive_org(
+            db, org_id,
+            archived_by=admin.get("email") if isinstance(admin, dict) else None,
+        )
+        if not row:
+            raise HTTPException(404, "Organisation not found")
+        return row
+
+    @router.post("/organisations/{org_id}/restore")
+    @router.post("/organisations/{org_id}/unarchive")
+    async def _restore(org_id: str, admin: dict = Depends(current_cms_admin)):
+        """Restore a soft-archived org, making it eligible again.
+
+        Exposed at both ``/restore`` and ``/unarchive`` (the frontend
+        calls the latter). Clears archived_at/archived_by only —
+        preserving the id, status, contact history and every other
+        field — and is idempotent (restoring an active org is a no-op).
+        """
+        row = await restore_org(
+            db, org_id,
+            restored_by=admin.get("email") if isinstance(admin, dict) else None,
+        )
+        if not row:
+            raise HTTPException(404, "Organisation not found")
+        return row
 
     @router.post("/organisations/{org_id}/mark-replied")
     async def _mark_replied(
@@ -129,6 +190,36 @@ def build_outreach_router(db, current_cms_admin) -> APIRouter:
         if not row:
             raise HTTPException(404, "Organisation not found")
         return row
+
+    # ─── iter164ay: group maintenance ────────────────────────────────
+    @router.post("/maintenance/reclassify-libraries")
+    async def _reclassify_libraries(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """One-time, idempotent fix for the NSW library batch that was
+        imported under community_organisation. Moves the untouched,
+        Library-tagged rows to library_council and returns the resulting
+        counts. Safe to run more than once (subsequent runs reclassify 0).
+        """
+        return await reclassify_libraries(db)
+
+    @router.delete("/groups/{category}")
+    async def _delete_group(
+        category: str,
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Safely bulk-delete every ACTIVE organisation in a category in
+        a single operation. Refuses (409) if any organisation in the
+        group has already been contacted, preserving outreach history.
+        """
+        try:
+            return await delete_group(db, category)
+        except GroupNotEmptyError as e:
+            raise HTTPException(
+                409,
+                f"Cannot delete this group: {e.contacted} of {e.total} "
+                f"organisations have already been contacted.",
+            )
+        except ValueError as e:
+            raise HTTPException(404, str(e))
 
     return router
 

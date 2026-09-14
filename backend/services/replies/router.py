@@ -23,6 +23,7 @@ from services.replies.store import (
     create_reply, list_replies, get_reply,
     mark_read, mark_resolved, delete_reply,
     unread_count, awaiting_count,
+    stale_reply_count, list_stale_replies,
 )
 
 
@@ -44,6 +45,14 @@ class ReadIn(BaseModel):
 
 class ResolveIn(BaseModel):
     resolved: bool = True
+    # iter164g: capture WHY a reply was resolved so the audit trail can
+    # distinguish "we sent them a reply" from "no reply needed / handled
+    # offline". ``resolution_kind`` is free-form but we standardise on
+    # "replied" | "no_reply_needed"; the frontend only sends those two.
+    # ``resolution_note`` is short admin context ("Spam", "Wrong email",
+    # "Called them back") preserved verbatim on the reply document.
+    resolution_kind: Optional[str] = None
+    resolution_note: Optional[str] = None
 
 
 def build_replies_router(db, current_cms_admin) -> APIRouter:
@@ -97,6 +106,29 @@ def build_replies_router(db, current_cms_admin) -> APIRouter:
             raise HTTPException(400, str(e))
         return row
 
+    @router.get("/stale")
+    async def _stale(
+        days: int = Query(default=7, ge=1, le=90),
+        limit: int = Query(default=20, ge=1, le=200),
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ) -> Dict[str, Any]:
+        """iter164g: Mission Control 7-day stale-reply nudge.
+
+        Returns unresolved replies whose ``received_at`` is older than
+        ``days`` days ago, oldest first. Powers the "sitting for X"
+        card on the Mission Control dashboard and George's
+        ``list_stale_replies`` tool.
+
+        MUST be declared BEFORE the ``/{reply_id}`` route below —
+        otherwise Starlette matches ``/stale`` against the reply-by-id
+        route with ``reply_id="stale"`` and 404s.
+        """
+        return {
+            "days":     int(days),
+            "count":    await stale_reply_count(db, days=days),
+            "replies":  await list_stale_replies(db, days=days, limit=limit),
+        }
+
     @router.get("/{reply_id}")
     async def _get(reply_id: str, admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
         row = await get_reply(db, reply_id)
@@ -119,9 +151,16 @@ def build_replies_router(db, current_cms_admin) -> APIRouter:
         reply_id: str, body: ResolveIn,
         admin: dict = Depends(current_cms_admin),
     ):
+        # Enforce a small allow-list on resolution_kind so bad clients
+        # can't invent arbitrary states.
+        rk = (body.resolution_kind or None)
+        if rk is not None and rk not in {"replied", "no_reply_needed"}:
+            raise HTTPException(400, "resolution_kind must be 'replied' or 'no_reply_needed'")
         row = await mark_resolved(
             db, reply_id, resolved=body.resolved,
             resolved_by=admin.get("email") if isinstance(admin, dict) else None,
+            resolution_kind=rk,
+            resolution_note=body.resolution_note,
         )
         if not row:
             raise HTTPException(404, "Reply not found")

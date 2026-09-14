@@ -5,11 +5,26 @@ Fields:
     id, organisation_name, contact_name, email, phone, category, tags,
     suburb, state, notes, status, last_contact_at, last_reply_at,
     communications (append-only history), created_at, updated_at,
-    created_by, is_test
+    created_by, is_test, outreach_number
 
 Contact status is denormalised into `status` for fast filtering AND
 computed on the fly in services/crm/status.py for consistency. Send
 worker + mark_replied() keep this field in sync.
+
+iter164ah — Permanent outreach numbering:
+    Each outreach organisation gets its own permanent sequential
+    integer id, stored as ``outreach_number``, starting at 20001. The
+    number is allocated by an atomic counter (see
+    ``next_outreach_number``) — never reused on delete, never derived
+    from a row count, never collides on concurrent creates. It is
+    intentionally in a completely separate namespace from Founding
+    Member numbering, so #20001 (outreach) and #0001 (founder) can
+    co-exist without ambiguity.
+
+    Historical guarantee: when an outreach organisation is used in a
+    campaign, the number is COPIED onto the campaign recipient row
+    (see cms_module._campaign_send_worker) so a sent campaign still
+    shows #20001 even after the active outreach record is deleted.
 """
 from __future__ import annotations
 
@@ -19,6 +34,9 @@ import re
 import uuid
 
 COLL_ORGS = "outreach_organisations"
+COLL_COUNTERS = "counters"                 # iter164ah: atomic sequence store
+OUTREACH_NUMBER_KEY = "outreach_number"    # counter doc _id
+OUTREACH_NUMBER_START = 20000              # first allocated will be 20001
 
 # State machine for a single outreach target.
 OUTREACH_STATUSES = [
@@ -139,6 +157,10 @@ async def upsert_org(
 
     Quick-add works with only organisation_name + email; other fields
     default to empty. Status defaults to 'not_contacted'.
+
+    iter164ah: on INSERT (new organisation), a permanent
+    ``outreach_number`` is allocated from the atomic counter. Updates
+    to an existing organisation do NOT re-allocate the number.
     """
     v = _validate(payload)
     now = _iso_now()
@@ -159,10 +181,109 @@ async def upsert_org(
         "is_test":         bool(payload.get("is_test", False)),
     }
 
-    await db[COLL_ORGS].update_one(
+    res = await db[COLL_ORGS].update_one(
         query, {"$set": set_doc, "$setOnInsert": set_on_insert}, upsert=True,
     )
+    # iter164ah: allocate the outreach_number ONLY when we actually
+    # inserted a new document. Doing the upsert first and *then*
+    # allocating guarantees we never burn a number on a no-op update.
+    if res.upserted_id is not None:
+        next_num = await next_outreach_number(db)
+        await db[COLL_ORGS].update_one(
+            {"_id": res.upserted_id},
+            {"$set": {"outreach_number": next_num}},
+        )
     return await db[COLL_ORGS].find_one(query, {"_id": 0}) or {}
+
+
+# ─── iter164ah: atomic outreach numbering ──────────────────────────
+async def next_outreach_number(db) -> int:
+    """Atomically allocate the next permanent outreach number.
+
+    Uses ``findOneAndUpdate`` with ``$inc`` on a single counter
+    document — safe under concurrent writes. Numbers start at 20001
+    and are strictly monotonic. Deletion of an outreach organisation
+    does NOT rewind the counter, so numbers are never reused.
+
+    The counter is intentionally in its own namespace so Founding
+    Member numbering (which uses ``interest_registrations`` +
+    ``founder_number``) is completely unaffected.
+    """
+    doc = await db[COLL_COUNTERS].find_one_and_update(
+        {"_id": OUTREACH_NUMBER_KEY},
+        {"$inc": {"seq": 1},
+         "$setOnInsert": {"created_at": _iso_now()}},
+        upsert=True,
+        # Ensure we always get the *incremented* value back.
+        return_document=True,  # ReturnDocument.AFTER
+    )
+    # First-ever call: counter doc didn't exist, $setOnInsert wrote
+    # {"_id": key, "seq": 1, ...}. We want the very first allocated
+    # number to be OUTREACH_NUMBER_START + 1 = 20001, so map through
+    # the base offset here.
+    seq = int((doc or {}).get("seq") or 0)
+    return OUTREACH_NUMBER_START + seq
+
+
+async def bump_outreach_counter_high_water(db, high: int) -> None:
+    """Advance the counter so future allocations resume above ``high``.
+
+    Used by the backfill so that if the highest-existing
+    ``outreach_number`` is (say) 20050, the next NEW create returns
+    20051 — even if the counter doc hasn't been touched before.
+    Never decrements.
+    """
+    if high <= OUTREACH_NUMBER_START:
+        return
+    new_seq = int(high) - OUTREACH_NUMBER_START
+    await db[COLL_COUNTERS].update_one(
+        {"_id": OUTREACH_NUMBER_KEY},
+        {"$max": {"seq": new_seq},
+         "$setOnInsert": {"created_at": _iso_now()}},
+        upsert=True,
+    )
+
+
+async def backfill_outreach_numbers(db) -> Dict[str, int]:
+    """One-shot: assign an ``outreach_number`` to every existing
+    organisation that doesn't yet have one, in a stable order
+    (oldest ``created_at`` first, ``id`` as tie-break).
+
+    Idempotent — safe to call on every boot. Returns a small summary
+    ``{"assigned": N, "already_numbered": M, "high_water": max}``.
+    """
+    stats = {"assigned": 0, "already_numbered": 0, "high_water": OUTREACH_NUMBER_START}
+    # 1. High-water: bump the counter so it never regresses below any
+    #    number that already exists on a row.
+    highest = await db[COLL_ORGS].find_one(
+        {"outreach_number": {"$exists": True, "$type": "int"}},
+        {"_id": 0, "outreach_number": 1},
+        sort=[("outreach_number", -1)],
+    )
+    if highest and int(highest.get("outreach_number") or 0) > OUTREACH_NUMBER_START:
+        stats["high_water"] = int(highest["outreach_number"])
+        await bump_outreach_counter_high_water(db, stats["high_water"])
+
+    # 2. Count already-numbered rows (for the summary).
+    stats["already_numbered"] = await db[COLL_ORGS].count_documents(
+        {"outreach_number": {"$exists": True, "$type": "int"}},
+    )
+
+    # 3. Assign numbers to the un-numbered ones in a stable order.
+    cursor = db[COLL_ORGS].find(
+        {"outreach_number": {"$exists": False}},
+        {"_id": 1, "id": 1, "created_at": 1},
+    ).sort([("created_at", 1), ("id", 1)])
+    async for row in cursor:
+        num = await next_outreach_number(db)
+        await db[COLL_ORGS].update_one(
+            {"_id": row["_id"]},
+            {"$set": {"outreach_number": num}},
+        )
+        stats["assigned"] += 1
+        if num > stats["high_water"]:
+            stats["high_water"] = num
+    return stats
 
 
 async def get_org(db, org_id: str) -> Optional[Dict[str, Any]]:
@@ -176,9 +297,19 @@ async def list_orgs(
     category: Optional[str] = None,
     status: Optional[str] = None,
     tags_any: Optional[List[str]] = None,
+    archived: bool = False,
     limit: int = 500,
 ) -> List[Dict[str, Any]]:
     query: Dict[str, Any] = {"is_test": {"$ne": True}}
+    # iter164an — soft archive. Active list (default) excludes archived
+    # organisations. In MongoDB, {"archived_at": None} matches BOTH docs
+    # where the field is explicitly null AND docs where it is missing,
+    # so pre-migration records (no field) correctly stay active. Passing
+    # archived=True returns only the archived organisations.
+    if archived:
+        query["archived_at"] = {"$ne": None}
+    else:
+        query["archived_at"] = None
     if category:
         query["category"] = category
     if status:
@@ -200,6 +331,66 @@ async def list_orgs(
 async def delete_org(db, org_id: str) -> bool:
     r = await db[COLL_ORGS].delete_one({"id": org_id})
     return r.deleted_count > 0
+
+
+# ─── iter164an: soft archive / restore ─────────────────────────────
+async def archive_org(
+    db, org_id: str, *, archived_by: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Soft-archive an outreach organisation.
+
+    Sets ``archived_at`` (+ optional ``archived_by``) WITHOUT touching
+    anything else on the document. The entire record — communications
+    history, notes, delivery/reply dates and the permanent
+    ``outreach_number`` — is preserved verbatim. An archived org is
+    excluded from the active list and from campaign audience resolution
+    (preview counts + bulk sends) but is never hard-deleted, so its
+    history and any historical campaign_recipients rows stay intact.
+
+    Returns the updated org, or None if the org doesn't exist.
+    Idempotent: archiving an already-archived org is a no-op refresh of
+    the timestamp is avoided — the existing archived_at is preserved.
+    """
+    existing = await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
+    if not existing:
+        return None
+    # Preserve the original archived_at if already archived.
+    if not existing.get("archived_at"):
+        now = _iso_now()
+        await db[COLL_ORGS].update_one(
+            {"id": org_id},
+            {"$set": {
+                "archived_at": now,
+                "archived_by": archived_by,
+                "updated_at": now,
+            }},
+        )
+    return await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
+
+
+async def restore_org(
+    db, org_id: str, *, restored_by: Optional[str] = None,  # noqa: ARG001
+) -> Optional[Dict[str, Any]]:
+    """Restore a soft-archived outreach organisation.
+
+    Clears ``archived_at`` / ``archived_by`` so the org becomes active
+    again — eligible for campaign audiences once more — while leaving
+    all other fields (history, notes, dates, outreach_number) untouched.
+
+    Returns the updated org, or None if the org doesn't exist.
+    """
+    existing = await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
+    if not existing:
+        return None
+    await db[COLL_ORGS].update_one(
+        {"id": org_id},
+        {"$set": {
+            "archived_at": None,
+            "archived_by": None,
+            "updated_at": _iso_now(),
+        }},
+    )
+    return await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
 
 
 async def touch_last_contact(
@@ -312,6 +503,123 @@ async def log_communication(
     return await db[COLL_ORGS].find_one({"id": org_id}, {"_id": 0})
 
 
+# ─── iter164ay: safe library reclassification + guarded group delete ──
+
+# A group is deletable only when every organisation in it is still
+# "untouched". Any of these statuses means we've already engaged them,
+# so the group must NOT be bulk-deletable.
+_POSITIVE_TOUCH_STATUSES = [
+    "contacted", "awaiting_reply", "replied",
+    "joined", "declined", "bounced", "unsubscribed",
+]
+
+
+def _active_group_query(category: str) -> Dict[str, Any]:
+    """Match the ACTIVE (non-archived, non-test) organisations in a
+    category — the exact set the Outreach group view shows."""
+    return {
+        "category": category,
+        "is_test": {"$ne": True},
+        "archived_at": None,   # matches null AND missing (pre-migration rows)
+    }
+
+
+async def reclassify_libraries(db) -> Dict[str, Any]:
+    """iter164ay — one-time, idempotent fix for the NSW library batch
+    that was imported under ``category = 'community_organisation'``.
+
+    Scope is intentionally narrow and matches Garry's description of
+    the batch EXACTLY so no other Community Organisation is touched:
+      • category == 'community_organisation'
+      • status   == 'not_contacted' (the whole batch is untouched)
+      • notes contain the word "Library" (case-insensitive)
+      • real, active records only (is_test != True, not archived)
+
+    Those rows are moved to ``category = 'library_council'``. Running it
+    again is a no-op (they're no longer community_organisation), so the
+    admin button is safe to click more than once.
+
+    Returns the number reclassified plus the resulting Libraries and
+    Community Organisations breakdowns for verification.
+    """
+    match: Dict[str, Any] = {
+        "category": "community_organisation",
+        "status": "not_contacted",
+        "notes": {"$regex": "Library", "$options": "i"},
+        "is_test": {"$ne": True},
+        "archived_at": None,
+    }
+    matched = await db[COLL_ORGS].count_documents(match)
+    result = await db[COLL_ORGS].update_many(
+        match,
+        {"$set": {"category": "library_council", "updated_at": _iso_now()}},
+    )
+    libraries = await _group_breakdown(db, "library_council")
+    community = await _group_breakdown(db, "community_organisation")
+    return {
+        "matched": matched,
+        "reclassified": result.modified_count,
+        "libraries": libraries,
+        "community_organisations": community,
+    }
+
+
+async def _group_breakdown(db, category: str) -> Dict[str, int]:
+    """Active total / contacted / not_contacted for a category."""
+    base = _active_group_query(category)
+    total = await db[COLL_ORGS].count_documents(base)
+    contacted = await db[COLL_ORGS].count_documents(
+        {**base, "status": {"$in": _POSITIVE_TOUCH_STATUSES}},
+    )
+    return {
+        "total": total,
+        "contacted": contacted,
+        "not_contacted": total - contacted,
+    }
+
+
+class GroupNotEmptyError(Exception):
+    """Raised when a group can't be bulk-deleted because at least one
+    organisation in it has already been contacted."""
+
+    def __init__(self, contacted: int, total: int):
+        self.contacted = contacted
+        self.total = total
+        super().__init__(
+            f"{contacted} of {total} organisations have already been "
+            f"contacted; group cannot be deleted.",
+        )
+
+
+async def delete_group(db, category: str) -> Dict[str, Any]:
+    """iter164ay — safely bulk-delete every ACTIVE organisation in a
+    category IN ONE OPERATION.
+
+    Guard: refuses (raises ``GroupNotEmptyError``) if ANY organisation
+    in the group has a positive-touch status (contacted, replied,
+    joined, declined, bounced, unsubscribed, awaiting_reply) so we can
+    never destroy a group that has real outreach history. Only groups
+    where every org is ``not_contacted`` (or unset) are deletable.
+
+    Returns ``{"deleted": n, "category": ...}``. Raises ValueError when
+    the group is empty (nothing to delete).
+    """
+    category = (category or "").strip()
+    if not category:
+        raise ValueError("category is required")
+    base = _active_group_query(category)
+    total = await db[COLL_ORGS].count_documents(base)
+    if total == 0:
+        raise ValueError("No organisations found in that group")
+    contacted = await db[COLL_ORGS].count_documents(
+        {**base, "status": {"$in": _POSITIVE_TOUCH_STATUSES}},
+    )
+    if contacted > 0:
+        raise GroupNotEmptyError(contacted=contacted, total=total)
+    result = await db[COLL_ORGS].delete_many(base)
+    return {"deleted": result.deleted_count, "category": category}
+
+
 async def ensure_indexes(db) -> None:
     await db[COLL_ORGS].create_index("email", unique=True)
     await db[COLL_ORGS].create_index("status")
@@ -319,12 +627,35 @@ async def ensure_indexes(db) -> None:
     await db[COLL_ORGS].create_index("updated_at")
     await db[COLL_ORGS].create_index("last_contact_at")
     await db[COLL_ORGS].create_index("last_reply_at")
+    # iter164an — soft archive filter support.
+    await db[COLL_ORGS].create_index("archived_at")
+    # iter164ah — permanent, sparse-unique numbering. Sparse so
+    # rows created before this migration (and rows currently mid-
+    # backfill) don't trip the constraint.
+    await db[COLL_ORGS].create_index(
+        "outreach_number", unique=True, sparse=True, name="uniq_outreach_number",
+    )
+    # Backfill any un-numbered rows in a stable order — idempotent.
+    try:
+        await backfill_outreach_numbers(db)
+    except Exception:
+        # Backfill is best-effort at boot; surface via logs only so a
+        # single bad row can't hold the API back from starting.
+        import logging
+        logging.getLogger("friendplace.outreach").exception(
+            "outreach_number backfill failed",
+        )
 
 
 __all__ = [
     "COLL_ORGS", "OUTREACH_STATUSES", "OUTREACH_CATEGORIES",
+    "OUTREACH_NUMBER_START",
     "normalise_category", "category_label",
     "upsert_org", "get_org", "list_orgs", "delete_org",
+    "archive_org", "restore_org",
     "touch_last_contact", "log_communication", "mark_replied",
     "ensure_indexes",
+    "reclassify_libraries", "delete_group", "GroupNotEmptyError",
+    "next_outreach_number", "backfill_outreach_numbers",
+    "bump_outreach_counter_high_water",
 ]

@@ -147,6 +147,9 @@ KNOWN_ACTIONS: tuple[str, ...] = (
     "member.admin_flag.set",
     "member.admin_flag.unset",
     "member.restriction.clear",
+    # Butterfly Points recognition — iter164h
+    "member.points.award",
+    "member.points.reverse",
     # Reports & moderation — Slice 2
     "report.status.update",
     "content.remove",

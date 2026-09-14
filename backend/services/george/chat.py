@@ -78,6 +78,16 @@ FLYER AUTHORING (dedicated planner rule \u2014 iter158):
 - Known template keys and matching phrases: `founding_member_invite` (Founding Member Invite / founding member / member invite), `community_notice` (Community Notice / community notice / general notice / noticeboard).
 - Field mapping heuristics: if Garry names a venue or host ("for the Kellyville Library", "at Bella Vista Community Hub"), pass it as `field_values.venue`; if he names a URL, pass it as `field_values.url`. Layouts are named after paper sizes: "A3", "A4 poster", "A5 flyer", "A5 x 2 up", "A5 x 4 up" \u2192 `poster_a3`, `poster_a4`, `flyer_a5`, `flyer_a5_2up_a4`, `flyer_a5_4up_a3`.
 
+BROAD STATUS / OVERVIEW (dedicated planner rule -- iter164bf):
+- For BROAD, whole-operation status questions -- "how's everything going?", "how are things?", "how are we doing?", "what's the latest?", "give me an overview / the rundown", "anything I should know?", "how's it all looking?" -- you MUST call the SINGLE tool `mission_control_overview` (no args). Do NOT fan out into several count_* tools, and NEVER return empty tool_calls for these. That one tool returns registrations, the Bridge + Signal Feed alerts, campaign performance + failures, and the inbox in one shot.
+- If the question instead names a SPECIFIC area (a registrations count, one campaign, the Bridge workload, replies), use that area's specific tool -- not the overview.
+
+FLEXIBLE ANALYTICS (dedicated planner rule -- iter164bi):
+- For ANALYTICAL questions -- "when/what time do people register?", "which hour/day is busiest?", "break registrations down by hour/day/state/source", "distribution", "peak time", "weekday vs weekend", "by suburb/state/source/status/mailbox/template" -- call `analyze_data` with the right `dataset` (registrations | enquiries | inbox | campaigns) and `group_by` dimension. Time dimensions: hour_of_day, day_of_week, weekday_weekend, date, month. NEVER answer an analytical question by saying the query "doesn't exist" or by logging a feature request -- if the data exists, call analyze_data. Example: "what time are people registering?" -> analyze_data {dataset:"registrations", group_by:"hour_of_day"}.
+- AFFIRMATION FOLLOW-THROUGH: if your PREVIOUS turn offered an analysis (e.g. "Would you like me to analyse/break that down?") and the user now replies with an affirmation ("yes", "yes do that", "yes please", "go ahead", "do it", "please do"), you MUST carry out that offered analysis now by calling the appropriate tool (usually analyze_data with the dataset/dimension implied by the earlier question) -- do NOT return empty tool_calls and do NOT turn it into a knowledge-base/feature request.
+
+
+
 MANDATORY FRESH-CALL RULES (operational state changes constantly \u2014 stale numbers are unacceptable):
 - ANY question about the CURRENT state of tickets, signals, cases, events, members, organisations, submissions, or reports \u2014 whether it's the first time or the fifth time in the conversation \u2014 MUST invoke a fresh `count_*` (or `list_*`) tool this turn. Never rely on a number from earlier in the recent conversation.
 - Follow-up phrasings like "what about now?", "any change?", "still 23?", "recount", "recheck", "refresh", "again please", "how many left?", "any resolved?" \u2014 always re-invoke the same count tool. Empty `tool_calls` is FORBIDDEN for these.
@@ -296,6 +306,115 @@ def has_unclosed_tool_call(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# iter164s — Inline action_preview interceptor (Garry, 24 Aug 2026)
+# ---------------------------------------------------------------------------
+# Bug: sometimes Claude decides to *illustrate* an Action Preview inline —
+# either by wrapping the JSON payload in a ```json ... ``` markdown fence
+# or, more rarely, by dropping the raw JSON straight into prose — rather
+# than actually invoking the corresponding tool (draft_flyer, etc.). That
+# left admins staring at a wall of JSON instead of the interactive card.
+#
+# Two-pronged defence:
+#   1. The system prompt now forbids it outright (see prompt.py).
+#   2. Belt-and-braces: this extractor scans arbitrary text for embedded
+#      action_preview payloads, yields them as proper SSE events, and
+#      strips them from the delta the UI renders. If Claude ever slips,
+#      the admin still sees the card — not the raw markup.
+#
+# Kept module-level so unit tests can drive it directly.
+
+_ACTION_PREVIEW_MARKER_RE = re.compile(
+    r'"kind"\s*:\s*"action_preview"',
+    re.IGNORECASE,
+)
+_TRAILING_FENCE_OPEN_RE = re.compile(
+    r"```(?:json|JSON)?\s*\n?\s*$",
+)
+_LEADING_FENCE_CLOSE_RE = re.compile(
+    r"\s*```\s*",
+)
+
+
+def has_unclosed_code_fence(text: str) -> bool:
+    """True when text contains an odd number of ``` fences.
+
+    Used by the streaming buffer to hold back deltas until the fence
+    closes, so the action_preview extractor sees the complete block
+    before deciding whether to strip it.
+    """
+    if not text:
+        return False
+    return text.count("```") % 2 == 1
+
+
+def extract_action_previews(text: str) -> tuple[str, list[dict]]:
+    """Pull any embedded ``action_preview`` JSON payloads out of ``text``.
+
+    Returns ``(cleaned_text, previews)``. Handles two shapes:
+
+      1. Markdown-fenced code blocks around a JSON object whose ``kind``
+         is ``action_preview`` (the common case — Claude loves to reach
+         for a ```json fence).
+      2. Bare JSON objects with the same marker (rarer; catches the
+         "no fence" slip too).
+
+    The extractor is intentionally conservative: it never removes text
+    unless it successfully parsed a JSON object AND that object has
+    ``kind == "action_preview"``. Anything ambiguous is left alone so
+    ordinary code blocks the admin actually wants to see (SQL, YAML,
+    example config, etc.) pass through unchanged.
+    """
+    if not text or '"action_preview"' not in text:
+        return text, []
+
+    decoder = json.JSONDecoder()
+    previews: list[dict] = []
+    out_parts: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        brace_idx = text.find("{", i)
+        if brace_idx == -1:
+            out_parts.append(text[i:])
+            break
+        # Cheap window check — is the marker anywhere close by? If not,
+        # skip this ``{`` and keep scanning. Keeps the scanner O(n).
+        peek_end = min(brace_idx + 2000, n)
+        if not _ACTION_PREVIEW_MARKER_RE.search(text, brace_idx, peek_end):
+            out_parts.append(text[i:brace_idx + 1])
+            i = brace_idx + 1
+            continue
+        try:
+            obj, end = decoder.raw_decode(text, brace_idx)
+        except json.JSONDecodeError:
+            out_parts.append(text[i:brace_idx + 1])
+            i = brace_idx + 1
+            continue
+        if not (isinstance(obj, dict) and obj.get("kind") == "action_preview"):
+            out_parts.append(text[i:brace_idx + 1])
+            i = brace_idx + 1
+            continue
+
+        # Landed a preview. Nibble away any wrapping ``` fence markers.
+        pre = text[i:brace_idx]
+        pre = _TRAILING_FENCE_OPEN_RE.sub("", pre)
+        post_start = end
+        close_match = _LEADING_FENCE_CLOSE_RE.match(text, post_start)
+        if close_match:
+            post_start = close_match.end()
+        out_parts.append(pre)
+        previews.append(obj)
+        i = post_start
+
+    cleaned = "".join(out_parts)
+    if previews:
+        # Collapse the paragraph gap the removed block leaves behind
+        # so the prose flows naturally.
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned, previews
+
+
+# ---------------------------------------------------------------------------
 # Planner
 # ---------------------------------------------------------------------------
 
@@ -390,7 +509,150 @@ async def plan_tool_calls(
             plan["_forced_fresh_call"] = True
             # Clear any "insufficient_data" so the synth doesn't hedge.
             plan.pop("insufficient_data", None)
+
+    # ─── iter164e: operational-richness upgrade ──────────────────────────
+    # When Garry asks a Founding-Members state question with a phrase that
+    # implies he wants more than a bare number ("any new registrations
+    # overnight?", "who's registered today?", "new sign-ups today"), the
+    # planner LLM's default preference for `count_*` tools returns only an
+    # integer — leaving George unable to name the latest person or their
+    # time. Swap the count call for `founding_members_summary`, which
+    # returns count + latest + timestamps in one shot, so the ANSWER_STYLE
+    # "operational richness" rule has the data it needs. Idempotent, and
+    # only fires when there is an obvious matching richer tool.
+    _upgrade_count_to_summary_for_richness(plan, user_message)
     return plan
+
+
+# Phrases that make it clear Garry wants more than a bare number for a
+# Founding-Members question — either a temporal window ("overnight",
+# "today", "last night"), an explicit "any new / new registrations", or
+# a general "how are we going with registrations" style question. When
+# any of these fire and the planner picked the bare-count tool with no
+# specific filter, we upgrade to founding_members_summary so George can
+# name the latest person + time and offer to open the page.
+_RICHNESS_PHRASES = (
+    # Temporal windows / novelty
+    "overnight",
+    "last night",
+    "any new registrations",
+    "new registrations",
+    "any registrations",
+    "any new sign",
+    "any new members",
+    "signed up today",
+    "sign ups today",
+    "signups today",
+    "new today",
+    "how many new",
+    # Latest-person questions
+    "who registered",
+    "who signed up",
+    "who's the latest",
+    "who is the latest",
+    "latest registration",
+    # iter164f: general "how are we going" / plain count questions on
+    # Founding Members. Previously these hit `count_interest_registrations`
+    # and returned a bare integer, so George could not name the latest
+    # member or offer to open the page — the exact regression Garry
+    # flagged. Any unfiltered count on registrations now gets richness.
+    "how many registered",
+    "how many have registered",
+    "how many people registered",
+    "how many registrations",
+    "how many signed up",
+    "how many have signed up",
+    "how are registrations",
+    "how's registrations",
+    "how's founding",
+    "how are founding",
+    "how's the founding",
+    "how are the founding",
+    "founding members going",
+    "registrations going",
+    "registrations doing",
+    "registrations look",
+    "registrations status",
+    "how are we tracking on registrations",
+    "how are we tracking on founding",
+    "state of registrations",
+    "state of founding",
+)
+
+
+# iter164f: regex fallback for the naturally-worded "how many …" and
+# "any … " questions about registrations / sign-ups / founding members
+# that we can't enumerate exhaustively as static substrings.
+_REG_RICHNESS_RE = re.compile(
+    r"\b("
+    r"how (?:many|much) (?:people |folks |members |women |women's )?"
+    r"(?:have |has |had )?(?:register|registered|registering|"
+    r"sign(?:ed|ing)?[- ]?up|signed[- ]?up)|"
+    r"(?:any|got any|have any) (?:new )?(?:registrations|sign[- ]?ups|"
+    r"founding members)|"
+    r"(?:how|hows|how's) (?:are |'s )?"
+    r"(?:the )?(?:registrations|sign[- ]?ups|founding members) "
+    r"(?:going|tracking|doing|looking)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _upgrade_count_to_summary_for_richness(plan: dict, user_message: str) -> None:
+    """Swap `count_interest_registrations` for `founding_members_summary`
+    when the message asks a question that needs the latest person's
+    name / time, not just a bare count. See iter164e / iter164f."""
+    calls = plan.get("tool_calls") or []
+    if not calls:
+        return
+    lowered = (user_message or "").lower()
+    matches_phrase = any(phrase in lowered for phrase in _RICHNESS_PHRASES)
+    # iter164f: a lightweight regex fallback catches the many natural
+    # phrasings we can't feasibly enumerate as static substrings — e.g.
+    # "how many people have registered?" or "how many have signed up
+    # this year?". Any "how many …" question that clearly names the
+    # registration surface (register/sign-up/founding member) is treated
+    # as a richness question. Targeted status filters below still gate
+    # the upgrade, so "how many joined?" stays a bare count.
+    matches_regex = bool(_REG_RICHNESS_RE.search(lowered))
+    if not (matches_phrase or matches_regex):
+        return
+    upgraded = False
+    new_calls = []
+    for c in calls:
+        if isinstance(c, dict) and c.get("name") == "count_interest_registrations":
+            # Only upgrade the plain "how many registered?" case; leave
+            # filtered counts (status=invited, since_days=…) alone —
+            # those are targeted questions where a bare number is fine.
+            #
+            # iter164f: also upgrade when the ONLY filter is
+            # `status=registered`, because the planner defaults to
+            # that filter for plain "how many registered?" style
+            # questions — leaving the reply as a bare integer even
+            # though the message clearly wants richness. Genuinely
+            # targeted status filters (invited/joined/opted_out) stay
+            # bare so "how many opted out?" still returns a clean count.
+            args = c.get("args") or {}
+            targeted_filters = any(
+                k in args for k in ("companion_choice",
+                                    "state_country", "since_days")
+            )
+            status = args.get("status")
+            targeted_status = (
+                status in ("invited", "joined", "opted_out")
+            )
+            has_targeted_filter = targeted_filters or targeted_status
+            if not has_targeted_filter or args.get("today") is True:
+                new_calls.append({"name": "founding_members_summary", "args": {}})
+                upgraded = True
+                continue
+        new_calls.append(c)
+    if upgraded:
+        log.info(
+            "iter164e: upgraded count_interest_registrations → "
+            "founding_members_summary for operational-richness phrasing",
+        )
+        plan["tool_calls"] = new_calls
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +662,19 @@ async def plan_tool_calls(
 # Words / phrases that clearly signal "tell me the CURRENT state".
 _STATE_QUESTION_RE = re.compile(
     r"\b("
+    r"how(?:'s| is| are|s)?\s+(?:everything|things|it all|we all)|"
+    r"how(?:'s| is)?\s+it (?:going|looking|all going)|"
+    r"how are (?:we|things) (?:doing|going|tracking|looking)|"
+    r"how(?:'s| is)? the (?:business|operation|community|whole thing)|"
+    r"give me (?:an? |the )?(?:overview|rundown|status|update|picture|summary)|"
+    r"status (?:update|check|report)|overview|the rundown|big picture|"
+    r"what(?:'s| is)? (?:the )?(?:latest|situation|overview|going on|happening)|"
+    r"anything (?:i should know|urgent|to worry|on fire|important)|"
+    r"what time|what hour|which hour|which day|time of day|hour of the day|"
+    r"busiest|peak (?:time|hour)|day of the week|weekday or weekend|"
+    r"break(?:down| it down| that down)|broken down|distribution|by state|by source|"
+    r"when (?:are|do) people (?:regist|sign)|"
+    r"yes,? (?:do (?:that|it)|please|go ahead)|go ahead|do it|please do|"
     r"how many|current|latest|right now|now\?|at the moment|as of now|"
     r"any change|still|recount|recheck|refresh|update(?:d)?|again please|"
     r"any left|still open|still active|open right now|any resolved|"
@@ -410,7 +685,10 @@ _STATE_QUESTION_RE = re.compile(
     r"awaiting contact|awaiting invitation|hasn(?:'|�)?t been (?:contacted|invited)|haven(?:'|�)?t been (?:contacted|invited)|not (?:yet )?(?:contacted|invited)|"
     r"joined (?:today|this week|this month)|invited (?:today|this week|this month)|"
     r"from (?:sydney|melbourne|brisbane|perth|adelaide|hobart|canberra|darwin)|"
-    r"any (tickets|signals|cases|events|reports|submissions|registrations|founding members)"
+    r"any (tickets|signals|cases|events|reports|submissions|registrations|founding members)|"
+    r"stale (?:repl(?:y|ies))|repl(?:y|ies) backlog|unanswered repl(?:y|ies)|"
+    r"old repl(?:y|ies)|sitting (?:for|around)|dropping the ball|"
+    r"waiting (?:on us|for us) (?:for )?(?:a week|\d+\s*days?)"
     r")\b",
     re.IGNORECASE,
 )
@@ -420,14 +698,67 @@ _STATE_QUESTION_RE = re.compile(
 # "count" queries. If the topic is ambiguous, we leave the safety net
 # alone so the synthesizer can honestly say it doesn't have the data.
 _TOPIC_TO_TOOL = [
+    # iter164bi: analytical shortcuts FIRST — an analytical phrase ("what time",
+    # "which hour/day", "by state") must beat the generic count/registrations
+    # mappings below. The planner handles the general case; these give the
+    # safety net a deterministic mapping for the most frequent asks.
+    ("what time",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("what hour",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("which hour",            {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("time of day",           {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("hour of the day",       {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("busiest time",          {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("peak time",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("peak hour",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("when are people registering", {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("when do people register",     {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("when are people signing up",  {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "hour_of_day"}}),
+    ("day of the week",       {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "day_of_week"}}),
+    ("which day",             {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "day_of_week"}}),
+    ("weekday or weekend",    {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "weekday_weekend"}}),
+    ("by state",              {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "state"}}),
+    ("which state",           {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "state"}}),
+    ("by source",            {"name": "analyze_data", "args": {"dataset": "registrations", "group_by": "source"}}),
+
     # Founding Members CRM — Phase 1 (put FIRST so specific matches win
     # before the generic "member"/"registration" fallbacks below).
     ("who is the latest",   {"name": "list_interest_registrations", "args": {"limit": 1}}),
     ("who was the latest",  {"name": "list_interest_registrations", "args": {"limit": 1}}),
     ("latest registration", {"name": "list_interest_registrations", "args": {"limit": 1}}),
     ("latest founder",      {"name": "list_interest_registrations", "args": {"limit": 1}}),
-    ("founding member",  {"name": "founding_members_summary", "args": {}}),
-    ("founding members", {"name": "founding_members_summary", "args": {}}),
+    # iter163: "registered today", "signed up today", "new today" must
+    # match the Founding Members dashboard card exactly. Route straight
+    # to founding_members_summary so George reads the same Sydney-boundary
+    # `new_today` number the card shows, not a rolling 24h count.
+    ("registered today",   {"name": "founding_members_summary", "args": {}}),
+    ("registered so far today", {"name": "founding_members_summary", "args": {}}),
+    ("registered so far", {"name": "founding_members_summary", "args": {}}),
+    ("signed up today",    {"name": "founding_members_summary", "args": {}}),
+    ("sign ups today",     {"name": "founding_members_summary", "args": {}}),
+    ("signups today",      {"name": "founding_members_summary", "args": {}}),
+    ("new today",          {"name": "founding_members_summary", "args": {}}),
+    ("new sign",           {"name": "founding_members_summary", "args": {}}),
+    ("how many new",       {"name": "founding_members_summary", "args": {}}),
+    # iter164e: "overnight" / "last night" / "any new registrations"
+    # phrases were previously mapping either to nothing (LLM guessed
+    # a tool) or to count-only tools, which meant George could report
+    # the number but not the latest person's name or timestamp — the
+    # exact gap the user flagged. Route these to founding_members_summary,
+    # which returns count + latest + timestamps so the ANSWER_STYLE
+    # "operational richness" rule has something to work with.
+    ("overnight",              {"name": "founding_members_summary", "args": {}}),
+    ("last night",             {"name": "founding_members_summary", "args": {}}),
+    ("any new registrations",  {"name": "founding_members_summary", "args": {}}),
+    ("new registrations",      {"name": "founding_members_summary", "args": {}}),
+    ("any registrations",      {"name": "founding_members_summary", "args": {}}),
+    ("any new sign",           {"name": "founding_members_summary", "args": {}}),
+    ("any new members",        {"name": "founding_members_summary", "args": {}}),
+    # iter164f: specific status-filtered questions must resolve to
+    # count/list_interest_registrations BEFORE the generic
+    # "founding member" fallback below — otherwise "How many founding
+    # members have joined?" collapses to the summary route and George
+    # answers with the whole dashboard when Garry only asked for the
+    # joined count.
     ("hasn't been contacted",  {"name": "list_interest_registrations", "args": {"status": "registered"}}),
     ("haven't been contacted", {"name": "list_interest_registrations", "args": {"status": "registered"}}),
     ("not been contacted",     {"name": "list_interest_registrations", "args": {"status": "registered"}}),
@@ -438,8 +769,11 @@ _TOPIC_TO_TOOL = [
     ("awaiting invitation",{"name": "count_interest_registrations", "args": {"status": "registered"}}),
     ("not been invited",   {"name": "list_interest_registrations",  "args": {"status": "registered"}}),
     ("haven't been invited",{"name":"list_interest_registrations",  "args": {"status": "registered"}}),
+    ("hasn't been invited", {"name":"list_interest_registrations",  "args": {"status": "registered"}}),
+    ("not invited yet",    {"name": "list_interest_registrations",  "args": {"status": "registered"}}),
     ("joined this week",  {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 7}}),
-    ("joined today",      {"name": "count_interest_registrations", "args": {"status": "joined",  "since_days": 1}}),
+    ("joined today",      {"name": "count_interest_registrations", "args": {"status": "joined",  "today": True}}),
+    ("invited today",     {"name": "count_interest_registrations", "args": {"status": "invited", "today": True}}),
     ("invited this week", {"name": "count_interest_registrations", "args": {"status": "invited", "since_days": 7}}),
     ("been invited",      {"name": "count_interest_registrations", "args": {"status": "invited"}}),
     ("have been invited", {"name": "count_interest_registrations", "args": {"status": "invited"}}),
@@ -447,11 +781,16 @@ _TOPIC_TO_TOOL = [
     ("have joined",       {"name": "count_interest_registrations", "args": {"status": "joined"}}),
     ("who joined",        {"name": "list_interest_registrations",  "args": {"status": "joined"}}),
     ("joined friendplace",{"name": "count_interest_registrations", "args": {"status": "joined"}}),
+    ("opted out",         {"name": "count_interest_registrations", "args": {"status": "opted_out"}}),
     ("conversion rate",      {"name": "founding_members_conversion", "args": {}}),
     ("conversion",           {"name": "founding_members_conversion", "args": {}}),
     ("funnel",               {"name": "founding_members_conversion", "args": {}}),
     ("registered to joined", {"name": "founding_members_conversion", "args": {}}),
     ("how are we tracking",  {"name": "founding_members_conversion", "args": {}}),
+    # Generic Founding Members fallbacks — MUST stay AFTER the specific
+    # status filters above so those win first-match-wins.
+    ("founding member",  {"name": "founding_members_summary", "args": {}}),
+    ("founding members", {"name": "founding_members_summary", "args": {}}),
     ("register interest",   {"name": "count_interest_registrations", "args": {}}),
     ("registered interest", {"name": "count_interest_registrations", "args": {}}),
     ("registrations", {"name": "count_interest_registrations", "args": {}}),
@@ -466,6 +805,63 @@ _TOPIC_TO_TOOL = [
     ("member",       {"name": "count_members",         "args": {}}),
     ("organisation", {"name": "count_organisations",   "args": {}}),
     ("org",          {"name": "count_organisations",   "args": {}}),
+    # iter164g: stale-reply nudges. When Garry asks about the reply
+    # backlog, unanswered replies, or "anything sitting for a week?",
+    # route to list_stale_replies so George can name the oldest ones
+    # and offer to open the Replies inbox. MUST come BEFORE the generic
+    # "reply" catch-all-that-doesn't-exist (there isn't one, so it's
+    # safe here, but keeping the pattern for future changes).
+    ("stale reply",         {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("stale replies",       {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("reply backlog",       {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("replies backlog",     {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("unanswered replies",  {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("unanswered reply",    {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("old replies",         {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("sitting for a week",  {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("dropping the ball",   {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("waiting for a week",  {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("waiting on us for",   {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("been waiting a week", {"name": "list_stale_replies", "args": {"days": 7}}),
+    ("been waiting for a week", {"name": "list_stale_replies", "args": {"days": 7}}),
+    # iter164bf: BROAD whole-operation status questions. These sit LAST so
+    # any specific topic above wins first-match — only a genuinely broad
+    # "how's everything going?"-style question (with no specific topic
+    # keyword) falls through to the one-shot Chief-of-Staff overview.
+    ("how's everything",   {"name": "mission_control_overview", "args": {}}),
+    ("hows everything",    {"name": "mission_control_overview", "args": {}}),
+    ("how is everything",  {"name": "mission_control_overview", "args": {}}),
+    ("everything going",   {"name": "mission_control_overview", "args": {}}),
+    ("everything ok",      {"name": "mission_control_overview", "args": {}}),
+    ("how are things",     {"name": "mission_control_overview", "args": {}}),
+    ("how's things",       {"name": "mission_control_overview", "args": {}}),
+    ("hows things",        {"name": "mission_control_overview", "args": {}}),
+    ("how are we doing",   {"name": "mission_control_overview", "args": {}}),
+    ("how are we going",   {"name": "mission_control_overview", "args": {}}),
+    ("how's it going",     {"name": "mission_control_overview", "args": {}}),
+    ("hows it going",      {"name": "mission_control_overview", "args": {}}),
+    ("how's it all going", {"name": "mission_control_overview", "args": {}}),
+    ("how's it looking",   {"name": "mission_control_overview", "args": {}}),
+    ("hows it looking",    {"name": "mission_control_overview", "args": {}}),
+    ("give me an overview",{"name": "mission_control_overview", "args": {}}),
+    ("give me the rundown",{"name": "mission_control_overview", "args": {}}),
+    ("give me a status",   {"name": "mission_control_overview", "args": {}}),
+    ("give me a summary",  {"name": "mission_control_overview", "args": {}}),
+    ("status update",      {"name": "mission_control_overview", "args": {}}),
+    ("overview",           {"name": "mission_control_overview", "args": {}}),
+    ("the rundown",        {"name": "mission_control_overview", "args": {}}),
+    ("what's the latest",  {"name": "mission_control_overview", "args": {}}),
+    ("whats the latest",   {"name": "mission_control_overview", "args": {}}),
+    ("what's the situation",{"name": "mission_control_overview", "args": {}}),
+    ("what's happening",   {"name": "mission_control_overview", "args": {}}),
+    ("whats happening",    {"name": "mission_control_overview", "args": {}}),
+    ("what's going on",    {"name": "mission_control_overview", "args": {}}),
+    ("anything i should know", {"name": "mission_control_overview", "args": {}}),
+    ("anything urgent",    {"name": "mission_control_overview", "args": {}}),
+    ("big picture",        {"name": "mission_control_overview", "args": {}}),
+    ("how's the business", {"name": "mission_control_overview", "args": {}}),
+    ("how's the operation",{"name": "mission_control_overview", "args": {}}),
+    ("how's the community",{"name": "mission_control_overview", "args": {}}),
 ]
 
 
@@ -823,8 +1219,17 @@ async def grounded_chat_stream(
         "auditing.\n\n"
         "Only if NEITHER tool_results NOR the KB block covers what he "
         "asked, say: 'I don't have enough information to answer that yet.'\n\n"
-        "Keep it warm, short, and useful. Do not restate the tool call "
-        "names or JSON — speak in plain English."
+        "Match the length to the question. For casual chat, stay warm and "
+        "brief. For operational status questions (registrations, tickets, "
+        "signals, workload) where the tool_results include supporting "
+        "context like `latest`, timestamps, or `_semantics`, follow the "
+        "ANSWER STYLE rule for operational richness in your system prompt: "
+        "lead with the headline number/name, then in the SAME turn add the "
+        "latest relevant person, the time (relative when useful), and — "
+        "when there's an obvious matching Mission Control page — close "
+        "with a natural, single navigation offer (e.g. 'Would you like me "
+        "to open the Founding Members page?'). Never restate raw tool "
+        "call names or JSON — speak in plain English."
     )
 
     chat = (
@@ -869,7 +1274,11 @@ async def grounded_chat_stream(
         in the buffer without a matching close, we hold back
         everything until the close arrives — otherwise the closing
         ``</tool_call>`` could stream after we've already released
-        the opening tag to the UI, defeating the scrubber.
+        the opening tag to the UI, defeating the scrubber. Same rule
+        applies to unclosed ``` code fences (iter164s): once one
+        opens we hold everything back until it closes so the
+        action_preview extractor sees a complete block before
+        deciding whether to strip it.
         """
         nonlocal _pending
         if not _pending:
@@ -881,6 +1290,10 @@ async def grounded_chat_stream(
         # If an open tool-call-style tag exists without its matching
         # close, wait for more data.
         if has_unclosed_tool_call(_pending):
+            return ""
+        # If a ``` code fence is open, wait for its close so the
+        # action_preview extractor can see the whole block.
+        if has_unclosed_code_fence(_pending):
             return ""
         # Split at the last sentence terminator we've seen.
         matches = list(_FLUSH_RE.finditer(_pending))
@@ -901,13 +1314,27 @@ async def grounded_chat_stream(
                     _pending += text
                     out = _drain_buffer(final=False)
                     if out:
-                        yield {"kind": "delta", "text": out}
+                        # iter164s: intercept any inline action_preview
+                        # JSON payloads Claude may have printed instead
+                        # of actually calling the tool. We yield them
+                        # as proper SSE events and drop the raw markup
+                        # from the delta so the admin sees the card,
+                        # not the JSON.
+                        cleaned, inline_previews = extract_action_previews(out)
+                        for _p in inline_previews:
+                            yield {"kind": "action_preview", "preview": _p}
+                        if cleaned:
+                            yield {"kind": "delta", "text": cleaned}
             elif isinstance(event, StreamDone):
                 break
         # Flush any remaining buffered text.
         tail = _drain_buffer(final=True)
         if tail:
-            yield {"kind": "delta", "text": tail}
+            cleaned_tail, inline_previews = extract_action_previews(tail)
+            for _p in inline_previews:
+                yield {"kind": "action_preview", "preview": _p}
+            if cleaned_tail:
+                yield {"kind": "delta", "text": cleaned_tail}
     except Exception as exc:
         log.exception("synthesizer stream failed")
         yield {"kind": "delta", "text": (
@@ -922,6 +1349,12 @@ async def grounded_chat_stream(
     # gets footer-free text.
     _full_reply = "".join(reply_parts)
     _clean_reply = _scrub(_full_reply)
+    # iter164s: strip any inline action_preview payloads from the
+    # `done` reply for the same reason we strip them from the live
+    # deltas — the transcript we persist and the reply length we
+    # report should reflect what the admin actually saw, not the
+    # raw markup we intercepted upstream.
+    _clean_reply, _ = extract_action_previews(_clean_reply)
 
     # Navigation intent detection (Garry, 5 Aug 2026 launch polish).
     # When George says *"Opening the System Health Dashboard now"* he

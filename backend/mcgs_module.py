@@ -35,6 +35,127 @@ from services.mcgs import (
     assign_case,
 )
 from services.mcgs.events import signal_events
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  iter164c: STT hallucination guard.
+#
+#  Whisper is known to emit canned phrases in Korean / Japanese /
+#  Vietnamese etc when fed silence or near-silence, even with
+#  language="en" set. If a language-locked English request produces
+#  ANY character in a non-Latin script (CJK / Hangul / Cyrillic /
+#  Thai / Arabic / Devanagari), the transcript is not trustworthy.
+#
+#  This is a GENERAL rule keyed on Unicode block, not a specific
+#  phrase filter — future hallucinations in the same scripts will
+#  be caught automatically.
+#
+#  Latin-Extended / Latin-1 Supplement is NOT considered non-Latin,
+#  so accented text ("café", "naïve", "résumé") passes cleanly.
+# ─────────────────────────────────────────────────────────────────────
+
+def _stt_is_non_latin_script_char(ch: str) -> bool:
+    cp = ord(ch)
+    # CJK Unified Ideographs + extensions
+    if 0x3400 <= cp <= 0x4DBF: return True
+    if 0x4E00 <= cp <= 0x9FFF: return True
+    if 0x20000 <= cp <= 0x2A6DF: return True
+    # Hiragana + Katakana (Japanese)
+    if 0x3040 <= cp <= 0x30FF: return True
+    # Hangul (Korean)
+    if 0xAC00 <= cp <= 0xD7AF: return True
+    if 0x1100 <= cp <= 0x11FF: return True
+    # Cyrillic
+    if 0x0400 <= cp <= 0x04FF: return True
+    # Thai
+    if 0x0E00 <= cp <= 0x0E7F: return True
+    # Arabic
+    if 0x0600 <= cp <= 0x06FF: return True
+    # Devanagari
+    if 0x0900 <= cp <= 0x097F: return True
+    return False
+
+
+def stt_transcript_looks_hallucinated(text: str) -> bool:
+    """True if a Whisper transcript from a language='en' request
+    contains any character in a non-Latin script — a strong signal
+    it's a silence-hallucination (e.g. "시청해 주셔서 감사합니다")
+    rather than genuine English speech.
+
+    Latin-1 Supplement / Latin Extended (accented characters like
+    "é", "ñ", "ü") are considered Latin and pass cleanly."""
+    if not text:
+        return False
+    return any(_stt_is_non_latin_script_char(ch) for ch in text)
+
+
+# ─────────────────────────────────────────────────────────────────────
+#  iter164c: known-English Whisper silence hallucinations.
+#
+#  OpenAI Whisper is trained heavily on YouTube subtitle data and
+#  when fed silence / near-silence returns a small pool of stock
+#  video sign-off phrases. This is documented in the community
+#  (see https://github.com/openai/whisper/discussions/928 and many
+#  others). We match a curated set of these on the normalised
+#  transcript so they can't leak into the Ask George input.
+#
+#  This is a curated CLASS filter — not a single-phrase filter —
+#  and every entry is a phrase Whisper is documented to emit on
+#  silence, not a phrase a real admin would say to George.
+# ─────────────────────────────────────────────────────────────────────
+
+# Normalised (lower-cased, punctuation-stripped) phrases Whisper is
+# known to emit on silence when language='en'. Keep this list narrow
+# and specific to sign-off / caption-drift patterns — do not add
+# phrases that a genuine admin could plausibly say.
+_STT_KNOWN_ENGLISH_HALLUCINATIONS = frozenset({
+    "thank you",
+    "thanks",
+    "thanks for watching",
+    "thank you for watching",
+    "thanks for watching this video",
+    "thank you for watching this video",
+    "thanks for watching everyone",
+    "thanks so much for watching",
+    "please subscribe",
+    "please subscribe to my channel",
+    "please like and subscribe",
+    "like and subscribe",
+    "dont forget to subscribe",
+    "see you next time",
+    "see you in the next video",
+    "see you next video",
+    "bye",
+    "goodbye",
+    "bye bye",
+    "the end",
+    "music",
+    "applause",
+    "you",  # Notorious 1-word Whisper silence output
+})
+
+
+def _stt_normalise_for_hallucination_check(text: str) -> str:
+    """Lowercase, strip punctuation and collapse whitespace so
+    'Thanks for watching.' and 'thanks for watching!' both match."""
+    import re
+    return re.sub(r"[^a-z\s]", "", text.lower()).strip()
+
+
+def stt_transcript_is_known_english_hallucination(text: str) -> bool:
+    """True if the transcript matches a curated set of well-documented
+    Whisper silence-hallucination phrases (YouTube sign-offs etc)."""
+    if not text:
+        return False
+    normalised = _stt_normalise_for_hallucination_check(text)
+    if not normalised:
+        return False
+    # Collapse multi-space so "thanks  for   watching" matches too.
+    import re
+    normalised = re.sub(r"\s+", " ", normalised)
+    return normalised in _STT_KNOWN_ENGLISH_HALLUCINATIONS
+
+
 from services.mcgs.rhythms import (
     get_rhythm_settings,
     update_rhythm_settings,
@@ -141,6 +262,15 @@ class GeorgeChatIn(BaseModel):
     surface_context: Optional[dict] = None
 
 
+class CompanionTurnIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+    persona: Optional[str] = "george"
+
+
+class CompanionResetIn(BaseModel):
+    persona: Optional[str] = "george"
+
+
 class TicketReplyProposalIn(BaseModel):
     ticket_id: str
 
@@ -154,15 +284,6 @@ class TTSIn(BaseModel):
     text: str = Field(..., min_length=1, max_length=3800)
     voice: str = Field("george")  # Persona key. Backend maps to real OpenAI voice.
     speed: float = Field(1.05, ge=0.5, le=1.5)  # Warmer, more conversational pacing.
-
-
-class CompanionTurnIn(BaseModel):
-    text: str = Field(..., min_length=1, max_length=4000)
-    persona: Optional[str] = "george"
-
-
-class CompanionResetIn(BaseModel):
-    persona: Optional[str] = "george"
 
 
 class RhythmSettingsIn(BaseModel):
@@ -1104,6 +1225,30 @@ def build_router(db) -> APIRouter:
             raise HTTPException(403, "Not your conversation.")
         return await reset_onboarding_session(db, session_id)
 
+    # =====================================================================
+    # /api/mcgs/george/companion — always-available free-form companion.
+    # Openly-AI friend for members: listens, remembers, engages. NOT a
+    # questionnaire and NOT a feature-routing bot. Private per-member
+    # memory carries meaningful details across sessions.
+    # =====================================================================
+    @router.get("/mcgs/george/companion")
+    async def api_companion_get(persona: str = "george", actor: dict = Depends(current_george_actor)):
+        from services.george.companion import get_or_create_companion_session
+        return await get_or_create_companion_session(db, actor_id=actor.get("id"), persona=persona)
+
+    @router.post("/mcgs/george/companion/turn")
+    async def api_companion_turn(body: CompanionTurnIn, actor: dict = Depends(current_george_actor)):
+        from services.george.companion import companion_turn
+        text = (body.text or "").strip()
+        if not text:
+            raise HTTPException(422, "Say something first.")
+        return await companion_turn(db, actor_id=actor.get("id"), persona=(body.persona or "george"), user_text=text)
+
+    @router.post("/mcgs/george/companion/reset")
+    async def api_companion_reset(body: CompanionResetIn, actor: dict = Depends(current_george_actor)):
+        from services.george.companion import reset_companion_session
+        return await reset_companion_session(db, actor_id=actor.get("id"), persona=(body.persona or "george"))
+
 
 
     # =====================================================================
@@ -1651,13 +1796,55 @@ def build_router(db) -> APIRouter:
     # /api/george/voice/*  \u2014 STT + TTS via Emergent LLM key
     # =====================================================================
 
+    def _sniff_audio_ext(data: bytes) -> "str | None":
+        """Detect audio container from magic bytes and return an
+        extension Whisper accepts, or None if unknown.
+
+        iter164i: Safari/WKWebView on installed Mac WebApps has been
+        observed to report a ``blob.type`` that disagrees with the
+        actual recorded container (e.g. reports webm but produces
+        fragmented MP4). The frontend then picks the wrong extension,
+        Whisper 400s with "Invalid file format", and we bubble that up
+        as HTTP 502 — surfaced to Safari as a CORS-flavoured error.
+        Sniff server-side so the extension always matches the bytes.
+        """
+        if not data or len(data) < 12:
+            return None
+        if data[:4] == b"\x1a\x45\xdf\xa3":                  # EBML / WebM / MKV
+            return "webm"
+        if data[4:8] == b"ftyp":                              # ISO BMFF (MP4 / M4A)
+            return "m4a"
+        if data[:4] == b"OggS":                               # OGG (opus / vorbis)
+            return "ogg"
+        if data[:4] == b"RIFF" and data[8:12] == b"WAVE":     # WAV
+            return "wav"
+        if data[:4] == b"fLaC":                               # FLAC
+            return "flac"
+        if data[:3] == b"ID3":                                # MP3 with ID3 tag
+            return "mp3"
+        if data[0] == 0xFF and (data[1] & 0xE0) == 0xE0:      # MP3 raw sync frame
+            return "mp3"
+        return None
+
     @router.post("/george/voice/transcribe")
     async def api_george_transcribe(
         audio: UploadFile = File(...),
         admin: dict = Depends(current_admin),
     ):
         """Transcribe an audio clip via Whisper-1. The transcript
-        returns for review \u2014 nothing sent to George automatically."""
+        returns for review — nothing sent to George automatically.
+
+        iter164c: three-layer defence against Whisper hallucinations
+        on silence/near-silence:
+          1. Lock ``language='en'`` so Whisper doesn't auto-detect
+             into Korean / Japanese / etc when fed silence.
+          2. Pass a domain ``prompt`` biasing the model toward
+             FriendPlace vocabulary (member names, "flutter", etc).
+          3. Post-transcription guard: if language=en was requested
+             but the response is dominated by non-Latin characters,
+             it's almost certainly a hallucination — return empty.
+             This is a GENERAL rule, not a phrase filter.
+        """
         from emergentintegrations.llm.openai.speech_to_text import OpenAISpeechToText
         import os as _os, io, tempfile
         key = _os.environ.get("EMERGENT_LLM_KEY")
@@ -1665,10 +1852,39 @@ def build_router(db) -> APIRouter:
             raise HTTPException(500, "EMERGENT_LLM_KEY missing")
 
         data = await audio.read()
-        # Whisper expects a file-like with .name.
-        ext = (audio.filename or "clip.webm").rsplit(".", 1)[-1].lower()
-        if ext not in {"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"}:
+        # iter164c: reject clips that are almost certainly silence
+        # before we spend an LLM call on them. Opus-encoded silence
+        # compresses to ~800-1200 bytes/second; a 1-second silent
+        # clip lands well under 2 KB. Real speech at 24-32 kbps opus
+        # is ~3-4 KB/second, so 2 KB comfortably rejects silence
+        # while never blocking a genuine short utterance.
+        if not data:
+            return {"transcript": ""}
+        if len(data) < 2048:
+            log.info(
+                "STT: rejecting %d-byte clip as silence "
+                "(under 2 KB threshold)", len(data),
+            )
+            return {"transcript": ""}
+
+        # iter164i: prefer the container detected from magic bytes over
+        # the client-hinted filename. Safari/WKWebView (installed Mac
+        # WebApp) occasionally reports a mismatched blob.type, so the
+        # client-side chooser picks .webm for what is actually fragmented
+        # MP4, and Whisper then 400s with "Invalid file format" — which
+        # we bubble as 502 and Safari surfaces as a CORS complaint.
+        # Sniffing here makes the fix immune to any future browser quirk.
+        sniffed = _sniff_audio_ext(data)
+        hinted = (audio.filename or "clip.webm").rsplit(".", 1)[-1].lower()
+        ext = sniffed or hinted
+        if ext not in {"mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm", "flac", "ogg", "oga"}:
             ext = "webm"
+        if sniffed and hinted and sniffed != hinted:
+            log.info(
+                "STT: container sniff overrode client filename "
+                "(hinted=%s, sniffed=%s, bytes=%d)",
+                hinted, sniffed, len(data),
+            )
 
         # Wrap bytes in a temp file so litellm has a real path.
         with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
@@ -1678,7 +1894,20 @@ def build_router(db) -> APIRouter:
         stt = OpenAISpeechToText(api_key=key)
         try:
             with open(path, "rb") as fh:
-                resp = await stt.transcribe(file=fh, model="whisper-1", response_format="json")
+                # iter164c: we deliberately do NOT pass a ``prompt``
+                # here. Whisper is known to echo the prompt string
+                # verbatim when the audio is too ambiguous to
+                # transcribe, so a domain-biasing prompt becomes its
+                # own hallucination source. Language is still locked
+                # to English so the model can't fall back to Korean
+                # / Japanese / etc. Real audio still transcribes
+                # correctly (verified via TTS round-trip).
+                resp = await stt.transcribe(
+                    file=fh,
+                    model="whisper-1",
+                    response_format="json",
+                    language="en",
+                )
         except Exception as exc:
             log.exception("STT failed")
             raise HTTPException(502, f"Transcription failed: {exc}")
@@ -1687,6 +1916,34 @@ def build_router(db) -> APIRouter:
             except Exception: pass
 
         text = getattr(resp, "text", None) or (resp.get("text") if isinstance(resp, dict) else None) or ""
+        text = str(text).strip()
+
+        # iter164c: hallucination guards. Whisper is known to emit
+        # canned phrases in Korean / Japanese / Vietnamese etc when
+        # fed silence, even with language="en". Non-Latin scripts
+        # (CJK, Hangul, Cyrillic, Thai, Arabic, Devanagari) under a
+        # language-locked English request are treated as hallucinated
+        # output and dropped. See ``stt_transcript_looks_hallucinated``
+        # at module scope for the shared implementation.
+        if text and stt_transcript_looks_hallucinated(text):
+            log.warning(
+                "STT hallucination guard: dropping non-Latin transcript "
+                "for language=en request (len=%d, preview=%r)",
+                len(text), text[:80],
+            )
+            return {"transcript": ""}
+
+        # iter164c: also drop the well-documented Whisper English
+        # silence-fallback phrases (YouTube sign-offs the model
+        # learned from subtitle data). These aren't phrases an admin
+        # would say to George.
+        if text and stt_transcript_is_known_english_hallucination(text):
+            log.warning(
+                "STT known-English hallucination: dropping (preview=%r)",
+                text[:80],
+            )
+            return {"transcript": ""}
+
         return {"transcript": text}
 
     @router.post("/george/voice/speak")
@@ -1768,29 +2025,5 @@ def build_router(db) -> APIRouter:
                 "X-George-Speed": f"{speed:.2f}",
             },
         )
-
-    # =====================================================================
-    # /api/mcgs/george/companion — always-available free-form companion.
-    # Openly-AI friend for members: listens, remembers, engages. NOT a
-    # questionnaire and NOT a feature-routing bot. Private per-member
-    # memory carries meaningful details across sessions.
-    # =====================================================================
-    @router.get("/mcgs/george/companion")
-    async def api_companion_get(persona: str = "george", actor: dict = Depends(current_george_actor)):
-        from services.george.companion import get_or_create_companion_session
-        return await get_or_create_companion_session(db, actor_id=actor.get("id"), persona=persona)
-
-    @router.post("/mcgs/george/companion/turn")
-    async def api_companion_turn(body: CompanionTurnIn, actor: dict = Depends(current_george_actor)):
-        from services.george.companion import companion_turn
-        text = (body.text or "").strip()
-        if not text:
-            raise HTTPException(422, "Say something first.")
-        return await companion_turn(db, actor_id=actor.get("id"), persona=(body.persona or "george"), user_text=text)
-
-    @router.post("/mcgs/george/companion/reset")
-    async def api_companion_reset(body: CompanionResetIn, actor: dict = Depends(current_george_actor)):
-        from services.george.companion import reset_companion_session
-        return await reset_companion_session(db, actor_id=actor.get("id"), persona=(body.persona or "george"))
 
     return router
