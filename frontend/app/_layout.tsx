@@ -35,6 +35,7 @@ import GeorgeGlobalHost from "@/src/components/george/GeorgeGlobalHost";
 import SplashGate from "@/src/components/SplashGate";
 import ErrorBoundary from "@/src/components/ErrorBoundary";
 import FlutterOverlay from "@/src/components/FlutterOverlay";
+import CompanionNudge from "@/src/components/CompanionNudge";
 void GlobalDmPrompt;
 
 SplashScreen.preventAutoHideAsync();
@@ -236,6 +237,12 @@ export default function RootLayout() {
                         every screen. `GeorgeGlobalHost` hides itself
                         on auth / onboarding / landing / waitlist. */}
                     <GeorgeGlobalHost />
+                    {/* Brief companion nudge (Jun 2026) — George/Georgia
+                        slides a short, self-dismissing card in from the
+                        top when a new private message or Flutter arrives
+                        while foregrounded. Never touches the unread badge
+                        (stays until opened) and never autoplays voice. */}
+                    <CompanionNudge />
                     {/* Global DM prompt (approved 24 Jun 2026) — the
                         "🦋 Kerry sent you a private message" bottom-
                         sheet that used to slide in on any screen and

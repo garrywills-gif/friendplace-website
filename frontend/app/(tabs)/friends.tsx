@@ -529,11 +529,6 @@ export default function Friends() {
           </View>
         )}
       </View>
-      <Pressable testID="messages-btn" onPress={() => router.push("/messages")} style={[styles.inboxRow, { backgroundColor: c.brandTertiary }]}>
-        <Ionicons name="chatbubbles" size={22} color={c.brand} />
-        <Text style={[styles.inboxText, { color: c.brand, fontSize: 16 * scale }]}>My Messages</Text>
-        <Ionicons name="chevron-forward" size={20} color={c.brand} />
-      </Pressable>
 
       {/* Pre-permission rationale (per FriendPlace permission contract) */}
       <Modal visible={showRationale} animationType="fade" transparent onRequestClose={() => setShowRationale(false)}>

@@ -39,13 +39,15 @@ _VOICE_MAP: dict[str, str] = {
 }
 _DEFAULT_VOICE: GeorgeVoiceKey = "george"
 
-# Per-persona default pacing (TestFlight Sep 2026 — Garry: "Georgia is
-# too fast"). Slightly under 1.0 for a calmer, warmer delivery; Georgia
-# a touch slower than George. Applied only when the caller hasn't set an
+# Per-persona default pacing. Tuned for a natural, engaged delivery
+# (TestFlight Jun 2026 — Garry: "a bit slow/monotone, make them slightly
+# quicker, warmer and more expressive, not hyper"). Near-natural pace,
+# Georgia a touch under George. Warmth/expressiveness comes from the
+# tts-1-hd model above. Applied only when the caller hasn't set an
 # explicit non-default speed, so "Preview voice" style overrides win.
 _PERSONA_SPEED: dict[str, float] = {
-    "george":  0.94,
-    "georgia": 0.86,
+    "george":  1.0,
+    "georgia": 0.98,
 }
 
 
@@ -89,7 +91,7 @@ async def synthesize_george_speech(
     text: str,
     *,
     persona: Optional[str] = None,
-    model: str = "tts-1",
+    model: str = "tts-1-hd",
     speed: float = 1.0,
 ) -> bytes:
     """Generate George's spoken reply as MP3 bytes.

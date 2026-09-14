@@ -229,6 +229,16 @@ export default function OnboardingWizard() {
   // trigger a handoff (Garry's explicit rule).
   const showHandoff = chosenBefore && savedVoice !== tourHost;
 
+  // Spoken audio for the final "You're all set!" bubble MUST match the
+  // words shown on screen, including the green handoff line when it's
+  // displayed (TestFlight Jun 2026 — Garry: the green line wasn't read
+  // aloud). Emoji are omitted from speech only.
+  const celebrateSpokenBase =
+    "That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces. And remember\u2026 I\u2019m only ever a butterfly tap away.";
+  const celebrateSpoken = showHandoff
+    ? `${celebrateSpokenBase} That\u2019s the tour from me \u2014 ${savedCompanionShort} will be around whenever you feel like a chat.`
+    : celebrateSpokenBase;
+
   const [step, setStep] = useState(0);
   const [interests, setInterests] = useState<string[]>([]);
   // Suggested groups step — fetched lazily the first time we enter step 4
@@ -384,7 +394,7 @@ export default function OnboardingWizard() {
                   very last screen of the tour. */}
               <View style={{ marginLeft: "auto" }}>
                 <SpeakButton
-                  text={"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces. And remember, I\u2019m only ever a butterfly tap away."}
+                  text={celebrateSpoken}
                   color="#0F766E"
                   bg="rgba(255,255,255,0.85)"
                   size={20}
