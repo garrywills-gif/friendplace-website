@@ -28,6 +28,11 @@ from typing import Any, Dict, List, Optional
 
 log = logging.getLogger("friendplace")
 
+# Shared member-name validation (same rules as the companion) so a
+# conversational reply like "No" can never be inferred, stored, or used
+# to address the member. See services/george/names.py.
+from services.george.names import clean_name, name_field_value, scrub_invalid_member_names
+
 COLL_ONBOARDING = "george_onboarding_conversations"
 
 # The full set of fields George may learn. Every one is optional.
@@ -57,6 +62,14 @@ async def ensure_indexes(db: Any) -> None:
         await db[COLL_ONBOARDING].create_index("status")
     except Exception:  # pragma: no cover
         log.exception("onboarding indexes non-fatal error")
+    # One-pass cleanup of any invalid inferred member name (e.g. "No")
+    # written by an older build, so it can't be recalled next session.
+    try:
+        n = await scrub_invalid_member_names(db)
+        if n:
+            log.info("Scrubbed invalid inferred member name(s) from %d user(s)", n)
+    except Exception:  # pragma: no cover
+        log.exception("member-name scrub non-fatal error")
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +120,7 @@ CONTEXT
   You'll receive the current KNOWN profile fields (stated, inferred, or skipped) and the conversation so far.
 
 RULES
-  1. START WARMLY on your first turn: acknowledge that the member said yes to getting to know each other. If a FIRST NAME is provided in the context (they gave it at signup), greet them by it and gently confirm rather than asking from scratch — e.g. "Lovely to meet you! Would you like me to call you Brad, or something else?" If NO first name is known, open with "Let's start with something easy. What would you like me to call you?" (or a close natural variant).
+  1. START WARMLY on your first turn: acknowledge that the member said yes to getting to know each other. If a CONFIRMED NAME is provided in the context, greet them by it and gently confirm rather than asking from scratch — e.g. "Lovely to meet you! Would you like me to call you Brad, or something else?" If CONFIRMED NAME is empty, open with "Let's start with something easy. What would you like me to call you?" (or a close natural variant).
   2. ACKNOWLEDGE the member's last reply naturally before anything else. Respond SPECIFICALLY to what they said — acknowledge emotion, humour and context.
   3. CONVERSATION FIRST — this is the whole job. Any getting-to-know-you question is a CONVERSATION STARTER, never a checklist. If a question turns into a real chat, STAY WITH IT: ask natural follow-ups, explore the topic over multiple turns while they're engaged, and let them change the subject. NEVER jump to a new question just because the last one was answered. Example — member: "Not really, I need more friends." Do NOT move on; stay with it warmly: "Yeah, that can be hard. What sort of people do you reckon you'd click with?"
   4. NEVER re-ask a field that's already known or skipped. NEVER ask for: age, DOB, identity/demographic info, full address, relationship status, health.
@@ -115,6 +128,7 @@ RULES
   6. If the member declines/skips, say something like *"That's absolutely fine."* and move on.
   7. INFERRED FIELDS: when the member says something ambiguous, you MAY infer softly. When you'd like the preview to gently confirm an inference, add the field to `confirm_hints`.
   8. NEVER INVENT CONVERSATION HISTORY. This is critical (Garry, TestFlight iter142, 8 Aug 2026 — "George is inventing previous conversations"). You must never reference things you and the member "discussed", "planned", or "were working on" unless they appear *verbatim* in the visible turns of THIS session (see CONVERSATION below). Absence of memory is not permission to fabricate. If the member returns and there is no prior context, greet them warmly and ask an open question — do NOT reach for a plausible-sounding continuation. If a member challenges an invented reference, acknowledge honestly ("You're right, I'm sorry — I got that wrong") and move on with an open, present-tense question. Do NOT immediately re-introduce the same invented topic.
+  9. NAMES: Address the member ONLY by the CONFIRMED NAME given in the context. If CONFIRMED NAME is empty, use NO name at all — a warm sentence with no name is always fine. NEVER guess or invent a name, and NEVER reuse a word the member just said (e.g. "No", "Yes", "My", "Me", "Us", "Hi") as if it were their name. Do not treat any KNOWN field value as a name.
 
 OUTPUT (strict JSON, no fences):
 {
@@ -175,11 +189,26 @@ async def _extract(user_text: str, known: dict) -> dict:
 
 
 async def _compose(known: dict, turns: list, skipped: list, is_first: bool, *, kb_block: str = "", first_name: str = "") -> dict:
-    name_line = f"MEMBER'S FIRST NAME (from signup, use per rule 1): {first_name}\n" if first_name else "MEMBER'S FIRST NAME: (not provided at signup)\n"
+    # Only ever hand the composer a CONFIRMED name — a stated preferred
+    # name, else the signup first name — never an inferred/filler value.
+    safe_known = dict(known or {})
+    pn = safe_known.get("preferred_name")
+    stated_name = (
+        clean_name(name_field_value(pn))
+        if isinstance(pn, dict) and (pn.get("source") or "").lower() == "stated"
+        else None
+    )
+    if clean_name(name_field_value(pn)) is None:
+        # Strip filler like "No"/"My" so it can never be echoed at the member.
+        safe_known.pop("preferred_name", None)
+    confirmed_name = stated_name or clean_name(first_name) or ""
+    name_line = (
+        f"CONFIRMED NAME (the ONLY name you may use to address them; if empty, use no name): {confirmed_name}\n"
+    )
     prompt = (
         f"IS_FIRST_TURN: {is_first}\n"
         f"{name_line}"
-        f"KNOWN fields (stated/inferred): {json.dumps(known, ensure_ascii=False)}\n"
+        f"KNOWN fields (stated/inferred): {json.dumps(safe_known, ensure_ascii=False)}\n"
         f"SKIPPED fields: {json.dumps(skipped, ensure_ascii=False)}\n\n"
         f"CONVERSATION SO FAR (most recent last):\n" +
         "\n".join(f"{t['role']}: {t['content']}" for t in turns[-12:])
@@ -208,7 +237,17 @@ def _merge_patch(known: dict, patch: dict) -> dict:
     for field, val in (patch or {}).get("patch", {}).items():
         if field not in FIELDS:
             continue
+        # Name guard: never store a value that isn't clearly a real name
+        # (e.g. an inferred "No"/"My"/"Yes" from a conversational reply).
+        # We would rather have NO preferred name than a wrong one.
+        if field == "preferred_name" and clean_name(name_field_value(val)) is None:
+            known.pop("preferred_name", None)
+            continue
         known[field] = val  # value + source
+    # Scrub any pre-existing invalid name left by an older build so it can
+    # never resurface on resume.
+    if "preferred_name" in known and clean_name(name_field_value(known.get("preferred_name"))) is None:
+        known.pop("preferred_name", None)
     return known
 
 
@@ -389,7 +428,10 @@ async def approve_onboarding(db: Any, session_id: str, *, edits: Optional[dict] 
         for field, val in edits.items():
             if field in FIELDS and val is not None:
                 known[field] = {"value": val, "source": "stated"}
-
+    # Final name guard before it becomes the member's durable profile:
+    # never persist an inferred/filler preferred_name (e.g. "No").
+    if "preferred_name" in known and clean_name(name_field_value(known.get("preferred_name"))) is None:
+        known.pop("preferred_name", None)
     # Write to the user document under `george_profile` and set profile_complete.
     actor_id = session.get("actor_id")
     now = _now_iso()

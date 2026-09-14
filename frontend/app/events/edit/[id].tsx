@@ -210,6 +210,7 @@ export default function EditEvent() {
           <Text style={[styles.label, { color: c.onSurface, fontSize: 15 * scale }]}>Suburb / nearest town</Text>
           <SuburbField
             testID="edit-event-locality"
+            hidePreferNotToSay
             initialValue={locality ? (locality.postcode ? `${locality.name}, ${locality.state || ""} ${locality.postcode}`.trim() : locality.name) : ""}
             onChange={(s) => setLocality(s ? { name: s.name, postcode: s.postcode, state: s.state } : null)}
           />

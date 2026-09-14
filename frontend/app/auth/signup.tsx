@@ -449,6 +449,7 @@ export default function Signup() {
               <Text style={[styles.label, { color: c.onSurface, fontSize: 16 * scale }]}>Suburb <Text style={{ color: c.muted, fontSize: 13 * scale }}>(helps you find neighbours)</Text></Text>
               <SuburbField
                 testID="signup-suburb"
+                hidePreferNotToSay
                 initialValue={suburb}
                 preferNotToSay={locationPrivate}
                 onChange={(m, pns) => {

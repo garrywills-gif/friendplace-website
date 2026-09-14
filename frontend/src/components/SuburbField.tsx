@@ -139,7 +139,9 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
                     We don&rsquo;t have that suburb yet
                   </Text>
                   <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 4, lineHeight: 18 }}>
-                    Try the closest main town or suburb — or tap &ldquo;Prefer not to say&rdquo; below and add it later.
+                    {hidePreferNotToSay
+                      ? "Try the closest main town or suburb."
+                      : "Try the closest main town or suburb — or tap \u201CPrefer not to say\u201D below and add it later."}
                   </Text>
                 </View>
               </View>

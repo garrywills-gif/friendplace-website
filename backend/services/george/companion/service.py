@@ -172,32 +172,10 @@ def _persona_key(persona: Optional[str]) -> str:
     return "georgia" if (persona or "").lower() == "georgia" else "george"
 
 
-# Tokens that are never a real preferred name — guards against the onboarding
-# inferring junk like "My"/"Me"/"Us" and the companion then using it.
-_BANNED_NAME_TOKENS = {
-    "my", "me", "us", "mine", "myself", "i", "you", "your", "yours", "we",
-    "they", "them", "someone", "somebody", "anybody", "friend", "mate",
-    "buddy", "pal", "there", "hi", "hello", "hey", "hiya", "ok", "okay",
-    "yeah", "yes", "no", "nah", "name", "unknown", "none", "null", "n/a",
-    "na", "nobody", "person", "member", "user", "sure", "not", "dunno",
-}
-
-
-def _clean_name(raw: Optional[str]) -> Optional[str]:
-    """Return a usable first name, or None if the value isn't clearly a real
-    name. Rejects pronouns/filler and obvious non-names — we would rather use
-    NO name than invent or mangle one."""
-    if not raw or not isinstance(raw, str):
-        return None
-    n = raw.strip().strip(".,!?\"'").strip()
-    if not n or len(n) < 2 or len(n) > 40:
-        return None
-    words = n.lower().split()
-    if any(w in _BANNED_NAME_TOKENS for w in words):
-        return None
-    if not any(c.isalpha() for c in n):
-        return None
-    return n
+# Member-name validation is shared with the onboarding flow so the two
+# paths can never disagree (see services/george/names.py). We would
+# rather use NO name than invent or mangle one.
+from services.george.names import clean_name as _clean_name
 
 
 async def _confirmed_name(db: Any, actor_id: str) -> Optional[str]:

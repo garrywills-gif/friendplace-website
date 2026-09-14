@@ -474,6 +474,12 @@ export default function Notices() {
                 <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale }}>{editing ? "Edit notice" : "Post a notice"}</Text>
                 <Pressable onPress={() => setPosting(false)} hitSlop={8} style={{ padding: 6 }}><Ionicons name="close" size={26} color={c.onSurface} /></Pressable>
               </View>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 8 }}
+              >
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Category</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {POST_CATS.map((cat) => (
@@ -539,6 +545,7 @@ export default function Notices() {
 
               <View style={{ height: 14 }} />
               <Button testID="post-submit" label={editing ? "Save changes" : "Post to Notice Board"} onPress={submitPost} />
+              </ScrollView>
             </View>
           </KeyboardAvoidingView>
           {/* TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #2):
