@@ -34,6 +34,25 @@ type Tile = {
   badge?: number;    // optional red unread-count badge (e.g. My Chats)
 };
 
+// Warm, soft pastel palette for the Explore carousel cards — a more
+// premium, less "stark / cartoonish" take than flat saturated blocks,
+// tuned to match the polished pastel cards elsewhere on Home. Appearance
+// only: keys map to each shortcut's `Tile.key`; routes/order/behaviour
+// are untouched. `bg` = card fill, `icon` = icon tint.
+const CARD_TINT: Record<string, { bg: string; icon: string }> = {
+  chats:        { bg: "#EAF1FA", icon: "#3E6DA6" },
+  "my-friends": { bg: "#FAEBF1", icon: "#BE5F86" },
+  lounge:       { bg: "#FBF1DF", icon: "#B07C41" },
+  friends:      { bg: "#E7F1EB", icon: "#3E9070" },
+  events:       { bg: "#ECEBF8", icon: "#6961BE" },
+  notices:      { bg: "#F5EAF1", icon: "#A25C8C" },
+  games:        { bg: "#E9EFFA", icon: "#4A69B6" },
+  groups:       { bg: "#E5F0E9", icon: "#358363" },
+  profile:      { bg: "#F1EFE9", icon: "#7B6F5C" },
+};
+const CARD_TITLE_INK = "#1C2A47";
+const CARD_SUB_INK = "#63697A";
+
 export default function Home() {
   const router = useRouter();
   const { c, scale, prefs } = useTheme();
@@ -1104,10 +1123,12 @@ export default function Home() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.carousel}
             decelerationRate="fast"
-            snapToInterval={164}
+            snapToInterval={166}
             snapToAlignment="start"
           >
-            {tiles.map((t) => (
+            {tiles.map((t) => {
+              const tint = CARD_TINT[t.key] ?? { bg: t.bg, icon: t.ink };
+              return (
               <Pressable
                 key={t.key}
                 testID={`tile-${t.key}`}
@@ -1115,27 +1136,28 @@ export default function Home() {
                 accessibilityLabel={t.title}
                 style={({ pressed }) => [
                   styles.card,
-                  { backgroundColor: t.bg, opacity: pressed ? 0.9 : 1 },
+                  { backgroundColor: tint.bg, opacity: pressed ? 0.92 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
                 ]}
               >
                 <View style={styles.cardIcon}>
-                  <Ionicons name={t.icon} size={30} color={t.ink} />
+                  <Ionicons name={t.icon} size={26} color={tint.icon} />
                   {t.badge && t.badge > 0 ? (
-                    <View testID={`tile-${t.key}-badge`} style={[styles.cardBadge, { backgroundColor: c.error, borderColor: t.bg }]}>
+                    <View testID={`tile-${t.key}-badge`} style={[styles.cardBadge, { backgroundColor: c.error, borderColor: tint.bg }]}>
                       <Text style={styles.cardBadgeText}>{t.badge > 9 ? "9+" : String(t.badge)}</Text>
                     </View>
                   ) : null}
                 </View>
-                <Text style={[styles.cardTitle, { color: t.ink, fontSize: 16 * scale }]} numberOfLines={2}>
+                <Text style={[styles.cardTitle, { color: CARD_TITLE_INK, fontSize: 15.5 * scale }]} numberOfLines={2}>
                   {t.title}
                 </Text>
                 {t.sub ? (
-                  <Text style={[styles.cardSub, { color: t.ink, fontSize: 12.5 * scale }]} numberOfLines={2}>
+                  <Text style={[styles.cardSub, { color: CARD_SUB_INK, fontSize: 12.5 * scale }]} numberOfLines={2}>
                     {t.sub}
                   </Text>
                 ) : null}
               </Pressable>
-            ))}
+              );
+            })}
           </ScrollView>
         </View>
       </ScrollView>
@@ -1325,24 +1347,28 @@ const styles = StyleSheet.create({
   // title + subtitle). Jun 2026 upmarket refresh.
   carouselWrap: { marginTop: 22 },
   carouselLabel: { fontWeight: "900", letterSpacing: 0.8, fontSize: 12, marginBottom: 12, marginLeft: 2 },
-  carousel: { gap: 14, paddingRight: 8, paddingVertical: 4, paddingLeft: 2 },
+  carousel: { gap: 14, paddingRight: 8, paddingVertical: 6, paddingLeft: 2 },
   card: {
-    width: 150,
-    minHeight: 158,
-    borderRadius: 20,
-    padding: 16,
-    gap: 8,
+    width: 152,
+    minHeight: 166,
+    borderRadius: 22,
+    padding: 18,
+    gap: 10,
     alignItems: "center",
     justifyContent: "flex-start",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.6)",
     shadowColor: "#0D2A57",
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
+    shadowOpacity: 0.10,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
   cardIcon: {
-    width: 44,
-    height: 44,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "rgba(255,255,255,0.62)",
     alignItems: "center",
     justifyContent: "center",
     marginTop: 2,
@@ -1350,7 +1376,7 @@ const styles = StyleSheet.create({
   cardBadge: {
     position: "absolute",
     top: -6,
-    right: -12,
+    right: -10,
     minWidth: 20,
     height: 20,
     borderRadius: 10,
@@ -1360,8 +1386,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cardBadgeText: { color: "#FFFFFF", fontWeight: "900", fontSize: 11 },
-  cardTitle: { fontWeight: "900", letterSpacing: 0.2, lineHeight: 20, textAlign: "center" },
-  cardSub: { fontWeight: "600", lineHeight: 16, textAlign: "center", opacity: 0.72 },
+  cardTitle: { fontWeight: "800", letterSpacing: 0.2, lineHeight: 20, textAlign: "center" },
+  cardSub: { fontWeight: "600", lineHeight: 16, textAlign: "center" },
   // --- Share a Moment hero (Home primary feature) ------------------------
   // Warm cream split-card: the copy + CTAs sit on cream at the left, a
   // rotating community photo (src/lib/hero-images.ts) bleeds in from the
