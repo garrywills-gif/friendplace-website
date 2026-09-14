@@ -631,6 +631,54 @@ export default function Home() {
           </View>
         </View>
 
+        {/* Explore FriendPlace — sits directly below the hero so the
+            shortcuts are one of the first things a member sees. */}
+        <View style={styles.carouselWrap}>
+          <Text style={[styles.carouselLabel, { color: c.muted }]}>EXPLORE FRIENDPLACE</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.carousel}
+            decelerationRate="fast"
+            snapToInterval={166}
+            snapToAlignment="start"
+          >
+            {tiles.map((t) => {
+              const tint = CARD_TINT[t.key] ?? { bg: t.bg, icon: t.ink };
+              return (
+              <Pressable
+                key={t.key}
+                testID={`tile-${t.key}`}
+                onPress={() => goTo(t.route)}
+                accessibilityLabel={t.title}
+                style={({ pressed }) => [
+                  styles.card,
+                  { backgroundColor: tint.bg, opacity: pressed ? 0.92 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
+                ]}
+              >
+                <View style={styles.cardIcon}>
+                  <Ionicons name={t.icon} size={26} color={tint.icon} />
+                  {t.badge && t.badge > 0 ? (
+                    <View testID={`tile-${t.key}-badge`} style={[styles.cardBadge, { backgroundColor: c.error, borderColor: tint.bg }]}>
+                      <Text style={styles.cardBadgeText}>{t.badge > 9 ? "9+" : String(t.badge)}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <Text style={[styles.cardTitle, { color: CARD_TITLE_INK, fontSize: 15.5 * scale }]} numberOfLines={2}>
+                  {t.title}
+                </Text>
+                {t.sub ? (
+                  <Text style={[styles.cardSub, { color: CARD_SUB_INK, fontSize: 12.5 * scale }]} numberOfLines={2}>
+                    {t.sub}
+                  </Text>
+                ) : null}
+              </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+
         {/* Moment of the Week — sits right under the hero as social proof
             and inspiration: "look what one of your neighbours shared this
             week". Hidden when no moment is currently featured. */}
@@ -1116,50 +1164,6 @@ export default function Home() {
           </View>
         ) : null}
 
-        <View style={styles.carouselWrap}>
-          <Text style={[styles.carouselLabel, { color: c.muted }]}>EXPLORE FRIENDPLACE</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.carousel}
-            decelerationRate="fast"
-            snapToInterval={166}
-            snapToAlignment="start"
-          >
-            {tiles.map((t) => {
-              const tint = CARD_TINT[t.key] ?? { bg: t.bg, icon: t.ink };
-              return (
-              <Pressable
-                key={t.key}
-                testID={`tile-${t.key}`}
-                onPress={() => goTo(t.route)}
-                accessibilityLabel={t.title}
-                style={({ pressed }) => [
-                  styles.card,
-                  { backgroundColor: tint.bg, opacity: pressed ? 0.92 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] },
-                ]}
-              >
-                <View style={styles.cardIcon}>
-                  <Ionicons name={t.icon} size={26} color={tint.icon} />
-                  {t.badge && t.badge > 0 ? (
-                    <View testID={`tile-${t.key}-badge`} style={[styles.cardBadge, { backgroundColor: c.error, borderColor: tint.bg }]}>
-                      <Text style={styles.cardBadgeText}>{t.badge > 9 ? "9+" : String(t.badge)}</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={[styles.cardTitle, { color: CARD_TITLE_INK, fontSize: 15.5 * scale }]} numberOfLines={2}>
-                  {t.title}
-                </Text>
-                {t.sub ? (
-                  <Text style={[styles.cardSub, { color: CARD_SUB_INK, fontSize: 12.5 * scale }]} numberOfLines={2}>
-                    {t.sub}
-                  </Text>
-                ) : null}
-              </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
       </ScrollView>
 
       {/* Butterfly Points details modal — opened from the points card.
@@ -1456,6 +1460,7 @@ const styles = StyleSheet.create({
     gap: 14,
     marginTop: 20,
     alignItems: "center",
+    justifyContent: "center",
   },
   momentHeroCta: {
     flexDirection: "row",
@@ -1471,10 +1476,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingHorizontal: 14,
     paddingVertical: 10,
     minHeight: 44,
     gap: 4,
+    // Solid light pill so the teal "See moments" label is fully
+    // readable over ANY rotating hero photo (was being lost against
+    // the image on the right — TestFlight Jun 2026).
+    backgroundColor: "rgba(255,255,255,0.92)",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(13,42,87,0.08)",
   },
   // Moment of the Week banner — celebratory amber card mirroring the
   // Founders Wall card treatment, so both "look up on Home" pieces feel
