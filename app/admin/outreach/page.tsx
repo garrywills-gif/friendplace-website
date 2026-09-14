@@ -211,7 +211,7 @@ export default function OutreachPage() {
     setLoading(true);
     if (!preserveCurrentError) setError(null);
     try {
-      const opts = { limit: 500 };
+      const opts = { limit: 2000 };
       const result = view === 'archived' ? await outreachArchiveApi.list(opts) : await outreachArchiveApi.listActive(opts);
       setRows(rowsFrom(result));
     } catch (e: any) {
