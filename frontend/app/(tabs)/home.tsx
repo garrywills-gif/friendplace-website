@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform, RefreshControl, Modal, Animated, Dimensions, Image, AppState } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { HERO_IMAGES, pickSessionHeroIndex } from "@/src/lib/hero-images";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -52,6 +54,15 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [thought, setThought] = useState<string>(() => getThoughtForDate());
   const [isFav, setIsFav] = useState<boolean>(false);
+  // Share a Moment hero background — one warm bundled image chosen per
+  // fresh app launch / login session, never the same as last session.
+  // Re-picks whenever the signed-in user changes (login / account switch).
+  const [heroIdx, setHeroIdx] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    pickSessionHeroIndex(true).then((i) => { if (alive) setHeroIdx(i); });
+    return () => { alive = false; };
+  }, [user?.id]);
   const [community, setCommunity] = useState<any>(null);
   const [invitedCount, setInvitedCount] = useState<number>(0);
   // Live "X of 250 Founding Members" counter — drives the Wall entry card
@@ -477,19 +488,12 @@ export default function Home() {
         }
       >
         <View style={styles.headerRow}>
-          {/* Left spacer keeps the brand optically balanced without
-              stealing horizontal room from the notification/settings
-              icons on the right. On narrow iPhones the previous 112pt
-              spacer + 160pt lockup + 112pt actions overflowed the
-              content area, hiding the bell entirely. 44pt is enough
-              for visual balance while leaving plenty of room. */}
-          <View style={styles.headerSideSpacer} pointerEvents="none" />
-          {/* Brand lockup — uses the navy-ink variant so the wordmark + the
-              butterfly/people in the "O" read clearly on the white Home
-              surface. Header variant is compact: no tagline, since the
-              wordmark alone is enough branding at that size, and the
-              tagline was pushing the row too tall. */}
-          <BrandLockup width={140} variant="navy" showTagline={false} testID="home-brand-lockup" />
+          {/* Brand lockup absolutely centred so it stays centred no matter
+              how wide the right-hand actions are (avoids the old spacer
+              overflow that hid the bell on narrow iPhones). */}
+          <View style={styles.headerBrandCenter} pointerEvents="none">
+            <BrandLockup width={148} variant="navy" showTagline={false} testID="home-brand-lockup" />
+          </View>
           <View style={styles.headerActions}>
             <Pressable ref={bellRef} testID="home-notifications" onPress={() => router.push("/notifications")} style={[styles.iconBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
               <Ionicons name="notifications-outline" size={24} color={c.onSurface} />
@@ -514,9 +518,19 @@ export default function Home() {
             same <Text> as `first_name` with only a single space. Split
             into a flex row with an explicit 10 pt gap so the emoji
             reads as a distinct badge, not part of the name string. */}
-        <View style={styles.nameRow}>
-          <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{user?.first_name || "Friend"}</Text>
-          <GeorgeButterflyMark size={26 * scale} />
+        <View style={styles.greetRow}>
+          <AvatarBubble value={user?.avatar} size={62} fallback="🙂" />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={styles.greetNameRow}>
+              <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]} numberOfLines={1}>
+                Hi {user?.first_name || "Friend"}
+              </Text>
+              <GeorgeButterflyMark size={24 * scale} />
+            </View>
+            <Text style={[styles.greetSub, { color: c.muted, fontSize: 15 * scale }]}>
+              Good to see you again!
+            </Text>
+          </View>
         </View>
 
         {/* George's voice on Home is the perched speech bubble beside
@@ -538,46 +552,50 @@ export default function Home() {
             The whole card taps through to the feed; the inline CTA
             jumps straight into the composer. */}
         <View style={styles.momentHero}>
-          <View style={styles.momentHeroInner}>
-            <View style={styles.momentHeroHead}>
-              <Text style={styles.momentHeroBadge}>✨ SHARE A MOMENT</Text>
-              <Ionicons name="camera" size={22} color="#78350F" />
-            </View>
+          {/* Warm community photo bleeds in from the right and fades into
+              the cream card; the copy + CTAs sit on the cream left. The
+              photo rotates per session (src/lib/hero-images.ts). */}
+          {heroIdx != null ? (
+            <Image source={HERO_IMAGES[heroIdx]} style={styles.momentHeroImg} resizeMode="cover" />
+          ) : null}
+          <LinearGradient
+            colors={["#FBEFD9", "#FBEFD9", "rgba(251,239,217,0.55)", "rgba(251,239,217,0)"]}
+            locations={[0, 0.42, 0.62, 0.88]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+          <View style={styles.momentHeroContent}>
+            <Text style={styles.momentHeroBadge}>SHARE A MOMENT</Text>
             <Pressable
               testID="home-moment-hero-feed"
               onPress={() => goTo("/moments")}
               accessibilityLabel="Open Share a Moment"
-              style={{ marginTop: 8 }}
             >
-              <Text style={[styles.momentHeroTitle, { fontSize: 26 * scale }]}>
-                What&apos;s your moment today?
+              <Text style={[styles.momentHeroTitle, { fontSize: 30 * scale }]}>
+                What&apos;s your{"\n"}moment today?
               </Text>
-              <Text style={[styles.momentHeroSub, { fontSize: 14 * scale }]}>
+              <Text style={[styles.momentHeroSub, { fontSize: 15 * scale }]}>
                 Share a photo, a story, or something that made you smile today.
               </Text>
-              {/* Butterfly Points reward line (Garry launch-polish
-                  2026-08-14). Members previously didn't know sharing
-                  a Moment earned points until AFTER they posted (toast
-                  said "+8 Butterfly Points"). Surfacing the reward on
-                  the banner itself gives them a reason to tap before
-                  they've committed to writing anything. */}
-              <Text style={[styles.momentHeroSub, { fontSize: 13 * scale, marginTop: 6, fontWeight: "800", color: "#78350F" }]}>
-                🦋 +8 Butterfly Points every time you share
-              </Text>
+              <View style={styles.momentHeroPointsRow}>
+                <GeorgeButterflyMark size={18} />
+                <Text style={[styles.momentHeroPoints, { fontSize: 14 * scale }]}>
+                  +8 Butterfly Points every time you share
+                </Text>
+              </View>
             </Pressable>
 
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 14, alignItems: "center" }}>
+            <View style={styles.momentHeroBtnRow}>
               <Pressable
                 testID="home-moment-hero-share"
                 onPress={() => goTo("/moments/new")}
                 accessibilityLabel="Share a Moment"
-                style={({ pressed }) => [
-                  styles.momentHeroCta,
-                  { opacity: pressed ? 0.9 : 1 },
-                ]}
+                style={({ pressed }) => [styles.momentHeroCta, { opacity: pressed ? 0.9 : 1 }]}
               >
-                <Ionicons name="add" size={18} color="#FFFFFF" />
-                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 15 * scale, marginLeft: 6 }}>
+                <Ionicons name="add" size={20} color="#FFFFFF" />
+                <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 16 * scale, marginLeft: 6 }}>
                   Share a Moment
                 </Text>
               </Pressable>
@@ -587,8 +605,8 @@ export default function Home() {
                 accessibilityLabel="See all moments"
                 style={styles.momentHeroSecondary}
               >
-                <Text style={{ color: "#78350F", fontWeight: "800", fontSize: 14 * scale }}>See moments</Text>
-                <Ionicons name="chevron-forward" size={16} color="#78350F" />
+                <Text style={{ color: "#0F766E", fontWeight: "800", fontSize: 15 * scale }}>See moments</Text>
+                <Ionicons name="chevron-forward" size={16} color="#0F766E" />
               </Pressable>
             </View>
           </View>
@@ -1079,88 +1097,46 @@ export default function Home() {
           </View>
         ) : null}
 
-        <View style={styles.grid}>
-          {tiles.map((t) => {
-            const isProfileRow = t.full && t.key === "profile";
-            const width = t.full ? "100%" : "48%";
-            const minHeight = isProfileRow ? 76 : 160;
-            const iconSize = isProfileRow ? 30 : 32;
-            return (
+        <View style={styles.carouselWrap}>
+          <Text style={[styles.carouselLabel, { color: c.muted }]}>EXPLORE FRIENDPLACE</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.carousel}
+            decelerationRate="fast"
+            snapToInterval={164}
+            snapToAlignment="start"
+          >
+            {tiles.map((t) => (
               <Pressable
                 key={t.key}
                 testID={`tile-${t.key}`}
                 onPress={() => goTo(t.route)}
                 accessibilityLabel={t.title}
                 style={({ pressed }) => [
-                  styles.tile,
-                  {
-                    backgroundColor: t.bg,
-                    width,
-                    minHeight,
-                    opacity: pressed ? 0.88 : 1,
-                    flexDirection: isProfileRow ? "row" : "column",
-                    alignItems: isProfileRow ? "center" : "flex-start",
-                    justifyContent: isProfileRow ? "flex-start" : "space-between",
-                    gap: isProfileRow ? 12 : 8,
-                    padding: isProfileRow ? 16 : 18,
-                  },
+                  styles.card,
+                  { backgroundColor: t.bg, opacity: pressed ? 0.9 : 1 },
                 ]}
               >
-                <View>
-                  <Ionicons name={t.icon} size={iconSize} color={t.ink} />
+                <View style={styles.cardIcon}>
+                  <Ionicons name={t.icon} size={30} color={t.ink} />
                   {t.badge && t.badge > 0 ? (
-                    // Unread badge for Chats (Garry, 4 Aug 2026). Matches
-                    // the tab-bar badge style so both feel like the same
-                    // signal in different places.
-                    <View
-                      testID={`tile-${t.key}-badge`}
-                      style={{
-                        position: "absolute",
-                        top: -6,
-                        right: -10,
-                        minWidth: 20,
-                        height: 20,
-                        borderRadius: 10,
-                        paddingHorizontal: 6,
-                        backgroundColor: c.error,
-                        borderWidth: 2,
-                        borderColor: t.bg,
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 11 }}>
-                        {t.badge > 9 ? "9+" : String(t.badge)}
-                      </Text>
+                    <View testID={`tile-${t.key}-badge`} style={[styles.cardBadge, { backgroundColor: c.error, borderColor: t.bg }]}>
+                      <Text style={styles.cardBadgeText}>{t.badge > 9 ? "9+" : String(t.badge)}</Text>
                     </View>
                   ) : null}
                 </View>
-                <View style={{ flex: isProfileRow ? 1 : undefined, minWidth: 0 }}>
-                  <Text
-                    style={[
-                      styles.tileTitle,
-                      { color: t.ink, fontSize: (isProfileRow ? 17 : 20) * scale },
-                    ]}
-                  >
-                    {t.title}
+                <Text style={[styles.cardTitle, { color: t.ink, fontSize: 16 * scale }]} numberOfLines={2}>
+                  {t.title}
+                </Text>
+                {t.sub ? (
+                  <Text style={[styles.cardSub, { color: t.ink, fontSize: 12.5 * scale }]} numberOfLines={2}>
+                    {t.sub}
                   </Text>
-                  {t.sub ? (
-                    <Text
-                      style={[
-                        styles.tileSub,
-                        { color: t.ink, opacity: 0.78, fontSize: 13 * scale, marginTop: 4 },
-                      ]}
-                    >
-                      {t.sub}
-                    </Text>
-                  ) : null}
-                </View>
-                {isProfileRow ? (
-                  <Ionicons name="chevron-forward" size={20} color={t.ink} />
                 ) : null}
               </Pressable>
-            );
-          })}
+            ))}
+          </ScrollView>
         </View>
       </ScrollView>
 
@@ -1276,20 +1252,16 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   scroll: { padding: 16, gap: 12 },
-  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  // 44pt spacer balances the row visually while leaving enough real
-  // estate for the bell+settings pair on narrow iPhones. Previously
-  // 112pt (matching the actions width) pushed the actions off-screen
-  // when combined with a 160pt lockup on iPhone SE/12 mini widths.
-  headerSideSpacer: { width: 44, height: 1 },
-  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", minHeight: 56 },
+  headerBrandCenter: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
   brand: { fontWeight: "900", letterSpacing: 0.3 },
   hello: { fontWeight: "600", marginTop: 6 },
   name: { fontWeight: "900" },
-  // Row wrapper for "Alex 🦋" — gives the butterfly badge a small but
-  // deliberate gap so it reads as a badge, not part of the name text.
-  nameRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 2 },
-  iconBtn: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  greetRow: { flexDirection: "row", alignItems: "center", gap: 14, marginTop: 6 },
+  greetNameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  greetSub: { fontWeight: "600", marginTop: 2 },
+  iconBtn: { width: 46, height: 46, borderRadius: 23, alignItems: "center", justifyContent: "center", borderWidth: 1 },
   flutterBox: { borderWidth: 2, borderRadius: 18, padding: 14, backgroundColor: "#F5F3FF", gap: 8 },
   flutterItem: { padding: 12, borderRadius: 14, borderWidth: 1, gap: 4 },
   flutterSenderRow: {
@@ -1347,74 +1319,133 @@ const styles = StyleSheet.create({
   communityHead: { fontWeight: "900", letterSpacing: 0.6, marginBottom: 2 },
   commRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   commEmoji: { fontSize: 22 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 4 },
-  tile: { borderRadius: 22 },
-  tileTitle: { fontWeight: "900", letterSpacing: 0.2 },
-  tileSub: { fontWeight: "600", lineHeight: 18 },
+  // --- Explore carousel (horizontal shortcut cards) ---------------------
+  // All Home shortcuts live in a single horizontal swipe carousel of
+  // soft pastel cards (each destination keeps its colour, centred icon +
+  // title + subtitle). Jun 2026 upmarket refresh.
+  carouselWrap: { marginTop: 22 },
+  carouselLabel: { fontWeight: "900", letterSpacing: 0.8, fontSize: 12, marginBottom: 12, marginLeft: 2 },
+  carousel: { gap: 14, paddingRight: 8, paddingVertical: 4, paddingLeft: 2 },
+  card: {
+    width: 150,
+    minHeight: 158,
+    borderRadius: 20,
+    padding: 16,
+    gap: 8,
+    alignItems: "center",
+    justifyContent: "flex-start",
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  cardIcon: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  cardBadge: {
+    position: "absolute",
+    top: -6,
+    right: -12,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardBadgeText: { color: "#FFFFFF", fontWeight: "900", fontSize: 11 },
+  cardTitle: { fontWeight: "900", letterSpacing: 0.2, lineHeight: 20, textAlign: "center" },
+  cardSub: { fontWeight: "600", lineHeight: 16, textAlign: "center", opacity: 0.72 },
   // --- Share a Moment hero (Home primary feature) ------------------------
-  // Warm amber card with a slightly deeper amber panel inside. Kept
-  // graphic-free on purpose so the copy carries the emotion. Locked
-  // with Garry 31 July 2026. Extra top margin (Garry, 1 Aug 2026) so
-  // the hero feels like a distinct next section rather than an
-  // extension of George's greeting card above it.
+  // Warm cream split-card: the copy + CTAs sit on cream at the left, a
+  // rotating community photo (src/lib/hero-images.ts) bleeds in from the
+  // right and fades into the cream via a horizontal gradient. Navy CTA,
+  // teal secondary. Upmarket refresh, Jun 2026.
   momentHero: {
     borderRadius: 26,
-    backgroundColor: "#FEF3C7",
-    borderWidth: 1.5,
-    borderColor: "#F59E0B",
-    padding: 4,
+    overflow: "hidden",
     marginTop: 18,
+    minHeight: 340,
+    backgroundColor: "#FBEFD9",
+    borderWidth: 1,
+    borderColor: "#F0E0C4",
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.10,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
-  momentHeroInner: {
-    borderRadius: 22,
-    backgroundColor: "#FEF9E4",
-    padding: 20,
+  momentHeroImg: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: "54%",
   },
-  momentHeroHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  momentHeroContent: {
+    padding: 22,
+    paddingTop: 20,
   },
   momentHeroBadge: {
-    color: "#78350F",
+    color: "#8A7350",
     fontWeight: "900",
-    letterSpacing: 0.8,
+    letterSpacing: 1,
     fontSize: 12,
+    marginBottom: 6,
   },
   momentHeroTitle: {
-    color: "#78350F",
+    color: "#0D2A57",
     fontWeight: "900",
     letterSpacing: 0.2,
-    lineHeight: 32,
+    lineHeight: 34,
+    maxWidth: "80%",
   },
   momentHeroSub: {
-    color: "#92400E",
+    color: "#4B5563",
     fontWeight: "600",
-    lineHeight: 20,
-    marginTop: 6,
+    lineHeight: 21,
+    marginTop: 10,
+    maxWidth: "62%",
+  },
+  momentHeroPointsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 14,
+    maxWidth: "74%",
+  },
+  momentHeroPoints: {
+    color: "#0D2A57",
+    fontWeight: "800",
+    flexShrink: 1,
+  },
+  momentHeroBtnRow: {
+    flexDirection: "row",
+    gap: 14,
+    marginTop: 20,
+    alignItems: "center",
   },
   momentHeroCta: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#B45309",
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    backgroundColor: "#0D2A57",
+    paddingHorizontal: 20,
+    paddingVertical: 13,
     borderRadius: 999,
-    minHeight: 44,
+    minHeight: 48,
   },
   momentHeroSecondary: {
-    // Aligned vertically with the primary "Share a Moment" button
-    // (same 44 minHeight, same center alignment) so the chevron sits
-    // on the same baseline as the Share button's ✚ icon. Right-side
-    // paddingRight adds breathing room so the chevron never sits
-    // flush against the card border on narrow phones (iPhone SE was
-    // pushing it half-off-screen prior to this fix).
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingLeft: 12,
-    paddingRight: 14,
+    paddingHorizontal: 8,
     paddingVertical: 10,
     minHeight: 44,
     gap: 4,
