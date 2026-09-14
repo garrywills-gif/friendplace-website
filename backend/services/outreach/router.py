@@ -77,7 +77,7 @@ def build_outreach_router(db, current_cms_admin) -> APIRouter:
         category: Optional[str] = None,
         status: Optional[str] = None,
         archived: bool = Query(default=False),
-        limit: int = Query(default=500, le=2000),
+        limit: int = Query(default=2000, le=2000),
         admin: dict = Depends(current_cms_admin),  # noqa: ARG001
     ):
         rows = await list_orgs(
