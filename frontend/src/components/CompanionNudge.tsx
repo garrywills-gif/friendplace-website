@@ -23,8 +23,9 @@ import { useGeorgeVoice, VOICE_LABELS } from "@/src/lib/george-voice";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { useTheme } from "@/src/lib/theme";
 
-// Notification types we nudge for: private messages + Flutters only.
-const NUDGE_TYPES = new Set(["dm", "dm_request", "flutter"]);
+// Notification types we nudge for: private messages, Flutters, and
+// Play Together invites — all things a member wants to see right away.
+const NUDGE_TYPES = new Set(["dm", "dm_request", "flutter", "game_invite"]);
 
 // Routes where the companion stays quiet (mirrors GeorgeGlobalHost).
 const HIDDEN_PREFIXES = ["/auth", "/onboarding", "/waitlist"];
@@ -60,6 +61,9 @@ export default function CompanionNudge() {
   const routeFor = (n: any): string => {
     const type = n?.type;
     const payload = n?.payload || {};
+    if (type === "game_invite") {
+      return payload.session_id ? `/games/play/${payload.session_id}` : "/games/play";
+    }
     if (type === "flutter") return "/notifications";
     // dm / dm_request → open the exact conversation when we have it.
     const convId = payload.dm_id || payload.conv_id;

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView, Platform, Pressable, Alert } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { speakGeorgeAuto, stopGeorgeAuto } from "@/src/lib/tts-shared";
 import { useTheme } from "@/src/lib/theme";
@@ -110,6 +110,7 @@ function _build_rows(messages: any[]): Row[] {
 
 export default function DM() {
   const { id, other_id } = useLocalSearchParams<{ id: string; other_id?: string }>();
+  const router = useRouter();
   const { c, scale, prefs } = useTheme();
   const { user, token } = useAuth();
   const { show } = useToast();
@@ -258,9 +259,20 @@ export default function DM() {
               <Ionicons name="trash-outline" size={22} color={c.muted} />
             </Pressable>
           ) : other_id ? (
-            <Pressable testID="dm-report-user" onPress={() => setReportTarget({ type: "user" })} hitSlop={8} style={{ padding: 6 }}>
-              <Ionicons name="flag-outline" size={22} color={c.warning} />
-            </Pressable>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Pressable
+                testID="dm-play-together"
+                onPress={() => router.push(`/games/play?friend=${other_id}${other ? `&name=${encodeURIComponent(other.first_name || "")}` : ""}` as any)}
+                hitSlop={8}
+                style={{ padding: 6 }}
+                accessibilityLabel="Play a game together"
+              >
+                <Ionicons name="game-controller-outline" size={22} color={c.brand} />
+              </Pressable>
+              <Pressable testID="dm-report-user" onPress={() => setReportTarget({ type: "user" })} hitSlop={8} style={{ padding: 6 }}>
+                <Ionicons name="flag-outline" size={22} color={c.warning} />
+              </Pressable>
+            </View>
           ) : undefined
         } />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }} keyboardVerticalOffset={90}>

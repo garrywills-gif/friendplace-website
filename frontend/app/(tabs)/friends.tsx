@@ -600,10 +600,14 @@ export default function Friends() {
                 const isSent = sentIds.has(item.id);
                 if (isFriend) {
                   return (
-                    <View style={[styles.actionBtn, { backgroundColor: c.surfaceTertiary, borderWidth: 1, borderColor: c.border }]}>
-                      <Ionicons name="checkmark-circle" size={18} color={c.brand} />
-                      <Text style={[styles.actionText, { color: c.onSurface }]}>Friends</Text>
-                    </View>
+                    <Pressable
+                      testID={`play-${item.id}`}
+                      onPress={() => router.push(`/games/play?friend=${item.id}&name=${encodeURIComponent(item.first_name || "")}` as any)}
+                      style={[styles.actionBtn, { backgroundColor: "#0D9488" }]}
+                    >
+                      <Ionicons name="game-controller" size={16} color="#FFF" />
+                      <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.actionText]}>Play</Text>
+                    </Pressable>
                   );
                 }
                 if (isSent) {

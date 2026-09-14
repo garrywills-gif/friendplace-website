@@ -3402,6 +3402,10 @@ async def push_notification(user_id: str, n_type: str, title: str, body: str = "
             "notice_comment": "/notices",
             "flutter": "/notifications",
             "looking_for_chat": "/friends",
+            "game_invite": "/games/play",
+            "game_start": "/games/play",
+            "game_move": "/games/play",
+            "game_end": "/games/play",
         }
         if n_type in deeplink_map:
             push_data["action_url"] = deeplink_map[n_type]
@@ -13505,6 +13509,20 @@ async def health():
             content={"status": "degraded", "db": "down", "error": str(e)[:200]},
         )
 
+
+# Play Together — small 2-player social games. Registered on the shared
+# /api router BEFORE it is mounted, so its routes are picked up. Kept in
+# its own module so server.py stays lean.
+import play_together as _play_together  # noqa: E402
+_play_together.register(api, {
+    "db": db,
+    "current_user": current_user,
+    "award_points": award_points,
+    "push_notification": push_notification,
+    "nid": nid,
+    "now_iso": now_iso,
+    "trivia_questions": TRIVIA_QUESTIONS,
+})
 
 app.include_router(api)
 

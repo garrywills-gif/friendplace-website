@@ -206,6 +206,24 @@ export default function GamesHub() {
           </Text>
         </View>
 
+        {/* Play Together — invite a friend for a quick social game. */}
+        <Pressable
+          testID="play-together-entry"
+          onPress={() => router.push("/games/play" as any)}
+          style={({ pressed }) => [styles.playTogether, { opacity: pressed ? 0.94 : 1 }]}
+        >
+          <View style={styles.playTogetherIcon}>
+            <Ionicons name="people" size={26} color="#0D2A57" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#0D2A57", fontWeight: "900", fontSize: 17 * scale }}>Play Together</Text>
+            <Text style={{ color: "#33507D", fontWeight: "600", fontSize: 13.5 * scale, marginTop: 2, lineHeight: 18 }}>
+              Invite a friend to a quick, friendly game — earn Butterfly Points just for playing.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#5B739B" />
+        </Pressable>
+
         {/* Stats card — cumulative "games done" celebrates lifetime
             play. Removed the "Day streak" tile (locked with Garry,
             31 July 2026 — no run-to-protect metrics). Achievements
@@ -336,6 +354,8 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
   intro: { borderRadius: 18, padding: 14, borderWidth: 1.5 },
+  playTogether: { flexDirection: "row", alignItems: "center", gap: 14, borderRadius: 18, padding: 16, marginTop: 12, backgroundColor: "#EAF2FF" },
+  playTogetherIcon: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.7)" },
   statsCard: { marginTop: 12, padding: 14, borderRadius: 18, borderWidth: 1 },
   statBox: { flex: 1, alignItems: "center" },
   achChip: { flexDirection: "row", gap: 6, alignItems: "center", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1 },

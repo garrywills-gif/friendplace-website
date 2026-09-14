@@ -505,6 +505,17 @@ export const api = {
   gameCheer: (fromId: string, toId: string, kind: "well_done" | "congrats" | "coffee" | "flutter") =>
     req(`/games/cheer/${fromId}`, { method: "POST", body: JSON.stringify({ to_user_id: toId, kind }) }),
 
+  // Play Together — 2-player social games (icebreakers).
+  playInvite: (game: string, friend_id: string) =>
+    req(`/play/invite`, { method: "POST", body: JSON.stringify({ game, friend_id }) }),
+  playGet: (sid: string) => req(`/play/${sid}`, {}, { silent: true }),
+  playAccept: (sid: string) => req(`/play/${sid}/accept`, { method: "POST" }),
+  playDecline: (sid: string) => req(`/play/${sid}/decline`, { method: "POST" }),
+  playMove: (sid: string, body: { answers?: number[]; word?: string; give_up?: boolean }) =>
+    req(`/play/${sid}/move`, { method: "POST", body: JSON.stringify(body) }),
+  playRematch: (sid: string) => req(`/play/${sid}/rematch`, { method: "POST" }),
+  playMine: () => req(`/play/mine/list`, {}, { silent: true }),
+
   // tables
   listTables: (user_id?: string) => req(user_id ? `/tables?user_id=${encodeURIComponent(user_id)}` : "/tables"),
   createTable: (b: any) => req("/tables", { method: "POST", body: JSON.stringify(b) }),
