@@ -1868,20 +1868,26 @@ async def _list_outreach_organisations(db: Any, args: dict) -> list[dict]:
     "count_outreach_organisations",
     "Count outreach organisations in the CRM. Optional status/category "
     "filter. Handy for questions like 'how many retirement villages "
-    "have we contacted?' or 'how many outreach orgs are awaiting our "
-    "reply?'.",
+    "have we contacted?', 'how many community centres have we emailed?' "
+    "or 'how many outreach orgs are awaiting our reply?'. Category and "
+    "status accept natural language — plurals, spaces and synonyms "
+    "(e.g. 'community centres', 'emailed'/'sent') are resolved "
+    "automatically to the stored values.",
     args={
-        "status":   {"type": "str", "required": False,
-                     "enum": {"not_contacted", "contacted", "awaiting_reply",
-                              "replied", "joined", "declined", "bounced",
-                              "unsubscribed"}},
+        "status":   {"type": "str", "required": False},
         "category": {"type": "str", "required": False},
     },
 )
 async def _count_outreach_organisations(db: Any, args: dict) -> int:
+    from services.outreach.store import match_category, resolve_status
     q: dict[str, Any] = {"is_test": {"$ne": True}}
-    if args.get("status"):   q["status"] = args["status"]
-    if args.get("category"): q["category"] = args["category"]
+    status = resolve_status(args.get("status"))
+    if status:
+        q["status"] = status
+    raw_category = args.get("category")
+    if raw_category:
+        known = await db.outreach_organisations.distinct("category")
+        q["category"] = match_category(raw_category, known)
     return await db.outreach_organisations.count_documents(q)
 
 

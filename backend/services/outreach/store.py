@@ -97,6 +97,118 @@ def normalise_category(raw: str | None) -> str | None:
     return s or None
 
 
+def _singularise_token(tok: str) -> str:
+    """Best-effort English singularisation of a single lowercase token.
+
+    Only used to make category matching plural-insensitive, e.g.
+    "centres" → "centre", "villages" → "village",
+    "organisations" → "organisation", "libraries" → "library".
+    Short tokens (≤3 chars, e.g. "u3a") are left untouched.
+    """
+    if len(tok) <= 3:
+        return tok
+    if tok.endswith("ies"):
+        return tok[:-3] + "y"
+    if tok.endswith(("ses", "xes", "zes", "ches", "shes")):
+        return tok[:-2]
+    if tok.endswith("s") and not tok.endswith("ss"):
+        return tok[:-1]
+    return tok
+
+
+def _category_token_set(key: str) -> frozenset:
+    return frozenset(
+        _singularise_token(t) for t in key.split("_") if t
+    )
+
+
+def match_category(raw: str | None, known: list[str] | None) -> str | None:
+    """Resolve a free-form category phrase to a stored category key.
+
+    Canonicalises `raw` (case / spaces / dashes) via ``normalise_category``
+    then matches it against the actual stored category keys in `known`,
+    plural-insensitively. e.g. "Community Centres" → ``community_centre``,
+    "retirement villages" → ``retirement_village``,
+    "U3A organisations" → ``u3a`` (when that is the stored key).
+
+    Returns the matched stored key. If nothing matches, returns the
+    normalised input so the caller still gets a sane (0-count) query
+    rather than an error.
+    """
+    norm = normalise_category(raw)
+    if not norm:
+        return None
+    known = [k for k in (known or []) if k]
+    # 1. exact normalised match
+    if norm in known:
+        return norm
+    in_tokens = _category_token_set(norm)
+    # 2. plural-insensitive set equality
+    for k in known:
+        if _category_token_set(k) == in_tokens:
+            return k
+    # 3. stored tokens are a subset of the input (most specific wins),
+    #    e.g. "u3a organisations" → {u3a, organisation} ⊇ {u3a}
+    best: str | None = None
+    best_len = 0
+    for k in known:
+        kt = _category_token_set(k)
+        if kt and kt <= in_tokens and len(kt) > best_len:
+            best, best_len = k, len(kt)
+    if best:
+        return best
+    # 4. input tokens are a subset of a stored key (most specific wins)
+    for k in known:
+        kt = _category_token_set(k)
+        if in_tokens and in_tokens <= kt and len(kt) > best_len:
+            best, best_len = k, len(kt)
+    return best or norm
+
+
+# Natural-language status synonyms → canonical OUTREACH_STATUSES value.
+_STATUS_SYNONYMS: Dict[str, str] = {
+    # contacted / emailed
+    "contacted": "contacted", "contact": "contacted",
+    "emailed": "contacted", "email": "contacted", "emailing": "contacted",
+    "sent": "contacted", "send": "contacted",
+    "reached": "contacted", "messaged": "contacted", "message": "contacted",
+    "invited": "contacted", "invite": "contacted",
+    # not contacted
+    "not_contacted": "not_contacted", "uncontacted": "not_contacted",
+    "new": "not_contacted", "pending": "not_contacted",
+    # awaiting reply
+    "awaiting_reply": "awaiting_reply", "awaiting": "awaiting_reply",
+    "waiting": "awaiting_reply",
+    # replied
+    "replied": "replied", "responded": "replied", "response": "replied",
+    # joined
+    "joined": "joined", "onboarded": "joined",
+    # declined
+    "declined": "declined", "decline": "declined",
+    # bounced
+    "bounced": "bounced", "bounce": "bounced",
+    # unsubscribed
+    "unsubscribed": "unsubscribed",
+}
+
+
+def resolve_status(raw: str | None) -> str | None:
+    """Map a free-form status word/phrase to a canonical OUTREACH_STATUSES
+    value. e.g. "emailed"/"sent" → ``contacted``, "awaiting" →
+    ``awaiting_reply``. Canonical values pass through unchanged; unknown
+    values are returned normalised (so the query simply matches nothing).
+    """
+    norm = normalise_category(raw)  # reuse the snake_case canonicaliser
+    if not norm:
+        return None
+    if norm in _STATUS_SYNONYMS:
+        return _STATUS_SYNONYMS[norm]
+    for tok in norm.split("_"):
+        if tok in _STATUS_SYNONYMS:
+            return _STATUS_SYNONYMS[tok]
+    return norm
+
+
 def category_label(key: str | None) -> str:
     """Human-friendly label for an outreach category key.
 
@@ -651,6 +763,7 @@ __all__ = [
     "COLL_ORGS", "OUTREACH_STATUSES", "OUTREACH_CATEGORIES",
     "OUTREACH_NUMBER_START",
     "normalise_category", "category_label",
+    "match_category", "resolve_status",
     "upsert_org", "get_org", "list_orgs", "delete_org",
     "archive_org", "restore_org",
     "touch_last_contact", "log_communication", "mark_replied",
