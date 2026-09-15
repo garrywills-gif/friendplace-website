@@ -185,6 +185,9 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     // if a new initialMessage arrives while a stream is in flight.
     if (open && initialMessage && !busy && initialSentRef.current !== initialMessage) {
       initialSentRef.current = initialMessage;
+      // A new question from the top Ask bar must always surface the full
+      // sheet — never send silently into a collapsed mini-pill.
+      setMinimised(false);
       // Attach the one-shot surface_context to this turn only. Subsequent
       // user-typed turns don't inherit it — surfaces re-supply context on
       // re-entry, which keeps George grounded on the *current* page.
@@ -197,6 +200,14 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
   // Focus input when opened.
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 60);
+  }, [open]);
+
+  // A fresh open (or re-open from the Ask bar / Continue pill) must always
+  // show the full sheet. Returning null on close does NOT reset internal
+  // state, so without this a previously-minimised sheet would reopen as the
+  // collapsed pill — making the top Ask bar appear to do nothing.
+  useEffect(() => {
+    if (open) setMinimised(false);
   }, [open]);
 
   // Scroll to bottom on new content.
