@@ -9,6 +9,7 @@ import { MorningBriefing } from '@/components/mcgs/MorningBriefing';
 import { MiddayPulse } from '@/components/mcgs/MiddayPulse';
 import { EndOfDay } from '@/components/mcgs/EndOfDay';
 import { FoundingMembersCard } from '@/components/mcgs/FoundingMembersCard';
+import { brandAssets } from '@/lib/brand-assets';
 
 export default function BridgePage() {
   // Reach up to the AdminShell-mounted Ask George bar. It listens on
@@ -52,6 +53,19 @@ export default function BridgePage() {
 
             <GeorgeSuggestionCard />
 
+            <div style={mantraCard}>
+              <div style={mantraEyebrow}>FriendPlace mantra</div>
+              <div style={mantraQuote}>
+                Having a friend means <span style={{ color: '#0891B2' }}>not feeling alone</span> — even when you are.
+              </div>
+              <div style={mantraDivider} />
+              <img
+                src={brandAssets.banner.src}
+                alt={brandAssets.banner.alt}
+                style={mantraLogo}
+              />
+            </div>
+
             {/* Health Pulse placeholder — Phase 4 will make this live. */}
             <div style={pulseCard}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
@@ -91,6 +105,46 @@ export default function BridgePage() {
 
 const container: React.CSSProperties = { maxWidth: 1600, margin: '0 auto' };
 const heroWrap: React.CSSProperties = { marginBottom: 20 };
+const mantraCard: React.CSSProperties = {
+  background: '#FFFCF7',
+  border: '1px solid #99DDE4',
+  borderRadius: 16,
+  padding: '22px 20px 18px',
+  boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+  textAlign: 'center',
+  overflow: 'hidden',
+};
+const mantraEyebrow: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 800,
+  color: '#64748B',
+  letterSpacing: '0.18em',
+  textTransform: 'uppercase',
+  marginBottom: 12,
+};
+const mantraQuote: React.CSSProperties = {
+  color: '#0B2B54',
+  fontFamily: 'Georgia, Times New Roman, serif',
+  fontSize: 23,
+  lineHeight: 1.25,
+  fontWeight: 600,
+  letterSpacing: '-0.01em',
+};
+const mantraDivider: React.CSSProperties = {
+  width: 52,
+  height: 2,
+  background: '#67C7D1',
+  borderRadius: 999,
+  margin: '18px auto 14px',
+};
+const mantraLogo: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  maxWidth: 280,
+  height: 'auto',
+  margin: '0 auto',
+  borderRadius: 10,
+};
 const pulseCard: React.CSSProperties = {
   background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 18,
   boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
