@@ -35,6 +35,7 @@ const VISIBLE_MS = 5500;
 
 type Nudge = {
   key: string;
+  ntype: string;
   title: string;
   body: string;
   route: string;
@@ -94,6 +95,7 @@ export default function CompanionNudge() {
     if (route.startsWith("/dm/") && pathname.startsWith(route.split("?")[0])) return;
     setNudge({
       key: n.id || String(Date.now()),
+      ntype: n.type,
       title: n.title || (n.type === "flutter" ? "New Flutter" : "New message"),
       body: n.body || "",
       route,
@@ -114,6 +116,7 @@ export default function CompanionNudge() {
   if (!nudge) return null;
 
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [-140, 0] });
+  const isGameInvite = nudge.ntype === "game_invite";
 
   const open = () => {
     const target = nudge.route;
@@ -127,35 +130,64 @@ export default function CompanionNudge() {
       pointerEvents="box-none"
       style={[styles.wrap, { top: insets.top + 8, opacity: anim, transform: [{ translateY }] }]}
     >
-      <Pressable
-        testID="companion-nudge"
-        accessibilityRole="button"
-        accessibilityLabel={`${nudge.title}. Tap to open.`}
-        onPress={open}
-        style={[styles.card, { backgroundColor: tint.bg, borderColor: tint.border, shadowColor: "#0D2A57" }]}
-      >
-        <GeorgeButterflyMark size={34} />
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[styles.name, { color: tint.accent, fontSize: 11 * scale }]}>{companionName.toUpperCase()}</Text>
-          <Text numberOfLines={1} style={[styles.title, { color: "#0D2A57", fontSize: 14.5 * scale }]}>
-            {nudge.title}
-          </Text>
-          {nudge.body ? (
-            <Text numberOfLines={1} style={[styles.body, { color: "#33507D", fontSize: 12.5 * scale }]}>
-              {nudge.body}
+      <View style={[styles.card, { backgroundColor: tint.bg, borderColor: tint.border, shadowColor: "#0D2A57" }]}>
+        <View style={styles.row}>
+          <GeorgeButterflyMark size={34} />
+          {/* Chats: the whole row taps through to the conversation.
+              Game invites: tapping the text is a no-op — the explicit
+              Play now / Snooze buttons below drive the choice. */}
+          <Pressable
+            testID="companion-nudge"
+            accessibilityRole="button"
+            accessibilityLabel={isGameInvite ? nudge.title : `${nudge.title}. Tap to open.`}
+            onPress={isGameInvite ? undefined : open}
+            disabled={isGameInvite}
+            style={{ flex: 1, minWidth: 0 }}
+          >
+            <Text style={[styles.name, { color: tint.accent, fontSize: 11 * scale }]}>{companionName.toUpperCase()}</Text>
+            <Text numberOfLines={2} style={[styles.title, { color: "#0D2A57", fontSize: 14.5 * scale }]}>
+              {nudge.title}
             </Text>
-          ) : null}
+            {nudge.body ? (
+              <Text numberOfLines={1} style={[styles.body, { color: "#33507D", fontSize: 12.5 * scale }]}>
+                {nudge.body}
+              </Text>
+            ) : null}
+          </Pressable>
+          {!isGameInvite && (
+            <Pressable
+              testID="companion-nudge-dismiss"
+              onPress={hide}
+              hitSlop={10}
+              accessibilityLabel="Dismiss"
+              style={styles.close}
+            >
+              <Text style={{ color: c.muted, fontSize: 20 * scale, fontWeight: "700" }}>×</Text>
+            </Pressable>
+          )}
         </View>
-        <Pressable
-          testID="companion-nudge-dismiss"
-          onPress={hide}
-          hitSlop={10}
-          accessibilityLabel="Dismiss"
-          style={styles.close}
-        >
-          <Text style={{ color: c.muted, fontSize: 20 * scale, fontWeight: "700" }}>×</Text>
-        </Pressable>
-      </Pressable>
+
+        {isGameInvite && (
+          <View style={styles.btnRow}>
+            <Pressable
+              testID="companion-nudge-play"
+              onPress={open}
+              accessibilityLabel="Play now"
+              style={[styles.btnPrimary, { backgroundColor: tint.accent }]}
+            >
+              <Text style={styles.btnPrimaryTxt}>Play now</Text>
+            </Pressable>
+            <Pressable
+              testID="companion-nudge-snooze"
+              onPress={hide}
+              accessibilityLabel="Snooze this invite"
+              style={[styles.btnSnooze, { borderColor: tint.border }]}
+            >
+              <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>Snooze</Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
     </Animated.View>
   );
 }
@@ -169,9 +201,6 @@ const styles = StyleSheet.create({
     ...Platform.select({ web: { position: "fixed" as any }, default: {} }),
   },
   card: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
     borderWidth: 1,
     borderRadius: 18,
     paddingVertical: 12,
@@ -181,8 +210,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
+  row: { flexDirection: "row", alignItems: "center", gap: 12 },
   name: { fontWeight: "900", letterSpacing: 0.8, marginBottom: 1 },
   title: { fontWeight: "800", lineHeight: 19 },
   body: { fontWeight: "600", lineHeight: 16, marginTop: 1 },
   close: { padding: 4, marginLeft: 2 },
+  btnRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  btnPrimary: { flex: 1, minHeight: 44, borderRadius: 999, alignItems: "center", justifyContent: "center" },
+  btnPrimaryTxt: { color: "#FFF", fontWeight: "800", fontSize: 15 },
+  btnSnooze: { flex: 1, minHeight: 44, borderRadius: 999, borderWidth: 1.5, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.6)" },
+  btnSnoozeTxt: { fontWeight: "800", fontSize: 15 },
 });
