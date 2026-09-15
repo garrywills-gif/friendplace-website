@@ -664,7 +664,7 @@ export default function Home() {
                     </View>
                   ) : null}
                 </View>
-                <Text style={[styles.cardTitle, { color: CARD_TITLE_INK, fontSize: 15.5 * scale }]} numberOfLines={2}>
+                <Text style={[styles.cardTitle, { color: CARD_TITLE_INK, fontSize: 15.5 * scale }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.85}>
                   {t.title}
                 </Text>
                 {t.sub ? (

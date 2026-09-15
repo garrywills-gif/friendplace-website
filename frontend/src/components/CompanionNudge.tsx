@@ -18,6 +18,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Animated, Pressable, StyleSheet, Text, View, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname, useRouter } from "expo-router";
+import { useAudioPlayer } from "expo-audio";
 import { useInboxEvent } from "@/src/lib/user-socket";
 import { useGeorgeVoice, VOICE_LABELS } from "@/src/lib/george-voice";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
@@ -46,6 +47,17 @@ export default function CompanionNudge() {
   const pathname = usePathname() || "";
   const { voice } = useGeorgeVoice();
   const companionName = VOICE_LABELS[voice]?.short || "George";
+  // Soft companion-branded treatment so the nudge clearly stands out from
+  // the page: George → gentle blue, Georgia → gentle teal.
+  const isGeorgia = companionName.toLowerCase().startsWith("georgia");
+  const tint = isGeorgia
+    ? { bg: "#E4F3EF", border: "#0D9488", accent: "#0B7A70" }
+    : { bg: "#E5F0FB", border: "#2E9EE2", accent: "#1E6FA8" };
+
+  // Gentle flutter/chime when the nudge appears. Sound-effect only — this
+  // is NOT voice autoplay. Kept quiet so it never startles.
+  const chime = useAudioPlayer(require("@/assets/sounds/nudge.wav"));
+  useEffect(() => { try { chime.volume = 0.45; } catch { /* noop */ } }, [chime]);
 
   const [nudge, setNudge] = useState<Nudge | null>(null);
   const anim = useRef(new Animated.Value(0)).current;
@@ -93,10 +105,11 @@ export default function CompanionNudge() {
     if (!nudge) return;
     anim.setValue(0);
     Animated.spring(anim, { toValue: 1, useNativeDriver: true, friction: 8, tension: 80 }).start();
+    try { chime.seekTo(0); chime.play(); } catch { /* noop */ }
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(hide, VISIBLE_MS);
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
-  }, [nudge, anim, hide]);
+  }, [nudge, anim, hide, chime]);
 
   if (!nudge) return null;
 
@@ -119,16 +132,16 @@ export default function CompanionNudge() {
         accessibilityRole="button"
         accessibilityLabel={`${nudge.title}. Tap to open.`}
         onPress={open}
-        style={[styles.card, { backgroundColor: c.surface, borderColor: c.border, shadowColor: "#0D2A57" }]}
+        style={[styles.card, { backgroundColor: tint.bg, borderColor: tint.border, shadowColor: "#0D2A57" }]}
       >
         <GeorgeButterflyMark size={34} />
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text style={[styles.name, { color: c.accent, fontSize: 11 * scale }]}>{companionName.toUpperCase()}</Text>
-          <Text numberOfLines={1} style={[styles.title, { color: c.onSurface, fontSize: 14.5 * scale }]}>
+          <Text style={[styles.name, { color: tint.accent, fontSize: 11 * scale }]}>{companionName.toUpperCase()}</Text>
+          <Text numberOfLines={1} style={[styles.title, { color: "#0D2A57", fontSize: 14.5 * scale }]}>
             {nudge.title}
           </Text>
           {nudge.body ? (
-            <Text numberOfLines={1} style={[styles.body, { color: c.muted, fontSize: 12.5 * scale }]}>
+            <Text numberOfLines={1} style={[styles.body, { color: "#33507D", fontSize: 12.5 * scale }]}>
               {nudge.body}
             </Text>
           ) : null}

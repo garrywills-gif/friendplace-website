@@ -86,6 +86,12 @@ export default function Notifications() {
       return router.push("/home");
     }
     if (n.type === "event_invite") return router.push("/events");
+    // Play Together — game invites/updates route to the shared game room so
+    // the invited friend sees the clear Accept / Decline screen immediately.
+    if (typeof n.type === "string" && n.type.startsWith("game_")) {
+      const sid = n?.payload?.session_id;
+      return router.push((sid ? `/games/play/${sid}` : "/games/play") as any);
+    }
     // New-member notifications carry `ref_user_id` — surface the user's
     // profile directly so the recipient can wave hello (either via the
     // Flutter button on the profile or by sending a DM). Previously this
