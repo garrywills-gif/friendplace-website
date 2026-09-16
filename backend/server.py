@@ -13630,6 +13630,21 @@ async def _ensure_segment_indexes():
 
 _FOUNDER_NUMBER_COUNTER_ID = "founder_number"
 
+# Reserved-slot / gap-fill queue.
+#
+# The monotonic `founder_number` counter only ever issues numbers ABOVE the
+# highest one already assigned (and the boot rebase pins it to that max). That
+# means a historical *gap* — a number that was consumed by a failed/abandoned
+# registration and never persisted — can never be re-issued by the counter
+# alone, because the counter has long since moved past it.
+#
+# The reserved-slot queue is a SEPARATE, explicit list of specific numbers an
+# admin wants handed out to the next genuine registrations, even though those
+# numbers sit below the current max. `_next_founder_number()` drains the lowest
+# valid reserved slot first (atomically), then falls back to the monotonic
+# counter. Existing founder records are never touched by this mechanism.
+_FOUNDER_RESERVED_SLOTS_COLL = "founder_reserved_slots"
+
 _RESERVED_FOUNDERS: list[dict] = [
     {
         "founder_number": 1,
@@ -13663,14 +13678,109 @@ def _fmt_founder_no(n: Optional[int]) -> str:
         return ""
     return f"#{n:04d}"
 
+async def _reserve_founder_slot(
+    number: int,
+    *,
+    note: str = "",
+    created_by: str = "system",
+) -> dict:
+    """Idempotently add a specific founder number to the reserved-slot queue.
+
+    Refuses to reserve a number that is already held by a real (non-test)
+    registration — you can only reserve a genuine gap. Safe to call repeatedly:
+    if the slot already exists it is returned unchanged (never duplicated,
+    never resurrected once consumed).
+
+    Returns a dict describing the outcome; never raises for the "already
+    present" / "already assigned" cases so callers/seeders can be idempotent.
+    """
+    number = int(number)
+    if number <= 0:
+        return {"ok": False, "reason": "invalid number", "number": number}
+    clash = await db.interest_registrations.find_one(
+        {"founder_number": number, "is_test": {"$ne": True}},
+        {"_id": 1},
+    )
+    if clash:
+        return {"ok": False, "reason": "number already assigned", "number": number}
+    existing = await db[_FOUNDER_RESERVED_SLOTS_COLL].find_one({"number": number})
+    if existing:
+        return {
+            "ok": True,
+            "already_present": True,
+            "status": existing.get("status"),
+            "number": number,
+        }
+    await db[_FOUNDER_RESERVED_SLOTS_COLL].insert_one({
+        "id": str(uuid.uuid4()),
+        "number": number,
+        "status": "available",
+        "created_at": now_iso(),
+        "created_by": created_by,
+        "note": note,
+    })
+    return {"ok": True, "already_present": False, "status": "available", "number": number}
+
+
+async def _consume_reserved_founder_slot() -> Optional[int]:
+    """Atomically claim the lowest valid available reserved slot, or None.
+
+    Uses `find_one_and_update` with an ascending `number` sort so concurrent
+    registrations can never receive the same reserved number: the first caller
+    flips the doc to `consumed`, and any concurrent caller re-matches only
+    still-`available` docs (so it skips to the next number). A defensive
+    validity guard voids and skips any slot whose number turns out to already
+    be assigned (e.g. reserved and then filled by another path), looping to the
+    next available slot.
+    """
+    from pymongo import ReturnDocument
+    while True:
+        doc = await db[_FOUNDER_RESERVED_SLOTS_COLL].find_one_and_update(
+            {"status": "available"},
+            {"$set": {"status": "consumed", "consumed_at": now_iso()}},
+            sort=[("number", 1)],
+            return_document=ReturnDocument.AFTER,
+        )
+        if not doc:
+            return None
+        num = int(doc["number"])
+        clash = await db.interest_registrations.find_one(
+            {"founder_number": num, "is_test": {"$ne": True}},
+            {"_id": 1},
+        )
+        if clash:
+            await db[_FOUNDER_RESERVED_SLOTS_COLL].update_one(
+                {"_id": doc["_id"]},
+                {"$set": {
+                    "status": "voided",
+                    "voided_at": now_iso(),
+                    "voided_reason": "number already assigned to a live registration",
+                }},
+            )
+            continue
+        return num
+
+
 async def _next_founder_number() -> int:
     """Atomically get the next Founding Member Number.
 
-    Uses find_one_and_update with $inc + upsert=True so it's safe
-    under concurrent registration bursts. The counter is initialised
-    to 2 (after the reserved seeds) so the first public registration
-    receives #0003 as requested.
+    Allocation order:
+      1. Drain the lowest valid entry in the reserved-slot / gap-fill queue,
+         atomically, if one exists. This lets an admin re-issue a historical
+         gap number (e.g. #0100) even though the monotonic counter has already
+         moved past it.
+      2. Otherwise fall back to the monotonic counter: `find_one_and_update`
+         with $inc + upsert=True, which is concurrency-safe under high traffic.
+         The counter is initialised to 2 (after the reserved seeds) so the
+         first public registration receives #0003.
+
+    The two mechanisms are independent: the counter stays strictly monotonic
+    and the boot rebase keeps it pinned to the highest existing number, while
+    the reserved queue can still hand out lower gap numbers.
     """
+    reserved = await _consume_reserved_founder_slot()
+    if reserved is not None:
+        return reserved
     from pymongo import ReturnDocument
     doc = await db.counters.find_one_and_update(
         {"id": _FOUNDER_NUMBER_COUNTER_ID},
@@ -13694,6 +13804,15 @@ async def _seed_founder_numbers():  # noqa: D401
        returns max+1.
     """
     try:
+        # 0) Ensure the reserved-slot / gap-fill queue indexes. Unique on
+        # `number` so a slot can never be double-seeded; a (status, number)
+        # index keeps the "lowest available" claim cheap.
+        try:
+            await db[_FOUNDER_RESERVED_SLOTS_COLL].create_index("number", unique=True)
+            await db[_FOUNDER_RESERVED_SLOTS_COLL].create_index([("status", 1), ("number", 1)])
+        except Exception:
+            logging.exception("founder_reserved_slots index setup failed")
+
         # 1) Seed reserved rows.
         for seed in _RESERVED_FOUNDERS:
             now = now_iso()
