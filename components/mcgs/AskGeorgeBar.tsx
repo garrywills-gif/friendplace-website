@@ -22,6 +22,8 @@ export function AskGeorgeBar() {
   const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const micPointerHandledRef = useRef(false);
+  const askPointerHandledRef = useRef(false);
   // Batch-3 continuity: know if there's a preserved conversation so we
   // can offer a "Continue" button when the sheet is closed.
   const { hasConversation, turns } = useGeorgeSession();
@@ -75,14 +77,14 @@ export function AskGeorgeBar() {
         // iter164c: null blob = no speech detected (silence-only clip
         // rejected by the recorder). Show a warm nudge and DO NOT
         // touch the input — the previous typed content stays intact.
-        setMicError("I didn\u2019t catch any speech — the input stays as it was. Try again a little closer to the mic.");
+        setMicError("I didn’t catch any speech — the input stays as it was. Try again a little closer to the mic.");
         return;
       }
       try {
         setTranscribing(true);
         const transcript = await transcribeAudio(blob);
         if (!transcript || !transcript.trim()) {
-          setMicError("I couldn\u2019t quite catch that. Try again in a quieter spot, or type instead.");
+          setMicError("I couldn’t quite catch that. Try again in a quieter spot, or type instead.");
           return;
         }
         setInput(prev => (prev ? prev.trim() + ' ' : '') + transcript);
@@ -93,9 +95,9 @@ export function AskGeorgeBar() {
         console.error('[voice] transcription failed:', err);
         const msg = (err as Error).message || '';
         if (/took a moment too long|network|fetch|failed to fetch/i.test(msg)) {
-          setMicError("The connection hiccupped while I was listening \u2014 please try that again.");
+          setMicError("The connection hiccupped while I was listening — please try that again.");
         } else if (/permission|denied/i.test(msg)) {
-          setMicError("I need microphone access to hear you \u2014 please allow it in your browser.");
+          setMicError("I need microphone access to hear you — please allow it in your browser.");
         } else {
           setMicError("Something got in the way while I was listening. You can try again or type instead.");
         }
@@ -107,8 +109,8 @@ export function AskGeorgeBar() {
       if (rec.error) {
         setMicError(
           rec.error.toLowerCase().includes('permission')
-            ? "I need microphone access to hear you \u2014 please allow it in your browser."
-            : "I couldn\u2019t open the microphone just now. You can type instead, or try again in a moment."
+            ? "I need microphone access to hear you — please allow it in your browser."
+            : "I couldn’t open the microphone just now. You can type instead, or try again in a moment."
         );
       }
     }
@@ -121,6 +123,36 @@ export function AskGeorgeBar() {
       // React-state/closure in WKWebView (installed Mac web app).
       submit(inputRef.current?.value);
     }
+  }
+
+  // Installed macOS web apps can intermittently swallow a synthesized
+  // `click` after a pointer press in the title/header region. Handle the
+  // pointer press immediately, then suppress the matching click. Keyboard
+  // activation still comes through `onClick`, so accessibility remains.
+  function onMicPointerDown() {
+    micPointerHandledRef.current = true;
+    void toggleMic();
+  }
+
+  function onMicClick() {
+    if (micPointerHandledRef.current) {
+      micPointerHandledRef.current = false;
+      return;
+    }
+    void toggleMic();
+  }
+
+  function onAskPointerDown() {
+    askPointerHandledRef.current = true;
+    submit(inputRef.current?.value);
+  }
+
+  function onAskClick() {
+    if (askPointerHandledRef.current) {
+      askPointerHandledRef.current = false;
+      return;
+    }
+    submit(inputRef.current?.value);
   }
 
   const showRecordingUI = rec.recording || transcribing;
@@ -149,7 +181,7 @@ export function AskGeorgeBar() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={rec.recording ? 'Listening… tap the mic again when you\u2019re done.' : 'Ask George anything…'}
+            placeholder={rec.recording ? 'Listening… tap the mic again when you’re done.' : 'Ask George anything…'}
             style={input_}
             aria-label="Ask George"
             disabled={rec.recording}
@@ -177,7 +209,8 @@ export function AskGeorgeBar() {
           {/* Microphone — tap-to-toggle */}
           <button
             type="button"
-            onClick={toggleMic}
+            onPointerDown={onMicPointerDown}
+            onClick={onMicClick}
             disabled={transcribing}
             title={rec.recording ? 'Stop recording' : 'Talk to George'}
             style={{
@@ -192,36 +225,19 @@ export function AskGeorgeBar() {
           <span style={cmdHint} aria-hidden>⌘K</span>
 
           {/*
-           * iter164g production bug (Mac installed WebApp): the Ask
-           * button was previously gated on `rec.recording` as well as
-           * `!input.trim()`. In Safari WKWebView (the runtime powering
-           * installed Mac web apps) the MediaRecorder `onstop` event
-           * has known race conditions — it can fire twice, or its
-           * state transition to `'inactive'` doesn't cleanly propagate
-           * to React — which left `rec.recording` stale-true after a
-           * successful transcription. The transcript would land in
-           * the input (chunks flush fine) but the Ask button stayed
-           * disabled and the click never reached `submit()`.
-           *
-           * Safari proper masks the same bug; only the WKWebView PWA
-           * exposes it. Fix: drop `rec.recording` from this guard.
-           * The input is already `disabled` while recording (correct
-           * UX — no typing over live speech) and the mic button is
-           * the primary "stop recording" control. Gating Ask on
-           * `rec.recording` was defensive coverage that became a
-           * footgun when the state got stuck. Ask now purely reflects
-           * "is there content to send?".
+           * Mac installed-WebApp hardening: never use the native
+           * `disabled` attribute for Ask. WKWebView can show the new DOM
+           * input value before React's `input` state has flushed, leaving
+           * a visibly populated field attached to a disabled button. The
+           * submit function already rejects blank content safely, so the
+           * button can always accept the pointer/keyboard event and read
+           * the live DOM value directly.
            */}
           <button
             type="button"
-            /* iter164i: pass the DOM value explicitly so that on WKWebView
-             * (installed Mac web app) a stale React-state closure after
-             * voice transcription can't strand the submit. Normal typed
-             * input and programmatic submits still work because submit()
-             * resolves `msg ?? input` — a defined DOM value simply wins
-             * over the (possibly-stale) React state. */
-            onClick={() => submit(inputRef.current?.value)}
-            disabled={!input.trim()}
+            onPointerDown={onAskPointerDown}
+            onClick={onAskClick}
+            aria-disabled={!input.trim()}
             style={{ ...askBtn, opacity: input.trim() ? 1 : 0.5 }}
           >Ask</button>
         </div>
@@ -229,7 +245,7 @@ export function AskGeorgeBar() {
         {/*
          * Continue-conversation affordance. Appears when the sheet is
          * closed but there's a preserved conversation for this admin
-         * session \u2014 so accidentally hitting \u00D7 doesn\u2019t leave Garry
+         * session — so accidentally hitting × doesn’t leave Garry
          * stranded with no visible way to bring George back.
          */}
         {!open && hasConversation && (
@@ -241,14 +257,14 @@ export function AskGeorgeBar() {
               aria-label={`Continue conversation with George (${turns.length} messages)`}
               title="Reopen your George conversation"
             >
-              <span aria-hidden>{'\uD83E\uDD8B'}</span>
+              <span aria-hidden>{'🦋'}</span>
               <span style={{ fontWeight: 800 }}>Continue with George</span>
               <span style={{ color: '#64748B', fontSize: 12 }}>
                 &middot; {turns.length} message{turns.length === 1 ? '' : 's'}
               </span>
               {lastGeorge?.content && (
                 <span style={continuePreview} aria-hidden>
-                  &ldquo;{lastGeorge.content.slice(0, 60)}{lastGeorge.content.length > 60 ? '\u2026' : ''}&rdquo;
+                  &ldquo;{lastGeorge.content.slice(0, 60)}{lastGeorge.content.length > 60 ? '…' : ''}&rdquo;
                 </span>
               )}
             </button>
@@ -324,6 +340,7 @@ const micBtn: React.CSSProperties = {
   width: 36, height: 36, borderRadius: 10, border: '1px solid #E2E8F0',
   background: '#F8FAFC', color: '#64748B', fontSize: 15, cursor: 'pointer',
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  touchAction: 'manipulation', userSelect: 'none', WebkitUserSelect: 'none',
 };
 const cancelBtn: React.CSSProperties = {
   width: 30, height: 30, borderRadius: 8, border: '1px solid #E2E8F0',
@@ -338,7 +355,7 @@ const askBtn: React.CSSProperties = {
   padding: '8px 16px', borderRadius: 10,
   background: 'linear-gradient(135deg,#0EA5E9,#1E40AF)',
   color: '#FFFFFF', border: 'none', fontWeight: 800, fontSize: 14,
-  cursor: 'pointer',
+  cursor: 'pointer', touchAction: 'manipulation', userSelect: 'none', WebkitUserSelect: 'none',
 };
 const continuePillRow: React.CSSProperties = {
   marginTop: 8, display: 'flex', justifyContent: 'flex-start',
