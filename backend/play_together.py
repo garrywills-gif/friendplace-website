@@ -74,6 +74,107 @@ WORD_CHAIN_CATEGORIES: List[str] = [
 
 WORD_CHAIN_TARGET = 12  # chain length that "completes" the game together
 
+# Curated, deliberately-generous word banks for the "closed" categories so
+# Word Chain can reject obvious wrong answers (e.g. "ok" for Boys' names)
+# while staying forgiving. Open-ended categories (Movies, Aussie towns) are
+# intentionally omitted — those only enforce the starting letter + no repeats.
+# All entries are lower-case; matching is case-insensitive.
+WORD_CHAIN_DICT: Dict[str, set] = {
+    "Animals": {
+        "ant","bat","bear","bee","bird","buffalo","camel","cat","cheetah","chicken",
+        "cow","crab","crocodile","deer","dingo","dog","dolphin","donkey","duck","eagle",
+        "elephant","emu","ferret","fish","fox","frog","giraffe","goat","goose","gorilla",
+        "hen","hippo","horse","kangaroo","koala","lion","lizard","llama","lobster","monkey",
+        "moose","mouse","octopus","owl","panda","parrot","penguin","pig","platypus","possum",
+        "rabbit","rat","seal","shark","sheep","snail","snake","spider","squid","swan",
+        "tiger","turtle","wallaby","whale","wolf","wombat","zebra",
+    },
+    "Foods": {
+        "apple","bacon","banana","beans","bread","burger","butter","cake","carrot","cheese",
+        "chicken","chips","chocolate","cream","curry","egg","fish","garlic","honey","jam",
+        "lamb","lasagna","lettuce","mango","meat","milk","mushroom","noodles","olive","onion",
+        "pasta","pie","pizza","pork","potato","rice","salad","salmon","sandwich","sausage",
+        "soup","steak","stew","sugar","toast","tomato","tuna","yoghurt",
+    },
+    "Fruit & veg": {
+        "apple","apricot","avocado","banana","beans","beetroot","broccoli","cabbage","capsicum","carrot",
+        "cauliflower","celery","cherry","corn","cucumber","fig","grape","kiwi","leek","lemon",
+        "lettuce","lime","mango","melon","mushroom","onion","orange","pea","peach","pear",
+        "pineapple","plum","potato","pumpkin","radish","raspberry","spinach","strawberry","tomato","turnip",
+        "watermelon","zucchini",
+    },
+    "Things in a kitchen": {
+        "apron","blender","bowl","cup","cupboard","dishwasher","fork","freezer","fridge","grater",
+        "jug","kettle","knife","ladle","microwave","mixer","mug","oven","pan","plate",
+        "pot","saucepan","sieve","sink","spatula","spoon","stove","tap","teapot","toaster",
+        "tongs","tray","whisk",
+    },
+    "Sports": {
+        "archery","athletics","badminton","baseball","basketball","boxing","cricket","curling","cycling","darts",
+        "diving","fencing","football","golf","gymnastics","hockey","judo","karate","netball","rowing",
+        "rugby","running","sailing","skating","skiing","soccer","softball","squash","surfing","swimming",
+        "tennis","volleyball","wrestling",
+    },
+    "Boys' names": {
+        "aaron","adam","alan","albert","alex","andrew","anthony","arthur","ben","benjamin",
+        "bill","bob","brian","charlie","chris","daniel","dave","david","dennis","edward",
+        "eric","frank","fred","gary","george","harry","henry","jack","james","jason",
+        "jim","joe","john","jordan","joseph","kevin","liam","luke","mark","martin",
+        "matthew","michael","nathan","nick","noah","oliver","paul","peter","philip",
+        "richard","robert","ryan","sam","scott","simon","steve","thomas","tim","tom",
+        "tony","william",
+    },
+    "Girls' names": {
+        "abigail","alice","amanda","amy","anna","anne","barbara","betty","carol","charlotte",
+        "chloe","claire","donna","dora","elizabeth","ella","emily","emma","eve","fiona",
+        "grace","hannah","helen","isla","jane","janet","jenny","jessica","joan","judy",
+        "julia","karen","kate","kerry","laura","linda","lisa","lucy","margaret","maria",
+        "mary","mia","michelle","nancy","olivia","patricia","rachel","rose","ruby","sally",
+        "sarah","sharon","sophie","susan","tina","wendy","zoe",
+    },
+    "Something in the garden": {
+        "bench","bird","bush","daisy","fence","fern","flower","fountain","frog","garden",
+        "gate","grass","hedge","hose","insect","lawn","leaf","mower","path","plant",
+        "pond","pot","rake","rose","seed","shed","shovel","shrub","snail","soil",
+        "spade","tree","trowel","tulip","vine","weed","wheelbarrow","worm",
+    },
+    "Musical instruments": {
+        "accordion","banjo","bass","bassoon","bongo","cello","clarinet","cymbal","drum","flute",
+        "guitar","harmonica","harp","horn","keyboard","mandolin","oboe","organ","piano","piccolo",
+        "recorder","saxophone","tambourine","triangle","trombone","trumpet","tuba","ukulele","viola","violin",
+        "xylophone",
+    },
+    "Countries": {
+        "argentina","australia","austria","belgium","brazil","canada","chile","china","denmark","egypt",
+        "england","fiji","finland","france","germany","greece","india","indonesia","ireland","italy",
+        "japan","kenya","malaysia","mexico","nepal","netherlands","norway","pakistan","peru","poland",
+        "portugal","russia","scotland","singapore","spain","sweden","switzerland","thailand","turkey","uganda",
+        "ukraine","vietnam","wales","zimbabwe",
+    },
+}
+
+
+def _word_chain_reject(category: str, word: str, chain: List[Dict[str, Any]], required: str) -> Optional[str]:
+    """Return a gentle retry message if the word is invalid, else None.
+
+    Enforces: real-ish word, correct starting letter, no duplicate, and —
+    for the curated categories — that the word actually fits the category.
+    Open-ended categories skip the membership check (forgiving by design).
+    """
+    raw = (word or "").strip()
+    w = raw.lower()
+    if len(raw) < 2 or not raw[0].isalpha() or not raw.replace(" ", "").replace("-", "").isalpha():
+        return "Please enter a real word."
+    if required and w[0] != required.lower():
+        return f"Your word needs to start with “{required.upper()}”."
+    used = {(it.get("word") or "").strip().lower() for it in chain}
+    if w in used:
+        return f"“{raw}” has already been used — try a different word."
+    valid = WORD_CHAIN_DICT.get(category)
+    if valid is not None and w not in valid:
+        return f"Hmm, “{raw}” doesn't look like it fits {category}. Try another!"
+    return None
+
 
 class InviteBody(BaseModel):
     game: str
@@ -268,6 +369,23 @@ def register(api, ctx: Dict[str, Any]) -> None:
                           f"{sess['players'][1]['name']} can't play right now")
         return _public(sess, me["id"])
 
+    @api.post("/play/{session_id}/cancel")
+    async def play_cancel(session_id: str, me: dict = Depends(current_user)):
+        """Host withdraws a pending invite. Only valid while still 'invited'.
+        No points change hands; the session leaves all active surfaces and
+        can never be accepted afterwards."""
+        sess = await _load(session_id, me["id"])
+        if sess["host_id"] != me["id"]:
+            raise HTTPException(403, "Only the person who sent the invite can cancel it")
+        if sess["status"] != "invited":
+            raise HTTPException(400, "This invite can no longer be cancelled")
+        sess["status"] = "cancelled"
+        sess["updated_at"] = now_iso()
+        await db.play_sessions.replace_one({"id": session_id}, sess)
+        await _notify(sess, sess["guest_id"], "game_end",
+                      f"{sess['players'][0]['name']} cancelled the game invite")
+        return _public(sess, me["id"])
+
     @api.post("/play/{session_id}/move")
     async def play_move(session_id: str, body: MoveBody, me: dict = Depends(current_user)):
         sess = await _load(session_id, me["id"])
@@ -320,11 +438,12 @@ def register(api, ctx: Dict[str, Any]) -> None:
                           f"{players[me['id']]['name']} passed — you win!")
             return _public(sess, me["id"])
         word = (body.word or "").strip()
-        if len(word) < 2 or not word[0].isalpha() or not word.replace(" ", "").isalpha():
-            raise HTTPException(400, "Please enter a real word")
-        req = content.get("required_letter", "").lower()
-        if req and word[0].lower() != req:
-            raise HTTPException(400, f"Your word must start with '{req.upper()}'")
+        reject = _word_chain_reject(
+            content.get("category", ""), word, content.get("chain", []),
+            content.get("required_letter", ""),
+        )
+        if reject:
+            raise HTTPException(400, reject)
         content["chain"].append({"player_id": me["id"], "word": word})
         content["required_letter"] = word.strip()[-1].upper()
         players[me["id"]]["score"] = players[me["id"]].get("score", 0) + 1
@@ -345,30 +464,38 @@ def register(api, ctx: Dict[str, Any]) -> None:
 
     @api.post("/play/{session_id}/rematch")
     async def play_rematch(session_id: str, me: dict = Depends(current_user)):
+        """"Play again" — sends the same friend a FRESH invite they must
+        accept (mirrors /play/invite), rather than starting immediately. The
+        sender lands on the new session in a "waiting" state and can cancel."""
         old = await _load(session_id, me["id"])
         if old["status"] != "finished":
             raise HTTPException(400, "Finish this game first")
+        guest_id = old["guest_id"] if me["id"] == old["host_id"] else old["host_id"]
+        host = await _user_slim(me["id"])
+        guest = await _user_slim(guest_id)
         new = {
             "id": nid()[:8],
             "game": old["game"],
-            "status": "active",  # both already agreed to play
-            "host_id": me["id"],
-            "guest_id": old["guest_id"] if me["id"] == old["host_id"] else old["host_id"],
+            "status": "invited",  # recipient must accept/decline
+            "host_id": host["id"],
+            "guest_id": guest["id"],
             "players": [
-                {"id": p["id"], "name": p["name"], "avatar": p["avatar"], "score": 0, "done": False}
-                for p in sorted(old["players"], key=lambda p: 0 if p["id"] == me["id"] else 1)
+                {**host, "score": 0, "done": False},
+                {**guest, "score": 0, "done": False},
             ],
             "content": _new_content(old["game"]),
-            "turn": me["id"],
+            "turn": host["id"],
             "winner_id": None,
             "awarded": {},
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }
         await db.play_sessions.insert_one(new)
-        other_id = new["guest_id"]
-        await _notify(new, other_id, "game_start",
-                      f"{new['players'][0]['name']} wants a rematch — {GAME_LABELS[new['game']]}!")
+        await _notify(
+            new, guest["id"], "game_invite",
+            f"{host['name']} invited you to play {GAME_LABELS[new['game']]} again",
+            "Tap to accept and play together.",
+        )
         return _public(new, me["id"])
 
     @api.get("/play/{session_id}")

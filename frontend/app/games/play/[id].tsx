@@ -151,8 +151,33 @@ export default function PlayRoom() {
               <Text style={[styles.sub, { color: c.muted, fontSize: 14 * scale }]}>
                 We'll let them know you'd like to play {game ? LABELS[game] : ""}.
               </Text>
+              <Pressable
+                testID="play-cancel"
+                onPress={() => act(async () => {
+                  await api.playCancel(String(id));
+                  router.replace("/games/play");
+                  return null;
+                })}
+                disabled={busy}
+                style={[styles.primary, { backgroundColor: c.error, opacity: busy ? 0.6 : 1 }]}
+              >
+                <Text style={styles.primaryTxt}>Cancel invite</Text>
+              </Pressable>
               <Pressable onPress={() => router.replace("/games/play")} style={[styles.secondary, { borderColor: c.border }]}>
                 <Text style={[styles.secondaryTxt, { color: c.muted }]}>Back to Play Together</Text>
+              </Pressable>
+            </View>
+          ) : status === "cancelled" ? (
+            <View style={styles.centre}>
+              <Text style={{ fontSize: 44 }}>🌼</Text>
+              <Text style={[styles.big, { color: c.onSurface, fontSize: 18 * scale }]}>
+                This game invite was cancelled
+              </Text>
+              <Text style={[styles.sub, { color: c.muted, fontSize: 14 * scale }]}>
+                {other?.name || "Your friend"} withdrew the invite — maybe another time.
+              </Text>
+              <Pressable onPress={() => router.replace("/games/play")} style={[styles.primary, { backgroundColor: c.brand }]}>
+                <Text style={styles.primaryTxt}>Back to Play Together</Text>
               </Pressable>
             </View>
           ) : (
@@ -160,12 +185,12 @@ export default function PlayRoom() {
               {renderGame()}
               {status === "finished" && (
                 <View style={{ gap: 10, marginTop: 4 }}>
-                  <Pressable testID="play-rematch" onPress={() => act(async () => {
+                  <Pressable testID="play-again" onPress={() => act(async () => {
                     const s = await api.playRematch(String(id));
                     if (s?.id) router.replace(`/games/play/${s.id}`);
                     return null;
                   })} style={[styles.primary, { backgroundColor: c.brand }]}>
-                    <Text style={styles.primaryTxt}>Rematch</Text>
+                    <Text style={styles.primaryTxt}>Play again</Text>
                   </Pressable>
                   <Pressable onPress={() => router.replace("/games/play")} style={[styles.secondary, { borderColor: c.border }]}>
                     <Text style={[styles.secondaryTxt, { color: c.muted }]}>Back to Play Together</Text>

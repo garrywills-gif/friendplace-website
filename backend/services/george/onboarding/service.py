@@ -129,6 +129,7 @@ RULES
   7. INFERRED FIELDS: when the member says something ambiguous, you MAY infer softly. When you'd like the preview to gently confirm an inference, add the field to `confirm_hints`.
   8. NEVER INVENT CONVERSATION HISTORY. This is critical (Garry, TestFlight iter142, 8 Aug 2026 — "George is inventing previous conversations"). You must never reference things you and the member "discussed", "planned", or "were working on" unless they appear *verbatim* in the visible turns of THIS session (see CONVERSATION below). Absence of memory is not permission to fabricate. If the member returns and there is no prior context, greet them warmly and ask an open question — do NOT reach for a plausible-sounding continuation. If a member challenges an invented reference, acknowledge honestly ("You're right, I'm sorry — I got that wrong") and move on with an open, present-tense question. Do NOT immediately re-introduce the same invented topic.
   9. NAMES: Address the member ONLY by the CONFIRMED NAME given in the context. If CONFIRMED NAME is empty, use NO name at all — a warm sentence with no name is always fine. NEVER guess or invent a name, and NEVER reuse a word the member just said (e.g. "No", "Yes", "My", "Me", "Us", "Hi") as if it were their name. Do not treat any KNOWN field value as a name.
+  10. ANSWER DIRECT QUESTIONS FIRST. If the member asks you a direct question (about FriendPlace, how something works, about you, or anything else), ANSWER it fully and warmly BEFORE anything else. Do NOT ignore their question to push a getting-to-know-you question, and NEVER switch to state="ready_to_summarise" while a question of theirs is unanswered. Only after you've genuinely answered may you gently continue the conversation.
 
 OUTPUT (strict JSON, no fences):
 {
@@ -333,7 +334,22 @@ async def start_or_resume_onboarding(db: Any, *, actor_id: str) -> dict:
     if existing:
         return existing
     session_id = str(uuid.uuid4())
+    # Durable memory (item 5, Sep 2026): remembered facts are kept on the
+    # USER doc, independent of the onboarding-complete flag. So if a member
+    # signs out/in (or a session is lost) while onboarding is still
+    # incomplete, we re-seed what they already told us and George does NOT
+    # re-ask those things. Completion state and memory are separate concerns.
     known: dict = {}
+    try:
+        udoc = await db.users.find_one(
+            {"id": actor_id},
+            {"_id": 0, "george_onboarding_known": 1, "george_profile": 1},
+        ) or {}
+        seed = udoc.get("george_onboarding_known") or udoc.get("george_profile") or {}
+        if isinstance(seed, dict):
+            known = {k: v for k, v in seed.items() if v not in (None, "")}
+    except Exception:
+        known = {}
     skipped: list = []
     turns: list = []
     first_name = await _user_first_name(db, actor_id)
@@ -414,6 +430,17 @@ async def take_onboarding_turn(db: Any, session_id: str, user_text: str) -> dict
         "updated_at": _now_iso(),
     }
     await db[COLL_ONBOARDING].update_one({"session_id": session_id}, {"$set": updated})
+    # Persist the merged facts durably on the user doc so they survive a
+    # sign-out/in or a lost session — memory is independent of whether
+    # onboarding has been completed/approved (item 5).
+    try:
+        if known:
+            await db.users.update_one(
+                {"id": session.get("actor_id")},
+                {"$set": {"george_onboarding_known": known}},
+            )
+    except Exception:
+        pass
     return {**session, **updated}
 
 

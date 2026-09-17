@@ -511,6 +511,7 @@ export const api = {
   playGet: (sid: string) => req(`/play/${sid}`, {}, { silent: true }),
   playAccept: (sid: string) => req(`/play/${sid}/accept`, { method: "POST" }),
   playDecline: (sid: string) => req(`/play/${sid}/decline`, { method: "POST" }),
+  playCancel: (sid: string) => req(`/play/${sid}/cancel`, { method: "POST" }),
   playMove: (sid: string, body: { answers?: number[]; word?: string; give_up?: boolean }) =>
     req(`/play/${sid}/move`, { method: "POST", body: JSON.stringify(body) }),
   playRematch: (sid: string) => req(`/play/${sid}/rematch`, { method: "POST" }),

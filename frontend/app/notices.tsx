@@ -17,6 +17,7 @@ import GalleryPicker, { resolveImageSource } from "@/src/components/GalleryPicke
 import TappableImage from "@/src/components/TappableImage";
 import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
 import SuburbField from "@/src/components/SuburbField";
+import { DateField, TimeField } from "@/src/components/DateTimePicker";
 
 // Notice Board categories — Garry, 2 Aug 2026. Each category carries
 // its own emoji so the picker feels warm and skimmable, and so the
@@ -113,6 +114,11 @@ export default function Notices() {
   const [pImage, setPImage] = useState<string>("");
   const [pLocality, setPLocality] = useState<{ name: string; postcode?: string; state?: string } | null>(null);
   const [pImagePicker, setPImagePicker] = useState<boolean>(false);
+  // Optional Notice active period (item 9). Date "YYYY-MM-DD" + time "HH:MM".
+  const [pFromDate, setPFromDate] = useState("");
+  const [pFromTime, setPFromTime] = useState("");
+  const [pToDate, setPToDate] = useState("");
+  const [pToTime, setPToTime] = useState("");
   const [openCommentsFor, setOpenCommentsFor] = useState<string | null>(null);
   const [commentText, setCommentText] = useState("");
   const [replyTo, setReplyTo] = useState<{ commentId: string; userName: string } | null>(null);
@@ -139,8 +145,45 @@ export default function Notices() {
   useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radiusKm]));
 
   const memberLocality = () => (user?.suburb ? { name: user.suburb, postcode: (user as any)?.suburb_postcode, state: (user as any)?.suburb_state } : null);
-  const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPLocality(memberLocality()); setPosting(true); };
-  const startEdit = (n: any) => { setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || ""); setPLocality(n.locality ? { name: n.locality, postcode: n.locality_postcode, state: n.locality_state } : memberLocality()); setPosting(true); };
+  // ── Notice active-period helpers (item 9) ───────────────────────────
+  const _pad = (n: number) => String(n).padStart(2, "0");
+  const combineISO = (date: string, time: string, endOfDay = false): string | undefined => {
+    if (!date) return undefined;
+    const t = time || (endOfDay ? "23:59" : "00:00");
+    const d = new Date(`${date}T${t}:00`);
+    return isNaN(d.getTime()) ? undefined : d.toISOString();
+  };
+  const splitISO = (iso?: string): { date: string; time: string } => {
+    if (!iso) return { date: "", time: "" };
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return { date: "", time: "" };
+    return {
+      date: `${d.getFullYear()}-${_pad(d.getMonth() + 1)}-${_pad(d.getDate())}`,
+      time: `${_pad(d.getHours())}:${_pad(d.getMinutes())}`,
+    };
+  };
+  const activePeriodLabel = (n: any): string | null => {
+    const fmt = (iso: string) => {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+    };
+    const from = n.active_from ? fmt(n.active_from) : "";
+    const to = n.active_to ? fmt(n.active_to) : "";
+    if (from && to) return `Active ${from} – ${to}`;
+    if (to) return `Active until ${to}`;
+    if (from) return `Active from ${from}`;
+    return null;
+  };
+
+  const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
+  const startEdit = (n: any) => {
+    setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || "");
+    setPLocality(n.locality ? { name: n.locality, postcode: n.locality_postcode, state: n.locality_state } : memberLocality());
+    const f = splitISO(n.active_from); const t = splitISO(n.active_to);
+    setPFromDate(f.date); setPFromTime(f.time); setPToDate(t.date); setPToTime(t.time);
+    setPosting(true);
+  };
 
   const submitPost = async () => {
     if (!user || !pTitle.trim() || !pBody.trim()) { show("Add a title and message"); return; }
@@ -153,9 +196,14 @@ export default function Notices() {
     // interaction bug. Explicit Keyboard.dismiss() lets the keyboard
     // retract first, then the modal closes cleanly.
     Keyboard.dismiss();
+    const activeFrom = combineISO(pFromDate, pFromTime, false);
+    const activeTo = combineISO(pToDate, pToTime, true);
+    if (activeFrom && activeTo && new Date(activeTo) <= new Date(activeFrom)) {
+      show("The end must be after the start"); return;
+    }
     try {
       if (editing) {
-        await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat, image: pImage, locality: pLocality?.name, locality_postcode: pLocality?.postcode, locality_state: pLocality?.state });
+        await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat, image: pImage, locality: pLocality?.name, locality_postcode: pLocality?.postcode, locality_state: pLocality?.state, active_from: activeFrom ?? null, active_to: activeTo ?? null });
         show("Notice updated");
       } else {
         // The backend may hold the notice for moderator review if the
@@ -176,6 +224,8 @@ export default function Notices() {
           locality: pLocality?.name,
           locality_postcode: pLocality?.postcode,
           locality_state: pLocality?.state,
+          active_from: activeFrom,
+          active_to: activeTo,
         });
         if (resp && resp.held_for_review) {
           show(resp.moderation_message ||
@@ -300,6 +350,12 @@ export default function Notices() {
 
         <Text style={[styles.title, { color: c.onSurface, fontSize: 18 * scale }]}>{n.title}</Text>
         <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>{n.body}</Text>
+        {activePeriodLabel(n) ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
+            <Ionicons name="time-outline" size={14} color={c.brand} />
+            <Text style={{ color: c.brand, fontWeight: "700", fontSize: 12.5 * scale }}>{activePeriodLabel(n)}</Text>
+          </View>
+        ) : null}
         {n.locality ? (
           <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 6 }}>
             📍 {n.locality}{n.distance_km != null ? `  ·  ${n.distance_km} km` : ""}
@@ -542,6 +598,31 @@ export default function Notices() {
                   <Text style={{ color: c.brand, fontWeight: "800", fontSize: 14 * scale }}>Add a photo</Text>
                 </Pressable>
               )}
+
+              <View style={{ height: 14 }} />
+              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Active period (optional)</Text>
+              <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>
+                Leave blank to keep it on the board indefinitely. After the end date/time it drops off automatically.
+              </Text>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>From</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1.4 }}><DateField testID="notice-from-date" value={pFromDate} onChange={setPFromDate} /></View>
+                <View style={{ flex: 1 }}><TimeField testID="notice-from-time" value={pFromTime} onChange={setPFromTime} /></View>
+              </View>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>To</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ flex: 1.4 }}><DateField testID="notice-to-date" value={pToDate} onChange={setPToDate} /></View>
+                <View style={{ flex: 1 }}><TimeField testID="notice-to-time" value={pToTime} onChange={setPToTime} /></View>
+              </View>
+              {(pFromDate || pToDate) ? (
+                <Pressable
+                  testID="notice-clear-period"
+                  onPress={() => { setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); }}
+                  style={{ marginTop: 8, alignSelf: "flex-start", paddingVertical: 6 }}
+                >
+                  <Text style={{ color: c.brand, fontWeight: "800", fontSize: 13 * scale }}>Clear active period</Text>
+                </Pressable>
+              ) : null}
 
               <View style={{ height: 14 }} />
               <Button testID="post-submit" label={editing ? "Save changes" : "Post to Notice Board"} onPress={submitPost} />

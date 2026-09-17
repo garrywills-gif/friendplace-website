@@ -436,6 +436,12 @@ class Notice(BaseModel):
     solved: bool = False
     reports: List[dict] = Field(default_factory=list)
     edited_at: Optional[str] = None
+    # Optional active period (Notice Board scheduling). ISO-8601 datetimes.
+    # When set, the notice only appears on the active board within the
+    # window and automatically drops off after `active_to`. Both optional —
+    # a notice with neither behaves exactly as before (always active).
+    active_from: Optional[str] = None
+    active_to: Optional[str] = None
     # Local Discovery: recognised-locality fields, stamped at create time
     # from the author's suburb. Used for radius filtering on the list.
     locality: str = ""
@@ -3357,6 +3363,23 @@ async def block_user(user_id: str, other_id: str):
 # ------------- Notifications -------------
 # type values used across the app:
 #   friend_request, friend_accepted, dm, event_invite, table_join, notice_comment, flutter
+def _glyph_or_blank(avatar: Optional[str]) -> str:
+    """Return an avatar ONLY when it's a short emoji/glyph safe to inline in a
+    notification title. Photo (data-URI), URL, and preset/gallery references
+    would otherwise dump raw base64 or ref strings into the title text (they
+    surfaced as a `data:image/jpeg;base64,…` blob in the live café banner).
+    Those are dropped here; the client renders the real avatar separately.
+    """
+    av = (avatar or "").strip()
+    if not av:
+        return ""
+    if av.startswith(("data:", "http://", "https://", "gallery:", "preset:", "portrait-")):
+        return ""
+    if len(av) > 8:  # emoji (incl. ZWJ sequences) stay short; refs are long
+        return ""
+    return av
+
+
 async def push_notification(user_id: str, n_type: str, title: str, body: str = "", payload: Optional[Dict] = None):
     if not user_id:
         return
@@ -8650,6 +8673,27 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
         if blocked:
             query["user_id"] = {"$nin": blocked}
     docs = await db.notices.find(query, {"_id": 0}).to_list(500)
+    # Active-period filter (optional per notice): drop notices whose window
+    # hasn't started yet or has already ended. Notices without dates are
+    # always active. Parsing is defensive — a malformed bound is ignored.
+    def _within_active_period(d: dict) -> bool:
+        now_dt = datetime.now(timezone.utc)
+        def _parse(v: Optional[str]):
+            if not v:
+                return None
+            try:
+                dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                return None
+        af = _parse(d.get("active_from"))
+        at = _parse(d.get("active_to"))
+        if af and now_dt < af:
+            return False
+        if at and now_dt > at:
+            return False
+        return True
+    docs = [d for d in docs if _within_active_period(d)]
     # Unsolved first, then newest first; solved Q's sink below.
     docs.sort(key=lambda d: (bool(d.get("solved")), -datetime.fromisoformat(d.get("created_at", now_iso())).timestamp()))
     # Local Discovery: restrict to the chosen radius of the member's suburb
@@ -8778,7 +8822,7 @@ async def edit_notice(notice_id: str, payload: dict):
         raise HTTPException(404, "Not found")
     if payload.get("user_id") != n.get("user_id"):
         raise HTTPException(403, "Only the author can edit")
-    update = {k: payload[k] for k in ("title", "body", "category", "image") if k in payload}
+    update = {k: payload[k] for k in ("title", "body", "category", "image", "active_from", "active_to") if k in payload}
     # Local Discovery: re-geocode if the author changed the notice's locality.
     if payload.get("locality") and payload.get("locality") != n.get("locality"):
         loc = _locality_update_from(payload.get("locality"), payload.get("locality_state"), payload.get("locality_postcode"))
@@ -11915,14 +11959,14 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                                             await push_notification(
                                                 user_id,
                                                 "friend_accepted",
-                                                f"{other_av} You and {other_name} are now friends 🦋",
+                                                f"{_glyph_or_blank(other_av)} You and {other_name} are now friends 🦋".strip(),
                                                 "You've been chatting, so we've added each other.",
                                                 {"friend_id": other_id},
                                             )
                                             await push_notification(
                                                 other_id,
                                                 "friend_accepted",
-                                                f"{me_av} You and {me_name} are now friends 🦋",
+                                                f"{_glyph_or_blank(me_av)} You and {me_name} are now friends 🦋".strip(),
                                                 "You've been chatting, so we've added each other.",
                                                 {"friend_id": user_id},
                                             )
@@ -11932,10 +11976,11 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                         logger.exception("auto-friend after two-way DM failed")
 
                     n_type = "dm_request" if is_chat_request else "dm"
+                    _g = _glyph_or_blank(sender_avatar)
                     title = (
-                        f"{sender_avatar} {sender_name} started a chat with you"
+                        f"{_g} {sender_name} started a chat with you".strip()
                         if is_chat_request
-                        else f"{sender_avatar} {sender_name} sent you a message"
+                        else f"{_g} {sender_name} sent you a message".strip()
                     )
                     # ── Real-time inbox fan-out to each recipient (iter154) ──
                     dm_update_payload = {

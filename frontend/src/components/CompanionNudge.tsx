@@ -15,7 +15,7 @@
  * push_notification fan-out), so it needs no polling of its own.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View, Platform } from "react-native";
+import { Animated, Modal, Pressable, StyleSheet, Text, View, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname, useRouter } from "expo-router";
 import { useAudioPlayer } from "expo-audio";
@@ -32,6 +32,21 @@ const NUDGE_TYPES = new Set(["dm", "dm_request", "flutter", "game_invite"]);
 const HIDDEN_PREFIXES = ["/auth", "/onboarding", "/waitlist"];
 
 const VISIBLE_MS = 5500;
+
+// Strip anything that would leak as raw text: data-URI/base64 avatar blobs,
+// http(s) image URLs, and preset/gallery avatar refs that occasionally get
+// prepended to a title. Guarantees the live banner never shows
+// "data:image/jpeg;base64,…" to the member (TestFlight Jun 2026, FP Café).
+const cleanText = (s: string): string => {
+  if (!s) return "";
+  return s
+    .replace(/data:image\/[a-zA-Z]+;base64,[A-Za-z0-9+/=]+/g, "")
+    .replace(/\b(?:gallery|preset):[^\s]+/g, "")
+    .replace(/\bportrait-[0-9]+\b/g, "")
+    .replace(/https?:\/\/\S+\.(?:png|jpe?g|webp|gif|heic)/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+};
 
 type Nudge = {
   key: string;
@@ -52,8 +67,8 @@ export default function CompanionNudge() {
   // the page: George → gentle blue, Georgia → gentle teal.
   const isGeorgia = companionName.toLowerCase().startsWith("georgia");
   const tint = isGeorgia
-    ? { bg: "#E4F3EF", border: "#0D9488", accent: "#0B7A70" }
-    : { bg: "#E5F0FB", border: "#2E9EE2", accent: "#1E6FA8" };
+    ? { bg: "#D5EFE8", border: "#0D9488", accent: "#0B7A70" }
+    : { bg: "#D8EAFB", border: "#2E9EE2", accent: "#1E6FA8" };
 
   // Gentle flutter/chime when the nudge appears. Sound-effect only — this
   // is NOT voice autoplay. Kept quiet so it never startles.
@@ -96,8 +111,8 @@ export default function CompanionNudge() {
     setNudge({
       key: n.id || String(Date.now()),
       ntype: n.type,
-      title: n.title || (n.type === "flutter" ? "New Flutter" : "New message"),
-      body: n.body || "",
+      title: cleanText(n.title || "") || (n.type === "flutter" ? "New Flutter" : "New message"),
+      body: cleanText(n.body || ""),
       route,
     });
   });
@@ -126,69 +141,82 @@ export default function CompanionNudge() {
   };
 
   return (
-    <Animated.View
-      pointerEvents="box-none"
-      style={[styles.wrap, { top: insets.top + 8, opacity: anim, transform: [{ translateY }] }]}
+    <Modal
+      visible
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={hide}
     >
-      <View style={[styles.card, { backgroundColor: tint.bg, borderColor: tint.border, shadowColor: "#0D2A57" }]}>
-        <View style={styles.row}>
-          <GeorgeButterflyMark size={34} />
-          {/* Chats: the whole row taps through to the conversation.
-              Game invites: tapping the text is a no-op — the explicit
-              Play now / Snooze buttons below drive the choice. */}
-          <Pressable
-            testID="companion-nudge"
-            accessibilityRole="button"
-            accessibilityLabel={isGameInvite ? nudge.title : `${nudge.title}. Tap to open.`}
-            onPress={isGameInvite ? undefined : open}
-            disabled={isGameInvite}
-            style={{ flex: 1, minWidth: 0 }}
-          >
-            <Text style={[styles.name, { color: tint.accent, fontSize: 11 * scale }]}>{companionName.toUpperCase()}</Text>
-            <Text numberOfLines={2} style={[styles.title, { color: "#0D2A57", fontSize: 14.5 * scale }]}>
-              {nudge.title}
-            </Text>
-            {nudge.body ? (
-              <Text numberOfLines={1} style={[styles.body, { color: "#33507D", fontSize: 12.5 * scale }]}>
-                {nudge.body}
-              </Text>
-            ) : null}
-          </Pressable>
-          {!isGameInvite && (
+      {/* box-none lets taps outside the card fall through to whatever
+          screen (or other Modal) is underneath — the nudge is a passive
+          overlay, not a blocking sheet. Wrapping in a Modal is what lets
+          it float ABOVE native Modals (e.g. FP Café action sheets), so
+          the invite/message alert is visible over any active screen. */}
+      <Animated.View
+        pointerEvents="box-none"
+        style={[styles.wrap, { top: insets.top + 8, opacity: anim, transform: [{ translateY }] }]}
+      >
+        <View style={[styles.card, { backgroundColor: tint.bg, borderColor: tint.border, shadowColor: "#0D2A57" }]}>
+          <View style={styles.row}>
+            <GeorgeButterflyMark size={34} />
+            {/* Chats: the whole row taps through to the conversation.
+                Game invites: tapping the text is a no-op — the explicit
+                Play now / Snooze buttons below drive the choice. */}
             <Pressable
-              testID="companion-nudge-dismiss"
-              onPress={hide}
-              hitSlop={10}
-              accessibilityLabel="Dismiss"
-              style={styles.close}
+              testID="companion-nudge"
+              accessibilityRole="button"
+              accessibilityLabel={isGameInvite ? nudge.title : `${nudge.title}. Tap to open.`}
+              onPress={isGameInvite ? undefined : open}
+              disabled={isGameInvite}
+              style={{ flex: 1, minWidth: 0 }}
             >
-              <Text style={{ color: c.muted, fontSize: 20 * scale, fontWeight: "700" }}>×</Text>
+              <Text style={[styles.name, { color: tint.accent, fontSize: 11 * scale }]}>{companionName.toUpperCase()}</Text>
+              <Text numberOfLines={2} style={[styles.title, { color: "#0D2A57", fontSize: 14.5 * scale }]}>
+                {nudge.title}
+              </Text>
+              {nudge.body ? (
+                <Text numberOfLines={1} style={[styles.body, { color: "#33507D", fontSize: 12.5 * scale }]}>
+                  {nudge.body}
+                </Text>
+              ) : null}
             </Pressable>
+            {!isGameInvite && (
+              <Pressable
+                testID="companion-nudge-dismiss"
+                onPress={hide}
+                hitSlop={10}
+                accessibilityLabel="Dismiss"
+                style={styles.close}
+              >
+                <Text style={{ color: c.muted, fontSize: 20 * scale, fontWeight: "700" }}>×</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {isGameInvite && (
+            <View style={styles.btnRow}>
+              <Pressable
+                testID="companion-nudge-play"
+                onPress={open}
+                accessibilityLabel="Play now"
+                style={[styles.btnPrimary, { backgroundColor: tint.accent }]}
+              >
+                <Text style={styles.btnPrimaryTxt}>Play now</Text>
+              </Pressable>
+              <Pressable
+                testID="companion-nudge-snooze"
+                onPress={hide}
+                accessibilityLabel="Snooze this invite"
+                style={[styles.btnSnooze, { borderColor: tint.border }]}
+              >
+                <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>Snooze</Text>
+              </Pressable>
+            </View>
           )}
         </View>
-
-        {isGameInvite && (
-          <View style={styles.btnRow}>
-            <Pressable
-              testID="companion-nudge-play"
-              onPress={open}
-              accessibilityLabel="Play now"
-              style={[styles.btnPrimary, { backgroundColor: tint.accent }]}
-            >
-              <Text style={styles.btnPrimaryTxt}>Play now</Text>
-            </Pressable>
-            <Pressable
-              testID="companion-nudge-snooze"
-              onPress={hide}
-              accessibilityLabel="Snooze this invite"
-              style={[styles.btnSnooze, { borderColor: tint.border }]}
-            >
-              <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>Snooze</Text>
-            </Pressable>
-          </View>
-        )}
-      </View>
-    </Animated.View>
+      </Animated.View>
+    </Modal>
   );
 }
 

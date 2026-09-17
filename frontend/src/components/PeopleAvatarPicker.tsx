@@ -33,7 +33,6 @@ import { useTheme } from "@/src/lib/theme";
 import AvatarBubble, { parseAvatar, withGlasses } from "./AvatarBubble";
 import {
   AVATAR_PRESETS,
-  AVATAR_PRESET_GROUPS,
   presetToAvatarString,
   isPresetAvatar,
   type AvatarPresetGroup,
@@ -240,34 +239,43 @@ function PresetTab({ value, onPick, c, scale }: {
   c: any;
   scale: number;
 }) {
-  // "All" is now the default filter and appears first so members see
-  // the full FriendPlace preset gallery on open (TestFlight 1028
-  // feedback: seeding to the caller's age group hid the newer avatars
-  // and gave no way back to the complete gallery). Selecting an age
-  // band still narrows to that band; tapping "All" restores.
-  const [group, setGroup] = useState<AvatarPresetGroup | 'all'>('all');
-
-  const filtered = useMemo(
-    () => (group === 'all' ? AVATAR_PRESETS : AVATAR_PRESETS.filter((p) => p.group === group)),
-    [group],
-  );
-
-  const chips: { key: AvatarPresetGroup | 'all'; label: string; hint: string }[] = useMemo(
-    () => [{ key: 'all', label: 'All', hint: 'Everyone' }, ...AVATAR_PRESET_GROUPS],
+  // Age-range pills (TestFlight Jun 2026 — the old "All / Everyone + five
+  // named bands" row felt busy). Simpler ranges, each mapping to the
+  // underlying preset groups. Opens on a sensible middle band rather than
+  // the full gallery so members aren't faced with everyone at once.
+  const AGE_PILLS: { key: string; label: string; groups: AvatarPresetGroup[] | null }[] = useMemo(
+    () => [
+      { key: 'all',   label: 'All',    groups: null },
+      { key: '18-25', label: '18–25',  groups: ['young'] },
+      { key: '26-44', label: '26–44',  groups: ['adult', 'mature'] },
+      { key: '45-64', label: '45–64',  groups: ['senior'] },
+      { key: '65+',   label: '65+',    groups: ['elder'] },
+    ],
     [],
   );
+  const [pill, setPill] = useState<string>('45-64');
+
+  const filtered = useMemo(() => {
+    const active = AGE_PILLS.find((p) => p.key === pill);
+    if (!active || !active.groups) return AVATAR_PRESETS;
+    const set = new Set(active.groups);
+    return AVATAR_PRESETS.filter((p) => set.has(p.group));
+  }, [pill, AGE_PILLS]);
 
   return (
     <View style={{ gap: 10 }}>
-      {/* Age filter chips */}
+      {/* Age filter */}
+      <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale }}>
+        Choose an age range
+      </Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
-        {chips.map((g) => {
-          const on = g.key === group;
+        {AGE_PILLS.map((g) => {
+          const on = g.key === pill;
           return (
             <Pressable
               key={g.key}
-              testID={`avatar-group-${g.key}`}
-              onPress={() => setGroup(g.key)}
+              testID={`avatar-age-${g.key}`}
+              onPress={() => setPill(g.key)}
               style={[
                 styles.groupChip,
                 {
@@ -278,9 +286,6 @@ function PresetTab({ value, onPick, c, scale }: {
             >
               <Text style={{ color: on ? c.onBrandPrimary : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>
                 {g.label}
-              </Text>
-              <Text style={{ color: on ? c.onBrandPrimary : c.muted, fontWeight: "600", fontSize: 11 * scale, marginLeft: 4 }}>
-                {g.hint}
               </Text>
             </Pressable>
           );

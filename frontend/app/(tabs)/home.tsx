@@ -664,7 +664,7 @@ export default function Home() {
                     </View>
                   ) : null}
                 </View>
-                <Text style={[styles.cardTitle, { color: CARD_TITLE_INK, fontSize: 15.5 * scale }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.7}>
+                <Text style={[styles.cardTitle, { color: CARD_TITLE_INK, fontSize: 14.5 * scale }]} numberOfLines={2}>
                   {t.title}
                 </Text>
                 {t.sub ? (
@@ -946,6 +946,18 @@ export default function Home() {
               const hasStartedChat = responded === "chat_started";
               return (
                 <View key={f.id} style={[styles.flutterItem, { backgroundColor: "#FFFFFF", borderColor: "#EDE9FE" }]}>
+                  {/* Dismiss — top-right of the card with a generous tap
+                      target so it reads clearly as "close this flutter".
+                      "Later" (below) stays a separate, softer action. */}
+                  <Pressable
+                    testID={`flutter-dismiss-${f.id}`}
+                    onPress={() => dismissFlutter(f)}
+                    style={styles.flutterDismissCorner}
+                    hitSlop={12}
+                    accessibilityLabel="Close this flutter card"
+                  >
+                    <Ionicons name="close" size={20} color="#94A3B8" />
+                  </Pressable>
                   {/* Sender identity row — the whole strip is a Pressable
                       that opens the sender's profile so recipients can
                       learn a little about them before Chat / Flutter Back. */}
@@ -953,7 +965,7 @@ export default function Home() {
                     testID={`flutter-open-profile-${f.id}`}
                     onPress={() => router.push(`/user/${f.from_id}` as any)}
                     accessibilityLabel={`View ${f.from_name}'s profile`}
-                    style={styles.flutterSenderRow}
+                    style={[styles.flutterSenderRow, { paddingRight: 30 }]}
                     hitSlop={4}
                   >
                     <AvatarBubble value={f.from_avatar} size={36} fallback="🙂" />
@@ -1021,14 +1033,6 @@ export default function Home() {
                     >
                       <Ionicons name="time-outline" size={14} color="#64748B" />
                       <Text style={{ color: "#334155", fontWeight: "800", fontSize: 13 * scale }}>Later</Text>
-                    </Pressable>
-                    <Pressable
-                      testID={`flutter-dismiss-${f.id}`}
-                      onPress={() => dismissFlutter(f)}
-                      style={styles.dismissBtn}
-                      accessibilityLabel="Close this flutter card"
-                    >
-                      <Ionicons name="close" size={18} color="#94A3B8" />
                     </Pressable>
                   </View>
                 </View>
@@ -1335,6 +1339,17 @@ const styles = StyleSheet.create({
   },
   replyBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999 },
   dismissBtn: { padding: 6 },
+  flutterDismissCorner: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
+  },
   pointsCard: { flexDirection: "row", alignItems: "center", borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18, marginTop: 20, marginBottom: 8, borderWidth: 1.5 },
   pointsLabel: { fontWeight: "900", letterSpacing: 0.6 },
   pointsNum: { fontWeight: "900", marginTop: 2 },
