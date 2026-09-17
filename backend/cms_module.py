@@ -3317,7 +3317,21 @@ def build_router(db) -> APIRouter:
         # contacts. For any bulk audience the preview must render with a
         # neutral placeholder — the actual sent emails still personalise
         # each recipient in _campaign_send_worker unchanged.
-        recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=2)
+        # Preview must never depend on audience resolution succeeding — a
+        # broken/empty/legacy audience_filter (e.g. a segment that no longer
+        # exists, or an outreach query that errors) previously bubbled up as a
+        # 500 and made the composer preview unusable. Audience is only a
+        # personalisation nicety here; if it can't be resolved we fall back to
+        # the neutral bulk placeholder and still render the saved content.
+        try:
+            recipients = await _resolve_audience(c.get("audience_filter") or {}, limit=2)
+        except Exception:
+            import logging as _logging
+            _logging.getLogger("friendplace.campaigns").warning(
+                "render-preview: audience resolution failed for campaign %s; "
+                "falling back to neutral placeholder", campaign_id, exc_info=True,
+            )
+            recipients = []
         overrides: Dict[str, Any] = {}
         is_outreach = _is_outreach_campaign(c)
         if len(recipients) == 1:
@@ -3372,13 +3386,45 @@ def build_router(db) -> APIRouter:
                 (recipients[0] if len(recipients) == 1 else None),
                 bulk_preview=(len(recipients) != 1),
             )
-        subject, html, text = _preview_render(
-            c["template"],
-            companion=c.get("companion") or "george",
-            subject_override=(c.get("subject") or None),
-            preheader_override=(c.get("preheader") or None),
-            data_overrides=overrides or None,
-        )
+        if c.get("template") == "announcement":
+            # Preview 500 fix: render the announcement template DIRECTLY from
+            # the campaign's saved fields, instead of routing through
+            # _preview_render. The shared preview path forwards an
+            # `outreach_unsubscribe_url` override (iter164bd) which the active
+            # announcement_template does not accept, so outreach announcement
+            # previews (e.g. the Rotary draft) raised
+            # `TypeError: unexpected keyword argument 'outreach_unsubscribe_url'`
+            # → 500. Rendering directly with only the accepted fields makes the
+            # preview robust and independent of audience resolution. Name /
+            # founder pill still come from `overrides` (single-recipient real
+            # data or neutral bulk placeholder) computed above; the content
+            # comes from the saved title/body/cta/greeting/badge/companion and
+            # the saved subject/preheader.
+            from email_service import announcement_template as _announcement_template
+            subject, html, text = _announcement_template(
+                first_name=overrides.get("first_name") or "",
+                title=c.get("title") or "",
+                body_md=c.get("body_md") or "",
+                founder_number=(overrides.get("founder_number") or None),
+                cta_label=c.get("cta_label") or None,
+                cta_url=c.get("cta_url") or None,
+                greeting=(c.get("greeting") if c.get("greeting") is not None else None),
+                show_founder_badge=(
+                    c.get("show_founder_badge")
+                    if c.get("show_founder_badge") is not None else None
+                ),
+                companion=c.get("companion") or "george",
+                subject_override=(c.get("subject") or None),
+                preheader_override=(c.get("preheader") or None),
+            )
+        else:
+            subject, html, text = _preview_render(
+                c["template"],
+                companion=c.get("companion") or "george",
+                subject_override=(c.get("subject") or None),
+                preheader_override=(c.get("preheader") or None),
+                data_overrides=overrides or None,
+            )
         preview_recipient = recipients[0] if len(recipients) == 1 else None
         # iter164am — surface subject, preheader (extracted from the
         # rendered HTML's hidden preview div) and headline separately
