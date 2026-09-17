@@ -97,8 +97,8 @@ def announcement_template(
     cta_html = ""
     if cta_label and cta_url:
         cta_html = (
-            '<table role="presentation" cellpadding="0" cellspacing="0" style="margin:30px 0 26px 0;">'
-            '<tr><td style="border-radius:12px;background:#14B8A6;">'
+            '<table role="presentation" align="center" cellpadding="0" cellspacing="0" style="margin:30px auto 26px auto;">'
+            '<tr><td align="center" style="border-radius:12px;background:#14B8A6;">'
             f'<a href="{escape(cta_url)}" style="display:inline-block;padding:14px 24px;color:#FFFFFF;'
             'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;font-weight:800;'
             f'text-decoration:none;border-radius:12px;">{escape(cta_label)}</a></td></tr></table>'
@@ -158,7 +158,7 @@ def announcement_template(
 <div style="margin-top:7px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;letter-spacing:3px;color:#CBD5E1;">BECAUSE YOU BELONG TOO.</div></td></tr>
 <tr><td style="padding:34px 38px;border:1px solid rgba(255,255,255,.14);border-radius:20px;background:#0D2D4D;box-shadow:0 16px 44px rgba(0,0,0,.18);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:17px;line-height:1.65;color:{_TEXT};">
 <h1 style="margin:0 0 24px 0;color:#FFFFFF;font-size:27px;line-height:1.25;">{escape(heading)}</h1>
-{greeting_html}{founder_html}{_body_html(body_md)}{cta_html}{signature_html}{compliance_html}
+{greeting_html}{founder_html}{_body_html(body_md)}{signature_html}{cta_html}{compliance_html}
 </td></tr>
 <tr><td align="center" style="padding:20px 10px 0;color:#94A3B8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:19px;">
 <a href="https://www.friendplace.com.au" style="color:#5EEAD4;text-decoration:none;font-weight:700;">friendplace.com.au</a>
@@ -173,9 +173,9 @@ def announcement_template(
         + (rendered_greeting + "\n\n" if rendered_greeting else "")
         + founder_text
         + clean_body
-        + cta_text
         + "\n\n"
         + signature_text
+        + cta_text
         + compliance_text
     )
     return subject_override or heading, html, text
