@@ -243,6 +243,22 @@ export default function OutreachOrganisationDetailPage() {
 
     try {
       await outreachArchiveApi.archive(id);
+
+      // Keep the current review workflow moving. If this record was opened
+      // from a filtered/group list, advance straight to the next record in
+      // that exact list instead of dumping the user back at Outreach home.
+      if (nextId) {
+        router.replace(`/admin/outreach/${nextId}`);
+        return;
+      }
+
+      // If there is no next item, fall back to the previous record so the
+      // detail workflow stays open rather than returning to the main menu.
+      if (prevId) {
+        router.replace(`/admin/outreach/${prevId}`);
+        return;
+      }
+
       router.push('/admin/outreach');
     } catch (e: any) {
       setError(e?.message || 'Could not archive organisation.');
