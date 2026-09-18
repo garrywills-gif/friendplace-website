@@ -75,6 +75,7 @@ async function restoreCampaign(id: string) {
 
 export default function CampaignsListPage() {
   const [rows, setRows] = useState<CampaignWithArchive[]>([]);
+  const [allRows, setAllRows] = useState<CampaignWithArchive[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -89,9 +90,18 @@ export default function CampaignsListPage() {
     let cancelled = false;
     const load = async () => {
       try {
-        const r = showArchived ? await listArchivedCampaigns() : await campaignsApi.list();
+        const [active, archived] = await Promise.all([
+          campaignsApi.list(),
+          listArchivedCampaigns(),
+        ]);
         if (!cancelled) {
-          setRows((r.rows || []) as CampaignWithArchive[]);
+          const activeRows = (active.rows || []) as CampaignWithArchive[];
+          const archivedRows = ((archived.rows || []) as CampaignWithArchive[]).map(row => ({
+            ...row,
+            is_archived: true,
+          }));
+          setRows(showArchived ? archivedRows : activeRows);
+          setAllRows([...activeRows, ...archivedRows]);
           setErr(null);
         }
       } catch (e: any) {
@@ -112,6 +122,7 @@ export default function CampaignsListPage() {
     try {
       await campaignsApi.remove(deleteTarget.id);
       setRows(current => current.filter(c => c.id !== deleteTarget.id));
+      setAllRows(current => current.filter(c => c.id !== deleteTarget.id));
       setDeleteTarget(null);
       setErr(null);
     } catch (e: any) {
@@ -127,6 +138,7 @@ export default function CampaignsListPage() {
     try {
       await archiveCampaign(archiveTarget.id);
       setRows(current => current.filter(c => c.id !== archiveTarget.id));
+      setAllRows(current => current.map(c => c.id === archiveTarget.id ? { ...c, is_archived: true } : c));
       setArchiveTarget(null);
       setErr(null);
     } catch (e: any) {
@@ -141,6 +153,7 @@ export default function CampaignsListPage() {
     try {
       await restoreCampaign(campaign.id);
       setRows(current => current.filter(c => c.id !== campaign.id));
+      setAllRows(current => current.map(c => c.id === campaign.id ? { ...c, is_archived: false } : c));
       setErr(null);
     } catch (e: any) {
       setErr(e?.message || 'Could not restore campaign');
@@ -149,7 +162,7 @@ export default function CampaignsListPage() {
     }
   };
 
-  const metricTotals = rows.reduce((totals, campaign) => {
+  const metricTotals = allRows.reduce((totals, campaign) => {
     const stats = campaign.stats || ({} as Campaign['stats']);
     totals.delivered += stats.delivered || 0;
     totals.opened += stats.unique_opens ?? stats.opened ?? 0;
@@ -159,7 +172,8 @@ export default function CampaignsListPage() {
     return totals;
   }, { delivered: 0, opened: 0, clicked: 0, bounced: 0, complained: 0 });
 
-  const filteredRows = rows.filter(campaign => {
+  const metricSourceRows = metricFilter === 'all' ? rows : allRows;
+  const filteredRows = metricSourceRows.filter(campaign => {
     if (metricFilter === 'all') return true;
     const stats = campaign.stats || ({} as Campaign['stats']);
     if (metricFilter === 'opened') return (stats.unique_opens ?? stats.opened ?? 0) > 0;
@@ -199,11 +213,11 @@ export default function CampaignsListPage() {
         </div>
       )}
 
-      {!loading && !err && rows.length > 0 && (
+      {!loading && !err && allRows.length > 0 && (
         <div style={metricGrid} aria-label="Campaign totals">
           <MetricCard
-            label="All"
-            value={rows.length}
+            label="Total campaigns"
+            value={allRows.length}
             active={metricFilter === 'all'}
             onClick={() => setMetricFilter('all')}
           />
@@ -291,7 +305,12 @@ export default function CampaignsListPage() {
                   style={{ ...rowMainLink, textDecoration: 'none', color: 'inherit' }}
                 >
                   <div style={{ flex: '2 1 0', minWidth: 0 }}>
-                    <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>{c.name}</div>
+                    <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 15 }}>
+                      {c.name}
+                      {c.is_archived && metricFilter !== 'all' && (
+                        <span style={archivedPill}>Archived</span>
+                      )}
+                    </div>
                     <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
                       {outreach ? 'Community / Outreach update' :
                         c.template === 'announcement' ? 'Founding Member update' :
@@ -346,7 +365,7 @@ export default function CampaignsListPage() {
                 </Link>
 
                 <div style={{ flex: '0 0 150px', textAlign: 'right' }}>
-                  {showArchived ? (
+                  {(showArchived || (metricFilter !== 'all' && c.is_archived)) ? (
                     <button
                       type="button"
                       disabled={restoringId === c.id}
@@ -597,6 +616,17 @@ const rowLine: React.CSSProperties = {
 };
 const rowMainLink: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: '1 1 auto',
+};
+const archivedPill: React.CSSProperties = {
+  display: 'inline-block',
+  marginLeft: 8,
+  padding: '2px 7px',
+  borderRadius: 999,
+  background: '#F1F5F9',
+  color: '#64748B',
+  fontSize: 10,
+  fontWeight: 800,
+  verticalAlign: 'middle',
 };
 const editBtn: React.CSSProperties = {
   border: '1px solid #99F6E4', background: '#F0FDFA', color: '#0F766E',
