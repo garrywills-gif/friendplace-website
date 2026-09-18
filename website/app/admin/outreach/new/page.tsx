@@ -1,126 +1,368 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AdminShell } from '@/components/admin/AdminShell';
-import { outreachApi, type OutreachOrgIn } from '@/lib/cms-api';
+import Link from 'next/link';
+import { AdminShell, adminStyles } from '@/components/admin/AdminShell';
+import {
+  outreachApi,
+  type OutreachOrgIn,
+  type OutreachStatus,
+} from '@/lib/cms-api';
 
-export default function NewOutreachPage() {
+const STATUS_OPTIONS: Array<{ value: OutreachStatus; label: string }> = [
+  { value: 'not_contacted', label: 'Not contacted' },
+  { value: 'contacted', label: 'Contacted' },
+  { value: 'awaiting_reply', label: 'Awaiting our reply' },
+  { value: 'replied', label: 'Replied' },
+  { value: 'joined', label: 'Joined' },
+  { value: 'declined', label: 'Declined' },
+  { value: 'bounced', label: 'Bounced' },
+  { value: 'unsubscribed', label: 'Unsubscribed' },
+];
+
+export default function NewOutreachOrganisationPage() {
   const router = useRouter();
-  const [categories, setCategories] = useState<string[]>([]);
+
   const [form, setForm] = useState<OutreachOrgIn>({
-    organisation_name: '', email: '', contact_name: '', phone: '',
-    category: '', suburb: '', state: '', notes: '',
+    organisation_name: '',
+    email: '',
+    contact_name: '',
+    phone: '',
+    category: 'retirement_village',
+    tags: [],
+    suburb: '',
+    state: 'NSW',
+    notes: '',
+    status: 'not_contacted',
   });
-  const [tagsInput, setTagsInput] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { outreachApi.meta().then((m) => setCategories(m.categories)); }, []);
+  const [tagInput, setTagInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const canSave = form.organisation_name.trim() && form.email.includes('@') && !busy;
+  const update = <K extends keyof OutreachOrgIn>(
+    key: K,
+    value: OutreachOrgIn[K],
+  ) => {
+    setForm((current) => ({ ...current, [key]: value }));
+  };
+
+  const addTag = () => {
+    const tag = tagInput.trim();
+    if (!tag) return;
+
+    const currentTags = form.tags || [];
+    if (!currentTags.includes(tag)) {
+      update('tags', [...currentTags, tag]);
+    }
+
+    setTagInput('');
+  };
+
+  const removeTag = (tag: string) => {
+    update(
+      'tags',
+      (form.tags || []).filter((t) => t !== tag),
+    );
+  };
 
   const save = async () => {
-    if (!canSave) return;
-    setBusy(true); setErr(null);
+    if (!form.organisation_name.trim()) {
+      setError('Organisation name is required.');
+      return;
+    }
+
+    if (!form.email.trim() || !form.email.includes('@')) {
+      setError('A valid email address is required.');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
     try {
-      const tags = tagsInput.split(',').map((t) => t.trim()).filter(Boolean);
-      const org = await outreachApi.create({ ...form, tags });
-      router.push(`/admin/outreach/${org.id}`);
+      const created = await outreachApi.create({
+        ...form,
+        organisation_name: form.organisation_name.trim(),
+        email: form.email.trim(),
+        contact_name: form.contact_name?.trim() || '',
+        phone: form.phone?.trim() || '',
+        category: form.category?.trim() || '',
+        suburb: form.suburb?.trim() || '',
+        state: form.state?.trim() || '',
+        notes: form.notes?.trim() || '',
+      });
+
+      router.push(`/admin/outreach/${created.id}`);
     } catch (e: any) {
-      setErr(e?.message || String(e));
-    } finally { setBusy(false); }
+      setError(e?.message || 'Could not create organisation.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <AdminShell title="Add Organisation">
+    <AdminShell title="New outreach organisation">
       <p style={crumbs}>
-        <Link href="/admin/crm" style={crumbLink}>CRM</Link>{' › '}
-        <Link href="/admin/outreach" style={crumbLink}>Outreach</Link>{' › '}Add
-        — organisation name + email is all you need. Fill in the rest whenever suits.
+        <Link href="/admin/outreach" style={crumbLink}>
+          Organisation Outreach
+        </Link>
+        {' › '}New organisation
       </p>
 
       <div style={card}>
-        <label style={label}>Organisation name <span style={required}>*</span></label>
-        <input style={input} value={form.organisation_name}
-          onChange={(e) => setForm({ ...form, organisation_name: e.target.value })}
-          placeholder="Hillside Retirement Village" autoFocus />
+        <div style={grid}>
+          <Field label="Organisation name *">
+            <input
+              value={form.organisation_name}
+              onChange={(e) => update('organisation_name', e.target.value)}
+              style={adminStyles.input}
+              placeholder="e.g. The Ponds Retirement Village"
+            />
+          </Field>
 
-        <label style={label}>Email <span style={required}>*</span></label>
-        <input style={input} type="email" value={form.email}
-          onChange={(e) => setForm({ ...form, email: e.target.value })}
-          placeholder="reception@hillside.example.com" />
+          <Field label="Contact name">
+            <input
+              value={form.contact_name || ''}
+              onChange={(e) => update('contact_name', e.target.value)}
+              style={adminStyles.input}
+              placeholder="e.g. Elizabeth Smith"
+            />
+          </Field>
 
-        <div style={row}>
-          <div style={{ flex: 1 }}>
-            <label style={label}>Contact name</label>
-            <input style={input} value={form.contact_name}
-              onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
-              placeholder="Sarah Jones" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>Phone</label>
-            <input style={input} value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              placeholder="(02) 9000 0000" />
-          </div>
-        </div>
+          <Field label="Email *">
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => update('email', e.target.value)}
+              style={adminStyles.input}
+              placeholder="reception@example.com.au"
+            />
+          </Field>
 
-        <div style={row}>
-          <div style={{ flex: 1 }}>
-            <label style={label}>Category</label>
-            <select style={input} value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              <option value="">— choose —</option>
-              {categories.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+          <Field label="Phone">
+            <input
+              value={form.phone || ''}
+              onChange={(e) => update('phone', e.target.value)}
+              style={adminStyles.input}
+              placeholder="02 0000 0000"
+            />
+          </Field>
+
+          <Field label="Category">
+            <input
+              value={form.category || ''}
+              onChange={(e) => update('category', e.target.value)}
+              style={adminStyles.input}
+              placeholder="retirement_village"
+            />
+          </Field>
+
+          <Field label="Status">
+            <select
+              value={form.status || 'not_contacted'}
+              onChange={(e) =>
+                update('status', e.target.value as OutreachStatus)
+              }
+              style={adminStyles.input}
+            >
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
-          </div>
-          <div style={{ flex: 1 }}>
-            <label style={label}>Suburb</label>
-            <input style={input} value={form.suburb}
-              onChange={(e) => setForm({ ...form, suburb: e.target.value })}
-              placeholder="Kellyville" />
-          </div>
-          <div style={{ width: 100 }}>
-            <label style={label}>State</label>
-            <input style={input} value={form.state}
-              onChange={(e) => setForm({ ...form, state: e.target.value })}
-              placeholder="NSW" />
+          </Field>
+
+          <Field label="Suburb">
+            <input
+              value={form.suburb || ''}
+              onChange={(e) => update('suburb', e.target.value)}
+              style={adminStyles.input}
+              placeholder="The Ponds"
+            />
+          </Field>
+
+          <Field label="State">
+            <input
+              value={form.state || ''}
+              onChange={(e) => update('state', e.target.value)}
+              style={adminStyles.input}
+              placeholder="NSW"
+            />
+          </Field>
+        </div>
+
+        <div style={{ marginTop: 18 }}>
+          <label style={adminStyles.label}>Tags</label>
+
+          <div style={tagBox}>
+            {(form.tags || []).map((tag) => (
+              <span key={tag} style={tagPill}>
+                {tag}
+                <button
+                  type="button"
+                  onClick={() => removeTag(tag)}
+                  style={tagRemove}
+                  aria-label={`Remove ${tag}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+
+            <input
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ',') {
+                  e.preventDefault();
+                  addTag();
+                }
+              }}
+              placeholder="Type a tag and press Enter"
+              style={tagInputStyle}
+            />
           </div>
         </div>
 
-        <label style={label}>Tags <span style={muted}>(comma-separated)</span></label>
-        <input style={input} value={tagsInput}
-          onChange={(e) => setTagsInput(e.target.value)}
-          placeholder="e.g. hills-district, priority" />
+        <div style={{ marginTop: 18 }}>
+          <label style={adminStyles.label}>Notes</label>
+          <textarea
+            value={form.notes || ''}
+            onChange={(e) => update('notes', e.target.value)}
+            style={{ ...adminStyles.textarea, minHeight: 130 }}
+            placeholder="Anything useful to remember about this organisation or contact."
+          />
+        </div>
 
-        <label style={label}>Notes</label>
-        <textarea style={{ ...input, minHeight: 100, resize: 'vertical', fontFamily: 'inherit' }}
-          value={form.notes}
-          onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          placeholder="Anything worth remembering about them…" />
+        {error && <div style={errorBox}>{error}</div>}
 
-        <div style={{ display: 'flex', gap: 12, marginTop: 20, alignItems: 'center' }}>
-          <button onClick={save} disabled={!canSave}
-            style={{ ...sendBtn, opacity: canSave ? 1 : 0.5, cursor: canSave ? 'pointer' : 'not-allowed' }}
-            data-testid="save-outreach-org">
-            {busy ? 'Saving…' : 'Save organisation'}
+        <div style={actions}>
+          <Link
+            href="/admin/outreach"
+            style={{ ...adminStyles.ghostBtn, textDecoration: 'none' }}
+          >
+            Cancel
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving}
+            style={{
+              ...adminStyles.primaryBtn,
+              opacity: saving ? 0.6 : 1,
+              cursor: saving ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {saving ? 'Saving…' : 'Create organisation'}
           </button>
-          <Link href="/admin/outreach" style={muted}>Cancel</Link>
-          {err && <span style={{ color: '#991B1B', fontSize: 13, fontWeight: 600 }}>{err}</span>}
         </div>
       </div>
     </AdminShell>
   );
 }
 
-const crumbs: React.CSSProperties = { margin: '4px 0 20px', color: '#475569', fontSize: 13, lineHeight: 1.5 };
-const crumbLink: React.CSSProperties = { color: '#0F766E', textDecoration: 'none', fontWeight: 700 };
-const card: React.CSSProperties = { background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 16, padding: 24, maxWidth: 720 };
-const label: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', marginTop: 12, marginBottom: 4 };
-const input: React.CSSProperties = { display: 'block', width: '100%', boxSizing: 'border-box', border: '1px solid #E2E8F0', borderRadius: 10, padding: '10px 12px', fontSize: 14, color: '#0F172A', background: '#FFFFFF' };
-const row: React.CSSProperties = { display: 'flex', gap: 12 };
-const sendBtn: React.CSSProperties = { background: '#0D9488', color: '#FFFFFF', border: 'none', borderRadius: 12, padding: '10px 22px', fontSize: 14, fontWeight: 800 };
-const muted: React.CSSProperties = { color: '#94A3B8', fontWeight: 500, fontSize: 11, textDecoration: 'none' };
-const required: React.CSSProperties = { color: '#DC2626' };
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label style={adminStyles.label}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const crumbs: React.CSSProperties = {
+  fontSize: 13,
+  color: '#475569',
+  marginTop: 0,
+  marginBottom: 18,
+};
+
+const crumbLink: React.CSSProperties = {
+  color: '#0D9488',
+  fontWeight: 700,
+  textDecoration: 'none',
+};
+
+const card: React.CSSProperties = {
+  background: '#FFFFFF',
+  border: '1px solid #E2E8F0',
+  borderRadius: 16,
+  padding: 22,
+  maxWidth: 900,
+};
+
+const grid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+  gap: 16,
+};
+
+const tagBox: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 8,
+  alignItems: 'center',
+  minHeight: 44,
+  padding: '7px 9px',
+  border: '1.5px solid #CBD5E1',
+  borderRadius: 12,
+  background: '#FFFFFF',
+};
+
+const tagPill: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  padding: '4px 9px',
+  borderRadius: 999,
+  background: '#F0FDFA',
+  color: '#0F766E',
+  fontSize: 12,
+  fontWeight: 700,
+};
+
+const tagRemove: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: '#0F766E',
+  cursor: 'pointer',
+  fontSize: 15,
+  lineHeight: 1,
+  padding: 0,
+};
+
+const tagInputStyle: React.CSSProperties = {
+  border: 'none',
+  outline: 'none',
+  flex: '1 1 180px',
+  minWidth: 160,
+  fontSize: 13,
+  background: 'transparent',
+};
+
+const actions: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  gap: 10,
+  marginTop: 22,
+  flexWrap: 'wrap',
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: 12,
+  borderRadius: 10,
+  background: '#FEF2F2',
+  color: '#B91C1C',
+  fontSize: 13,
+};

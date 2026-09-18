@@ -46,33 +46,44 @@ export function AuthedFlyerImage({
 }: Props) {
   const [url, setUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     let current: string | null = null;
     setStatus('loading');
     setUrl(null);
+    setErrorMessage('');
 
-    (async () => {
-      try {
-        const res = await flyersApi.renderBlob(templateKey, { layout, fields });
-        if (cancelled) {
-          URL.revokeObjectURL(res.url);
-          return;
+    // Trailing-edge debounce: rapid editor changes collapse into one
+    // render request using the latest field values instead of queuing a
+    // full backend image generation for every keystroke.
+    const timer = window.setTimeout(() => {
+      (async () => {
+        try {
+          const res = await flyersApi.renderBlob(templateKey, { layout, fields });
+          if (cancelled) {
+            URL.revokeObjectURL(res.url);
+            return;
+          }
+          current = res.url;
+          setUrl(res.url);
+          setStatus('ready');
+        } catch (e: any) {
+          if (!cancelled) {
+            const message = e?.message || 'Preview could not be loaded';
+            setErrorMessage(message);
+            setStatus('error');
+            onError?.(message);
+            console.error('[FlyerPreview] render failed', e);
+          }
         }
-        current = res.url;
-        setUrl(res.url);
-        setStatus('ready');
-      } catch (e: any) {
-        if (!cancelled) {
-          setStatus('error');
-          onError?.(e?.message || 'Preview could not be loaded');
-        }
-      }
-    })();
+      })();
+    }, 350);
 
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
       if (current) URL.revokeObjectURL(current);
     };
     // Rebuild whenever the identity of the render changes. Serialising
@@ -84,11 +95,13 @@ export function AuthedFlyerImage({
     return (
       <div
         role="img"
-        aria-label={`${alt} — preview unavailable`}
+        aria-label={`${alt} — preview unavailable${errorMessage ? `: ${errorMessage}` : ''}`}
         style={{
           width: '100%',
           height: '100%',
           display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
           alignItems: 'center',
           justifyContent: 'center',
           background: '#FEF2F2',
@@ -101,7 +114,12 @@ export function AuthedFlyerImage({
         }}
         className={className}
       >
-        Preview unavailable
+        <div>Preview unavailable</div>
+        {errorMessage && (
+          <div style={{ fontSize: 11, fontWeight: 500, maxWidth: 420, wordBreak: 'break-word' }}>
+            {errorMessage}
+          </div>
+        )}
       </div>
     );
   }

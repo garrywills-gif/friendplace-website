@@ -18,8 +18,10 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
+import { campaignRetryTransientApi } from '@/lib/campaign-retry-transient-api';
 import {
   campaignsApi,
+  outreachApi,
   type Campaign,
   type CampaignRecipient,
   type CampaignRecipientEvent,
@@ -27,6 +29,8 @@ import {
 
 // ── Filter tabs above the recipient roster ──────────────────────
 type RecipientFilter = 'all' | 'opened' | 'clicked' | 'not_opened' | 'bounced';
+
+type OutreachNumberMap = Record<string, number>;
 
 const FILTER_LABEL: Record<RecipientFilter, string> = {
   all:        'All',
@@ -36,12 +40,40 @@ const FILTER_LABEL: Record<RecipientFilter, string> = {
   bounced:    'Bounced / complained',
 };
 
+function currentEventType(r: CampaignRecipient): string {
+  return String(r.last_event_type || '').toLowerCase();
+}
+
+function isCurrentlyBounced(r: CampaignRecipient): boolean {
+  const last = currentEventType(r);
+  if (last) return last === 'email.bounced' || last === 'email.complained';
+
+  const status = String(r.status || '').toLowerCase();
+  if (status) return status === 'bounced' || status === 'complained';
+
+  // Legacy rows may not have last_event_type/status populated.
+  return !!r.bounced_at || !!r.complained_at;
+}
+
+function isCurrentlyDelivered(r: CampaignRecipient): boolean {
+  if (isCurrentlyBounced(r)) return false;
+
+  const last = currentEventType(r);
+  if (last) {
+    return last === 'email.delivered' || last === 'email.opened' || last === 'email.clicked';
+  }
+
+  const status = String(r.status || '').toLowerCase();
+  if (status === 'failed' || status === 'bounced' || status === 'complained') return false;
+
+  return !!r.delivered_at || status === 'delivered' || !!r.first_opened_at || !!r.first_clicked_at;
+}
+
 function matchesFilter(r: CampaignRecipient, f: RecipientFilter): boolean {
-  const status = (r.status || '').toLowerCase();
   const opened = !!r.first_opened_at;
   const clicked = !!r.first_clicked_at;
-  const bounced = !!r.bounced_at || !!r.complained_at || status === 'bounced' || status === 'complained';
-  const delivered = !!r.delivered_at || status === 'delivered' || opened || clicked;
+  const bounced = isCurrentlyBounced(r);
+  const delivered = isCurrentlyDelivered(r);
   switch (f) {
     case 'all':        return true;
     case 'opened':     return opened && !bounced;
@@ -49,6 +81,13 @@ function matchesFilter(r: CampaignRecipient, f: RecipientFilter): boolean {
     case 'not_opened': return delivered && !opened && !bounced;
     case 'bounced':    return bounced;
   }
+}
+
+function recipientReference(r: CampaignRecipient, outreachNumbers: OutreachNumberMap): string | null {
+  const outreachNumber = Number((r as any).outreach_number || outreachNumbers[String((r as any).outreach_id || '')] || 0);
+  if (outreachNumber >= 20001) return `#${outreachNumber}`;
+  if (r.founder_number && r.founder_number > 0) return `#${String(r.founder_number).padStart(4, '0')}`;
+  return null;
 }
 
 // ── The page ───────────────────────────────────────────────────
@@ -60,6 +99,8 @@ export default function CampaignDetailPage() {
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<RecipientFilter>('all');
   const [openTimelineFor, setOpenTimelineFor] = useState<CampaignRecipient | null>(null);
+  const [outreachNumbers, setOutreachNumbers] = useState<OutreachNumberMap>({});
+  const [retrying, setRetrying] = useState(false);
   // Scale the fixed 620px email down to fit the "What was sent" panel at
   // natural proportions (CSS/container only — email HTML unchanged).
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
@@ -73,6 +114,8 @@ export default function CampaignDetailPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [campaign?.sample_html]);
+  const [retryingTransient, setRetryingTransient] = useState(false);
+  const [retryNotice, setRetryNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,6 +134,26 @@ export default function CampaignDetailPage() {
     return () => { cancelled = true; clearInterval(t); };
   }, [id]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await outreachApi.list({ limit: 500 });
+        if (cancelled) return;
+        const map: OutreachNumberMap = {};
+        for (const org of result.organisations || []) {
+          const n = Number((org as any).outreach_number || 0);
+          if (org.id && n >= 20001) map[String(org.id)] = n;
+        }
+        setOutreachNumbers(map);
+      } catch {
+        // Campaign history still works if the outreach list cannot be loaded.
+        // Newer recipient rows carry outreach_number themselves.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const filteredRecipients = useMemo(() => {
     if (!campaign) return [];
     return campaign.recipients.filter((r) => matchesFilter(r, filter));
@@ -107,14 +170,74 @@ export default function CampaignDetailPage() {
   const accepted = stats.accepted || 0;
   const uniqueOpens  = stats.unique_opens  ?? stats.opened  ?? 0;
   const uniqueClicks = stats.unique_clicks ?? stats.clicked ?? 0;
-  const delivered = stats.delivered || 0;
-  const bounced   = stats.bounced   || 0;
+  // Headline delivery/bounce metrics reflect each recipient's CURRENT/latest
+  // state. The backend aggregate remains historical and is still preserved in
+  // the timeline/raw event data for audit purposes.
+  const delivered = campaign.recipients.filter(isCurrentlyDelivered).length;
+  const bounced = campaign.recipients.filter(isCurrentlyBounced).length;
   const complained = stats.complained || 0;
   const deliveryRate = accepted ? delivered / accepted : 0;
   const openRate     = accepted ? uniqueOpens  / accepted : 0;
   const clickRate    = accepted ? uniqueClicks / accepted : 0;
   const bounceRate   = accepted ? bounced      / accepted : 0;
   const isDraft = campaign.status === 'draft';
+  const audienceKind = String((campaign as any).audience_filter?.audience_kind || '');
+  const isOutreachCampaign = audienceKind === 'outreach' || audienceKind === 'outreach_contacts';
+
+  // Count of recipients CURRENTLY eligible for retry — computed live
+  // from the recipient rows, never from the (possibly stale) aggregate.
+  const eligibleFailed = campaign.recipients.filter(
+    (r) => (r.status || '').toLowerCase() === 'failed',
+  ).length;
+
+  const retryFailed = async () => {
+    if (retrying || eligibleFailed < 1) return;
+    if (!window.confirm(`Retry ${eligibleFailed} failed email${eligibleFailed === 1 ? '' : 's'}?`)) return;
+    setRetrying(true);
+    setRetryNotice(null);
+    try {
+      const res = await campaignsApi.retryFailed(campaign.id);
+      setRetryNotice(
+        `Retried ${res.retried}: ${res.succeeded} sent` +
+        (res.failed_again ? `, ${res.failed_again} still failed` : '') + '.',
+      );
+      const fresh = await campaignsApi.get(campaign.id);
+      setCampaign(fresh);
+    } catch (e: any) {
+      setRetryNotice(e?.message || 'Retry could not be completed.');
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  const retryTransientBounces = async () => {
+    if (retryingTransient || bounced < 1) return;
+    const ok = window.confirm(
+      'Retry transient / soft bounces in this campaign?\n\nPermanent / hard bounces will never be retried.',
+    );
+    if (!ok) return;
+
+    setRetryingTransient(true);
+    setRetryNotice(null);
+    try {
+      const res = await campaignRetryTransientApi.retry(campaign.id);
+      if (res.attempted < 1) {
+        setRetryNotice('No transient or soft bounces are currently eligible for retry.');
+      } else {
+        setRetryNotice(
+          `Retried ${res.attempted} transient bounce${res.attempted === 1 ? '' : 's'}: ${res.succeeded} sent` +
+          (res.failed_again ? `, ${res.failed_again} failed again` : '') +
+          (res.suppressed ? `, ${res.suppressed} suppressed` : '') + '.',
+        );
+      }
+      const fresh = await campaignsApi.get(campaign.id);
+      setCampaign(fresh);
+    } catch (e: any) {
+      setRetryNotice(e?.message || 'Transient bounce retry could not be completed.');
+    } finally {
+      setRetryingTransient(false);
+    }
+  };
 
   const counters = campaign.recipients.reduce(
     (acc, r) => {
@@ -137,9 +260,15 @@ export default function CampaignDetailPage() {
         <div>
           <h2 style={{ margin: 0, fontSize: 28, color: '#0A2540', fontWeight: 900 }}>{campaign.name}</h2>
           <div style={{ marginTop: 6, color: '#475569', fontSize: 14 }}>
-            {campaign.template === 'announcement' ? 'Founding Member update' :
+            {isOutreachCampaign ? 'Outreach campaign' :
+              campaign.template === 'announcement' ? 'Founding Member update' :
               campaign.template === 'invitation' ? 'Invitation' : 'Welcome letter'}
-            {' · '}signed by {campaign.companion === 'georgia' ? 'Georgia' : 'George'}
+            {' · '}signed by {
+              campaign.companion === 'team'    ? 'The FriendPlace Team' :
+              campaign.companion === 'georgia' ? 'Georgia' :
+              campaign.companion === 'none'    ? 'no additional sign-off' :
+                                                 'George'
+            }
             {campaign.sent_at && (
               <> · sent {new Date(campaign.sent_at).toLocaleString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</>
             )}
@@ -168,17 +297,60 @@ export default function CampaignDetailPage() {
       <div style={statsGrid}>
         <StatTile label="Targeted"  value={stats.targeted || 0}  tone="muted" />
         <StatTile label="Accepted"  value={accepted}              tone="muted" />
-        <StatTile label="Failed"    value={stats.failed || 0}     tone={(stats.failed || 0) > 0 ? 'red' : 'muted'} />
+        <StatTile label="Failed"    value={stats.failed || 0}     tone={(stats.failed || 0) > 0 ? 'red' : 'muted'}
+                  action={eligibleFailed > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => void retryFailed()}
+                      disabled={retrying}
+                      style={{
+                        marginTop: 10, padding: '6px 10px', borderRadius: 8,
+                        border: '1.5px solid #B91C1C', background: retrying ? '#FCA5A5' : '#B91C1C',
+                        color: '#FFFFFF', fontSize: 12, fontWeight: 800,
+                        cursor: retrying ? 'wait' : 'pointer', width: '100%',
+                      }}
+                    >
+                      {retrying ? 'Retrying…' : `Retry failed emails${eligibleFailed !== (stats.failed || 0) ? ` (${eligibleFailed})` : ''}`}
+                    </button>
+                  ) : null} />
         <StatTile label="Opens (raw)"  value={stats.opened  || 0} tone="muted" />
         <StatTile label="Clicks (raw)" value={stats.clicked || 0} tone="muted" />
         <StatTile label="Complaints"   value={complained}
                   tone={complained > 0 ? 'red' : 'muted'} />
       </div>
-      <div style={{ ...s.helper, marginTop: 8, marginBottom: 20 }}>
+      <div style={{ ...s.helper, marginTop: 8, marginBottom: bounced > 0 ? 10 : 20 }}>
         Rates use <strong>unique</strong> opens / clicks (each recipient
-        counted once). Raw counts include repeat opens. Delivered / Opened /
-        Clicked / Bounced / Complained update live from Resend webhooks.
+        counted once). Delivered and Bounced reflect each recipient's current
+        latest state; raw counts and timelines retain the full event history.
       </div>
+
+      {bounced > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
+          <button
+            type="button"
+            onClick={() => void retryTransientBounces()}
+            disabled={retryingTransient}
+            title="Only transient / soft bounces are retried. Permanent / hard bounces are always excluded."
+            style={{
+              padding: '8px 12px', borderRadius: 10,
+              border: '1.5px solid #B45309', background: retryingTransient ? '#FDE68A' : '#FFFBEB',
+              color: '#92400E', fontSize: 12, fontWeight: 900,
+              cursor: retryingTransient ? 'wait' : 'pointer',
+            }}
+          >
+            {retryingTransient ? 'Retrying transient bounces…' : 'Retry transient bounces'}
+          </button>
+        </div>
+      )}
+
+      {retryNotice && (
+        <div style={{
+          marginTop: -8, marginBottom: 20, padding: '10px 14px', borderRadius: 12,
+          background: '#ECFDF5', border: '1px solid #6EE7B7', color: '#047857', fontSize: 13, fontWeight: 700,
+        }}>
+          {retryNotice}
+        </div>
+      )}
 
       {/* Two-column: recipient roster (with filters + timeline) + archived email */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 20, marginTop: 12 }}>
@@ -216,32 +388,37 @@ export default function CampaignDetailPage() {
                   filter === 'all' ? 'No recipients recorded.' : 'No recipients in this filter.'}
               </div>
             ) : (
-              filteredRecipients.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => setOpenTimelineFor(r)}
-                  style={{
-                    display: 'flex', width: '100%', textAlign: 'left', padding: '12px 16px',
-                    gap: 10, alignItems: 'center', border: 'none',
-                    background: '#FFFFFF', borderTop: '1px solid #F1F5F9', cursor: 'pointer',
-                  }}
-                >
-                  <span style={{
-                    padding: '2px 8px', borderRadius: 6,
-                    background: '#F0FDFA', color: '#0F766E', border: '1px solid #99F6E4',
-                    fontSize: 11, fontWeight: 900, fontVariantNumeric: 'tabular-nums',
-                  }}>
-                    #{String(r.founder_number ?? 0).padStart(4, '0')}
-                  </span>
-                  <div style={{ flex: '1 1 0', minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, color: '#0A2540', fontSize: 14 }}>
-                      {r.first_name || '(unnamed)'}
+              filteredRecipients.map((r) => {
+                const ref = recipientReference(r, outreachNumbers);
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => setOpenTimelineFor(r)}
+                    style={{
+                      display: 'flex', width: '100%', textAlign: 'left', padding: '12px 16px',
+                      gap: 10, alignItems: 'center', border: 'none',
+                      background: '#FFFFFF', borderTop: '1px solid #F1F5F9', cursor: 'pointer',
+                    }}
+                  >
+                    {ref && (
+                      <span style={{
+                        padding: '2px 8px', borderRadius: 6,
+                        background: '#F0FDFA', color: '#0F766E', border: '1px solid #99F6E4',
+                        fontSize: 11, fontWeight: 900, fontVariantNumeric: 'tabular-nums',
+                      }}>
+                        {ref}
+                      </span>
+                    )}
+                    <div style={{ flex: '1 1 0', minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: '#0A2540', fontSize: 14 }}>
+                        {r.first_name || '(unnamed)'}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748B' }}>{r.email}</div>
                     </div>
-                    <div style={{ fontSize: 12, color: '#64748B' }}>{r.email}</div>
-                  </div>
-                  <RecipientPill r={r} />
-                </button>
-              ))
+                    <RecipientPill r={r} />
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
@@ -279,6 +456,7 @@ export default function CampaignDetailPage() {
         <RecipientTimelineModal
           campaignId={id}
           recipient={openTimelineFor}
+          displayReference={recipientReference(openTimelineFor, outreachNumbers)}
           onClose={() => setOpenTimelineFor(null)}
         />
       )}
@@ -288,10 +466,18 @@ export default function CampaignDetailPage() {
 
 // ── Modal — per-recipient timeline drill-down ────────────────────
 function RecipientTimelineModal({
-  campaignId, recipient, onClose,
-}: { campaignId: string; recipient: CampaignRecipient; onClose: () => void }) {
+  campaignId, recipient, displayReference, onClose,
+}: {
+  campaignId: string;
+  recipient: CampaignRecipient;
+  displayReference: string | null;
+  onClose: () => void;
+}) {
   const [events, setEvents] = useState<CampaignRecipientEvent[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [removed, setRemoved] = useState(false);
+  const [removeErr, setRemoveErr] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -305,6 +491,33 @@ function RecipientTimelineModal({
     })();
     return () => { cancelled = true; };
   }, [campaignId, recipient.id]);
+
+  const bounceEvent = events
+    ? [...events].reverse().find((e) => e.type === 'email.bounced')
+    : undefined;
+  const bounceType = String(bounceEvent?.meta?.bounce_type || (recipient as any).bounce_type || '').toLowerCase();
+  const isPermanentBounce = bounceType.includes('permanent') || bounceType.includes('hard');
+  const isTransientBounce = bounceType.includes('transient') || bounceType.includes('soft');
+  const outreachId = String((recipient as any).outreach_id || '');
+
+  const removeFromOutreach = async () => {
+    if (!outreachId || removing || removed) return;
+    const ok = window.confirm(
+      `Remove ${displayReference ? `${displayReference} · ` : ''}${recipient.email} from the active Outreach database?\n\nThe campaign timeline and historical send record will be kept.`,
+    );
+    if (!ok) return;
+
+    setRemoving(true);
+    setRemoveErr(null);
+    try {
+      await outreachApi.del(outreachId);
+      setRemoved(true);
+    } catch (e: any) {
+      setRemoveErr(e?.message || 'Could not remove this outreach record.');
+    } finally {
+      setRemoving(false);
+    }
+  };
 
   return (
     <div
@@ -331,7 +544,7 @@ function RecipientTimelineModal({
               EMAIL TIMELINE
             </div>
             <h3 style={{ margin: '4px 0 2px', fontSize: 20, fontWeight: 900, color: '#0A2540' }}>
-              {recipient.first_name || '(unnamed)'} · #{String(recipient.founder_number ?? 0).padStart(4, '0')}
+              {recipient.first_name || '(unnamed)'}{displayReference ? ` · ${displayReference}` : ''}
             </h3>
             <div style={{ color: '#64748B', fontSize: 13 }}>{recipient.email}</div>
           </div>
@@ -374,12 +587,65 @@ function RecipientTimelineModal({
                         {e.meta.bounce_type ? `[${e.meta.bounce_type}] ` : ''}{e.meta.bounce_msg}
                       </div>
                     )}
+                    {e.meta?.error && (
+                      <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 4 }}>
+                        {e.meta.http_status ? `[${e.meta.http_status}] ` : ''}{e.meta.error}
+                      </div>
+                    )}
                   </div>
                 </li>
               ))}
             </ol>
           )}
         </div>
+
+        {bounceEvent && isTransientBounce && (
+          <div style={{
+            marginTop: 16, padding: '12px 14px', borderRadius: 12,
+            background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E',
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>Temporary bounce — kept in Outreach</div>
+            <div style={{ marginTop: 3, fontSize: 12 }}>
+              This address may work again later, so it has not been removed from the database.
+            </div>
+          </div>
+        )}
+
+        {bounceEvent && isPermanentBounce && outreachId && (
+          <div style={{
+            marginTop: 16, padding: '12px 14px', borderRadius: 12,
+            background: removed ? '#F0FDFA' : '#FEF2F2',
+            border: `1px solid ${removed ? '#99F6E4' : '#FECACA'}`,
+          }}>
+            {removed ? (
+              <div style={{ color: '#0F766E', fontSize: 13, fontWeight: 900 }}>
+                Removed from active Outreach. Campaign history has been kept.
+              </div>
+            ) : (
+              <>
+                <div style={{ color: '#991B1B', fontSize: 13, fontWeight: 900 }}>
+                  Permanent bounce — this address should not be used again.
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void removeFromOutreach()}
+                  disabled={removing}
+                  style={{
+                    ...s.dangerBtn,
+                    marginTop: 10,
+                    opacity: removing ? 0.6 : 1,
+                    cursor: removing ? 'wait' : 'pointer',
+                  }}
+                >
+                  {removing ? 'Removing…' : 'Remove from Outreach'}
+                </button>
+                {removeErr && (
+                  <div style={{ color: '#B91C1C', fontSize: 12, marginTop: 8 }}>{removeErr}</div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {recipient.open_count && recipient.open_count > 1 ? (
           <p style={{ marginTop: 16, color: '#64748B', fontSize: 12 }}>
@@ -401,6 +667,9 @@ function prettyEventLabel(type: string): string {
     case 'email.clicked':          return 'Clicked a link';
     case 'email.bounced':          return 'Bounced';
     case 'email.complained':       return 'Marked as spam';
+    case 'email.failed':           return 'Send failed';
+    case 'email.retry_succeeded':  return 'Retry sent';
+    case 'email.retry_failed':     return 'Retry failed';
     default: return type;
   }
 }
@@ -412,6 +681,9 @@ function TimelineDot({ type }: { type: string }) {
     type === 'email.clicked'   ? '#7C3AED' :
     type === 'email.bounced'   ? '#B91C1C' :
     type === 'email.complained' ? '#B91C1C' :
+    type === 'email.failed'    ? '#B91C1C' :
+    type === 'email.retry_failed' ? '#B91C1C' :
+    type === 'email.retry_succeeded' ? '#0F766E' :
     type === 'email.delivery_delayed' ? '#B45309' :
     '#64748B';
   return (
@@ -452,7 +724,7 @@ function RecipientPill({ r }: { r: CampaignRecipient }) {
   );
 }
 
-function StatTile({ label, value, tone }: { label: string; value: number; tone: 'teal' | 'amber' | 'red' | 'muted' }) {
+function StatTile({ label, value, tone, action }: { label: string; value: number; tone: 'teal' | 'amber' | 'red' | 'muted'; action?: React.ReactNode }) {
   const palette = tone === 'teal'
     ? { bg: '#F0FDFA', border: '#99F6E4', accent: '#0F766E' }
     : tone === 'amber'
@@ -466,6 +738,7 @@ function StatTile({ label, value, tone }: { label: string; value: number; tone: 
     }}>
       <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 800, color: palette.accent }}>{label}</div>
       <div style={{ fontSize: 26, fontWeight: 900, color: '#0A2540', marginTop: 4, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      {action}
     </div>
   );
 }

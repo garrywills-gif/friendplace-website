@@ -8,6 +8,11 @@ import { useGeorgeSession, type GeorgeTurn } from '@/lib/george-session';
 import { ActionPreview, type ActionPreviewPayload } from './ActionPreview';
 import { ChatText } from './ChatText';
 import { GeorgeButterflyMark } from '@/components/george/GeorgeButterflyMark';
+import {
+  claimPlayback,
+  releasePlayback,
+  stopCurrentPlayback,
+} from '@/lib/mcgs-audio-singleton';
 
 /**
  * The Ask George bottom-sheet. Streaming grounded chat with George.
@@ -185,9 +190,6 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     // if a new initialMessage arrives while a stream is in flight.
     if (open && initialMessage && !busy && initialSentRef.current !== initialMessage) {
       initialSentRef.current = initialMessage;
-      // A new question from the top Ask bar must always surface the full
-      // sheet — never send silently into a collapsed mini-pill.
-      setMinimised(false);
       // Attach the one-shot surface_context to this turn only. Subsequent
       // user-typed turns don't inherit it — surfaces re-supply context on
       // re-entry, which keeps George grounded on the *current* page.
@@ -200,14 +202,6 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
   // Focus input when opened.
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 60);
-  }, [open]);
-
-  // A fresh open (or re-open from the Ask bar / Continue pill) must always
-  // show the full sheet. Returning null on close does NOT reset internal
-  // state, so without this a previously-minimised sheet would reopen as the
-  // collapsed pill — making the top Ask bar appear to do nothing.
-  useEffect(() => {
-    if (open) setMinimised(false);
   }, [open]);
 
   // Scroll to bottom on new content.
@@ -259,6 +253,10 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     setBusy(true);
     setInput('');
     lastUserRef.current = trimmed;
+    // iter163 Bug 1: a new turn is starting — silence any George voice
+    // that may still be talking from a previous reply, so the next
+    // response's auto-speak doesn't stack over the last one.
+    stopCurrentPlayback();
 
     setTurns(prev => [
       ...prev,
@@ -428,6 +426,10 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
   function handleClose() {
     abortRef.current?.abort();
     abortRef.current = null;
+    // iter163 Bug 1: dispose any playing George clip so navigation /
+    // minimise / close never leaves an orphaned voice running in the
+    // background.
+    stopCurrentPlayback();
     // If we were mid-stream, mark the last George turn as settled so it
     // doesn't render as a blinking cursor when the sheet is reopened.
     setTurns(prev => prev.map((t, i) =>
@@ -448,6 +450,8 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
   function handleReset() {
     abortRef.current?.abort();
     abortRef.current = null;
+    // iter163 Bug 1: new conversation starts silent — no leftover voice.
+    stopCurrentPlayback();
     resetConversation();
     chatIdRef.current = null;
     lastUserRef.current = null;
@@ -468,7 +472,9 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     if (rec.recording) {
       const blob = await rec.stop();
       if (!blob) {
-        setMicError("Nothing recorded yet \u2014 give it another go when you\u2019re ready.");
+        // iter164c: null blob = no speech detected (silence-only clip
+        // rejected by the recorder). Warm nudge, input stays intact.
+        setMicError("I didn\u2019t catch any speech — the input stays as it was. Try again a little closer to the mic.");
         return;
       }
       try {
@@ -510,7 +516,11 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
     // Enter sends. Shift+Enter for a newline.
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      send(input);
+      // iter164k: read the current DOM value so a WKWebView (installed
+      // Mac web app) stale-render closure after voice transcription
+      // can't strand the send. `?? input` keeps the value a string for
+      // send(message: string) when the ref is momentarily null.
+      send(inputRef.current?.value ?? input);
     }
   }
 
@@ -702,9 +712,13 @@ export function AskGeorgeSheet({ open, initialMessage, initialContext, onClose }
           ) : (
             <button
               type="button"
-              onClick={() => send(input)}
-              disabled={!input.trim() || rec.recording || transcribing}
-              style={{ ...sendBtn, opacity: (!input.trim() || rec.recording || transcribing) ? 0.5 : 1 }}
+              /* iter164k: read the DOM value first (state fallback for
+               * type safety). Matches the iter164i fix applied to
+               * AskGeorgeBar — same WKWebView stale-render closure
+               * that stranded submit after voice transcription. */
+              onClick={() => send(inputRef.current?.value ?? input)}
+              disabled={!input.trim() || transcribing}
+              style={{ ...sendBtn, opacity: (!input.trim() || transcribing) ? 0.5 : 1 }}
             >Send</button>
           )}
         </div>
@@ -924,6 +938,12 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
     if (audioUrlRef.current) {
       try { URL.revokeObjectURL(audioUrlRef.current); } catch { /* noop */ }
     }
+    // iter163 Bug 1: if this bubble was the one currently holding
+    // the playback singleton, release it so a re-mount can't leak
+    // a stale reference to a detached <audio> element.
+    if (audioRef.current) {
+      releasePlayback(audioRef.current);
+    }
   }, []);
 
   // ── Auto-speak (Rank 3, 2026-08-16) ─────────────────────────────
@@ -960,6 +980,14 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
       return;
     }
     setPlayFailed(false);
+    // iter163 Bug 1: BEFORE anything else, stop and dispose any other
+    // George clip that may still be talking. Without this, a rapid
+    // second reply's auto-speak (or a manual replay on a different
+    // bubble) can leave 2-3 voices audible at once. Firing this here
+    // and again just before el.play() (after the SILENT_WAV unlock)
+    // means auto-speak, manual replay and stream-interrupt all funnel
+    // through the same single-owner registry.
+    stopCurrentPlayback();
     // Instant visual feedback \u2014 button flips to a spinner + "Preparing audio\u2026"
     // caption before any network work happens. Batch-2 QA feedback: the
     // silent gap after tapping Play made the UI feel broken.
@@ -1039,6 +1067,10 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
         const ratio  = total > 0 ? played / total : 1;
         setPlaying(false);
         setPreparing(false);
+        // iter163 Bug 1: playback finished (ended, errored, or was
+        // stopped from the outside) — release the singleton so a
+        // future claimPlayback from any other bubble starts clean.
+        releasePlayback(el);
         // "Truncated" ~= stopped before 80% AND didn't pause on purpose.
         // Manual pause is caught earlier in the `if (playing)` branch,
         // so if we're here it's an unexpected stop.
@@ -1065,6 +1097,9 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
         if (el.duration && Math.abs((el.currentTime || 0) - el.duration) < 0.05) return;
         setPlaying(false);
         setPreparing(false);
+        // iter163 Bug 1: user paused — release the singleton so a
+        // sibling bubble can claim it without our onStopped racing.
+        releasePlayback(el);
       };
       el.onerror         = () => finalise('error');
       el.onstalled       = () => console.warn('[read-aloud] audio stalled', el.src);
@@ -1073,6 +1108,16 @@ function ChatBubble({ turn, onRetry, autoSpeak = false }: { turn: Turn; onRetry?
       el.onplaying       = () => { setPreparing(false); setPlaying(true); };
       playedDurationRef.current = 0;
       totalDurationRef.current  = 0;
+      // iter163 Bug 1: register this <audio> as the sole George voice
+      // now allowed to be audible. If another bubble was still holding
+      // the slot after our earlier stopCurrentPlayback() (e.g. because
+      // an in-flight prefetch finished and started auto-speak while we
+      // awaited above), this call disposes it and fires its onStopped
+      // callback so its "⏸ Stop" button reverts to "▶︎ Play".
+      claimPlayback(el, () => {
+        setPlaying(false);
+        setPreparing(false);
+      });
       await el.play();
       // Fallback in case `onplaying` didn't fire (some browsers).
       setPreparing(false);

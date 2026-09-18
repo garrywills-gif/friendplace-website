@@ -12,7 +12,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { flyersApi, type FlyerLayoutCategory, type FlyerTemplate, type FlyerField } from '@/lib/cms-api';
 import { FlyerPrintModal } from '@/components/admin/FlyerPrintModal';
@@ -20,8 +20,13 @@ import { FlyerPrintModal } from '@/components/admin/FlyerPrintModal';
 export default function FlyerDetailPage() {
   const params = useParams<{ key: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const key = params.key;
-
+const initialLayout = searchParams.get('layout') || undefined;
+const initialFields = searchParams.get('fields')
+  ? JSON.parse(atob(searchParams.get('fields')!))
+  : undefined;
+const shouldOpenPreview = searchParams.get('open') === 'preview';  
   const [template, setTemplate] = useState<FlyerTemplate | null>(null);
   const [layoutCats, setLayoutCats] = useState<FlyerLayoutCategory[]>([]);
   const [fieldLibrary, setFieldLibrary] = useState<FlyerField[]>([]);
@@ -29,55 +34,10 @@ export default function FlyerDetailPage() {
   const [busy, setBusy] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
 
-  // Deep-link support (Garry, iter158): when George drafts a flyer and
-  // Garry approves the preview, we open here with ?open=preview and
-  // optional ?layout=…&fields=<base64 JSON>. We capture the initial
-  // values ONCE at mount into local state — pulling them via useMemo(
-  // searchParams) is fragile because history.replaceState (used below
-  // to strip the query string) can cause searchParams to re-emit as
-  // empty before <FlyerPrintModal /> mounts, blanking the props out.
-  const [initialLayout] = useState<string | undefined>(() => {
-    if (typeof window === 'undefined') return undefined;
-    const sp = new URLSearchParams(window.location.search);
-    return sp.get('layout') || undefined;
-  });
-  const [initialFields] = useState<Record<string, string> | undefined>(() => {
-    if (typeof window === 'undefined') return undefined;
-    const sp = new URLSearchParams(window.location.search);
-    const raw = sp.get('fields');
-    if (!raw) return undefined;
-    try {
-      // urlsafe base64 without padding — restore it.
-      const padded = raw + '='.repeat((4 - (raw.length % 4)) % 4);
-      const normalised = padded.replace(/-/g, '+').replace(/_/g, '/');
-      const decoded = window.atob(normalised);
-      const parsed = JSON.parse(decoded);
-      if (parsed && typeof parsed === 'object') {
-        const out: Record<string, string> = {};
-        for (const [k, v] of Object.entries(parsed)) {
-          if (v == null) continue;
-          out[String(k)] = String(v);
-        }
-        return out;
-      }
-    } catch {
-      // Ignore malformed payloads — fall back to empty defaults.
-    }
-    return undefined;
-  });
-  const [shouldAutoOpenPreview] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    const sp = new URLSearchParams(window.location.search);
-    return sp.get('open') === 'preview';
-  });
-
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [supported, setSupported] = useState<string[]>([]);
   const [defaultLayout, setDefaultLayout] = useState('poster_a4');
-  // Editable field schema — admins pick which placeholders THIS
-  // template exposes to the print modal. Any field from the backend
-  // FIELD_LIBRARY can be added without a code change (Garry, 3 Aug).
   const [fields, setFields] = useState<FlyerField[]>([]);
 
   useEffect(() => {
@@ -101,29 +61,11 @@ export default function FlyerDetailPage() {
       }
     })();
   }, [key]);
-
-  // Auto-open the print modal when arriving via George's flyer-draft
-  // deep link (?open=preview). Runs once after the template loads so
-  // the modal has the layout catalogue ready. We then strip the query
-  // params from the URL so page reloads don't re-open the modal on
-  // every refresh — the pre-populated state remains in the modal's
-  // local component state (initial values were captured at mount).
-  useEffect(() => {
-    if (!template) return;
-    if (!shouldAutoOpenPreview) return;
+useEffect(() => {
+  if (shouldOpenPreview && template) {
     setShowPreview(true);
-    // Clean up the URL — keep the path, drop the query string.
-    try {
-      if (typeof window !== 'undefined') {
-        const cleanUrl = window.location.pathname;
-        window.history.replaceState({}, '', cleanUrl);
-      }
-    } catch {
-      // History API blocked (very rare) — modal still opens correctly.
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [template]);
-
+  }
+}, [shouldOpenPreview, template]);  
   const allLayouts = useMemo(
     () => layoutCats.flatMap((c) => c.layouts.map((l) => ({ ...l, category_label: c.label }))),
     [layoutCats],
@@ -183,7 +125,7 @@ export default function FlyerDetailPage() {
           <Link href="/admin/flyers" style={{ ...s.ghostBtn, textDecoration: 'none' }}>← Library</Link>
           {template && (
             <button onClick={() => setShowPreview(true)} style={s.primaryBtn}>
-              👁 Preview &amp; Print
+              👁 Preview &amp; Edit
             </button>
           )}
         </div>
@@ -199,7 +141,6 @@ export default function FlyerDetailPage() {
         <div style={{ color: '#64748B', fontSize: 13, marginTop: 4 }}>Loading…</div>
       ) : (
         <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'minmax(0, 1fr) 320px' }}>
-          {/* Editable metadata */}
           <div style={s.card}>
             <div style={{ marginBottom: 12 }}>
               <label style={{ display: 'block', fontSize: 12, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', color: '#64748B', marginBottom: 6 }}>Name</label>
@@ -222,18 +163,13 @@ export default function FlyerDetailPage() {
                       {cat.layouts.map((lay) => {
                         const on = supported.includes(lay.key);
                         return (
-                          <button
-                            key={lay.key}
-                            onClick={() => toggleSupported(lay.key)}
-                            title={lay.description}
+                          <button key={lay.key} onClick={() => toggleSupported(lay.key)} title={lay.description}
                             style={{
                               padding: '8px 12px', borderRadius: 10,
                               border: on ? '1.5px solid #0F766E' : '1.5px solid #CBD5E1',
-                              background: on ? '#0F766E' : '#FFFFFF',
-                              color: on ? '#FFFFFF' : '#334155',
+                              background: on ? '#0F766E' : '#FFFFFF', color: on ? '#FFFFFF' : '#334155',
                               fontWeight: 700, fontSize: 13, cursor: 'pointer',
-                            }}
-                          >
+                            }}>
                             {on ? '✓ ' : ''}{lay.label}
                           </button>
                         );
@@ -260,20 +196,15 @@ export default function FlyerDetailPage() {
                 {fieldLibrary.map((f) => {
                   const on = fields.some((existing) => existing.key === f.key);
                   return (
-                    <button
-                      key={f.key}
-                      onClick={() => setFields((prev) => on
-                        ? prev.filter((x) => x.key !== f.key)
-                        : [...prev, f])}
+                    <button key={f.key}
+                      onClick={() => setFields((prev) => on ? prev.filter((x) => x.key !== f.key) : [...prev, f])}
                       title={f.help || f.label}
                       style={{
                         padding: '7px 12px', borderRadius: 10,
                         border: on ? '1.5px solid #0F766E' : '1.5px solid #CBD5E1',
-                        background: on ? '#0F766E' : '#FFFFFF',
-                        color: on ? '#FFFFFF' : '#334155',
+                        background: on ? '#0F766E' : '#FFFFFF', color: on ? '#FFFFFF' : '#334155',
                         fontWeight: 700, fontSize: 13, cursor: 'pointer',
-                      }}
-                    >
+                      }}>
                       {on ? '✓ ' : '+ '}{f.label}
                     </button>
                   );
@@ -296,7 +227,6 @@ export default function FlyerDetailPage() {
             </button>
           </div>
 
-          {/* Side rail — status + quick actions */}
           <div style={{ ...s.card, position: 'sticky', top: 20, alignSelf: 'start' }}>
             <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4 }}>
               Status
@@ -309,12 +239,10 @@ export default function FlyerDetailPage() {
               {template.last_used_at ? ` · last on ${new Date(template.last_used_at).toLocaleDateString()}` : ''}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 14 }}>
-              <button onClick={onPublishToggle} disabled={busy || template.status === 'archived'}
-                      style={s.ghostBtn}>
+              <button onClick={onPublishToggle} disabled={busy || template.status === 'archived'} style={s.ghostBtn}>
                 {template.status === 'published' ? '📥 Unpublish' : '📢 Publish'}
               </button>
-              <button onClick={onArchive} disabled={busy || template.status === 'archived'}
-                      style={s.ghostBtn}>
+              <button onClick={onArchive} disabled={busy || template.status === 'archived'} style={s.ghostBtn}>
                 📦 Archive
               </button>
             </div>
@@ -331,9 +259,9 @@ export default function FlyerDetailPage() {
         <FlyerPrintModal
           template={template}
           layoutCategories={layoutCats}
+initialLayout={initialLayout}
+initialFields={initialFields}          
           onClose={() => setShowPreview(false)}
-          initialLayout={initialLayout}
-          initialFields={initialFields}
         />
       )}
     </AdminShell>

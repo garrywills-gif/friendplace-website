@@ -23,19 +23,22 @@ import { AuthedFlyerImage } from '@/components/admin/AuthedFlyerImage';
 type Props = {
   template: FlyerTemplate;
   layoutCategories: FlyerLayoutCategory[];
+initialLayout?: string;
+initialFields?: Record<string, string>;  
   onClose: () => void;
-  // Optional pre-population when the modal is opened via a deep link
-  // (e.g. from George's flyer-draft action preview).
-  initialLayout?: string;
-  initialFields?: Record<string, string>;
 };
 
 export function FlyerPrintModal({ template, layoutCategories, onClose, initialLayout, initialFields }: Props) {
-  const [selectedLayoutKey, setSelectedLayoutKey] = useState<string>(initialLayout || template.default_layout);
+ const [selectedLayoutKey, setSelectedLayoutKey] = useState<string>(initialLayout || template.default_layout);
   // Field values keyed by field.key. Auto-initialised from any
   // defaults on the template so the preview reflects the current
   // saved wording the moment the modal opens.
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>(initialFields || {});
+const [fieldValues, setFieldValues] = useState<Record<string, string>>(() => ({
+  ...(initialFields || {}),
+  ...(template.engine === 'founding_flyer_v1' && initialFields?.show_founding_member === undefined
+    ? { show_founding_member: 'false' }
+    : {}),
+}));
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   // Only show layouts THIS template actually supports.
@@ -67,8 +70,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
   // doDownload (and inside <AuthedFlyerImage/>) so no naked renderUrl
   // is exposed to the browser.
 
-
-
   // Close on Esc — a small courtesy for keyboard users, and consistent
   // with how other Mission Control modals behave.
   useEffect(() => {
@@ -79,10 +80,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
 
   const doPrint = async () => {
     if (!selected) return;
-    // Fetch the render as an AUTHENTICATED blob first — the iframe's
-    // <img> tag can't send a Bearer token, so a naked renderUrl would
-    // just 401 and print a blank page. We hand it a same-document
-    // blob URL instead, which needs no headers.
     let blobUrl: string;
     try {
       const { url } = await flyersApi.renderBlob(template.key, {
@@ -101,12 +98,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
     if (!doc) return;
 
     doc.open();
-    // Layout width/height in millimetres — used to constrain the image
-    // AND to size the print viewport. Safari sizes the iframe from the
-    // computed body size on print, not from @page; without an explicit
-    // mm-based body we get a viewport-height flex container that spills
-    // onto a second page. Locking every layer to the same mm avoids the
-    // "half on page 1, blank page 2" bug Garry flagged on 5 Aug 2026.
     const wMm = selected.width_mm;
     const hMm = selected.height_mm;
     doc.write(`<!doctype html>
@@ -115,10 +106,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
   <meta charset="utf-8" />
   <title>${escapeHtml(template.name)} · ${escapeHtml(selected.label)}</title>
   <style>
-    /* Every layer is sized in the SAME millimetre box as @page. This
-       is what Safari, Chrome, Firefox and Edge each need to keep the
-       flyer on a single page. Do not switch to % or vh — those cause
-       Safari to spill onto a second, mostly-blank page. */
     @page { size: ${wMm}mm ${hMm}mm; margin: 0; }
     * { box-sizing: border-box; }
     html, body {
@@ -141,7 +128,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
         width: ${wMm}mm; height: ${hMm}mm;
         overflow: hidden;
       }
-      /* No headers/footers — the flyer IS the page. */
     }
   </style>
 </head>
@@ -151,8 +137,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
 </html>`);
     doc.close();
 
-    // Wait for the image inside the iframe to finish loading, then
-    // trigger print(). Timeout guard so we never hang the UI.
     await new Promise<void>((resolve) => {
       const img = doc.querySelector('img');
       const t = setTimeout(() => resolve(), 6000);
@@ -168,22 +152,13 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
       iframe.contentWindow?.focus();
       iframe.contentWindow?.print();
     } catch {
-      // Fallback for browsers that block programmatic print on iframes —
-      // open the blob directly so the user can Cmd/Ctrl-P from a real tab.
       window.open(blobUrl, '_blank', 'noopener');
     } finally {
-      // Revoke shortly after the print dialogue has a chance to open;
-      // the browser has already read the bytes into the print job.
       setTimeout(() => { try { URL.revokeObjectURL(blobUrl); } catch { /* noop */ } }, 30_000);
     }
   };
 
   const doDownload = async () => {
-    // Same story as Print — the render endpoint needs a Bearer token,
-    // so a plain `window.open(renderUrl)` prints a 401 page. Fetch
-    // authenticated, then trigger a proper download via an anchor tag
-    // whose `download` attribute preserves the filename hint. Works
-    // consistently across Chrome, Safari, Firefox, and Edge.
     try {
       const { url, contentType } = await flyersApi.renderBlob(template.key, {
         layout: selectedLayoutKey,
@@ -198,8 +173,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Revoke after the download has kicked off. Some browsers keep
-      // the request alive for a moment, so we give it a healthy grace.
       setTimeout(() => { try { URL.revokeObjectURL(url); } catch { /* noop */ } }, 30_000);
     } catch (e: any) {
       alert(e?.message || 'Could not download the flyer.');
@@ -223,12 +196,12 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
         onClick={(e) => e.stopPropagation()}
         style={{
           background: '#FFFFFF', borderRadius: 20, boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
-          width: 'min(1080px, 100%)', maxHeight: '92vh', overflow: 'hidden',
-          display: 'grid', gridTemplateColumns: '1fr 320px',
+          width: 'min(1080px, 100%)', height: 'min(920px, 92vh)', overflow: 'hidden',
+          display: 'grid', gridTemplateColumns: '1fr 320px', minHeight: 0, minWidth: 0,
         }}
       >
         {/* Preview pane */}
-        <div style={{ padding: 20, background: '#F8FAFC', overflow: 'auto' }}>
+        <div style={{ padding: 20, background: '#F8FAFC', overflow: 'auto', minHeight: 0, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ margin: 0, fontSize: 20 }}>{template.name}</h2>
             <button
@@ -259,7 +232,7 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
         </div>
 
         {/* Controls pane */}
-        <div style={{ padding: 20, borderLeft: '1px solid #E2E8F0', overflow: 'auto' }}>
+        <div style={{ padding: 20, borderLeft: '1px solid #E2E8F0', overflow: 'auto', minHeight: 0, minWidth: 0 }}>
           <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>
             Layout
           </div>
@@ -275,14 +248,10 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
                         key={lay.key}
                         onClick={() => setSelectedLayoutKey(lay.key)}
                         style={{
-                          padding: '8px 12px',
-                          borderRadius: 10,
+                          padding: '8px 12px', borderRadius: 10,
                           border: on ? '1.5px solid #0F766E' : '1.5px solid #CBD5E1',
-                          background: on ? '#0F766E' : '#FFFFFF',
-                          color: on ? '#FFFFFF' : '#334155',
-                          fontWeight: 700,
-                          fontSize: 13,
-                          cursor: 'pointer',
+                          background: on ? '#0F766E' : '#FFFFFF', color: on ? '#FFFFFF' : '#334155',
+                          fontWeight: 700, fontSize: 13, cursor: 'pointer',
                         }}
                         title={lay.description}
                       >
@@ -295,11 +264,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
             ))}
           </div>
 
-          {/* Editable fields — auto-generated from the template's
-              schema. Every field type in the FIELD_LIBRARY has its
-              own control (text/textarea/date/time/url/select). New
-              field types can be added here without touching the
-              backend. */}
           {editableFields.length > 0 && (
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>
@@ -331,11 +295,9 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
                       ) : f.type === 'time' ? (
                         <input type="time" value={v} onChange={(e) => set(e.target.value)} style={inputStyle} />
                       ) : f.type === 'url' ? (
-                        <input type="url" value={v} onChange={(e) => set(e.target.value)}
-                               placeholder="https://…" style={inputStyle} />
+                        <input type="url" value={v} onChange={(e) => set(e.target.value)} placeholder="https://…" style={inputStyle} />
                       ) : (
-                        <input type="text" value={v} onChange={(e) => set(e.target.value)}
-                               maxLength={200} style={inputStyle} />
+                        <input type="text" value={v} onChange={(e) => set(e.target.value)} maxLength={200} style={inputStyle} />
                       )}
                       {f.help && (
                         <div style={{ fontSize: 11, color: '#64748B', marginTop: 3 }}>{f.help}</div>
@@ -344,6 +306,25 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {template.engine === 'founding_flyer_v1' && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, color: '#64748B', fontWeight: 800, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>
+                Options
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#334155', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={fieldValues.show_founding_member === 'true'}
+                  onChange={(e) => setFieldValues((prev) => ({
+                    ...prev,
+                    show_founding_member: e.target.checked ? 'true' : 'false',
+                  }))}
+                />
+                <span>Show Founding Member section</span>
+              </label>
             </div>
           )}
 
@@ -376,8 +357,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
         </div>
       </div>
 
-      {/* Hidden iframe used to trigger the browser print dialogue with
-          the right @page size preset. */}
       <iframe
         ref={printFrameRef}
         title="Flyer print buffer"
@@ -387,10 +366,6 @@ export function FlyerPrintModal({ template, layoutCategories, onClose, initialLa
   );
 }
 
-// ---------------------------------------------------------------------------
-// Tiny HTML escape helpers — we're writing template.name and the render
-// URL directly into a document.write() body, so we can't skip escaping.
-// ---------------------------------------------------------------------------
 function escapeHtml(s: string): string {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

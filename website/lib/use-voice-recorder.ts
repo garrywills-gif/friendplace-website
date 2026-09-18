@@ -6,6 +6,18 @@ export interface UseVoiceRecorderOptions {
   maxSeconds?: number;         // hard cap, default 60
   silenceSeconds?: number;     // auto-stop after N seconds of silence, default 3
   silenceThreshold?: number;   // 0-1 RMS threshold, default 0.02
+  /**
+   * RMS threshold above which we consider a frame "genuine speech"
+   * (as opposed to background noise / silence). If the whole clip
+   * stayed below this, the recorder returns ``null`` from ``stop()``
+   * so the caller never uploads a silence-only blob (which Whisper
+   * would otherwise hallucinate into a "Thank you for watching"
+   * type phrase — iter164c).
+   *
+   * 0.05 sits comfortably above typical room noise on a laptop mic
+   * but well below normal speaking level.
+   */
+  speechThreshold?: number;
 }
 
 export interface VoiceRecorderState {
@@ -31,6 +43,7 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
   const maxSeconds = opts.maxSeconds ?? 60;
   const silenceSeconds = opts.silenceSeconds ?? 3;
   const silenceThreshold = opts.silenceThreshold ?? 0.02;
+  const speechThreshold = opts.speechThreshold ?? 0.05;
 
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -47,6 +60,19 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
   const rafRef = useRef<number | null>(null);
   const stopResolverRef = useRef<((blob: Blob | null) => void) | null>(null);
   const cancelledRef = useRef(false);
+  // iter164c: peak RMS observed during the current recording. Used
+  // to decide whether the clip contained any *genuine* speech — if
+  // every frame stayed below ``speechThreshold`` we're almost
+  // certainly holding a silence-only blob and MUST NOT upload it
+  // (Whisper hallucinates known phrases from silence, e.g. the
+  // Korean "Thank you for watching"). Reset on every ``start``.
+  const peakRmsRef = useRef<number>(0);
+  const hadSpeechRef = useRef<boolean>(false);
+  // iter164e: which mime the browser actually chose for this
+  // recording, e.g. "audio/webm;codecs=opus" in Chrome, "audio/mp4"
+  // in Safari. Captured so the caller can derive the correct file
+  // extension for upload.
+  const mimeRef = useRef<string>('audio/webm');
 
   const cleanup = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -61,10 +87,47 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
 
   const stop = useCallback(async (): Promise<Blob | null> => {
     if (!recorderRef.current || recorderRef.current.state === 'inactive') {
+      // iter164h defensive: even when there's nothing to stop, make
+      // sure the exposed `recording` state is unambiguously false.
+      // This ensures a caller checking `rec.recording` after `stop()`
+      // can never see a phantom-true state that would gate other UI
+      // (e.g. the Ask button) into a stuck-disabled position.
+      setRecording(false);
       return null;
     }
     return new Promise<Blob | null>((resolve) => {
-      stopResolverRef.current = resolve;
+      // Wrap the resolver so the exposed `recording` state is
+      // guaranteed false the instant `stop()` completes, regardless
+      // of whether React has flushed the setRecording(false) queued
+      // inside `onstop`. WKWebView's async event scheduling has
+      // been observed to leave the state briefly stale; this belt-
+      // and-braces makes downstream UI (Ask button, etc.) robust
+      // even without a re-render round-trip.
+      stopResolverRef.current = (blob) => {
+        setRecording(false);
+        resolve(blob);
+      };
+      // iter164f: Safari WKWebView (installed Mac PWA) needs an
+      // explicit requestData() before stop() to flush the final
+      // segment. Its MP4 audio-only recorder holds accumulated
+      // samples in an internal buffer and does NOT reliably emit
+      // them from the implicit dataavailable fired inside stop().
+      // Without this call the resulting chunks array is empty and
+      // the recorder resolves null — visible to the user as the
+      // "Recording" UI ending with no transcript. Guarded because
+      // requestData() only exists on active recorders. Safe on
+      // Chrome/Firefox too.
+      try {
+        if (
+          recorderRef.current!.state === 'recording' &&
+          typeof recorderRef.current!.requestData === 'function'
+        ) {
+          recorderRef.current!.requestData();
+        }
+      } catch {
+        // Non-fatal: fall through to stop() and rely on the implicit
+        // dataavailable event.
+      }
       recorderRef.current!.stop();
     });
   }, []);
@@ -79,6 +142,14 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
   const start = useCallback(async () => {
     setError(null);
     cancelledRef.current = false;
+    // iter164h "2-3 pushes to listen" bug: if a previous session left
+    // any state behind (stream still open, audio context still active,
+    // recorder ref not nulled) it can silently break the new start() —
+    // WKWebView especially is prone to this because its MediaRecorder
+    // fires `onstop` asynchronously well after `stop()` returns, so
+    // stale events can land during a fresh session. Force a synchronous
+    // teardown here so every `start()` begins on a clean slate.
+    cleanup();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -104,6 +175,11 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
         }
         const rms = Math.sqrt(sumSq / buf.length);
         setLevel(rms);
+        // iter164c: track peak + speech-detection. A single frame
+        // over the speech threshold flips ``hadSpeech`` — after that
+        // the flag is sticky for the rest of the clip.
+        if (rms > peakRmsRef.current) peakRmsRef.current = rms;
+        if (rms >= speechThreshold) hadSpeechRef.current = true;
 
         const now = performance.now();
         if (rms < silenceThreshold) {
@@ -126,15 +202,73 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
         rafRef.current = requestAnimationFrame(tickLevel);
       };
 
-      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus' : 'audio/webm';
-      const recorder = new MediaRecorder(stream, { mimeType: mime });
+      // iter164e: pick the best mime the browser supports. Safari
+      // WKWebView (Mac installed PWA, some iOS versions) does NOT
+      // support audio/webm at all — its MediaRecorder produces
+      // audio/mp4 (AAC) instead. If we force 'audio/webm' here Safari
+      // WKWebView either throws OR silently records an unusable
+      // stream, and then the upload arrives labelled as .webm with
+      // MP4/AAC bytes inside → Whisper 502.
+      //
+      // Priority order: opus-in-webm (Chrome/Firefox best), then
+      // plain webm, then mp4 (Safari native), then an empty string
+      // which lets the browser pick its own default. Whichever we
+      // end up with is stored in ``mimeRef`` so the caller can
+      // derive the correct filename extension for upload.
+      const preferred = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/mp4;codecs=mp4a.40.2', // AAC-LC, Safari's default
+        'audio/mp4',
+      ];
+      let mime = '';
+      for (const candidate of preferred) {
+        if (
+          typeof MediaRecorder.isTypeSupported === 'function' &&
+          MediaRecorder.isTypeSupported(candidate)
+        ) {
+          mime = candidate;
+          break;
+        }
+      }
+      const recorder = mime
+        ? new MediaRecorder(stream, { mimeType: mime })
+        : new MediaRecorder(stream);
+      // Some browsers change the effective mime once the recorder
+      // is constructed (e.g. Safari falls back to audio/mp4). Trust
+      // the recorder's own mimeType attribute from here on.
+      const effectiveMime = recorder.mimeType || mime || 'audio/webm';
+      mimeRef.current = effectiveMime;
       recorderRef.current = recorder;
       chunksRef.current = [];
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
       };
       recorder.onstop = () => {
+        // iter164g Mac WebApp production bug PLUS iter164h "2-3
+        // pushes to listen" bug: Safari WKWebView (installed Mac web
+        // apps) fires `stop` asynchronously well after `stop()`
+        // returns, and can also fire the same event twice (see
+        // bugs.webkit.org + Apple Dev Forums thread 694207). Two
+        // failure modes cascade from that:
+        //   (a) Double-fire on the SAME recorder → the second call
+        //       reschedules stale `setRecording(false)` from a
+        //       cleaned-up recorder and confuses React's scheduler,
+        //       which was the cascading cause of the Ask button
+        //       staying stuck-disabled after transcription.
+        //   (b) DELAYED fire from a PREVIOUS recorder → after the
+        //       user has already tapped the mic to start a new
+        //       recording session, an old session's onstop lands
+        //       and clobbers the new session's `recording=true`
+        //       state (visible to Garry as "it takes 2 or 3 pushes
+        //       of the microphone to get George to listen").
+        // The identity check below defends against both cases: we
+        // only proceed if this event is for the recorder currently
+        // considered active. On the first legitimate fire cleanup()
+        // nulls `recorderRef.current`, so any duplicate is a no-op.
+        // On a delayed fire from a superseded recorder, `!==` short-
+        // circuits before we touch any shared state.
+        if (recorderRef.current !== recorder) return;
         setRecording(false);
         cleanup();
         const cancelled = cancelledRef.current;
@@ -145,14 +279,38 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
           resolver?.(null);
           return;
         }
-        const blob = new Blob(chunksRef.current, { type: mime });
+        // iter164c: reject silence-only recordings. If no frame ever
+        // exceeded the speech threshold, the clip is background noise
+        // — uploading it to Whisper produces a hallucinated phrase
+        // (e.g. Korean "Thank you for watching"). Return null so the
+        // caller shows "no speech detected" and never touches the input.
+        if (!hadSpeechRef.current) {
+          resolver?.(null);
+          return;
+        }
+        const blob = new Blob(chunksRef.current, { type: effectiveMime });
         resolver?.(blob);
       };
 
       startTsRef.current = performance.now();
       silenceStartRef.current = null;
+      // iter164c: reset speech-detection state for THIS recording so
+      // stale peaks from a previous tap can't misclassify silence as
+      // speech.
+      peakRmsRef.current = 0;
+      hadSpeechRef.current = false;
       setSeconds(0);
-      recorder.start();
+      // iter164f: pass a timeslice so Safari WKWebView emits chunks
+      // periodically instead of holding everything until stop(). The
+      // installed Mac PWA otherwise ends the recording with an empty
+      // chunks array on some macOS builds — the same phone/hardware
+      // works in plain Safari because the browser process handles the
+      // implicit final-chunk emission that WKWebView does not.
+      //
+      // 1000ms is a compromise: small enough that Safari always has
+      // encoded audio to emit, large enough that Chrome/Firefox don't
+      // pay any real perf cost from extra Blob allocations.
+      recorder.start(1000);
       setRecording(true);
       rafRef.current = requestAnimationFrame(tickLevel);
     } catch (err) {
@@ -160,7 +318,7 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
       setError(msg.includes('Permission') ? 'Microphone permission needed' : msg);
       cleanup();
     }
-  }, [maxSeconds, silenceSeconds, silenceThreshold, cleanup, stop]);
+  }, [maxSeconds, silenceSeconds, silenceThreshold, speechThreshold, cleanup, stop]);
 
   // Second-level tick for the timer.
   useEffect(() => {

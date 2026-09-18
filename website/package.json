@@ -4,9 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3001",
-    "build": "next build",
+    "build": "node scripts/check-campaign-invariants.mjs && next build",
     "start": "next start -p 3001",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check:campaigns": "node scripts/check-campaign-invariants.mjs"
   },
   "dependencies": {
     "@tiptap/extension-image": "^3.28.0",

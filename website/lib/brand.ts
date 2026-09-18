@@ -58,7 +58,7 @@ export const site = {
   name: 'FriendPlace',
   tagline: 'Because you belong too.',
   description:
-    'A warm community for making real friendships in your local area — events, coffee catch-ups and everyday belonging, minus the awkward.',
+    'FriendPlace is an Australian friendship and community app helping adults meet local people, discover groups and events, and build genuine friendships — without dating, swiping or popularity contests.',
   emailContact: 'hello@friendplace.com.au',
   urlProduction: 'https://friendplace.com.au',
 };
