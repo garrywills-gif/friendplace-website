@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import { API_BASE } from '@/lib/api-base';
 import { getToken, clearAuth } from '@/lib/cms-auth';
-import { campaignsApi, type Campaign, type CampaignStatus } from '@/lib/cms-api';
+import { campaignsApi, outreachApi, type Campaign, type CampaignStatus, type OutreachOrg } from '@/lib/cms-api';
 
 const STATUS_META: Record<CampaignStatus, { label: string; bg: string; fg: string }> = {
   draft:     { label: 'Draft',     bg: '#F1F5F9', fg: '#475569' },
@@ -30,7 +30,7 @@ type CampaignWithArchive = Campaign & {
   archived_by_email?: string | null;
 };
 
-type CampaignMetricFilter = 'all' | 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained';
+type CampaignMetricFilter = 'all' | 'delivered' | 'opened' | 'clicked' | 'bounced' | 'unsubscribed' | 'complained';
 
 async function archiveRequest<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
   const headers: Record<string, string> = {};
@@ -76,6 +76,7 @@ async function restoreCampaign(id: string) {
 export default function CampaignsListPage() {
   const [rows, setRows] = useState<CampaignWithArchive[]>([]);
   const [allRows, setAllRows] = useState<CampaignWithArchive[]>([]);
+  const [unsubscribedRows, setUnsubscribedRows] = useState<OutreachOrg[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -90,9 +91,10 @@ export default function CampaignsListPage() {
     let cancelled = false;
     const load = async () => {
       try {
-        const [active, archived] = await Promise.all([
+        const [active, archived, unsubscribed] = await Promise.all([
           campaignsApi.list(),
           listArchivedCampaigns(),
+          outreachApi.list({ status: 'unsubscribed', limit: 2000 }),
         ]);
         if (!cancelled) {
           const activeRows = (active.rows || []) as CampaignWithArchive[];
@@ -102,6 +104,7 @@ export default function CampaignsListPage() {
           }));
           setRows(showArchived ? archivedRows : activeRows);
           setAllRows([...activeRows, ...archivedRows]);
+          setUnsubscribedRows(unsubscribed.organisations || []);
           setErr(null);
         }
       } catch (e: any) {
@@ -174,7 +177,7 @@ export default function CampaignsListPage() {
 
   const metricSourceRows = metricFilter === 'all' ? rows : allRows;
   const filteredRows = metricSourceRows.filter(campaign => {
-    if (metricFilter === 'all') return true;
+    if (metricFilter === 'all' || metricFilter === 'unsubscribed') return metricFilter === 'all';
     const stats = campaign.stats || ({} as Campaign['stats']);
     if (metricFilter === 'opened') return (stats.unique_opens ?? stats.opened ?? 0) > 0;
     if (metricFilter === 'clicked') return (stats.unique_clicks ?? stats.clicked ?? 0) > 0;
@@ -247,6 +250,13 @@ export default function CampaignsListPage() {
             onClick={() => setMetricFilter('bounced')}
           />
           <MetricCard
+            label="Unsubscribed"
+            value={unsubscribedRows.length}
+            active={metricFilter === 'unsubscribed'}
+            alert={unsubscribedRows.length > 0}
+            onClick={() => setMetricFilter('unsubscribed')}
+          />
+          <MetricCard
             label="Complaints"
             value={metricTotals.complained}
             active={metricFilter === 'complained'}
@@ -272,6 +282,50 @@ export default function CampaignsListPage() {
               : 'Your first campaign starts with the button above.'}
           </p>
         </div>
+      ) : metricFilter === 'unsubscribed' ? (
+        unsubscribedRows.length === 0 ? (
+          <div style={emptyState}>
+            <div style={{ fontSize: 42 }}>✅</div>
+            <p style={{ fontWeight: 800, fontSize: 16, marginTop: 12, marginBottom: 6, color: '#0A2540' }}>
+              No unsubscribed outreach contacts.
+            </p>
+          </div>
+        ) : (
+          <div style={tableCard}>
+            <div style={unsubscribeHeader}>
+              <div style={{ flex: '1.8 1 0' }}>Organisation</div>
+              <div style={{ flex: '1.4 1 0' }}>Email</div>
+              <div style={{ flex: '0.8 1 0' }}>Location</div>
+              <div style={{ flex: '0.8 1 0' }}>Status</div>
+              <div style={{ flex: '0 0 90px', textAlign: 'right' }}>Action</div>
+            </div>
+            {unsubscribedRows.map(org => (
+              <div key={org.id} style={unsubscribeRow}>
+                <div style={{ flex: '1.8 1 0', minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 14 }}>{org.organisation_name}</div>
+                  {org.contact_name && <div style={{ marginTop: 2, color: '#64748B', fontSize: 12 }}>{org.contact_name}</div>}
+                </div>
+                <div style={{ flex: '1.4 1 0', minWidth: 0, color: '#B91C1C', fontSize: 13, textDecoration: 'line-through' }}>
+                  {org.email || '—'}
+                </div>
+                <div style={{ flex: '0.8 1 0', color: '#64748B', fontSize: 12 }}>
+                  {[org.suburb, org.state].filter(Boolean).join(', ') || '—'}
+                </div>
+                <div style={{ flex: '0.8 1 0', color: '#B91C1C', fontSize: 12, fontWeight: 800 }}>
+                  ⛔ DO NOT EMAIL
+                </div>
+                <div style={{ flex: '0 0 90px', textAlign: 'right' }}>
+                  <Link
+                    href={`/admin/outreach/${org.id}`}
+                    style={{ ...editBtn, textDecoration: 'none' }}
+                  >
+                    View
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       ) : filteredRows.length === 0 ? (
         <div style={emptyState}>
           <div style={{ fontSize: 42 }}>🔎</div>
@@ -603,6 +657,16 @@ const metricCardAlert: React.CSSProperties = {
 };
 const tableCard: React.CSSProperties = {
   background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18, overflow: 'hidden',
+};
+const unsubscribeHeader: React.CSSProperties = {
+  display: 'flex', padding: '12px 18px', background: '#FFF7F7',
+  borderBottom: '1px solid #FECACA', gap: 12,
+  fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase',
+  fontWeight: 800, color: '#991B1B',
+};
+const unsubscribeRow: React.CSSProperties = {
+  display: 'flex', padding: '15px 18px', alignItems: 'center', gap: 12,
+  borderTop: '1px solid #FEE2E2',
 };
 const tableHeader: React.CSSProperties = {
   display: 'flex', padding: '12px 18px', background: '#F8FAFC',
