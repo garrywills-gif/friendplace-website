@@ -205,6 +205,7 @@ export default function OutreachPage() {
   const [creatingCampaignFor, setCreatingCampaignFor] = useState<string | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<string | null>(null);
   const [draftByCat, setDraftByCat] = useState<Record<string, Campaign>>({});
+  const [summaryFilter, setSummaryFilter] = useState<'all' | 'contacted' | 'not_contacted' | 'unsubscribed'>('all');
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const load = async (preserveCurrentError = false) => {
@@ -255,9 +256,19 @@ export default function OutreachPage() {
     void loadDrafts();
   }, [view]);
 
-  const groups = useMemo(() => aggregateGroups(rows, qLive), [rows, qLive]);
   const totalOrgs = rows.length;
-  const totalContacted = rows.filter(r => isPositiveTouch(r.status)).length;
+  const totalContacted = rows.filter(r => isPositiveTouch(r.status) && r.status !== 'unsubscribed').length;
+  const totalNotContacted = rows.filter(r => r.status === 'not_contacted').length;
+  const totalUnsubscribed = rows.filter(r => r.status === 'unsubscribed').length;
+  const filteredSummaryRows = rows.filter(r => {
+    if (summaryFilter === 'all') return true;
+    if (summaryFilter === 'contacted') return isPositiveTouch(r.status) && r.status !== 'unsubscribed';
+    return r.status === summaryFilter;
+  });
+  const groups = useMemo(
+    () => aggregateGroups(filteredSummaryRows, qLive),
+    [filteredSummaryRows, qLive],
+  );
   const ready = importRows.filter(r => !r.issue && !r.imported);
   const failedServerRows = importRows.filter(r => Boolean(r.serverError));
 
@@ -460,8 +471,8 @@ export default function OutreachPage() {
       {importMessage && <div style={success}>{importMessage}</div>}
 
       <div style={tabs}>
-        <button type="button" onClick={() => setView('active')} style={view === 'active' ? activeTab : tab}>Active</button>
-        <button type="button" onClick={() => setView('archived')} style={view === 'archived' ? activeTab : tab}>Archived</button>
+        <button type="button" onClick={() => { setView('active'); setSummaryFilter('all'); }} style={view === 'active' ? activeTab : tab}>Active</button>
+        <button type="button" onClick={() => { setView('archived'); setSummaryFilter('all'); }} style={view === 'archived' ? activeTab : tab}>Archived</button>
       </div>
 
       <div style={filters}>
@@ -470,13 +481,33 @@ export default function OutreachPage() {
         {qLive && <button type="button" onClick={() => { setQ(''); setQLive(''); }} style={{ ...adminStyles.ghostBtn, color: '#B91C1C', borderColor: '#FCA5A5' }}>Clear</button>}
       </div>
 
-      {!loading && (
-        <div style={rollup}>
-          <strong style={{ color: '#0A2540' }}>{groups.length}</strong> groups
-          <span style={{ color: '#94A3B8' }}> · </span>
-          <strong style={{ color: '#0A2540' }}>{totalOrgs}</strong> organisations
-          <span style={{ color: '#94A3B8' }}> · </span>
-          <strong style={{ color: '#0F766E' }}>{totalContacted}</strong> contacted
+      {!loading && view === 'active' && (
+        <div style={summaryGrid} aria-label="Outreach totals">
+          <OutreachSummaryCard
+            label="Total organisations"
+            value={totalOrgs}
+            active={summaryFilter === 'all'}
+            onClick={() => setSummaryFilter('all')}
+          />
+          <OutreachSummaryCard
+            label="Contacted"
+            value={totalContacted}
+            active={summaryFilter === 'contacted'}
+            onClick={() => setSummaryFilter('contacted')}
+          />
+          <OutreachSummaryCard
+            label="Not contacted"
+            value={totalNotContacted}
+            active={summaryFilter === 'not_contacted'}
+            onClick={() => setSummaryFilter('not_contacted')}
+          />
+          <OutreachSummaryCard
+            label="Unsubscribed"
+            value={totalUnsubscribed}
+            active={summaryFilter === 'unsubscribed'}
+            alert={totalUnsubscribed > 0}
+            onClick={() => setSummaryFilter('unsubscribed')}
+          />
         </div>
       )}
 
@@ -567,13 +598,46 @@ export default function OutreachPage() {
   );
 }
 
+function OutreachSummaryCard({
+  label,
+  value,
+  active,
+  alert = false,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  active: boolean;
+  alert?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        ...summaryCard,
+        ...(active ? summaryCardActive : {}),
+        ...(alert && !active ? summaryCardAlert : {}),
+      }}
+    >
+      <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</span>
+      <span style={{ marginTop: 4, fontSize: 26, lineHeight: 1, fontWeight: 900 }}>{value}</span>
+    </button>
+  );
+}
+
 const topBar: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginTop: -8, marginBottom: 22 };
 const intro: React.CSSProperties = { margin: 0, color: '#475569', fontSize: 14, lineHeight: 1.6, maxWidth: 760 };
 const tabs: React.CSSProperties = { display: 'flex', gap: 6, marginBottom: 14 };
 const tab: React.CSSProperties = { border: '1px solid #CBD5E1', background: '#FFF', color: '#475569', borderRadius: 999, padding: '7px 13px', fontSize: 12, fontWeight: 800, cursor: 'pointer' };
 const activeTab: React.CSSProperties = { ...tab, borderColor: '#0D9488', background: '#F0FDFA', color: '#0F766E' };
 const filters: React.CSSProperties = { display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 };
-const rollup: React.CSSProperties = { padding: '10px 14px', marginBottom: 14, border: '1px solid #E2E8F0', background: '#F8FAFC', borderRadius: 12, fontSize: 13, color: '#475569' };
+const summaryGrid: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 14 };
+const summaryCard: React.CSSProperties = { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '14px 16px', minHeight: 78, borderRadius: 14, border: '1px solid #DCE5EE', background: '#FFFFFF', color: '#0A2540', cursor: 'pointer', textAlign: 'left', boxShadow: '0 3px 12px rgba(15,23,42,0.03)' };
+const summaryCardActive: React.CSSProperties = { border: '2px solid #14B8A6', background: '#F0FDFA', color: '#0F766E', padding: '13px 15px' };
+const summaryCardAlert: React.CSSProperties = { border: '1px solid #FCA5A5', background: '#FFF7F7', color: '#B91C1C' };
 const archiveNotice: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 14, padding: '10px 12px', borderRadius: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#475569', fontSize: 12 };
 const tableCard: React.CSSProperties = { background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18, overflow: 'hidden' };
 const tableHeader: React.CSSProperties = { display: 'flex', padding: '12px 18px', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', gap: 12, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 800, color: '#64748B' };
