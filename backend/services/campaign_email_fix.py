@@ -19,6 +19,12 @@ _NAVY = "#0A2540"
 _TEAL = "#14B8A6"
 _TEXT = "#F8FAFC"
 _MUTED = "#CBD5E1"
+# Inner marketing card (white card on navy) — normal FriendPlace email style.
+_CARD = "#FFFFFF"     # inner content card background
+_INK = "#0A2540"      # dark-navy body text on the white card
+_LINE = "#E2E8F0"     # hairline separators / card border on white
+_INK_MUTED = "#64748B"  # secondary text on white (labels, compliance)
+_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
 
 
 def _inline_md(text: str) -> str:
@@ -26,7 +32,7 @@ def _inline_md(text: str) -> str:
     s = escape(text or "")
     # links first so later emphasis handling cannot corrupt hrefs
     s = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)",
-               r'<a href="\2" style="color:#5EEAD4;text-decoration:underline;">\1</a>', s)
+               r'<a href="\2" style="color:#0D9488;text-decoration:underline;">\1</a>', s)
     s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", s)
     return s
@@ -106,16 +112,16 @@ def announcement_template(
 
     if outreach:
         signature_html = (
-            '<div style="margin-top:30px;padding-top:18px;border-top:1px solid rgba(255,255,255,.18);">'
-            '<div style="color:#CBD5E1;">Warmly,</div>'
-            '<div style="margin-top:4px;font-weight:800;color:#FFFFFF;">The FriendPlace Team</div>'
-            '<div style="margin-top:5px;color:#5EEAD4;font-style:italic;">Because you belong too.</div>'
+            f'<div style="margin-top:30px;padding-top:18px;border-top:1px solid {_LINE};">'
+            f'<div style="color:{_INK_MUTED};">Warmly,</div>'
+            f'<div style="margin-top:4px;font-weight:800;color:{_INK};">The FriendPlace Team</div>'
+            '<div style="margin-top:5px;color:#0D9488;font-style:italic;">Because you belong too.</div>'
             '</div>'
         )
         signature_text = "Warmly,\nThe FriendPlace Team\nBecause you belong too."
         compliance_html = (
-            '<div style="margin-top:28px;padding-top:18px;border-top:1px solid rgba(255,255,255,.13);'
-            'font-size:11px;line-height:17px;color:#94A3B8;">'
+            f'<div style="margin-top:28px;padding-top:18px;border-top:1px solid {_LINE};'
+            f'font-size:11px;line-height:17px;color:{_INK_MUTED};">'
             "You’re receiving this email because your organisation’s publicly listed contact details indicated "
             "FriendPlace may be relevant to your community."
             '</div>'
@@ -128,10 +134,10 @@ def announcement_template(
     else:
         who = "Georgia" if companion == "georgia" else "George"
         signature_html = (
-            '<div style="margin-top:30px;padding-top:18px;border-top:1px solid rgba(255,255,255,.18);">'
-            '<div style="color:#CBD5E1;">Warmly,</div>'
-            f'<div style="margin-top:4px;font-weight:800;color:#FFFFFF;">{who}</div>'
-            '<div style="margin-top:5px;color:#CBD5E1;font-style:italic;">Your friend at FriendPlace</div></div>'
+            f'<div style="margin-top:30px;padding-top:18px;border-top:1px solid {_LINE};">'
+            f'<div style="color:{_INK_MUTED};">Warmly,</div>'
+            f'<div style="margin-top:4px;font-weight:800;color:{_INK};">{who}</div>'
+            f'<div style="margin-top:5px;color:{_INK_MUTED};font-style:italic;">Your friend at FriendPlace</div></div>'
         )
         signature_text = f"Warmly,\n{who}\nYour friend at FriendPlace"
         compliance_html = ""
@@ -156,8 +162,8 @@ def announcement_template(
 <tr><td align="center" style="padding:0 0 24px 0;">{logo}
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:28px;font-weight:900;color:#FFFFFF;">FriendPlace</div>
 <div style="margin-top:7px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;letter-spacing:3px;color:#CBD5E1;">BECAUSE YOU BELONG TOO.</div></td></tr>
-<tr><td style="padding:34px 38px;border:1px solid rgba(255,255,255,.14);border-radius:20px;background:#0D2D4D;box-shadow:0 16px 44px rgba(0,0,0,.18);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:17px;line-height:1.65;color:{_TEXT};">
-<h1 style="margin:0 0 24px 0;color:#FFFFFF;font-size:27px;line-height:1.25;">{escape(heading)}</h1>
+<tr><td style="padding:34px 38px;border:1px solid {_LINE};border-radius:20px;background:{_CARD};box-shadow:0 16px 44px rgba(10,37,64,.12);font-family:{_FONT};font-size:17px;line-height:1.65;color:{_INK};">
+<h1 style="margin:0 0 24px 0;color:{_INK};font-size:27px;line-height:1.25;">{escape(heading)}</h1>
 {greeting_html}{founder_html}{_body_html(body_md)}{signature_html}{cta_html}{compliance_html}
 </td></tr>
 <tr><td align="center" style="padding:20px 10px 0;color:#94A3B8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:19px;">
