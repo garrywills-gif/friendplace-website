@@ -20,11 +20,11 @@ _TEAL = "#14B8A6"
 _TEXT = "#F8FAFC"
 _MUTED = "#CBD5E1"
 # Inner marketing card (white card on navy) — normal FriendPlace email style.
-_CARD = "#FFFFFF"     # inner content card background
-_INK = "#0A2540"      # dark-navy body text on the white card
-_LINE = "#E2E8F0"     # hairline separators / card border on white
-_INK_MUTED = "#64748B"  # secondary text on white (labels, compliance)
-_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif"
+_CARD = "#12294C"     # deep-navy content area (full-navy email, not a white card)
+_INK = "#F8FAFC"      # white body text on navy
+_LINE = "rgba(255,255,255,.16)"  # subtle divider / card border on navy
+_INK_MUTED = "#CBD5E1"  # light secondary text on navy (labels, compliance)
+_FONT = "Georgia,'Times New Roman',serif"  # branded serif body/heading
 
 
 def _inline_md(text: str) -> str:
@@ -32,7 +32,7 @@ def _inline_md(text: str) -> str:
     s = escape(text or "")
     # links first so later emphasis handling cannot corrupt hrefs
     s = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)",
-               r'<a href="\2" style="color:#0D9488;text-decoration:underline;">\1</a>', s)
+               r'<a href="\2" style="color:#5EEAD4;text-decoration:underline;">\1</a>', s)
     s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
     s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", s)
     return s
@@ -115,7 +115,7 @@ def announcement_template(
             f'<div style="margin-top:30px;padding-top:18px;border-top:1px solid {_LINE};">'
             f'<div style="color:{_INK_MUTED};">Warmly,</div>'
             f'<div style="margin-top:4px;font-weight:800;color:{_INK};">The FriendPlace Team</div>'
-            '<div style="margin-top:5px;color:#0D9488;font-style:italic;">Because you belong too.</div>'
+            '<div style="margin-top:5px;color:#5EEAD4;font-style:italic;">Because you belong too.</div>'
             '</div>'
         )
         signature_text = "Warmly,\nThe FriendPlace Team\nBecause you belong too."
