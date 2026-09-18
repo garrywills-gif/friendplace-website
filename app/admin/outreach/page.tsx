@@ -265,6 +265,13 @@ export default function OutreachPage() {
     if (summaryFilter === 'contacted') return isPositiveTouch(r.status) && r.status !== 'unsubscribed';
     return r.status === summaryFilter;
   });
+  const unsubscribedRows = rows
+    .filter(r => r.status === 'unsubscribed')
+    .sort((a, b) => {
+      const aDate = a.updated_at || a.last_contact_at || '';
+      const bDate = b.updated_at || b.last_contact_at || '';
+      return bDate.localeCompare(aDate);
+    });
   const groups = useMemo(
     () => aggregateGroups(filteredSummaryRows, qLive),
     [filteredSummaryRows, qLive],
@@ -516,6 +523,47 @@ export default function OutreachPage() {
 
       {loading ? (
         <div style={emptyState}>Loading outreach groups…</div>
+      ) : view === 'active' && summaryFilter === 'unsubscribed' ? (
+        unsubscribedRows.length === 0 ? (
+          <div style={emptyState}>
+            <div style={{ fontSize: 48 }}>✅</div>
+            <p style={{ fontWeight: 700, fontSize: 16, marginTop: 12, marginBottom: 6, color: '#0A2540' }}>No unsubscribed organisations.</p>
+          </div>
+        ) : (
+          <div style={tableCard}>
+            <div style={unsubscribeHeader}>
+              <div style={{ flex: '1.7 1 0' }}>Organisation</div>
+              <div style={{ flex: '1.4 1 0' }}>Email</div>
+              <div style={{ flex: '0.8 1 0' }}>Location</div>
+              <div style={{ flex: '0.9 1 0' }}>Status</div>
+              <div style={{ flex: '0 0 90px', textAlign: 'right' }}>Action</div>
+            </div>
+            {unsubscribedRows.map(org => (
+              <div key={org.id} style={unsubscribeRow}>
+                <div style={{ flex: '1.7 1 0', minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, color: '#0A2540', fontSize: 14 }}>{org.organisation_name}</div>
+                  {org.contact_name && (
+                    <div style={{ marginTop: 2, color: '#64748B', fontSize: 12 }}>{org.contact_name}</div>
+                  )}
+                </div>
+                <div style={{ flex: '1.4 1 0', minWidth: 0, color: '#B91C1C', fontSize: 13, textDecoration: 'line-through' }}>
+                  {org.email || '—'}
+                </div>
+                <div style={{ flex: '0.8 1 0', color: '#64748B', fontSize: 12 }}>
+                  {[org.suburb, org.state].filter(Boolean).join(', ') || '—'}
+                </div>
+                <div style={{ flex: '0.9 1 0', color: '#B91C1C', fontSize: 12, fontWeight: 800 }}>
+                  ⛔ DO NOT EMAIL
+                </div>
+                <div style={{ flex: '0 0 90px', textAlign: 'right' }}>
+                  <Link href={`/admin/outreach/${org.id}`} style={{ ...openLink, textDecoration: 'none' }}>
+                    View →
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       ) : groups.length === 0 ? (
         <div style={emptyState}>
           <div style={{ fontSize: 48 }}>{view === 'archived' ? '🗄️' : '📮'}</div>
@@ -640,6 +688,8 @@ const summaryCardActive: React.CSSProperties = { border: '2px solid #14B8A6', ba
 const summaryCardAlert: React.CSSProperties = { border: '1px solid #FCA5A5', background: '#FFF7F7', color: '#B91C1C' };
 const archiveNotice: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 14, padding: '10px 12px', borderRadius: 12, background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#475569', fontSize: 12 };
 const tableCard: React.CSSProperties = { background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18, overflow: 'hidden' };
+const unsubscribeHeader: React.CSSProperties = { display: 'flex', padding: '12px 18px', background: '#FFF7F7', borderBottom: '1px solid #FECACA', gap: 12, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 800, color: '#991B1B' };
+const unsubscribeRow: React.CSSProperties = { display: 'flex', padding: '15px 18px', alignItems: 'center', gap: 12, borderTop: '1px solid #FEE2E2' };
 const tableHeader: React.CSSProperties = { display: 'flex', padding: '12px 18px', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', gap: 12, fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 800, color: '#64748B' };
 const rowLine: React.CSSProperties = { display: 'flex', padding: '16px 18px', alignItems: 'center', gap: 12, borderTop: '1px solid #F1F5F9' };
 const contactedPill: React.CSSProperties = { display: 'inline-block', padding: '3px 10px', borderRadius: 999, background: '#DCFCE7', color: '#166534', fontWeight: 800, fontSize: 12, minWidth: 28, textAlign: 'center' };
