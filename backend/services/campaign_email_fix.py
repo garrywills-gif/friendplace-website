@@ -149,6 +149,11 @@ def announcement_template(
         'style="display:block;margin:0 auto 14px auto;border:0;">'
         if butterfly else ""
     )
+    tagline_butterfly = (
+        f'&nbsp;<img src="data:image/png;base64,{butterfly}" width="16" alt="" '
+        'style="display:inline;vertical-align:middle;border:0;">'
+        if butterfly else ""
+    )
     preheader = preheader_override or "FriendPlace — Because you belong too."
     html = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -159,10 +164,10 @@ def announcement_template(
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{_NAVY};">
 <tr><td align="center" style="padding:34px 16px;">
 <table role="presentation" width="620" cellpadding="0" cellspacing="0" style="width:100%;max-width:620px;">
-<tr><td align="center" style="padding:0 0 24px 0;">{logo}
-<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:28px;font-weight:900;color:#FFFFFF;">FriendPlace</div>
-<div style="margin-top:7px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;letter-spacing:3px;color:#CBD5E1;">BECAUSE YOU BELONG TOO.</div></td></tr>
-<tr><td style="padding:34px 38px;border:1px solid {_LINE};border-radius:20px;background:{_CARD};box-shadow:0 16px 44px rgba(10,37,64,.12);font-family:{_FONT};font-size:17px;line-height:1.65;color:{_INK};">
+<tr><td align="center" style="padding:0 0 26px 0;">{logo}
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:28px;font-weight:900;color:#FFFFFF;">Friend<span style="color:#5EEAD4;">Place</span></div>
+<div style="margin-top:8px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;letter-spacing:3px;color:#CBD5E1;">BECAUSE YOU BELONG TOO.{tagline_butterfly}</div></td></tr>
+<tr><td style="padding:8px 8px 0 8px;background:{_NAVY};font-family:{_FONT};font-size:17px;line-height:1.65;color:{_INK};">
 <h1 style="margin:0 0 24px 0;color:{_INK};font-size:27px;line-height:1.25;">{escape(heading)}</h1>
 {greeting_html}{founder_html}{_body_html(body_md)}{signature_html}{cta_html}{compliance_html}
 </td></tr>
