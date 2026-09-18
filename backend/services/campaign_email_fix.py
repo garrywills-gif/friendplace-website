@@ -72,6 +72,8 @@ def announcement_template(
     cta_url: str | None = None, greeting: str | None = None,
     show_founder_badge: bool | None = None, companion: str = "george",
     subject_override: str | None = None, preheader_override: str | None = None,
+    outreach_unsubscribe_url: str | None = None,
+    **_ignore,
 ) -> tuple[str, str, str]:
     raw_name = (first_name or "").strip()
     heading = (title or "").strip() or "A note from FriendPlace"
@@ -119,17 +121,31 @@ def announcement_template(
             '</div>'
         )
         signature_text = "Warmly,\nThe FriendPlace Team\nBecause you belong too."
+        _unsub_html = ""
+        _unsub_text = ""
+        if outreach_unsubscribe_url:
+            _unsub_html = (
+                " If you\u2019d prefer not to hear from FriendPlace again, "
+                f'<a href="{escape(outreach_unsubscribe_url)}" '
+                'style="color:#5EEAD4;text-decoration:underline;">unsubscribe here</a>.'
+            )
+            _unsub_text = (
+                " If you'd prefer not to hear from FriendPlace again, "
+                f"unsubscribe here: {outreach_unsubscribe_url}"
+            )
         compliance_html = (
             f'<div style="margin-top:28px;padding-top:18px;border-top:1px solid {_LINE};'
             f'font-size:11px;line-height:17px;color:{_INK_MUTED};">'
             "You’re receiving this email because your organisation’s publicly listed contact details indicated "
             "FriendPlace may be relevant to your community."
+            f"{_unsub_html}"
             '</div>'
         )
         # The campaign delivery layer may append the recipient-specific unsubscribe link.
         compliance_text = (
             "\n\nYou're receiving this email because your organisation's publicly listed contact details "
             "indicated FriendPlace may be relevant to your community."
+            f"{_unsub_text}"
         )
     else:
         who = "Georgia" if companion == "georgia" else "George"
