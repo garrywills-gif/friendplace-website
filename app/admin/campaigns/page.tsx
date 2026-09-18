@@ -30,6 +30,8 @@ type CampaignWithArchive = Campaign & {
   archived_by_email?: string | null;
 };
 
+type CampaignMetricFilter = 'all' | 'delivered' | 'opened' | 'clicked' | 'bounced' | 'complained';
+
 async function archiveRequest<T>(path: string, method: 'GET' | 'POST' = 'GET'): Promise<T> {
   const headers: Record<string, string> = {};
   const token = getToken();
@@ -81,6 +83,7 @@ export default function CampaignsListPage() {
   const [deleting, setDeleting] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [metricFilter, setMetricFilter] = useState<CampaignMetricFilter>('all');
 
   useEffect(() => {
     let cancelled = false;
@@ -146,6 +149,25 @@ export default function CampaignsListPage() {
     }
   };
 
+  const metricTotals = rows.reduce((totals, campaign) => {
+    const stats = campaign.stats || ({} as Campaign['stats']);
+    totals.delivered += stats.delivered || 0;
+    totals.opened += stats.unique_opens ?? stats.opened ?? 0;
+    totals.clicked += stats.unique_clicks ?? stats.clicked ?? 0;
+    totals.bounced += stats.bounced || 0;
+    totals.complained += stats.complained || 0;
+    return totals;
+  }, { delivered: 0, opened: 0, clicked: 0, bounced: 0, complained: 0 });
+
+  const filteredRows = rows.filter(campaign => {
+    if (metricFilter === 'all') return true;
+    const stats = campaign.stats || ({} as Campaign['stats']);
+    if (metricFilter === 'opened') return (stats.unique_opens ?? stats.opened ?? 0) > 0;
+    if (metricFilter === 'clicked') return (stats.unique_clicks ?? stats.clicked ?? 0) > 0;
+    if (metricFilter === 'complained') return (stats.complained || 0) > 0;
+    return (stats[metricFilter] || 0) > 0;
+  });
+
   return (
     <AdminShell title="Campaigns">
       <div style={headerRow}>
@@ -177,6 +199,49 @@ export default function CampaignsListPage() {
         </div>
       )}
 
+      {!loading && !err && rows.length > 0 && (
+        <div style={metricGrid} aria-label="Campaign totals">
+          <MetricCard
+            label="All"
+            value={rows.length}
+            active={metricFilter === 'all'}
+            onClick={() => setMetricFilter('all')}
+          />
+          <MetricCard
+            label="Delivered"
+            value={metricTotals.delivered}
+            active={metricFilter === 'delivered'}
+            onClick={() => setMetricFilter('delivered')}
+          />
+          <MetricCard
+            label="Opened"
+            value={metricTotals.opened}
+            active={metricFilter === 'opened'}
+            onClick={() => setMetricFilter('opened')}
+          />
+          <MetricCard
+            label="Clicked"
+            value={metricTotals.clicked}
+            active={metricFilter === 'clicked'}
+            onClick={() => setMetricFilter('clicked')}
+          />
+          <MetricCard
+            label="Bounced"
+            value={metricTotals.bounced}
+            active={metricFilter === 'bounced'}
+            alert={metricTotals.bounced > 0}
+            onClick={() => setMetricFilter('bounced')}
+          />
+          <MetricCard
+            label="Complaints"
+            value={metricTotals.complained}
+            active={metricFilter === 'complained'}
+            alert={metricTotals.complained > 0}
+            onClick={() => setMetricFilter('complained')}
+          />
+        </div>
+      )}
+
       {loading ? (
         <div style={emptyState}>Loading…</div>
       ) : err ? (
@@ -193,6 +258,16 @@ export default function CampaignsListPage() {
               : 'Your first campaign starts with the button above.'}
           </p>
         </div>
+      ) : filteredRows.length === 0 ? (
+        <div style={emptyState}>
+          <div style={{ fontSize: 42 }}>🔎</div>
+          <p style={{ fontWeight: 800, fontSize: 16, marginTop: 12, marginBottom: 6, color: '#0A2540' }}>
+            No campaigns in this group.
+          </p>
+          <p style={{ color: '#64748B', fontSize: 13, margin: 0 }}>
+            Choose another total above to change the campaign group.
+          </p>
+        </div>
       ) : (
         <div style={tableCard}>
           <div style={tableHeader}>
@@ -203,7 +278,7 @@ export default function CampaignsListPage() {
             <div style={{ flex: '1 1 0' }}>{showArchived ? 'Archived' : 'Sent'}</div>
             <div style={{ flex: '0 0 150px', textAlign: 'right' }}>Action</div>
           </div>
-          {rows.map(c => {
+          {filteredRows.map(c => {
             const meta = STATUS_META[c.status];
             const total = c.stats?.targeted || 0;
             const accepted = c.stats?.accepted || 0;
@@ -393,6 +468,38 @@ export default function CampaignsListPage() {
   );
 }
 
+function MetricCard({
+  label,
+  value,
+  active,
+  alert = false,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  active: boolean;
+  alert?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        ...metricCard,
+        ...(active ? metricCardActive : {}),
+        ...(alert && !active ? metricCardAlert : {}),
+      }}
+    >
+      <span style={{ fontSize: 11, fontWeight: 900, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+        {label}
+      </span>
+      <span style={{ marginTop: 4, fontSize: 26, lineHeight: 1, fontWeight: 900 }}>{value}</span>
+    </button>
+  );
+}
+
 function isOutreachCampaign(c: Campaign): boolean {
   const f: any = c.audience_filter || {};
   return f.audience_kind === 'outreach_contacts' || Boolean(f.outreach?.category);
@@ -443,6 +550,37 @@ const archiveNotice: React.CSSProperties = {
   display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap',
   marginBottom: 14, padding: '10px 12px', borderRadius: 12,
   background: '#F8FAFC', border: '1px solid #E2E8F0', color: '#475569', fontSize: 12,
+};
+const metricGrid: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+  gap: 10,
+  marginBottom: 16,
+};
+const metricCard: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  padding: '14px 16px',
+  minHeight: 78,
+  borderRadius: 14,
+  border: '1px solid #DCE5EE',
+  background: '#FFFFFF',
+  color: '#0A2540',
+  cursor: 'pointer',
+  textAlign: 'left',
+  boxShadow: '0 3px 12px rgba(15,23,42,0.03)',
+};
+const metricCardActive: React.CSSProperties = {
+  border: '2px solid #14B8A6',
+  background: '#F0FDFA',
+  color: '#0F766E',
+  padding: '13px 15px',
+};
+const metricCardAlert: React.CSSProperties = {
+  border: '1px solid #FCA5A5',
+  background: '#FFF7F7',
+  color: '#B91C1C',
 };
 const tableCard: React.CSSProperties = {
   background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18, overflow: 'hidden',
