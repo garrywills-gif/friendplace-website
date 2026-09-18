@@ -101,6 +101,8 @@ export default function CampaignDetailPage() {
   const [openTimelineFor, setOpenTimelineFor] = useState<CampaignRecipient | null>(null);
   const [outreachNumbers, setOutreachNumbers] = useState<OutreachNumberMap>({});
   const [retrying, setRetrying] = useState(false);
+  const [retryingTransient, setRetryingTransient] = useState(false);
+  const [retryNotice, setRetryNotice] = useState<string | null>(null);
   // Scale the fixed 620px email down to fit the "What was sent" panel at
   // natural proportions (CSS/container only — email HTML unchanged).
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
@@ -114,8 +116,6 @@ export default function CampaignDetailPage() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [campaign?.sample_html]);
-  const [retryingTransient, setRetryingTransient] = useState(false);
-  const [retryNotice, setRetryNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
