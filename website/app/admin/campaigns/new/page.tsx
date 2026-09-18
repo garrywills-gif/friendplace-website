@@ -93,6 +93,23 @@ function ComposePanel() {
   const [saving, setSaving] = useState(false);
   const [audienceCount, setAudienceCount] = useState<number | null>(null);
   const [previewHtml, setPreviewHtml] = useState('');
+  // Preview scale-to-fit: the email is a fixed 620px-wide marketing layout.
+  // Render the iframe at its true 620px width and scale it down to fill the
+  // preview column so it shows at natural proportions (never enlarged) —
+  // otherwise `width=device-width` squeezes the 620px design into the narrow
+  // panel and it looks zoomed/oversized. CSS/container only; email HTML and
+  // sent-email font sizes are untouched.
+  const previewWrapRef = useRef<HTMLDivElement | null>(null);
+  const [previewScale, setPreviewScale] = useState(1);
+  useEffect(() => {
+    const el = previewWrapRef.current;
+    if (!el) return;
+    const compute = () => setPreviewScale(Math.min(1, el.clientWidth / 620));
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sending, setSending] = useState(false);
@@ -700,15 +717,21 @@ function ComposePanel() {
       <div>
         <div style={{ position: 'sticky', top: 20 }}>
           <div style={{ ...s.label, marginBottom: 8 }}>Live preview</div>
-          <div style={{
+          <div ref={previewWrapRef} style={{
             border: '1px solid #E2E8F0', borderRadius: 18, overflow: 'hidden',
-            background: '#FFFFFF', height: 720,
+            background: '#FFFFFF', height: 720, position: 'relative',
           }}>
             <iframe
               title="Campaign preview"
               srcDoc={previewHtml || '<div style="padding:24px;color:#94A3B8;font-family:sans-serif">Preview appears here as you compose.</div>'}
               sandbox=""
-              style={{ width: '100%', height: '100%', border: 'none' }}
+              style={{
+                width: 620,
+                height: 720 / previewScale,
+                border: 'none',
+                transform: `scale(${previewScale})`,
+                transformOrigin: 'top left',
+              }}
             />
           </div>
           <div style={s.helper}>

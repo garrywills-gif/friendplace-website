@@ -15,7 +15,7 @@
  */
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import {
@@ -60,6 +60,19 @@ export default function CampaignDetailPage() {
   const [err, setErr] = useState<string | null>(null);
   const [filter, setFilter] = useState<RecipientFilter>('all');
   const [openTimelineFor, setOpenTimelineFor] = useState<CampaignRecipient | null>(null);
+  // Scale the fixed 620px email down to fit the "What was sent" panel at
+  // natural proportions (CSS/container only — email HTML unchanged).
+  const previewWrapRef = useRef<HTMLDivElement | null>(null);
+  const [previewScale, setPreviewScale] = useState(1);
+  useEffect(() => {
+    const el = previewWrapRef.current;
+    if (!el) return;
+    const compute = () => setPreviewScale(Math.min(1, el.clientWidth / 620));
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [campaign?.sample_html]);
 
   useEffect(() => {
     let cancelled = false;
@@ -235,13 +248,19 @@ export default function CampaignDetailPage() {
 
         <div>
           <div style={s.label}>What was sent</div>
-          <div style={{
+          <div ref={previewWrapRef} style={{
             border: '1px solid #E2E8F0', borderRadius: 16, overflow: 'hidden',
-            background: '#FFFFFF', height: 640,
+            background: '#FFFFFF', height: 640, position: 'relative',
           }}>
             {campaign.sample_html ? (
               <iframe title="Campaign copy" srcDoc={campaign.sample_html} sandbox=""
-                style={{ width: '100%', height: '100%', border: 'none' }} />
+                style={{
+                  width: 620,
+                  height: 640 / previewScale,
+                  border: 'none',
+                  transform: `scale(${previewScale})`,
+                  transformOrigin: 'top left',
+                }} />
             ) : (
               <div style={{ padding: 24, color: '#94A3B8', fontStyle: 'italic' }}>
                 Sample HTML will be captured when the campaign is sent.
