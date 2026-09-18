@@ -534,6 +534,7 @@ export default function OutreachPage() {
             <div style={unsubscribeHeader}>
               <div style={{ flex: '1.7 1 0' }}>Organisation</div>
               <div style={{ flex: '1.4 1 0' }}>Email</div>
+              <div style={{ flex: '1 1 0' }}>Group</div>
               <div style={{ flex: '0.8 1 0' }}>Location</div>
               <div style={{ flex: '0.9 1 0' }}>Status</div>
               <div style={{ flex: '0 0 90px', textAlign: 'right' }}>Action</div>
@@ -548,6 +549,9 @@ export default function OutreachPage() {
                 </div>
                 <div style={{ flex: '1.4 1 0', minWidth: 0, color: '#B91C1C', fontSize: 13, textDecoration: 'line-through' }}>
                   {org.email || '—'}
+                </div>
+                <div style={{ flex: '1 1 0', color: '#475569', fontSize: 12, fontWeight: 700 }}>
+                  {labelFor(org.category || 'uncategorised')}
                 </div>
                 <div style={{ flex: '0.8 1 0', color: '#64748B', fontSize: 12 }}>
                   {[org.suburb, org.state].filter(Boolean).join(', ') || '—'}
