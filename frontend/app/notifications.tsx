@@ -34,6 +34,21 @@ const CHEER_OPTIONS: { kind: "well_done" | "congrats" | "coffee" | "flutter"; em
   { kind: "flutter",   emoji: "🦋", label: "Flutter Sent" },
 ];
 
+// Defence-in-depth: no notification text should ever show a raw data-URI,
+// base64 blob, avatar ref, or JSON payload (Garry, TestFlight 2026).
+function cleanNotifText(s?: string): string {
+  const t = (s || "").trim();
+  if (!t) return "";
+  if ((t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"))) return "";
+  return t
+    .replace(/data:[^;\s]+;base64,[A-Za-z0-9+/=]+/g, "")
+    .replace(/\b(?:gallery|preset):[^\s]+/g, "")
+    .replace(/\bportrait-\d+\b/g, "")
+    .replace(/[A-Za-z0-9+/]{40,}={0,2}/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function relTime(iso?: string) {
   if (!iso) return "";
   try {
@@ -220,8 +235,8 @@ export default function Notifications() {
               <Pressable testID={`notif-${item.id}`} onPress={() => onItemPress(item)} style={[styles.row, { backgroundColor: item.read ? c.surfaceSecondary : c.brandTertiary, borderColor: item.read ? c.border : c.brand }]}>
                 <View style={[styles.iconBox, { backgroundColor: "#FFFFFF" }]}><Ionicons name={ic.name} size={20} color={ic.tint} /></View>
                 <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>{item.title}</Text>
-                  {!!item.body && <Text style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }} numberOfLines={isDm || isDmRequest ? 3 : 2}>{isDm || isDmRequest ? `“${item.body}”` : item.body}</Text>}
+                  <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>{cleanNotifText(item.title) || item.title}</Text>
+                  {(() => { const b = cleanNotifText(item.body); return b ? <Text style={{ color: c.muted, marginTop: 2, fontSize: 14 * scale }} numberOfLines={isDm || isDmRequest ? 3 : 2}>{isDm || isDmRequest ? `“${b}”` : b}</Text> : null; })()}
                   <Text style={{ color: c.muted, marginTop: 4, fontSize: 12 * scale }}>{relTime(item.created_at)}</Text>
                 </View>
                 {!item.read && <View style={[styles.dot, { backgroundColor: c.brandSecondary }]} />}

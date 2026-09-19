@@ -3380,9 +3380,37 @@ def _glyph_or_blank(avatar: Optional[str]) -> str:
     return av
 
 
+def _clean_notification_text(s: Optional[str]) -> str:
+    """Strip anything that must NEVER surface to a member as notification text:
+    data-URI/base64 avatar or photo blobs, gallery/preset/portrait avatar refs,
+    long raw base64 runs, and whole-string JSON payloads. Human-readable text
+    (including emoji glyphs) passes through untouched. Applied defensively to
+    every notification title/body and DM preview so no surface — system push,
+    the in-app Notifications list, or the Chats preview — ever shows raw
+    data:image, base64, JSON, IDs or payload data (Garry, TestFlight 2026).
+    """
+    import re as _re
+    txt = (s or "").strip()
+    if not txt:
+        return ""
+    # A whole-string JSON blob is a leaked payload — never show it.
+    if (txt.startswith("{") and txt.endswith("}")) or (txt.startswith("[") and txt.endswith("]")):
+        return ""
+    txt = _re.sub(r"data:[^;\s]+;base64,[A-Za-z0-9+/=]+", "", txt)
+    txt = _re.sub(r"\b(?:gallery|preset):[^\s]+", "", txt)
+    txt = _re.sub(r"\bportrait-\d+\b", "", txt)
+    # Long unbroken base64/token runs (avatar blobs, ids) — never human text.
+    txt = _re.sub(r"[A-Za-z0-9+/]{40,}={0,2}", "", txt)
+    txt = _re.sub(r"\s{2,}", " ", txt).strip()
+    return txt
+
+
 async def push_notification(user_id: str, n_type: str, title: str, body: str = "", payload: Optional[Dict] = None):
     if not user_id:
         return
+    # Defence-in-depth: never persist/relay raw payload text to any surface.
+    title = _clean_notification_text(title)
+    body = _clean_notification_text(body)
     doc = {
         "id": nid(),
         "user_id": user_id,
@@ -11108,6 +11136,11 @@ async def my_conversations(user_id: str, filter: str = "active", me: dict = Depe
         else:
             other_safe = None
         last = await db.messages.find_one({"dm_id": c["id"]}, {"_id": 0}, sort=[("created_at", -1)])
+        # Sanitise the preview so the Chats list never shows a raw data-URI /
+        # base64 / payload string (defence-in-depth; DM is text-only today).
+        if last is not None:
+            _clean_prev = _clean_notification_text(last.get("text"))
+            last["text"] = _clean_prev or ("📷 Photo" if last.get("image") else "")
         # Unread count = messages in this conv AFTER this user's last_read_at
         # timestamp that were NOT sent by this user. If the field is missing
         # (older convs), fall back to counting messages from the peer only.
@@ -11992,7 +12025,7 @@ async def ws_dm(websocket: WebSocket, conv_id: str, user_id: str = Query(...), t
                         "unread_delta": 1,
                         "last_message": {
                             "id":         out.get("id"),
-                            "text":       text[:180],
+                            "text":       _clean_notification_text(text)[:180],
                             "created_at": out.get("created_at"),
                             "user_id":    user_id,
                         },

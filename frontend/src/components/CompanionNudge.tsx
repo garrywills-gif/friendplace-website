@@ -103,15 +103,18 @@ export default function CompanionNudge() {
   useInboxEvent("notification", (evt: any) => {
     const n = evt?.notification;
     if (!n || !NUDGE_TYPES.has(n.type)) return;
-    // Stay quiet on auth/onboarding/welcome, and if already viewing the
-    // exact target conversation (nothing to nudge about).
-    if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p)) || pathname === "/") return;
+    // Stay quiet on auth/onboarding/welcome. Game invites must surface on
+    // EVERY screen (including Home "/") and on EVERY new invite so a repeat
+    // "Play again" is never silently reduced to just a badge (Garry 2026).
+    // Passive chat/flutter nudges stay quiet on the bare index route.
+    if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p))) return;
+    if (n.type !== "game_invite" && pathname === "/") return;
     const route = routeFor(n);
     if (route.startsWith("/dm/") && pathname.startsWith(route.split("?")[0])) return;
     setNudge({
       key: n.id || String(Date.now()),
       ntype: n.type,
-      title: cleanText(n.title || "") || (n.type === "flutter" ? "New Flutter" : "New message"),
+      title: cleanText(n.title || "") || (n.type === "flutter" ? "New Flutter" : n.type === "game_invite" ? "New game invite" : "New message"),
       body: cleanText(n.body || ""),
       route,
     });

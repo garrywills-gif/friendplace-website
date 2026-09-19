@@ -377,6 +377,14 @@ export default function Events() {
                       {item.distance_km != null ? `  ·  ${item.distance_km} km` : ""}
                     </Text>
                   ) : null}
+                  {item.created_at ? (() => {
+                    const pd = new Date(item.created_at);
+                    return isNaN(pd.getTime()) ? null : (
+                      <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 4 }}>
+                        Posted {pd.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
+                      </Text>
+                    );
+                  })() : null}
                 </View>
                 <View style={{ alignItems: "flex-end", gap: 6 }}>
                   <SpeakButton

@@ -664,8 +664,8 @@ export default function Home() {
                     </View>
                   ) : null}
                 </View>
-                <Text style={[styles.cardTitle, { color: CARD_TITLE_INK, fontSize: 14.5 * scale }]} numberOfLines={2}>
-                  {t.title}
+                <Text style={[styles.cardTitle, { color: CARD_TITLE_INK, fontSize: 14.5 * scale }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.8}>
+                  {t.key === "groups" ? "Community\nGroups" : t.title}
                 </Text>
                 {t.sub ? (
                   <Text style={[styles.cardSub, { color: CARD_SUB_INK, fontSize: 12.5 * scale }]} numberOfLines={2}>

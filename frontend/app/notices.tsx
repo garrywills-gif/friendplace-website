@@ -175,6 +175,12 @@ export default function Notices() {
     if (from) return `Active from ${from}`;
     return null;
   };
+  const postedLabel = (iso?: string): string | null => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    return `Posted ${d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}`;
+  };
 
   const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
   const startEdit = (n: any) => {
@@ -349,6 +355,9 @@ export default function Notices() {
         </View>
 
         <Text style={[styles.title, { color: c.onSurface, fontSize: 18 * scale }]}>{n.title}</Text>
+        {postedLabel(n.created_at) ? (
+          <Text style={{ color: c.muted, fontSize: 12.5 * scale, marginTop: 2 }}>{postedLabel(n.created_at)}</Text>
+        ) : null}
         <Text style={[styles.body, { color: c.onSurface, fontSize: 16 * scale }]}>{n.body}</Text>
         {activePeriodLabel(n) ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 }}>
