@@ -133,7 +133,7 @@ function _friendlyErrorMessage(status: number, body: string): string {
         (typeof j?.message === "string" && j.message) ||
         (typeof j?.error === "string" && j.error) ||
         "";
-      if (detail) return `${status} ${detail}`;
+      if (detail) return detail;
     } catch { /* fall through */ }
   }
 
@@ -164,14 +164,14 @@ function _friendlyErrorMessage(status: number, body: string): string {
 
   // 3) Plain-text body from FastAPI or middleware — safe to show if short.
   if (trimmed.length > 0 && trimmed.length <= 240) {
-    return `${status} ${trimmed}`;
+    return trimmed;
   }
 
-  // 4) Unknown / empty — status-only.
+  // 4) Unknown / empty — friendly, never expose a raw status code.
   if (status >= 500) return "Something went wrong on our end. Please try again in a moment.";
   if (status === 429) return "You're going a bit fast — please wait a moment and try again.";
   if (status === 0)   return "No connection. Please check your network and try again.";
-  return `Request failed (${status}). Please try again.`;
+  return "We couldn't complete that request. Please try again.";
 }
 
 export const api = {

@@ -222,7 +222,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     } finally { setBusy(false); }
   }
 
-  async function approve(destination: 'moment' | 'lounge' = 'lounge') {
+  async function approve(destination: 'moment' | 'lounge' | 'chat' = 'lounge') {
     if (!sessionId) return;
     setBusy(true);
     try { await georgeApi.onboardingApprove(sessionId); onDone(destination); }
@@ -296,8 +296,15 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
           <Ionicons name="refresh" size={14} color="#0F766E" />
           <Text style={styles.clearChatText}>Clear chat</Text>
         </Pressable>
-        <Pressable onPress={finishLater} hitSlop={8}>
-          <Text style={styles.finishLater}>Finish later</Text>
+        <Pressable
+          onPress={finishLater}
+          hitSlop={8}
+          style={({ pressed }) => [styles.finishLaterBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Finish later"
+        >
+          <Ionicons name="time-outline" size={14} color="#475569" />
+          <Text style={styles.finishLaterBtnText}>Finish later</Text>
         </Pressable>
       </View>
 
@@ -378,8 +385,17 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
               <Text style={styles.primaryBtnText}>☕ Head to FP Café</Text>
             </Pressable>
           </View>
-          <Pressable onPress={finishLater} style={({ pressed }) => [styles.tertiaryBtn, pressed && styles.pressed]}>
-            <Text style={styles.tertiaryBtnText}>Finish later</Text>
+          {/* iter182 item 2: a third, equally-natural choice — keep chatting
+              with the companion. Onboarding is still marked complete; it
+              simply flows into the normal companion chat. */}
+          <Pressable
+            testID="onboarding-cta-chat"
+            onPress={() => approve('chat')}
+            accessibilityRole="button"
+            accessibilityLabel={`Continue chatting with ${voiceLabel}`}
+            style={({ pressed }) => [styles.secondaryBtn, pressed && styles.pressed]}
+          >
+            <Text style={styles.secondaryBtnText}>💬 Continue chatting with {voiceLabel}</Text>
           </Pressable>
         </View>
       ) : (
@@ -500,6 +516,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0FDFA', marginRight: 8,
   },
   clearChatText: { fontSize: 12, color: '#0F766E', fontWeight: '700' },
+  finishLaterBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingVertical: 6, paddingHorizontal: 10,
+    borderRadius: 999, borderWidth: 1, borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+  },
+  finishLaterBtnText: { fontSize: 12, color: '#475569', fontWeight: '700' },
   finishLater: { fontSize: 13, color: '#94A3B8', fontWeight: '600', textDecorationLine: 'underline' },
   scroll: { flex: 1 },
   scrollContent: {

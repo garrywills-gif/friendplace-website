@@ -97,6 +97,21 @@ def check_business_content(
     reasons: list[str] = []
     score = 0
 
+    # Personal / community sale detection. Ordinary members posting a garage
+    # sale, moving sale, second-hand or pre-loved item are LOW RISK and must
+    # not be held just because "sale" and a small "$5" price appear together
+    # (Garry, iter182). When one of these phrases is present we skip the
+    # generic promo word "sale" and the personal-pricing signal — the strong
+    # business signals (club/venue, business noun, website, business phone)
+    # still score, so a real business can't hide behind "garage sale".
+    PERSONAL_SALE = [
+        "garage sale", "yard sale", "moving sale", "car boot", "boot sale",
+        "estate sale", "bake sale", "car-boot", "second hand", "second-hand",
+        "pre loved", "pre-loved", "preloved", "declutter", "for sale",
+        "giving away", "free to a good home", "free to good home", "op shop",
+    ]
+    is_personal_sale = any(p in haystack for p in PERSONAL_SALE)
+
     # ── Bucket 1 — clubs & community-business venues (Aussie focus).
     # These places ARE community spaces, but they're also commercial
     # and we want them to share the listing fee. Catches RSLs,
@@ -131,7 +146,7 @@ def check_business_content(
 
     # ── Bucket 3 — explicit pricing / ticketing language.
     money_re = re.compile(r"\$\s?\d|\baud?\b|\bgst\b|\bper person\b|\bper head\b", re.I)
-    if money_re.search(haystack):
+    if money_re.search(haystack) and not is_personal_sale:
         reasons.append("explicit pricing / dollar amount")
         score += 1
     BOOK_WORDS = [
@@ -143,6 +158,9 @@ def check_business_content(
     ]
     for w in BOOK_WORDS:
         if w in haystack:
+            # A community garage/yard/moving sale is not promo language.
+            if w == "sale" and is_personal_sale:
+                continue
             reasons.append(f'ticketing / promo language ("{w.strip()}")')
             score += 1
             break
@@ -243,12 +261,20 @@ async def moderation_verdict(
             prolific_flag = True
 
     reasons = list(text.get("reasons") or [])
+    _score = int(text.get("score") or 0)
+    # iter182 (Garry): a prolific poster with ZERO commercial signals is
+    # just an active community member (e.g. regular garage-sale / notice
+    # posts) — do NOT hold those. The prolific gate now only escalates a
+    # post that already carries at least one business/promo signal, so it
+    # still closes the "many small promos" loophole for real businesses
+    # while ordinary low-risk notices publish immediately.
+    prolific_hold = prolific_flag and _score >= 1
     if prolific_flag:
         reasons.append(f"prolific_poster:{prior_count}_prior_{kind}s")
 
     return {
-        "should_hold":   bool(text.get("looks_business")) or prolific_flag,
-        "score":         int(text.get("score") or 0),
+        "should_hold":   bool(text.get("looks_business")) or prolific_hold,
+        "score":         _score,
         "reasons":       reasons,
         "prolific_flag": prolific_flag,
         "prior_count":   prior_count,

@@ -63,8 +63,8 @@ export default function MemoryHub() {
             const tint = DIFF_TINT[d.key] || c.brand;
             return (
               <Pressable key={d.key} testID={`mm-diff-${d.key}`} onPress={() => setPicked(d.key)} style={[styles.diffChip, { backgroundColor: on ? tint : c.surfaceSecondary, borderColor: on ? tint : c.border }]}>
-                <Text style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "900", fontSize: 14 * scale }}>{d.label}</Text>
-                <Text style={{ color: on ? "#FFFFFFCC" : c.muted, fontSize: 11 * scale, marginTop: 2 }}>{d.cols}×{d.rows} · {d.pairs} pairs · {d.points} pts</Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ color: on ? "#FFF" : c.onSurface, fontWeight: "900", fontSize: 14 * scale }}>{d.label}</Text>
+                <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ color: on ? "#FFFFFFCC" : c.muted, fontSize: 11 * scale, marginTop: 2 }}>{d.cols}×{d.rows} · {d.pairs} pairs · {d.points} pts</Text>
               </Pressable>
             );
           })}

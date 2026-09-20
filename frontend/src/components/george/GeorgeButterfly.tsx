@@ -643,6 +643,9 @@ export function GeorgeButterfly() {
             try {
               if (destination === 'moment') {
                 router.push('/moments/new' as any);
+              } else if (destination === 'chat') {
+                // iter182 item 2: continue straight into normal companion chat.
+                setShowCompanion(true);
               } else {
                 router.push('/(tabs)/lounge');
               }

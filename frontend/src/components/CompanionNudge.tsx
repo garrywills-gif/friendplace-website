@@ -24,9 +24,10 @@ import { useGeorgeVoice, VOICE_LABELS } from "@/src/lib/george-voice";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { useTheme } from "@/src/lib/theme";
 
-// Notification types we nudge for: private messages, Flutters, and
-// Play Together invites — all things a member wants to see right away.
-const NUDGE_TYPES = new Set(["dm", "dm_request", "flutter", "game_invite"]);
+// Notification types we nudge for: private messages, Flutters, Play
+// Together invites, and friend requests — all things a member wants to
+// see right away, over any screen.
+const NUDGE_TYPES = new Set(["dm", "dm_request", "flutter", "game_invite", "friend_request"]);
 
 // Routes where the companion stays quiet (mirrors GeorgeGlobalHost).
 const HIDDEN_PREFIXES = ["/auth", "/onboarding", "/waitlist"];
@@ -76,6 +77,9 @@ export default function CompanionNudge() {
   useEffect(() => { try { chime.volume = 0.45; } catch { /* noop */ } }, [chime]);
 
   const [nudge, setNudge] = useState<Nudge | null>(null);
+  // Dedup guard so a single DM doesn't nudge twice when both the
+  // `notification` push AND the `dm_update` fan-out arrive (item 7).
+  const lastDm = useRef<{ conv: string; at: number }>({ conv: "", at: 0 });
   const anim = useRef(new Animated.Value(0)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -93,6 +97,7 @@ export default function CompanionNudge() {
       return payload.session_id ? `/games/play/${payload.session_id}` : "/games/play";
     }
     if (type === "flutter") return "/notifications";
+    if (type === "friend_request") return "/friends";
     // dm / dm_request → open the exact conversation when we have it.
     const convId = payload.dm_id || payload.conv_id;
     const fromId = payload.from_id;
@@ -103,20 +108,58 @@ export default function CompanionNudge() {
   useInboxEvent("notification", (evt: any) => {
     const n = evt?.notification;
     if (!n || !NUDGE_TYPES.has(n.type)) return;
-    // Stay quiet on auth/onboarding/welcome. Game invites must surface on
-    // EVERY screen (including Home "/") and on EVERY new invite so a repeat
-    // "Play again" is never silently reduced to just a badge (Garry 2026).
-    // Passive chat/flutter nudges stay quiet on the bare index route.
+    // Stay quiet on auth/onboarding/welcome. Game invites & friend requests
+    // must surface on EVERY screen (including Home "/") so they're never
+    // missed. Passive chat/flutter nudges stay quiet on the bare index route.
     if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p))) return;
-    if (n.type !== "game_invite" && pathname === "/") return;
+    if (n.type === "dm" || n.type === "dm_request" || n.type === "flutter") {
+      if (pathname === "/") return;
+    }
     const route = routeFor(n);
     if (route.startsWith("/dm/") && pathname.startsWith(route.split("?")[0])) return;
+    // Dedup DM nudges against the dm_update fan-out.
+    if (n.type === "dm" || n.type === "dm_request") {
+      const conv = n?.payload?.dm_id || n?.payload?.conv_id || "";
+      const now = Date.now();
+      if (conv && lastDm.current.conv === conv && now - lastDm.current.at < 4000) return;
+      lastDm.current = { conv, at: now };
+    }
     setNudge({
       key: n.id || String(Date.now()),
       ntype: n.type,
-      title: cleanText(n.title || "") || (n.type === "flutter" ? "New Flutter" : n.type === "game_invite" ? "New game invite" : "New message"),
+      title: cleanText(n.title || "") || (
+        n.type === "flutter" ? "New Flutter"
+        : n.type === "game_invite" ? "New game invite"
+        : n.type === "friend_request" ? "New friend request"
+        : "New message"
+      ),
       body: cleanText(n.body || ""),
       route,
+    });
+  });
+
+  // Item 7: reliable app-wide live DM nudge. The `dm_update` fan-out is the
+  // primary real-time DM event and reaches the recipient's inbox socket over
+  // ANY screen (Games, FP Café, Moments…). If the parallel `notification`
+  // push is missed (socket timing), this still surfaces the live nudge.
+  useInboxEvent("dm_update", (evt: any) => {
+    const conv = evt?.conv_id;
+    const fromId = evt?.from_id;
+    const fromName = evt?.from_name || "A friend";
+    if (!conv) return;
+    if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p)) || pathname === "/") return;
+    // Already inside this exact conversation → nothing to nudge about.
+    if (pathname.startsWith(`/dm/${conv}`)) return;
+    const now = Date.now();
+    if (lastDm.current.conv === conv && now - lastDm.current.at < 4000) return;
+    lastDm.current = { conv, at: now };
+    const body = cleanText(String(evt?.last_message?.text || ""));
+    setNudge({
+      key: `dm:${evt?.last_message?.id || now}`,
+      ntype: evt?.is_chat_request ? "dm_request" : "dm",
+      title: cleanText(`${fromName} sent you a message`),
+      body,
+      route: `/dm/${conv}${fromId ? `?other_id=${fromId}` : ""}`,
     });
   });
 
@@ -135,6 +178,8 @@ export default function CompanionNudge() {
 
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [-140, 0] });
   const isGameInvite = nudge.ntype === "game_invite";
+  const isFriendRequest = nudge.ntype === "friend_request";
+  const hasActions = isGameInvite || isFriendRequest;
 
   const open = () => {
     const target = nudge.route;
@@ -169,9 +214,9 @@ export default function CompanionNudge() {
             <Pressable
               testID="companion-nudge"
               accessibilityRole="button"
-              accessibilityLabel={isGameInvite ? nudge.title : `${nudge.title}. Tap to open.`}
-              onPress={isGameInvite ? undefined : open}
-              disabled={isGameInvite}
+              accessibilityLabel={hasActions ? nudge.title : `${nudge.title}. Tap to open.`}
+              onPress={hasActions ? undefined : open}
+              disabled={hasActions}
               style={{ flex: 1, minWidth: 0 }}
             >
               <Text style={[styles.name, { color: tint.accent, fontSize: 11 * scale }]}>{companionName.toUpperCase()}</Text>
@@ -184,7 +229,7 @@ export default function CompanionNudge() {
                 </Text>
               ) : null}
             </Pressable>
-            {!isGameInvite && (
+            {!hasActions && (
               <Pressable
                 testID="companion-nudge-dismiss"
                 onPress={hide}
@@ -197,23 +242,23 @@ export default function CompanionNudge() {
             )}
           </View>
 
-          {isGameInvite && (
+          {hasActions && (
             <View style={styles.btnRow}>
               <Pressable
                 testID="companion-nudge-play"
                 onPress={open}
-                accessibilityLabel="Play now"
+                accessibilityLabel={isFriendRequest ? "View request" : "Play now"}
                 style={[styles.btnPrimary, { backgroundColor: tint.accent }]}
               >
-                <Text style={styles.btnPrimaryTxt}>Play now</Text>
+                <Text style={styles.btnPrimaryTxt}>{isFriendRequest ? "View request" : "Play now"}</Text>
               </Pressable>
               <Pressable
                 testID="companion-nudge-snooze"
                 onPress={hide}
-                accessibilityLabel="Snooze this invite"
+                accessibilityLabel={isFriendRequest ? "Later" : "Snooze this invite"}
                 style={[styles.btnSnooze, { borderColor: tint.border }]}
               >
-                <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>Snooze</Text>
+                <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>{isFriendRequest ? "Later" : "Snooze"}</Text>
               </Pressable>
             </View>
           )}
