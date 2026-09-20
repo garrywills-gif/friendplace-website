@@ -163,30 +163,52 @@ export default function TabsLayout() {
           paddingTop: 6,
         },
         tabBarItemStyle: { paddingVertical: 4 },
-        // Slightly smaller label so five tabs breathe comfortably on the
-        // narrowest iPhone (SE 4.7") without truncating "Friends".
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "700", marginTop: 2 },
+        // Six tabs — trim the label a touch so "My Friends" / "FP Café"
+        // sit comfortably on the narrowest iPhone (SE 4.7") without
+        // truncating. The active-tab pill (below) carries the emphasis.
+        tabBarLabelStyle: { fontSize: 10, fontWeight: "700", marginTop: 2 },
         tabBarIconStyle: { marginTop: 2 },
         tabBarAccessibilityLabel: route.name,
         tabBarIcon: ({ color, focused }) => {
+          // Active-tab shading: a rounded pill behind the icon
+          // (brandTertiary) so the current section reads at a glance.
+          const pill = focused
+            ? { backgroundColor: c.brandTertiary, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 3 }
+            : { paddingHorizontal: 14, paddingVertical: 3 };
           if (route.name === "chats") {
-            return <ChatsIcon focused={focused} color={color} />;
+            return <View style={pill}><ChatsIcon focused={focused} color={color} /></View>;
           }
-          const map: Record<string, any> = { home: "home", lounge: "cafe", friends: "people", profile: "person" };
-          return <Ionicons name={(focused ? map[route.name] : `${map[route.name]}-outline`) as any} size={26} color={color} />;
+          const map: Record<string, any> = {
+            home: "home",
+            friends: "people",
+            lounge: "cafe",
+            moments: "images",
+            events: "calendar",
+            more: "menu",
+            profile: "person",
+          };
+          const base = map[route.name] || "ellipse";
+          return (
+            <View style={pill}>
+              <Ionicons name={(focused ? base : `${base}-outline`) as any} size={24} color={color} />
+            </View>
+          );
         },
       })}
     >
-      {/* Tab order: Home · Chats · FP Café · Friends · Profile — Chats sits
-       *  right after Home so it's within thumb reach and mirrors the
-       *  messaging-first mental model users have from iMessage/WhatsApp.
-       *  TestFlight round-2 v2 (Garry, 28 July 2026 #7): tab title
-       *  renamed "Lounge" → "FP Café" so it matches the screen. */}
+      {/* Wave B (Garry, Aug 2026): six-tab bar —
+       *  Home · My Friends · FP Café · Moments · Events · More.
+       *  Chats & Profile stay registered (reachable at /chats and
+       *  /profile, and linked from the More screen) but are hidden from
+       *  the bar via href:null so nothing became inaccessible. */}
       <Tabs.Screen name="home" options={{ title: "Home" }} />
-      <Tabs.Screen name="chats" options={{ title: "Chats" }} />
+      <Tabs.Screen name="friends" options={{ title: "My Friends" }} />
       <Tabs.Screen name="lounge" options={{ title: "FP Café" }} />
-      <Tabs.Screen name="friends" options={{ title: "Friends" }} />
-      <Tabs.Screen name="profile" options={{ title: "Profile" }} />
+      <Tabs.Screen name="moments" options={{ title: "Moments" }} />
+      <Tabs.Screen name="events" options={{ title: "Events" }} />
+      <Tabs.Screen name="more" options={{ title: "More" }} />
+      <Tabs.Screen name="chats" options={{ title: "Chats", href: null }} />
+      <Tabs.Screen name="profile" options={{ title: "Profile", href: null }} />
     </Tabs>
   );
 }

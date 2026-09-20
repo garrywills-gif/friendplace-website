@@ -228,8 +228,6 @@ export default function MomentsScreen() {
         ) : (
           moments.map((m) => {
             const isFeatured = featured?.id === m.id;
-            const firstPhoto = Array.isArray(m.photos) && m.photos.length > 0 ? m.photos[0] : null;
-            const extraPhotos = Math.max(0, (m.photos?.length || 0) - 1);
             return (
               <Pressable
                 key={m.id}
@@ -238,7 +236,7 @@ export default function MomentsScreen() {
                 style={({ pressed }) => [
                   styles.card,
                   {
-                    backgroundColor: c.surface,
+                    backgroundColor: c.surfaceSecondary,
                     borderColor: c.border,
                     opacity: pressed ? 0.94 : 1,
                     ...(isFeatured
@@ -302,41 +300,35 @@ export default function MomentsScreen() {
                   ) : null}
                 </View>
 
-                {/* Row 2: the story itself. Larger type, no truncation
-                    (up to 6 lines) so members can read enough to decide
-                    whether to open. */}
-                {m.caption ? (
-                  <Text
-                    numberOfLines={6}
-                    style={{
-                      color: c.onSurface,
-                      fontSize: 16 * scale,
-                      lineHeight: 24,
-                      marginTop: 10,
-                    }}
-                  >
-                    {m.caption}
-                  </Text>
-                ) : null}
-
-                {/* Row 3: small photo preview (story-first, not photo-
-                    first). A single ~90px thumb on the left; if there
-                    are more, a small "📷 +N" chip nudges the reader
-                    to open the moment for the full gallery. Locked
-                    wording with Garry 31 July 2026. */}
-                {firstPhoto ? (
-                  <View style={styles.thumbRow}>
-                    <Image source={{ uri: firstPhoto }} style={styles.thumb} />
-                    {extraPhotos > 0 ? (
-                      <View style={styles.thumbMore}>
-                        <Ionicons name="camera" size={13} color={c.muted} />
-                        <Text style={{ color: c.muted, fontWeight: "800", fontSize: 12 * scale, marginLeft: 4 }}>
-                          +{extraPhotos}
-                        </Text>
+                {/* Row 2+3 (Wave B): the story and its photos.
+                    • 1 photo  → Savi-style side-by-side (story beside photo)
+                    • 0 / many → caption on top, responsive photo grid below
+                    (2 side-by-side · 3–4 grid · +N overlay for extras). */}
+                {(() => {
+                  const photos: string[] = Array.isArray(m.photos) ? m.photos.filter(Boolean) : [];
+                  const caption = m.caption ? (
+                    <Text
+                      numberOfLines={6}
+                      style={{ color: c.onSurface, fontSize: 16 * scale, lineHeight: 24 }}
+                    >
+                      {m.caption}
+                    </Text>
+                  ) : null;
+                  if (photos.length === 1 && m.caption) {
+                    return (
+                      <View style={styles.sideBySide}>
+                        <View style={{ flex: 1, minWidth: 0 }}>{caption}</View>
+                        <Image source={{ uri: photos[0] }} style={styles.sidePhoto} />
                       </View>
-                    ) : null}
-                  </View>
-                ) : null}
+                    );
+                  }
+                  return (
+                    <View style={{ marginTop: 10, gap: 10 }}>
+                      {caption}
+                      <MomentMedia photos={photos} />
+                    </View>
+                  );
+                })()}
 
                 {/* Row 4: engagement — quiet, spelled-out counts. Not
                     social-media-y counters, just gentle indicators of
@@ -380,33 +372,56 @@ export default function MomentsScreen() {
   );
 }
 
-/** Small photo strip used in some list-only contexts. The feed
- *  itself now uses a compact thumbnail (story-first). Kept here for
- *  future reuse. */
-function MomentPhotos({ photos }: { photos: string[] }) {
-  const safe = photos.slice(0, 6);
-  if (safe.length === 1) {
+/** Responsive photo grid for a Moment (Wave B). Rules:
+ *  1 → full-width 4:3 · 2 → side-by-side squares · 3 → hero + 2 ·
+ *  4 → 2×2 · 5+ → 2×2 with a "+N" overlay on the last tile. */
+function MomentMedia({ photos }: { photos: string[] }) {
+  const list = (photos || []).filter(Boolean);
+  const n = list.length;
+  if (n === 0) return null;
+  const G = 6;
+  if (n === 1) {
+    return <Image source={{ uri: list[0] }} style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 14, backgroundColor: "#EEE" }} />;
+  }
+  if (n === 2) {
     return (
-      <Image
-        source={{ uri: safe[0] }}
-        style={{ width: "100%", aspectRatio: 4 / 3, borderRadius: 14, marginTop: 10, backgroundColor: "#F3F4F6" }}
-      />
+      <View style={{ flexDirection: "row", gap: G }}>
+        {list.map((p, i) => (
+          <Image key={i} source={{ uri: p }} style={{ flex: 1, aspectRatio: 1, borderRadius: 12, backgroundColor: "#EEE" }} />
+        ))}
+      </View>
     );
   }
+  if (n === 3) {
+    return (
+      <View style={{ gap: G }}>
+        <Image source={{ uri: list[0] }} style={{ width: "100%", aspectRatio: 16 / 9, borderRadius: 12, backgroundColor: "#EEE" }} />
+        <View style={{ flexDirection: "row", gap: G }}>
+          {list.slice(1, 3).map((p, i) => (
+            <Image key={i} source={{ uri: p }} style={{ flex: 1, aspectRatio: 1, borderRadius: 12, backgroundColor: "#EEE" }} />
+          ))}
+        </View>
+      </View>
+    );
+  }
+  // 4+ → 2×2 grid; last tile carries a "+N" overlay when there are extras.
+  const tiles = list.slice(0, 4);
+  const extra = n - 4;
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-      {safe.map((p, i) => (
-        <Image
-          key={i}
-          source={{ uri: p }}
-          style={{ width: "49%", aspectRatio: 1, borderRadius: 12, backgroundColor: "#F3F4F6" }}
-        />
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: G }}>
+      {tiles.map((p, i) => (
+        <View key={i} style={{ width: "48.5%", aspectRatio: 1, borderRadius: 12, overflow: "hidden", backgroundColor: "#EEE" }}>
+          <Image source={{ uri: p }} style={{ width: "100%", height: "100%" }} />
+          {i === 3 && extra > 0 ? (
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: "rgba(13,42,87,0.55)", alignItems: "center", justifyContent: "center" }]}>
+              <Text style={{ color: "#FFFFFF", fontWeight: "900", fontSize: 24 }}>+{extra}</Text>
+            </View>
+          ) : null}
+        </View>
       ))}
     </View>
   );
 }
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _keep_MomentPhotos = MomentPhotos;
 
 function formatWhen(iso: string | null | undefined): string {
   if (!iso) return "";
@@ -462,7 +477,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 14,
     gap: 4,
+    marginBottom: 14,
+    shadowColor: "#0D2A57",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
+  sideBySide: { flexDirection: "row", gap: 12, marginTop: 10, alignItems: "flex-start" },
+  sidePhoto: { width: 112, height: 112, borderRadius: 14, backgroundColor: "#EEE" },
   cardHead: { flexDirection: "row", alignItems: "center", gap: 10 },
   featureBadge: {
     flexDirection: "row",
