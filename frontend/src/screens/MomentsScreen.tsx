@@ -13,6 +13,7 @@ import { useFocusEffect, useRouter, Stack } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
@@ -38,6 +39,7 @@ export default function MomentsScreen() {
   const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
+  const navScroll = useNavHideScroll();
 
   const [scope, setScope] = useState<"everyone" | "friends">("everyone");
   const [moments, setMoments] = useState<any[]>([]);
@@ -188,6 +190,7 @@ export default function MomentsScreen() {
       </View>
 
       <ScrollView
+        {...navScroll}
         contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 14 }}
         refreshControl={
           <RefreshControl

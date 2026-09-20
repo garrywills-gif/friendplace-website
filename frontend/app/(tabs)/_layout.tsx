@@ -7,6 +7,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { useUserSocket } from "@/src/lib/user-socket";
+import { useBottomNavVisible } from "@/src/lib/bottom-nav";
 
 /**
  * Custom tab button — replaces the default expo-router/react-navigation tab
@@ -141,6 +142,8 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const bottomPad = Math.max(insets.bottom, 10);
   const TAB_HEIGHT = 76;
+  const BAR_TOTAL = TAB_HEIGHT + bottomPad;
+  const navVisible = useBottomNavVisible();
   const NAVY = "#0D2A57";
   const TEAL_PILL = "rgba(45,212,191,0.26)";
   return (
@@ -149,8 +152,9 @@ export default function TabsLayout() {
       // flash through to the OS home screen for ~0.5 s while the next
       // screen mounts (visible bug reproduced in Expo Go). A solid
       // colour gives the transitioning frames something to render
-      // against.
-      sceneContainerStyle={{ backgroundColor: c.surface }}
+      // against. The paddingBottom reserves room for the now-absolute bar
+      // so content never sits underneath it while it's visible.
+      sceneContainerStyle={{ backgroundColor: c.surface, paddingBottom: BAR_TOTAL }}
       screenOptions={({ route }) => ({
         headerShown: false,
         // Navy bar, white icons/labels, soft-teal active pill (mockup).
@@ -161,9 +165,16 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: NAVY,
           borderTopColor: "rgba(255,255,255,0.10)",
-          height: TAB_HEIGHT + bottomPad,
+          height: BAR_TOTAL,
           paddingBottom: bottomPad,
           paddingTop: 6,
+          // Absolute + translateY so it can auto-hide on scroll without
+          // reflowing screen content (sceneContainerStyle reserves the room).
+          position: "absolute",
+          left: 0,
+          right: 0,
+          bottom: 0,
+          transform: [{ translateY: navVisible ? 0 : BAR_TOTAL }],
         },
         tabBarItemStyle: { paddingVertical: 0 },
         // Larger, clearer labels than before (5 tabs give room).

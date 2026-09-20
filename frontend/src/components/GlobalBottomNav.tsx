@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, Pressable, StyleSheet, AppState, Platform } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, Pressable, StyleSheet, AppState, Platform, Animated, Easing } from "react-native";
 import { useSegments, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { useUserSocket } from "@/src/lib/user-socket";
 import { useTheme } from "@/src/lib/theme";
+import { useBottomNavVisible, showBottomNav } from "@/src/lib/bottom-nav";
 
 /**
  * GlobalBottomNav — the 5-tab navy bar, mirrored onto every MAIN screen that
@@ -42,6 +43,19 @@ export default function GlobalBottomNav() {
   const { user } = useAuth();
   const { subscribe } = useUserSocket();
   const [unread, setUnread] = useState(0);
+  const navVisible = useBottomNavVisible();
+  const slide = useRef(new Animated.Value(0)).current;
+
+  // Fresh screen → always show the bar first (never start hidden).
+  useEffect(() => { showBottomNav(); }, [top]);
+  useEffect(() => {
+    Animated.timing(slide, {
+      toValue: navVisible ? 0 : 140,
+      duration: 200,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [navVisible, slide]);
 
   const refresh = useCallback(async () => {
     if (!user?.id) { setUnread(0); return; }
@@ -57,7 +71,7 @@ export default function GlobalBottomNav() {
     const sub = AppState.addEventListener("change", (s) => { if (s === "active") refresh(); });
     return () => { clearInterval(t); sub.remove(); };
   }, [refresh]);
-  useEffect(() => subscribe("dm_update", () => setUnread((n) => n + 1)), [subscribe]);
+  useEffect(() => subscribe("dm_update", (e: any) => setUnread((n) => Math.max(0, n + (Number(e?.unread_delta) || 1)))), [subscribe]);
   useEffect(() => subscribe("dm_read", (e: any) => setUnread((n) => Math.max(0, n + (Number(e?.unread_delta) || 0)))), [subscribe]);
   useEffect(() => subscribe("reconnect", () => refresh()), [subscribe, refresh]);
 
@@ -71,7 +85,7 @@ export default function GlobalBottomNav() {
   const bottomPad = Math.max(insets.bottom, 10);
 
   return (
-    <View style={[styles.bar, { paddingBottom: bottomPad, backgroundColor: NAVY, pointerEvents: "box-none" }]}>
+    <Animated.View style={[styles.bar, { paddingBottom: bottomPad, backgroundColor: NAVY, pointerEvents: "box-none", transform: [{ translateY: slide }] }]}>
       {TABS.map((t) => {
         const active = t.key === "moments" && top === "moments";
         const color = active ? "#FFFFFF" : "rgba(255,255,255,0.72)";
@@ -97,7 +111,7 @@ export default function GlobalBottomNav() {
           </Pressable>
         );
       })}
-    </View>
+    </Animated.View>
   );
 }
 

@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
@@ -41,6 +42,7 @@ export default function FoundersWall() {
   const { c, scale } = useTheme();
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const navScroll = useNavHideScroll();
 
   const [items, setItems] = useState<Founder[]>([]);
   const [total, setTotal] = useState(0);
@@ -83,6 +85,7 @@ export default function FoundersWall() {
     <View style={{ flex: 1, backgroundColor: c.surfaceBase }}>
       <Header title="Founders Wall" emoji="🦋" subtitle="The Founding Members of FriendPlace" />
       <ScrollView
+        {...navScroll}
         contentContainerStyle={{
           padding: 18,
           paddingTop: 12,

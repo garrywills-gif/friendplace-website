@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl } from "r
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import Header from "@/src/components/Header";
@@ -70,6 +71,7 @@ function ScheduleChip({ sched, tint }: { sched: Schedule | undefined; tint: stri
 export default function GamesHub() {
   const router = useRouter();
   const { c, scale } = useTheme();
+  const navScroll = useNavHideScroll();
   const { user } = useAuth();
   const { show } = useToast();
   const [stats, setStats] = useState<any>(null);
@@ -127,6 +129,7 @@ export default function GamesHub() {
         subtitle={`${season.emoji} ${season.label} · ${season.tagline}`}
       />
       <ScrollView
+        {...navScroll}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
         contentContainerStyle={{ padding: 14, paddingBottom: 60 }}
       >

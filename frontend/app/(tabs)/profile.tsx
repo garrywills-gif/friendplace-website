@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import Button from "@/src/components/Button";
@@ -36,6 +37,7 @@ export default function Profile() {
   const { show } = useToast();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const navScroll = useNavHideScroll();
   const [friends, setFriends] = useState<any[]>([]);
   const [nearbyOptedIn, setNearbyOptedIn] = useState<boolean>(((user as any)?.preferences?.nearby_chat_alerts) ?? false);
   const [inviteCount, setInviteCount] = useState<number>(0);
@@ -169,6 +171,7 @@ export default function Profile() {
 
   return (
     <ScrollView
+      {...navScroll}
       style={{ flex: 1, backgroundColor: c.surface }}
       contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 16, backgroundColor: c.surface, paddingBottom: 100 }]}
     >

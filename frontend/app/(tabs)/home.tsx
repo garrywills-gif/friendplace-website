@@ -10,6 +10,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import { useUserSocket } from "@/src/lib/user-socket";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { emitFlutter } from "@/src/lib/flutter-fx";
 import SpeakButton from "@/src/components/SpeakButton";
 import AvatarBubble from "@/src/components/AvatarBubble";
@@ -59,6 +60,7 @@ export default function Home() {
   const { user } = useAuth();
   const { show } = useToast();
   const insets = useSafeAreaInsets();
+  const navScroll = useNavHideScroll();
   const [flutters, setFlutters] = useState<any[]>([]);
   // Batch B iter157 (Garry, Aug 2026 — P0 #5): incoming friend
   // requests surfaced ON Home so members don't miss them if they never
@@ -496,6 +498,7 @@ export default function Home() {
        * with Garry 22 July 2026. Do not re-mount him here.
        */}
       <ScrollView
+        {...navScroll}
         contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: 24 }]}
         refreshControl={
           <RefreshControl

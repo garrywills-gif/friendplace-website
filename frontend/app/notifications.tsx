@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl } from "rea
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
@@ -64,6 +65,7 @@ function relTime(iso?: string) {
 export default function Notifications() {
   const router = useRouter();
   const { c, scale } = useTheme();
+  const navScroll = useNavHideScroll();
   const { user } = useAuth();
   const { show } = useToast();
   const [list, setList] = useState<any[]>([]);
@@ -203,6 +205,7 @@ export default function Notifications() {
         </View>
       </View>
       <FlatList
+        {...navScroll}
         data={list}
         keyExtractor={(n) => n.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}

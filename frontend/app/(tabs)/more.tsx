@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 
 /**
  * More — Wave B. The 6-tab bottom bar surfaces Home · My Friends · FP Café ·
@@ -45,6 +46,7 @@ const GROUPS: Group[] = [
 export default function MoreScreen() {
   const { c, scale } = useTheme();
   const insets = useSafeAreaInsets();
+  const navScroll = useNavHideScroll();
   const router = useRouter();
 
   return (
@@ -52,7 +54,7 @@ export default function MoreScreen() {
       <View style={[styles.header, { borderBottomColor: c.border }]}>
         <Text style={[styles.headerTitle, { color: c.onSurface, fontSize: 22 * scale }]}>More</Text>
       </View>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}>
+      <ScrollView {...navScroll} contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24 }}>
         {GROUPS.map((g) => (
           <View key={g.title} style={{ marginBottom: 22 }}>
             <Text style={[styles.groupTitle, { color: c.muted, fontSize: 13 * scale }]}>{g.title.toUpperCase()}</Text>

@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as Calendar from "expo-calendar";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
@@ -109,6 +110,7 @@ function formatPrettyTime(t: string): string {
 
 export default function Events() {
   const { c, scale } = useTheme();
+  const navScroll = useNavHideScroll();
   const { user, refresh } = useAuth();
   const { show } = useToast();
   const router = useRouter();
@@ -296,6 +298,7 @@ export default function Events() {
       {/* Only the events list itself scrolls below — Host button + filter
           pills remain sticky at the top. */}
       <FlatList
+        {...navScroll}
         data={visibleEvents}
         keyExtractor={(e) => e.id}
         contentContainerStyle={{ padding: 16, gap: 12 }}

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, Keyboard
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import ReportSheet from "@/src/components/ReportSheet";
@@ -52,6 +53,7 @@ const REACTIONS = [
 
 export default function Notices() {
   const { c, scale, prefs } = useTheme();
+  const navScroll = useNavHideScroll();
   const { user } = useAuth();
   const { show, confirm } = useToast();
   const router = useRouter();
@@ -488,6 +490,7 @@ export default function Notices() {
       </View>
       <RadiusFilter value={radiusKm} onChange={setRadiusKm} />
       <FlatList
+        {...navScroll}
         data={notices}
         keyExtractor={(n) => n.id}
         contentContainerStyle={{ padding: 12, paddingBottom: 80, gap: 10 }}

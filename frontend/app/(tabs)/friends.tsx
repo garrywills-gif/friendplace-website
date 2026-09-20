@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
@@ -26,6 +27,7 @@ export default function Friends() {
   const { show } = useToast();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const navScroll = useNavHideScroll();
   const [q, setQ] = useState("");
   const [users, setUsers] = useState<any[]>([]);
   // Locally-tracked "request sent" state per row so the button flips to
@@ -569,6 +571,7 @@ export default function Friends() {
       </Modal>
 
       <FlatList
+        {...navScroll}
         data={users}
         keyExtractor={(u) => u.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 100, gap: 10 }}

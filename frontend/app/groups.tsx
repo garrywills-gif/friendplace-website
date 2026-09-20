@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput, Keyboard
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
@@ -15,6 +16,7 @@ import SuburbField from "@/src/components/SuburbField";
 
 export default function Groups() {
   const { c, scale } = useTheme();
+  const navScroll = useNavHideScroll();
   const { user, token, refresh } = useAuth();
   const { show } = useToast();
   const router = useRouter();
@@ -74,6 +76,7 @@ export default function Groups() {
       />
       <RadiusFilter value={radiusKm} onChange={setRadiusKm} />
       <FlatList
+        {...navScroll}
         data={groups}
         keyExtractor={(g) => g.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 12 }}

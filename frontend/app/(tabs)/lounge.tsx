@@ -11,6 +11,7 @@ import Button from "@/src/components/Button";
 import AvatarBubble from "@/src/components/AvatarBubble";
 import FounderMark from "@/src/components/FounderMark";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 
 // The primary FriendPlace butterfly logo — surfaces on every page header
 // so the brand mark stays consistent across the app.
@@ -44,6 +45,7 @@ export default function Lounge() {
   const { show } = useToast();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const navScroll = useNavHideScroll();
   const [tables, setTables] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -148,6 +150,7 @@ export default function Lounge() {
       </View>
 
       <FlatList
+        {...navScroll}
         data={tables}
         keyExtractor={(t) => t.id}
         contentContainerStyle={[{ padding: 16, paddingBottom: 110, gap: 12 }, tables.length === 0 && { flexGrow: 1, justifyContent: "center" }]}

@@ -11,6 +11,7 @@ import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import { useUserSocket } from "@/src/lib/user-socket";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
 import Header from "@/src/components/Header";
@@ -175,6 +176,7 @@ export default function Chats() {
   const router = useRouter();
   const { show, confirm } = useToast();
   const insets = useSafeAreaInsets();
+  const navScroll = useNavHideScroll();
 
   const [convs, setConvs] = useState<Conv[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -445,6 +447,7 @@ export default function Chats() {
       />
 
       <FlatList
+        {...navScroll}
         data={convs.filter((c) => {
           // Self-DM is surfaced separately via the pinned "Notes to
           // Myself" card at the top of the list, so hide it from the

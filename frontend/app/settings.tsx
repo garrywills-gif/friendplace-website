@@ -23,6 +23,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { playAudioUri, type PlaybackController } from "@/src/lib/george-playback";
 import { useTheme } from "@/src/lib/theme";
+import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
@@ -41,6 +42,7 @@ const GUIDELINES = [
 
 export default function Settings() {
   const { c, scale, prefs, setPref } = useTheme();
+  const navScroll = useNavHideScroll();
   const { user, token, logout } = useAuth();
   const { show } = useToast();
   const router = useRouter();
@@ -105,7 +107,7 @@ export default function Settings() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Settings" emoji="⚙️" subtitle="Preferences · Account · Accessibility" />
-      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
+      <ScrollView ref={scrollRef} {...navScroll} contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 48 }}>
         <Text
           style={[styles.section, { color: c.onSurface, fontSize: 20 * scale }]}
           onLayout={(e) => registerAnchor('accessibility')(e.nativeEvent.layout.y)}
