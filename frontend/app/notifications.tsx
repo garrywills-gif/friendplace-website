@@ -84,6 +84,9 @@ export default function Notifications() {
   useEffect(() => subscribe("notification", (evt: any) => {
     const n = evt?.notification;
     if (!n || !n.id) return;
+    // Chat/DM notifications live in My Chats, never the bell/inbox — skip
+    // them here so the list matches the (chat-excluded) bell count.
+    if (n.type === "dm" || n.type === "dm_request") return;
     setList((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
   }), [subscribe]);
   useEffect(() => subscribe("reconnect", () => { load(); }), [subscribe]);

@@ -3478,7 +3478,9 @@ async def push_notification(user_id: str, n_type: str, title: str, body: str = "
 
 @api.get("/notifications/{user_id}")
 async def list_notifications(user_id: str, unread_only: bool = False):
-    q: Dict = {"user_id": user_id}
+    # Exclude chat/DM notifications — those belong to the My Chats surface,
+    # never the bell/inbox (see CHAT_NOTIF_TYPES).
+    q: Dict = {"user_id": user_id, "type": {"$nin": list(CHAT_NOTIF_TYPES)}}
     if unread_only:
         q["read"] = False
     docs = await db.notifications.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
@@ -3487,7 +3489,11 @@ async def list_notifications(user_id: str, unread_only: bool = False):
 
 @api.get("/notifications/{user_id}/count")
 async def notifications_count(user_id: str):
-    n = await db.notifications.count_documents({"user_id": user_id, "read": False})
+    # Bell badge = all OTHER unread notifications, excluding chats/DMs so the
+    # chat count is never duplicated here (owned by My Chats).
+    n = await db.notifications.count_documents(
+        {"user_id": user_id, "read": False, "type": {"$nin": list(CHAT_NOTIF_TYPES)}}
+    )
     return {"unread": n}
 
 
@@ -3520,6 +3526,15 @@ async def delete_notification(nid_: str):
 async def clear_read_notifications(user_id: str):
     res = await db.notifications.delete_many({"user_id": user_id, "read": True})
     return {"ok": True, "deleted": res.deleted_count}
+
+
+# Chat/DM notification types. These are OWNED by the "My Chats" surface
+# (its unread badge is computed from the messages collection, not from
+# notifications). The notifications bell must EXCLUDE these so a chat is
+# never counted twice — once in My Chats and again in the bell. The rows
+# are still created (they drive the system push tray + the live DM prompt),
+# they're just filtered out of the bell's count and list.
+CHAT_NOTIF_TYPES = ("dm", "dm_request")
 
 
 # ------------- Friends (full lifecycle) -------------
