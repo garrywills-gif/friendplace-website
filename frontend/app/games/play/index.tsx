@@ -6,8 +6,10 @@ import {
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Header from "@/src/components/Header";
+import AvatarBubble from "@/src/components/AvatarBubble";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
+import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 
 type GameDef = { key: string; title: string; blurb: string; emoji: string; players: string; tint: string };
@@ -25,6 +27,7 @@ const LABELS: Record<string, string> = {
 export default function PlayTogetherHub() {
   const { c, scale } = useTheme();
   const { user } = useAuth();
+  const { show } = useToast();
   const router = useRouter();
   const { friend, name } = useLocalSearchParams<{ friend?: string; name?: string }>();
 
@@ -65,8 +68,7 @@ export default function PlayTogetherHub() {
       router.push(`/games/play/${s.id}` as any);
     } catch (e: any) {
       setPickerFor(null);
-      // surface via console; room/hub stays usable
-      console.warn("invite failed", e?.message);
+      show(e?.message || "Couldn't send that invite — please try again.");
     } finally { setInviting(false); }
   }, [inviting, router]);
 
@@ -223,10 +225,18 @@ export default function PlayTogetherHub() {
                     }}
                     style={[styles.friendRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}
                   >
-                    <View style={[styles.friendAvatar, { backgroundColor: c.brandTertiary }]}>
-                      <Text style={{ fontSize: 20 }}>{item.avatar || "🙂"}</Text>
+                    <View style={styles.friendAvatarWrap}>
+                      <AvatarBubble value={item.avatar} size={40} fallback="🙂" />
+                      {item.status?.code === "online" ? (
+                        <View style={[styles.onlineDot, { borderColor: c.surfaceSecondary }]} />
+                      ) : null}
                     </View>
-                    <Text style={[styles.friendName, { color: c.onSurface, fontSize: 16 * scale }]}>{item.first_name}</Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[styles.friendName, { color: c.onSurface, fontSize: 16 * scale }]} numberOfLines={1}>{item.first_name}</Text>
+                      {item.status?.code === "online" ? (
+                        <Text style={{ color: "#16A34A", fontWeight: "800", fontSize: 12.5 * scale, marginTop: 1 }}>● Online</Text>
+                      ) : null}
+                    </View>
                     <View style={[styles.playPill, { backgroundColor: c.brand }]}>
                       <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 13 }}>{pickerFor === PICK_FRIEND ? "Choose" : "Play"}</Text>
                     </View>
@@ -264,7 +274,9 @@ const styles = StyleSheet.create({
   sheetTitle: { fontWeight: "800", textAlign: "center" },
   friendRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 12 },
   friendAvatar: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
-  friendName: { fontWeight: "700", flex: 1 },
+  friendAvatarWrap: { width: 40, height: 40 },
+  onlineDot: { position: "absolute", right: -1, bottom: -1, width: 13, height: 13, borderRadius: 7, backgroundColor: "#16A34A", borderWidth: 2 },
+  friendName: { fontWeight: "700" },
   playPill: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 8 },
   emptyTxt: { fontWeight: "600", textAlign: "center", paddingHorizontal: 20 },
   findBtn: { borderRadius: 999, paddingHorizontal: 22, paddingVertical: 12, marginTop: 4 },

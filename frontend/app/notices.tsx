@@ -242,7 +242,7 @@ export default function Notices() {
       }
       setPosting(false); setEditing(null);
       load();
-    } catch { show("Could not save"); }
+    } catch (e: any) { show(e?.message || "Could not save — please try again."); }
   };
 
   const onReact = async (n: any, kind: string) => {

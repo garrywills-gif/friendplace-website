@@ -3610,6 +3610,9 @@ async def list_accepted_friends(user_id: str, me: dict = Depends(current_user)):
     ]
     # Slim peer projection down to what both surfaces (Home tile & My
     # Friends list) actually render, plus `id` so the row can navigate.
+    # `status` lets the Play Together picker show a green "Online" dot
+    # (iter181 item 2) — computed with the same presence rules as the
+    # Chats list, respecting each peer's privacy setting.
     slim = [
         {
             "id": p.get("id"),
@@ -3617,8 +3620,13 @@ async def list_accepted_friends(user_id: str, me: dict = Depends(current_user)):
             "username": p.get("username") or "",
             "avatar": p.get("avatar") or "🙂",
             "suburb": p.get("suburb") or "",
+            "status": _status_from(
+                u.get("last_seen_at"),
+                u.get("privacy", "everyone"),
+                u.get("status"),
+            ),
         }
-        for p in peers
+        for p, u in zip(peers, ordered)
     ]
     return {"user_id": user_id, "count": len(slim), "friends": slim}
 

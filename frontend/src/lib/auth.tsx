@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api, setAuthToken, registerUnauthorizedHandler } from "./api";
 import { registerForPush, clearPushRegistration } from "./push";
@@ -110,6 +111,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(t);
     })();
     return () => { cancelled = true; clearTimeout(t); };
+  }, []);
+
+  // iter181 item 6: refresh the push token whenever the app returns to
+  // the foreground. Native push tokens rotate (OS updates, reinstall, a
+  // fresh TestFlight build), and registering only at cold-start/login
+  // can leave the backend relaying to a stale token — the recipient then
+  // silently gets nothing. registerForPush is idempotent (dedupes on
+  // user_id:device_token) so this only hits the network when the token
+  // actually changed.
+  const userIdRef = useRef<string | null>(null);
+  userIdRef.current = user?.id || null;
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && userIdRef.current) {
+        registerForPush(userIdRef.current).catch(() => {});
+      }
+    });
+    return () => { sub.remove(); };
   }, []);
 
   // Session-expired reset: when api.ts detects a 401 from a protected
