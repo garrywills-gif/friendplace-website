@@ -25,10 +25,16 @@ This module registers its routes on the shared `/api` router via
 from __future__ import annotations
 
 import random
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
+
+try:
+    from suburbs import haversine_km as _haversine_km
+except Exception:  # pragma: no cover - suburbs module always present in app
+    _haversine_km = None
 
 # ---- points config -------------------------------------------------------
 PTS_INVITE = 3
@@ -181,6 +187,10 @@ class InviteBody(BaseModel):
     friend_id: str
 
 
+class FindMatchBody(BaseModel):
+    game: str
+
+
 class MoveBody(BaseModel):
     # this_or_that / quick_trivia: full set of answers in one submission.
     answers: Optional[List[int]] = None
@@ -324,6 +334,7 @@ def register(api, ctx: Dict[str, Any]) -> None:
             "turn": host["id"],  # word_chain: host starts
             "winner_id": None,
             "awarded": {},
+            "origin": "friend",
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }
@@ -332,6 +343,103 @@ def register(api, ctx: Dict[str, Any]) -> None:
             sess, guest["id"], "game_invite",
             f"{host['name']} invited you to play {GAME_LABELS[body.game]}",
             "Tap to accept and play together.",
+        )
+        return _public(sess, me["id"])
+
+    @api.post("/play/find-match")
+    async def play_find_match(body: FindMatchBody, me: dict = Depends(current_user)):
+        """iter181 item 1 — Find someone to play.
+
+        Matches the caller with an ELIGIBLE, currently-online member they are
+        NOT already friends with. Searches the local area first and widens the
+        radius progressively before falling back to anywhere in the country.
+        Respects blocks (both directions), privacy/invisible, profile-hidden,
+        location opt-out, and a 24h decline cooldown. Never auto-friends — the
+        post-game screen offers a normal friend request for non-friends.
+        """
+        if body.game not in GAMES:
+            raise HTTPException(400, "Unknown game")
+        my = await db.users.find_one({"id": me["id"]}, {"_id": 0}) or {}
+        my_friends = set(my.get("friends") or [])
+        my_blocked = set(my.get("blocked") or [])
+        lat, lng = my.get("suburb_lat"), my.get("suburb_lng")
+
+        # Pairs this member declined (either direction) in the last 24h.
+        cutoff_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        declined_ids: set = set()
+        async for d in db.play_declines.find({"members": me["id"], "declined_at": {"$gte": cutoff_24h}}):
+            for m in d.get("members", []):
+                if m != me["id"]:
+                    declined_ids.add(m)
+
+        # "Currently online" = active within the last 2 minutes (same window
+        # the presence chip uses for "Online now"), and not invisible/offline.
+        online_since = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat()
+        exclude = list(my_friends | my_blocked | declined_ids | {me["id"]})
+        query = {
+            "id": {"$nin": exclude},
+            "banned": {"$ne": True},
+            "profile_hidden": {"$ne": True},
+            "blocked": {"$ne": me["id"]},        # they haven't blocked me
+            "privacy": {"$ne": "invisible"},
+            "status": {"$ne": "offline"},        # honour an explicit "offline"
+            "last_seen_at": {"$gte": online_since},
+        }
+        eligible = await db.users.find(query, {"_id": 0}).to_list(500)
+
+        chosen: Optional[Dict[str, Any]] = None
+        # Local-first progressive widening when both sides have coordinates.
+        if lat is not None and lng is not None and _haversine_km is not None:
+            located = [
+                u for u in eligible
+                if u.get("suburb_lat") is not None and u.get("suburb_lng") is not None
+                and u.get("location_visibility") != "private"
+            ]
+            for radius in (25, 50, 100, 250):
+                near = []
+                for u in located:
+                    dist = _haversine_km(float(lat), float(lng), float(u["suburb_lat"]), float(u["suburb_lng"]))
+                    if dist <= radius:
+                        near.append((dist, u))
+                if near:
+                    near.sort(key=lambda x: x[0])
+                    # Randomise among the closest handful so the same nearest
+                    # neighbour isn't matched every single time.
+                    chosen = random.choice([u for _, u in near[:5]])
+                    break
+
+        # Widen to anywhere if nobody local (or no coordinates on either side).
+        if chosen is None and eligible:
+            chosen = random.choice(eligible)
+
+        if not chosen:
+            raise HTTPException(404, "No one's free to play right now — try again in a little while!")
+
+        host = await _user_slim(me["id"])
+        guest = await _user_slim(chosen["id"])
+        sess = {
+            "id": nid()[:8],
+            "game": body.game,
+            "status": "invited",
+            "host_id": host["id"],
+            "guest_id": guest["id"],
+            "players": [
+                {**host, "score": 0, "done": False},
+                {**guest, "score": 0, "done": False},
+            ],
+            "content": _new_content(body.game),
+            "turn": host["id"],
+            "winner_id": None,
+            "awarded": {},
+            "origin": "matchmaking",
+            "created_at": now_iso(),
+            "updated_at": now_iso(),
+        }
+        await db.play_sessions.insert_one(sess)
+        await _notify(
+            sess, guest["id"], "game_invite",
+            f"{host['name']} would like to play {GAME_LABELS[body.game]} with you",
+            "Tap to accept and meet someone new.",
         )
         return _public(sess, me["id"])
 
@@ -367,6 +475,14 @@ def register(api, ctx: Dict[str, Any]) -> None:
             await db.play_sessions.replace_one({"id": session_id}, sess)
             await _notify(sess, sess["host_id"], "game_end",
                           f"{sess['players'][1]['name']} can't play right now")
+            # iter181 item 1: remember this decline so matchmaking won't pair
+            # these two members again for 24h. Keyed on the sorted pair.
+            pair = sorted([sess["host_id"], sess["guest_id"]])
+            await db.play_declines.update_one(
+                {"pair": ":".join(pair)},
+                {"$set": {"pair": ":".join(pair), "members": pair, "declined_at": now_iso()}},
+                upsert=True,
+            )
         return _public(sess, me["id"])
 
     @api.post("/play/{session_id}/cancel")
@@ -487,6 +603,7 @@ def register(api, ctx: Dict[str, Any]) -> None:
             "turn": host["id"],
             "winner_id": None,
             "awarded": {},
+            "origin": old.get("origin", "friend"),
             "created_at": now_iso(),
             "updated_at": now_iso(),
         }

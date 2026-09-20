@@ -508,6 +508,8 @@ export const api = {
   // Play Together — 2-player social games (icebreakers).
   playInvite: (game: string, friend_id: string) =>
     req(`/play/invite`, { method: "POST", body: JSON.stringify({ game, friend_id }) }),
+  playFindMatch: (game: string) =>
+    req(`/play/find-match`, { method: "POST", body: JSON.stringify({ game }) }),
   playGet: (sid: string) => req(`/play/${sid}`, {}, { silent: true }),
   playAccept: (sid: string) => req(`/play/${sid}/accept`, { method: "POST" }),
   playDecline: (sid: string) => req(`/play/${sid}/decline`, { method: "POST" }),

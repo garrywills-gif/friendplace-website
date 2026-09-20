@@ -30,6 +30,7 @@ export default function PlayRoom() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [friendReqSent, setFriendReqSent] = useState(false);
   const errTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showErr = useCallback((m: string) => {
@@ -88,6 +89,9 @@ export default function PlayRoom() {
   const mePlayer = (session?.players || []).find((p: any) => p.id === me);
   const other = (session?.players || []).find((p: any) => p.id !== me);
   const iAmHost = session?.host_id === me;
+  // Non-friends who just played (matchmaking, or simply not yet friends) get
+  // the option to send a normal friend request — we NEVER auto-friend.
+  const isNonFriend = !!other && !(user?.friends || []).includes(other.id);
 
   const onMove = (body: any) => act(() => api.playMove(String(id), body));
 
@@ -185,15 +189,33 @@ export default function PlayRoom() {
               {renderGame()}
               {status === "finished" && (
                 <View style={{ gap: 10, marginTop: 4 }}>
+                  {isNonFriend ? (
+                    friendReqSent ? (
+                      <View style={[styles.sentPill, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                        <Text style={{ color: c.muted, fontWeight: "800", fontSize: 15 }}>✓ Friend request sent to {other?.name}</Text>
+                      </View>
+                    ) : (
+                      <Pressable testID="play-add-friend" disabled={busy} onPress={() => act(async () => {
+                        await api.sendFriendReq(me, other.id);
+                        setFriendReqSent(true);
+                        return null;
+                      })} style={[styles.primary, { backgroundColor: c.brand, opacity: busy ? 0.7 : 1 }]}>
+                        <Text style={styles.primaryTxt}>Send friend request</Text>
+                      </Pressable>
+                    )
+                  ) : null}
                   <Pressable testID="play-again" onPress={() => act(async () => {
                     const s = await api.playRematch(String(id));
-                    if (s?.id) router.replace(`/games/play/${s.id}`);
+                    if (s?.id) { setFriendReqSent(false); router.replace(`/games/play/${s.id}`); }
                     return null;
-                  })} style={[styles.primary, { backgroundColor: c.brand }]}>
-                    <Text style={styles.primaryTxt}>Play again</Text>
+                  })} style={[
+                    isNonFriend ? styles.secondary : styles.primary,
+                    isNonFriend ? { borderColor: c.border } : { backgroundColor: c.brand },
+                  ]}>
+                    <Text style={isNonFriend ? [styles.secondaryTxt, { color: c.onSurface }] : styles.primaryTxt}>Play again</Text>
                   </Pressable>
                   <Pressable onPress={() => router.replace("/games/play")} style={[styles.secondary, { borderColor: c.border }]}>
-                    <Text style={[styles.secondaryTxt, { color: c.muted }]}>Back to Play Together</Text>
+                    <Text style={[styles.secondaryTxt, { color: c.muted }]}>{isNonFriend ? "Not now" : "Back to Play Together"}</Text>
                   </Pressable>
                 </View>
               )}
@@ -215,4 +237,5 @@ const styles = StyleSheet.create({
   primaryTxt: { color: "#FFF", fontWeight: "800", fontSize: 16 },
   secondary: { minHeight: 50, borderRadius: 999, borderWidth: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28, alignSelf: "stretch" },
   secondaryTxt: { fontWeight: "700", fontSize: 15 },
+  sentPill: { minHeight: 50, borderRadius: 999, borderWidth: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, alignSelf: "stretch" },
 });

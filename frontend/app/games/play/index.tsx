@@ -37,6 +37,7 @@ export default function PlayTogetherHub() {
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [preFriend, setPreFriend] = useState<{ id: string; name: string } | null>(null);
   const [inviting, setInviting] = useState(false);
+  const [matching, setMatching] = useState(false);
 
   const PICK_FRIEND = "__pick_friend__";
   const activeFriend = useMemo(
@@ -76,6 +77,18 @@ export default function PlayTogetherHub() {
     await ensureFriends();
     setPickerFor(PICK_FRIEND);
   }, [ensureFriends]);
+
+  const findMatch = useCallback(async (game: string) => {
+    if (matching) return;
+    setMatching(true);
+    try {
+      const s = await api.playFindMatch(game);
+      setPickerFor(null);
+      router.push(`/games/play/${s.id}` as any);
+    } catch (e: any) {
+      show(e?.message || "No one's free to play right now — try again shortly.");
+    } finally { setMatching(false); }
+  }, [matching, router, show]);
 
   const onGamePress = useCallback(async (game: string) => {
     if (activeFriend) { invite(game, activeFriend.id); return; }
@@ -194,6 +207,30 @@ export default function PlayTogetherHub() {
                 ? "Choose a friend to play with"
                 : `Invite a friend to play ${pickerFor ? LABELS[pickerFor] : ""}`}
             </Text>
+            {pickerFor && pickerFor !== PICK_FRIEND ? (
+              <>
+                <Pressable
+                  testID="play-find-match"
+                  disabled={matching}
+                  onPress={() => findMatch(pickerFor)}
+                  style={[styles.findMatchBtn, { backgroundColor: c.brand, opacity: matching ? 0.7 : 1 }]}
+                >
+                  <Ionicons name="sparkles" size={18} color="#FFF" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 15 * scale }}>
+                      {matching ? "Finding someone…" : "Find someone to play"}
+                    </Text>
+                    <Text style={{ color: "#FFF", opacity: 0.9, fontWeight: "600", fontSize: 12.5 * scale, marginTop: 1 }}>
+                      Meet a member near you who's online now
+                    </Text>
+                  </View>
+                  {matching ? <ActivityIndicator color="#FFF" /> : <Ionicons name="chevron-forward" size={18} color="#FFF" />}
+                </Pressable>
+                {friends.length > 0 ? (
+                  <Text style={{ color: c.muted, fontWeight: "800", fontSize: 12.5 * scale, marginTop: 14, marginBottom: 2 }}>Or invite a friend</Text>
+                ) : null}
+              </>
+            ) : null}
             {friends.length === 0 ? (
               <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
                 <Text style={{ fontSize: 36 }}>👋</Text>
@@ -273,6 +310,7 @@ const styles = StyleSheet.create({
   sheetHandle: { alignSelf: "center", width: 40, height: 5, borderRadius: 3, backgroundColor: "rgba(0,0,0,0.15)", marginBottom: 4 },
   sheetTitle: { fontWeight: "800", textAlign: "center" },
   friendRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 12 },
+  findMatchBtn: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 16, marginTop: 14 },
   friendAvatar: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   friendAvatarWrap: { width: 40, height: 40 },
   onlineDot: { position: "absolute", right: -1, bottom: -1, width: 13, height: 13, borderRadius: 7, backgroundColor: "#16A34A", borderWidth: 2 },
