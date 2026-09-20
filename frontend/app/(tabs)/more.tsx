@@ -18,7 +18,7 @@ const GROUPS: Group[] = [
   {
     title: "Messages & people",
     rows: [
-      { key: "chats", label: "My Chats", icon: "chatbubbles-outline", route: "/chats" },
+      { key: "friends", label: "My Friends", icon: "people-outline", route: "/friends" },
       { key: "notifications", label: "Notifications", icon: "notifications-outline", route: "/notifications" },
       { key: "founders", label: "Founding Members", icon: "ribbon-outline", route: "/founders" },
     ],
@@ -26,6 +26,7 @@ const GROUPS: Group[] = [
   {
     title: "Community",
     rows: [
+      { key: "events", label: "Events", icon: "calendar-outline", route: "/events" },
       { key: "notices", label: "Notice Board", icon: "reader-outline", route: "/notices" },
       { key: "groups", label: "Community Groups", icon: "people-circle-outline", route: "/groups" },
       { key: "games", label: "Games", icon: "game-controller-outline", route: "/games" },

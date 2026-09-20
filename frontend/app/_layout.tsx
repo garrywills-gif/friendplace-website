@@ -36,6 +36,7 @@ import SplashGate from "@/src/components/SplashGate";
 import ErrorBoundary from "@/src/components/ErrorBoundary";
 import FlutterOverlay from "@/src/components/FlutterOverlay";
 import CompanionNudge from "@/src/components/CompanionNudge";
+import GlobalBottomNav from "@/src/components/GlobalBottomNav";
 void GlobalDmPrompt;
 
 SplashScreen.preventAutoHideAsync();
@@ -243,6 +244,12 @@ export default function RootLayout() {
                         while foregrounded. Never touches the unread badge
                         (stays until opened) and never autoplays voice. */}
                     <CompanionNudge />
+                    {/* Global 5-tab bottom bar (Garry, Aug 2026): mirrors
+                        the native tab bar onto every main screen OUTSIDE the
+                        (tabs) group so navigation is available everywhere and
+                        the user is never stranded. Hides itself on tab
+                        screens, auth/onboarding and immersive surfaces. */}
+                    <GlobalBottomNav />
                     {/* Global DM prompt (approved 24 Jun 2026) — the
                         "🦋 Kerry sent you a private message" bottom-
                         sheet that used to slide in on any screen and

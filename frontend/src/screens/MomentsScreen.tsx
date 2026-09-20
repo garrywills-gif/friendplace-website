@@ -108,7 +108,7 @@ export default function MomentsScreen() {
   }, [scope]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: c.surface }}>
+    <View style={{ flex: 1, backgroundColor: c.surfaceTertiary }}>
       <Stack.Screen options={{ headerShown: false }} />
       {/* Header — matches Home's chrome (back arrow left, title centred,
           composer button on the right). */}

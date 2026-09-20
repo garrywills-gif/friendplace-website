@@ -103,10 +103,10 @@ function ChatsIcon({ focused, color }: { focused: boolean; color: string }) {
   useEffect(() => subscribe("reconnect", () => { refresh(); }), [subscribe, refresh]);
 
   return (
-    <View style={{ width: 30, height: 30, alignItems: "center", justifyContent: "center" }}>
+    <View style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center" }}>
       <Ionicons
         name={(focused ? "chatbubbles" : "chatbubbles-outline") as any}
-        size={26}
+        size={24}
         color={color}
       />
       {count > 0 && (
@@ -122,7 +122,7 @@ function ChatsIcon({ focused, color }: { focused: boolean; color: string }) {
             paddingHorizontal: 5,
             backgroundColor: c.error,
             borderWidth: 2,
-            borderColor: c.surfaceSecondary,
+            borderColor: "#0D2A57",
             alignItems: "center",
             justifyContent: "center",
           }}
@@ -139,8 +139,10 @@ function ChatsIcon({ focused, color }: { focused: boolean; color: string }) {
 export default function TabsLayout() {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
-  const bottomPad = Math.max(insets.bottom, 8);
-  const TAB_HEIGHT = 56;
+  const bottomPad = Math.max(insets.bottom, 10);
+  const TAB_HEIGHT = 76;
+  const NAVY = "#0D2A57";
+  const TEAL_PILL = "rgba(45,212,191,0.26)";
   return (
     <Tabs
       // Solid scene background — without this, tab transitions on iOS can
@@ -151,63 +153,62 @@ export default function TabsLayout() {
       sceneContainerStyle={{ backgroundColor: c.surface }}
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: c.brand,
-        tabBarInactiveTintColor: c.muted,
+        // Navy bar, white icons/labels, soft-teal active pill (mockup).
+        tabBarActiveTintColor: "#FFFFFF",
+        tabBarInactiveTintColor: "rgba(255,255,255,0.72)",
         tabBarHideOnKeyboard: true,
         tabBarButton: (props) => <TabBtn {...props} />,
         tabBarStyle: {
-          backgroundColor: c.surfaceSecondary,
-          borderTopColor: c.border,
+          backgroundColor: NAVY,
+          borderTopColor: "rgba(255,255,255,0.10)",
           height: TAB_HEIGHT + bottomPad,
           paddingBottom: bottomPad,
           paddingTop: 6,
         },
-        tabBarItemStyle: { paddingVertical: 4 },
-        // Six tabs — trim the label a touch so "My Friends" / "FP Café"
-        // sit comfortably on the narrowest iPhone (SE 4.7") without
-        // truncating. The active-tab pill (below) carries the emphasis.
-        tabBarLabelStyle: { fontSize: 10, fontWeight: "700", marginTop: 2 },
+        tabBarItemStyle: { paddingVertical: 0 },
+        // Larger, clearer labels than before (5 tabs give room).
+        tabBarLabelStyle: { fontSize: 12, fontWeight: "800", marginTop: 2 },
         tabBarIconStyle: { marginTop: 2 },
         tabBarAccessibilityLabel: route.name,
         tabBarIcon: ({ color, focused }) => {
-          // Active-tab shading: a rounded pill behind the icon
-          // (brandTertiary) so the current section reads at a glance.
+          // Active-tab shading: a soft-teal rounded pill behind the icon.
           const pill = focused
-            ? { backgroundColor: c.brandTertiary, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 3 }
-            : { paddingHorizontal: 14, paddingVertical: 3 };
+            ? { backgroundColor: TEAL_PILL, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 3 }
+            : { paddingHorizontal: 16, paddingVertical: 3 };
           if (route.name === "chats") {
             return <View style={pill}><ChatsIcon focused={focused} color={color} /></View>;
           }
           const map: Record<string, any> = {
             home: "home",
-            friends: "people",
             lounge: "cafe",
             moments: "images",
+            more: "ellipsis-horizontal",
+            friends: "people",
             events: "calendar",
-            more: "menu",
             profile: "person",
           };
           const base = map[route.name] || "ellipse";
+          const iconName = route.name === "more" ? base : (focused ? base : `${base}-outline`);
           return (
             <View style={pill}>
-              <Ionicons name={(focused ? base : `${base}-outline`) as any} size={24} color={color} />
+              <Ionicons name={iconName as any} size={24} color={color} />
             </View>
           );
         },
       })}
     >
-      {/* Wave B (Garry, Aug 2026): six-tab bar —
-       *  Home · My Friends · FP Café · Moments · Events · More.
-       *  Chats & Profile stay registered (reachable at /chats and
-       *  /profile, and linked from the More screen) but are hidden from
-       *  the bar via href:null so nothing became inaccessible. */}
+      {/* Updated mockup (Garry, Aug 2026): five-tab navy bar —
+       *  Home · My Chats · FP Café · Moments · More. My Chats carries the
+       *  unread badge. My Friends & Events moved into the More menu; they
+       *  (and Profile) stay registered but href:null so every area stays
+       *  reachable and nothing clips the bar. */}
       <Tabs.Screen name="home" options={{ title: "Home" }} />
-      <Tabs.Screen name="friends" options={{ title: "My Friends" }} />
+      <Tabs.Screen name="chats" options={{ title: "My Chats" }} />
       <Tabs.Screen name="lounge" options={{ title: "FP Café" }} />
       <Tabs.Screen name="moments" options={{ title: "Moments" }} />
-      <Tabs.Screen name="events" options={{ title: "Events" }} />
       <Tabs.Screen name="more" options={{ title: "More" }} />
-      <Tabs.Screen name="chats" options={{ title: "Chats", href: null }} />
+      <Tabs.Screen name="friends" options={{ title: "My Friends", href: null }} />
+      <Tabs.Screen name="events" options={{ title: "Events", href: null }} />
       <Tabs.Screen name="profile" options={{ title: "Profile", href: null }} />
     </Tabs>
   );
