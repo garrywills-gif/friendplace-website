@@ -539,7 +539,59 @@ function InboxPanel() {
   );
 }
 
+function stripQuotedReply(raw: string): { fresh: string; quoted: string } {
+  const text = String(raw || '').replace(/\r\n/g, '\n').trim();
+  if (!text) return { fresh: '', quoted: '' };
+
+  const patterns = [
+    /\nOn .+?wrote:\s*\n/i,
+    /\nFrom:\s.+\nSent:\s.+\nTo:\s.+\nSubject:\s.+\n/i,
+    /\n_{5,}\n/,
+    /\n-{5,}\s*Original Message\s*-{5,}\n/i,
+  ];
+
+  let cut = -1;
+  for (const p of patterns) {
+    const m = text.match(p);
+    if (m && typeof m.index === 'number' && (cut < 0 || m.index < cut)) cut = m.index;
+  }
+
+  if (cut < 0) return { fresh: text, quoted: '' };
+  return {
+    fresh: text.slice(0, cut).trim(),
+    quoted: text.slice(cut).trim(),
+  };
+}
+
 function MessageBody({ message }: { message: InboxMessage }) {
+  if (message.direction === 'inbound' && message.text?.trim()) {
+    const { fresh, quoted } = stripQuotedReply(message.text);
+    return (
+      <div>
+        <div style={{ whiteSpace: 'pre-wrap', fontSize: 15, color: '#0A2540', lineHeight: 1.65, fontWeight: 500 }}>
+          {fresh || message.snippet}
+        </div>
+        {quoted && (
+          <details style={{ marginTop: 12 }}>
+            <summary style={{
+              cursor: 'pointer', color: '#64748B', fontSize: 12, fontWeight: 700,
+              userSelect: 'none',
+            }}>
+              Show quoted previous email
+            </summary>
+            <div style={{
+              marginTop: 8, padding: '10px 12px', borderLeft: '3px solid #CBD5E1',
+              background: '#F8FAFC', color: '#64748B', fontSize: 12,
+              whiteSpace: 'pre-wrap', lineHeight: 1.55, borderRadius: 8,
+            }}>
+              {quoted}
+            </div>
+          </details>
+        )}
+      </div>
+    );
+  }
+
   if (message.html?.trim()) {
     return (
       <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #E2E8F0', background: '#FFFFFF' }}>
