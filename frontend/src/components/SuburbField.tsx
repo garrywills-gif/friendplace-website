@@ -37,9 +37,16 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
   // closed. (Garry, 1031 real-device feedback.)
   const justPicked = useRef(false);
 
+  // Keep the field in sync when the parent's saved value / hidden flag load
+  // asynchronously (e.g. Edit Profile mounts before the user has fetched).
+  // Without this, the suburb looked "empty after reload" even though it was
+  // saved on the backend, because `text` only seeded from initialValue once.
+  useEffect(() => { setText(initialValue || ""); }, [initialValue]);
+  useEffect(() => { setPns(preferNotToSay); }, [preferNotToSay]);
+
   useEffect(() => {
     if (justPicked.current) { justPicked.current = false; setOpen(false); return; }
-    if (pns || !text || text.length < 2) { setMatches([]); return; }
+    if (!text || text.length < 2) { setMatches([]); return; }
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(async () => {
       setLoading(true);
@@ -65,17 +72,15 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
   };
 
   const togglePns = () => {
+    // "Hide my suburb" — public display only. We KEEP the typed/picked suburb
+    // so it stays saved and usable for local features; we just flip the
+    // hidden flag. (Garry iter191: suburb must remain saved + editable.)
     const next = !pns;
     setPns(next);
-    if (next) {
-      setText("");
-      setMatches([]);
-      setPickedSuburb(null);
-      setOpen(false);
-      onChange(null, true);
-    } else {
-      onChange(null, false);
-    }
+    const cur = pickedSuburb
+      ? { name: pickedSuburb.name, postcode: pickedSuburb.postcode, state: pickedSuburb.state, lat: pickedSuburb.lat, lng: pickedSuburb.lng }
+      : null;
+    onChange(cur, next);
   };
 
   return (
@@ -84,23 +89,23 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
         <TextInput
           testID={testID || "suburb-field"}
           value={text}
-          onChangeText={(t) => { setText(t); if (pns) setPns(false); }}
+          onChangeText={(t) => { setText(t); }}
           placeholder={placeholder || "Start typing your suburb"}
           placeholderTextColor={c.muted}
-          editable={!pns}
-          style={[styles.input, { backgroundColor: pns ? c.surfaceTertiary : c.surfaceSecondary, color: c.onSurface, borderColor: c.border, fontSize: 16 * scale }]}
+          editable={true}
+          style={[styles.input, { backgroundColor: c.surfaceSecondary, color: c.onSurface, borderColor: c.border, fontSize: 16 * scale }]}
           autoCorrect={false}
           onFocus={() => { if (matches.length) setOpen(true); }}
         />
-        {!!text && !pns && (
-          <Pressable hitSlop={10} onPress={() => { setText(""); setMatches([]); setPickedSuburb(null); onChange(null, false); }} style={styles.clearBtn}>
+        {!!text && (
+          <Pressable hitSlop={10} onPress={() => { setText(""); setMatches([]); setPickedSuburb(null); onChange(null, pns); }} style={styles.clearBtn}>
             <Ionicons name="close-circle" size={20} color={c.muted} />
           </Pressable>
         )}
         {loading && <View style={styles.loading}><ActivityIndicator size="small" color={c.brand} /></View>}
       </View>
 
-      {open && !pns && text.length >= 2 && (
+      {open && text.length >= 2 && (
         matches.length > 0 ? (
           <View style={[styles.dropdown, { backgroundColor: c.surface, borderColor: c.border }]}>
             {matches.map((m, idx) => (
@@ -155,11 +160,11 @@ export default function SuburbField({ initialValue = "", preferNotToSay = false,
         onPress={togglePns}
         style={[styles.pns, { display: hidePreferNotToSay ? "none" : "flex", backgroundColor: pns ? c.brand : c.surfaceSecondary, borderColor: pns ? c.brand : c.border }]}
       >
-        <Ionicons name={pns ? "checkmark-circle" : "lock-closed"} size={18} color={pns ? "#FFF" : c.onSurface} />
-        <Text style={{ color: pns ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 14 * scale, marginLeft: 8 }}>Prefer not to say</Text>
+        <Ionicons name={pns ? "eye-off" : "eye-outline"} size={18} color={pns ? "#FFF" : c.onSurface} />
+        <Text style={{ color: pns ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 14 * scale, marginLeft: 8 }}>Hide my suburb</Text>
       </Pressable>
       {!hidePreferNotToSay && (
-        <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6 }}>We only ever show your suburb publicly — never your street address.</Text>
+        <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6 }}>Your suburb stays saved and is used for local features — hiding only keeps it off your public profile. We never show your street address.</Text>
       )}
     </View>
   );

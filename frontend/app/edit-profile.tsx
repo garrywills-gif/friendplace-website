@@ -219,14 +219,17 @@ export default function ProfileEdit() {
           <Text style={[styles.section, { color: c.muted, marginTop: 12 }]}>LOCATION (OPTIONAL)</Text>
           <SuburbField
             initialValue={suburb}
-            preferNotToSay={((user as any)?.location_visibility) === "private"}
+            preferNotToSay={!!(user as any)?.suburb_hidden}
             onChange={async (m, pns) => {
               if (pns) {
-                setSuburb("");
-                try { await api.setLocation(user.id, { prefer_not_to_say: true }); } catch {}
+                // Hide my suburb — keep the stored suburb, just hide it publicly.
+                try { await api.setLocation(user.id, { prefer_not_to_say: true }); await refresh?.(); } catch {}
               } else if (m) {
                 setSuburb(m.name);
-                try { await api.setLocation(user.id, { suburb: m.name }); } catch {}
+                try { await api.setLocation(user.id, { suburb: m.name, postcode: m.postcode, state: m.state, lat: m.lat, lng: m.lng }); await refresh?.(); } catch {}
+              } else {
+                // Un-hidden with no new pick — restore visibility, keep existing suburb.
+                try { await api.setLocation(user.id, { suburb: (user as any)?.suburb || suburb || "" }); await refresh?.(); } catch {}
               }
             }}
           />

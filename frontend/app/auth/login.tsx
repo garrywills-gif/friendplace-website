@@ -14,6 +14,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 // returning users get the same reliable OAuth flow whether they land on
 // the welcome page or tap "Log In" directly.
 import { startGoogleSignIn, consumePendingSession } from "@/src/lib/googleSignIn";
+import { needsProfileSetup } from "@/src/lib/profile";
 import { shouldShowAppleButton, startAppleSignIn } from "@/src/lib/appleSignIn";
 
 type DemoAccount = { username: string; first_name: string; avatar: string; suburb: string };
@@ -57,7 +58,10 @@ export default function Login() {
   // Safety guard: if a signed-in user lands here (e.g. via browser Back),
   // bounce to Home so it never feels like they've been logged out.
   useEffect(() => {
-    if (!loading && user) goHome(router);
+    if (!loading && user) {
+      if (needsProfileSetup(user)) router.replace("/auth/complete-profile" as any);
+      else goHome(router);
+    }
   }, [loading, user, router]);
 
   useEffect(() => {
@@ -96,7 +100,11 @@ export default function Login() {
         // and hiding the login form entirely.
         if (r?.handled && !cancelled) {
           show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
-          goHome(router);
+          if (needsProfileSetup(r.user) || r.isNew) {
+            router.replace("/auth/complete-profile" as any);
+          } else {
+            goHome(router);
+          }
         }
       } catch (e: any) {
         if (!cancelled) show(e?.message?.includes("401") ? "Google sign-in expired. Please try again." : "Sign-in failed. Please try again.");

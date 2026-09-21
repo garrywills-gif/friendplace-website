@@ -48,6 +48,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import SpeakButton from "@/src/components/SpeakButton";
 import { useGeorgeVoice, VOICE_LABELS, hasChosenCompanion, type GeorgeVoice } from "@/src/lib/george-voice";
+import { needsProfileSetup } from "@/src/lib/profile";
 
 // FriendPlace teal butterfly — the primary brand mark for every step
 // header. Using the app icon so the artwork stays consistent with the
@@ -196,6 +197,15 @@ export default function OnboardingWizard() {
   const { c, scale } = useTheme();
   const { user, refresh } = useAuth() as any;
   const { show } = useToast();
+
+  // Safety net (iter191): induction/onboarding must never run before profile
+  // setup for a social sign-in member. If they somehow reached here without a
+  // saved suburb, send them to complete their profile first.
+  useEffect(() => {
+    if (user && needsProfileSetup(user)) {
+      router.replace("/auth/complete-profile" as any);
+    }
+  }, [user, router]);
 
   // Companion-aware labels — reuse the persisted preference already
   // powering SpeakButton/getVoice() so header + intro copy matches the

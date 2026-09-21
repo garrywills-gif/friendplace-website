@@ -236,14 +236,13 @@ export default function Notices() {
           active_to: activeTo,
         });
         if (resp && resp.held_for_review) {
-          show(resp.moderation_message ||
-            "We're just checking this notice fits our community guidelines. We'll let you know as soon as it's been reviewed.");
+          show("Submitted — we'll review it shortly. It's in your feed marked \u201CPending review\u201D.");
         } else {
           show("Posted to Notice Board");
         }
       }
       setPosting(false); setEditing(null);
-      load();
+      await load();
     } catch (e: any) { show(e?.message || "Could not save — please try again."); }
   };
 
@@ -345,6 +344,12 @@ export default function Notices() {
                 <View style={[styles.solvedChip, { backgroundColor: c.success }]}>
                   <Ionicons name="checkmark" size={11} color="#FFF" />
                   <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 11 * scale }}>SOLVED</Text>
+                </View>
+              )}
+              {n.pending_review && (
+                <View style={[styles.solvedChip, { backgroundColor: c.warning || "#B45309" }]}>
+                  <Ionicons name="time-outline" size={11} color="#FFF" />
+                  <Text style={{ color: "#FFF", fontWeight: "800", fontSize: 11 * scale }}>PENDING REVIEW</Text>
                 </View>
               )}
               {n.edited_at && <Text style={{ color: c.muted, fontSize: 10 * scale }}>edited</Text>}

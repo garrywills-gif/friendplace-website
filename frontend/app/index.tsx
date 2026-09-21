@@ -10,6 +10,7 @@ import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
 import { useToast } from "@/src/lib/toast";
 import { startGoogleSignIn, consumePendingSession } from "@/src/lib/googleSignIn";
+import { needsProfileSetup } from "@/src/lib/profile";
 import { shouldShowAppleButton, startAppleSignIn } from "@/src/lib/appleSignIn";
 import { api } from "@/src/lib/api";
 import BrandLockup from "@/src/components/BrandLockup";
@@ -120,10 +121,10 @@ export default function Welcome() {
         if (cancelled) return;
         if (r.handled) {
           show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
-          // Brand-new users go straight into the onboarding wizard; returning
-          // users land on /home. The home tab also has a guard that catches
-          // any non-onboarded user as a safety net.
-          const dest = r.isNew ? "/onboarding" : "/home";
+          // New/incomplete social members must complete the normal profile
+          // setup BEFORE George/Georgia induction — Google only replaces the
+          // email/password step, it doesn't skip setup. (iter191)
+          const dest = (needsProfileSetup(r.user) || r.isNew) ? "/auth/complete-profile" : "/home";
           if (Platform.OS === "web") {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (window as any).location.assign(dest);
@@ -143,13 +144,16 @@ export default function Welcome() {
 
   useEffect(() => {
     if (!loading && user) {
+      // Social sign-in members who haven't completed profile setup must go
+      // through it before anything else (safety net for every entry path).
+      const target = needsProfileSetup(user) ? "/auth/complete-profile" : "/home";
       // Same workaround as /auth/login — router.replace silently no-ops on
       // iPad Safari for tab destinations.
       if (Platform.OS === "web") {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (window as any).location.assign("/home");
+        (window as any).location.assign(target);
       } else {
-        router.replace("/home" as any);
+        router.replace(target as any);
       }
     }
     // CRITICAL: depend on `user?.id` (stable primitive) — NOT on the
@@ -197,7 +201,8 @@ export default function Welcome() {
         if (sid) {
           const r = await loginWithGoogle(sid, null);
           show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
-          router.replace("/home" as any);
+          const dest = (needsProfileSetup(r.user) || r.isNew) ? "/auth/complete-profile" : "/home";
+          router.replace(dest as any);
         } else if (Platform.OS !== "web") {
           // user cancelled the in-app browser
           setAuthBusyProvider(null);
@@ -230,7 +235,7 @@ export default function Welcome() {
         const r = await loginWithApple(credential.identityToken, credential.authorizationCode, credential.firstName, credential.lastName, ref);
         try { await AsyncStorage.removeItem("friendplace.invite.ref"); } catch {}
         show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
-        const dest = r.isNew ? "/onboarding" : "/home";
+        const dest = (needsProfileSetup(r.user) || r.isNew) ? "/auth/complete-profile" : "/home";
         router.replace(dest as any);
       } catch (e: any) {
         setAuthBusyProvider(null);

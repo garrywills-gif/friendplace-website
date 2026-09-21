@@ -4488,12 +4488,16 @@ async def set_user_location(user_id: str, body: SetLocationBody):
     if not user:
         raise HTTPException(404, "User not found")
     if body.prefer_not_to_say:
+        # "Hide my suburb" — the member wants their suburb kept OFF their
+        # public profile, but FriendPlace still STORES it and uses it for
+        # local features (radius / near-me). So we only set the hidden flag
+        # and KEEP the suburb + coordinates intact. (Garry iter191: suburb
+        # must remain saved and editable; only public display is suppressed.)
         await db.users.update_one(
             {"id": user_id},
-            {"$set": {"location_visibility": "private", "suburb": ""},
-             "$unset": {"suburb_postcode": "", "suburb_state": "", "suburb_lat": "", "suburb_lng": ""}},
+            {"$set": {"suburb_hidden": True, "location_visibility": "suburb"}},
         )
-        return {"ok": True, "location_visibility": "private"}
+        return {"ok": True, "suburb_hidden": True}
     # Validate the suburb against our dataset when possible.
     matches = sb_search(body.suburb or "", limit=1) if body.suburb else []
     chosen = matches[0] if matches else None
@@ -8713,7 +8717,7 @@ REACTIONS = {"well_done", "support", "chat", "flutter", "congrats"}
 async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, category: Optional[str] = None,
                        radius_km: Optional[float] = None,
                        near_lat: Optional[float] = None, near_lng: Optional[float] = None):
-    query: Dict = {"removed": {"$ne": True}, "auto_hidden": {"$ne": True}}
+    query: Dict = {"removed": {"$ne": True}}
     if category and category != "All":
         query["category"] = category
     if q:
@@ -8724,6 +8728,12 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
         if blocked:
             query["user_id"] = {"$nin": blocked}
     docs = await db.notices.find(query, {"_id": 0}).to_list(500)
+    # Visibility: notices held for moderation (`auto_hidden`) are kept OFF
+    # the public feed — EXCEPT for their own author, who always sees their
+    # notice (with a "Pending review" badge on the client). This fixes the
+    # "it said Posted but it isn't there" report: the poster now sees their
+    # own notice immediately, whether it's live or awaiting review.
+    docs = [d for d in docs if (not d.get("auto_hidden")) or (user_id and d.get("user_id") == user_id)]
     # Active-period filter (optional per notice): drop notices whose window
     # hasn't started yet or has already ended. Notices without dates are
     # always active. Parsing is defensive — a malformed bound is ignored.
@@ -8750,7 +8760,16 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
     # Local Discovery: restrict to the chosen radius of the member's suburb
     # when radius_km is given (All returns everything).
     center = await _radius_center(user_id, near_lat, near_lng)
-    docs = _apply_radius(docs, center, radius_km)
+    visible = _apply_radius(docs, center, radius_km)
+    # A poster must always see their OWN notices, even if they fall outside
+    # the currently selected radius — otherwise a just-posted notice can
+    # silently vanish from their view (the "false success" report).
+    if user_id and radius_km:
+        have = {d.get("id") for d in visible}
+        for d in docs:
+            if d.get("user_id") == user_id and d.get("id") not in have:
+                visible.append(d)
+    docs = visible
     await _attach_founder_flags(docs, "user_id")
     return docs
 
