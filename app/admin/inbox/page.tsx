@@ -563,30 +563,71 @@ function stripQuotedReply(raw: string): { fresh: string; quoted: string } {
   };
 }
 
+
+function inboundHtmlHasQuotedHistory(html: string): boolean {
+  const h = String(html || '').toLowerCase();
+  return (
+    (h.includes('from:') && h.includes('sent:') && h.includes('subject:')) ||
+    h.includes('original message') ||
+    h.includes('blockquote') ||
+    h.includes('gmail_quote') ||
+    h.includes('divrplyfwdmsg')
+  );
+}
+
+function htmlToReadableText(html: string): string {
+  return String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function MessageBody({ message }: { message: InboxMessage }) {
-  if (message.direction === 'inbound' && message.text?.trim()) {
-    const { fresh, quoted } = stripQuotedReply(message.text);
-    if (quoted) {
+  if (message.direction === 'inbound') {
+    const sourceText = message.text?.trim()
+      ? message.text
+      : message.html?.trim()
+        ? htmlToReadableText(message.html)
+        : '';
+    const { fresh, quoted } = stripQuotedReply(sourceText);
+    const htmlQuoted = !!message.html?.trim() && inboundHtmlHasQuotedHistory(message.html);
+
+    if (quoted || htmlQuoted) {
       return (
         <div>
           <div style={{ whiteSpace: 'pre-wrap', fontSize: 15, color: '#0A2540', lineHeight: 1.65, fontWeight: 500 }}>
             {fresh || message.snippet}
           </div>
-          <details style={{ marginTop: 12 }}>
-            <summary style={{
-              cursor: 'pointer', color: '#64748B', fontSize: 12, fontWeight: 700,
-              userSelect: 'none',
-            }}>
-              Show quoted previous email
-            </summary>
-            <div style={{
-              marginTop: 8, padding: '10px 12px', borderLeft: '3px solid #CBD5E1',
-              background: '#F8FAFC', color: '#64748B', fontSize: 12,
-              whiteSpace: 'pre-wrap', lineHeight: 1.55, borderRadius: 8,
-            }}>
-              {quoted}
-            </div>
-          </details>
+          {(quoted || htmlQuoted) && (
+            <details style={{ marginTop: 12 }}>
+              <summary style={{
+                cursor: 'pointer', color: '#64748B', fontSize: 12, fontWeight: 700,
+                userSelect: 'none',
+              }}>
+                Show quoted previous email
+              </summary>
+              <div style={{
+                marginTop: 8, padding: '10px 12px', borderLeft: '3px solid #CBD5E1',
+                background: '#F8FAFC', color: '#64748B', fontSize: 12,
+                whiteSpace: 'pre-wrap', lineHeight: 1.55, borderRadius: 8,
+              }}>
+                {quoted || 'Previous email content hidden from the main view.'}
+              </div>
+            </details>
+          )}
         </div>
       );
     }
