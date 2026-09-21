@@ -48,6 +48,9 @@ export default function RegisterInterestPage() {
   const [submitting, setSubmitting]   = useState(false);
   const [done, setDone]               = useState(false);
   const [founderNumber, setFounderNumber] = useState<number | null>(null);
+  const [regId, setRegId] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
   // Audio state for the celebration line.
@@ -229,17 +232,21 @@ export default function RegisterInterestPage() {
         }
         return;
       }
-      // Success: the response now carries the visitor's permanent
-      // Founding Member Number (#0003, #0004, …). We surface it
-      // proudly on the thank-you page — mirrors the celebratory
-      // hero in the acknowledgement email.
+      // Phase 1 success: the registration is SAVED but NO Founding Member
+      // number is drawn yet — that happens only when the visitor presses
+      // "That's my hello" on the confirmation screen. If this email already
+      // completed before, the backend returns confirmed:true + the existing
+      // number and we jump straight to the celebration.
       try {
         const body = await res.json();
-        if (typeof body?.founder_number === 'number' && body.founder_number > 0) {
+        if (body?.id) setRegId(body.id);
+        if (body?.confirmed && typeof body?.founder_number === 'number' && body.founder_number > 0) {
           setFounderNumber(body.founder_number);
+          setDone(true);
+          return;
         }
-      } catch { /* non-fatal; page still renders without the number */ }
-      setDone(true);
+      } catch { /* non-fatal */ }
+      setReviewing(true);
     } catch (err) {
       console.error('[ryi] submit failed', err);
       // Network hiccup on the visitor's side — don't punish them
@@ -248,6 +255,100 @@ export default function RegisterInterestPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Phase 2 — the visitor pressed "That's my hello" on the confirmation
+  // screen. This is the ONLY step that draws + locks a Founding Member number.
+  async function onConfirm() {
+    if (!regId) { setReviewing(false); return; }
+    setError(null);
+    setConfirming(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/public/register-interest/${regId}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        let msg = '';
+        try { const b = await res.json(); msg = typeof b?.detail === 'string' ? b.detail : ''; } catch { msg = ''; }
+        setError(msg || 'We couldn’t finish just now — please tap the button again in a moment.');
+        return;
+      }
+      try {
+        const body = await res.json();
+        if (typeof body?.founder_number === 'number' && body.founder_number > 0) {
+          setFounderNumber(body.founder_number);
+        }
+      } catch { /* non-fatal */ }
+      setReviewing(false);
+      setDone(true);
+    } catch (err) {
+      console.error('[ryi] confirm failed', err);
+      setError('Your internet seems a little slow. Could you try again?');
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  if (reviewing && !done) {
+    const displayName = firstName.trim() || 'friend';
+    const companionName = meta?.name || 'George';
+    return (
+      <div style={pageBg}>
+        <div className="container" style={{ paddingTop: 72, paddingBottom: 96 }}>
+          <div style={plate}>
+            <h1 style={{ fontSize: 28, lineHeight: 1.2, margin: '0 0 8px' }}>
+              One last thing, {displayName} 🦋
+            </h1>
+            <p style={{ fontSize: 17, lineHeight: 1.6, margin: '0 0 20px', opacity: 0.9 }}>
+              We&rsquo;ve saved your details. When you&rsquo;re ready, say hello and
+              {companionName ? ` ${companionName}` : ''} will reserve your very own
+              Founding Member number — it&rsquo;s yours from that moment on.
+            </p>
+
+            <div style={{
+              background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.14)',
+              borderRadius: 14, padding: '16px 18px', marginBottom: 20,
+            }}>
+              <ReviewRow label="Name" value={firstName.trim() || '—'} />
+              <ReviewRow label="Email" value={email.trim() || '—'} />
+              {location.trim() ? <ReviewRow label="State / country" value={location.trim()} /> : null}
+              <ReviewRow label="Saying hello to" value={companionName} last />
+            </div>
+
+            {error && <div role="alert" style={errorBar}>{error}</div>}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
+              <button
+                type="button"
+                onClick={onConfirm}
+                disabled={confirming}
+                style={{ ...primaryCta, opacity: confirming ? 0.6 : 1 }}
+              >
+                {confirming ? 'Saying hello…' : 'That’s my hello'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setReviewing(false); setError(null); }}
+                disabled={confirming}
+                style={{
+                  background: 'transparent', color: 'inherit', border: 'none',
+                  textDecoration: 'underline', fontSize: 15, cursor: 'pointer',
+                  opacity: confirming ? 0.5 : 0.8, padding: 8,
+                }}
+              >
+                Let me change something
+              </button>
+            </div>
+
+            <p style={footNote}>
+              Your number isn&rsquo;t reserved until you tap &ldquo;That&rsquo;s my hello&rdquo;.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (done) {
@@ -477,7 +578,7 @@ export default function RegisterInterestPage() {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
               <button type="submit" disabled={submitting} style={{ ...primaryCta, opacity: submitting ? 0.6 : 1 }}>
-                {submitting ? 'Sending…' : 'That’s my hello'}
+                {submitting ? 'Saving…' : 'Continue'}
               </button>
             </div>
           </form>
@@ -491,6 +592,20 @@ export default function RegisterInterestPage() {
     </div>
   );
 }
+
+function ReviewRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', gap: 16,
+      padding: '8px 0',
+      borderBottom: last ? 'none' : '1px solid rgba(255,255,255,0.10)',
+    }}>
+      <span style={{ opacity: 0.7, fontSize: 14 }}>{label}</span>
+      <span style={{ fontWeight: 600, fontSize: 15, textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
+    </div>
+  );
+}
+
 
 function ReferralSharePanel({ founderNumber }: { founderNumber: number }) {
   const [copied, setCopied] = useState(false);

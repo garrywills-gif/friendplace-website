@@ -12987,209 +12987,210 @@ async def public_register_interest(payload: dict, request: Request):
     if recent >= 20:
         raise HTTPException(429, "Too many registrations from this address — please try again in an hour.")
 
-    # Idempotency: if this email already registered in the last 10 minutes,
-    # treat it as the same submission (double-click, refresh-and-resubmit,
-    # etc.) — we return the existing record AND resend the acknowledgement
-    # so the visitor still gets their receipt. Deliberately short (10 min,
-    # not 24h): people should never be stranded because they registered
-    # months ago and now can't get back on the list.
-    dedup_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-    existing = None
+    # ── Phase 1 of 2: SAVE the registration WITHOUT a Founding Member number.
+    # (iter190, Garry) A founder number is a scarce, permanent asset, so it is
+    # now drawn and locked ONLY when the visitor presses "That's my hello" on
+    # the confirmation screen — see POST /public/register-interest/{id}/confirm.
+    # Reaching THIS endpoint (Continue/Review) never consumes a number, so an
+    # abandoned confirmation can never burn one. Standalone mongod (no
+    # transactions) → we lean on an atomic per-email claim for concurrency.
+    from pymongo.errors import DuplicateKeyError
+    from services.analytics.acquisition import parse_acquisition
+    acquisition = parse_acquisition(payload)
+
+    # If this email already has a row, reuse it rather than create a duplicate:
+    #   • already CONFIRMED (number attached) → return it as confirmed (no new
+    #     number, and no email here — the confirm step owns the acknowledgement).
+    #   • still PENDING (no number)           → reuse that pending row's id.
+    prior = None
     try:
-        existing = await db.interest_registrations.find_one(
-            {"email": email, "created_at": {"$gt": dedup_cutoff}},
-            {"_id": 0, "id": 1, "email": 1, "created_at": 1, "first_name": 1,
-             "companion_choice": 1, "founder_number": 1},
+        prior = await db.interest_registrations.find_one(
+            {"email": email},
+            {"_id": 0, "id": 1, "founder_number": 1, "status": 1},
         )
     except Exception:
-        existing = None
-    if existing:
+        prior = None
+    if prior:
+        fnum = prior.get("founder_number")
+        confirmed = isinstance(fnum, int) and fnum > 0
         logger.info(
-            "RYI dedup: email=%s existing_id=%s created_at=%s ip=%s",
-            email, existing.get("id"), existing.get("created_at"), ip,
+            "RYI save dedup: email=%s id=%s confirmed=%s ip=%s",
+            email, prior.get("id"), confirmed, ip,
         )
-        # Best-effort resend of the acknowledgement — if it originally
-        # failed (Resend hiccup, wrong domain, etc.) the visitor still
-        # gets a receipt on retry. Never fail the request.
-        try:
-            from email_service import send_email_detailed, waitlist_template
-            effective_companion = (existing.get("companion_choice") or "george")
-            subj, html_body, text_body = waitlist_template(
-                first_name=existing.get("first_name") or first_name,
-                founder_number=existing.get("founder_number"),
-                companion=effective_companion,
-            )
-            await send_email_detailed(
-                to=email, subject=subj, html=html_body, text=text_body,
-            )
-        except Exception:
-            logger.exception("RYI dedup resend failed for %s", email)
         return {
-            "ok":             True,
-            "id":             existing.get("id"),
-            "deduplicated":   True,
-            "founder_number": existing.get("founder_number"),
-            "founder_number_display": _fmt_founder_no(existing.get("founder_number")),
+            "ok": True,
+            "id": prior.get("id"),
+            "deduplicated": True,
+            "confirmed": confirmed,
+            "founder_number": fnum if confirmed else None,
+            "founder_number_display": _fmt_founder_no(fnum) if confirmed else "",
         }
 
-    # Assign the permanent Founding Member Number BEFORE inserting.
-    # Atomic under concurrent bursts (find_one_and_update with $inc).
-    # Numbers 1 and 2 are reserved for Garry / George — the counter
-    # was rebased on startup so this returns 3+ for the first public
-    # registration.
-    founder_number = await _next_founder_number()
-
-    # Acquisition attribution (Commit-2 rollout). Captures which flyer /
-    # QR / campaign brought this visitor here. Best-effort — historical
-    # registrations that pre-date this rollout simply won't have this
-    # field, which is honestly surfaced by the analytics engine.
-    from services.analytics.acquisition import (
-        parse_acquisition,
-        attach_acquisition_to_registration,
-    )
-    acquisition = parse_acquisition(payload)
+    # Atomic per-email claim so two concurrent brand-new saves collapse to a
+    # single pending row (one id → later exactly one number).
+    claimed = False
+    try:
+        await db.founder_email_claims.insert_one({"_id": email, "created_at": now_iso()})
+        claimed = True
+    except DuplicateKeyError:
+        winner = None
+        for _ in range(10):
+            winner = await db.interest_registrations.find_one(
+                {"email": email}, {"_id": 0, "id": 1, "founder_number": 1})
+            if winner:
+                break
+            await asyncio.sleep(0.2)
+        if winner:
+            fnum = winner.get("founder_number")
+            confirmed = isinstance(fnum, int) and fnum > 0
+            return {
+                "ok": True, "id": winner.get("id"), "deduplicated": True,
+                "confirmed": confirmed,
+                "founder_number": fnum if confirmed else None,
+                "founder_number_display": _fmt_founder_no(fnum) if confirmed else "",
+            }
+        # Orphaned claim (a prior save failed after claiming) — reclaim it.
+        await db.founder_email_claims.delete_one({"_id": email})
+        await db.founder_email_claims.insert_one({"_id": email, "created_at": now_iso()})
+        claimed = True
 
     doc = {
         "id": str(uuid.uuid4()),
-        "founder_number":        founder_number,
-        "founder_number_locked": True,   # never regenerated / reused
+        "founder_number":        None,   # drawn on confirm, never before
+        "founder_number_locked": False,
         "is_reserved":           False,
         "first_name": first_name,
         "email": email,
         "state_country": state_country,
         "heard_from": heard_from,
-        "companion_choice": companion,     # 'george' | 'georgia' | None
-        "status": "registered",             # CRM ladder: registered → invited → joined → opted_out
-        "source": "website",                # future: 'app_prelaunch', 'referral', etc.
-        "acquisition": acquisition,         # {channel, flyer_id, qr_code_id, campaign_id, ref_source, captured_at}
+        "companion_choice": companion,      # 'george' | 'georgia' | None
+        "status": "pending_confirmation",   # → "registered" when confirmed
+        "source": "website",
+        "acquisition": acquisition,
         "ip": ip,
-        "is_test": False,                   # tools.py filters this out of George's counts
+        "is_test": False,
         "created_at": now_iso(),
     }
-
     try:
         await db.interest_registrations.insert_one(dict(doc))
-        # Best-effort: retro-link the most recent matching bridge_event
-        # so top-of-funnel telemetry knows this hit converted. Never
-        # fail the request on a link failure.
-        try:
-            await attach_acquisition_to_registration(
-                db,
-                registration_id=doc["id"],
-                acquisition=acquisition,
-            )
-        except Exception:
-            logger.exception("bridge_event conversion link failed for %s", doc["id"])
-        logger.info(
-            "RYI new: id=%s email=%s first_name=%s companion=%s ip=%s acq=%s",
-            doc["id"], email, first_name, companion, ip,
-            acquisition.get("channel"),
-        )
     except Exception:
-        # If the DB write itself fails, we DO fail the request — silently
-        # persisting nowhere would be worse than telling the visitor to
-        # try again. Contact form does the opposite; here we're stricter
-        # because the visitor is explicitly leaving contact details.
-        logger.exception("failed to persist interest_registration")
+        # No number drawn yet → nothing to recycle. Release the email claim so
+        # the visitor isn't permanently blocked, then fail cleanly.
+        if claimed:
+            try:
+                await db.founder_email_claims.delete_one({"_id": email})
+            except Exception:
+                pass
+        logger.exception("failed to persist interest_registration (pending)")
         raise HTTPException(500, "We couldn't save your details just now — please try again in a moment.")
 
-    # Fire the confirmation email. Uses the same letter-style
-    # `waitlist_template()` as the Email Studio "Waitlist thanks"
-    # entry — this is the single source of truth for what a new
-    # Founding Member receives. If we ever tweak that template in
-    # `email_service.py`, both the Studio preview AND the live
-    # acknowledgement change together. Failures are logged but
-    # never fail the request — the DB record is the source of
-    # truth, and the admin portal can resend if needed.
+    logger.info(
+        "RYI saved (pending, no number): id=%s email=%s companion=%s ip=%s",
+        doc["id"], email, companion, ip,
+    )
+    return {
+        "ok": True,
+        "id": doc["id"],
+        "deduplicated": False,
+        "confirmed": False,
+        "founder_number": None,
+        "founder_number_display": "",
+    }
+
+
+@api.post("/public/register-interest/{reg_id}/confirm")
+async def public_register_interest_confirm(reg_id: str, request: Request):
+    """Phase 2 of 2 — the visitor pressed "That's my hello" on the confirmation
+    screen. THIS is the ONLY place a Founding Member number is drawn: allocate +
+    lock the next available number to the pending registration, then fire the
+    warm acknowledgement email. Idempotent — pressing twice returns the same
+    number and never draws a second one. If the visitor abandoned before this
+    call, no number was ever consumed.
+    """
+    row = await db.interest_registrations.find_one({"id": reg_id}, {"_id": 0})
+    if not row:
+        raise HTTPException(404, "We couldn't find that registration — please start again.")
+
+    email = str(row.get("email") or "").strip().lower()
+    first_name = str(row.get("first_name") or "").strip() or "Friend"
+    companion = row.get("companion_choice")
+    effective_companion = companion or "george"
+
+    already = row.get("founder_number")
+    if isinstance(already, int) and already > 0:
+        founder_number = already
+    else:
+        # Draw + lock atomically-with-success (non-burning on failure).
+        try:
+            founder_number = await _assign_founder_number_to_registration(reg_id)
+        except Exception:
+            logger.exception("confirm: founder number assign failed for %s", reg_id)
+            raise HTTPException(500, "We couldn't finish just now — please tap the button again in a moment.")
+        try:
+            await db.interest_registrations.update_one(
+                {"id": reg_id},
+                {"$set": {"status": "registered", "confirmed_at": now_iso()}},
+            )
+        except Exception:
+            logger.exception("confirm: status update failed for %s", reg_id)
+        try:
+            from services.analytics.acquisition import attach_acquisition_to_registration
+            await attach_acquisition_to_registration(
+                db, registration_id=reg_id, acquisition=row.get("acquisition") or {})
+        except Exception:
+            logger.exception("confirm: bridge_event link failed for %s", reg_id)
+
+    # Fire the warm acknowledgement (+ internal team nudge). Never fail the
+    # request on an email hiccup — the DB record is the source of truth.
     try:
-        from email_service import (
-            send_email_detailed,
-            waitlist_template,
-        )
-        effective_companion = companion or "george"
-        meta = _RYI_COMPANION_META[effective_companion]
+        from email_service import send_email_detailed, waitlist_template, send_email
+        meta = _RYI_COMPANION_META.get(effective_companion, _RYI_COMPANION_META["george"])
         subject, html_body, text_body = waitlist_template(
-            first_name=first_name,
-            founder_number=founder_number,
-            companion=effective_companion,
+            first_name=first_name, founder_number=founder_number, companion=effective_companion,
         )
-        # Reply-To goes to hello@friendplace.com.au (env default) so
-        # replies land in the shared inbox the whole team watches — a
-        # visitor writing back to "George" reaches a real human.
-        ack_result = await send_email_detailed(
-            to=email,
-            subject=subject,
-            html=html_body,
-            text=text_body,
-        )
-        # Log every acknowledgement in `email_test_log` so it shows up
-        # on the Sending Health "Most recent send" strip and can be
-        # audited alongside the CRM row. `mode='ack'` distinguishes it
-        # from operator-initiated real/test sends.
-        if ack_result.ok and ack_result.message_id:
+        ack_result = await send_email_detailed(to=email, subject=subject, html=html_body, text=text_body)
+        if getattr(ack_result, "ok", False) and getattr(ack_result, "message_id", None):
             try:
                 await db.email_test_log.insert_one({
-                    "message_id": ack_result.message_id,
-                    "template":   "waitlist",
-                    "companion":  effective_companion,
-                    "recipient":  email,
-                    "subject":    subject,
-                    "created_at": now_iso(),
-                    "mode":       "ack",           # automatic acknowledgement
-                    "founder_id": doc["id"],
+                    "message_id": ack_result.message_id, "template": "waitlist",
+                    "companion": effective_companion, "recipient": email,
+                    "subject": subject, "created_at": now_iso(),
+                    "mode": "ack", "founder_id": reg_id,
                 })
             except Exception:
                 logger.exception("email_test_log insert failed (ack)")
-            # Persist the fact that the ack was sent on the founder row
-            # itself, so the CRM can display it and Phase 2 campaigns
-            # can avoid re-sending the same thing.
             try:
                 await db.interest_registrations.update_one(
-                    {"id": doc["id"]},
-                    {"$set": {
-                        "ack_sent_at":   now_iso(),
-                        "ack_message_id": ack_result.message_id,
-                    }},
+                    {"id": reg_id},
+                    {"$set": {"ack_sent_at": now_iso(), "ack_message_id": ack_result.message_id}},
                 )
             except Exception:
                 logger.exception("interest_registrations ack_sent_at update failed")
         else:
-            logger.warning(
-                "RYI acknowledgement send failed for %s: %s",
-                email, ack_result.error,
-            )
-
-        # Also nudge the internal inbox so the team knows a new visitor
-        # arrived. Deliberately separate from the confirmation email so
-        # neither can leak the other's recipient list.
+            logger.warning("RYI confirm ack send failed for %s: %s", email, getattr(ack_result, "error", None))
         internal_html = (
-            f"<p><b>{html_module.escape(first_name)}</b> registered their interest.</p>"
+            f"<p><b>{html_module.escape(first_name)}</b> confirmed their hello "
+            f"(Founding Member {_fmt_founder_no(founder_number)}).</p>"
             f"<p><b>Email:</b> {html_module.escape(email)}</p>"
-            f"<p><b>State/Country:</b> {html_module.escape(state_country or '—')}</p>"
-            f"<p><b>How did they hear about us:</b> {html_module.escape(heard_from or '—')}</p>"
+            f"<p><b>State/Country:</b> {html_module.escape(row.get('state_country') or '—')}</p>"
+            f"<p><b>How did they hear about us:</b> {html_module.escape(row.get('heard_from') or '—')}</p>"
             f"<p><b>Chose to meet:</b> {meta['name']}</p>"
         )
-        from email_service import send_email
         await send_email(
             to="hello@friendplace.com.au",
-            subject=f"[FriendPlace RYI] {first_name} ({email})",
+            subject=f"[FriendPlace RYI] {first_name} ({email}) — {_fmt_founder_no(founder_number)}",
             html=internal_html,
-            text=(
-                f"{first_name} registered their interest.\n\n"
-                f"Email: {email}\n"
-                f"State/Country: {state_country or '—'}\n"
-                f"How did they hear about us: {heard_from or '—'}\n"
-                f"Chose to meet: {meta['name']}\n"
-            ),
+            text=(f"{first_name} confirmed their hello.\n\nEmail: {email}\n"
+                  f"Founding Member: {_fmt_founder_no(founder_number)}\n"),
         )
     except Exception:
         logger.exception("failed to send RYI confirmation email")
 
     return {
-        "ok":                     True,
-        "id":                     doc["id"],
-        "founder_number":         doc["founder_number"],
-        "founder_number_display": _fmt_founder_no(doc["founder_number"]),
+        "ok": True,
+        "id": reg_id,
+        "founder_number": founder_number,
+        "founder_number_display": _fmt_founder_no(founder_number),
     }
 
 
@@ -13890,6 +13891,86 @@ async def _next_founder_number() -> int:
         return_document=ReturnDocument.AFTER,
     )
     return int(doc.get("value") or 3)
+
+
+async def _recycle_founder_number(num: int) -> None:
+    """Return a drawn-but-unused founder number to the reserved-slot queue so
+    it is re-issued lowest-first and is never lost. Idempotent and safe:
+    refuses to recycle a number that a live (non-test) registration actually
+    holds. This is what makes number assignment NON-BURNING — if an attach
+    fails after a number was drawn (counter $inc'd or a reserved slot marked
+    consumed), the number comes straight back into the available pool."""
+    try:
+        num = int(num)
+    except Exception:
+        return
+    if num <= 0:
+        return
+    clash = await db.interest_registrations.find_one(
+        {"founder_number": num, "is_test": {"$ne": True}}, {"_id": 1}
+    )
+    if clash:
+        return
+    now = now_iso()
+    existing = await db[_FOUNDER_RESERVED_SLOTS_COLL].find_one({"number": num})
+    if existing:
+        await db[_FOUNDER_RESERVED_SLOTS_COLL].update_one(
+            {"number": num},
+            {"$set": {"status": "available", "recycled_at": now},
+             "$unset": {"consumed_at": "", "voided_at": "", "voided_reason": ""}},
+        )
+    else:
+        try:
+            await db[_FOUNDER_RESERVED_SLOTS_COLL].insert_one({
+                "id": str(uuid.uuid4()), "number": num, "status": "available",
+                "created_at": now, "created_by": "recycle",
+                "note": "recycled after a failed/duplicate registration attach",
+            })
+        except Exception:
+            # Unique-number race: another path just created it — flip available.
+            await db[_FOUNDER_RESERVED_SLOTS_COLL].update_one(
+                {"number": num}, {"$set": {"status": "available", "recycled_at": now}}
+            )
+
+
+async def _assign_founder_number_to_registration(reg_id: str) -> int:
+    """Allocate a Founding Member number and attach it to an ALREADY-persisted
+    registration row — atomically-with-success.
+
+    * Idempotent: if the row already carries a number, returns it and consumes
+      no new number (recycling any number it may have optimistically drawn).
+    * Non-burning: if the attach write does not land, the drawn number is
+      recycled back into the reserved-slot queue and the failure is re-raised,
+      so a founder number can never be permanently lost on failure.
+    """
+    row = await db.interest_registrations.find_one(
+        {"id": reg_id}, {"_id": 0, "founder_number": 1}
+    )
+    if row and isinstance(row.get("founder_number"), int) and row["founder_number"] > 0:
+        return int(row["founder_number"])
+    num = await _next_founder_number()
+    try:
+        res = await db.interest_registrations.update_one(
+            {"id": reg_id, "founder_number": None},
+            {"$set": {"founder_number": num, "founder_number_locked": True,
+                      "updated_at": now_iso()}},
+        )
+    except Exception:
+        await _recycle_founder_number(num)
+        raise
+    if res.matched_count == 0:
+        # Row already had a number (idempotent double-call) or vanished — give
+        # the number we drew back to the pool and return the persisted one.
+        await _recycle_founder_number(num)
+        cur = await db.interest_registrations.find_one(
+            {"id": reg_id}, {"_id": 0, "founder_number": 1}
+        )
+        cur_num = (cur or {}).get("founder_number")
+        if isinstance(cur_num, int) and cur_num > 0:
+            return int(cur_num)
+        raise RuntimeError(f"registration {reg_id} unavailable for number attach")
+    return num
+
 
 @app.on_event("startup")
 async def _seed_founder_numbers():  # noqa: D401
