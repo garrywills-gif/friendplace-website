@@ -14085,6 +14085,91 @@ async def _seed_founder_numbers():  # noqa: D401
         logging.exception("Founder number seeding failed — will retry on next boot")
 
 
+# One-time, production-safe repair of the historical Founding Member number
+# gaps (iter190). Garry confirmed from MCGS that the live sequence jumps
+# #0107→#0111 and #0117→#0122, so #0108-#0110 and #0118-#0121 were burned by
+# the OLD allocate-before-insert bug (now fixed by the two-phase flow). This
+# migration adds ONLY the genuinely-unused numbers back to the reserved-slot
+# queue as `available`, lowest-first, so future confirmed registrations fill
+# them before drawing fresh numbers. It:
+#   • runs the SAME broad ownership check as scripts/repair_founder_gaps.py
+#     (every collection, every founder-number/history field) and SKIPS any
+#     number that is owned/remembered anywhere,
+#   • never renumbers or alters an existing founder,
+#   • is idempotent AND self-disabling via a db.system_flags marker, so it
+#     runs exactly once per environment and then no-ops on every later boot,
+#   • records a full audit (restored / skipped / where) in that marker doc and
+#     in the backend logs.
+# Remove after it has run successfully in production.
+_FOUNDER_GAP_TARGETS_ITER190 = [108, 109, 110, 118, 119, 120, 121]
+_FOUNDER_GAP_FLAG_ID = "founder_gap_repair_iter190"
+_FOUNDER_OWNERSHIP_FIELDS = [
+    "founder_number", "retired_founder_number", "keeper_founder_number",
+    "retire_keeper_founder_number", "original_founder_number",
+]
+
+
+async def _founder_number_owners(number: int, coll_names: list) -> list:
+    """Every place `number` appears under a founder-number/history field,
+    EXCLUDING the reserved-slot queue itself. Read-only."""
+    hits = []
+    for coll in coll_names:
+        if coll == _FOUNDER_RESERVED_SLOTS_COLL:
+            continue
+        for field in _FOUNDER_OWNERSHIP_FIELDS:
+            try:
+                n = await db[coll].count_documents({field: number})
+            except Exception:
+                n = 0
+            if n:
+                hits.append({"collection": coll, "field": field, "count": n})
+    return hits
+
+
+@app.on_event("startup")
+async def _repair_founder_gaps_iter190():  # noqa: D401
+    log = logging.getLogger("friendplace")
+    try:
+        done = await db.system_flags.find_one({"id": _FOUNDER_GAP_FLAG_ID})
+        if done:
+            return  # already ran in this environment — self-disabled
+        try:
+            coll_names = await db.list_collection_names()
+        except Exception:
+            coll_names = []
+
+        restored, skipped = [], []
+        for number in sorted(set(_FOUNDER_GAP_TARGETS_ITER190)):
+            owners = await _founder_number_owners(number, coll_names)
+            if owners:
+                skipped.append({"number": number, "owners": owners})
+                log.warning("Founder gap repair: SKIP %s — owned at %s",
+                            _fmt_founder_no(number), owners)
+                continue
+            res = await _reserve_founder_slot(
+                number, note="gap repair (iter190)", created_by="startup_migration")
+            restored.append({"number": number, "result": res})
+            log.info("Founder gap repair: %s → %s", _fmt_founder_no(number), res)
+
+        await db.system_flags.insert_one({
+            "id": _FOUNDER_GAP_FLAG_ID,
+            "ran_at": now_iso(),
+            "db_name": db.name,
+            "targets": _FOUNDER_GAP_TARGETS_ITER190,
+            "restored": restored,
+            "skipped": skipped,
+        })
+        log.info(
+            "Founder gap repair (iter190) complete on db=%s: restored=%s skipped=%s",
+            db.name,
+            [r["number"] for r in restored],
+            [s["number"] for s in skipped],
+        )
+    except Exception:
+        # Never block startup; it will simply retry (flag not set) next boot.
+        log.exception("Founder gap repair (iter190) failed — will retry next boot")
+
+
 @app.on_event("startup")
 async def _status_startup_indexes():  # noqa: D401
     """Idempotent — safe to run on every boot."""

@@ -1104,6 +1104,72 @@ def build_router(db) -> APIRouter:
             "latest":           latest_summary,
         }
 
+    @router.get("/crm/founding-members/gap-report")
+    async def crm_founder_gap_report(admin: dict = Depends(current_cms_admin)):  # noqa: ARG001
+        """TEMPORARY, READ-ONLY (iter190) — Founding Member number gap
+        ownership report. Makes NO database changes and exposes no mutation.
+
+        For each target number it scans EVERY collection for the founder-
+        number/history fields (the same set the repair script uses) and
+        reports OWNED (with where) or UNUSED. Returns the connected DB name so
+        the operator can confirm this is production, not test_database.
+
+        Remove this endpoint once the gap repair is verified in production.
+        """
+        targets = [108, 109, 110, 118, 119, 120, 121]
+        founder_fields = [
+            "founder_number", "retired_founder_number", "keeper_founder_number",
+            "retire_keeper_founder_number", "original_founder_number",
+        ]
+        SLOTS = "founder_reserved_slots"
+        try:
+            coll_names = await db.list_collection_names()
+        except Exception:
+            coll_names = []
+
+        report = []
+        for number in targets:
+            owners = []
+            for coll in coll_names:
+                for field in founder_fields:
+                    try:
+                        n = await db[coll].count_documents({field: number})
+                    except Exception:
+                        n = 0
+                    if n:
+                        owners.append({"collection": coll, "field": field, "count": n})
+            # Ownership = any reference OUTSIDE the reserved-slot queue.
+            real_owners = [o for o in owners if o["collection"] != SLOTS]
+            try:
+                slot = await db[SLOTS].find_one({"number": number}, {"_id": 0, "status": 1, "number": 1})
+            except Exception:
+                slot = None
+            report.append({
+                "number": number,
+                "display": f"#{number:04d}",
+                "status": "OWNED" if real_owners else "UNUSED",
+                "owned": bool(real_owners),
+                "owners": real_owners,          # [] when genuinely unused
+                "reserved_slot": slot,          # None, or {number,status}
+                "eligible_to_reserve": (not real_owners) and (slot is None),
+            })
+
+        return {
+            "db_name": db.name,
+            "is_test_database": db.name == "test_database",
+            "checked_collections_present": {
+                "interest_registrations": "interest_registrations" in coll_names,
+                "retired_registrations": "retired_registrations" in coll_names,
+                "founder_reserved_slots": SLOTS in coll_names,
+            },
+            "founder_number_fields_scanned": founder_fields,
+            "collections_scanned_count": len(coll_names),
+            "targets": targets,
+            "report": report,
+            "read_only": True,
+            "note": "READ-ONLY temporary endpoint (iter190). No changes made. Remove after gap repair is verified.",
+        }
+
     @router.patch("/crm/founding-members/{member_id}")
     async def crm_founding_members_update(
         member_id: str,
