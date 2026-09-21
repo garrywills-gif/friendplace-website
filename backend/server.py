@@ -334,6 +334,21 @@ class CreateTableBody(BaseModel):
     description: str = ""
     visibility: str = "public"
     host_id: str
+    # Optional list of friend ids the host explicitly chose to invite when
+    # opening a Friends-only table. When present, ONLY these friends get the
+    # app-wide "Join table / Maybe later" invite (a warm, targeted invitation
+    # rather than a blast to every friend).
+    invite_ids: List[str] = []
+
+
+class UpdateTableBody(BaseModel):
+    # Creator-only edit of their own table. host_id authenticates the caller
+    # (MVP auth pattern used across these endpoints). All content fields are
+    # optional so the client can send just what changed.
+    host_id: str
+    name: Optional[str] = None
+    emoji: Optional[str] = None
+    description: Optional[str] = None
 
 
 class Message(BaseModel):
@@ -1415,12 +1430,19 @@ _APPLE_ISSUER = "https://appleid.apple.com"
 # "aud not in allowlist". Additive semantics fix that permanently.
 _APPLE_CANONICAL_IOS_AUD = "au.com.friendplace.app"
 _APPLE_CANONICAL_WEB_AUD = "au.com.friendplace.app.web"
+# Expo Go / dev-client standalone audience. When Sign in with Apple is
+# exercised from a development client (not a full TestFlight build) Apple
+# issues the token with this audience. Harmless to allow in every build and
+# it's the single most common "works on device but 401s on the backend"
+# cause called out in the Apple auth playbook.
+_APPLE_EXPO_GO_AUD = "host.exp.Exponent"
 
 _APPLE_AUDIENCES = tuple(
     dict.fromkeys(  # dedupe while preserving order
         a for a in (
             _APPLE_CANONICAL_IOS_AUD,
             _APPLE_CANONICAL_WEB_AUD,
+            _APPLE_EXPO_GO_AUD,
             os.getenv("APPLE_CLIENT_ID_IOS"),
             os.getenv("APPLE_CLIENT_ID_WEB"),
         )
@@ -6431,33 +6453,89 @@ async def list_tables(user_id: str | None = None):
 
 @api.post("/tables")
 async def create_table(body: CreateTableBody):
-    t = Table(**body.dict(), seated=[body.host_id])
+    t = Table(**body.dict(exclude={"invite_ids"}), seated=[body.host_id])
     await db.tables.insert_one(t.dict())
     await award_points(body.host_id, 10)
     # Notify the host's friends that there's a new table to join. We send to
     # the host's confirmed friends only (not the whole community) so this stays
-    # a warm invitation rather than spam. Visibility="friends" already implies
-    # this, but we also fire for public tables so friends still hear about it.
+    # a warm invitation rather than spam. When the host hand-picked specific
+    # friends (invite_ids — Friends-only tables), we invite exactly those;
+    # otherwise we fall back to letting all confirmed friends know.
     try:
         host = await db.users.find_one({"id": body.host_id}, {"_id": 0}) or {}
-        friend_ids = [fid for fid in (host.get("friends") or []) if fid and fid != body.host_id]
+        all_friends = [fid for fid in (host.get("friends") or []) if fid and fid != body.host_id]
+        chosen = [fid for fid in (body.invite_ids or []) if fid in set(all_friends)]
+        friend_ids = chosen if chosen else all_friends
         if friend_ids:
             hname = host.get("first_name") or host.get("username") or "Someone"
             havatar = host.get("avatar") or "☕"
             emoji = body.emoji or "☕"
-            title = f"{emoji} {hname} just opened a FP Café table"
-            body_text = f"{havatar} \u201c{body.name}\u201d — come pull up a chair and say hi."
+            # Personal, hand-picked invites read differently from a general
+            # "just opened a table" heads-up.
+            if chosen:
+                title = f"{emoji} {hname} saved you a seat"
+                body_text = f"{havatar} \u201c{body.name}\u201d — pull up a chair at their FP Café table."
+            else:
+                title = f"{emoji} {hname} just opened a FP Café table"
+                body_text = f"{havatar} \u201c{body.name}\u201d — come pull up a chair and say hi."
             for fid in friend_ids[:100]:
                 await push_notification(
                     fid,
                     "table_invite",
                     title,
                     body_text,
-                    {"table_id": t.id, "host_id": body.host_id},
+                    {"table_id": t.id, "host_id": body.host_id, "table_name": body.name},
                 )
     except Exception as e:
         logger.warning("table create notify failed: %s", e)
     return t.dict()
+
+
+@api.patch("/tables/{table_id}")
+async def update_table(table_id: str, body: UpdateTableBody):
+    """Creator-only edit of a table's name / emoji / description."""
+    t = await db.tables.find_one({"id": table_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Table not found")
+    if t.get("protected") or t.get("persistent"):
+        raise HTTPException(403, "This table can't be edited.")
+    if t.get("host_id") != body.host_id:
+        raise HTTPException(403, "Only the table's host can edit it.")
+    updates: dict = {}
+    if body.name is not None and body.name.strip():
+        updates["name"] = body.name.strip()
+    if body.emoji is not None and body.emoji.strip():
+        updates["emoji"] = body.emoji.strip()
+    if body.description is not None:
+        updates["description"] = body.description
+    if updates:
+        await db.tables.update_one({"id": table_id}, {"$set": updates})
+    return await db.tables.find_one({"id": table_id}, {"_id": 0})
+
+
+@api.delete("/tables/{table_id}")
+async def delete_table(table_id: str, host_id: str = Query(...)):
+    """Creator-only Close/Delete. Removes the table from active Café listings
+    and clears its chat history. Protected/persistent tables (the permanent
+    FP Café, Founders Lounge, daily crossword) can never be deleted."""
+    t = await db.tables.find_one({"id": table_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Table not found")
+    if t.get("protected") or t.get("persistent"):
+        raise HTTPException(403, "This table can't be closed.")
+    if t.get("host_id") != host_id:
+        raise HTTPException(403, "Only the table's host can close it.")
+    # Clear any In-Café presence for everyone still seated so their status
+    # doesn't get stuck pointing at a table that no longer exists.
+    try:
+        from services.status.service import set_in_cafe as _set_in_cafe  # noqa: E402
+        for sid in (t.get("seated") or []):
+            await _set_in_cafe(db, sid, None)
+    except Exception:
+        logging.exception("delete_table status cleanup failed for %s", table_id)
+    await db.messages.delete_many({"table_id": table_id})
+    await db.tables.delete_one({"id": table_id})
+    return {"ok": True}
 
 
 @api.get("/tables/{table_id}")

@@ -1187,6 +1187,27 @@ function EventsEmptyState({
           <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13 * scale }}>{copy.cta.label}</Text>
         </Pressable>
       )}
+      {!copy.cta && !hasQuery && (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center", marginTop: 16 }}>
+          {[
+            { label: "Coffee Catch-up", emoji: "☕" },
+            { label: "Golf Day", emoji: "⛳" },
+            { label: "Car Meet", emoji: "🚗" },
+            { label: "Walking Group", emoji: "🚶" },
+          ].map((idea) => (
+            <Pressable
+              key={idea.label}
+              testID={`first-idea-${idea.label}`}
+              onPress={() => router.push(`/events/new?title=${encodeURIComponent(idea.label)}` as any)}
+              style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, borderWidth: 1.5, borderColor: c.border, backgroundColor: c.surface, opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Text style={{ fontSize: 15 * scale }}>{idea.emoji}</Text>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13.5 * scale }}>{idea.label}</Text>
+              <Ionicons name="add" size={16} color={c.brand} />
+            </Pressable>
+          ))}
+        </View>
+      )}
     </View>
   );
 }

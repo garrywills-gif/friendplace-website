@@ -80,7 +80,10 @@ export default function GlobalBottomNav() {
   // (tabs) group). Also hide on pre-auth / immersive full-screen surfaces.
   if (top === "" || top === "(tabs)") return null;
   if (HIDE_TOP.has(top)) return null;
-  if (top === "games" && segments[1] === "play") return null;
+  // Hide only INSIDE an active game room (/games/play/<sessionId>) — keep the
+  // bar on the Play Together landing hub (/games/play) so members aren't
+  // stranded there. (iter191 Wave 2)
+  if (top === "games" && segments[1] === "play" && !!segments[2]) return null;
 
   const bottomPad = Math.max(insets.bottom, 10);
 

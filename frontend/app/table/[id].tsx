@@ -74,6 +74,17 @@ export default function TableChat() {
   useComposerLock(text.length > 0 || draftImage !== null || kbOpen);
   const [zoom, setZoom] = useState<string | null>(null); // full-screen image viewer
   const [permBlocked, setPermBlocked] = useState(false);
+  // Creator controls: manage sheet + edit form. Only the host of a
+  // non-permanent table sees these (see `isHost` below).
+  const [manageOpen, setManageOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [eName, setEName] = useState("");
+  const [eEmoji, setEEmoji] = useState("☕");
+  const [eDesc, setEDesc] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [closeConfirm, setCloseConfirm] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const isHost = !!(user?.id && table && table.host_id === user.id && !table.protected && !table.persistent);
   const wsRef = useRef<WebSocket | null>(null);
   const listRef = useRef<FlatList>(null);
 
@@ -125,6 +136,44 @@ export default function TableChat() {
     if ((!t && !draftImage) || wsRef.current?.readyState !== WebSocket.OPEN) return;
     wsRef.current.send(JSON.stringify({ text: t, image: draftImage || "" }));
     setText(""); setDraftImage(null);
+  };
+
+  const openEdit = () => {
+    setEName(table?.name || "");
+    setEEmoji(table?.emoji || "☕");
+    setEDesc(table?.description || "");
+    setManageOpen(false);
+    setEditOpen(true);
+  };
+
+  const saveEdit = async () => {
+    if (!user || !id || !eName.trim()) { show("Give your table a name"); return; }
+    setSavingEdit(true);
+    try {
+      const updated = await api.updateTable(id, { host_id: user.id, name: eName.trim(), emoji: eEmoji, description: eDesc });
+      setTable((prev: any) => ({ ...prev, ...updated }));
+      setEditOpen(false);
+      show("Table updated");
+    } catch { show("Could not update table"); }
+    finally { setSavingEdit(false); }
+  };
+
+  const confirmClose = () => {
+    setManageOpen(false);
+    setCloseConfirm(true);
+  };
+
+  const doClose = async () => {
+    if (!user || !id) return;
+    setClosing(true);
+    try {
+      await api.deleteTable(id, user.id);
+      try { wsRef.current?.close(); } catch { /* noop */ }
+      setCloseConfirm(false);
+      show("Table closed");
+      router.replace("/lounge" as any);
+    } catch { show("Could not close table"); }
+    finally { setClosing(false); }
   };
 
   /**
@@ -189,7 +238,20 @@ export default function TableChat() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
-      <Header title={table ? `${table.emoji} ${table.name}` : "Table"} />
+      <Header
+        title={table ? `${table.emoji} ${table.name}` : "Table"}
+        right={isHost ? (
+          <Pressable
+            testID="table-manage-btn"
+            onPress={() => setManageOpen(true)}
+            hitSlop={12}
+            accessibilityLabel="Manage your table"
+            style={({ pressed }) => [styles.manageBtn, { backgroundColor: c.surfaceSecondary, borderColor: c.border, opacity: pressed ? 0.7 : 1 }]}
+          >
+            <Ionicons name="ellipsis-horizontal" size={22} color={c.onSurface} />
+          </Pressable>
+        ) : undefined}
+      />
       {/* Presence & Status — global "Looking for a chat" banner. Sits
           above seating so a chatter's invitation is the first social
           signal a visitor sees. Auto-hides when the list is empty.
@@ -418,6 +480,67 @@ export default function TableChat() {
           </View>
         </View>
       </Modal>
+      {/* Creator manage sheet — Edit / Close */}
+      <Modal visible={manageOpen} transparent animationType="fade" onRequestClose={() => setManageOpen(false)}>
+        <Pressable style={styles.manageBg} onPress={() => setManageOpen(false)}>
+          <Pressable style={[styles.manageSheet, { backgroundColor: c.surface }]} onPress={(e: any) => e.stopPropagation && e.stopPropagation()}>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale, marginBottom: 4 }}>Manage your table</Text>
+            <Pressable testID="table-edit-open" onPress={openEdit} style={({ pressed }) => [styles.manageItem, { backgroundColor: c.surfaceSecondary, opacity: pressed ? 0.8 : 1 }]}>
+              <Ionicons name="create-outline" size={22} color={c.brand} />
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 16 * scale }}>Edit table</Text>
+            </Pressable>
+            <Pressable testID="table-close-open" onPress={confirmClose} style={({ pressed }) => [styles.manageItem, { backgroundColor: "#FEE2E2", opacity: pressed ? 0.8 : 1 }]}>
+              <Ionicons name="trash-outline" size={22} color="#DC2626" />
+              <Text style={{ color: "#DC2626", fontWeight: "800", fontSize: 16 * scale }}>Close / delete table</Text>
+            </Pressable>
+            <Pressable onPress={() => setManageOpen(false)} style={[styles.manageItem, { justifyContent: "center" }]}>
+              <Text style={{ color: c.muted, fontWeight: "800", fontSize: 16 * scale }}>Cancel</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Edit table form */}
+      <Modal visible={editOpen} transparent animationType="slide" onRequestClose={() => setEditOpen(false)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.editWrap}>
+          <View style={[styles.editSheet, { backgroundColor: c.surface }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale }}>Edit table</Text>
+              <Pressable onPress={() => setEditOpen(false)} hitSlop={10}><Ionicons name="close" size={24} color={c.onSurface} /></Pressable>
+            </View>
+            <View style={styles.editEmojiRow}>
+              {["☕", "🌱", "📚", "🐾", "🎨", "🔨", "🏠", "👋"].map((e) => (
+                <Pressable key={e} onPress={() => setEEmoji(e)} style={[styles.editEmojiPick, { backgroundColor: eEmoji === e ? c.brandTertiary : c.surfaceSecondary, borderColor: eEmoji === e ? c.brand : c.border }]}>
+                  <Text style={{ fontSize: 24 }}>{e}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput testID="table-edit-name" value={eName} onChangeText={setEName} placeholder="Table name" placeholderTextColor={c.muted} style={[styles.editInput, { color: c.onSurface, backgroundColor: c.surfaceSecondary, borderColor: c.border, fontSize: 18 * scale }]} />
+            <TextInput testID="table-edit-desc" value={eDesc} onChangeText={setEDesc} placeholder="Short description" placeholderTextColor={c.muted} style={[styles.editInput, { color: c.onSurface, backgroundColor: c.surfaceSecondary, borderColor: c.border, fontSize: 16 * scale, height: 80 }]} multiline />
+            <Pressable testID="table-edit-save" onPress={saveEdit} disabled={savingEdit} style={({ pressed }) => [styles.editSave, { backgroundColor: c.brand, opacity: (pressed || savingEdit) ? 0.8 : 1 }]}>
+              {savingEdit ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 17 * scale }}>Save changes</Text>}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+      {/* Close / delete confirmation */}
+      <Modal visible={closeConfirm} transparent animationType="fade" onRequestClose={() => setCloseConfirm(false)}>
+        <View style={styles.confirmBg}>
+          <View style={[styles.confirmCard, { backgroundColor: c.surface }]}>
+            <Text style={{ fontSize: 34 }}>🗑️</Text>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 20 * scale, marginTop: 6, textAlign: "center" }}>Close this table?</Text>
+            <Text style={{ color: c.muted, fontSize: 15 * scale, marginTop: 8, textAlign: "center", lineHeight: 22 }}>
+              This removes it from the FP Café and clears its chat. This can&apos;t be undone.
+            </Text>
+            <Pressable testID="table-close-confirm" onPress={doClose} disabled={closing} style={({ pressed }) => [styles.confirmBtn, { backgroundColor: "#DC2626", opacity: (pressed || closing) ? 0.8 : 1 }]}>
+              {closing ? <ActivityIndicator color="#FFF" /> : <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Close table</Text>}
+            </Pressable>
+            <Pressable testID="table-close-cancel" onPress={() => setCloseConfirm(false)} style={[styles.confirmBtn, { borderColor: c.border, borderWidth: 1.5, marginTop: 6 }]}>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale }}>Keep table</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -517,4 +640,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
+  manageBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", borderWidth: 1 },
+  manageBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  manageSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 32, gap: 10 },
+  manageItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 16, borderRadius: 14, minHeight: 56 },
+  editWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  editSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 20, gap: 12 },
+  editEmojiRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  editEmojiPick: { width: 48, height: 48, borderRadius: 24, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  editInput: { borderWidth: 2, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, fontWeight: "600" },
+  editSave: { marginTop: 4, alignItems: "center", justifyContent: "center", paddingVertical: 15, borderRadius: 999, minHeight: 52 },
+  confirmBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: 24 },
+  confirmCard: { width: "100%", maxWidth: 420, borderRadius: 20, padding: 22, alignItems: "center" },
+  confirmBtn: { marginTop: 14, paddingVertical: 14, paddingHorizontal: 28, borderRadius: 999, minHeight: 48, alignItems: "center", justifyContent: "center", alignSelf: "stretch" },
 });

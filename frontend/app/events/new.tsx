@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, StyleSheet, TextInput, ScrollView, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator, Modal, Image } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
@@ -43,10 +43,11 @@ const REPEAT_COUNT_PRESETS = [
 
 export default function NewEvent() {
   const router = useRouter();
+  const { title: presetTitle } = useLocalSearchParams<{ title?: string }>();
   const { c, scale } = useTheme();
   const { user, token } = useAuth();
   const { show } = useToast();
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(presetTitle ? String(presetTitle) : "");
   const [emoji, setEmoji] = useState("☕");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState(""); // optional venue / address

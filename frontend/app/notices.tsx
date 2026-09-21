@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image, Keyboard } from "react-native";
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import BeTheFirst from "@/src/components/BeTheFirst";
 import { useTheme } from "@/src/lib/theme";
 import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
@@ -184,7 +185,7 @@ export default function Notices() {
     return `Posted ${d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}`;
   };
 
-  const startCreate = () => { setEditing(null); setPTitle(""); setPBody(""); setPCat("Announcement"); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
+  const startCreate = (cat: string = "Announcement", title: string = "") => { setEditing(null); setPTitle(title); setPBody(""); setPCat(cat); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
   const startEdit = (n: any) => {
     setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || "");
     setPLocality(n.locality ? { name: n.locality, postcode: n.locality_postcode, state: n.locality_state } : memberLocality());
@@ -501,10 +502,24 @@ export default function Notices() {
         contentContainerStyle={{ padding: 12, paddingBottom: 80, gap: 10 }}
         renderItem={renderItem}
         ListEmptyComponent={() => (
-          <View style={{ paddingVertical: 60, alignItems: "center" }}>
-            <Ionicons name="newspaper-outline" size={42} color={c.muted} />
-            <Text style={{ color: c.muted, fontWeight: "600", marginTop: 8, fontSize: 16 * scale }}>No notices match. Try another filter or post the first one!</Text>
-          </View>
+          query || category !== "All" ? (
+            <View style={{ paddingVertical: 60, alignItems: "center" }}>
+              <Ionicons name="newspaper-outline" size={42} color={c.muted} />
+              <Text style={{ color: c.muted, fontWeight: "600", marginTop: 8, fontSize: 16 * scale }}>No notices match. Try another filter or post the first one!</Text>
+            </View>
+          ) : (
+            <BeTheFirst
+              icon="newspaper-outline"
+              title="Be the first to post"
+              subtitle="Start something your neighbours will love."
+              ideas={[
+                { label: "Buy & Sell", emoji: "🛍️", onPress: () => startCreate("Buy & Sell") },
+                { label: "Garage Sales", emoji: "🏷️", onPress: () => startCreate("Buy & Sell", "Garage sale — ") },
+                { label: "Looking for Help", emoji: "🙋", onPress: () => startCreate("Help Needed") },
+                { label: "Lost & Found", emoji: "🔎", onPress: () => startCreate("Community", "Lost & found — ") },
+              ]}
+            />
+          )
         )}
       />
 

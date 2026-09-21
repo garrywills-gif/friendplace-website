@@ -2,6 +2,7 @@ import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, Modal, TextInput, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Image } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
+import BeTheFirst from "@/src/components/BeTheFirst";
 import { useTheme } from "@/src/lib/theme";
 import { useNavHideScroll } from "@/src/lib/bottom-nav";
 import { useAuth } from "@/src/lib/auth";
@@ -11,7 +12,7 @@ import Header from "@/src/components/Header";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { groupImageForName } from "@/src/lib/group-photos";
 import { resolveGallerySource } from "@/src/lib/gallery";
-import RadiusFilter, { DEFAULT_RADIUS_KM } from "@/src/components/RadiusFilter";
+import RadiusFilter from "@/src/components/RadiusFilter";
 import SuburbField from "@/src/components/SuburbField";
 
 export default function Groups() {
@@ -21,11 +22,18 @@ export default function Groups() {
   const { show } = useToast();
   const router = useRouter();
   const [groups, setGroups] = useState<any[]>([]);
-  const [radiusKm, setRadiusKm] = useState<number | null>(DEFAULT_RADIUS_KM);
+  // Default to "All" — many groups are interest/discussion groups, not purely
+  // local, so a radius filter would hide them on open. (iter191 Wave 2)
+  const [radiusKm, setRadiusKm] = useState<number | null>(null);
   // Suggest-a-group modal state. Anyone signed-in can submit; admin
   // approves via the Admin tab before the group goes live to others.
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [sName, setSName] = useState("");
+  const openSuggest = (name: string = "") => {
+    if (!user) { router.push("/auth/welcome" as any); return; }
+    setSName(name);
+    setSuggestOpen(true);
+  };
   const [sEmoji, setSEmoji] = useState("🌟");
   const [sDesc, setSDesc] = useState("");
   const [sReason, setSReason] = useState("");
@@ -80,6 +88,20 @@ export default function Groups() {
         data={groups}
         keyExtractor={(g) => g.id}
         contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 12 }}
+        ListEmptyComponent={() => (
+          <BeTheFirst
+            icon="people-outline"
+            title="Be the first to start a group"
+            subtitle="Suggest a group and we'll help gather your people."
+            ideas={[
+              { label: "Classic Cars", emoji: "🚗", onPress: () => openSuggest("Classic Cars") },
+              { label: "Pet Lovers", emoji: "🐾", onPress: () => openSuggest("Pet Lovers") },
+              { label: "New Friends", emoji: "👋", onPress: () => openSuggest("New Friends") },
+              { label: "Gardening", emoji: "🌱", onPress: () => openSuggest("Gardening") },
+              { label: "Book Club", emoji: "📚", onPress: () => openSuggest("Book Club") },
+            ]}
+          />
+        )}
         renderItem={({ item }) => {
           const joined = user && (item.members || []).includes(user.id);
           const founderLocked = item.is_founder_only && !(user as any)?.is_founder;

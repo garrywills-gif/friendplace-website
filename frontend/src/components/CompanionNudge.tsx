@@ -27,7 +27,7 @@ import { useTheme } from "@/src/lib/theme";
 // Notification types we nudge for: private messages, Flutters, Play
 // Together invites, and friend requests — all things a member wants to
 // see right away, over any screen.
-const NUDGE_TYPES = new Set(["dm", "dm_request", "flutter", "game_invite", "friend_request"]);
+const NUDGE_TYPES = new Set(["dm", "dm_request", "flutter", "game_invite", "friend_request", "table_invite"]);
 
 // Routes where the companion stays quiet (mirrors GeorgeGlobalHost).
 const HIDDEN_PREFIXES = ["/auth", "/onboarding", "/waitlist"];
@@ -98,6 +98,9 @@ export default function CompanionNudge() {
     }
     if (type === "flutter") return "/notifications";
     if (type === "friend_request") return "/friends";
+    if (type === "table_invite") {
+      return payload.table_id ? `/table/${payload.table_id}` : "/lounge";
+    }
     // dm / dm_request → open the exact conversation when we have it.
     const convId = payload.dm_id || payload.conv_id;
     const fromId = payload.from_id;
@@ -131,6 +134,7 @@ export default function CompanionNudge() {
         n.type === "flutter" ? "New Flutter"
         : n.type === "game_invite" ? "New game invite"
         : n.type === "friend_request" ? "New friend request"
+        : n.type === "table_invite" ? "Table invite"
         : "New message"
       ),
       body: cleanText(n.body || ""),
@@ -169,8 +173,14 @@ export default function CompanionNudge() {
     anim.setValue(0);
     Animated.spring(anim, { toValue: 1, useNativeDriver: true, friction: 8, tension: 80 }).start();
     try { chime.seekTo(0); chime.play(); } catch { /* noop */ }
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(hide, VISIBLE_MS);
+    if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
+    // Action nudges (game invite / friend request) must NOT auto-dismiss —
+    // they stay until the member chooses Play now / Snooze / dismiss (or
+    // View request / Later). Only passive nudges (DMs, flutters) self-hide.
+    const persistent = nudge.ntype === "game_invite" || nudge.ntype === "friend_request" || nudge.ntype === "table_invite";
+    if (!persistent) {
+      hideTimer.current = setTimeout(hide, VISIBLE_MS);
+    }
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
   }, [nudge, anim, hide, chime]);
 
@@ -179,7 +189,10 @@ export default function CompanionNudge() {
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [-140, 0] });
   const isGameInvite = nudge.ntype === "game_invite";
   const isFriendRequest = nudge.ntype === "friend_request";
-  const hasActions = isGameInvite || isFriendRequest;
+  const isTableInvite = nudge.ntype === "table_invite";
+  const hasActions = isGameInvite || isFriendRequest || isTableInvite;
+  const primaryLabel = isTableInvite ? "Join table" : isFriendRequest ? "View request" : "Play now";
+  const secondaryLabel = isTableInvite ? "Maybe later" : isFriendRequest ? "Later" : "Snooze";
 
   const open = () => {
     const target = nudge.route;
@@ -247,18 +260,18 @@ export default function CompanionNudge() {
               <Pressable
                 testID="companion-nudge-play"
                 onPress={open}
-                accessibilityLabel={isFriendRequest ? "View request" : "Play now"}
+                accessibilityLabel={primaryLabel}
                 style={[styles.btnPrimary, { backgroundColor: tint.accent }]}
               >
-                <Text style={styles.btnPrimaryTxt}>{isFriendRequest ? "View request" : "Play now"}</Text>
+                <Text style={styles.btnPrimaryTxt}>{primaryLabel}</Text>
               </Pressable>
               <Pressable
                 testID="companion-nudge-snooze"
                 onPress={hide}
-                accessibilityLabel={isFriendRequest ? "Later" : "Snooze this invite"}
+                accessibilityLabel={secondaryLabel}
                 style={[styles.btnSnooze, { borderColor: tint.border }]}
               >
-                <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>{isFriendRequest ? "Later" : "Snooze"}</Text>
+                <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>{secondaryLabel}</Text>
               </Pressable>
             </View>
           )}

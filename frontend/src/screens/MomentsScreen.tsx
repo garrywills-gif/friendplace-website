@@ -191,7 +191,7 @@ export default function MomentsScreen() {
 
       <ScrollView
         {...navScroll}
-        contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 14 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 48, gap: 14 }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -317,7 +317,11 @@ export default function MomentsScreen() {
                       {m.caption}
                     </Text>
                   ) : null;
-                  if (photos.length === 1 && m.caption) {
+                  // One photo: SHORT (or no) caption → larger full-width photo
+                  // with the caption above it; LONGER caption → Savi-style
+                  // side-by-side so the text stays readable beside the photo.
+                  // (iter191 Wave 2 — adaptive, no full redesign.)
+                  if (photos.length === 1 && m.caption && String(m.caption).trim().length > 90) {
                     return (
                       <View style={styles.sideBySide}>
                         <View style={{ flex: 1, minWidth: 0 }}>{caption}</View>

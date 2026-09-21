@@ -522,6 +522,10 @@ export const api = {
   // tables
   listTables: (user_id?: string) => req(user_id ? `/tables?user_id=${encodeURIComponent(user_id)}` : "/tables"),
   createTable: (b: any) => req("/tables", { method: "POST", body: JSON.stringify(b) }),
+  updateTable: (id: string, b: { host_id: string; name?: string; emoji?: string; description?: string }) =>
+    req(`/tables/${id}`, { method: "PATCH", body: JSON.stringify(b) }),
+  deleteTable: (id: string, host_id: string) =>
+    req(`/tables/${id}?host_id=${encodeURIComponent(host_id)}`, { method: "DELETE" }),
   getTable: (id: string) => req(`/tables/${id}`),
   tableMessages: (id: string) => req(`/tables/${id}/messages`),
   joinTable: (id: string, uid: string) => req(`/tables/${id}/join/${uid}`, { method: "POST" }),

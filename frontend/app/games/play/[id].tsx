@@ -128,9 +128,12 @@ export default function PlayRoom() {
               <Text style={[styles.big, { color: c.onSurface, fontSize: 18 * scale }]}>
                 {other?.name || "Your friend"} can't play right now
               </Text>
-              <Text style={[styles.sub, { color: c.muted, fontSize: 14 * scale }]}>No worries — try again another time.</Text>
-              <Pressable onPress={() => router.replace("/games/play")} style={[styles.primary, { backgroundColor: c.brand }]}>
-                <Text style={styles.primaryTxt}>Back to Play Together</Text>
+              <Text style={[styles.sub, { color: c.muted, fontSize: 14 * scale }]}>No worries — plenty of others would love a game.</Text>
+              <Pressable testID="play-invite-someone-else" onPress={() => router.replace("/games/play")} style={[styles.primary, { backgroundColor: c.brand }]}>
+                <Text style={styles.primaryTxt}>Invite someone else</Text>
+              </Pressable>
+              <Pressable onPress={() => router.replace("/games/play")} style={[styles.secondary, { borderColor: c.border }]}>
+                <Text style={[styles.secondaryTxt, { color: c.muted }]}>Back to Play Together</Text>
               </Pressable>
             </View>
           ) : status === "invited" && !iAmHost ? (

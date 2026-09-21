@@ -152,7 +152,7 @@ export default function Login() {
         if (sid) {
           const r = await loginWithGoogle(sid, null);
           show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
-          const dest = r.isNew ? "/onboarding" : "/home";
+          const dest = (needsProfileSetup(r.user) || r.isNew) ? "/auth/complete-profile" : "/home";
           if (Platform.OS === "web") {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (window as any).location.assign(dest);
@@ -187,7 +187,7 @@ export default function Login() {
         const r = await loginWithApple(credential.identityToken, credential.authorizationCode, credential.firstName, credential.lastName, ref);
         try { await AsyncStorage.removeItem("friendplace.invite.ref"); } catch {}
         show(r.isNew ? "Welcome to FriendPlace!" : "Welcome back!");
-        const dest = r.isNew ? "/onboarding" : "/home";
+        const dest = (needsProfileSetup(r.user) || r.isNew) ? "/auth/complete-profile" : "/home";
         if (Platform.OS === "web") {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           (window as any).location.assign(dest);

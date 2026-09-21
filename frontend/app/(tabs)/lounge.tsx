@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl, Modal, TextInput, KeyboardAvoidingView, Platform, Image } from "react-native";
+import { View, Text, StyleSheet, FlatList, Pressable, RefreshControl, Modal, TextInput, KeyboardAvoidingView, Platform, Image, ScrollView } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -57,6 +57,22 @@ export default function Lounge() {
   const [emoji, setEmoji] = useState("☕");
   const [desc, setDesc] = useState("");
   const [visibility, setVisibility] = useState<"public" | "friends">("public");
+  // Friend list + selection for hand-picked Friends-only table invites.
+  const [friends, setFriends] = useState<any[]>([]);
+  const [invitePicks, setInvitePicks] = useState<Record<string, boolean>>({});
+
+  const openCreate = async () => {
+    setCreating(true);
+    if (user?.id && friends.length === 0) {
+      try {
+        const res: any = await api.myFriends(user.id);
+        // /api/friends/{uid} returns { user_id, count, friends:[...] } (iter158 SoT).
+        setFriends(Array.isArray(res) ? res : (res?.friends || []));
+      } catch { /* non-blocking */ }
+    }
+  };
+  const toggleInvite = (fid: string) =>
+    setInvitePicks((p) => ({ ...p, [fid]: !p[fid] }));
 
   const load = async () => {
     try { setTables(await api.listTables(user?.id)); } catch (e) { show("Failed to load lounge"); }
@@ -72,9 +88,13 @@ export default function Lounge() {
 
   const create = async () => {
     if (!user || !name.trim()) { show("Give your table a name"); return; }
+    const invite_ids = visibility === "friends"
+      ? Object.keys(invitePicks).filter((k) => invitePicks[k])
+      : [];
     try {
-      const t = await api.createTable({ name: name.trim(), emoji, description: desc, visibility, host_id: user.id });
-      setCreating(false); setName(""); setDesc(""); setEmoji("☕"); setVisibility("public");
+      const t = await api.createTable({ name: name.trim(), emoji, description: desc, visibility, host_id: user.id, invite_ids });
+      setCreating(false); setName(""); setDesc(""); setEmoji("☕"); setVisibility("public"); setInvitePicks({});
+      if (invite_ids.length) show(invite_ids.length === 1 ? "Invite sent to 1 friend" : `Invites sent to ${invite_ids.length} friends`);
       router.push(`/table/${t.id}` as any);
     } catch { show("Could not create"); }
   };
@@ -134,7 +154,7 @@ export default function Lounge() {
             two distinct actions (join vs. host) are visually separated. */}
         <Pressable
           testID="create-table-top"
-          onPress={() => setCreating(true)}
+          onPress={openCreate}
           accessibilityRole="button"
           accessibilityLabel="Start your own table"
           style={({ pressed }) => [
@@ -165,7 +185,7 @@ export default function Lounge() {
             </Text>
             <Pressable
               testID="lounge-empty-create"
-              onPress={() => setCreating(true)}
+              onPress={openCreate}
               style={({ pressed }) => [styles.emptyBtn, { backgroundColor: c.brand, opacity: pressed ? 0.85 : 1 }]}
               accessibilityLabel="Create a new table"
             >
@@ -393,8 +413,39 @@ export default function Lounge() {
                 </Pressable>
               ))}
             </View>
+            {visibility === "friends" && (
+              <View style={{ marginTop: 4 }}>
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 15 * scale, marginBottom: 6 }}>
+                  Invite friends {Object.values(invitePicks).filter(Boolean).length > 0 ? `(${Object.values(invitePicks).filter(Boolean).length})` : ""}
+                </Text>
+                {friends.length === 0 ? (
+                  <Text style={{ color: c.muted, fontSize: 14 * scale }}>
+                    No friends yet — your table will still be visible to friends you add later.
+                  </Text>
+                ) : (
+                  <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled">
+                    {friends.map((f: any) => {
+                      const picked = !!invitePicks[f.id];
+                      const fname = f.first_name || f.username || "Friend";
+                      return (
+                        <Pressable
+                          key={f.id}
+                          testID={`invite-friend-${f.id}`}
+                          onPress={() => toggleInvite(f.id)}
+                          style={({ pressed }) => [styles.friendRow, { borderColor: picked ? c.brand : c.border, backgroundColor: picked ? c.brandTertiary : c.surfaceSecondary, opacity: pressed ? 0.85 : 1 }]}
+                        >
+                          <AvatarBubble value={f.avatar} size={34} fallback="🙂" />
+                          <Text style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 16 * scale }} numberOfLines={1}>{fname}</Text>
+                          <Ionicons name={picked ? "checkmark-circle" : "ellipse-outline"} size={24} color={picked ? c.brand : c.muted} />
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+              </View>
+            )}
             <View style={{ marginTop: 12 }}>
-              <Button testID="new-table-submit" label="Open my table" onPress={create} />
+              <Button testID="new-table-submit" label={visibility === "friends" && Object.values(invitePicks).filter(Boolean).length > 0 ? "Open table & invite friends" : "Open my table"} onPress={create} />
             </View>
           </View>
         </KeyboardAvoidingView>
@@ -477,6 +528,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   friendChipText: { fontWeight: "800", flexShrink: 1 },
+  friendRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, borderWidth: 1.5, marginBottom: 8, minHeight: 56 },
   emptyState: {
     alignItems: "center",
     paddingHorizontal: 24,
