@@ -545,7 +545,7 @@ function stripQuotedReply(raw: string): { fresh: string; quoted: string } {
 
   const patterns = [
     /\nOn .+?wrote:\s*\n/i,
-    /\nFrom:\s.+\nSent:\s.+\nTo:\s.+\nSubject:\s.+\n/i,
+    /\n\*?From:\*?\s.+\n\*?Sent:\*?\s.+\n\*?To:\*?\s.+\n\*?Subject:\*?\s.+\n/i,
     /\n_{5,}\n/,
     /\n-{5,}\s*Original Message\s*-{5,}\n/i,
   ];
@@ -606,10 +606,19 @@ function MessageBody({ message }: { message: InboxMessage }) {
     const htmlQuoted = !!message.html?.trim() && inboundHtmlHasQuotedHistory(message.html);
 
     if (quoted || htmlQuoted) {
+      const freshDisplay = (fresh || message.snippet || '')
+        .replace(/^\*([^*\n]+)\*$/gm, '$1')
+        .replace(/^\[image:[^\]]+\]\s*$/gim, '')
+        .trim();
+
       return (
         <div>
-          <div style={{ whiteSpace: 'pre-wrap', fontSize: 15, color: '#0A2540', lineHeight: 1.65, fontWeight: 500 }}>
-            {fresh || message.snippet}
+          <div style={{
+            whiteSpace: 'pre-wrap', fontSize: 15, color: '#FFFFFF', lineHeight: 1.7,
+            fontWeight: 500, background: '#0A2540', borderRadius: 12,
+            padding: '18px 20px', border: '1px solid #183B5B',
+          }}>
+            {freshDisplay}
           </div>
           {(quoted || htmlQuoted) && (
             <details style={{ marginTop: 12 }}>
