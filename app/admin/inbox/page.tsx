@@ -165,8 +165,20 @@ function InboxPanel() {
       if (!m.read) await inboxApi.setRead(m.id, true);
 
       const r = await inboxApi.get(m.id);
-      setSelected({ ...r.message, read: true });
-      setThread(r.thread);
+      const message = { ...r.message, read: true };
+      const correspondent = String(message.from_email || '').trim().toLowerCase();
+      const selectedMailbox = String(message.mailbox || '').trim().toLowerCase();
+      const cleanThread = (r.thread || []).filter((t) => {
+        if (t.id === message.id) return true;
+        const threadMailbox = String(t.mailbox || '').trim().toLowerCase();
+        if (threadMailbox && selectedMailbox && threadMailbox !== selectedMailbox) return false;
+        if (t.direction === 'outbound') {
+          return String(t.to_email || '').trim().toLowerCase() === correspondent;
+        }
+        return String(t.from_email || '').trim().toLowerCase() === correspondent;
+      });
+      setSelected(message);
+      setThread(cleanThread);
       setRows((prev) => prev?.map((x) => (x.id === m.id ? { ...x, read: true } : x)) ?? prev);
 
       // Reconcile against the now-persisted backend state so the optimistic
@@ -212,8 +224,19 @@ function InboxPanel() {
       setReplyText('');
       setPreview(null);
       const r = await inboxApi.get(selected.id);
+      const correspondent = String(r.message.from_email || '').trim().toLowerCase();
+      const selectedMailbox = String(r.message.mailbox || '').trim().toLowerCase();
+      const cleanThread = (r.thread || []).filter((t) => {
+        if (t.id === r.message.id) return true;
+        const threadMailbox = String(t.mailbox || '').trim().toLowerCase();
+        if (threadMailbox && selectedMailbox && threadMailbox !== selectedMailbox) return false;
+        if (t.direction === 'outbound') {
+          return String(t.to_email || '').trim().toLowerCase() === correspondent;
+        }
+        return String(t.from_email || '').trim().toLowerCase() === correspondent;
+      });
       setSelected(r.message);
-      setThread(r.thread);
+      setThread(cleanThread);
       await load({ silent: true });
     } catch (e: any) {
       setNotice(null);
