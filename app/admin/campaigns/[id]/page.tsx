@@ -100,6 +100,7 @@ export default function CampaignDetailPage() {
   const [filter, setFilter] = useState<RecipientFilter>('all');
   const [openTimelineFor, setOpenTimelineFor] = useState<CampaignRecipient | null>(null);
   const [outreachNumbers, setOutreachNumbers] = useState<OutreachNumberMap>({});
+  const [activeOutreachIds, setActiveOutreachIds] = useState<Set<string> | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryingTransient, setRetryingTransient] = useState(false);
   const [retryNotice, setRetryNotice] = useState<string | null>(null);
@@ -138,14 +139,19 @@ export default function CampaignDetailPage() {
     let cancelled = false;
     (async () => {
       try {
-        const result = await outreachApi.list({ limit: 500 });
+        const result = await outreachApi.list({ limit: 2000 });
         if (cancelled) return;
         const map: OutreachNumberMap = {};
+        const activeIds = new Set<string>();
         for (const org of result.organisations || []) {
           const n = Number((org as any).outreach_number || 0);
-          if (org.id && n >= 20001) map[String(org.id)] = n;
+          if (org.id) {
+            activeIds.add(String(org.id));
+            if (n >= 20001) map[String(org.id)] = n;
+          }
         }
         setOutreachNumbers(map);
+        setActiveOutreachIds(activeIds);
       } catch {
         // Campaign history still works if the outreach list cannot be loaded.
         // Newer recipient rows carry outreach_number themselves.
@@ -154,10 +160,36 @@ export default function CampaignDetailPage() {
     return () => { cancelled = true; };
   }, []);
 
-  const filteredRecipients = useMemo(() => {
+  useEffect(() => {
+    const onRemoved = (event: Event) => {
+      const outreachId = String((event as CustomEvent<{ outreachId?: string }>).detail?.outreachId || '');
+      if (!outreachId) return;
+      setActiveOutreachIds((prev) => {
+        if (prev === null) return prev;
+        const next = new Set(prev);
+        next.delete(outreachId);
+        return next;
+      });
+      setOpenTimelineFor(null);
+    };
+    window.addEventListener('friendplace:outreach-removed', onRemoved as EventListener);
+    return () => window.removeEventListener('friendplace:outreach-removed', onRemoved as EventListener);
+  }, []);
+
+  const visibleRecipients = useMemo(() => {
     if (!campaign) return [];
-    return campaign.recipients.filter((r) => matchesFilter(r, filter));
-  }, [campaign, filter]);
+    const audienceKind = String((campaign as any).audience_filter?.audience_kind || '');
+    const outreachCampaign = audienceKind === 'outreach' || audienceKind === 'outreach_contacts';
+    if (!outreachCampaign || activeOutreachIds === null) return campaign.recipients;
+    return campaign.recipients.filter((r) => {
+      const outreachId = String((r as any).outreach_id || '');
+      return !outreachId || activeOutreachIds.has(outreachId);
+    });
+  }, [campaign, activeOutreachIds]);
+
+  const filteredRecipients = useMemo(() => {
+    return visibleRecipients.filter((r) => matchesFilter(r, filter));
+  }, [visibleRecipients, filter]);
 
   if (err) return (
     <AdminShell title="Campaign"><p style={{ color: '#B91C1C' }}>{err}</p></AdminShell>
@@ -173,8 +205,8 @@ export default function CampaignDetailPage() {
   // Headline delivery/bounce metrics reflect each recipient's CURRENT/latest
   // state. The backend aggregate remains historical and is still preserved in
   // the timeline/raw event data for audit purposes.
-  const delivered = campaign.recipients.filter(isCurrentlyDelivered).length;
-  const bounced = campaign.recipients.filter(isCurrentlyBounced).length;
+  const delivered = visibleRecipients.filter(isCurrentlyDelivered).length;
+  const bounced = visibleRecipients.filter(isCurrentlyBounced).length;
   const complained = stats.complained || 0;
   const deliveryRate = accepted ? delivered / accepted : 0;
   const openRate     = accepted ? uniqueOpens  / accepted : 0;
@@ -186,7 +218,7 @@ export default function CampaignDetailPage() {
 
   // Count of recipients CURRENTLY eligible for retry — computed live
   // from the recipient rows, never from the (possibly stale) aggregate.
-  const eligibleFailed = campaign.recipients.filter(
+  const eligibleFailed = visibleRecipients.filter(
     (r) => (r.status || '').toLowerCase() === 'failed',
   ).length;
 
@@ -239,7 +271,7 @@ export default function CampaignDetailPage() {
     }
   };
 
-  const counters = campaign.recipients.reduce(
+  const counters = visibleRecipients.reduce(
     (acc, r) => {
       (['all', 'opened', 'clicked', 'not_opened', 'bounced'] as RecipientFilter[])
         .forEach((f) => { if (matchesFilter(r, f)) acc[f] += 1; });
@@ -512,6 +544,7 @@ function RecipientTimelineModal({
     try {
       await outreachApi.del(outreachId);
       setRemoved(true);
+      window.dispatchEvent(new CustomEvent('friendplace:outreach-removed', { detail: { outreachId } }));
     } catch (e: any) {
       setRemoveErr(e?.message || 'Could not remove this outreach record.');
     } finally {
