@@ -566,12 +566,12 @@ function stripQuotedReply(raw: string): { fresh: string; quoted: string } {
 function MessageBody({ message }: { message: InboxMessage }) {
   if (message.direction === 'inbound' && message.text?.trim()) {
     const { fresh, quoted } = stripQuotedReply(message.text);
-    return (
-      <div>
-        <div style={{ whiteSpace: 'pre-wrap', fontSize: 15, color: '#0A2540', lineHeight: 1.65, fontWeight: 500 }}>
-          {fresh || message.snippet}
-        </div>
-        {quoted && (
+    if (quoted) {
+      return (
+        <div>
+          <div style={{ whiteSpace: 'pre-wrap', fontSize: 15, color: '#0A2540', lineHeight: 1.65, fontWeight: 500 }}>
+            {fresh || message.snippet}
+          </div>
           <details style={{ marginTop: 12 }}>
             <summary style={{
               cursor: 'pointer', color: '#64748B', fontSize: 12, fontWeight: 700,
@@ -587,9 +587,9 @@ function MessageBody({ message }: { message: InboxMessage }) {
               {quoted}
             </div>
           </details>
-        )}
-      </div>
-    );
+        </div>
+      );
+    }
   }
 
   if (message.html?.trim()) {
