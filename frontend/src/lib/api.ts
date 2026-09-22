@@ -302,7 +302,7 @@ export const api = {
   // suburbs / location
   suburbsSearch: (q: string, limit = 10) => req(`/suburbs/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   suburbsNearest: (lat: number, lng: number) => req(`/suburbs/nearest?lat=${lat}&lng=${lng}`),
-  setLocation: (uid: string, body: { suburb?: string; postcode?: string; state?: string; lat?: number; lng?: number; prefer_not_to_say?: boolean }) =>
+  setLocation: (uid: string, body: { suburb?: string; postcode?: string; state?: string; lat?: number; lng?: number; prefer_not_to_say?: boolean; hidden?: boolean }) =>
     req(`/users/${uid}/location`, { method: "POST", body: JSON.stringify(body) }),
   setPrivacy: (uid: string, privacy: "everyone" | "friends" | "invisible") =>
     req(`/users/${uid}/privacy`, { method: "PATCH", body: JSON.stringify({ privacy }) }),

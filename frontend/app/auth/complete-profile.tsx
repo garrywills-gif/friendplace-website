@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, TextInput, ScrollView, Pressable, StyleSheet, Platform, KeyboardAvoidingView } from "react-native";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/src/lib/theme";
 import { useAuth } from "@/src/lib/auth";
@@ -15,13 +16,18 @@ import PeopleAvatarPicker from "@/src/components/PeopleAvatarPicker";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /**
- * /auth/complete-profile — profile setup for social sign-in members.
+ * /auth/complete-profile — the SINGLE shared "Set up your profile" screen
+ * for EVERY signup method (email, Google, Apple).
  *
- * Google/Apple only replace the email/password step, so a brand-new social
- * member still lands here to choose avatar/photo, birthday, suburb and
- * interests — exactly like email signup Step 2 — BEFORE George/Georgia
- * induction. The gate lives in src/lib/profile.ts (needsProfileSetup); once
- * a suburb (or "hide my suburb") is saved the member proceeds to /onboarding.
+ * Account creation only captures credentials; every new/incomplete member
+ * lands here to set their display name, avatar, suburb (required) and
+ * interests BEFORE George/Georgia induction. Google/Apple may prefill a
+ * suggested display name, but it stays editable.
+ *
+ * Rule: authentication → complete profile → induction. The gate lives in
+ * src/lib/profile.ts (needsProfileSetup); once a suburb is saved the member
+ * proceeds to /onboarding. A suburb is ALWAYS required — "Hide my suburb"
+ * only controls public visibility, it never replaces entering one.
  */
 export default function CompleteProfile() {
   const router = useRouter();
@@ -30,12 +36,20 @@ export default function CompleteProfile() {
   const { user, refresh } = useAuth();
   const { show } = useToast();
 
+  const [displayName, setDisplayName] = useState<string>(
+    (user as any)?.first_name || "",
+  );
   const [avatar, setAvatar] = useState<string>((user as any)?.avatar || "🌸");
   const [interests, setInterests] = useState<string[]>((user as any)?.interests || []);
   const [bdayMonth, setBdayMonth] = useState<number | null>(null);
   const [bdayDay, setBdayDay] = useState("");
   const [bdayYear, setBdayYear] = useState("");
-  const [suburbDone, setSuburbDone] = useState<boolean>(!!((user as any)?.suburb || (user as any)?.suburb_hidden));
+  // The chosen suburb (from the recognised list). Required. "Hide my suburb"
+  // is a SEPARATE visibility toggle and never a substitute for this.
+  const [suburb, setSuburb] = useState<{ name: string; postcode?: string; state?: string; lat?: number; lng?: number } | null>(
+    (user as any)?.suburb ? { name: (user as any).suburb, postcode: (user as any).suburb_postcode, state: (user as any).suburb_state } : null,
+  );
+  const [hideSuburb, setHideSuburb] = useState<boolean>(!!(user as any)?.suburb_hidden);
   const [busy, setBusy] = useState(false);
 
   const toggleInterest = (i: string) =>
@@ -51,16 +65,29 @@ export default function CompleteProfile() {
 
   const onFinish = async () => {
     if (!user) return;
-    if (!suburbDone) {
-      show("Please pick your suburb, or tap \u201CHide my suburb\u201D.");
+    if (!displayName.trim()) {
+      show("Please enter a display name.");
+      return;
+    }
+    if (!suburb?.name) {
+      show("Please select your suburb.");
       return;
     }
     setBusy(true);
     try {
-      // Suburb is already saved live via SuburbField.onChange, so the setup
-      // gate is satisfied. Avatar/interests/birthday are best-effort — never
-      // block the member from reaching induction if that call hiccups.
-      const payload: any = { avatar, interests };
+      // Suburb is required and always stored/used for local features; the
+      // hide toggle only suppresses public display.
+      try {
+        await api.setLocation(user.id, {
+          suburb: suburb.name,
+          postcode: suburb.postcode,
+          state: suburb.state,
+          lat: suburb.lat,
+          lng: suburb.lng,
+          hidden: hideSuburb,
+        });
+      } catch { /* best-effort — gate still satisfied once saved */ }
+      const payload: any = { first_name: displayName.trim(), avatar, interests };
       const b = birthdayString();
       if (b) payload.birthday = b;
       try { await api.updateProfile(user.id, payload); } catch { /* best-effort */ }
@@ -81,26 +108,53 @@ export default function CompleteProfile() {
             Just a few quick details so friends can find you &mdash; then you&rsquo;ll meet your companion.
           </Text>
 
+          <Text style={[styles.section, { color: c.onSurface, fontSize: 16 * scale }]}>
+            Display name <Text style={{ color: c.error }}>*</Text>
+          </Text>
+          <TextInput
+            testID="complete-display-name"
+            value={displayName}
+            onChangeText={setDisplayName}
+            placeholder="The name friends will see"
+            placeholderTextColor={c.muted}
+            style={[styles.input, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 16 * scale }]}
+          />
+
           <Text style={[styles.section, { color: c.onSurface, fontSize: 16 * scale }]}>Your photo or avatar</Text>
           <PeopleAvatarPicker value={avatar} onChange={setAvatar} />
 
-          <Text style={[styles.section, { color: c.onSurface, fontSize: 16 * scale }]}>Your suburb</Text>
+          <Text style={[styles.section, { color: c.onSurface, fontSize: 16 * scale }]}>
+            Your suburb <Text style={{ color: c.error }}>*</Text>
+          </Text>
+          <Text style={{ color: c.muted, fontSize: 13 * scale, marginBottom: 8 }}>
+            Required — we use it to show local notices, events, groups and nearby members.
+          </Text>
           <SuburbField
-            initialValue={(user as any)?.suburb || ""}
-            preferNotToSay={!!(user as any)?.suburb_hidden}
-            onChange={async (m, pns) => {
-              if (!user) return;
-              if (pns) {
-                setSuburbDone(true);
-                try { await api.setLocation(user.id, { prefer_not_to_say: true }); } catch {}
-              } else if (m) {
-                setSuburbDone(true);
-                try { await api.setLocation(user.id, { suburb: m.name, postcode: m.postcode, state: m.state, lat: m.lat, lng: m.lng }); } catch {}
-              } else {
-                setSuburbDone(false);
-              }
+            testID="complete-suburb"
+            hidePreferNotToSay
+            initialValue={suburb?.name || ""}
+            onChange={(m) => {
+              if (m) setSuburb({ name: m.name, postcode: m.postcode, state: m.state, lat: m.lat, lng: m.lng });
+              else setSuburb(null);
             }}
           />
+          <Pressable
+            testID="complete-hide-suburb"
+            onPress={() => setHideSuburb((v) => !v)}
+            style={styles.hideRow}
+          >
+            <Ionicons
+              name={hideSuburb ? "checkbox" : "square-outline"}
+              size={24}
+              color={hideSuburb ? c.brand : c.muted}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>Hide my suburb from other members</Text>
+              <Text style={{ color: c.muted, fontSize: 12.5 * scale, marginTop: 2 }}>
+                Your suburb stays saved for local features — it just won&rsquo;t show on your public profile.
+              </Text>
+            </View>
+          </Pressable>
 
           <Text style={[styles.section, { color: c.onSurface, fontSize: 16 * scale }]}>Birthday (optional)</Text>
           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
@@ -111,8 +165,8 @@ export default function CompleteProfile() {
             ))}
           </View>
           <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
-            <TextInput value={bdayDay} onChangeText={setBdayDay} placeholder="Day" keyboardType="number-pad" placeholderTextColor={c.muted} style={[styles.input, { flex: 1, color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 15 * scale }]} />
-            <TextInput value={bdayYear} onChangeText={setBdayYear} placeholder="Year (optional)" keyboardType="number-pad" placeholderTextColor={c.muted} style={[styles.input, { flex: 1.4, color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 15 * scale }]} />
+            <TextInput value={bdayDay} onChangeText={(t) => setBdayDay(t.replace(/[^0-9]/g, "").slice(0, 2))} placeholder="Day" keyboardType="number-pad" placeholderTextColor={c.muted} style={[styles.input, { flex: 1, color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 15 * scale }]} />
+            <TextInput value={bdayYear} onChangeText={(t) => setBdayYear(t.replace(/[^0-9]/g, "").slice(0, 4))} placeholder="Year (optional)" keyboardType="number-pad" placeholderTextColor={c.muted} style={[styles.input, { flex: 1.4, color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceSecondary, fontSize: 15 * scale }]} />
           </View>
 
           <Text style={[styles.section, { color: c.onSurface, fontSize: 16 * scale }]}>Interests</Text>
@@ -136,4 +190,5 @@ const styles = StyleSheet.create({
   section: { fontWeight: "800", marginTop: 20, marginBottom: 10 },
   input: { borderWidth: 1.5, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12 },
   chip: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1.5 },
+  hideRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 12, paddingVertical: 4 },
 });

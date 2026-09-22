@@ -112,7 +112,7 @@ export default function Notices() {
   const [editing, setEditing] = useState<any | null>(null);
   const [pTitle, setPTitle] = useState("");
   const [pBody, setPBody] = useState("");
-  const [pCat, setPCat] = useState("Announcement");
+  const [pCat, setPCat] = useState("");
   // Optional image attached to the notice — gallery ref, data URI or "".
   const [pImage, setPImage] = useState<string>("");
   const [pLocality, setPLocality] = useState<{ name: string; postcode?: string; state?: string } | null>(null);
@@ -215,6 +215,8 @@ export default function Notices() {
       if (editing) {
         await api.editNotice(editing.id, { user_id: user.id, title: pTitle.trim(), body: pBody.trim(), category: pCat, image: pImage, locality: pLocality?.name, locality_postcode: pLocality?.postcode, locality_state: pLocality?.state, active_from: activeFrom ?? null, active_to: activeTo ?? null });
         show("Notice updated");
+        setPosting(false); setEditing(null);
+        await load();
       } else {
         // The backend may hold the notice for moderator review if the
         // shared business-content / prolific-poster heuristic fires
@@ -237,14 +239,33 @@ export default function Notices() {
           active_from: activeFrom,
           active_to: activeTo,
         });
-        if (resp && resp.held_for_review) {
-          show("Submitted — we'll review it shortly. It's in your feed marked \u201CPending review\u201D.");
-        } else {
+        setPosting(false); setEditing(null);
+        // Guarantee the fresh notice is visible: reset the category filter
+        // and search to "All" (a category/search filter that differs from
+        // the posted category is what made a genuinely-saved notice look
+        // like it "didn't post" — the false-success report). Then re-pull
+        // the feed with those cleared filters and confirm the notice is
+        // actually retrievable before deciding the toast wording.
+        setCategory("All");
+        setQuery("");
+        let fresh: any[] = [];
+        try {
+          fresh = (await api.listNotices({ user_id: user.id, category: "All", radius_km: radiusKm ?? undefined })) as any[];
+        } catch { fresh = []; }
+        // Optimistic insert as a safety net if the reload somehow missed it.
+        if (resp?.id && !fresh.some((x) => x.id === resp.id)) fresh = [resp, ...fresh];
+        setNotices(fresh);
+        const isLiveAndVisible = !resp?.held_for_review && !!resp?.id && fresh.some((x) => x.id === resp.id);
+        if (resp?.held_for_review) {
+          show("Submitted — pending review. It's in your feed marked \u201CPending review\u201D.");
+        } else if (isLiveAndVisible) {
           show("Posted to Notice Board");
+        } else {
+          // Saved but not yet confirmed in the feed — be honest rather than
+          // claiming success.
+          show("Submitted — it'll appear in your feed shortly.");
         }
       }
-      setPosting(false); setEditing(null);
-      await load();
     } catch (e: any) { show(e?.message || "Could not save — please try again."); }
   };
 
@@ -468,7 +489,7 @@ export default function Notices() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title="Notice Board" backHref="/home" emoji="📋" subtitle="Local notices · Share what's on" onBack={() => { console.log("[notices/back] Header onBack tapped"); router.replace("/home" as any); }} right={(
-        <Pressable testID="new-notice" onPress={startCreate} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brand, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
+        <Pressable testID="new-notice" onPress={() => startCreate()} hitSlop={6} style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: c.brand, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 }}>
           <Ionicons name="add" size={20} color="#FFF" />
           {/* Renamed 2026-08-14 (Garry launch-polish): explicit "Add a
               post" reads as a clear action rather than a cryptic "+"

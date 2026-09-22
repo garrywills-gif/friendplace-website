@@ -4376,6 +4376,10 @@ class SetLocationBody(BaseModel):
     lat: Optional[float] = None
     lng: Optional[float] = None
     prefer_not_to_say: bool = False
+    # Explicit public-visibility flag used when SETTING a suburb: True hides
+    # the suburb from other members (kept stored for local features), False
+    # makes it publicly visible. None leaves the existing flag untouched.
+    hidden: Optional[bool] = None
 
 
 @api.get("/suburbs/search")
@@ -4524,6 +4528,10 @@ async def set_user_location(user_id: str, body: SetLocationBody):
     matches = sb_search(body.suburb or "", limit=1) if body.suburb else []
     chosen = matches[0] if matches else None
     update: Dict = {"location_visibility": "suburb"}
+    # Public visibility flag travels alongside the suburb so "Hide my suburb"
+    # is purely a display toggle and never blocks setting a real suburb.
+    if body.hidden is not None:
+        update["suburb_hidden"] = bool(body.hidden)
     if chosen:
         update["suburb"] = chosen["name"]
         update["suburb_postcode"] = chosen["postcode"]
