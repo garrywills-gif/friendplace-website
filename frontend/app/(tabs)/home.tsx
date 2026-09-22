@@ -1126,7 +1126,7 @@ export default function Home() {
               <Pressable key={`b-${u.id}`} testID={`bday-${u.id}`} onPress={() => router.push(`/user/${u.id}` as any)} style={styles.commRow}>
                 <Text style={styles.commEmoji}>🎂</Text>
                 <Text numberOfLines={1} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
-                  It&apos;s {u.first_name}&apos;s birthday today! Send a wave.
+                  It&apos;s {u.first_name}&apos;s birthday today — send your birthday wishes.
                 </Text>
                 <Ionicons name="chevron-forward" size={18} color={c.muted} />
               </Pressable>
@@ -1160,8 +1160,8 @@ export default function Home() {
                 <Text style={styles.commEmoji}>👋</Text>
                 <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
                   {community.new_members.length === 1
-                    ? `Say hello to ${community.new_members[0].first_name || community.new_members[0].username || "a new neighbour"} — they just joined`
-                    : `Say hello to ${community.new_members.length} new neighbours this week`}
+                    ? `Welcome ${community.new_members[0].first_name || community.new_members[0].username || "a new neighbour"} to FriendPlace`
+                    : `Welcome ${community.new_members.length} new neighbours to FriendPlace`}
                 </Text>
                 <Ionicons name="chevron-forward" size={18} color={c.muted} />
               </Pressable>

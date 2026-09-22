@@ -44,6 +44,7 @@ export default function TableChat() {
   const router = useRouter();
   const { show } = useToast();
   const [table, setTable] = useState<any>(null);
+  const [notFound, setNotFound] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const [seated, setSeated] = useState<any[]>([]);
@@ -91,17 +92,40 @@ export default function TableChat() {
   useEffect(() => {
     if (!id || !user) return;
     (async () => {
-      const t = await api.getTable(id);
-      setTable(t); setSeated(t.seated_users || []);
-      const msgs = await api.tableMessages(id);
-      setMessages(msgs);
+      try {
+        const t = await api.getTable(id);
+        setTable(t); setSeated(t.seated_users || []);
+        const msgs = await api.tableMessages(id);
+        setMessages(msgs);
+      } catch {
+        // Table was closed/deleted by its host, or never existed. Show a
+        // friendly "this table has closed" state instead of a blank screen
+        // (real-device fix #4: tapping an invite to a closed table).
+        setNotFound(true);
+        return;
+      }
     })();
     const ws = new WebSocket(wsUrl(`/ws/table/${id}?user_id=${user.id}&token=${encodeURIComponent(token || "")}`));
     wsRef.current = ws;
+    // Authoritative seat reconcile — the presence events give instant
+    // feedback, but join/leave/reconnect/background can desync the count
+    // across devices (real-device fix #5). Re-pull the server's seated list
+    // on (re)connect and on a light interval so every device converges.
+    const reconcileSeats = async () => {
+      try {
+        const t = await api.getTable(id);
+        setSeated(t.seated_users || []);
+        setTable((prev: any) => (prev ? { ...prev, ...t } : t));
+      } catch { /* transient — keep current state */ }
+    };
+    ws.onopen = () => { reconcileSeats(); };
+    const seatTimer = setInterval(reconcileSeats, 15000);
     ws.onmessage = (ev) => {
       const data = JSON.parse(ev.data);
       if (data.type === "message") {
-        setMessages((m) => [...m, data.message]);
+        // De-dupe by message id — reconnect/refetch/double-broadcast must
+        // never render the same message twice (real-device fix #6).
+        setMessages((m) => (data.message && m.some((x) => x.id === data.message.id) ? m : [...m, data.message]));
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
       } else if (data.type === "presence") {
         setSeated((s) => {
@@ -128,7 +152,7 @@ export default function TableChat() {
         show(data.message || "Send failed");
       }
     };
-    return () => { ws.close(); if (user && id) api.leaveTable(id, user.id).catch(() => {}); };
+    return () => { clearInterval(seatTimer); ws.close(); if (user && id) api.leaveTable(id, user.id).catch(() => {}); };
   }, [id, user?.id]);
 
   const send = () => {
@@ -238,6 +262,26 @@ export default function TableChat() {
 
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
+      {notFound ? (
+        <>
+          <Header title="Table" />
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 }}>
+            <Text style={{ fontSize: 52 }}>☕</Text>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 22 * scale, textAlign: "center" }}>This table has closed</Text>
+            <Text style={{ color: c.muted, fontSize: 15 * scale, textAlign: "center", lineHeight: 22 }}>
+              The host wrapped up this chat. Plenty of other tables are open in the FP Café — come find a seat.
+            </Text>
+            <Pressable
+              testID="table-closed-back"
+              onPress={() => router.replace("/lounge" as any)}
+              style={({ pressed }) => [{ marginTop: 8, backgroundColor: c.brand, paddingHorizontal: 26, paddingVertical: 14, borderRadius: 999, opacity: pressed ? 0.85 : 1 }]}
+            >
+              <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 16 * scale }}>Back to FP Café</Text>
+            </Pressable>
+          </View>
+        </>
+      ) : (
+      <>
       <Header
         title={table ? `${table.emoji} ${table.name}` : "Table"}
         right={isHost ? (
@@ -541,6 +585,8 @@ export default function TableChat() {
           </View>
         </View>
       </Modal>
+      </>
+      )}
     </View>
   );
 }

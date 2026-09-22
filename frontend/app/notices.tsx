@@ -185,7 +185,7 @@ export default function Notices() {
     return `Posted ${d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}`;
   };
 
-  const startCreate = (cat: string = "Announcement", title: string = "") => { setEditing(null); setPTitle(title); setPBody(""); setPCat(cat); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
+  const startCreate = (cat: string = "", title: string = "") => { setEditing(null); setPTitle(title); setPBody(""); setPCat(cat); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
   const startEdit = (n: any) => {
     setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || "");
     setPLocality(n.locality ? { name: n.locality, postcode: n.locality_postcode, state: n.locality_state } : memberLocality());
@@ -196,6 +196,7 @@ export default function Notices() {
 
   const submitPost = async () => {
     if (!user || !pTitle.trim() || !pBody.trim()) { show("Add a title and message"); return; }
+    if (!pCat) { show("Please choose a category before posting."); return; }
     // TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #2):
     // Dismiss the keyboard BEFORE closing the composer Modal. On iOS,
     // if the keyboard is still up when the Modal starts its slide-down
@@ -568,10 +569,10 @@ export default function Notices() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 8 }}
               >
-              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Category</Text>
+              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Category <Text style={{ color: c.error, fontWeight: "900" }}>*</Text> <Text style={{ color: c.muted, fontWeight: "600" }}>· required</Text></Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {POST_CATS.map((cat) => (
-                  <Pressable key={cat} onPress={() => setPCat(cat)} style={[styles.catFilter, { backgroundColor: pCat === cat ? c.brand : c.surfaceSecondary, borderColor: pCat === cat ? c.brand : c.border }]}>
+                  <Pressable key={cat} testID={`post-cat-${cat}`} onPress={() => setPCat(cat)} style={[styles.catFilter, { backgroundColor: pCat === cat ? c.brand : c.surfaceSecondary, borderColor: pCat === cat ? c.brand : c.border }]}>
                     <Text style={{ color: pCat === cat ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{CATEGORY_EMOJI[cat]} {cat}</Text>
                   </Pressable>
                 ))}

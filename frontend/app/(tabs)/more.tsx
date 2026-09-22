@@ -19,7 +19,8 @@ const GROUPS: Group[] = [
   {
     title: "Messages & people",
     rows: [
-      { key: "friends", label: "My Friends", icon: "people-outline", route: "/friends" },
+      { key: "friends", label: "My Friends", icon: "people-outline", route: "/friends/list" },
+      { key: "find-friends", label: "Find Friends", icon: "person-add-outline", route: "/friends" },
       { key: "notifications", label: "Notifications", icon: "notifications-outline", route: "/notifications" },
       { key: "founders", label: "Founding Members", icon: "ribbon-outline", route: "/founders" },
     ],

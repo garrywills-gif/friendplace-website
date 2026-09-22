@@ -107,7 +107,7 @@ export default function WordChain({ session, me, busy, onMove }: Props) {
             {nameFor(session.turn)}'s turn…
           </Text>
           <Text style={[styles.waitSub, { color: c.muted, fontSize: 13.5 * scale }]}>
-            First to reach 12 words together wins the round.
+            Reach 12 words together to win the round.
           </Text>
         </View>
       )}
@@ -116,10 +116,10 @@ export default function WordChain({ session, me, busy, onMove }: Props) {
 }
 
 const styles = StyleSheet.create({
-  catCard: { borderRadius: 18, alignItems: "center", paddingVertical: 18, gap: 4 },
+  catCard: { borderRadius: 18, alignItems: "center", paddingVertical: 18, paddingHorizontal: 22, gap: 4 },
   catLabel: { fontWeight: "800", letterSpacing: 1, fontSize: 12 },
-  catName: { fontWeight: "900", fontSize: 26 },
-  catRule: { fontWeight: "600", fontSize: 15, marginTop: 4 },
+  catName: { fontWeight: "900", fontSize: 26, textAlign: "center", alignSelf: "stretch", paddingHorizontal: 4 },
+  catRule: { fontWeight: "600", fontSize: 15, marginTop: 4, textAlign: "center" },
   chainWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { borderRadius: 999, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 8 },
   chipTxt: { fontWeight: "700" },

@@ -23,6 +23,8 @@ import { useInboxEvent } from "@/src/lib/user-socket";
 import { useGeorgeVoice, VOICE_LABELS } from "@/src/lib/george-voice";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { useTheme } from "@/src/lib/theme";
+import { api } from "@/src/lib/api";
+import { useToast } from "@/src/lib/toast";
 
 // Notification types we nudge for: private messages, Flutters, Play
 // Together invites, and friend requests — all things a member wants to
@@ -55,6 +57,7 @@ type Nudge = {
   title: string;
   body: string;
   route: string;
+  payload?: any;
 };
 
 export default function CompanionNudge() {
@@ -62,6 +65,8 @@ export default function CompanionNudge() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const pathname = usePathname() || "";
+  const { show } = useToast();
+  const [actionBusy, setActionBusy] = useState(false);
   const { voice } = useGeorgeVoice();
   const companionName = VOICE_LABELS[voice]?.short || "George";
   // Soft companion-branded treatment so the nudge clearly stands out from
@@ -139,6 +144,7 @@ export default function CompanionNudge() {
       ),
       body: cleanText(n.body || ""),
       route,
+      payload: n.payload || {},
     });
   });
 
@@ -201,6 +207,33 @@ export default function CompanionNudge() {
     setTimeout(() => { try { router.push(target as any); } catch { /* noop */ } }, 40);
   };
 
+  // Friend-request inline actions. Accept confirms immediately, Decline
+  // rejects, Later just dismisses (leaves the request pending in the list).
+  const requestId = nudge.payload?.request_id;
+  const acceptFriend = async () => {
+    if (actionBusy) return;
+    if (!requestId) { open(); return; }
+    setActionBusy(true);
+    try {
+      await api.acceptReq(requestId);
+      show("You're now friends 🎉");
+      hide();
+    } catch {
+      show("Couldn't accept — opening your requests");
+      open();
+    } finally { setActionBusy(false); }
+  };
+  const declineFriend = async () => {
+    if (actionBusy) return;
+    if (!requestId) { hide(); return; }
+    setActionBusy(true);
+    try {
+      await api.declineReq(requestId);
+      show("Request declined");
+    } catch { /* silent — still dismiss */ }
+    finally { setActionBusy(false); hide(); }
+  };
+
   return (
     <Modal
       visible
@@ -256,24 +289,56 @@ export default function CompanionNudge() {
           </View>
 
           {hasActions && (
-            <View style={styles.btnRow}>
-              <Pressable
-                testID="companion-nudge-play"
-                onPress={open}
-                accessibilityLabel={primaryLabel}
-                style={[styles.btnPrimary, { backgroundColor: tint.accent }]}
-              >
-                <Text style={styles.btnPrimaryTxt}>{primaryLabel}</Text>
-              </Pressable>
-              <Pressable
-                testID="companion-nudge-snooze"
-                onPress={hide}
-                accessibilityLabel={secondaryLabel}
-                style={[styles.btnSnooze, { borderColor: tint.border }]}
-              >
-                <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>{secondaryLabel}</Text>
-              </Pressable>
-            </View>
+            isFriendRequest ? (
+              <View style={styles.btnRow}>
+                <Pressable
+                  testID="companion-nudge-accept"
+                  onPress={acceptFriend}
+                  disabled={actionBusy}
+                  accessibilityLabel="Accept friend request"
+                  style={[styles.btnPrimary, { backgroundColor: tint.accent, flex: 1.2, opacity: actionBusy ? 0.7 : 1 }]}
+                >
+                  <Text style={styles.btnPrimaryTxt}>Accept</Text>
+                </Pressable>
+                <Pressable
+                  testID="companion-nudge-decline"
+                  onPress={declineFriend}
+                  disabled={actionBusy}
+                  accessibilityLabel="Decline friend request"
+                  style={[styles.btnSnooze, { borderColor: tint.border, opacity: actionBusy ? 0.7 : 1 }]}
+                >
+                  <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>Decline</Text>
+                </Pressable>
+                <Pressable
+                  testID="companion-nudge-later"
+                  onPress={hide}
+                  disabled={actionBusy}
+                  accessibilityLabel="Decide later"
+                  style={[styles.btnSnooze, { borderColor: tint.border, opacity: actionBusy ? 0.7 : 1 }]}
+                >
+                  <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>Later</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.btnRow}>
+                <Pressable
+                  testID="companion-nudge-play"
+                  onPress={open}
+                  accessibilityLabel={primaryLabel}
+                  style={[styles.btnPrimary, { backgroundColor: tint.accent }]}
+                >
+                  <Text style={styles.btnPrimaryTxt}>{primaryLabel}</Text>
+                </Pressable>
+                <Pressable
+                  testID="companion-nudge-snooze"
+                  onPress={hide}
+                  accessibilityLabel={secondaryLabel}
+                  style={[styles.btnSnooze, { borderColor: tint.border }]}
+                >
+                  <Text style={[styles.btnSnoozeTxt, { color: tint.accent }]}>{secondaryLabel}</Text>
+                </Pressable>
+              </View>
+            )
           )}
         </View>
       </Animated.View>

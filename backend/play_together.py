@@ -25,6 +25,10 @@ This module registers its routes on the shared `/api` router via
 from __future__ import annotations
 
 import random
+import os
+import asyncio
+import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -160,12 +164,19 @@ WORD_CHAIN_DICT: Dict[str, set] = {
 }
 
 
-def _word_chain_reject(category: str, word: str, chain: List[Dict[str, Any]], required: str) -> Optional[str]:
+def _word_chain_reject(category: str, word: str, chain: List[Dict[str, Any]], required: str,
+                       skip_category_check: bool = False) -> Optional[str]:
     """Return a gentle retry message if the word is invalid, else None.
 
     Enforces: real-ish word, correct starting letter, no duplicate, and —
     for the curated categories — that the word actually fits the category.
     Open-ended categories skip the membership check (forgiving by design).
+
+    When `skip_category_check` is True we run ONLY the deterministic rules
+    (validity / starting letter / no repeat) and leave the category-fit
+    decision to the async AI check in the caller. This lets synonyms that
+    aren't in the curated bank (e.g. "dirt" for "Something in the garden")
+    still be accepted.
     """
     raw = (word or "").strip()
     w = raw.lower()
@@ -176,10 +187,50 @@ def _word_chain_reject(category: str, word: str, chain: List[Dict[str, Any]], re
     used = {(it.get("word") or "").strip().lower() for it in chain}
     if w in used:
         return f"“{raw}” has already been used — try a different word."
+    if skip_category_check:
+        return None
     valid = WORD_CHAIN_DICT.get(category)
     if valid is not None and w not in valid:
         return f"Hmm, “{raw}” doesn't look like it fits {category}. Try another!"
     return None
+
+
+async def _word_chain_category_fits(category: str, word: str) -> bool:
+    """AI category-fit check for curated Word Chain categories.
+
+    Called ONLY when the word passed the deterministic rules but isn't in
+    the curated bank. Returns True if the word sensibly fits the category
+    (so synonyms like "dirt" for "Something in the garden" are accepted),
+    False if the AI clearly says it doesn't fit.
+
+    Graceful by design: if the key is missing, the model errors, or the
+    call times out, we return True (accept) so a game turn is never broken
+    by an AI hiccup.
+    """
+    try:
+        api_key = os.getenv("EMERGENT_LLM_KEY")
+        if not api_key:
+            return True
+        from emergentintegrations.llm.chat import LlmChat, UserMessage  # noqa: E402
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"wordchain-{uuid.uuid4().hex[:8]}",
+            system_message=(
+                "You judge a friendly word game for older adults. Given a CATEGORY and a "
+                "WORD, decide if the word plausibly belongs to that category in everyday "
+                "Australian English. Be fair, not pedantic: accept clear synonyms and "
+                "closely related items (for example 'dirt' fits 'Something in the garden'). "
+                "Answer NO only when the word clearly does not belong. Reply with only YES or NO."
+            ),
+        ).with_model("gemini", "gemini-3-flash-preview")
+        msg = UserMessage(text=f"CATEGORY: {category}\nWORD: {word}")
+        resp = await asyncio.wait_for(chat.send_message(msg), timeout=4.0)
+        answer = str(resp or "").strip().upper()
+        # Accept unless the model clearly says NO.
+        return not answer.startswith("NO")
+    except Exception as e:
+        logging.warning("word_chain AI fit check failed (accepting): %s", e)
+        return True
 
 
 class InviteBody(BaseModel):
@@ -554,12 +605,21 @@ def register(api, ctx: Dict[str, Any]) -> None:
                           f"{players[me['id']]['name']} passed — you win!")
             return _public(sess, me["id"])
         word = (body.word or "").strip()
+        # Deterministic rules first (validity / starting letter / no repeat).
         reject = _word_chain_reject(
             content.get("category", ""), word, content.get("chain", []),
-            content.get("required_letter", ""),
+            content.get("required_letter", ""), skip_category_check=True,
         )
         if reject:
             raise HTTPException(400, reject)
+        # Category-fit: accept curated-bank words instantly; otherwise ask the
+        # AI judge (with graceful fallback to accept). Open-ended categories
+        # (no curated bank) are always accepted.
+        cat = content.get("category", "")
+        valid = WORD_CHAIN_DICT.get(cat)
+        if valid is not None and word.lower() not in valid:
+            if not await _word_chain_category_fits(cat, word):
+                raise HTTPException(400, f"Hmm, “{word}” doesn't look like it fits {cat}. Try another!")
         content["chain"].append({"player_id": me["id"], "word": word})
         content["required_letter"] = word.strip()[-1].upper()
         players[me["id"]]["score"] = players[me["id"]].get("score", 0) + 1

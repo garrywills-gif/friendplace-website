@@ -96,6 +96,7 @@ export default function Notifications() {
     if (n.type === "friend_request" || n.type === "friend_accepted") return router.push("/friends/inbox");
     if ((n.type === "dm" || n.type === "dm_request") && n.payload?.dm_id) return router.push(`/dm/${n.payload.dm_id}?other_id=${n.payload.from_id || ""}`);
     if (n.type === "table_join" && n.payload?.table_id) return router.push(`/table/${n.payload.table_id}`);
+    if (n.type === "table_invite" && n.payload?.table_id) return router.push(`/table/${n.payload.table_id}`);
     // Flutter notifications carry the sender's id in payload.from_id (not
     // ref_user_id). Route straight to that user's profile so the recipient
     // can reply with a flutter, view them, or start a chat instead of
