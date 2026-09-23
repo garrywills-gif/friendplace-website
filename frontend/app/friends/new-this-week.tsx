@@ -56,6 +56,20 @@ export default function NewThisWeek() {
   const [members, setMembers] = useState<NewMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [welcomed, setWelcomed] = useState<Record<string, boolean>>({});
+
+  const welcome = async (m: NewMember) => {
+    if (!user?.id || welcomed[m.id]) return;
+    try {
+      await api.greet({ from_id: user.id, to_id: m.id, kind: "welcome" });
+      setWelcomed((w) => ({ ...w, [m.id]: true }));
+      show("Welcome sent 👋");
+    } catch (e: any) {
+      const raw = String(e?.message || "");
+      if (/already/i.test(raw)) { setWelcomed((w) => ({ ...w, [m.id]: true })); show("Already welcomed 💛"); }
+      else show("Couldn't send just now — please try again.");
+    }
+  };
 
   const load = useCallback(async () => {
     if (!user) return;
@@ -121,7 +135,7 @@ export default function NewThisWeek() {
         ) : (
           <>
             <Text style={{ color: c.muted, fontSize: 13 * scale, marginBottom: 2 }}>
-              {members.length} {members.length === 1 ? "person" : "people"} joined in the last 7 days · tap to say hi
+              {members.length} {members.length === 1 ? "person" : "people"} joined in the last 7 days · tap a member to welcome them
             </Text>
             {members.map((m) => (
               <Pressable
@@ -147,7 +161,17 @@ export default function NewThisWeek() {
                     {m.suburb ? ` · ${m.suburb}` : ""}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={22} color={c.muted} />
+                <Pressable
+                  testID={`ntw-welcome-${m.id}`}
+                  onPress={() => welcome(m)}
+                  disabled={welcomed[m.id]}
+                  hitSlop={8}
+                  style={[styles.welcomeBtn, { backgroundColor: welcomed[m.id] ? c.surface : c.brand, borderColor: welcomed[m.id] ? c.border : c.brand }]}
+                >
+                  <Text style={{ color: welcomed[m.id] ? c.muted : "#FFF", fontWeight: "900", fontSize: 12.5 * scale }}>
+                    {welcomed[m.id] ? "Welcomed ✓" : "👋 Welcome"}
+                  </Text>
+                </Pressable>
               </Pressable>
             ))}
           </>
@@ -171,6 +195,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
   },
+  welcomeBtn: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 999, borderWidth: 1.5, minHeight: 40, alignItems: "center", justifyContent: "center" },
   emptyCard: {
     padding: 24,
     borderRadius: 18,

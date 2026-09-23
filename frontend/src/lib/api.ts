@@ -706,6 +706,12 @@ export const api = {
   // flutter
   sendFlutter: (body: { from_id: string; to_id: string; message?: string }) =>
     req("/flutters/send", { method: "POST", body: JSON.stringify(body) }),
+  // Lightweight community greetings — distinct from flutters. kind:
+  // "welcome" (new-member) or "birthday". Their own notification types.
+  greet: (body: { from_id: string; to_id: string; kind: "welcome" | "birthday" }) =>
+    req("/greetings/send", { method: "POST", body: JSON.stringify(body) }),
+  thankGreeting: (body: { from_id: string; to_id: string }) =>
+    req("/greetings/thanks", { method: "POST", body: JSON.stringify(body) }),
   myFlutters: (uid: string) => req(`/flutters/${uid}`),
   myOutboundActiveFlutters: (uid: string): Promise<{ active: Array<{ flutter_id: string; to_id: string; created_at: string }> }> =>
     req(`/flutters/${uid}/outbound-active`),

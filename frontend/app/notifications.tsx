@@ -24,6 +24,9 @@ const ICON: Record<string, { name: keyof typeof Ionicons.glyphMap; tint: string 
   table_join: { name: "cafe", tint: "#0F766E" },
   notice_comment: { name: "newspaper", tint: "#7C3AED" },
   flutter: { name: "sparkles", tint: "#DB2777" },
+  welcome: { name: "hand-left", tint: "#0EA5E9" },
+  birthday_wish: { name: "gift", tint: "#DB2777" },
+  greeting_thanks: { name: "heart", tint: "#E11D48" },
   achievement: { name: "trophy", tint: "#B45309" },
   cheer: { name: "heart", tint: "#DB2777" },
 };
@@ -118,6 +121,12 @@ export default function Notifications() {
     // Flutter button on the profile or by sending a DM). Previously this
     // notification was a dead end.
     if (n.type === "new_member" && n.ref_user_id) return router.push(`/user/${n.ref_user_id}` as any);
+    // Welcome / birthday greetings + a "thanks" reply route to the sender's
+    // profile (a lightweight destination — NOT a chat, unless they choose
+    // Start chat from the action row).
+    if ((n.type === "welcome" || n.type === "birthday_wish" || n.type === "greeting_thanks") && n.payload?.from_id) {
+      return router.push(`/user/${n.payload.from_id}` as any);
+    }
     if (n.type === "notice_comment") return router.push("/notices");
     // Legacy: recipe_comment notifications may still exist from before
     // Recipes was retired. Any stray ones now redirect to /moments so
@@ -162,6 +171,27 @@ export default function Notifications() {
   };
 
   const markAll = async () => { if (!user) return; await api.readAllNotifications(user.id); load(); show("Marked all as read"); };
+
+  // ── Greeting actions (welcome / birthday_wish) — distinct from Flutter ──
+  const greetingThanks = async (n: any) => {
+    const targetId: string | undefined = n?.payload?.from_id;
+    if (!user || !targetId) return;
+    try {
+      await api.thankGreeting({ from_id: user.id, to_id: targetId });
+      if (!n.read) await api.readNotification(n.id);
+      setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      show("Thanks sent 💛");
+    } catch { show("Couldn't send just now — please try again."); }
+  };
+  const greetingStartChat = async (n: any) => {
+    const targetId: string | undefined = n?.payload?.from_id;
+    if (!user || !targetId) return;
+    try {
+      if (!n.read) { await api.readNotification(n.id); setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x))); }
+      const conv: any = await api.startDm(user.id, targetId);
+      router.push(`/dm/${conv.id}?other_id=${targetId}` as any);
+    } catch { show("Couldn't start the conversation — please try again."); }
+  };
 
   // Batch B iter156 (Garry, Aug 2026 — P1 #5): remove a single
   // notification (row-level trash button) and bulk-clear every read
@@ -237,6 +267,10 @@ export default function Notifications() {
           // ref_user_id) so we normalise here.
           const flutterFromId: string | undefined = item.type === "flutter" ? (item?.payload?.from_id || item?.ref_user_id) : undefined;
           const isFlutter = item.type === "flutter" && !!flutterFromId;
+          // Welcome / birthday greetings are their OWN action type — NOT a
+          // Flutter. They get Say thanks · Start chat · Later, and must never
+          // render inside the flutter row above.
+          const isGreeting = (item.type === "welcome" || item.type === "birthday_wish") && !!item?.payload?.from_id;
           return (
             <View>
               <Pressable testID={`notif-${item.id}`} onPress={() => onItemPress(item)} style={[styles.row, { backgroundColor: item.read ? c.surfaceSecondary : c.brandTertiary, borderColor: item.read ? c.border : c.brand }]}>
@@ -281,6 +315,36 @@ export default function Notifications() {
                   >
                     <Ionicons name="person" size={16} color={c.brand} />
                     <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 14 * scale, marginLeft: 6 }}>View profile</Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {/* Welcome / birthday greetings — their OWN action row.
+                  Say thanks (lightweight thanks-back) · Start chat (opens DM)
+                  · Later (dismiss). Deliberately no Flutter action. */}
+              {isGreeting && (
+                <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+                  <Pressable
+                    testID={`greeting-thanks-${item.id}`}
+                    onPress={() => greetingThanks(item)}
+                    style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
+                  >
+                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>💛 Say thanks</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`greeting-chat-${item.id}`}
+                    onPress={() => greetingStartChat(item)}
+                    style={[styles.dmActionBtn, { backgroundColor: c.surface, borderColor: c.border, flex: 1 }]}
+                  >
+                    <Ionicons name="chatbubble-outline" size={15} color={c.brand} />
+                    <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13.5 * scale, marginLeft: 5 }}>Start chat</Text>
+                  </Pressable>
+                  <Pressable
+                    testID={`greeting-later-${item.id}`}
+                    onPress={() => dismissOne(item)}
+                    style={[styles.dmActionBtn, { backgroundColor: c.surface, borderColor: c.border }]}
+                  >
+                    <Text style={{ color: c.muted, fontWeight: "800", fontSize: 13.5 * scale }}>Later</Text>
                   </Pressable>
                 </View>
               )}

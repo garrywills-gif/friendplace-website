@@ -10933,6 +10933,83 @@ class FlutterSendBody(BaseModel):
     message: Optional[str] = None
 
 
+class GreetingSendBody(BaseModel):
+    from_id: str
+    to_id: str
+    kind: str = "welcome"  # "welcome" | "birthday"
+
+
+class GreetingThanksBody(BaseModel):
+    from_id: str
+    to_id: str
+
+
+@api.post("/greetings/send")
+async def send_greeting(body: GreetingSendBody):
+    """Lightweight community greeting — its OWN action type, deliberately
+    NOT a Flutter and NOT a chat.
+
+    • kind="welcome"  → a new-member welcome ("👋 … welcomed you to FriendPlace")
+    • kind="birthday" → birthday wishes ("🎂 … sent you birthday wishes")
+
+    Delivered as a plain notification (type `welcome` / `birthday_wish`) so it
+    shows in the bell/inbox with Say thanks · Start chat · Later actions — it
+    must never land in the Flutters card or imply a chat request.
+    """
+    rate_limit(f"greeting:{body.from_id}", max_calls=40, window_seconds=3600)
+    sender = await db.users.find_one({"id": body.from_id}, {"_id": 0, "first_name": 1, "username": 1, "avatar": 1})
+    if not sender:
+        raise HTTPException(404, "Sender not found")
+    receiver = await db.users.find_one({"id": body.to_id}, {"_id": 0, "blocked": 1})
+    if not receiver:
+        raise HTTPException(404, "Recipient not found")
+    if body.from_id != body.to_id and body.from_id in (receiver.get("blocked") or []):
+        raise HTTPException(403, "Cannot greet this user")
+
+    name = sender.get("first_name") or sender.get("username") or "Someone"
+    payload = {"from_id": body.from_id, "from_name": name, "from_avatar": sender.get("avatar") or "🙂"}
+    if body.kind == "birthday":
+        n_type = "birthday_wish"
+        title = f"🎂 {name} sent you birthday wishes"
+        text = "Tap to say thanks or start a chat."
+    else:
+        n_type = "welcome"
+        title = f"👋 {name} welcomed you to FriendPlace"
+        text = "Tap to say thanks or start a chat."
+
+    # De-dupe: one unread greeting of this kind per sender→recipient pair so
+    # repeated taps don't spam the recipient.
+    if body.from_id != body.to_id:
+        dup = await db.notifications.find_one(
+            {"user_id": body.to_id, "type": n_type, "read": {"$ne": True}, "payload.from_id": body.from_id},
+            {"_id": 0, "id": 1},
+        )
+        if dup:
+            raise HTTPException(status_code=409, detail={"error": "greeting_already_sent", "message": "You've already sent them this — give them a moment to see it."})
+
+    await push_notification(body.to_id, n_type, title, text, payload)
+    return {"ok": True, "type": n_type}
+
+
+@api.post("/greetings/thanks")
+async def thank_greeting(body: GreetingThanksBody):
+    """"Say thanks" reply to a welcome/birthday greeting — again its own
+    lightweight notification, not a Flutter or chat."""
+    rate_limit(f"greeting-thanks:{body.from_id}", max_calls=60, window_seconds=3600)
+    sender = await db.users.find_one({"id": body.from_id}, {"_id": 0, "first_name": 1, "username": 1, "avatar": 1})
+    if not sender:
+        raise HTTPException(404, "Sender not found")
+    name = sender.get("first_name") or sender.get("username") or "Someone"
+    await push_notification(
+        body.to_id,
+        "greeting_thanks",
+        f"💛 {name} said thanks",
+        "",
+        {"from_id": body.from_id, "from_name": name, "from_avatar": sender.get("avatar") or "🙂"},
+    )
+    return {"ok": True}
+
+
 @api.post("/flutters/send")
 async def send_flutter(body: FlutterSendBody):
     # Anti-spam: flutters are essentially DMs-in-disguise. Cap to 20 / hr

@@ -74,10 +74,10 @@ export default function Home() {
   const [chatsUnread, setChatsUnread] = useState<number>(0);
   // Community Today greetings — lightweight flutter waves (NOT chats).
   const [greeted, setGreeted] = useState<Record<string, boolean>>({});
-  const sendGreeting = async (toId: string, message: string, doneMsg: string) => {
+  const sendGreeting = async (toId: string, kind: "welcome" | "birthday", doneMsg: string) => {
     if (!user?.id || !toId || greeted[toId]) return;
     try {
-      await api.sendFlutter({ from_id: user.id, to_id: toId, message });
+      await api.greet({ from_id: user.id, to_id: toId, kind });
       setGreeted((g) => ({ ...g, [toId]: true }));
       show(doneMsg);
     } catch (e: any) {
@@ -1137,7 +1137,7 @@ export default function Home() {
           <View style={[styles.communityCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]} testID="community-card">
             <Text style={[styles.communityHead, { color: c.brand, fontSize: 12 * scale }]}>COMMUNITY TODAY</Text>
             {community.birthdays?.slice(0, 3).map((u: any) => (
-              <Pressable key={`b-${u.id}`} testID={`bday-${u.id}`} onPress={() => sendGreeting(u.id, `🎂 Happy birthday, ${u.first_name || "friend"}! Wishing you a lovely day from your FriendPlace community.`, "Birthday wishes sent 🎂")} style={styles.commRow}>
+              <Pressable key={`b-${u.id}`} testID={`bday-${u.id}`} onPress={() => sendGreeting(u.id, "birthday", "Birthday wishes sent 🎂")} style={styles.commRow}>
                 <Text style={styles.commEmoji}>🎂</Text>
                 <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
                   {greeted[u.id] ? `Birthday wishes sent to ${u.first_name} 🎂` : `Send ${u.first_name} birthday wishes 🎂`}
@@ -1164,7 +1164,7 @@ export default function Home() {
                   // "new this week" list so each can be welcomed there.
                   if (newOnes.length === 1) {
                     const nm = newOnes[0];
-                    sendGreeting(nm.id, `👋 Welcome to FriendPlace, ${nm.first_name || nm.username || "neighbour"}! Lovely to have you here.`, "Welcome sent 👋");
+                    sendGreeting(nm.id, "welcome", "Welcome sent 👋");
                   } else {
                     router.push("/friends/new-this-week" as any);
                   }

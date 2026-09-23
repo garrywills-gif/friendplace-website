@@ -244,7 +244,7 @@ export default function OnboardingWizard() {
   // displayed (TestFlight Jun 2026 — Garry: the green line wasn't read
   // aloud). Emoji are omitted from speech only.
   const celebrateSpokenBase =
-    "That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces. And remember\u2026 I\u2019m only ever a butterfly tap away.";
+    "That\u2019s everything. FriendPlace is yours to explore now. I hope you find some people you enjoy getting to know. And remember\u2026 I\u2019m only ever a butterfly tap away.";
   const celebrateSpoken = showHandoff
     ? `${celebrateSpokenBase} That\u2019s the tour from me \u2014 ${savedCompanionShort} will be around whenever you feel like a chat.`
     : celebrateSpokenBase;
@@ -412,7 +412,7 @@ export default function OnboardingWizard() {
               </View>
             </View>
             <Text style={{ color: "#0A2540", fontSize: 15 * scale, fontWeight: "700", lineHeight: 22 }}>
-              {"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some familiar faces.\n\nAnd remember\u2026 I\u2019m only ever a butterfly tap away. \uD83E\uDD8B"}
+              {"That\u2019s everything. FriendPlace is yours to explore now. I hope you find some people you enjoy getting to know.\n\nAnd remember\u2026 I\u2019m only ever a butterfly tap away. \uD83E\uDD8B"}
             </Text>
             {showHandoff ? (
               <Text
