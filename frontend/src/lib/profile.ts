@@ -11,6 +11,10 @@
 export function needsProfileSetup(user: any): boolean {
   if (!user) return false;
   if (user.profile_complete === true) return false;
+  // A member who has already finished induction/onboarding must never be
+  // sent back to profile setup (guards the completion loop even if a later
+  // write momentarily clears the suburb).
+  if (user.onboarding_completed === true) return false;
   const hasLocation = !!(user.suburb || user.suburb_hidden);
   return !hasLocation;
 }

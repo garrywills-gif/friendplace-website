@@ -8847,15 +8847,27 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
     # when radius_km is given (All returns everything).
     center = await _radius_center(user_id, near_lat, near_lng)
     visible = _apply_radius(docs, center, radius_km)
-    # A poster must always see their OWN notices, even if they fall outside
-    # the currently selected radius — otherwise a just-posted notice can
-    # silently vanish from their view (the "false success" report).
-    if user_id and radius_km:
-        have = {d.get("id") for d in visible}
-        for d in docs:
-            if d.get("user_id") == user_id and d.get("id") not in have:
-                visible.append(d)
     docs = visible
+    # ── Author safety net (definitive fix for "posted then disappears") ──
+    # The list above is narrowed by the member's active CATEGORY, SEARCH and
+    # RADIUS filters (category/q are applied in the Mongo query, so an
+    # off-category notice is never even fetched). That means a just-posted
+    # notice can vanish on the very next focus/reload if the active filter
+    # differs from what they posted. A member must ALWAYS see their own
+    # notices in their feed, so we merge in any of the author's own
+    # (non-removed, in-active-window) notices that the filtered query
+    # dropped — regardless of category / search / radius. Ordering keeps the
+    # freshest of these at the top so a new post is immediately visible.
+    if user_id:
+        own_raw = await db.notices.find(
+            {"user_id": user_id, "removed": {"$ne": True}}, {"_id": 0}
+        ).to_list(300)
+        own_raw = [d for d in own_raw if _within_active_period(d)]
+        own_raw.sort(key=lambda d: -datetime.fromisoformat(d.get("created_at", now_iso())).timestamp())
+        have = {d.get("id") for d in docs}
+        missing_own = [d for d in own_raw if d.get("id") not in have]
+        if missing_own:
+            docs = missing_own + docs
     await _attach_founder_flags(docs, "user_id")
     return docs
 

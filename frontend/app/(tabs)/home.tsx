@@ -72,6 +72,20 @@ export default function Home() {
   // Home entry point in addition to the tab bar). Same 15s poll cadence
   // as the ChatsIcon in the tab bar.
   const [chatsUnread, setChatsUnread] = useState<number>(0);
+  // Community Today greetings — lightweight flutter waves (NOT chats).
+  const [greeted, setGreeted] = useState<Record<string, boolean>>({});
+  const sendGreeting = async (toId: string, message: string, doneMsg: string) => {
+    if (!user?.id || !toId || greeted[toId]) return;
+    try {
+      await api.sendFlutter({ from_id: user.id, to_id: toId, message });
+      setGreeted((g) => ({ ...g, [toId]: true }));
+      show(doneMsg);
+    } catch (e: any) {
+      const raw = String(e?.message || "");
+      if (/already/i.test(raw)) { setGreeted((g) => ({ ...g, [toId]: true })); show("Already sent — they'll see it soon 💛"); }
+      else show("Couldn't send just now — please try again.");
+    }
+  };
   const [refreshing, setRefreshing] = useState(false);
   const [thought, setThought] = useState<string>(() => getThoughtForDate());
   const [isFav, setIsFav] = useState<boolean>(false);
@@ -1123,12 +1137,12 @@ export default function Home() {
           <View style={[styles.communityCard, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]} testID="community-card">
             <Text style={[styles.communityHead, { color: c.brand, fontSize: 12 * scale }]}>COMMUNITY TODAY</Text>
             {community.birthdays?.slice(0, 3).map((u: any) => (
-              <Pressable key={`b-${u.id}`} testID={`bday-${u.id}`} onPress={() => router.push(`/user/${u.id}` as any)} style={styles.commRow}>
+              <Pressable key={`b-${u.id}`} testID={`bday-${u.id}`} onPress={() => sendGreeting(u.id, `🎂 Happy birthday, ${u.first_name || "friend"}! Wishing you a lovely day from your FriendPlace community.`, "Birthday wishes sent 🎂")} style={styles.commRow}>
                 <Text style={styles.commEmoji}>🎂</Text>
-                <Text numberOfLines={1} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
-                  It&apos;s {u.first_name}&apos;s birthday today — send your birthday wishes.
+                <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
+                  {greeted[u.id] ? `Birthday wishes sent to ${u.first_name} 🎂` : `Send ${u.first_name} birthday wishes 🎂`}
                 </Text>
-                <Ionicons name="chevron-forward" size={18} color={c.muted} />
+                <Ionicons name={greeted[u.id] ? "checkmark-circle" : "chevron-forward"} size={18} color={greeted[u.id] ? c.brand : c.muted} />
               </Pressable>
             ))}
             {community.anniversaries?.slice(0, 2).map((u: any) => (
@@ -1144,13 +1158,13 @@ export default function Home() {
               <Pressable
                 testID="new-members-row"
                 onPress={() => {
-                  // Single new member → straight to that person's profile.
-                  // Multiple → focused "new this week" list (not the full
-                  // Find Friends directory, which used to bury the new
-                  // arrivals among everyone else).
                   const newOnes = community.new_members as any[];
+                  // Single new member → send a lightweight welcome wave
+                  // (a flutter, NOT a chat). Multiple → open the focused
+                  // "new this week" list so each can be welcomed there.
                   if (newOnes.length === 1) {
-                    router.push(`/user/${newOnes[0].id}` as any);
+                    const nm = newOnes[0];
+                    sendGreeting(nm.id, `👋 Welcome to FriendPlace, ${nm.first_name || nm.username || "neighbour"}! Lovely to have you here.`, "Welcome sent 👋");
                   } else {
                     router.push("/friends/new-this-week" as any);
                   }
@@ -1160,10 +1174,12 @@ export default function Home() {
                 <Text style={styles.commEmoji}>👋</Text>
                 <Text numberOfLines={2} style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 15 * scale }}>
                   {community.new_members.length === 1
-                    ? `Welcome ${community.new_members[0].first_name || community.new_members[0].username || "a new neighbour"} to FriendPlace`
-                    : `Welcome ${community.new_members.length} new neighbours to FriendPlace`}
+                    ? (greeted[community.new_members[0].id]
+                        ? `Welcome sent to ${community.new_members[0].first_name || community.new_members[0].username || "them"} 👋`
+                        : `👋 Welcome ${community.new_members[0].first_name || community.new_members[0].username || "a new neighbour"} to FriendPlace`)
+                    : `👋 Welcome ${community.new_members.length} new neighbours to FriendPlace`}
                 </Text>
-                <Ionicons name="chevron-forward" size={18} color={c.muted} />
+                <Ionicons name={(community.new_members.length === 1 && greeted[community.new_members[0].id]) ? "checkmark-circle" : "chevron-forward"} size={18} color={(community.new_members.length === 1 && greeted[community.new_members[0].id]) ? c.brand : c.muted} />
               </Pressable>
             )}
             {community.milestones?.last_reached && (

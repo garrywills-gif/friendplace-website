@@ -331,14 +331,13 @@ export default function OnboardingWizard() {
       await api.onboardingFinish({
         user_id: user.id,
         interests,
-        // Suburb / avatar are still optional post-signup — omit them.
-        suburb: "",
-        suburb_postcode: "",
-        suburb_state: "",
-        location_visibility: "private",
-        avatar: "",
-        // Pass through any suggested groups the user ticked. The backend
-        // joins them in one atomic $addToSet operation.
+        // IMPORTANT: do NOT send suburb / location_visibility / avatar here.
+        // Those were set on the shared profile-setup screen; sending empty
+        // values previously WIPED the member's suburb (and forced
+        // location_visibility=private), which made needsProfileSetup() true
+        // again and bounced them straight back to Set-up-your-profile — the
+        // onboarding completion loop. Onboarding only owns interests +
+        // suggested-group joins.
         group_ids: selectedGroupIds,
         joined_all: false,
       });

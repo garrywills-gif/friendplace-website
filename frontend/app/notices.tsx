@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, ScrollView, Image, Keyboard } from "react-native";
 import { useFocusEffect, useRouter, useNavigation } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -113,6 +113,8 @@ export default function Notices() {
   const [pTitle, setPTitle] = useState("");
   const [pBody, setPBody] = useState("");
   const [pCat, setPCat] = useState("");
+  const [catError, setCatError] = useState<string | null>(null);
+  const composerScrollRef = useRef<ScrollView>(null);
   // Optional image attached to the notice — gallery ref, data URI or "".
   const [pImage, setPImage] = useState<string>("");
   const [pLocality, setPLocality] = useState<{ name: string; postcode?: string; state?: string } | null>(null);
@@ -185,7 +187,7 @@ export default function Notices() {
     return `Posted ${d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}`;
   };
 
-  const startCreate = (cat: string = "", title: string = "") => { setEditing(null); setPTitle(title); setPBody(""); setPCat(cat); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
+  const startCreate = (cat: string = "", title: string = "") => { setEditing(null); setCatError(null); setPTitle(title); setPBody(""); setPCat(cat); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
   const startEdit = (n: any) => {
     setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || "");
     setPLocality(n.locality ? { name: n.locality, postcode: n.locality_postcode, state: n.locality_state } : memberLocality());
@@ -196,7 +198,17 @@ export default function Notices() {
 
   const submitPost = async () => {
     if (!user || !pTitle.trim() || !pBody.trim()) { show("Add a title and message"); return; }
-    if (!pCat) { show("Please choose a category before posting."); return; }
+    if (!pCat) {
+      // Make the requirement UNMISSABLE on a real device: the toast can sit
+      // behind the keyboard, so also drop the keyboard, show an inline error
+      // right under the category selector, and scroll it into view.
+      Keyboard.dismiss();
+      setCatError("Please choose a category before posting.");
+      show("Please choose a category before posting.");
+      requestAnimationFrame(() => composerScrollRef.current?.scrollTo({ y: 0, animated: true }));
+      return;
+    }
+    setCatError(null);
     // TestFlight Fix Batch 1 (Garry, Aug 2026 — P0 #2):
     // Dismiss the keyboard BEFORE closing the composer Modal. On iOS,
     // if the keyboard is still up when the Modal starts its slide-down
@@ -585,19 +597,23 @@ export default function Notices() {
                 <Pressable onPress={() => setPosting(false)} hitSlop={8} style={{ padding: 6 }}><Ionicons name="close" size={26} color={c.onSurface} /></Pressable>
               </View>
               <ScrollView
+                ref={composerScrollRef}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 8 }}
               >
-              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Category <Text style={{ color: c.error, fontWeight: "900" }}>*</Text> <Text style={{ color: c.muted, fontWeight: "600" }}>· required</Text></Text>
+              <Text style={[styles.label, { color: catError ? c.error : c.muted, fontSize: 13 * scale }]}>Category <Text style={{ color: c.error, fontWeight: "900" }}>*</Text> <Text style={{ color: c.muted, fontWeight: "600" }}>· required</Text></Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                 {POST_CATS.map((cat) => (
-                  <Pressable key={cat} testID={`post-cat-${cat}`} onPress={() => setPCat(cat)} style={[styles.catFilter, { backgroundColor: pCat === cat ? c.brand : c.surfaceSecondary, borderColor: pCat === cat ? c.brand : c.border }]}>
+                  <Pressable key={cat} testID={`post-cat-${cat}`} onPress={() => { setPCat(cat); if (catError) setCatError(null); }} style={[styles.catFilter, { backgroundColor: pCat === cat ? c.brand : c.surfaceSecondary, borderColor: pCat === cat ? c.brand : (catError ? c.error : c.border) }]}>
                     <Text style={{ color: pCat === cat ? "#FFF" : c.onSurface, fontWeight: "800", fontSize: 13 * scale }}>{CATEGORY_EMOJI[cat]} {cat}</Text>
                   </Pressable>
                 ))}
               </ScrollView>
+              {catError ? (
+                <Text testID="post-cat-error" style={{ color: c.error, marginTop: 6, fontSize: 13 * scale, fontWeight: "700" }}>{catError}</Text>
+              ) : null}
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Title</Text>
               <TextInput testID="post-title" value={pTitle} onChangeText={setPTitle} placeholder="A short headline" placeholderTextColor={c.muted} style={inputStyle} />
               <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale, marginTop: 12 }]}>Message</Text>

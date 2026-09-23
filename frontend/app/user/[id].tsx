@@ -186,8 +186,17 @@ export default function UserView() {
                 {(u.interests || []).map((i: string) => <Text key={i} style={{ backgroundColor: c.brandTertiary, color: c.brand, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, fontWeight: "700", fontSize: 13 * scale }}>{i}</Text>)}
               </View>
             </View>
-            <Pressable testID="user-report" onPress={report} style={[styles.danger, { borderColor: c.warning }]}><Ionicons name="flag" size={18} color={c.warning} /><Text style={{ color: c.warning, fontWeight: "700", fontSize: 16 * scale }}>Report user</Text></Pressable>
-            <Pressable testID="user-block" onPress={block} style={[styles.danger, { borderColor: c.error }]}><Ionicons name="ban" size={18} color={c.error} /><Text style={{ color: c.error, fontWeight: "700", fontSize: 16 * scale }}>Block user</Text></Pressable>
+            <View style={[styles.secondaryActions, { borderTopColor: c.border }]}>
+              <Pressable testID="user-report" onPress={report} hitSlop={10} style={styles.secondaryBtn}>
+                <Ionicons name="flag-outline" size={14} color={c.muted} />
+                <Text style={[styles.secondaryTxt, { color: c.muted, fontSize: 13 * scale }]}>Report</Text>
+              </Pressable>
+              <Text style={{ color: c.border, fontSize: 14 * scale }}>·</Text>
+              <Pressable testID="user-block" onPress={block} hitSlop={10} style={styles.secondaryBtn}>
+                <Ionicons name="ban-outline" size={14} color={c.muted} />
+                <Text style={[styles.secondaryTxt, { color: c.muted, fontSize: 13 * scale }]}>Block</Text>
+              </Pressable>
+            </View>
           </>
         )}
       </ScrollView>
@@ -209,6 +218,12 @@ const styles = StyleSheet.create({
   card: { borderRadius: 18, padding: 14, borderWidth: 1 },
   h: { fontWeight: "800" },
   danger: { padding: 16, borderRadius: 14, borderWidth: 2, flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center" },
+  // Report / Block — deliberately low-key and pushed to the very bottom of
+  // the profile so the primary social actions (Add Friend / Flutter /
+  // Message) stay dominant. Small, muted, secondary; member scrolls to reach.
+  secondaryActions: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16, marginTop: 32, paddingTop: 16, borderTopWidth: 1 },
+  secondaryBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 6, paddingHorizontal: 8 },
+  secondaryTxt: { fontWeight: "700" },
   // Blocked-state card
   blockedCard: {
     borderRadius: 18,
