@@ -8841,8 +8841,14 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
             return False
         return True
     docs = [d for d in docs if _within_active_period(d)]
-    # Unsolved first, then newest first; solved Q's sink below.
-    docs.sort(key=lambda d: (bool(d.get("solved")), -datetime.fromisoformat(d.get("created_at", now_iso())).timestamp()))
+    # Unsolved first, then newest first; solved Q's sink below. Defensive
+    # parse so a single legacy/malformed created_at can never 500 the feed.
+    def _created_ts(d: dict) -> float:
+        try:
+            return datetime.fromisoformat(str(d.get("created_at") or now_iso())).timestamp()
+        except Exception:
+            return 0.0
+    docs.sort(key=lambda d: (bool(d.get("solved")), -_created_ts(d)))
     # Local Discovery: restrict to the chosen radius of the member's suburb
     # when radius_km is given (All returns everything).
     center = await _radius_center(user_id, near_lat, near_lng)
@@ -8863,7 +8869,7 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
             {"user_id": user_id, "removed": {"$ne": True}}, {"_id": 0}
         ).to_list(300)
         own_raw = [d for d in own_raw if _within_active_period(d)]
-        own_raw.sort(key=lambda d: -datetime.fromisoformat(d.get("created_at", now_iso())).timestamp())
+        own_raw.sort(key=lambda d: -_created_ts(d))
         have = {d.get("id") for d in docs}
         missing_own = [d for d in own_raw if d.get("id") not in have]
         if missing_own:

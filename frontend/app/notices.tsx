@@ -144,7 +144,25 @@ export default function Notices() {
   const load = async () => {
     if (!user) return;
     try {
-      setNotices(await api.listNotices({ user_id: user.id, q: query || undefined, category, radius_km: radiusKm ?? undefined }) as any[]);
+      const primary = (await api.listNotices({ user_id: user.id, q: query || undefined, category, radius_km: radiusKm ?? undefined })) as any[];
+      // Author guarantee (belt-and-braces, backend-version independent):
+      // a member must ALWAYS see their OWN notices no matter what category /
+      // search / radius filter is active. category="All" with no radius/query
+      // returns the full unfiltered set on every backend version, so we pull
+      // it and merge in any of the member's own notices the filtered call
+      // dropped. This is a real server fetch — not an optimistic insert — so
+      // a freshly-posted notice can never vanish on a fresh mount/refresh.
+      let merged = primary;
+      const filtered = (category && category !== "All") || !!query || radiusKm != null;
+      if (filtered) {
+        try {
+          const all = (await api.listNotices({ user_id: user.id, category: "All" })) as any[];
+          const have = new Set(primary.map((n) => n.id));
+          const mineMissing = all.filter((n) => n.user_id === user.id && !have.has(n.id));
+          if (mineMissing.length) merged = [...mineMissing, ...primary];
+        } catch { /* non-fatal — primary already shown */ }
+      }
+      setNotices(merged);
     } catch {}
   };
   useFocusEffect(useCallback(() => { load(); }, [user?.id, category, query, radiusKm]));
