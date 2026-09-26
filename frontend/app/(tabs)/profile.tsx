@@ -181,7 +181,9 @@ export default function Profile() {
           <Text style={[styles.name, { color: c.onSurface, fontSize: 30 * scale }]} testID="profile-name">{user.first_name}</Text>
           <FounderMark user={user as any} size={22} testID="profile-name-founder" />
         </View>
-        <Text style={[styles.user, { color: c.muted, fontSize: 16 * scale }]}>@{user.username} · 📍 {user.suburb || "—"}</Text>
+        {user.suburb ? (
+          <Text style={[styles.user, { color: c.muted, fontSize: 16 * scale }]}>📍 {user.suburb}{(user as any).suburb_hidden ? " · hidden from others" : ""}</Text>
+        ) : null}
         {/* Founding Member crest — renders nothing for non-founders. */}
         <View style={{ marginTop: 8 }}>
           <FounderBadge user={user as any} variant="chip" />

@@ -150,7 +150,7 @@ export default function MyFriends() {
                     {item.first_name}
                   </Text>
                   <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>
-                    @{item.username}{item.suburb ? `  ·  ${item.suburb}` : ""}
+                    {(!(item as any).suburb_hidden && item.suburb) ? `📍 ${item.suburb}` : ""}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={22} color={c.muted} />

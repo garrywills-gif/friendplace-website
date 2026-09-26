@@ -173,15 +173,17 @@ export default function Notifications() {
   const markAll = async () => { if (!user) return; await api.readAllNotifications(user.id); load(); show("Marked all as read"); };
 
   // ── Greeting actions (welcome / birthday_wish) — distinct from Flutter ──
+  const [thankedIds, setThankedIds] = useState<Record<string, boolean>>({});
   const greetingThanks = async (n: any) => {
     const targetId: string | undefined = n?.payload?.from_id;
-    if (!user || !targetId) return;
+    if (!user || !targetId || thankedIds[n.id]) return;
+    setThankedIds((t) => ({ ...t, [n.id]: true })); // one-tap lock
     try {
       await api.thankGreeting({ from_id: user.id, to_id: targetId });
       if (!n.read) await api.readNotification(n.id);
       setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
-      show("Thanks sent 💛");
-    } catch { show("Couldn't send just now — please try again."); }
+      show("Thanks sent ✓");
+    } catch { setThankedIds((t) => ({ ...t, [n.id]: false })); show("Couldn't send just now — please try again."); }
   };
   const greetingStartChat = async (n: any) => {
     const targetId: string | undefined = n?.payload?.from_id;
@@ -327,9 +329,10 @@ export default function Notifications() {
                   <Pressable
                     testID={`greeting-thanks-${item.id}`}
                     onPress={() => greetingThanks(item)}
-                    style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
+                    disabled={!!thankedIds[item.id]}
+                    style={[styles.dmActionBtn, { backgroundColor: thankedIds[item.id] ? c.surface : c.brand, borderColor: thankedIds[item.id] ? c.border : c.brand, flex: 1 }]}
                   >
-                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>💛 Say thanks</Text>
+                    <Text style={{ color: thankedIds[item.id] ? c.muted : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{thankedIds[item.id] ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
                   </Pressable>
                   <Pressable
                     testID={`greeting-chat-${item.id}`}

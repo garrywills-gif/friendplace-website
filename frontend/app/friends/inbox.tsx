@@ -68,7 +68,7 @@ export default function FriendsInbox() {
               <AvatarWithBadge value={item.other?.avatar} userId={item.other?.id} size={40} fallback="🙂" />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 18 * scale }}>{item.other?.first_name || item.other?.username || "Someone"}</Text>
-                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>@{item.other?.username}{item.other?.suburb ? `  ·  ${item.other.suburb}` : ""}</Text>
+                <Text style={{ color: c.muted, fontSize: 13 * scale, marginTop: 2 }}>{(!(item.other as any)?.suburb_hidden && item.other?.suburb) ? `📍 ${item.other.suburb}` : ""}</Text>
               </View>
               {item.other?.id && (
                 <Pressable onPress={() => router.push(`/user/${item.other!.id}` as any)} hitSlop={6} style={{ padding: 6 }}>

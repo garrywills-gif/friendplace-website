@@ -576,7 +576,7 @@ def _safe_user(u: dict) -> dict:
 # private fields via /api/users/{id} where user_id == token subject.
 _PEER_VISIBLE_FIELDS = {
     "id", "first_name", "username", "avatar", "bio", "suburb",
-    "suburb_postcode", "suburb_state", "interests", "points", "badges",
+    "suburb_postcode", "suburb_state", "suburb_hidden", "interests", "points", "badges",
     "achievements", "status", "last_seen_at", "privacy",
     "is_founder", "founder_number", "created_at", "location_visibility",
     # Non-PII flags used for UI badging
@@ -610,6 +610,12 @@ def _peer_user(u: dict, viewer_is_owner: bool = False, viewer_is_admin: bool = F
             continue  # never expose admin flag to peers
         if k in u:
             projected[k] = u[k]
+    # Privacy: when the member hid their suburb, peers must never receive the
+    # suburb value at all (defence-in-depth — not just a client-side guard).
+    if u.get("suburb_hidden"):
+        projected.pop("suburb", None)
+        projected.pop("suburb_postcode", None)
+        projected.pop("suburb_state", None)
     return projected
 
 

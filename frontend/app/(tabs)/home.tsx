@@ -72,6 +72,32 @@ export default function Home() {
   // Home entry point in addition to the tab bar). Same 15s poll cadence
   // as the ChatsIcon in the tab bar.
   const [chatsUnread, setChatsUnread] = useState<number>(0);
+  // Incoming welcome/birthday greetings shown on Home + per-card action state.
+  const [greetings, setGreetings] = useState<any[]>([]);
+  const [thanked, setThanked] = useState<Record<string, boolean>>({});
+  const dismissGreetingCard = (n: any) => setGreetings((xs) => xs.filter((x) => x.id !== n.id));
+  const greetingSayThanks = async (n: any) => {
+    if (!user?.id || thanked[n.id]) return;
+    setThanked((t) => ({ ...t, [n.id]: true })); // one-tap: lock immediately
+    try {
+      await api.thankGreeting({ from_id: user.id, to_id: n.payload.from_id });
+      if (!n.read) await api.readNotification(n.id).catch(() => {});
+      show("Thanks sent ✓");
+    } catch { setThanked((t) => ({ ...t, [n.id]: false })); show("Couldn't send just now — please try again."); }
+  };
+  const greetingStartChat = async (n: any) => {
+    if (!user?.id) return;
+    try {
+      if (!n.read) await api.readNotification(n.id).catch(() => {});
+      const conv: any = await api.startDm(user.id, n.payload.from_id);
+      dismissGreetingCard(n);
+      router.push(`/dm/${conv.id}?other_id=${n.payload.from_id}` as any);
+    } catch { show("Couldn't start the conversation — please try again."); }
+  };
+  const greetingLater = async (n: any) => {
+    if (n.id && !n.read && user?.id) await api.readNotification(n.id).catch(() => {});
+    dismissGreetingCard(n);
+  };
   // Community Today greetings — lightweight flutter waves (NOT chats).
   const [greeted, setGreeted] = useState<Record<string, boolean>>({});
   const sendGreeting = async (toId: string, kind: "welcome" | "birthday", doneMsg: string) => {
@@ -309,6 +335,13 @@ export default function Home() {
     } catch { setUnreadDms([]); }
     try { await api.heartbeat(user.id); } catch {}
     try { setCommunity(await api.communityToday(user.id)); } catch {}
+    // Incoming welcome/birthday greetings — surfaced prominently on Home
+    // (a copy stays in Notifications as history). Their own action types,
+    // never Flutters.
+    try {
+      const notifs: any[] = await api.notifications(user.id);
+      setGreetings((notifs || []).filter((n) => (n.type === "welcome" || n.type === "birthday_wish") && !n.read && n?.payload?.from_id).slice(0, 5));
+    } catch {}
     try {
       const s: any = await api.inviteStats(user.id);
       setInvitedCount(Number(s?.count) || 0);
@@ -1128,6 +1161,32 @@ export default function Home() {
           </Pressable>
         ) : null}
 
+        {/* Incoming welcome / birthday greetings — prominent Home cards.
+            A copy also lives in Notifications. Actions: Say thanks (one-tap)
+            · Start chat · Later. Acting or Later removes the card. */}
+        {greetings.map((n: any) => (
+          <View key={`greet-${n.id}`} testID={`home-greeting-${n.id}`} style={[styles.communityCard, { backgroundColor: c.brandTertiary, borderColor: c.brand, marginTop: 8 }]}>
+            <Text style={{ color: c.onSurface, fontWeight: "900", fontSize: 16 * scale }}>{n.title}</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+              <Pressable
+                testID={`home-greeting-thanks-${n.id}`}
+                onPress={() => greetingSayThanks(n)}
+                disabled={thanked[n.id]}
+                style={[styles.greetBtn, { backgroundColor: thanked[n.id] ? c.surface : c.brand, borderColor: thanked[n.id] ? c.border : c.brand }]}
+              >
+                <Text style={{ color: thanked[n.id] ? c.muted : "#FFF", fontWeight: "900", fontSize: 13.5 * scale }}>{thanked[n.id] ? "Thanks sent ✓" : "💛 Say thanks"}</Text>
+              </Pressable>
+              <Pressable testID={`home-greeting-chat-${n.id}`} onPress={() => greetingStartChat(n)} style={[styles.greetBtn, { backgroundColor: c.surface, borderColor: c.border }]}>
+                <Ionicons name="chatbubble-outline" size={15} color={c.brand} />
+                <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13.5 * scale, marginLeft: 5 }}>Start chat</Text>
+              </Pressable>
+              <Pressable testID={`home-greeting-later-${n.id}`} onPress={() => greetingLater(n)} style={[styles.greetBtn, { backgroundColor: c.surface, borderColor: c.border }]}>
+                <Text style={{ color: c.muted, fontWeight: "800", fontSize: 13.5 * scale }}>Later</Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+
         {/* Prominent invite card — sits above-the-fold so growth is one tap away. */}
         <View style={{ marginTop: 4 }}>
           <ShareFriendPlace variant="highlight" testID="home-invite-highlight" invitedCount={invitedCount} />
@@ -1383,6 +1442,7 @@ const styles = StyleSheet.create({
   badgePill: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1.5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, maxWidth: 170 },
   badgeText: { fontWeight: "800" },
   communityCard: { borderRadius: 18, padding: 14, borderWidth: 1, marginTop: 12, gap: 8 },
+  greetBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingHorizontal: 14, paddingVertical: 11, borderRadius: 999, borderWidth: 1.5, minHeight: 44 },
   communityHead: { fontWeight: "900", letterSpacing: 0.6, marginBottom: 2 },
   commRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   commEmoji: { fontSize: 22 },

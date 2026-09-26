@@ -645,7 +645,13 @@ export function GeorgeButterfly() {
                 router.push('/moments/new' as any);
               } else if (destination === 'chat') {
                 // iter182 item 2: continue straight into normal companion chat.
-                setShowCompanion(true);
+                // Handoff-freeze fix (real-device): presenting the companion
+                // modal in the SAME tick as dismissing the onboarding modal
+                // left a blank/frozen chat on iOS. Induction is already
+                // persisted above (awaited georgeApi.onboardingApprove before
+                // onDone), so we just defer opening the companion thread until
+                // this modal has fully dismissed.
+                setTimeout(() => setShowCompanion(true), 450);
               } else {
                 router.push('/(tabs)/lounge');
               }

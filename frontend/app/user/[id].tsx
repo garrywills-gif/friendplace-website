@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/lib/theme";
@@ -17,6 +18,7 @@ import FounderMark from "@/src/components/FounderMark";
 export default function UserView() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { c, scale } = useTheme();
+  const insets = useSafeAreaInsets();
   const { user, refresh } = useAuth();
   const { show, confirm } = useToast();
   const router = useRouter();
@@ -109,7 +111,7 @@ export default function UserView() {
   return (
     <View style={{ flex: 1, backgroundColor: c.surface }}>
       <Header title={u.first_name} titleAccessory={<FounderMark user={u} size={16} testID="user-profile-founder" />} />
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: insets.bottom + 140 }}>
         <View style={[styles.hero, { backgroundColor: c.brandTertiary }]}>
           <View style={[styles.av, { backgroundColor: c.surfaceSecondary }]}>
             {/* Bug fix (Garry, 25 Jun 2026 TestFlight): dropped
@@ -124,7 +126,9 @@ export default function UserView() {
             <Text style={[styles.name, { color: c.onSurface, fontSize: 28 * scale }]}>{u.first_name}</Text>
             <FounderMark user={u} size={20} testID="user-profile-name-founder" />
           </View>
-          <Text style={{ color: c.muted, fontSize: 16 * scale }}>@{u.username} · 📍 {u.suburb || "—"}</Text>
+          {(!u.suburb_hidden && u.suburb) ? (
+            <Text style={{ color: c.muted, fontSize: 16 * scale }}>📍 {u.suburb}</Text>
+          ) : null}
           {!isBlockedByMe && !!u.status && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, backgroundColor: c.surface, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 }}>
               <Text style={{ fontSize: 14 }}>{u.status === "looking_to_chat" ? "🟢" : u.status === "in_coffee_lounge" ? "☕" : u.status === "happy_to_connect" ? "😊" : u.status === "busy" ? "🟡" : "⚫"}</Text>
