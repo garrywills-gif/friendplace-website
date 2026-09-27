@@ -9,6 +9,7 @@ import { useToast } from "@/src/lib/toast";
 import { api } from "@/src/lib/api";
 import Button from "@/src/components/Button";
 import AvatarBubble from "@/src/components/AvatarBubble";
+import AvatarWithBadge from "@/src/components/status/AvatarWithBadge";
 import FounderMark from "@/src/components/FounderMark";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { useNavHideScroll } from "@/src/lib/bottom-nav";
@@ -434,7 +435,7 @@ export default function Lounge() {
                           onPress={() => toggleInvite(f.id)}
                           style={({ pressed }) => [styles.friendRow, { borderColor: picked ? c.brand : c.border, backgroundColor: picked ? c.brandTertiary : c.surfaceSecondary, opacity: pressed ? 0.85 : 1 }]}
                         >
-                          <AvatarBubble value={f.avatar} size={34} fallback="🙂" />
+                          <AvatarWithBadge value={f.avatar} userId={f.id} size={34} fallback="🙂" />
                           <Text style={{ flex: 1, color: c.onSurface, fontWeight: "700", fontSize: 16 * scale }} numberOfLines={1}>{fname}</Text>
                           <Ionicons name={picked ? "checkmark-circle" : "ellipse-outline"} size={24} color={picked ? c.brand : c.muted} />
                         </Pressable>

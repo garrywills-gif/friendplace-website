@@ -284,7 +284,7 @@ export function GeorgeOnboarding({ onDone, onFinishLater }: Props) {
     >
       <View style={styles.header}>
         <GeorgeButterflyMark size={40} />
-        <Text style={styles.headerName}>{voiceLabel}</Text>
+        <Text style={styles.headerName} numberOfLines={1} adjustsFontSizeToFit ellipsizeMode="clip">{voiceLabel}</Text>
         <Pressable
           onPress={confirmClearChat}
           disabled={busy || !sessionId}

@@ -54,6 +54,18 @@ export default function PlayRoom() {
 
   useEffect(() => { refetch(); }, [refetch]);
 
+  // Rematch hygiene: whenever the session id changes (Play again →
+  // fresh session), drop any stale finished-game state so the new
+  // invite/game starts clean. Guarantees unlimited consecutive rematches
+  // never render or act on the previous session's board.
+  useEffect(() => {
+    setSession(null);
+    setLoading(true);
+    setErr(null);
+    setFatal(null);
+    setFriendReqSent(false);
+  }, [id]);
+
   // Light poll while the game is live — reconciles anything the socket missed.
   useEffect(() => {
     const st = session?.status;
@@ -209,7 +221,14 @@ export default function PlayRoom() {
                   ) : null}
                   <Pressable testID="play-again" onPress={() => act(async () => {
                     const s = await api.playRematch(String(id));
-                    if (s?.id) { setFriendReqSent(false); router.replace(`/games/play/${s.id}`); }
+                    if (s?.id) {
+                      setFriendReqSent(false);
+                      // Object-form replace reliably swaps the [id] param for
+                      // an unlimited chain of rematches (a bare string path
+                      // could keep the stale finished session mounted after a
+                      // couple of hops). The reset effect below clears state.
+                      router.replace({ pathname: "/games/play/[id]", params: { id: s.id } });
+                    }
                     return null;
                   })} style={[
                     isNonFriend ? styles.secondary : styles.primary,

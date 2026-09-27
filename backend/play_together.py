@@ -224,7 +224,9 @@ async def _word_chain_category_fits(category: str, word: str) -> bool:
             ),
         ).with_model("gemini", "gemini-3-flash-preview")
         msg = UserMessage(text=f"CATEGORY: {category}\nWORD: {word}")
-        resp = await asyncio.wait_for(chat.send_message(msg), timeout=4.0)
+        # Tight cap so a turn (especially the first, when the LLM client is
+        # cold) never feels laggy — on timeout we gracefully accept below.
+        resp = await asyncio.wait_for(chat.send_message(msg), timeout=2.0)
         answer = str(resp or "").strip().upper()
         # Accept unless the model clearly says NO.
         return not answer.startswith("NO")

@@ -238,6 +238,13 @@ export default function Notices() {
     Keyboard.dismiss();
     const activeFrom = combineISO(pFromDate, pFromTime, false);
     const activeTo = combineISO(pToDate, pToTime, true);
+    // From / start date is now compulsory (end date stays optional).
+    if (!pFromDate) {
+      setCatError(null);
+      show("Please choose a start date for your notice.");
+      requestAnimationFrame(() => composerScrollRef.current?.scrollToEnd({ animated: true }));
+      return;
+    }
     if (activeFrom && activeTo && new Date(activeTo) <= new Date(activeFrom)) {
       show("The end must be after the start"); return;
     }
@@ -688,11 +695,11 @@ export default function Notices() {
               )}
 
               <View style={{ height: 14 }} />
-              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Active period (optional)</Text>
+              <Text style={[styles.label, { color: c.muted, fontSize: 13 * scale }]}>Active period</Text>
               <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>
-                Leave blank to keep it on the board indefinitely. After the end date/time it drops off automatically.
+                A start date is required. Leave the end blank to keep it on the board indefinitely — after the end date/time it drops off automatically.
               </Text>
-              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>From</Text>
+              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>From <Text style={{ color: c.error, fontWeight: "900" }}>*</Text></Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <View style={{ flex: 1.4 }}><DateField testID="notice-from-date" value={pFromDate} onChange={setPFromDate} /></View>
                 <View style={{ flex: 1 }}><TimeField testID="notice-from-time" value={pFromTime} onChange={setPFromTime} /></View>

@@ -212,7 +212,7 @@ export default function OnboardingWizard() {
   // voice the member picked in Accessibility. No new state, no
   // separate migration — the hook subscribes to the same store.
   // (Launch-polish 2026-08-14, follow-up to Session 2.)
-  const { voice: savedVoice } = useGeorgeVoice();
+  const { voice: savedVoice, setVoice } = useGeorgeVoice();
 
   // ── Random tour host (TestFlight 1028, Garry, Sep 2026) ───────────
   // The onboarding tour is delivered by a randomly chosen host — either
@@ -227,7 +227,16 @@ export default function OnboardingWizard() {
   );
   const [chosenBefore, setChosenBefore] = useState(false);
   useEffect(() => {
-    void hasChosenCompanion().then(setChosenBefore);
+    void (async () => {
+      const chosen = await hasChosenCompanion();
+      setChosenBefore(chosen);
+      // Lock ONE companion for the whole journey (tour → induction → header →
+      // avatar → TTS voice → post-induction chat). If the member hasn't
+      // already chosen, persist the randomly-picked tour host immediately so
+      // the spoken TTS voice matches the on-screen name (fixes "started as
+      // Georgia but sounded like George").
+      if (!chosen) { try { await setVoice(tourHost); } catch { /* non-fatal */ } }
+    })();
   }, []);
   const voice = tourHost;                       // tour speaks as this
   const companionName = VOICE_LABELS[voice].short;             // "George" | "Georgia"
@@ -393,7 +402,7 @@ export default function OnboardingWizard() {
           >
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <GeorgeButterflyMark size={26} />
-              <Text style={{ color: "#0F766E", fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
+              <Text numberOfLines={1} style={{ color: "#0F766E", fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
                 {companionUpper}
               </Text>
               {/* Read-aloud on the final "You're all set" screen (Session 2
@@ -720,7 +729,7 @@ function StepWelcome({ scale, c, companionName, companionUpper, otherName }: { s
             ]}
           >
             <View style={styles.georgeBubbleHead}>
-              <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 13 * scale }}>
+              <Text numberOfLines={1} style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 13 * scale }}>
                 {companionUpper}
               </Text>
             </View>
@@ -788,7 +797,7 @@ function StepFeatureTour({ scale, c, page, companionUpper }: { scale: number; c:
         <View style={[styles.georgeBubbleTight, { backgroundColor: c.brandTertiary, borderColor: c.brand }]}>
           <View style={styles.georgeBubbleHead}>
             <GeorgeButterflyMark size={26} />
-            <Text style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
+            <Text numberOfLines={1} style={{ color: c.brand, fontWeight: "900", letterSpacing: 0.6, fontSize: 12 * scale }}>
               {companionUpper}
             </Text>
             {/* Read-aloud (Session 2 launch-polish 2026-08-14) —

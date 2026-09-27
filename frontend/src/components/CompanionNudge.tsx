@@ -120,9 +120,11 @@ export default function CompanionNudge() {
     // must surface on EVERY screen (including Home "/") so they're never
     // missed. Passive chat/flutter nudges stay quiet on the bare index route.
     if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p))) return;
-    if (n.type === "dm" || n.type === "dm_request" || n.type === "flutter") {
-      if (pathname === "/") return;
-    }
+    // Chat messages must surface on EVERY screen (including Home "/") so a
+    // second/third message is never missed once a chat has been opened —
+    // the only place we stay quiet is INSIDE that exact thread (checked
+    // below). Passive flutters still stay quiet on the bare Home index.
+    if (n.type === "flutter" && pathname === "/") return;
     const route = routeFor(n);
     if (route.startsWith("/dm/") && pathname.startsWith(route.split("?")[0])) return;
     // Dedup DM nudges against the dm_update fan-out.
@@ -157,7 +159,9 @@ export default function CompanionNudge() {
     const fromId = evt?.from_id;
     const fromName = evt?.from_name || "A friend";
     if (!conv) return;
-    if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p)) || pathname === "/") return;
+    // Live chat nudge on ANY screen (incl. Home) — only stay silent inside
+    // this exact conversation (checked just below) or on auth/onboarding.
+    if (HIDDEN_PREFIXES.some((p) => pathname.startsWith(p))) return;
     // Already inside this exact conversation → nothing to nudge about.
     if (pathname.startsWith(`/dm/${conv}`)) return;
     const now = Date.now();
