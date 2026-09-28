@@ -46,6 +46,9 @@ export default function RegisterInterestPage() {
   const [heardFrom, setHeardFrom]     = useState('');
   const [referralSource, setReferralSource] = useState('');
   const [submitting, setSubmitting]   = useState(false);
+  const [reviewing, setReviewing]     = useState(false);
+  const [confirming, setConfirming]   = useState(false);
+  const [registrationId, setRegistrationId] = useState<string | null>(null);
   const [done, setDone]               = useState(false);
   const [founderNumber, setFounderNumber] = useState<number | null>(null);
   const [error, setError]             = useState<string | null>(null);
@@ -229,17 +232,18 @@ export default function RegisterInterestPage() {
         }
         return;
       }
-      // Success: the response now carries the visitor's permanent
-      // Founding Member Number (#0003, #0004, …). We surface it
-      // proudly on the thank-you page — mirrors the celebratory
-      // hero in the acknowledgement email.
-      try {
-        const body = await res.json();
-        if (typeof body?.founder_number === 'number' && body.founder_number > 0) {
-          setFounderNumber(body.founder_number);
-        }
-      } catch { /* non-fatal; page still renders without the number */ }
-      setDone(true);
+      // Phase 1 only saves the registration. Founder-number allocation
+      // intentionally happens only after the visitor confirms on the
+      // review screen below. Keep the registration id so Phase 2 can
+      // call the dedicated /confirm endpoint.
+      const body = await res.json();
+      const rawId = body?.id ?? body?.registration_id ?? body?.reg_id;
+      if (!rawId) {
+        setError("Your details were saved, but we couldn't open the confirmation step. Please try again in a moment.");
+        return;
+      }
+      setRegistrationId(String(rawId));
+      setReviewing(true);
     } catch (err) {
       console.error('[ryi] submit failed', err);
       // Network hiccup on the visitor's side — don't punish them
@@ -248,6 +252,92 @@ export default function RegisterInterestPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function onConfirm() {
+    if (!registrationId || confirming) return;
+    setError(null);
+    setConfirming(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/public/register-interest/${encodeURIComponent(registrationId)}/confirm`,
+        { method: 'POST' },
+      );
+      if (!res.ok) {
+        let msg = '';
+        try {
+          const body = await res.json();
+          msg = typeof body?.detail === 'string' ? body.detail : '';
+        } catch {
+          msg = '';
+        }
+        setError(msg || "We couldn't finish your registration just yet. Please try again.");
+        return;
+      }
+      const body = await res.json();
+      if (typeof body?.founder_number !== 'number' || body.founder_number <= 0) {
+        setError("Your registration was confirmed, but your Founding Member number wasn't returned. Please contact us so we can check it.");
+        return;
+      }
+      setFounderNumber(body.founder_number);
+      setReviewing(false);
+      setDone(true);
+    } catch (err) {
+      console.error('[ryi] confirm failed', err);
+      setError("Your internet seems a little slow. Could you try again?");
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  if (reviewing && !done) {
+    const companionName = meta?.name || 'George';
+    return (
+      <div style={pageBg}>
+        <div className="container" style={{ paddingTop: 72, paddingBottom: 96 }}>
+          <div style={plate}>
+            <h1 style={openingLine}>One last look.</h1>
+            <p style={{ ...leadCopy, marginTop: 8 }}>
+              Make sure everything looks right. When you&rsquo;re happy, {companionName} will reserve your very own Founding Member number.
+            </p>
+
+            <div style={{
+              marginTop: 26,
+              padding: '18px 20px',
+              borderRadius: 16,
+              background: '#0A2540',
+              color: '#FFFFFF',
+              textAlign: 'left',
+            }}>
+              <ReviewRow label="First name" value={firstName.trim()} />
+              <ReviewRow label="Email" value={email.trim().toLowerCase()} />
+              {location.trim() && <ReviewRow label="Location" value={location.trim()} />}
+              {heardFrom.trim() && <ReviewRow label="Heard about us" value={heardFrom.trim()} />}
+              <ReviewRow label="Saying hello to" value={companionName} last />
+            </div>
+
+            {error && (
+              <div role="alert" style={errorBar}>{error}</div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>
+              <button
+                type="button"
+                onClick={onConfirm}
+                disabled={confirming}
+                style={{ ...primaryCta, opacity: confirming ? 0.6 : 1 }}
+              >
+                {confirming ? 'Saying hello…' : 'That’s my hello'}
+              </button>
+            </div>
+
+            <p style={footNote}>
+              Your Founding Member number is reserved only when you confirm here.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (done) {
@@ -477,7 +567,7 @@ export default function RegisterInterestPage() {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
               <button type="submit" disabled={submitting} style={{ ...primaryCta, opacity: submitting ? 0.6 : 1 }}>
-                {submitting ? 'Sending…' : 'That’s my hello'}
+                {submitting ? 'Saving…' : 'Continue'}
               </button>
             </div>
           </form>
@@ -488,6 +578,19 @@ export default function RegisterInterestPage() {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReviewRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', gap: 16,
+      padding: '8px 0',
+      borderBottom: last ? 'none' : '1px solid rgba(255,255,255,0.10)',
+    }}>
+      <span style={{ opacity: 0.7, fontSize: 14 }}>{label}</span>
+      <span style={{ fontWeight: 600, fontSize: 15, textAlign: 'right', wordBreak: 'break-word' }}>{value}</span>
     </div>
   );
 }
