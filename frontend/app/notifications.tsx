@@ -87,6 +87,10 @@ export default function Notifications() {
   useEffect(() => subscribe("notification", (evt: any) => {
     const n = evt?.notification;
     if (!n || !n.id) return;
+    // Ephemeral events (live game turn/start/finish signals) exist only to
+    // nudge an open screen to refetch — they are never persisted, so they
+    // must never be added to the bell/inbox list.
+    if (n.ephemeral) return;
     // Chat/DM notifications live in My Chats, never the bell/inbox — skip
     // them here so the list matches the (chat-excluded) bell count.
     if (n.type === "dm" || n.type === "dm_request") return;
@@ -171,6 +175,27 @@ export default function Notifications() {
   };
 
   const markAll = async () => { if (!user) return; await api.readAllNotifications(user.id); load(); show("Marked all as read"); };
+
+  // ── New-member "Say Hi" → sends a WAVE (a lightweight welcome), not a
+  // Flutter. Greys the button out to "Wave sent ✓" once sent so it can't
+  // be double-tapped (Garry, Jun 2026). Distinct from the Flutter-back
+  // action which stays a Flutter. ─────────────────────────────────────
+  const [wavedIds, setWavedIds] = useState<Record<string, boolean>>({});
+  const sayHiWave = async (n: any) => {
+    const targetId: string | undefined = n?.ref_user_id || n?.payload?.from_id;
+    if (!user || !targetId || wavedIds[n.id]) return;
+    setWavedIds((w) => ({ ...w, [n.id]: true })); // one-tap lock
+    try {
+      await api.greet({ from_id: user.id, to_id: targetId, kind: "welcome" });
+      if (!n.read) await api.readNotification(n.id);
+      setList((xs) => xs.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
+      show("Wave sent ✓");
+    } catch (e: any) {
+      const raw = String(e?.message || "");
+      if (/already/i.test(raw)) { show("Already sent — they'll see it soon 👋"); }
+      else { setWavedIds((w) => ({ ...w, [n.id]: false })); show("Couldn't send just now — please try again."); }
+    }
+  };
 
   // ── Greeting actions (welcome / birthday_wish) — distinct from Flutter ──
   const [thankedIds, setThankedIds] = useState<Record<string, boolean>>({});
@@ -300,16 +325,39 @@ export default function Notifications() {
                   conversation; Dismiss marks the notification as read in place. */}
               {(isNewMember || isFlutter) && (
                 <View style={[styles.cheerRow, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
-                  <Pressable
-                    testID={`${isFlutter ? "flutter" : "newmember"}-say-hi-${item.id}`}
-                    onPress={(e) => sayHi(item, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })}
-                    style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
-                  >
-                    <GeorgeButterflyMark size={16} />
-                    <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale, marginLeft: 6 }}>
-                      {isFlutter ? "Flutter back" : "Say Hi"}
-                    </Text>
-                  </Pressable>
+                  {isFlutter ? (
+                    <Pressable
+                      testID={`flutter-say-hi-${item.id}`}
+                      onPress={(e) => sayHi(item, { pageX: e.nativeEvent.pageX, pageY: e.nativeEvent.pageY })}
+                      style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
+                    >
+                      <GeorgeButterflyMark size={16} />
+                      <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale, marginLeft: 6 }}>
+                        Flutter back
+                      </Text>
+                    </Pressable>
+                  ) : wavedIds[item.id] ? (
+                    <View
+                      testID={`newmember-waved-${item.id}`}
+                      style={[styles.dmActionBtn, { backgroundColor: c.surfaceTertiary, borderColor: c.border, flex: 1 }]}
+                    >
+                      <Ionicons name="checkmark-circle" size={16} color={c.muted} />
+                      <Text style={{ color: c.muted, fontWeight: "800", fontSize: 14 * scale, marginLeft: 6 }}>
+                        Wave sent ✓
+                      </Text>
+                    </View>
+                  ) : (
+                    <Pressable
+                      testID={`newmember-say-hi-${item.id}`}
+                      onPress={() => sayHiWave(item)}
+                      style={[styles.dmActionBtn, { backgroundColor: c.brand, borderColor: c.brand, flex: 1 }]}
+                    >
+                      <Text style={{ fontSize: 15 }}>👋</Text>
+                      <Text style={{ color: "#FFF", fontWeight: "900", fontSize: 14 * scale, marginLeft: 6 }}>
+                        Say Hi
+                      </Text>
+                    </Pressable>
+                  )}
                   <Pressable
                     testID={`${isFlutter ? "flutter" : "newmember"}-profile-${item.id}`}
                     onPress={() => onItemPress(item)}

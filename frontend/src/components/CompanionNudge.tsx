@@ -23,6 +23,7 @@ import { useInboxEvent } from "@/src/lib/user-socket";
 import { useGeorgeVoice, VOICE_LABELS } from "@/src/lib/george-voice";
 import { GeorgeButterflyMark } from "@/src/components/george/GeorgeButterflyMark";
 import { useTheme } from "@/src/lib/theme";
+import { useAuth } from "@/src/lib/auth";
 import { api } from "@/src/lib/api";
 import { useToast } from "@/src/lib/toast";
 
@@ -66,6 +67,7 @@ export default function CompanionNudge() {
   const router = useRouter();
   const pathname = usePathname() || "";
   const { show } = useToast();
+  const { user } = useAuth();
   const [actionBusy, setActionBusy] = useState(false);
   const { voice } = useGeorgeVoice();
   const companionName = VOICE_LABELS[voice]?.short || "George";
@@ -238,6 +240,17 @@ export default function CompanionNudge() {
     finally { setActionBusy(false); hide(); }
   };
 
+  // Table invite "Maybe later" — record a soft decline so the host's
+  // invitee roster shows the member as declined (never blocks joining
+  // later). Fire-and-forget; the dismiss is instant regardless.
+  const dismissTableInvite = () => {
+    const tableId = nudge?.payload?.table_id;
+    if (tableId && user?.id) {
+      api.declineTable(String(tableId), user.id).catch(() => {});
+    }
+    hide();
+  };
+
   return (
     <Modal
       visible
@@ -335,7 +348,7 @@ export default function CompanionNudge() {
                 </Pressable>
                 <Pressable
                   testID="companion-nudge-snooze"
-                  onPress={hide}
+                  onPress={isTableInvite ? dismissTableInvite : hide}
                   accessibilityLabel={secondaryLabel}
                   style={[styles.btnSnooze, { borderColor: tint.border }]}
                 >

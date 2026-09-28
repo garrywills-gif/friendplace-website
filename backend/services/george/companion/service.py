@@ -179,6 +179,24 @@ def _persona_key(persona: Optional[str]) -> str:
     return "georgia" if (persona or "").lower() == "georgia" else "george"
 
 
+def _instant_opening(name: str, confirmed_name: Optional[str]) -> str:
+    """A warm, model-free opening line for a brand-new companion session.
+
+    Kept deliberately simple and instant — no LLM — so George's first
+    message appears the moment the screen loads. The model takes over from
+    the member's first reply. Uses the confirmed name only when we truly
+    have one (never guesses)."""
+    if confirmed_name:
+        return (
+            f"Hello {confirmed_name} — it's {name}. So lovely to finally have a "
+            f"proper chat with you. How are you doing today?"
+        )
+    return (
+        f"Hello there — it's {name}. Lovely to meet you properly. "
+        f"How's your day going so far?"
+    )
+
+
 # Member-name validation is shared with the onboarding flow so the two
 # paths can never disagree (see services/george/names.py). We would
 # rather use NO name than invent or mangle one.
@@ -374,11 +392,14 @@ async def get_or_create_companion_session(db: Any, *, actor_id: str, persona: st
     doc = await db[COLL_CHAT].find_one(_chat_filter(actor_id, persona), {"_id": 0})
 
     if not doc:
-        prompt, _ = await _build_user_prompt(db, actor_id, [], None)
-        try:
-            opening = await _llm(_system_prompt(name), prompt, COMPANION_MODEL)
-        except Exception:
-            opening = f"Hi there — it's {name}. Lovely to see you. How's your day going?"
+        # First-ever open: greet INSTANTLY with a warm, templated line
+        # instead of waiting on the LLM. Blocking a brand-new session on a
+        # (sometimes cold) model call made George's first message take
+        # several seconds to appear (Garry, Jun 2026). A friendly, name-aware
+        # opener needs no model — the LLM takes over from the member's very
+        # first reply in `companion_turn`.
+        cname = await _confirmed_name(db, actor_id)
+        opening = _instant_opening(name, cname)
         turns = [{"role": "george", "content": opening.strip(), "at": _now_iso()}]
         doc = {
             "id": str(uuid.uuid4()),

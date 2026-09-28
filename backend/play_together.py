@@ -328,9 +328,17 @@ def register(api, ctx: Dict[str, Any]) -> None:
         return sess
 
     async def _notify(sess: Dict[str, Any], to_id: str, n_type: str, title: str, body: str = "") -> None:
+        # Only the game INVITE belongs in the recipient's Notifications list
+        # (and as a device push). Every other game event — start, each move /
+        # turn update, and the finish/win/loss result — is a live signal used
+        # only to refetch an open game screen, so it is sent EPHEMERALLY: it
+        # fans out over the socket but is never persisted or pushed. (Garry,
+        # Jun 2026 — "game notifications are too noisy".)
+        ephemeral = n_type != "game_invite"
         await push_notification(
             to_id, n_type, title, body,
             {"session_id": sess["id"], "game": sess["game"]},
+            ephemeral=ephemeral,
         )
 
     async def _finish_and_award(sess: Dict[str, Any]) -> None:

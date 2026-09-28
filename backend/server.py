@@ -339,6 +339,14 @@ class Table(BaseModel):
     # the card in the lounge list — locked — so it acts as gentle social
     # proof for the Founding Member cohort.
     founder_only: bool = False
+    # Members the host invited when opening the table (either hand-picked
+    # friends or all confirmed friends). Drives the host-facing invitee
+    # roster on the table screen so the host can see who they invited and
+    # whether each has joined, is still pending, or declined.
+    invited_ids: List[str] = []
+    # Members who tapped "Maybe later" on a table invite. Used only to
+    # colour the invitee roster ("Declined"); never blocks a later join.
+    declined_ids: List[str] = []
 
 
 class CreateTableBody(BaseModel):
@@ -3446,7 +3454,7 @@ def _clean_notification_text(s: Optional[str]) -> str:
     return txt
 
 
-async def push_notification(user_id: str, n_type: str, title: str, body: str = "", payload: Optional[Dict] = None):
+async def push_notification(user_id: str, n_type: str, title: str, body: str = "", payload: Optional[Dict] = None, ephemeral: bool = False):
     if not user_id:
         return
     # Defence-in-depth: never persist/relay raw payload text to any surface.
@@ -3462,16 +3470,31 @@ async def push_notification(user_id: str, n_type: str, title: str, body: str = "
         "read": False,
         "created_at": now_iso(),
     }
-    await db.notifications.insert_one(doc)
+    # Ephemeral events (e.g. live game turn/start/finish updates) are pure
+    # real-time signals: they drive an open screen to refetch but must NOT
+    # pile up in the Notifications list or fire a device push. Only the
+    # socket fan-out below runs for them. (Garry, Jun 2026 — "only the game
+    # INVITE belongs in Notifications, not every word played or result".)
+    if not ephemeral:
+        await db.notifications.insert_one(doc)
     # `insert_one` mutates the doc with a Mongo _id — strip so it can
     # go over the WebSocket / to serialisers cleanly.
     doc.pop("_id", None)
+    # Tag ephemeral events so socket consumers (Notifications list, bell)
+    # know NOT to add them to any persistent list — they exist only to
+    # nudge an open screen to refetch.
+    if ephemeral:
+        doc["ephemeral"] = True
 
     # Real-time fan-out over the user's inbox socket (iter154). Any
     # client with `/api/ws/user/{user_id}` open — the Chats-tab badge,
     # Chats list, Notifications bell, DmNotifyProvider prompt — reacts
     # immediately. Best-effort; polling still reconciles missed events.
     await _broadcast_to_user(user_id, {"type": "notification", "notification": doc})
+
+    # Ephemeral events never touch the device-push channel.
+    if ephemeral:
+        return
 
     # Mirror to device push (Emergent-managed). Safe to call without google-services.json
     # — fails silently and never blocks the in-app notification.
@@ -6515,6 +6538,12 @@ async def create_table(body: CreateTableBody):
         chosen = [fid for fid in (body.invite_ids or []) if fid in set(all_friends)]
         friend_ids = chosen if chosen else all_friends
         if friend_ids:
+            # Persist the invited set on the table so the host can see a
+            # roster of who they invited + each person's status (joined /
+            # pending / declined) on the table screen.
+            await db.tables.update_one(
+                {"id": t.id}, {"$set": {"invited_ids": friend_ids[:100]}},
+            )
             hname = host.get("first_name") or host.get("username") or "Someone"
             havatar = host.get("avatar") or "☕"
             emoji = body.emoji or "☕"
@@ -6593,7 +6622,53 @@ async def get_table(table_id: str):
         raise HTTPException(404, "Table not found")
     seated_users = await db.users.find({"id": {"$in": t.get("seated", [])}}, {"_id": 0}).to_list(50)
     t["seated_users"] = seated_users
+    # Host-facing invitee roster: for each member the host invited, report
+    # whether they've joined (currently seated), declined ("Maybe later"),
+    # or are still pending. Only computed when the table has an invited set.
+    invited_ids = t.get("invited_ids") or []
+    if invited_ids:
+        seated_set = set(t.get("seated", []))
+        declined_set = set(t.get("declined_ids") or [])
+        inv_users = await db.users.find(
+            {"id": {"$in": invited_ids}},
+            {"_id": 0, "id": 1, "first_name": 1, "avatar": 1},
+        ).to_list(100)
+        by_id = {u["id"]: u for u in inv_users}
+        roster = []
+        for uid in invited_ids:
+            u = by_id.get(uid)
+            if not u:
+                continue
+            if uid in seated_set:
+                status = "joined"
+            elif uid in declined_set:
+                status = "declined"
+            else:
+                status = "invited"
+            roster.append({
+                "id": uid,
+                "first_name": u.get("first_name") or "Friend",
+                "avatar": u.get("avatar") or "",
+                "status": status,
+            })
+        t["invitees"] = roster
+    else:
+        t["invitees"] = []
     return t
+
+
+@api.post("/tables/{table_id}/decline/{user_id}")
+async def decline_table_invite(table_id: str, user_id: str, me: dict = Depends(owner_or_admin)):
+    """Record that an invited member tapped "Maybe later" on a table invite.
+    Purely informational — it colours the host's invitee roster and never
+    prevents the member from joining later if they change their mind."""
+    t = await db.tables.find_one({"id": table_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(404, "Table not found")
+    await db.tables.update_one(
+        {"id": table_id}, {"$addToSet": {"declined_ids": user_id}},
+    )
+    return {"ok": True}
 
 
 @api.post("/tables/{table_id}/join/{user_id}")
@@ -6618,7 +6693,8 @@ async def join_table(table_id: str, user_id: str, me: dict = Depends(owner_or_ad
         return {"ok": True}
     await db.tables.update_one(
         {"id": table_id},
-        {"$addToSet": {"seated": user_id}, "$set": {"last_activity_at": now_iso()}},
+        {"$addToSet": {"seated": user_id}, "$set": {"last_activity_at": now_iso()},
+         "$pull": {"declined_ids": user_id}},
     )
     # Presence hook (Garry Feb 2026 spec): mark the joiner as In-Café
     # and, if they were "looking", auto-clear (they've found company).

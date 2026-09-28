@@ -136,8 +136,11 @@ export function GeorgeCompanionChat({ onClose }: Props) {
   return (
     <KeyboardAvoidingView behavior="padding" style={[styles.wrap, { paddingTop: insets.top + 20 }]}>
       <View style={styles.header}>
-        <GeorgeButterflyMark size={40} />
-        <Text style={styles.headerName}>{voiceLabel}</Text>
+        <View style={styles.identity}>
+          <GeorgeButterflyMark size={30} />
+          <Text style={styles.headerName} numberOfLines={1}>{voiceLabel}</Text>
+        </View>
+        <View style={{ flex: 1 }} />
         <Pressable onPress={confirmClearChat} disabled={busy} hitSlop={8}
           testID="companion-clear"
           style={({ pressed }) => [styles.clearChatBtn, busy && { opacity: 0.4 }, pressed && styles.pressed]}
@@ -227,7 +230,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: '#E2E8F0',
     backgroundColor: '#FFFFFF',
   },
-  headerName: { fontSize: 17, fontWeight: '800', color: '#0F172A', flex: 1, marginLeft: 6 },
+  identity: { alignItems: 'center', gap: 2 },
+  headerName: { fontSize: 15, fontWeight: '800', color: '#0F172A' },
   clearChatBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingVertical: 6, paddingHorizontal: 10,

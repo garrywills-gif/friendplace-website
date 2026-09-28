@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, FlatList, TextInput, KeyboardAvoidingView,
-  Platform, Pressable, Image, ActivityIndicator, Modal, Linking, Keyboard,
+  Platform, Pressable, Image, ActivityIndicator, Modal, Linking, Keyboard, ScrollView,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -349,6 +349,34 @@ export default function TableChat() {
         />
       )}
 
+      {/* Invitee roster (host-facing) — who the host invited and whether
+          each has joined, is still pending, or declined. Only the host
+          sees this, and only when the seating diagram is expanded so it
+          never competes with the keyboard/composer. */}
+      {!collapseSeating && isHost && Array.isArray(table?.invitees) && table.invitees.length > 0 ? (
+        <View style={[styles.inviteeWrap, { borderColor: c.border }]} testID="table-invitees">
+          <Text style={[styles.inviteeTitle, { color: c.muted }]}>YOU INVITED</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 12 }}>
+            {table.invitees.map((inv: any) => {
+              const st = inv.status;
+              const pill =
+                st === "joined" ? { bg: "#DCFCE7", fg: "#15803D", label: "Joined" }
+                : st === "declined" ? { bg: "#FEE2E2", fg: "#B91C1C", label: "Declined" }
+                : { bg: c.surfaceTertiary, fg: c.muted, label: "Invited" };
+              return (
+                <View key={inv.id} style={styles.inviteeChip} testID={`invitee-${inv.id}`}>
+                  <AvatarBubble value={inv.avatar} size={34} fallback="🙂" />
+                  <Text numberOfLines={1} style={[styles.inviteeName, { color: c.onSurface, fontSize: 12 * scale }]}>{inv.first_name}</Text>
+                  <View style={[styles.inviteePill, { backgroundColor: pill.bg }]}>
+                    <Text style={{ color: pill.fg, fontWeight: "800", fontSize: 10.5 * scale }}>{pill.label}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+
       {/* Crossword shortcut — only on the Daily Crossword table. Lets
           players jump back and forth between solving the puzzle and
           chatting about it without losing their place. Tap-to-play opens
@@ -674,6 +702,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 6,
   },
+  inviteeWrap: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+  },
+  inviteeTitle: { fontWeight: "800", letterSpacing: 0.6, fontSize: 11, marginBottom: 8 },
+  inviteeChip: { alignItems: "center", width: 64, gap: 3 },
+  inviteeName: { fontWeight: "700", maxWidth: 60, textAlign: "center" },
+  inviteePill: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
   // System messages ("🪑 Garry took a seat") — centred pill so they
   // read as ambient presence chatter rather than a message.
   systemRow: {

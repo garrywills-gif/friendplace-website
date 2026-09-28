@@ -165,10 +165,14 @@ export default function PlayRoom() {
             <View style={styles.centre}>
               <ActivityIndicator color={c.brand} />
               <Text style={[styles.big, { color: c.onSurface, fontSize: 18 * scale }]}>
-                Waiting for {other?.name || "your friend"} to accept…
+                {session?.origin === "matchmaking"
+                  ? "Waiting for a player…"
+                  : `Waiting for ${other?.name || "your friend"} to accept…`}
               </Text>
               <Text style={[styles.sub, { color: c.muted, fontSize: 14 * scale }]}>
-                We'll let them know you'd like to play {game ? LABELS[game] : ""}.
+                {session?.origin === "matchmaking"
+                  ? `We're finding someone to play ${game ? LABELS[game] : ""} with you.`
+                  : `We'll let them know you'd like to play ${game ? LABELS[game] : ""}.`}
               </Text>
               <Pressable
                 testID="play-cancel"

@@ -530,6 +530,7 @@ export const api = {
   tableMessages: (id: string) => req(`/tables/${id}/messages`),
   joinTable: (id: string, uid: string) => req(`/tables/${id}/join/${uid}`, { method: "POST" }),
   leaveTable: (id: string, uid: string) => req(`/tables/${id}/leave/${uid}`, { method: "POST" }),
+  declineTable: (id: string, uid: string) => req(`/tables/${id}/decline/${uid}`, { method: "POST" }),
 
   // groups
   listGroups: (opts: { user_id?: string; q?: string; radius_km?: number } = {}) => {
