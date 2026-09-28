@@ -4519,11 +4519,16 @@ async def _radius_center(user_id: Optional[str],
 
 
 def _apply_radius(rows: List[Dict], center: Optional[Tuple[float, float]],
-                  radius_km: Optional[float]) -> List[Dict]:
+                  radius_km: Optional[float], include_uncoded: bool = False) -> List[Dict]:
     """Filter rows to those within `radius_km` of `center`, attaching a
     rounded `distance_km`. If radius_km is falsy (All) or no center is
-    known, rows are returned unchanged (no distance filtering). Rows
-    without locality coords are excluded from a bounded radius query."""
+    known, rows are returned unchanged (no distance filtering).
+
+    `include_uncoded`: when True, rows with NO locality coordinates are KEPT
+    (they simply carry no distance) instead of being dropped. The Notice Board
+    uses this so a member's location-less notice never vanishes under the
+    default radius filter on reload/re-entry. Groups/events keep the old
+    behaviour (uncoded rows excluded from a bounded radius) by default."""
     if not radius_km or center is None:
         return rows
     clat, clng = center
@@ -4531,6 +4536,8 @@ def _apply_radius(rows: List[Dict], center: Optional[Tuple[float, float]],
     for r in rows:
         lat, lng = r.get("locality_lat"), r.get("locality_lng")
         if lat is None or lng is None:
+            if include_uncoded:
+                out.append(r)
             continue
         d = sb_haversine(clat, clng, float(lat), float(lng))
         if d <= float(radius_km):
@@ -8900,7 +8907,10 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
     # Local Discovery: restrict to the chosen radius of the member's suburb
     # when radius_km is given (All returns everything).
     center = await _radius_center(user_id, near_lat, near_lng)
-    visible = _apply_radius(docs, center, radius_km)
+    # include_uncoded=True: a notice with no locality coordinates must NOT be
+    # dropped by the default radius filter — otherwise other members'
+    # location-less notices vanish on reload/re-entry (Notice Board bug).
+    visible = _apply_radius(docs, center, radius_km, include_uncoded=True)
     docs = visible
     # ── Author safety net (definitive fix for "posted then disappears") ──
     # The list above is narrowed by the member's active CATEGORY, SEARCH and
