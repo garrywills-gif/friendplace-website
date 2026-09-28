@@ -359,8 +359,11 @@ function MemberRow({
 
   const displayName = [row.first_name, row.last_name].filter(Boolean).join(' ')
     || (row.email?.split('@')[0]) || 'Unnamed';
-  const status = (row.status || 'registered') as CRMFoundingMemberStatus;
-  const meta = STATUS_META[status];
+  const rawStatus = String(row.status || 'registered');
+  const status: CRMFoundingMemberStatus =
+    rawStatus in STATUS_META ? rawStatus as CRMFoundingMemberStatus : 'registered';
+  const meta = STATUS_META[status] || STATUS_META.registered;
+  const safeTags = Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === 'string') : [];
   const location = row.state_country || [row.suburb, row.state].filter(Boolean).join(', ') || '';
   const referral = row.heard_from || '';
 
@@ -376,13 +379,13 @@ function MemberRow({
   const addTag = () => {
     const t = tagInput.trim();
     if (!t) return;
-    const next = Array.from(new Set([...(row.tags || []), t])).slice(0, 20);
+    const next = Array.from(new Set([...safeTags, t])).slice(0, 20);
     setTagInput('');
     void onUpdate(row.id, { tags: next }, { tags: next });
   };
 
   const removeTag = (t: string) => {
-    const next = (row.tags || []).filter(x => x !== t);
+    const next = safeTags.filter(x => x !== t);
     void onUpdate(row.id, { tags: next }, { tags: next });
   };
 
@@ -477,13 +480,13 @@ function MemberRow({
         </div>
         <div style={{ ...cellBody, flex: '1.2 1 0', overflow: 'hidden' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {(row.tags || []).length > 0 ? (
-              (row.tags || []).slice(0, 4).map(t => <TagPill key={t} label={t} />)
+            {safeTags.length > 0 ? (
+              safeTags.slice(0, 4).map(t => <TagPill key={t} label={t} />)
             ) : (
               <span style={{ color: '#94A3B8', fontSize: 12 }}>No tags</span>
             )}
-            {(row.tags || []).length > 4 && (
-              <span style={{ color: '#94A3B8', fontSize: 11 }}>+{(row.tags || []).length - 4}</span>
+            {safeTags.length > 4 && (
+              <span style={{ color: '#94A3B8', fontSize: 11 }}>+{safeTags.length - 4}</span>
             )}
           </div>
         </div>
@@ -575,7 +578,7 @@ function MemberRow({
                 background: '#FFFFFF', border: '1.5px solid #CBD5E1', borderRadius: 12,
                 minHeight: 44,
               }}>
-                {(row.tags || []).map(t => (
+                {safeTags.map(t => (
                   <TagPill key={t} label={t} onRemove={() => removeTag(t)} />
                 ))}
                 <input
@@ -588,7 +591,7 @@ function MemberRow({
                     }
                   }}
                   onBlur={() => tagInput.trim() && addTag()}
-                  placeholder={(row.tags || []).length ? '' : 'e.g. sydney, coffee-fan, phase-2-invite'}
+                  placeholder={safeTags.length ? '' : 'e.g. sydney, coffee-fan, phase-2-invite'}
                   style={{
                     border: 'none', outline: 'none', fontSize: 13,
                     flex: '1 1 120px', minWidth: 120, background: 'transparent',
