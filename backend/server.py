@@ -13862,17 +13862,15 @@ async def admin_founder_backfill(
     body: _FounderBackfillBody,
     x_backfill_secret: str = Header(default=""),
 ):
-    secret = os.environ.get("FOUNDER_BACKFILL_SECRET", "")
-    if not secret:
-        raise HTTPException(
-            503,
-            "Founder backfill is disabled. Set FOUNDER_BACKFILL_SECRET in the backend "
-            "environment to enable this one-time repair.",
-        )
-    if not x_backfill_secret or x_backfill_secret != secret:
-        raise HTTPException(403, "Invalid or missing X-Backfill-Secret.")
-    mod = _load_founder_backfill_module()
-    return await mod.run_exact_backfill(db, apply=(not body.dry_run), send_email=body.send_email)
+    # PERMANENTLY RETIRED. The one-time Founding Member backfill completed
+    # successfully in production (next allocation confirmed #0128). This route
+    # is hard-disabled and NEVER executes the repair again, regardless of the
+    # FOUNDER_BACKFILL_SECRET value that can no longer be cleared. It always
+    # returns HTTP 410 Gone.
+    raise HTTPException(
+        status_code=410,
+        detail="Founder backfill has been permanently retired. The one-time repair is complete.",
+    )
 
 
 
