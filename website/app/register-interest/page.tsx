@@ -259,6 +259,9 @@ export default function RegisterInterestPage() {
 
   // Phase 2 — the visitor pressed "That's my hello" on the confirmation
   // screen. This is the ONLY step that draws + locks a Founding Member number.
+  // Idempotent server-side: pressing twice returns the same number and never
+  // draws a second one. If the visitor abandoned before this call, no number
+  // was ever consumed.
   async function onConfirm() {
     if (!regId) { setReviewing(false); return; }
     setError(null);
