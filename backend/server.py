@@ -8865,6 +8865,14 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
     # always active. Parsing is defensive — a malformed bound is ignored.
     def _within_active_period(d: dict) -> bool:
         now_dt = datetime.now(timezone.utc)
+        # The composer's From/To are day-granular (the picker sends the chosen
+        # LOCAL midnight, converted to UTC). For a member west of UTC, "today"
+        # midnight local is a FUTURE UTC instant — which previously hid their
+        # just-posted notice on the next reload ("posted then disappears").
+        # A grace equal to the widest real-world UTC offset (UTC+14) keeps a
+        # notice live for its whole start/end DAY everywhere on earth, while
+        # notices scheduled for a genuinely different day stay hidden.
+        GRACE = timedelta(hours=14)
         def _parse(v: Optional[str]):
             if not v:
                 return None
@@ -8875,9 +8883,9 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
                 return None
         af = _parse(d.get("active_from"))
         at = _parse(d.get("active_to"))
-        if af and now_dt < af:
+        if af and now_dt < af - GRACE:
             return False
-        if at and now_dt > at:
+        if at and now_dt > at + GRACE:
             return False
         return True
     docs = [d for d in docs if _within_active_period(d)]

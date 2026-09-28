@@ -114,6 +114,7 @@ export default function Notices() {
   const [pBody, setPBody] = useState("");
   const [pCat, setPCat] = useState("");
   const [catError, setCatError] = useState<string | null>(null);
+  const [dateError, setDateError] = useState<string | null>(null);
   const composerScrollRef = useRef<ScrollView>(null);
   // Optional image attached to the notice — gallery ref, data URI or "".
   const [pImage, setPImage] = useState<string>("");
@@ -205,7 +206,7 @@ export default function Notices() {
     return `Posted ${d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}`;
   };
 
-  const startCreate = (cat: string = "", title: string = "") => { setEditing(null); setCatError(null); setPTitle(title); setPBody(""); setPCat(cat); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
+  const startCreate = (cat: string = "", title: string = "") => { setEditing(null); setCatError(null); setDateError(null); setPTitle(title); setPBody(""); setPCat(cat); setPImage(""); setPLocality(memberLocality()); setPFromDate(""); setPFromTime(""); setPToDate(""); setPToTime(""); setPosting(true); };
   const startEdit = (n: any) => {
     setEditing(n); setPTitle(n.title); setPBody(n.body); setPCat(n.category); setPImage(n.image || "");
     setPLocality(n.locality ? { name: n.locality, postcode: n.locality_postcode, state: n.locality_state } : memberLocality());
@@ -241,10 +242,11 @@ export default function Notices() {
     // From / start date is now compulsory (end date stays optional).
     if (!pFromDate) {
       setCatError(null);
-      show("Please choose a start date for your notice.");
+      setDateError("Please add a date before posting.");
       requestAnimationFrame(() => composerScrollRef.current?.scrollToEnd({ animated: true }));
       return;
     }
+    setDateError(null);
     if (activeFrom && activeTo && new Date(activeTo) <= new Date(activeFrom)) {
       show("The end must be after the start"); return;
     }
@@ -699,11 +701,14 @@ export default function Notices() {
               <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 2 }}>
                 A start date is required. Leave the end blank to keep it on the board indefinitely — after the end date/time it drops off automatically.
               </Text>
-              <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>From <Text style={{ color: c.error, fontWeight: "900" }}>*</Text></Text>
+              <Text style={{ color: dateError ? c.error : c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>From <Text style={{ color: c.error, fontWeight: "900" }}>*</Text></Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
-                <View style={{ flex: 1.4 }}><DateField testID="notice-from-date" value={pFromDate} onChange={setPFromDate} /></View>
+                <View style={{ flex: 1.4 }}><DateField testID="notice-from-date" value={pFromDate} onChange={(v) => { setPFromDate(v); if (dateError) setDateError(null); }} /></View>
                 <View style={{ flex: 1 }}><TimeField testID="notice-from-time" value={pFromTime} onChange={setPFromTime} /></View>
               </View>
+              {dateError ? (
+                <Text testID="post-date-error" style={{ color: c.error, marginTop: 6, fontSize: 13 * scale, fontWeight: "700" }}>{dateError}</Text>
+              ) : null}
               <Text style={{ color: c.onSurface, fontWeight: "800", fontSize: 13 * scale, marginTop: 10 }}>To</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <View style={{ flex: 1.4 }}><DateField testID="notice-to-date" value={pToDate} onChange={setPToDate} /></View>
