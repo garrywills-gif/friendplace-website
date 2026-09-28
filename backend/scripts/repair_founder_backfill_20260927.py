@@ -164,6 +164,206 @@ async def _send_ack_email(db, reg_id: str, first_name: str, email: str,
         return False, f"exception: {e}"
 
 
+# ── Approved explicit mapping (name token → founder number), oldest-first ────
+# This is the SINGLE SOURCE OF TRUTH the deployed backfill endpoint uses. It is
+# name-anchored (not merely ordering-based) so each of the seven people can only
+# ever receive their approved number.
+APPROVED_MAPPING = [
+    ("mandy", 108),
+    ("abdul", 109),
+    ("hannen", 110),   # matches "Hannen abdallah"
+    ("yvonne", 118),
+    ("ruby", 119),
+    ("belinda", 120),
+    ("monique", 121),
+]
+
+
+async def _consume_specific_slot(db, number: int) -> int:
+    """Atomically mark reserved slot `number` consumed. Returns matched_count
+    (1 = we consumed an available slot now, 0 = it was not available)."""
+    res = await db[server._FOUNDER_RESERVED_SLOTS_COLL].update_one(
+        {"number": number, "status": "available"},
+        {"$set": {"status": "consumed", "consumed_at": server.now_iso(),
+                  "consumed_by": REPAIR_TAG}},
+    )
+    return res.matched_count
+
+
+async def _numberless_real_rows(db) -> list[dict]:
+    rows = await db.interest_registrations.find({
+        "$or": [{"founder_number": None}, {"founder_number": {"$exists": False}}],
+        "is_test": {"$ne": True},
+        "is_reserved": {"$ne": True},
+    }, {"_id": 0}).to_list(10000)
+    rows.sort(key=_created_key)
+    return rows
+
+
+async def _verify_after(db) -> dict:
+    remaining = await db.interest_registrations.count_documents({
+        "$or": [{"founder_number": None}, {"founder_number": {"$exists": False}}],
+        "is_test": {"$ne": True}, "is_reserved": {"$ne": True},
+    })
+    still_avail = await _available_reserved_slots(db)
+    target_slots = [n for _, n in APPROVED_MAPPING]
+    slots_consumed = [n for n in target_slots if n not in still_avail]
+    slots_ok = all(n not in still_avail for n in target_slots)
+    dupes = await db.interest_registrations.aggregate([
+        {"$match": {"is_test": {"$ne": True}, "founder_number": {"$type": "number"}}},
+        {"$group": {"_id": "$founder_number", "n": {"$sum": 1}}},
+        {"$match": {"n": {"$gt": 1}}},
+    ]).to_list(1000)
+    top = await db.interest_registrations.find_one(
+        {"is_test": {"$ne": True}, "founder_number": {"$type": "number"}},
+        {"_id": 0, "founder_number": 1}, sort=[("founder_number", -1)],
+    )
+    max_num = int((top or {}).get("founder_number") or 0)
+    counter = await db.counters.find_one({"id": server._FOUNDER_NUMBER_COUNTER_ID}, {"_id": 0, "value": 1})
+    counter_val = int((counter or {}).get("value") or 0)
+    next_new = (still_avail[0] if still_avail else counter_val + 1)
+    return {
+        "numberless_remaining": remaining,
+        "numberless_remaining_ok": remaining == 0,
+        "reserved_slots_consumed": slots_consumed,
+        "reserved_slots_still_available": still_avail,
+        "reserved_slots_consumed_ok": slots_ok,
+        "duplicate_founder_numbers": [{"number": d["_id"], "count": d["n"]} for d in dupes],
+        "duplicate_founder_numbers_ok": not dupes,
+        "highest_founder_number": max_num,
+        "counter": counter_val,
+        "next_new_allocation": next_new,
+        "next_new_allocation_display": server._fmt_founder_no(next_new),
+        "next_is_128": next_new == 128,
+    }
+
+
+async def run_exact_backfill(db, apply: bool, send_email: bool = True) -> dict:
+    """Guarded, idempotent, name-anchored backfill for exactly the seven
+    approved registrations. Used by the deployed admin endpoint AND the CLI.
+
+    Validation is ALL-OR-NOTHING: if any target is missing/ambiguous, already
+    owns a different number, or its slot/number is already taken by someone
+    else, NOTHING is changed and the errors are returned. If every target
+    already owns its approved number (a second run), it changes nothing and
+    reports each as 'already done'.
+    """
+    rows = await _numberless_real_rows(db)
+    # Index every registration by number-ownership for conflict checks.
+    def _match_one(token: str) -> list[dict]:
+        return [r for r in rows if token in _display_name(r).lower()]
+
+    plan: list[dict] = []      # {token, number, reg, action}
+    errors: list[str] = []
+
+    for token, number in APPROVED_MAPPING:
+        # Who (if anyone) already owns this number?
+        owner = await db.interest_registrations.find_one(
+            {"founder_number": number, "is_test": {"$ne": True}},
+            {"_id": 0, "id": 1, "first_name": 1, "last_name": 1, "email": 1},
+        )
+        matches = _match_one(token)
+        if owner:
+            # Idempotent case: the correct person already owns it.
+            if token in _display_name(owner).lower():
+                plan.append({"token": token, "number": number, "reg": owner, "action": "already_done"})
+                continue
+            errors.append(f"#{number:04d} is already owned by '{_display_name(owner)}' — refusing (would duplicate for '{token}').")
+            continue
+        if len(matches) == 0:
+            errors.append(f"no numberless registration found matching '{token}' for #{number:04d}.")
+            continue
+        if len(matches) > 1:
+            errors.append(f"ambiguous: {len(matches)} numberless registrations match '{token}' — refusing.")
+            continue
+        reg = matches[0]
+        cur = reg.get("founder_number")
+        if isinstance(cur, int) and cur > 0 and cur != number:
+            errors.append(f"'{token}' already owns #{cur:04d}; approved is #{number:04d} — refusing (never renumber).")
+            continue
+        # Slot must be available (or already consumed — only acceptable when the
+        # person already owns the number, handled by the owner branch above).
+        avail = await _available_reserved_slots(db)
+        if number not in avail:
+            errors.append(f"reserved slot #{number:04d} is not available — refusing.")
+            continue
+        plan.append({"token": token, "number": number, "reg": reg, "action": "assign"})
+
+    ok = not errors
+    planned_view = [{
+        "name": _display_name(p["reg"]), "email": (p["reg"].get("email") or ""),
+        "number": p["number"], "number_display": server._fmt_founder_no(p["number"]),
+        "action": p["action"],
+    } for p in plan]
+
+    if not apply or not ok:
+        return {
+            "mode": "dry-run" if not apply else "aborted",
+            "ok": ok,
+            "errors": errors,
+            "planned": planned_view,
+            "note": ("Pre-flight only — re-call with dry_run=false to apply." if ok
+                     else "Refused: validation errors above; nothing was changed."),
+        }
+
+    # ── APPLY (all-or-nothing validation already passed) ──
+    results: list[dict] = []
+    for p in plan:
+        reg = p["reg"]; number = p["number"]; reg_id = reg.get("id")
+        name = _display_name(reg)
+        first_name = (reg.get("first_name") or "").strip() or "Friend"
+        email = (reg.get("email") or "").strip().lower()
+        companion = reg.get("companion_choice")
+
+        if p["action"] == "already_done":
+            fresh = await db.interest_registrations.find_one({"id": reg_id}, {"_id": 0}) or reg
+            email_status = "email already sent" if await _ack_already_sent(db, fresh) else "email not previously sent"
+            results.append({"name": name, "number": number, "number_display": server._fmt_founder_no(number),
+                            "email_status": email_status, "action": "already_done"})
+            continue
+
+        # 1) Consume the SPECIFIC reserved slot.
+        consumed = await _consume_specific_slot(db, number)
+        if consumed != 1:
+            results.append({"name": name, "number": number, "number_display": server._fmt_founder_no(number),
+                            "email_status": "skipped", "action": "slot_unavailable"})
+            continue
+        # 2) Attach the exact number atomically (only if still numberless).
+        now = server.now_iso()
+        res = await db.interest_registrations.update_one(
+            {"id": reg_id, "$or": [{"founder_number": None}, {"founder_number": {"$exists": False}}]},
+            {"$set": {"founder_number": number, "founder_number_locked": True,
+                      "status": "registered", "confirmed_at": reg.get("confirmed_at") or now,
+                      "updated_at": now, "backfill_repaired_at": now, "backfill_repair_tag": REPAIR_TAG}},
+        )
+        if res.matched_count != 1:
+            # Lost the race / already numbered — recycle the slot back.
+            await db[server._FOUNDER_RESERVED_SLOTS_COLL].update_one(
+                {"number": number}, {"$set": {"status": "available"}})
+            results.append({"name": name, "number": number, "number_display": server._fmt_founder_no(number),
+                            "email_status": "skipped", "action": "attach_failed"})
+            continue
+
+        # 3) Ack email once, guarded.
+        fresh = await db.interest_registrations.find_one({"id": reg_id}, {"_id": 0}) or reg
+        if await _ack_already_sent(db, fresh):
+            email_status = "email already sent"
+        elif not send_email:
+            email_status = "email skipped (send_email=false)"
+        elif not email:
+            email_status = "email skipped (no address on file)"
+        else:
+            sent, detail = await _send_ack_email(db, reg_id, first_name, email, companion, number)
+            email_status = "email sent now" if sent else f"email FAILED ({detail})"
+        results.append({"name": name, "number": number, "number_display": server._fmt_founder_no(number),
+                        "email_status": email_status, "action": "assigned"})
+
+    verification = await _verify_after(db)
+    all_ok = (verification["numberless_remaining_ok"] and verification["reserved_slots_consumed_ok"]
+              and verification["duplicate_founder_numbers_ok"] and verification["next_is_128"])
+    return {"mode": "apply", "ok": all_ok, "errors": [], "results": results, "verification": verification}
+
+
 async def main(apply: bool, send_email: bool, force: bool) -> int:
     db = server.db
     mode = "APPLY" if apply else "DRY-RUN"

@@ -5,7 +5,7 @@ notice board, butterfly points/badges, and a seeded sample dataset so the
 prototype feels alive on first launch.
 """
 
-from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Depends, Request, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Query, Depends, Request, UploadFile, File, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
@@ -13832,8 +13832,51 @@ _play_together.register(api, {
     "trivia_questions": TRIVIA_QUESTIONS,
 })
 
-app.include_router(api)
+# ── One-time, secret-gated Founding Member backfill (production repair) ──────
+# Runs from the DEPLOYED backend (which already has production Mongo access) so
+# no external DB connection or Atlas migration is needed. Disabled by default:
+# it only works when FOUNDER_BACKFILL_SECRET is set in the backend environment
+# AND the caller presents the same value in the X-Backfill-Secret header. The
+# repair itself is guarded, name-anchored to exactly seven approved people, and
+# idempotent (a second run changes nothing). See
+# scripts/repair_founder_backfill_20260927.py for the full logic.
+import importlib.util as _il_util  # noqa: E402
 
+_FOUNDER_BACKFILL_SCRIPT = "/app/backend/scripts/repair_founder_backfill_20260927.py"
+
+
+def _load_founder_backfill_module():
+    spec = _il_util.spec_from_file_location("founder_backfill_20260927", _FOUNDER_BACKFILL_SCRIPT)
+    mod = _il_util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _FounderBackfillBody(BaseModel):
+    dry_run: bool = True
+    send_email: bool = True
+
+
+@api.post("/admin/founder-backfill")
+async def admin_founder_backfill(
+    body: _FounderBackfillBody,
+    x_backfill_secret: str = Header(default=""),
+):
+    secret = os.environ.get("FOUNDER_BACKFILL_SECRET", "")
+    if not secret:
+        raise HTTPException(
+            503,
+            "Founder backfill is disabled. Set FOUNDER_BACKFILL_SECRET in the backend "
+            "environment to enable this one-time repair.",
+        )
+    if not x_backfill_secret or x_backfill_secret != secret:
+        raise HTTPException(403, "Invalid or missing X-Backfill-Secret.")
+    mod = _load_founder_backfill_module()
+    return await mod.run_exact_backfill(db, apply=(not body.dry_run), send_email=body.send_email)
+
+
+
+app.include_router(api)
 # Push notifications (Emergent-managed relay). Mounted under /api/.
 from push import router as push_router  # noqa: E402
 app.include_router(push_router, prefix="/api")
