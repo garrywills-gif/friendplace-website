@@ -955,7 +955,7 @@ export type Campaign = {
   // {team, none} so Community/Outreach campaigns can be signed by
   // The FriendPlace Team, and campaigns whose body already contains
   // its own closing can suppress the appended sign-off entirely.
-  companion?: 'george' | 'georgia' | 'team' | 'none';
+  companion?: 'george' | 'georgia' | 'garry' | 'team' | 'none';
   title?: string;
   body_md?: string;
   cta_label?: string;
