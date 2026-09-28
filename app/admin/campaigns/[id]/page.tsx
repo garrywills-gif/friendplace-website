@@ -297,6 +297,7 @@ export default function CampaignDetailPage() {
               campaign.template === 'invitation' ? 'Invitation' : 'Welcome letter'}
             {' · '}signed by {
               campaign.companion === 'team'    ? 'The FriendPlace Team' :
+              campaign.companion === 'garry'   ? 'Garry' :
               campaign.companion === 'georgia' ? 'Georgia' :
               campaign.companion === 'none'    ? 'no additional sign-off' :
                                                  'George'
