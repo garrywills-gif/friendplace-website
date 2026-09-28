@@ -928,6 +928,15 @@ def _letter_signature_html(*, signer: str = "george") -> str:
   <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:rgba(255,255,255,0.72);font-style:italic;">Because you belong too. 🦋</span>
 </p>
 """
+    if signer == "garry":
+        # New campaign signer (iter — garry): the founder's personal sign-off.
+        return """\
+<p style="margin:36px 0 0 0;color:#FFFFFF;">
+  <span style="font-weight:700;color:#FFFFFF;">Garry</span><br>
+  <span style="color:rgba(255,255,255,0.72);">Founder, FriendPlace</span><br>
+  <span style="font-family:Georgia,'Iowan Old Style','Palatino Linotype',Palatino,'Times New Roman',serif;font-size:14px;color:rgba(255,255,255,0.72);font-style:italic;">Because you belong too.</span>
+</p>
+"""
     # Personal signer — proper case for the display name ("Georgia"/"George").
     display = signer.capitalize() if signer else "George"
     return f"""\
@@ -2083,7 +2092,7 @@ def announcement_template(
     #   • "team"               — The FriendPlace Team closing
     #   • "none"               — no closing appended (body owns it)
     signer_norm = str(companion or "george").lower().strip()
-    if signer_norm not in {"george", "georgia", "team", "none"}:
+    if signer_norm not in {"george", "georgia", "team", "garry", "none"}:
         signer_norm = "george"
     is_personal = signer_norm in {"george", "georgia"}
     display = "Georgia" if signer_norm == "georgia" else "George"
@@ -2259,6 +2268,8 @@ def announcement_template(
         closing_signoff = ""
     elif signer_norm == "team":
         closing_signoff = "Warmly,\nThe FriendPlace Team\nBecause you belong too."
+    elif signer_norm == "garry":
+        closing_signoff = "Garry\nFounder, FriendPlace\nBecause you belong too."
     else:
         closing_signoff = f"Warmly,\n{display}\nYour friend at FriendPlace"
     text = (
