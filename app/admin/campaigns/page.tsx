@@ -316,7 +316,7 @@ export default function CampaignsListPage() {
                         c.template === 'announcement' ? 'Founding Member update' :
                         c.template === 'invitation'   ? 'Invitation' :
                         c.template === 'welcome'      ? 'Welcome letter' : c.template}
-                      {' · '}signed by {c.companion === 'georgia' ? 'Georgia' : c.companion === 'team' ? 'The FriendPlace Team' : 'George'}
+                      {' · '}signed by {c.companion === 'georgia' ? 'Georgia' : c.companion === 'garry' ? 'Garry' : c.companion === 'team' ? 'The FriendPlace Team' : c.companion === 'none' ? 'no additional sign-off' : 'George'}
                     </div>
                   </div>
                   <div style={{ flex: '1.2 1 0', minWidth: 0, fontSize: 13, color: '#475569' }}>
