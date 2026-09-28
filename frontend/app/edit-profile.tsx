@@ -48,6 +48,9 @@ export default function ProfileEdit() {
   const [pwConfirm, setPwConfirm] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [showPw, setShowPw] = useState(false);
+  // SEC-001: current password required to confirm an email change (shown
+  // inline only when the email field is actually edited on a password account).
+  const [emailPw, setEmailPw] = useState("");
   const passwordEditable = !isGoogleAccount && !isDemoAccount;
 
   useEffect(() => {
@@ -97,18 +100,31 @@ export default function ProfileEdit() {
       const payload: any = { first_name, suburb, bio, avatar, interests, favourite_games, birthday };
       const currentEmail = ((user as any).email || "").toLowerCase();
       const newEmail = email.trim().toLowerCase();
-      if (!isGoogleAccount && newEmail && newEmail !== currentEmail) payload.email = newEmail;
+      if (!isGoogleAccount && newEmail && newEmail !== currentEmail) {
+        // SEC-001: the backend now requires the current password to change
+        // the email. Ask for it here before sending.
+        if (!emailPw.trim()) {
+          show("Please enter your current password to change your email.");
+          setSaving(false);
+          return;
+        }
+        payload.email = newEmail;
+        payload.current_password = emailPw;
+      }
       const currentUsername = ((user as any).username || "").toLowerCase();
       const newUsername = username.trim().toLowerCase();
       if (!isDemoAccount && newUsername && newUsername !== currentUsername) payload.username = newUsername;
       await api.updateProfile(user.id, payload);
       await api.updatePrivacySettings(user.id, privacy);
       await refresh?.();
+      setEmailPw("");
       show("Profile saved — your changes are live.");
       router.back();
     } catch (e: any) {
       const msg = String(e?.message || "");
-      if (msg.includes("409") && msg.toLowerCase().includes("email")) {
+      if (msg.includes("401") || msg.toLowerCase().includes("re-enter your current password")) {
+        show("That password isn't right. Please re-enter your current password to change your email.");
+      } else if (msg.includes("409") && msg.toLowerCase().includes("email")) {
         show("That email is already used by another account.");
       } else if (msg.includes("409") && msg.toLowerCase().includes("username")) {
         show("That username is already taken — try a different one.");
@@ -273,6 +289,28 @@ export default function ProfileEdit() {
               Used for password reset &amp; important account messages. Never shown publicly.
             </Text>
           )}
+
+          {(!isGoogleAccount && email.trim().toLowerCase() !== ((user as any)?.email || "").toLowerCase() && email.trim()) ? (
+            <>
+              <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 14 * scale, marginTop: 14, marginBottom: 6 }}>
+                Confirm your current password
+              </Text>
+              <TextInput
+                testID="profile-email-password"
+                value={emailPw}
+                onChangeText={setEmailPw}
+                placeholder="Current password"
+                placeholderTextColor={c.muted}
+                secureTextEntry
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.field, { color: c.onSurface, borderColor: c.border, backgroundColor: c.surfaceTertiary, fontSize: 16 * scale }]}
+              />
+              <Text style={{ color: c.muted, fontSize: 12 * scale, marginTop: 6, lineHeight: 16 }}>
+                For your security, please re-enter your password to change your email address.
+              </Text>
+            </>
+          ) : null}
 
           <Text style={{ color: c.onSurface, fontWeight: "700", fontSize: 14 * scale, marginTop: 14, marginBottom: 6 }}>
             Username

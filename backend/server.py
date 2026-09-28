@@ -121,6 +121,19 @@ async def current_admin(me: dict = Depends(current_user)):
     return me
 
 
+async def owner_or_admin(user_id: str, me: dict = Depends(current_user)):
+    """SEC-002 authorization guard for `/users/{user_id}/*` write routes.
+
+    The acting identity is ALWAYS taken from the signed JWT (`current_user`),
+    never from the client-supplied path/body. The write is allowed only when
+    the token owner IS the target user, or the token owner is an admin.
+    `user_id` is the route's path parameter — FastAPI injects it here so the
+    same one-line dependency protects every owner-scoped write."""
+    if me.get("id") != user_id and not me.get("is_admin"):
+        raise HTTPException(403, "You can only change your own account.")
+    return me
+
+
 app = FastAPI(title="FriendPlace API")
 api = APIRouter(prefix="/api")
 
@@ -3380,7 +3393,7 @@ async def _check_invite_milestones(referrer_id: str) -> None:
 
 
 @api.post("/users/{user_id}/block/{other_id}")
-async def block_user(user_id: str, other_id: str):
+async def block_user(user_id: str, other_id: str, me: dict = Depends(owner_or_admin)):
     await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}})
     return {"ok": True}
 
@@ -3532,7 +3545,7 @@ async def mark_notification_read(nid_: str):
 
 
 @api.post("/notifications/{user_id}/read-all")
-async def mark_all_notifications_read(user_id: str):
+async def mark_all_notifications_read(user_id: str, me: dict = Depends(owner_or_admin)):
     await db.notifications.update_many({"user_id": user_id, "read": False}, {"$set": {"read": True}})
     return {"ok": True}
 
@@ -3551,7 +3564,7 @@ async def delete_notification(nid_: str):
 
 
 @api.post("/notifications/{user_id}/clear-read")
-async def clear_read_notifications(user_id: str):
+async def clear_read_notifications(user_id: str, me: dict = Depends(owner_or_admin)):
     res = await db.notifications.delete_many({"user_id": user_id, "read": True})
     return {"ok": True, "deleted": res.deleted_count}
 
@@ -3742,7 +3755,7 @@ async def cancel_request(req_id: str):
 
 
 @api.delete("/friends/{user_id}/{friend_id}")
-async def remove_friend(user_id: str, friend_id: str):
+async def remove_friend(user_id: str, friend_id: str, me: dict = Depends(owner_or_admin)):
     await db.users.update_one({"id": user_id}, {"$pull": {"friends": friend_id}})
     await db.users.update_one({"id": friend_id}, {"$pull": {"friends": user_id}})
     return {"ok": True}
@@ -3754,7 +3767,7 @@ class PrivacyBody(BaseModel):
 
 
 @api.patch("/users/{user_id}/privacy")
-async def set_privacy(user_id: str, body: PrivacyBody):
+async def set_privacy(user_id: str, body: PrivacyBody, me: dict = Depends(owner_or_admin)):
     if body.privacy not in ("everyone", "friends", "invisible"):
         raise HTTPException(400, "Invalid privacy value")
     await db.users.update_one({"id": user_id}, {"$set": {"privacy": body.privacy}})
@@ -3775,10 +3788,13 @@ class ProfileUpdateBody(BaseModel):
     # support-only operation).
     email: Optional[str] = None
     username: Optional[str] = None
+    # SEC-001: required re-authentication when the OWNER changes their email
+    # on a password account (a stolen bearer token alone must not suffice).
+    current_password: Optional[str] = None
 
 
 @api.patch("/users/{user_id}/profile")
-async def update_profile(user_id: str, body: ProfileUpdateBody):
+async def update_profile(user_id: str, body: ProfileUpdateBody, me: dict = Depends(owner_or_admin)):
     update: Dict = {}
     for f in ("first_name", "suburb", "bio", "avatar", "interests", "favourite_games", "birthday"):
         v = getattr(body, f, None)
@@ -3795,9 +3811,20 @@ async def update_profile(user_id: str, body: ProfileUpdateBody):
             raise HTTPException(400, "That email address doesn't look right. Try something like name@example.com")
         if len(email) > 120:
             raise HTTPException(400, "Email is too long")
-        current = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "google_id": 1})
+        current = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1, "google_id": 1, "password_hash": 1})
         if not current:
             raise HTTPException(404, "Account not found")
+        changing_email = email != (current.get("email") or "").lower()
+        # SEC-001: a member changing their OWN email must re-authenticate with
+        # their current password, so a stolen/active session can't quietly
+        # repoint the account (and then hijack it via password reset). Admins
+        # acting on another account are exempt (they never hold the member's
+        # password); OAuth-only accounts with no local password fall back to
+        # the JWT-owner check enforced by `owner_or_admin`.
+        if changing_email and me.get("id") == user_id:
+            pw_hash = current.get("password_hash") or ""
+            if pw_hash and (not body.current_password or not verify_pw(body.current_password, pw_hash)):
+                raise HTTPException(401, "Please re-enter your current password to change your email address.")
         if (current.get("google_id") and email != (current.get("email") or "").lower()):
             raise HTTPException(400, "Your email is managed by Google sign-in and can't be changed here. Sign in with a different Google account if you'd like to switch.")
         clash = await db.users.find_one({"email": email, "id": {"$ne": user_id}}, {"_id": 0, "id": 1})
@@ -3877,7 +3904,7 @@ async def change_password(user_id: str, body: ChangePasswordBody, user=Depends(c
 
 
 @api.patch("/users/{user_id}/privacy-settings")
-async def update_privacy_settings(user_id: str, body: PrivacySettingsBody):
+async def update_privacy_settings(user_id: str, body: PrivacySettingsBody, me: dict = Depends(owner_or_admin)):
     update: Dict = {}
     if body.profile_visibility is not None:
         if body.profile_visibility not in ("everyone", "friends"):
@@ -3896,7 +3923,7 @@ async def update_privacy_settings(user_id: str, body: PrivacySettingsBody):
 
 
 @api.post("/users/{user_id}/onboarding-complete")
-async def onboarding_complete(user_id: str):
+async def onboarding_complete(user_id: str, me: dict = Depends(owner_or_admin)):
     await db.users.update_one({"id": user_id}, {"$set": {"onboarding_completed": True}})
     return {"ok": True}
 
@@ -4084,7 +4111,7 @@ class PreferencesBody(BaseModel):
 
 
 @api.patch("/users/{user_id}/preferences")
-async def update_preferences(user_id: str, body: PreferencesBody):
+async def update_preferences(user_id: str, body: PreferencesBody, me: dict = Depends(owner_or_admin)):
     update: Dict = {}
     if body.read_messages_aloud is not None:
         update["preferences.read_messages_aloud"] = bool(body.read_messages_aloud)
@@ -4226,7 +4253,7 @@ async def _broadcast_new_member(user: Dict):
 
 
 @api.post("/users/{user_id}/heartbeat")
-async def heartbeat(user_id: str):
+async def heartbeat(user_id: str, me: dict = Depends(owner_or_admin)):
     await db.users.update_one({"id": user_id}, {"$set": {"last_seen_at": now_iso()}})
     return {"ok": True}
 
@@ -4358,7 +4385,7 @@ class StatusBody(BaseModel):
 
 
 @api.post("/users/{user_id}/status")
-async def set_user_status(user_id: str, body: StatusBody):
+async def set_user_status(user_id: str, body: StatusBody, me: dict = Depends(owner_or_admin)):
     """Set the user's chosen presence status. Pass `status: null` to clear."""
     val = body.status
     if val is not None and val not in STATUS_LABELS:
@@ -4513,7 +4540,7 @@ def _apply_radius(rows: List[Dict], center: Optional[Tuple[float, float]],
 
 
 @api.post("/users/{user_id}/location")
-async def set_user_location(user_id: str, body: SetLocationBody):
+async def set_user_location(user_id: str, body: SetLocationBody, me: dict = Depends(owner_or_admin)):
     """Set the user's chosen suburb. If `prefer_not_to_say=True`, clears all
     location fields and excludes the user from radius/near-me queries."""
     user = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1})
@@ -4630,7 +4657,7 @@ async def _daily_streak_for(user_id: str) -> int:
 
 
 @api.post("/games/complete/{user_id}")
-async def log_game_completion(user_id: str, body: GameCompletionBody):
+async def log_game_completion(user_id: str, body: GameCompletionBody, me: dict = Depends(owner_or_admin)):
     """Single source-of-truth for finished games. Awards achievements/points
     and broadcasts Achievement Flutters to friends for major wins."""
     # Also opportunistically award the Daily Butterfly Bonus — playing ANY
@@ -4837,7 +4864,7 @@ async def daily_bonus_status(user_id: str):
 
 
 @api.post("/games/daily-bonus/claim/{user_id}")
-async def daily_bonus_claim(user_id: str):
+async def daily_bonus_claim(user_id: str, me: dict = Depends(owner_or_admin)):
     """Explicitly claim today's bonus (used by the Home banner "Claim"
     button). Games call `_award_daily_bonus_if_new` internally when a
     completion is logged, but the button lets curious users trigger it
@@ -4847,7 +4874,7 @@ async def daily_bonus_claim(user_id: str):
 
 
 @api.post("/games/solitaire/award/{user_id}")
-async def solitaire_award(user_id: str, body: SolitaireAwardBody):
+async def solitaire_award(user_id: str, body: SolitaireAwardBody, me: dict = Depends(owner_or_admin)):
     """Award Butterfly Points for a Klondike Solitaire session.
 
     Per the launch spec (June 2026): +2 pts on any completed session
@@ -5010,7 +5037,7 @@ async def wordsearch_daily():
 
 
 @api.post("/games/wordsearch/progress/{user_id}")
-async def wordsearch_save_progress(user_id: str, body: WordSearchProgressBody):
+async def wordsearch_save_progress(user_id: str, body: WordSearchProgressBody, me: dict = Depends(owner_or_admin)):
     """Upsert progress (resume support). Awards points + achievements on first completion."""
     if body.theme not in WS_THEMES:
         raise HTTPException(404, "Unknown theme")
@@ -5111,7 +5138,7 @@ async def memory_daily():
 
 
 @api.post("/games/memory/progress/{user_id}")
-async def memory_save_progress(user_id: str, body: MemoryMatchProgressBody):
+async def memory_save_progress(user_id: str, body: MemoryMatchProgressBody, me: dict = Depends(owner_or_admin)):
     if body.theme not in MM_THEMES:
         raise HTTPException(404, "Unknown theme")
     if body.difficulty not in MM_DIFFS:
@@ -5230,7 +5257,7 @@ async def sudoku_hint(difficulty: str, seed: int, row: int, col: int):
 
 
 @api.post("/games/sudoku/progress/{user_id}")
-async def sudoku_save_progress(user_id: str, body: SudokuProgressBody):
+async def sudoku_save_progress(user_id: str, body: SudokuProgressBody, me: dict = Depends(owner_or_admin)):
     if body.difficulty not in SD_DIFFS:
         raise HTTPException(400, "Unknown difficulty")
     existing = await db.sudoku_progress.find_one({"user_id": user_id, "puzzle_id": body.puzzle_id}, {"_id": 0})
@@ -5391,7 +5418,7 @@ async def spot_daily():
 
 
 @api.post("/games/spot/progress/{user_id}")
-async def spot_save_progress(user_id: str, body: SpotProgressBody):
+async def spot_save_progress(user_id: str, body: SpotProgressBody, me: dict = Depends(owner_or_admin)):
     if body.theme not in STD_THEMES:
         raise HTTPException(404, "Unknown theme")
     if body.difficulty not in STD_DIFFS:
@@ -5538,7 +5565,7 @@ class BirthdayVisibilityBody(BaseModel):
 
 
 @api.post("/users/{user_id}/birthday-visibility")
-async def set_birthday_visibility(user_id: str, body: BirthdayVisibilityBody):
+async def set_birthday_visibility(user_id: str, body: BirthdayVisibilityBody, me: dict = Depends(owner_or_admin)):
     if body.visibility not in ("on", "off"):
         raise HTTPException(400, "visibility must be 'on' or 'off'")
     await db.users.update_one({"id": user_id}, {"$set": {"birthday_visibility": body.visibility}})
@@ -5655,7 +5682,7 @@ async def jigsaw_progress(user_id: str, puzzle_id: str, difficulty: str):
 
 
 @api.put("/games/jigsaw/progress/{user_id}")
-async def jigsaw_save_progress(user_id: str, body: JigsawProgressBody):
+async def jigsaw_save_progress(user_id: str, body: JigsawProgressBody, me: dict = Depends(owner_or_admin)):
     key = {"user_id": user_id, "puzzle_id": body.puzzle_id, "difficulty": body.difficulty}
     existing = await db.jigsaw_progress.find_one(key, {"_id": 0}) or {}
     # already completed? Don't re-award or overwrite the duration.
@@ -5815,7 +5842,7 @@ class TriviaStartBody(BaseModel):
 
 
 @api.post("/games/trivia/session/{user_id}")
-async def trivia_start_session(user_id: str, body: TriviaStartBody):
+async def trivia_start_session(user_id: str, body: TriviaStartBody, me: dict = Depends(owner_or_admin)):
     difficulty = body.difficulty.lower()
     if difficulty not in TRIVIA_DIFFICULTIES:
         raise HTTPException(400, "Invalid difficulty")
@@ -5880,7 +5907,7 @@ class TriviaAnswerBody(BaseModel):
 
 
 @api.post("/games/trivia/session/{user_id}/{session_id}/answer")
-async def trivia_submit_answer(user_id: str, session_id: str, body: TriviaAnswerBody):
+async def trivia_submit_answer(user_id: str, session_id: str, body: TriviaAnswerBody, me: dict = Depends(owner_or_admin)):
     doc = await db.trivia_sessions.find_one({"id": session_id, "user_id": user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Session not found")
@@ -5931,7 +5958,7 @@ async def trivia_submit_answer(user_id: str, session_id: str, body: TriviaAnswer
 
 
 @api.post("/games/trivia/session/{user_id}/{session_id}/complete")
-async def trivia_complete_session(user_id: str, session_id: str):
+async def trivia_complete_session(user_id: str, session_id: str, me: dict = Depends(owner_or_admin)):
     doc = await db.trivia_sessions.find_one({"id": session_id, "user_id": user_id}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Session not found")
@@ -6192,7 +6219,7 @@ class BingoStartBody(BaseModel):
 
 
 @api.post("/games/bingo/session/{user_id}")
-async def bingo_start(user_id: str, body: BingoStartBody):
+async def bingo_start(user_id: str, body: BingoStartBody, me: dict = Depends(owner_or_admin)):
     diff = body.difficulty.lower()
     if diff not in BINGO_DIFFICULTIES:
         raise HTTPException(400, "Invalid difficulty")
@@ -6248,7 +6275,7 @@ class BingoUpdateBody(BaseModel):
 
 
 @api.put("/games/bingo/session/{user_id}/{session_id}")
-async def bingo_update(user_id: str, session_id: str, body: BingoUpdateBody):
+async def bingo_update(user_id: str, session_id: str, body: BingoUpdateBody, me: dict = Depends(owner_or_admin)):
     doc = await db.bingo_sessions.find_one({"id": session_id, "user_id": user_id})
     if not doc or doc.get("completed"):
         raise HTTPException(400, "Cannot update")
@@ -6262,7 +6289,7 @@ async def bingo_update(user_id: str, session_id: str, body: BingoUpdateBody):
 
 
 @api.post("/games/bingo/session/{user_id}/{session_id}/complete")
-async def bingo_complete(user_id: str, session_id: str):
+async def bingo_complete(user_id: str, session_id: str, me: dict = Depends(owner_or_admin)):
     doc = await db.bingo_sessions.find_one({"id": session_id, "user_id": user_id})
     if not doc:
         raise HTTPException(404, "Session not found")
@@ -6563,7 +6590,7 @@ async def get_table(table_id: str):
 
 
 @api.post("/tables/{table_id}/join/{user_id}")
-async def join_table(table_id: str, user_id: str):
+async def join_table(table_id: str, user_id: str, me: dict = Depends(owner_or_admin)):
     t = await db.tables.find_one({"id": table_id}, {"_id": 0})
     if not t:
         raise HTTPException(404, "Table not found")
@@ -6622,7 +6649,7 @@ async def join_table(table_id: str, user_id: str):
 
 
 @api.post("/tables/{table_id}/leave/{user_id}")
-async def leave_table(table_id: str, user_id: str):
+async def leave_table(table_id: str, user_id: str, me: dict = Depends(owner_or_admin)):
     await db.tables.update_one({"id": table_id}, {"$pull": {"seated": user_id}})
     # Presence hook: clear the In-Café marker so the effective status
     # falls back to Online (or whatever manual status is active).
@@ -6820,7 +6847,11 @@ async def admin_reject_group(group_id: str, body: dict | None = None, user=Depen
 
 
 @api.post("/groups/{group_id}/join/{user_id}")
-async def join_group(group_id: str, user_id: str):
+async def join_group(group_id: str, user_id: str, me: dict = Depends(current_user)):
+    # SEC-002: the joiner is the authenticated caller, never a client-supplied
+    # id. Admins may still act on behalf of another member.
+    if me.get("id") != user_id and not me.get("is_admin"):
+        raise HTTPException(403, "You can only join groups as yourself.")
     # Founder-only groups (currently just the Founders Lounge) are
     # protected: non-founders see a friendly 403 with a typed code so the
     # client can show the "Founding Members only" gate copy.
@@ -6848,24 +6879,27 @@ async def group_posts(group_id: str):
 
 
 @api.post("/groups/{group_id}/posts")
-async def create_group_post(group_id: str, body: GroupPost):
+async def create_group_post(group_id: str, body: GroupPost, me: dict = Depends(current_user)):
     data = body.dict()
     data["group_id"] = group_id
+    # SEC-002: author identity comes from the JWT, not the client payload.
+    data["user_id"] = me["id"]
     p = GroupPost(**data)
     await db.group_posts.insert_one(p.dict())
-    await award_points(body.user_id, 4)
+    await award_points(me["id"], 4)
     return p.dict()
 
 
 @api.post("/groups/posts/{post_id}/like/{user_id}")
-async def like_group_post(post_id: str, user_id: str):
+async def like_group_post(post_id: str, user_id: str, me: dict = Depends(owner_or_admin)):
     await db.group_posts.update_one({"id": post_id}, {"$addToSet": {"likes": user_id}})
     return {"ok": True}
 
 
 @api.post("/groups/posts/{post_id}/comment")
-async def comment_group_post(post_id: str, body: dict):
-    comment = {"id": nid(), "user_id": body.get("user_id"), "user_name": body.get("user_name", ""), "text": body.get("text", ""), "created_at": now_iso()}
+async def comment_group_post(post_id: str, body: dict, me: dict = Depends(current_user)):
+    # SEC-002: commenter identity comes from the JWT, not the client payload.
+    comment = {"id": nid(), "user_id": me["id"], "user_name": body.get("user_name", ""), "text": body.get("text", ""), "created_at": now_iso()}
     await db.group_posts.update_one({"id": post_id}, {"$push": {"comments": comment}})
     return comment
 
@@ -8690,7 +8724,7 @@ class RsvpBody(BaseModel):
 
 
 @api.post("/events/{event_id}/rsvp/{user_id}")
-async def rsvp_event(event_id: str, user_id: str, body: Optional[RsvpBody] = None):
+async def rsvp_event(event_id: str, user_id: str, body: Optional[RsvpBody] = None, me: dict = Depends(owner_or_admin)):
     """Three-state RSVP with capacity + waitlist.
 
     Body shape: `{response: "going" | "maybe" | "cant"}`. If omitted (legacy
@@ -8769,7 +8803,7 @@ async def rsvp_event(event_id: str, user_id: str, body: Optional[RsvpBody] = Non
 
 
 @api.post("/events/{event_id}/unrsvp/{user_id}")
-async def unrsvp_event(event_id: str, user_id: str):
+async def unrsvp_event(event_id: str, user_id: str, me: dict = Depends(owner_or_admin)):
     """Remove user from all RSVP lists, then promote waitlist if possible."""
     event = await db.events.find_one({"id": event_id}, {"_id": 0})
     if not event:
@@ -8885,7 +8919,11 @@ async def list_notices(user_id: Optional[str] = None, q: Optional[str] = None, c
 
 
 @api.post("/notices")
-async def create_notice(body: Notice):
+async def create_notice(body: Notice, me: dict = Depends(current_user)):
+    # SEC-002: the author is the authenticated caller. Override any
+    # client-supplied user_id so every downstream check (rate-limit,
+    # restriction gate, moderation, stored author) uses the real identity.
+    body.user_id = me["id"]
     # Anti-spam: cap notice creation to 6 per hour per user. Plenty for any
     # real community contributor, low enough to stop bot/scripted floods.
     rate_limit(f"notice:{body.user_id}", max_calls=6, window_seconds=3600)
@@ -8996,11 +9034,13 @@ async def create_notice(body: Notice):
 
 
 @api.patch("/notices/{notice_id}")
-async def edit_notice(notice_id: str, payload: dict):
+async def edit_notice(notice_id: str, payload: dict, me: dict = Depends(current_user)):
     n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
     if not n:
         raise HTTPException(404, "Not found")
-    if payload.get("user_id") != n.get("user_id"):
+    # SEC-002: authorize against the JWT owner (or admin), never a
+    # client-supplied user_id in the payload.
+    if n.get("user_id") != me.get("id") and not me.get("is_admin"):
         raise HTTPException(403, "Only the author can edit")
     update = {k: payload[k] for k in ("title", "body", "category", "image", "active_from", "active_to") if k in payload}
     # Local Discovery: re-geocode if the author changed the notice's locality.
@@ -9014,18 +9054,20 @@ async def edit_notice(notice_id: str, payload: dict):
 
 
 @api.delete("/notices/{notice_id}")
-async def delete_notice(notice_id: str, user_id: str):
+async def delete_notice(notice_id: str, user_id: str, me: dict = Depends(current_user)):
     n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
     if not n:
         return {"ok": True}
-    if n.get("user_id") != user_id:
+    # SEC-002: authorize against the JWT owner (or admin), never the
+    # client-supplied user_id query param.
+    if n.get("user_id") != me.get("id") and not me.get("is_admin"):
         raise HTTPException(403, "Only the author can delete")
     await db.notices.delete_one({"id": notice_id})
     return {"ok": True}
 
 
 @api.post("/notices/{notice_id}/react/{user_id}")
-async def react_notice(notice_id: str, user_id: str, body: dict):
+async def react_notice(notice_id: str, user_id: str, body: dict, me: dict = Depends(owner_or_admin)):
     """Set / toggle a single reaction per user (no negative reactions)."""
     kind = (body or {}).get("kind", "")
     n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
@@ -9043,9 +9085,9 @@ async def react_notice(notice_id: str, user_id: str, body: dict):
 
 
 @api.post("/notices/{notice_id}/like/{user_id}")
-async def like_notice(notice_id: str, user_id: str):
+async def like_notice(notice_id: str, user_id: str, me: dict = Depends(owner_or_admin)):
     # legacy compat — maps to the "well_done" reaction
-    return await react_notice(notice_id, user_id, {"kind": "well_done"})
+    return await react_notice(notice_id, user_id, {"kind": "well_done"}, me)
 
 
 @api.post("/notices/{notice_id}/comment")
@@ -9099,7 +9141,7 @@ async def reply_notice_comment(notice_id: str, comment_id: str, body: dict):
 
 
 @api.post("/notices/{notice_id}/solve/{user_id}")
-async def solve_notice(notice_id: str, user_id: str, body: Optional[dict] = None):
+async def solve_notice(notice_id: str, user_id: str, body: Optional[dict] = None, me: dict = Depends(owner_or_admin)):
     n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
     if not n:
         raise HTTPException(404, "Not found")
@@ -9111,7 +9153,7 @@ async def solve_notice(notice_id: str, user_id: str, body: Optional[dict] = None
 
 
 @api.post("/notices/{notice_id}/report/{user_id}")
-async def report_notice(notice_id: str, user_id: str, body: dict):
+async def report_notice(notice_id: str, user_id: str, body: dict, me: dict = Depends(owner_or_admin)):
     n = await db.notices.find_one({"id": notice_id}, {"_id": 0})
     if not n:
         raise HTTPException(404, "Not found")
@@ -9121,7 +9163,7 @@ async def report_notice(notice_id: str, user_id: str, body: dict):
 
 
 @api.post("/users/{user_id}/block/{other_id}")
-async def block_user(user_id: str, other_id: str):
+async def block_user(user_id: str, other_id: str, me: dict = Depends(owner_or_admin)):
     if user_id == other_id:
         raise HTTPException(400, "Cannot block yourself")
     await db.users.update_one({"id": user_id}, {"$addToSet": {"blocked": other_id}})
@@ -9129,7 +9171,7 @@ async def block_user(user_id: str, other_id: str):
 
 
 @api.post("/users/{user_id}/unblock/{other_id}")
-async def unblock_user(user_id: str, other_id: str):
+async def unblock_user(user_id: str, other_id: str, me: dict = Depends(owner_or_admin)):
     await db.users.update_one({"id": user_id}, {"$pull": {"blocked": other_id}})
     return {"ok": True}
 
@@ -11845,7 +11887,7 @@ class CrosswordProgressBody(BaseModel):
 
 
 @api.post("/games/crossword/progress/{user_id}")
-async def crossword_save_progress(user_id: str, body: CrosswordProgressBody):
+async def crossword_save_progress(user_id: str, body: CrosswordProgressBody, me: dict = Depends(owner_or_admin)):
     """Persist a single user's in-progress crossword.
 
     One document per (user, puzzle). Idempotent upsert — the play screen
