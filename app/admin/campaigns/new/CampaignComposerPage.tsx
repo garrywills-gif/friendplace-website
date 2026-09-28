@@ -90,9 +90,10 @@ const TEMPLATE_META: Record<Template, {
 // community/outreach; `none` is available for campaigns whose body
 // already contains its own closing (prevents the duplicate-sign-off
 // bug where "Warm regards, The FriendPlace Team" appeared twice).
-type Signer = 'team' | 'george' | 'georgia' | 'none';
+type Signer = 'team' | 'garry' | 'george' | 'georgia' | 'none';
 const SIGNER_OPTIONS: { value: Signer; label: string }[] = [
   { value: 'team',    label: 'The FriendPlace Team' },
+  { value: 'garry',   label: 'Garry' },
   { value: 'george',  label: '🦋 George' },
   { value: 'georgia', label: '🦋 Georgia' },
   { value: 'none',    label: 'No additional sign-off' },
@@ -1410,6 +1411,7 @@ function ConfirmModal({
         <div style={rowLabel}>Signed by</div>
         <div style={rowValue}>{
           companion === 'team'    ? 'The FriendPlace Team' :
+          companion === 'garry'   ? 'Garry' :
           companion === 'georgia' ? 'Georgia' :
           companion === 'none'    ? 'No additional sign-off' :
                                     'George'
