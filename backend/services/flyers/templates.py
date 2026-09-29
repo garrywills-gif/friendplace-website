@@ -175,9 +175,27 @@ async def seed_flyer_templates(db) -> Dict[str, int]:
     coll = db[COLL_FLYER_TEMPLATES]
     seeded, skipped = 0, 0
     for tpl in _SEED_TEMPLATES:
-        existing = await coll.find_one({"key": tpl["key"]}, {"_id": 0, "key": 1})
+        existing = await coll.find_one({"key": tpl["key"]}, {"_id": 0, "key": 1, "fields": 1})
         if existing:
             skipped += 1
+            # iter207 migration: older DB docs of the founding-member poster
+            # only declared venue+url, so draft_flyer stripped headline /
+            # supporting_text / show_founding_member and every poster used the
+            # default copy. Backfill the newly-declared editable fields onto
+            # the existing doc (idempotent — only adds keys it's missing).
+            try:
+                have = {f.get("key") for f in (existing.get("fields") or []) if isinstance(f, dict)}
+                want = tpl.get("fields") or []
+                missing = [f for f in want if f.get("key") and f["key"] not in have]
+                if missing:
+                    await coll.update_one(
+                        {"key": tpl["key"]},
+                        {"$set": {"fields": (existing.get("fields") or []) + missing,
+                                  "updated_at": _iso_now()}},
+                    )
+                    logger.info("flyer template fields backfilled: %s (+%d)", tpl["key"], len(missing))
+            except Exception:
+                logger.exception("flyer field backfill failed for %s", tpl.get("key"))
             continue
         doc = {
             **tpl,
@@ -256,7 +274,20 @@ _SEED_TEMPLATES: List[Dict[str, Any]] = [
             {"key": "admin_id", "label": "Sharing admin ID", "type": "hidden", "required": True},
             {"key": "venue", "label": "Venue or host name", "type": "text", "required": False,
              "help": "Printed along the bottom as 'Posted by …'"},
-            {"key": "url", "label": "Referral URL", "type": "hidden", "required": False},
+            {"key": "url", "label": "QR destination URL", "type": "url", "required": False,
+             "help": "Where the QR code sends scanners. Defaults to https://friendplace.com.au?ref=<admin>"},
+            # iter207 (Garry, 28 Sep 2026): the FOUNDING engine already
+            # renders these, but they weren't declared here — so draft_flyer
+            # silently dropped them and every poster fell back to the default
+            # "FIND YOUR PEOPLE" copy. Declaring them lets a requested
+            # headline / supporting line actually reach the saved draft.
+            {"key": "headline", "label": "Headline", "type": "text", "required": False,
+             "help": "Big line at the top. Defaults to 'FIND YOUR PEOPLE.'"},
+            {"key": "supporting_text", "label": "Supporting text", "type": "textarea", "required": False,
+             "help": "Short line under the headline."},
+            {"key": "show_founding_member", "label": "Show Founding Member ribbon", "type": "select",
+             "required": False, "options": ["true", "false"],
+             "help": "Set to false for a pre-launch 'Register your interest' poster."},
         ],
         # Which of the layout registry's outputs this template supports.
         # Every layout in `registry.LAYOUTS` is valid here — but a template
