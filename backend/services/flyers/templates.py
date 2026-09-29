@@ -113,7 +113,7 @@ _SEED_TEMPLATES: List[Dict[str, Any]] = [
         "fields": [
             {"key": "admin_id", "label": "Sharing admin ID", "type": "hidden", "required": True},
             {"key": "venue", "label": "Venue or host name", "type": "text", "required": False,
-             "help": "Printed along the bottom as 'Posted by …'"},
+             "help": "Printed along the bottom (name only)"},
             {"key": "url", "label": "QR destination URL", "type": "url", "required": False,
              "help": "Defaults to https://friendplace.com.au?ref=<admin>"},
         ],
@@ -273,7 +273,7 @@ _SEED_TEMPLATES: List[Dict[str, Any]] = [
         "fields": [
             {"key": "admin_id", "label": "Sharing admin ID", "type": "hidden", "required": True},
             {"key": "venue", "label": "Venue or host name", "type": "text", "required": False,
-             "help": "Printed along the bottom as 'Posted by …'"},
+             "help": "Printed along the bottom (name only)"},
             {"key": "url", "label": "QR destination URL", "type": "url", "required": False,
              "help": "Where the QR code sends scanners. Defaults to https://friendplace.com.au?ref=<admin>"},
             # iter207 (Garry, 28 Sep 2026): the FOUNDING engine already

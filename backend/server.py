@@ -8312,6 +8312,12 @@ async def admin_invite_flyer(
     d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14],
                 outline=NAVY, width=4)
 
+    # Venue / host credit — tucked into the gap between the ribbon and the
+    # QR frame, far from the CTA stack so it can't overlap the QR outline
+    # or the "SCAN TO REGISTER" line. Shows the name only (no "Posted by").
+    if venue:
+        centre(venue, RIBBON_BOTTOM + 8, font(18, bold=False), SLATE)
+
     # ─── CTA stack ────────────────────────────────────────────────────────
     # Layout budget from qr_y+qr_size onward:
     #   +22px gap → SCAN TO REGISTER (~78pt / 82px)
