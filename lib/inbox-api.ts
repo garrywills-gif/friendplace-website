@@ -94,6 +94,39 @@ function canonicalMessage(message: InboxMessage): InboxMessage {
   };
 }
 
+export type InboxReplyAttachment = {
+  filename: string;
+  content_type: string;
+  size: number;
+  content_b64: string;
+};
+
+async function uploadReplyAttachment(file: File): Promise<InboxReplyAttachment> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetchWithRetry(`${API_BASE}/api/cms/email/attachments`, {
+    method: 'POST',
+    headers,
+    cache: 'no-store',
+    body: fd,
+  });
+  if (res.status === 401) {
+    clearAuth();
+    throw new Error('Your session has expired. Please sign in again.');
+  }
+  const text = await res.text();
+  let json: any = {};
+  try { json = text ? JSON.parse(text) : {}; } catch { json = { detail: text }; }
+  if (!res.ok) {
+    const msg = json?.detail || json?.error || `Upload failed (${res.status})`;
+    throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+  }
+  return json as InboxReplyAttachment;
+}
+
 export const inboxApi = {
   mailboxes: () => req<{ mailboxes: Mailbox[] }>('GET', '/cms/email/mailboxes'),
   addMailbox: (address: string, label?: string) =>
@@ -131,9 +164,10 @@ export const inboxApi = {
     req<InboxMessage>('POST', `/cms/email/messages/${encodeURIComponent(id)}/archive`),
   restore: (id: string) =>
     req<InboxMessage>('POST', `/cms/email/messages/${encodeURIComponent(id)}/restore`),
-  reply: (id: string, body: { body_text: string; body_html?: string; subject?: string }) =>
+  reply: (id: string, body: { body_text: string; body_html?: string; subject?: string; from_mailbox?: string; attachments?: Array<{ filename: string; content_b64: string; content_type?: string }> }) =>
     req<{ ok: true; message_id: string; from: string; reply: InboxMessage }>('POST', `/cms/email/messages/${encodeURIComponent(id)}/reply`, body),
-  replyPreview: (id: string, body: { body_text: string; body_html?: string; subject?: string }) =>
+  uploadAttachment: (file: File) => uploadReplyAttachment(file),
+  replyPreview: (id: string, body: { body_text: string; body_html?: string; subject?: string; from_mailbox?: string }) =>
     req<{ preview: true; subject: string; from_email: string; to_email: string; html: string; text: string }>(
       'POST', `/cms/email/messages/${encodeURIComponent(id)}/reply-preview`, body),
   listSent: async (opts?: { mailbox?: string; limit?: number }) => {
