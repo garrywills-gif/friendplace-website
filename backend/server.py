@@ -8282,14 +8282,34 @@ async def admin_invite_flyer(
         except Exception:
             pass
 
-    # ─── QR code — sized to still scan easily from ~1.5m away while
-    # leaving room for the CTA + tagline within the A4 page height. The
-    # QR sits DIRECTLY BELOW the founding-member ribbon rather than at a
-    # hardcoded y, so however tall the ribbon ends up we can never
-    # overlap it (the earlier hardcoded qr_y=960 clashed with the ribbon
-    # bottom at y≈1047). We also fell back to sane defaults if the
-    # ribbon was hidden.
-    RIBBON_BOTTOM = ribbon_bottom_y
+    # ─── Lower block: venue credit + QR + CTA + tagline ───────────────────
+    # This whole block is treated as one unit and VERTICALLY CENTRED in the
+    # space between the icon/ribbon zone and the bottom page margin. That
+    # keeps the poster balanced (no top-heavy bunching with dead space at
+    # the foot) whether or not the Founding Member ribbon is shown, and
+    # gives the venue credit clear air above the QR instead of colliding
+    # with the two-line icon labels above it.
+    QR_PAD = 14  # navy outline padding around the QR
+    VENUE_H = 34 if venue else 0
+    VENUE_GAP = 22 if venue else 0
+    CTA_GAP = 34
+    CTA_H = 82
+    TAG_GAP = 26
+    TAG_H = 44
+
+    # Top of the available band: clear the two-line icon labels (which end
+    # ≈ LABEL_Y + 82) or the ribbon bottom, whichever is lower.
+    labels_bottom = LABEL_Y + 92
+    block_top = max(ribbon_bottom_y, labels_bottom)
+    BOTTOM_MARGIN = 70
+    avail = (H - BOTTOM_MARGIN) - block_top
+
+    # Size the QR to the space we actually have: 520px is ideal (3.5"
+    # printed) but when the ribbon is showing the band is tighter, so we
+    # shrink toward a 360px floor (still ~2.4" — comfortably scannable).
+    fixed_h = VENUE_H + VENUE_GAP + 2 * QR_PAD + CTA_GAP + CTA_H + TAG_GAP + TAG_H
+    qr_size = max(360, min(520, avail - fixed_h))
+
     qr = qrcode.QRCode(
         version=None,
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -8298,38 +8318,29 @@ async def admin_invite_flyer(
     qr.add_data(target_url)
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color=INK, back_color="#FFFFFF").convert("RGB")
-    # 520px @ 150 dpi = 3.5" printed — well above the ~1" minimum for a
-    # phone camera to lock on at reading distance, and small enough to
-    # leave headroom for the CTA + tagline below without clipping the
-    # bottom of the page.
-    qr_size = 520
     qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
     qr_x = (W - qr_size) // 2
-    # 30px gap between the ribbon and the QR frame so they don't visually
-    # touch.
-    qr_y = RIBBON_BOTTOM + 46
+
+    block_h = fixed_h + qr_size
+    top_pad = max(24, (avail - block_h) // 2)
+    cursor = block_top + top_pad
+
+    # Venue / host credit — its own line, centred, readable (no "Posted by").
+    if venue:
+        centre(venue, cursor, font(28, bold=True), SLATE)
+        cursor += VENUE_H + VENUE_GAP
+
+    qr_y = cursor + QR_PAD
     img.paste(qr_img, (qr_x, qr_y))
-    d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14],
+    d.rectangle([qr_x - QR_PAD, qr_y - QR_PAD,
+                 qr_x + qr_size + QR_PAD, qr_y + qr_size + QR_PAD],
                 outline=NAVY, width=4)
 
-    # Venue / host credit — tucked into the gap between the ribbon and the
-    # QR frame, far from the CTA stack so it can't overlap the QR outline
-    # or the "SCAN TO REGISTER" line. Shows the name only (no "Posted by").
-    if venue:
-        centre(venue, RIBBON_BOTTOM + 8, font(18, bold=False), SLATE)
-
-    # ─── CTA stack ────────────────────────────────────────────────────────
-    # Layout budget from qr_y+qr_size onward:
-    #   +22px gap → SCAN TO REGISTER (~78pt / 82px)
-    #   +82px → Because You Belong Too. (~34pt / 42px)
-    # Total: ~146px trailing content. Page height 1754, so we need
-    # qr_y + qr_size ≤ ~1580. With qr_y ≈ 1077 and qr_size = 520 we sit
-    # at 1597 — leaving 157px for the CTA + tagline which fits neatly.
-    cta_y = qr_y + qr_size + 22
+    cta_y = qr_y + qr_size + QR_PAD + CTA_GAP
     fit_centred("SCAN TO REGISTER", cta_y, W - 2 * SIDE,
                 start_size=72, min_size=56, fill=NAVY, bold=True,
                 condensed=True)
-    centre("Because You Belong Too.", cta_y + 78, font(30, italic=True), TEAL)
+    centre("Because You Belong Too.", cta_y + CTA_H, font(30, italic=True), TEAL)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
