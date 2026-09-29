@@ -36,7 +36,12 @@ function fmt(dt?: string) {
 
 function brandReplyHtml(html: string) {
   if (!html) return '';
-  const branded = html.replace(
+  const cleaned = html
+    .replace(/\scolor\s*:\s*[^;"']+;?/gi, '')
+    .replace(/\sbackground(?:-color)?\s*:\s*[^;"']+;?/gi, '')
+    .replace(/\sbgcolor=(["'])[^"']*\1/gi, '')
+    .replace(/\scolor=(["'])[^"']*\1/gi, '');
+  const branded = cleaned.replace(
     /Because you belong too\./g,
     '<span style="color:#FFFFFF;font-weight:700;">Because you belong too.</span>',
   );
@@ -602,6 +607,10 @@ function InboxPanel() {
                   Reply will be sent from {fromMailbox || selected.mailbox}
                 </div>
 
+                <style>{`
+                  .reply-rich-editor, .reply-rich-editor * { color: #FFFFFF !important; }
+                  .reply-rich-editor a { color: #BFE9FF !important; }
+                `}</style>
                 <div style={replyToolbar}>
                   <button type="button" onClick={() => applyReplyFormat('bold')} style={formatBtn} title="Bold"><strong>B</strong></button>
                   <button type="button" onClick={() => applyReplyFormat('italic')} style={formatBtn} title="Italic"><em>I</em></button>
@@ -610,6 +619,7 @@ function InboxPanel() {
                 </div>
                 <div
                   ref={replyEditorRef}
+                  className="reply-rich-editor"
                   contentEditable
                   suppressContentEditableWarning
                   data-placeholder="Write your reply…"
