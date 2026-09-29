@@ -158,6 +158,14 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const ctx: AudioContext = new AudioCtx();
       audioCtxRef.current = ctx;
+      // iter207 (Garry, 28 Sep 2026 — "first voice attempt not transcribed
+      // on iOS"): on iOS Safari / WKWebView a freshly-created AudioContext
+      // starts *suspended*. MediaRecorder still captures real audio, but the
+      // analyser below reads flat silence — so `hadSpeech` never flips, the
+      // 3s silence-timer fires falsely, and the good "George" blob is thrown
+      // away as "no speech detected". We MUST resume it here, inside the tap
+      // gesture, so the level meter + silence detection actually see audio.
+      try { if (ctx.state === 'suspended') await ctx.resume(); } catch { /* non-fatal */ }
       const source = ctx.createMediaStreamSource(stream);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 512;
@@ -284,7 +292,15 @@ export function useVoiceRecorder(opts: UseVoiceRecorderOptions = {}): VoiceRecor
         // — uploading it to Whisper produces a hallucinated phrase
         // (e.g. Korean "Thank you for watching"). Return null so the
         // caller shows "no speech detected" and never touches the input.
-        if (!hadSpeechRef.current) {
+        //
+        // iter207 belt-and-braces: only apply this gate when the analyser
+        // actually produced a signal (peakRms > 0). A peak of exactly 0
+        // means the AudioContext never ran (suspended on iOS despite the
+        // resume() above) — in that case we have NO reliable speech signal,
+        // so we must NOT discard what MediaRecorder captured; upload it and
+        // let Whisper decide. This prevents a genuine "George" from being
+        // silently dropped on the first iOS attempt.
+        if (!hadSpeechRef.current && peakRmsRef.current > 0) {
           resolver?.(null);
           return;
         }

@@ -417,6 +417,26 @@ def extract_action_previews(text: str) -> tuple[str, list[dict]]:
         if close_match:
             post_start = close_match.end()
         out_parts.append(pre)
+        # iter207 (Garry, 28 Sep 2026 — "there's no link to it"): when the
+        # block is an illustrative flyer draft Claude hand-wrote (rather than
+        # a real draft_flyer tool result), it still carries the destination
+        # the admin needs. Rather than suppress it (the old behaviour left the
+        # admin with prose and NO way to open the flyer), convert it into a
+        # lightweight `flyer_link` card the sheet renders as an "Open in Flyer
+        # Publishing Centre" button. Canonical tool results (kind ==
+        # action_preview) pass through untouched.
+        if obj.get("kind") != "action_preview" and obj.get("type") in ("draft_flyer", "flyer_draft"):
+            _action = obj.get("action") if isinstance(obj.get("action"), dict) else {}
+            _dest = (_action.get("destination") or "/admin/flyers").strip() or "/admin/flyers"
+            _label = (_action.get("label") or "Open in Flyer Publishing Centre").strip()
+            _tname = obj.get("template_name") or obj.get("template_key") or "your flyer"
+            obj = {
+                "kind": "action_preview",
+                "action_type": "flyer_link",
+                "label": _label,
+                "destination": _dest,
+                "template_name": _tname,
+            }
         previews.append(obj)
         i = post_start
 

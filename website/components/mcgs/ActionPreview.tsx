@@ -10,7 +10,7 @@ const BASE = API_BASE;
 
 export interface ActionPreviewPayload {
   kind: 'action_preview';
-  action_type: 'ticket_reply' | 'submission_decision' | 'flyer_draft';
+  action_type: 'ticket_reply' | 'submission_decision' | 'flyer_draft' | 'flyer_link';
   target: { kind: string; id: string };
   what: string;
   why: string;
@@ -23,6 +23,12 @@ export interface ActionPreviewPayload {
   generated_at?: string;
   generated_by?: { kind: string; model: string };
   error?: string;
+  // flyer_link (lightweight): a plain "open this flyer" button George
+  // surfaces when he sets up / references a flyer. `destination` is an
+  // in-app admin route (e.g. /admin/flyers).
+  label?: string;
+  destination?: string;
+  template_name?: string;
   flyer?: {
   template_key: string;
   template_name: string;
@@ -63,13 +69,35 @@ export function ActionPreview({ preview, onResolved }: ActionPreviewProps) {
   const KNOWN_ACTION_TYPES: Array<ActionPreviewPayload['action_type']> = [
     'ticket_reply',
     'submission_decision',
- 'flyer_draft',  ];
+ 'flyer_draft',
+ 'flyer_link',  ];
   if (!preview || !KNOWN_ACTION_TYPES.includes(preview.action_type)) {
     if (typeof console !== 'undefined') {
       // eslint-disable-next-line no-console
       console.debug('[ActionPreview] suppressed non-action tool payload', preview?.action_type);
     }
     return null;
+  }
+
+  // flyer_link — a lightweight "open the flyer" button. No draft/what/why,
+  // no confirm gate: it just navigates the admin to the flyer's page in the
+  // Publishing Centre so they always have the link George promised. Rendered
+  // BEFORE the state hooks/empty-card guard below (which would otherwise
+  // suppress it for having no draft text). (Garry, 28 Sep 2026.)
+  if (preview.action_type === 'flyer_link') {
+    const dest = preview.destination || '/admin/flyers';
+    const label = preview.label || 'Open in Flyer Publishing Centre';
+    return (
+      <button
+        type="button"
+        onClick={() => router.push(dest)}
+        style={flyerLinkBtn}
+        aria-label={label}
+      >
+        <GeorgeButterflyMark size={16} />
+        <span style={{ marginLeft: 8 }}>{label}</span>
+      </button>
+    );
   }
   // A minimally-populated preview (no draft, no what, no why) is also
   // treated as a read-only echo — the LLM will already have summarised
@@ -285,6 +313,13 @@ const card: React.CSSProperties = {
   marginTop: 12,
   background: '#FFFBEB', border: '1px solid #FEF3C7', borderLeft: '4px solid #F59E0B',
   borderRadius: 12, padding: 16,
+};
+const flyerLinkBtn: React.CSSProperties = {
+  marginTop: 10,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  background: '#0F766E', color: '#FFFFFF', border: 'none',
+  borderRadius: 10, padding: '10px 16px',
+  fontSize: 15, fontWeight: 700, cursor: 'pointer',
 };
 const header: React.CSSProperties = { display: 'flex', gap: 10, alignItems: 'flex-start' };
 const fieldLabel: React.CSSProperties = {
