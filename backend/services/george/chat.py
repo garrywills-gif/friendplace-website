@@ -324,11 +324,12 @@ def has_unclosed_tool_call(text: str) -> bool:
 # Kept module-level so unit tests can drive it directly.
 
 _ACTION_PREVIEW_MARKER_RE = re.compile(
-    r'"kind"\s*:\s*"action_preview"',
+    r'"kind"\s*:\s*"action_preview"'
+    r'|"type"\s*:\s*"(?:draft_flyer|flyer_draft|action_preview)"',
     re.IGNORECASE,
 )
 _TRAILING_FENCE_OPEN_RE = re.compile(
-    r"```(?:json|JSON)?\s*\n?\s*$",
+    r"```(?:json|JSON|action_preview|ACTION_PREVIEW)?\s*\n?\s*$",
 )
 _LEADING_FENCE_CLOSE_RE = re.compile(
     r"\s*```\s*",
@@ -364,7 +365,11 @@ def extract_action_previews(text: str) -> tuple[str, list[dict]]:
     ordinary code blocks the admin actually wants to see (SQL, YAML,
     example config, etc.) pass through unchanged.
     """
-    if not text or '"action_preview"' not in text:
+    if not text or (
+        "action_preview" not in text
+        and '"draft_flyer"' not in text
+        and '"flyer_draft"' not in text
+    ):
         return text, []
 
     decoder = json.JSONDecoder()
@@ -390,7 +395,16 @@ def extract_action_previews(text: str) -> tuple[str, list[dict]]:
             out_parts.append(text[i:brace_idx + 1])
             i = brace_idx + 1
             continue
-        if not (isinstance(obj, dict) and obj.get("kind") == "action_preview"):
+        # Accept the canonical Action Preview shape (kind == action_preview)
+        # AND illustrative flyer blocks Claude sometimes hand-writes inside a
+        # ```action_preview fence (type == draft_flyer / flyer_draft). All are
+        # noise the admin should never see as raw JSON. (Garry, 28 Sep 2026 —
+        # "I don't want the action_preview commentary, just the link".)
+        _is_preview = isinstance(obj, dict) and (
+            obj.get("kind") == "action_preview"
+            or obj.get("type") in ("draft_flyer", "flyer_draft", "action_preview")
+        )
+        if not _is_preview:
             out_parts.append(text[i:brace_idx + 1])
             i = brace_idx + 1
             continue
