@@ -11,7 +11,7 @@
  * section: unread badge, open/read, mark read/unread, archive, reply.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminShell, adminStyles as s } from '@/components/admin/AdminShell';
 import {
   inboxApi,
@@ -62,6 +62,8 @@ function InboxPanel() {
   const [selected, setSelected] = useState<InboxMessage | null>(null);
   const [thread, setThread] = useState<InboxMessage[]>([]);
   const [replyText, setReplyText] = useState('');
+  const [replyHtml, setReplyHtml] = useState('');
+  const replyEditorRef = useRef<HTMLDivElement | null>(null);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -199,6 +201,8 @@ function InboxPanel() {
   const openMessage = async (m: InboxMessage) => {
     setNotice(null);
     setReplyText('');
+    setReplyHtml('');
+    if (replyEditorRef.current) replyEditorRef.current.innerHTML = '';
     setAttachments([]);
 
     // Optimistic unread update: the counters react at click-time instead of
@@ -275,6 +279,7 @@ function InboxPanel() {
     try {
       const res = await inboxApi.reply(selected.id, {
         body_text: replyText.trim(),
+        body_html: replyHtml.trim() || undefined,
         from_mailbox: fromMailbox || undefined,
         attachments: attachments.map((a) => ({
           filename: a.filename,
@@ -285,6 +290,8 @@ function InboxPanel() {
       const fromMbox = res.from || fromMailbox || selected.mailbox;
       setNotice(`✓ Reply sent from ${fromMbox}`);
       setReplyText('');
+      setReplyHtml('');
+      if (replyEditorRef.current) replyEditorRef.current.innerHTML = '';
       setPreview(null);
       setAttachments([]);
       const r = await inboxApi.get(selected.id);
@@ -317,6 +324,7 @@ function InboxPanel() {
     try {
       const p = await inboxApi.replyPreview(selected.id, {
         body_text: replyText.trim(),
+        body_html: replyHtml.trim() || undefined,
         from_mailbox: fromMailbox || undefined,
       });
       setPreview({ subject: p.subject, from_email: p.from_email, to_email: p.to_email, html: p.html });
@@ -344,8 +352,19 @@ function InboxPanel() {
   };
 
   const openSent = (m: InboxMessage) => {
-    setNotice(null); setPreview(null); setReplyText(''); setAttachments([]);
+    setNotice(null); setPreview(null); setReplyText(''); setReplyHtml(''); setAttachments([]);
+    if (replyEditorRef.current) replyEditorRef.current.innerHTML = '';
     setSelected(m); setThread([]);
+  };
+
+  const applyReplyFormat = (command: 'bold' | 'italic' | 'underline' | 'insertUnorderedList') => {
+    replyEditorRef.current?.focus();
+    document.execCommand(command, false);
+    const html = replyEditorRef.current?.innerHTML || '';
+    const textValue = replyEditorRef.current?.innerText || '';
+    setReplyHtml(html);
+    setReplyText(textValue);
+    setPreview(null);
   };
 
   const addMailbox = async () => {
@@ -574,8 +593,33 @@ function InboxPanel() {
                   Reply will be sent from {fromMailbox || selected.mailbox}
                 </div>
 
-                <textarea value={replyText} onChange={(e) => { setReplyText(e.target.value); setPreview(null); }}
-                  placeholder="Write your reply…" style={{ ...(s.textarea as React.CSSProperties), minHeight: 120 }} />
+                <div style={replyToolbar}>
+                  <button type="button" onClick={() => applyReplyFormat('bold')} style={formatBtn} title="Bold"><strong>B</strong></button>
+                  <button type="button" onClick={() => applyReplyFormat('italic')} style={formatBtn} title="Italic"><em>I</em></button>
+                  <button type="button" onClick={() => applyReplyFormat('underline')} style={formatBtn} title="Underline"><u>U</u></button>
+                  <button type="button" onClick={() => applyReplyFormat('insertUnorderedList')} style={formatBtn} title="Bullets">• List</button>
+                </div>
+                <div
+                  ref={replyEditorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  data-placeholder="Write your reply…"
+                  onInput={(e) => {
+                    const el = e.currentTarget;
+                    setReplyHtml(el.innerHTML);
+                    setReplyText(el.innerText);
+                    setPreview(null);
+                  }}
+                  onPaste={() => setTimeout(() => {
+                    const el = replyEditorRef.current;
+                    if (!el) return;
+                    setReplyHtml(el.innerHTML);
+                    setReplyText(el.innerText);
+                    setPreview(null);
+                  }, 0)}
+                  style={replyEditorStyle}
+                  aria-label="Reply message"
+                />
 
                 {/* PDF attachments */}
                 <div style={{ marginTop: 10 }}>
@@ -823,6 +867,9 @@ const listRow: React.CSSProperties = { display: 'block', width: '100%', textAlig
 const unreadDot: React.CSSProperties = { width: 8, height: 8, borderRadius: 999, background: '#14B8A6', flexShrink: 0 };
 const toChip: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#0F766E', background: '#F0FDFA', border: '1px solid #99F6E4', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' };
 const ghostSmall: React.CSSProperties = { padding: '7px 12px', borderRadius: 10, border: '1.5px solid #CBD5E1', background: '#FFFFFF', color: '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
+const replyToolbar: React.CSSProperties = { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 };
+const formatBtn: React.CSSProperties = { minWidth: 36, padding: '7px 10px', borderRadius: 8, border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#0A2540', fontSize: 13, fontWeight: 700, cursor: 'pointer' };
+const replyEditorStyle: React.CSSProperties = { minHeight: 120, border: '1.5px solid #CBD5E1', borderRadius: 12, padding: '12px 14px', fontSize: 14, lineHeight: 1.6, color: '#0F172A', background: '#FFFFFF', outline: 'none', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' };
 const attachBtn: React.CSSProperties = { display: 'inline-block', padding: '9px 14px', borderRadius: 10, border: '1.5px solid #0F766E', background: '#F0FDFA', color: '#0F766E', fontSize: 13, fontWeight: 800, cursor: 'pointer' };
 const attachChip: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 12px', borderRadius: 10, border: '1px solid #E2E8F0', background: '#F8FAFC', fontSize: 13, color: '#334155' };
 const dangerSmall: React.CSSProperties = { padding: '7px 12px', borderRadius: 10, border: '1.5px solid #FCA5A5', background: '#FEF2F2', color: '#B91C1C', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
