@@ -66,6 +66,12 @@ function InboxPanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<{ subject: string; from_email: string; to_email: string; html: string } | null>(null);
+  // iter208 — PDF reply attachments (reuses the Campaigns attachment contract).
+  const [attachments, setAttachments] = useState<import('@/lib/inbox-api').InboxReplyAttachment[]>([]);
+  const [attaching, setAttaching] = useState(false);
+  // iter208 — chosen From mailbox for the reply (defaults to the mailbox
+  // that received the original message, or the last one used in the thread).
+  const [fromMailbox, setFromMailbox] = useState<string>('');
 
   // manage mailboxes
   const [manageOpen, setManageOpen] = useState(false);
@@ -143,9 +149,57 @@ function InboxPanel() {
     [mailboxes],
   );
 
+  const configuredAddrSet = useMemo(
+    () => new Set(mailboxes.map((m) => (m.address || '').trim().toLowerCase())),
+    [mailboxes],
+  );
+
+  const pickDefaultFrom = useCallback(
+    (message: InboxMessage, msgThread: InboxMessage[]): string => {
+      const set = configuredAddrSet;
+      // Prefer the From address most recently used on an outbound reply in
+      // this thread — so the choice is "remembered" for the conversation.
+      const outs = (msgThread || [])
+        .filter((t) => t.direction === 'outbound' && t.from_email)
+        .sort((a, b) => (a.created_at || a.received_at || '').localeCompare(b.created_at || b.received_at || ''));
+      const lastOut = outs.length ? (outs[outs.length - 1].from_email || '').trim().toLowerCase() : '';
+      if (lastOut && set.has(lastOut)) return lastOut;
+      const received = (message.mailbox || '').trim().toLowerCase();
+      if (received && set.has(received)) return received;
+      const first = mailboxes[0]?.address?.trim().toLowerCase();
+      return first || received;
+    },
+    [configuredAddrSet, mailboxes],
+  );
+
+  const addAttachments = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    setError(null);
+    setAttaching(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (attachments.length >= 5) {
+          setError('You can attach up to 5 PDFs per reply.');
+          break;
+        }
+        const meta = await inboxApi.uploadAttachment(file);
+        setAttachments((prev) => (prev.length >= 5 ? prev : [...prev, meta]));
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Attachment upload failed.');
+    } finally {
+      setAttaching(false);
+    }
+  };
+
+  const removeAttachment = (idx: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   const openMessage = async (m: InboxMessage) => {
     setNotice(null);
     setReplyText('');
+    setAttachments([]);
 
     // Optimistic unread update: the counters react at click-time instead of
     // waiting for the message-detail request to round-trip to the backend.
@@ -179,6 +233,7 @@ function InboxPanel() {
       });
       setSelected(message);
       setThread(cleanThread);
+      setFromMailbox(pickDefaultFrom(message, cleanThread));
       setRows((prev) => prev?.map((x) => (x.id === m.id ? { ...x, read: true } : x)) ?? prev);
 
       // Reconcile against the now-persisted backend state so the optimistic
@@ -218,11 +273,20 @@ function InboxPanel() {
     setSending(true);
     setNotice(null);
     try {
-      const res = await inboxApi.reply(selected.id, { body_text: replyText.trim() });
-      const fromMailbox = res.from || selected.mailbox;
-      setNotice(`✓ Reply sent from ${fromMailbox}`);
+      const res = await inboxApi.reply(selected.id, {
+        body_text: replyText.trim(),
+        from_mailbox: fromMailbox || undefined,
+        attachments: attachments.map((a) => ({
+          filename: a.filename,
+          content_b64: a.content_b64,
+          content_type: a.content_type,
+        })),
+      });
+      const fromMbox = res.from || fromMailbox || selected.mailbox;
+      setNotice(`✓ Reply sent from ${fromMbox}`);
       setReplyText('');
       setPreview(null);
+      setAttachments([]);
       const r = await inboxApi.get(selected.id);
       const correspondent = String(r.message.from_email || '').trim().toLowerCase();
       const selectedMailbox = String(r.message.mailbox || '').trim().toLowerCase();
@@ -251,7 +315,10 @@ function InboxPanel() {
     setPreviewing(true);
     setError(null);
     try {
-      const p = await inboxApi.replyPreview(selected.id, { body_text: replyText.trim() });
+      const p = await inboxApi.replyPreview(selected.id, {
+        body_text: replyText.trim(),
+        from_mailbox: fromMailbox || undefined,
+      });
       setPreview({ subject: p.subject, from_email: p.from_email, to_email: p.to_email, html: p.html });
     } catch (e: any) {
       setError(e?.message || 'Could not build preview.');
@@ -277,7 +344,7 @@ function InboxPanel() {
   };
 
   const openSent = (m: InboxMessage) => {
-    setNotice(null); setPreview(null); setReplyText('');
+    setNotice(null); setPreview(null); setReplyText(''); setAttachments([]);
     setSelected(m); setThread([]);
   };
 
@@ -486,9 +553,62 @@ function InboxPanel() {
               {/* Reply */}
               {!isSent && (
               <div style={{ marginTop: 16 }}>
-                <label style={s.label}>Reply from {selected.mailbox}</label>
+                <label style={s.label}>From</label>
+                <select
+                  value={fromMailbox}
+                  onChange={(e) => { setFromMailbox(e.target.value); setPreview(null); }}
+                  style={{ ...(s.input as React.CSSProperties), marginBottom: 6 }}
+                  data-testid="reply-from-select"
+                >
+                  {mailboxes.map((mb) => (
+                    <option key={mb.id || mb.address} value={(mb.address || '').toLowerCase()}>
+                      {mb.label ? `${mb.label} · ${mb.address}` : mb.address}
+                    </option>
+                  ))}
+                  {/* Keep a stale/removed mailbox visible so the field is never empty */}
+                  {fromMailbox && !mailboxes.some((mb) => (mb.address || '').toLowerCase() === fromMailbox) && (
+                    <option value={fromMailbox}>{fromMailbox}</option>
+                  )}
+                </select>
+                <div style={{ fontSize: 12, color: '#0F766E', fontWeight: 700, marginBottom: 10 }}>
+                  Reply will be sent from {fromMailbox || selected.mailbox}
+                </div>
+
                 <textarea value={replyText} onChange={(e) => { setReplyText(e.target.value); setPreview(null); }}
                   placeholder="Write your reply…" style={{ ...(s.textarea as React.CSSProperties), minHeight: 120 }} />
+
+                {/* PDF attachments */}
+                <div style={{ marginTop: 10 }}>
+                  <label style={{ ...attachBtn, opacity: attaching || attachments.length >= 5 ? 0.6 : 1 }}>
+                    {attaching ? 'Uploading…' : '📎 Attach PDF'}
+                    <input
+                      type="file"
+                      accept="application/pdf"
+                      multiple
+                      disabled={attaching || attachments.length >= 5}
+                      style={{ display: 'none' }}
+                      onChange={(e) => { void addAttachments(e.target.files); e.currentTarget.value = ''; }}
+                      data-testid="reply-attachment-input"
+                    />
+                  </label>
+                  <span style={{ fontSize: 11, color: '#94A3B8', marginLeft: 10 }}>PDF only · up to 5 MB each</span>
+                  {attachments.length > 0 && (
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {attachments.map((a, i) => (
+                        <div key={`${a.filename}-${i}`} style={attachChip}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            📄 {a.filename} <span style={{ color: '#94A3B8' }}>· {Math.max(1, Math.round((a.size || 0) / 1024))} KB</span>
+                          </span>
+                          <button type="button" onClick={() => removeAttachment(i)}
+                            style={{ background: 'transparent', border: 'none', color: '#B91C1C', fontWeight: 800, cursor: 'pointer', fontSize: 13 }}>
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {notice && <div style={noticeBox}>{notice}</div>}
                 <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <button type="button" onClick={doPreview} disabled={previewing || sending || !replyText.trim()}
@@ -703,6 +823,8 @@ const listRow: React.CSSProperties = { display: 'block', width: '100%', textAlig
 const unreadDot: React.CSSProperties = { width: 8, height: 8, borderRadius: 999, background: '#14B8A6', flexShrink: 0 };
 const toChip: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#0F766E', background: '#F0FDFA', border: '1px solid #99F6E4', borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' };
 const ghostSmall: React.CSSProperties = { padding: '7px 12px', borderRadius: 10, border: '1.5px solid #CBD5E1', background: '#FFFFFF', color: '#334155', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
+const attachBtn: React.CSSProperties = { display: 'inline-block', padding: '9px 14px', borderRadius: 10, border: '1.5px solid #0F766E', background: '#F0FDFA', color: '#0F766E', fontSize: 13, fontWeight: 800, cursor: 'pointer' };
+const attachChip: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 12px', borderRadius: 10, border: '1px solid #E2E8F0', background: '#F8FAFC', fontSize: 13, color: '#334155' };
 const dangerSmall: React.CSSProperties = { padding: '7px 12px', borderRadius: 10, border: '1.5px solid #FCA5A5', background: '#FEF2F2', color: '#B91C1C', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' };
 const modalOverlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(10,37,64,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '5vh 16px', zIndex: 1000, overflowY: 'auto' };
 const modalCard: React.CSSProperties = { background: '#FFFFFF', borderRadius: 16, padding: 20, width: '100%', maxWidth: 640, boxShadow: '0 20px 60px rgba(10,37,64,0.25)' };
