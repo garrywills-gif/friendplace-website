@@ -34,6 +34,17 @@ function fmt(dt?: string) {
   return d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
+function brandReplyHtml(html: string) {
+  if (!html) return '';
+  // Keep the FriendPlace tagline on-brand in manual Inbox replies.
+  // This only styles the exact visible phrase and leaves the surrounding
+  // formatting (for example bold) intact.
+  return html.replace(
+    /Because you belong too\./g,
+    '<span style="color:#0F766E;">Because you belong too.</span>',
+  );
+}
+
 function syncSidebarUnreadBadge(count: number) {
   // AdminShell owns the sidebar state, but reading a message happens inside this
   // child page. Update the visible badge immediately for a responsive click,
@@ -279,7 +290,7 @@ function InboxPanel() {
     try {
       const res = await inboxApi.reply(selected.id, {
         body_text: replyText.trim(),
-        body_html: replyHtml.trim() || undefined,
+        body_html: brandReplyHtml(replyHtml.trim()) || undefined,
         from_mailbox: fromMailbox || undefined,
         attachments: attachments.map((a) => ({
           filename: a.filename,
@@ -324,7 +335,7 @@ function InboxPanel() {
     try {
       const p = await inboxApi.replyPreview(selected.id, {
         body_text: replyText.trim(),
-        body_html: replyHtml.trim() || undefined,
+        body_html: brandReplyHtml(replyHtml.trim()) || undefined,
         from_mailbox: fromMailbox || undefined,
       });
       setPreview({ subject: p.subject, from_email: p.from_email, to_email: p.to_email, html: p.html });
