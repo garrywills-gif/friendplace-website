@@ -978,6 +978,92 @@ async def _run_planned_tools(db: Any, plan: dict) -> tuple[list[dict], list[dict
     return evidence, previews
 
 
+# ---------------------------------------------------------------------------
+# Flyer draft follow-up (iter207 — Garry, 28 Sep 2026: "he didn't create
+# anything"). The single-round planner can't resolve a flyer template NAME to
+# a key and THEN draft it in one pass — so when Garry names a template the
+# planner doesn't recognise (e.g. the signature poster was renamed to
+# "Register Your Interest"), it falls back to `list_flyer_templates` and George
+# narrates a flyer he never created, with no "Open in Flyer Publishing Centre"
+# button. These helpers let grounded_chat_stream do ONE bounded follow-up
+# round: resolve the template from the freshly-listed catalogue + Garry's
+# wording, then actually call `draft_flyer`.
+# ---------------------------------------------------------------------------
+_FLYER_DRAFT_INTENT_RE = re.compile(
+    r"\b(?:draft|create|prepare|set\s*up|make|build|generate|design|put\s+together|do)\b"
+    r"[^.?!]*\b(?:flyer|poster|noticeboard|notice\s*board|invite|hand[- ]?out|leaflet)\b",
+    re.IGNORECASE,
+)
+
+_FLYER_STOPWORDS = {
+    "the", "a", "an", "flyer", "poster", "invite", "template", "for", "please",
+    "my", "our", "this", "that", "and", "to", "up", "set", "create", "draft",
+    "make", "new", "prepare", "build", "notice", "board", "noticeboard",
+}
+
+_FLYER_LAYOUT_HINTS = [
+    (re.compile(r"\ba3\b", re.I), "poster_a3"),
+    (re.compile(r"\ba5\b", re.I), "flyer_a5"),
+    (re.compile(r"\ba4\b|\bposter\b", re.I), "poster_a4"),
+]
+
+
+def _is_flyer_draft_request(msg: str) -> bool:
+    return bool(msg and _FLYER_DRAFT_INTENT_RE.search(msg))
+
+
+def _extract_listed_templates(results: list[dict]) -> list[dict]:
+    for r in results or []:
+        if r.get("name") == "list_flyer_templates":
+            res = r.get("result")
+            if isinstance(res, list):
+                return [t for t in res if isinstance(t, dict) and t.get("key")]
+    return []
+
+
+def _resolve_flyer_from_message(
+    msg: str, listed: list[dict],
+) -> tuple[str | None, str | None, dict]:
+    """Pick the best template_key for Garry's wording + pull an obvious
+    layout / venue. Returns (template_key, layout_or_None, field_values)."""
+    low = msg.lower()
+    best_key: str | None = None
+    best_score = 0
+    best_supported: list = []
+    for t in listed:
+        name = str(t.get("name") or "")
+        key = str(t.get("key") or "")
+        words = {w for w in re.split(r"[^a-z0-9]+", name.lower()) if w and w not in _FLYER_STOPWORDS}
+        score = sum(1 for w in words if re.search(rf"\b{re.escape(w)}\b", low))
+        if name and name.lower() in low:
+            score += 5
+        if key and key.lower() in low:
+            score += 5
+        if score > best_score:
+            best_score = score
+            best_key = key
+            best_supported = t.get("supported_layouts") or []
+    # Exactly one template in the catalogue → safe to use it for any flyer ask.
+    if not best_key and len(listed) == 1:
+        best_key = listed[0].get("key")
+        best_supported = listed[0].get("supported_layouts") or []
+    if not best_key:
+        return None, None, {}
+    layout: str | None = None
+    for rx, lk in _FLYER_LAYOUT_HINTS:
+        if rx.search(msg) and (not best_supported or lk in best_supported):
+            layout = lk
+            break
+    fields: dict = {}
+    m = re.search(r"\bfor\s+([A-Z][A-Za-z0-9'&.\- ]{2,60})", msg)
+    if m:
+        venue = re.sub(r"\b(please|thanks|thank you|as an?|on an?)\b.*$", "", m.group(1), flags=re.I).strip(" .,")
+        if venue:
+            fields["venue"] = venue
+    return best_key, layout, fields
+
+
+
 def _format_tool_results_for_synth(results: list[dict], plan: dict) -> str:
     """Compact but readable evidence block for Sonnet."""
     if not results and plan.get("insufficient_data"):
@@ -1168,6 +1254,32 @@ async def grounded_chat_stream(
     yield {"kind": "tools", "results": results}
     for preview in previews:
         yield {"kind": "action_preview", "preview": preview}
+
+    # ---- 2b. Flyer draft follow-up round (iter207) ----
+    # If Garry asked to *set up* a flyer but round 1 only LISTED templates
+    # (no draft_flyer ran → no action_preview), resolve the template from the
+    # freshly-listed catalogue and actually draft it now. This guarantees a
+    # real flyer draft with its "Open in Flyer Publishing Centre" button
+    # instead of George narrating a flyer he never created.
+    if (not previews) and _is_flyer_draft_request(user_message):
+        _listed = _extract_listed_templates(results)
+        if _listed:
+            _tkey, _layout, _fields = _resolve_flyer_from_message(user_message, _listed)
+            if _tkey:
+                _fu_args: dict = {"template_key": _tkey}
+                if _layout:
+                    _fu_args["layout"] = _layout
+                if _fields:
+                    _fu_args["field_values"] = _fields
+                _fu_results, _fu_previews = await _run_planned_tools(
+                    db, {"tool_calls": [{"name": "draft_flyer", "args": _fu_args}]},
+                )
+                if _fu_previews:
+                    results = results + _fu_results
+                    previews = _fu_previews
+                    yield {"kind": "tools", "results": _fu_results}
+                    for preview in _fu_previews:
+                        yield {"kind": "action_preview", "preview": preview}
 
     # ---- 3. Synthesizer ----
     system_prompt = build_system_prompt(
