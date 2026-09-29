@@ -23,14 +23,24 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from pydantic import BaseModel, Field
 
 from email_service import send_email_detailed
 from services.campaign_webhooks import verify_signature
 from services.email_inbox import store
 
 _log = logging.getLogger("friendplace.email_inbox")
+
+# ── Reply attachments (iter208) ──────────────────────────────────────
+# Reuses the same contract as the Campaigns composer attachment: PDFs
+# only, 5 MB per file. Unlike campaigns (which persist one PDF on the
+# draft), an inbox reply is a one-shot send, so the client uploads via
+# the dedicated endpoint below, holds the returned base64, and includes
+# it in the reply payload. We validate again on upload here.
+_REPLY_ATTACHMENT_ALLOWED_TYPES = {"application/pdf"}
+_REPLY_ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024
+_REPLY_ATTACHMENT_MAX_COUNT = 5
 
 
 class MailboxIn(BaseModel):
@@ -42,10 +52,21 @@ class ReadIn(BaseModel):
     read: bool = True
 
 
+class ReplyAttachment(BaseModel):
+    filename: str
+    content_b64: str
+    content_type: str = "application/pdf"
+
+
 class ReplyIn(BaseModel):
     body_text: str
     body_html: Optional[str] = None
     subject: Optional[str] = None
+    attachments: List[ReplyAttachment] = Field(default_factory=list)
+    # iter208 — choose which configured FriendPlace mailbox sends the
+    # reply. When omitted, we fall back to the mailbox that received the
+    # original message (preserving prior behaviour).
+    from_mailbox: Optional[str] = None
 
 
 def _display_name(headers: Dict[str, Any]) -> str:
@@ -112,6 +133,24 @@ async def _normalise_received(db, data: Dict[str, Any]) -> Dict[str, Any]:
 
 def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
     router = APIRouter(prefix="/email", tags=["cms-email"])
+
+    async def _resolve_from_mailbox(requested: Optional[str], parent: Dict[str, Any]) -> str:
+        """Pick the From address for a reply.
+
+        Default is the mailbox the original message arrived at. If the
+        caller requests a specific address it MUST be one of the
+        configured active mailboxes — this both honours the admin's
+        choice and prevents sending from an unverified/arbitrary address.
+        """
+        default = parent.get("mailbox") or ""
+        req_addr = (requested or "").strip().lower()
+        if not req_addr:
+            return default
+        mbs = await store.list_mailboxes(db)
+        allowed = {(m.get("address") or "").strip().lower() for m in mbs}
+        if req_addr not in allowed:
+            raise HTTPException(400, "Selected From address is not a configured mailbox")
+        return req_addr
 
     # ── mailboxes ────────────────────────────────────────────────────
     @router.get("/mailboxes")
@@ -195,8 +234,9 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
         parent = out["message"]
         if not parent.get("from_email"):
             raise HTTPException(400, "Original sender address is unknown")
+        from_mailbox = await _resolve_from_mailbox(body.from_mailbox, parent)
         rendered = store.render_reply_email(
-            parent=parent, mailbox=parent.get("mailbox"),
+            parent=parent, mailbox=from_mailbox,
             subject=body.subject, text=text, html_override=body.body_html,
         )
         return {"preview": True, **rendered}
@@ -210,7 +250,7 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
         if not out:
             raise HTTPException(404, "Message not found")
         parent = out["message"]
-        mailbox = parent.get("mailbox")            # reply FROM the FriendPlace address
+        mailbox = await _resolve_from_mailbox(body.from_mailbox, parent)  # reply FROM this FriendPlace address
         to_email = parent.get("from_email")        # reply TO the original sender
         if not to_email:
             raise HTTPException(400, "Original sender address is unknown")
@@ -220,9 +260,27 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
             subject=body.subject, text=text, html_override=body.body_html,
         )
         subject, html, text_out = rendered["subject"], rendered["html"], rendered["text"]
+        # iter208: optional PDF reply attachments (validated on upload).
+        resend_attachments = None
+        if body.attachments:
+            if len(body.attachments) > _REPLY_ATTACHMENT_MAX_COUNT:
+                raise HTTPException(
+                    400,
+                    f"At most {_REPLY_ATTACHMENT_MAX_COUNT} attachments per reply",
+                )
+            resend_attachments = [
+                {
+                    "filename": (a.filename or "attachment.pdf")[:200],
+                    "content": a.content_b64,
+                    "content_type": a.content_type or "application/pdf",
+                }
+                for a in body.attachments
+                if (a.content_b64 or "").strip()
+            ] or None
         result = await send_email_detailed(
             to=to_email, subject=subject, html=html, text=text_out or None,
             from_email=mailbox, reply_to=mailbox,
+            attachments=resend_attachments,
         )
         if not result.ok:
             raise HTTPException(
@@ -240,6 +298,46 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
         # it in the success confirmation ("✓ Reply sent from …").
         return {"ok": True, "message_id": result.message_id,
                 "from": mailbox, "reply": stored}
+
+    @router.post("/attachments")
+    async def _upload_attachment(
+        file: UploadFile = File(...),
+        admin: dict = Depends(current_cms_admin),  # noqa: ARG001
+    ):
+        """Validate + return a PDF reply attachment as base64.
+
+        Mirrors the Campaigns composer contract (PDF only, 5 MB cap,
+        magic-byte sniff). The bytes are returned to the client which
+        includes them in the subsequent /reply call — no server-side
+        draft to attach to for a one-shot inbox reply.
+        """
+        content_type = (file.content_type or "").lower().split(";")[0].strip()
+        if content_type not in _REPLY_ATTACHMENT_ALLOWED_TYPES:
+            raise HTTPException(415, "Only PDF attachments are supported (application/pdf).")
+        raw = await file.read(_REPLY_ATTACHMENT_MAX_BYTES + 1)
+        try:
+            await file.close()
+        except Exception:
+            pass
+        if not raw:
+            raise HTTPException(400, "Uploaded file is empty")
+        if len(raw) > _REPLY_ATTACHMENT_MAX_BYTES:
+            raise HTTPException(
+                413,
+                f"Attachment exceeds the {_REPLY_ATTACHMENT_MAX_BYTES // (1024 * 1024)} MB limit",
+            )
+        if not raw.startswith(b"%PDF"):
+            raise HTTPException(400, "Uploaded file does not appear to be a valid PDF")
+        import base64 as _b64
+        filename = (file.filename or "attachment.pdf").rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        filename = filename[:200] or "attachment.pdf"
+        return {
+            "ok": True,
+            "filename": filename,
+            "content_type": "application/pdf",
+            "size": len(raw),
+            "content_b64": _b64.b64encode(raw).decode("ascii"),
+        }
 
     @router.get("/sent")
     async def _sent(
