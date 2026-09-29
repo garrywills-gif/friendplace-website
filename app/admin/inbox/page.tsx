@@ -88,6 +88,9 @@ function InboxPanel() {
   // iter208 — chosen From mailbox for the reply (defaults to the mailbox
   // that received the original message, or the last one used in the thread).
   const [fromMailbox, setFromMailbox] = useState<string>('');
+  // Optional automatic "Warmly, The FriendPlace Team" footer.
+  // Off by default so manual replies end with the admin's own sign-off.
+  const [includeFooter, setIncludeFooter] = useState(false);
 
   // manage mailboxes
   const [manageOpen, setManageOpen] = useState(false);
@@ -295,6 +298,7 @@ function InboxPanel() {
         body_text: replyText.trim(),
         body_html: brandReplyHtml(replyHtml.trim()) || undefined,
         from_mailbox: fromMailbox || undefined,
+        include_footer: includeFooter,
         attachments: attachments.map((a) => ({
           filename: a.filename,
           content_b64: a.content_b64,
@@ -340,6 +344,7 @@ function InboxPanel() {
         body_text: replyText.trim(),
         body_html: brandReplyHtml(replyHtml.trim()) || undefined,
         from_mailbox: fromMailbox || undefined,
+        include_footer: includeFooter,
       });
       setPreview({ subject: p.subject, from_email: p.from_email, to_email: p.to_email, html: p.html });
     } catch (e: any) {
@@ -673,6 +678,16 @@ function InboxPanel() {
                 </div>
 
                 {notice && <div style={noticeBox}>{notice}</div>}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, color: '#334155', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={includeFooter}
+                    onChange={(e) => { setIncludeFooter(e.target.checked); setPreview(null); }}
+                    data-testid="reply-footer-toggle"
+                  />
+                  Add “Warmly, The FriendPlace Team” sign-off
+                  <span style={{ color: '#94A3B8', fontSize: 11 }}>(off = ends with your own sign-off)</span>
+                </label>
                 <div style={{ marginTop: 10, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <button type="button" onClick={doPreview} disabled={previewing || sending || !replyText.trim()}
                     style={{ ...ghostSmall, padding: '11px 16px', fontSize: 13, opacity: previewing || sending || !replyText.trim() ? 0.6 : 1 }}>
