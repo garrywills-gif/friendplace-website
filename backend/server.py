@@ -7797,6 +7797,9 @@ async def admin_invite_flyer(
     flyer_id: str = "",
     qr_code_id: str = "",
     campaign_id: str = "",
+    headline: str = "",
+    supporting_text: str = "",
+    show_founding_member: bool = True,
 ):
     """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
     for printing and pinning up at noticeboards. The layout is intentionally
@@ -8074,12 +8077,16 @@ async def admin_invite_flyer(
     # margins of a 1240px-wide page. Extra breathing room below the taller
     # branded banner keeps the whole layout balanced.
     HEAD_Y = BANNER_H + 35
-    fit_centred("FIND YOUR PEOPLE.", HEAD_Y, W - 2 * SIDE,
+    # iter164t: the Publishing Centre editor can override the poster
+    # headline / supporting line per-flyer (e.g. the Register-Your-
+    # Interest flyer). Fall back to the evergreen copy when not supplied.
+    head_text = (headline or "").strip() or "FIND YOUR PEOPLE."
+    fit_centred(head_text, HEAD_Y, W - 2 * SIDE,
                 start_size=180, min_size=130, fill=NAVY, bold=True,
                 condensed=True)
 
     # ─── Short tagline (single line — readable from ~2m). 38pt slate. ────
-    lead = "Meet new friends. Join local events. Feel connected."
+    lead = (supporting_text or "").strip() or "Meet new friends. Join local events. Feel connected."
     wrap_centre(lead, HEAD_Y + 185, font(38, bold=False), SLATE,
                 max_w=W - 2 * SIDE, line_gap=10)
 
@@ -8164,7 +8171,7 @@ async def admin_invite_flyer(
         )
     except Exception:
         founder_count = 0
-    if cohort_cap > 0 and founder_count < cohort_cap:
+    if show_founding_member and cohort_cap > 0 and founder_count < cohort_cap:
         remaining = max(0, cohort_cap - founder_count)
         GOLD_FILL = "#FBBF24"
         GOLD_DARK = "#7C5300"
