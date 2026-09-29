@@ -8306,29 +8306,21 @@ async def admin_invite_flyer(
     qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
     qr_x = (W - qr_size) // 2
     # 30px gap between the ribbon and the QR frame so they don't visually
-    # touch. If a "Posted by" line is present it sits BELOW the QR now
-    # (see below) so we don't need any headroom above it here.
+    # touch.
     qr_y = RIBBON_BOTTOM + 46
     img.paste(qr_img, (qr_x, qr_y))
     d.rectangle([qr_x - 14, qr_y - 14, qr_x + qr_size + 14, qr_y + qr_size + 14],
                 outline=NAVY, width=4)
 
-    # "Posted by <venue>" credit — tucked into the gap between the
-    # ribbon and the QR frame. This keeps it far away from the CTA
-    # stack at the bottom of the page so it can't overlap either the
-    # QR outline or the "SCAN TO JOIN FREE" line.
-    if venue:
-        centre(f"Posted by {venue}", RIBBON_BOTTOM + 8, font(18, bold=False), SLATE)
-
     # ─── CTA stack ────────────────────────────────────────────────────────
     # Layout budget from qr_y+qr_size onward:
-    #   +22px gap → SCAN TO JOIN FREE (~78pt / 82px)
+    #   +22px gap → SCAN TO REGISTER (~78pt / 82px)
     #   +82px → Because You Belong Too. (~34pt / 42px)
     # Total: ~146px trailing content. Page height 1754, so we need
     # qr_y + qr_size ≤ ~1580. With qr_y ≈ 1077 and qr_size = 520 we sit
     # at 1597 — leaving 157px for the CTA + tagline which fits neatly.
     cta_y = qr_y + qr_size + 22
-    fit_centred("SCAN TO JOIN FREE", cta_y, W - 2 * SIDE,
+    fit_centred("SCAN TO REGISTER", cta_y, W - 2 * SIDE,
                 start_size=72, min_size=56, fill=NAVY, bold=True,
                 condensed=True)
     centre("Because You Belong Too.", cta_y + 78, font(30, italic=True), TEAL)
