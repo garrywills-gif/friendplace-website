@@ -7800,6 +7800,7 @@ async def admin_invite_flyer(
     headline: str = "",
     supporting_text: str = "",
     show_founding_member: bool = True,
+    cta: str = "",
 ):
     """Render an A4-portrait PNG invite flyer (1240×1754 @ ~150 dpi) suitable
     for printing and pinning up at noticeboards. The layout is intentionally
@@ -8337,7 +8338,8 @@ async def admin_invite_flyer(
                 outline=NAVY, width=4)
 
     cta_y = qr_y + qr_size + QR_PAD + CTA_GAP
-    fit_centred("SCAN TO REGISTER", cta_y, W - 2 * SIDE,
+    cta_text = (cta or "").strip() or "SCAN TO REGISTER"
+    fit_centred(cta_text, cta_y, W - 2 * SIDE,
                 start_size=72, min_size=56, fill=NAVY, bold=True,
                 condensed=True)
     centre("Because You Belong Too.", cta_y + CTA_H, font(30, italic=True), TEAL)

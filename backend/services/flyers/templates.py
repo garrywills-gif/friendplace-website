@@ -288,6 +288,15 @@ _SEED_TEMPLATES: List[Dict[str, Any]] = [
             {"key": "show_founding_member", "label": "Show Founding Member ribbon", "type": "select",
              "required": False, "options": ["true", "false"],
              "help": "Set to false for a pre-launch 'Register your interest' poster."},
+            # iter208 (Garry, 28 Sep 2026): the bottom call-to-action under
+            # the QR used to be hardcoded "SCAN TO REGISTER". Admins can now
+            # pick a preset or type their own — `cta_custom` wins if set,
+            # otherwise `cta`, otherwise the "SCAN TO REGISTER" default.
+            {"key": "cta", "label": "Call to action", "type": "select", "required": False,
+             "options": ["SCAN TO REGISTER", "REGISTER YOUR INTEREST", "SCAN TO LEARN MORE"],
+             "help": "The bold line under the QR. Pick a preset, or type your own below."},
+            {"key": "cta_custom", "label": "Custom call to action", "type": "text", "required": False,
+             "help": "Type any wording — overrides the preset above when filled."},
         ],
         # Which of the layout registry's outputs this template supports.
         # Every layout in `registry.LAYOUTS` is valid here — but a template

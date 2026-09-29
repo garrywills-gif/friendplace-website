@@ -282,6 +282,9 @@ async def _render_founding_base_a4(db, params: Dict[str, Any]) -> Image.Image:
         show_founding_member = _sfm_raw
     else:
         show_founding_member = str(_sfm_raw).strip().lower() in ("true", "1", "yes", "on")
+    # iter208: bottom call-to-action. Custom wording wins; else the chosen
+    # preset; else the renderer's own "SCAN TO REGISTER" default.
+    cta = str(params.get("cta_custom") or params.get("cta") or "").strip()
     resp = await admin_invite_flyer(
         admin_id=admin_id,
         venue=venue,
@@ -292,6 +295,7 @@ async def _render_founding_base_a4(db, params: Dict[str, Any]) -> Image.Image:
         headline=headline,
         supporting_text=supporting_text,
         show_founding_member=show_founding_member,
+        cta=cta,
     )
     # `resp` is a FastAPI Response; the raw PNG bytes are on `.body`.
     return Image.open(io.BytesIO(resp.body)).convert("RGB")
