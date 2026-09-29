@@ -41,7 +41,7 @@ function brandReplyHtml(html: string) {
   // formatting (for example bold) intact.
   return html.replace(
     /Because you belong too\./g,
-    '<span style="color:#0F766E;">Because you belong too.</span>',
+    '<span style="display:inline-block;background:#0A2540;color:#FFFFFF;padding:3px 8px;border-radius:6px;">Because you belong too.</span>',
   );
 }
 
