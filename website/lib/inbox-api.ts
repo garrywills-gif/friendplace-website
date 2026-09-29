@@ -164,10 +164,10 @@ export const inboxApi = {
     req<InboxMessage>('POST', `/cms/email/messages/${encodeURIComponent(id)}/archive`),
   restore: (id: string) =>
     req<InboxMessage>('POST', `/cms/email/messages/${encodeURIComponent(id)}/restore`),
-  reply: (id: string, body: { body_text: string; body_html?: string; subject?: string; from_mailbox?: string; attachments?: Array<{ filename: string; content_b64: string; content_type?: string }> }) =>
+  reply: (id: string, body: { body_text: string; body_html?: string; subject?: string; from_mailbox?: string; include_footer?: boolean; attachments?: Array<{ filename: string; content_b64: string; content_type?: string }> }) =>
     req<{ ok: true; message_id: string; from: string; reply: InboxMessage }>('POST', `/cms/email/messages/${encodeURIComponent(id)}/reply`, body),
   uploadAttachment: (file: File) => uploadReplyAttachment(file),
-  replyPreview: (id: string, body: { body_text: string; body_html?: string; subject?: string; from_mailbox?: string }) =>
+  replyPreview: (id: string, body: { body_text: string; body_html?: string; subject?: string; from_mailbox?: string; include_footer?: boolean }) =>
     req<{ preview: true; subject: string; from_email: string; to_email: string; html: string; text: string }>(
       'POST', `/cms/email/messages/${encodeURIComponent(id)}/reply-preview`, body),
   listSent: async (opts?: { mailbox?: string; limit?: number }) => {

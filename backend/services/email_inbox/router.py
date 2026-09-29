@@ -67,6 +67,10 @@ class ReplyIn(BaseModel):
     # reply. When omitted, we fall back to the mailbox that received the
     # original message (preserving prior behaviour).
     from_mailbox: Optional[str] = None
+    # iter209 — auto "Warmly, The FriendPlace Team" sign-off. Off by
+    # default for manual replies so the email ends with the admin's own
+    # sign-off; the composer offers a toggle to add it back.
+    include_footer: bool = False
 
 
 def _display_name(headers: Dict[str, Any]) -> str:
@@ -238,6 +242,7 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
         rendered = store.render_reply_email(
             parent=parent, mailbox=from_mailbox,
             subject=body.subject, text=text, html_override=body.body_html,
+            include_footer=body.include_footer,
         )
         return {"preview": True, **rendered}
 
@@ -258,6 +263,7 @@ def build_email_inbox_router(db, current_cms_admin) -> APIRouter:
         rendered = store.render_reply_email(
             parent=parent, mailbox=mailbox,
             subject=body.subject, text=text, html_override=body.body_html,
+            include_footer=body.include_footer,
         )
         subject, html, text_out = rendered["subject"], rendered["html"], rendered["text"]
         # iter208: optional PDF reply attachments (validated on upload).

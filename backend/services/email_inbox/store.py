@@ -378,11 +378,16 @@ async def delete_message(db, message_id: str) -> bool:
 def render_reply_email(
     *, parent: Dict[str, Any], mailbox: str, subject: Optional[str],
     text: str, html_override: Optional[str] = None,
+    include_footer: bool = True,
 ) -> Dict[str, Any]:
     """Produce the FINAL reply email exactly as the recipient will receive
     it. Preview and send both call this, so the preview always matches what
-    is actually sent: reply body + built-in FriendPlace sign-off, correct
-    Re: subject, and the sending mailbox / recipient."""
+    is actually sent: reply body + (optional) FriendPlace sign-off, correct
+    Re: subject, and the sending mailbox / recipient.
+
+    ``include_footer`` controls the automatic "Warmly, The FriendPlace Team"
+    sign-off. For manual inbox replies this is off by default so the email
+    ends with whatever sign-off the admin typed themselves."""
     to_email = _norm_addr(parent.get("from_email") or "")
     subj = (subject or "").strip() or parent.get("subject") or "(no subject)"
     if not subj.lower().startswith("re:"):
@@ -394,20 +399,24 @@ def render_reply_email(
         + (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
         + "</div>"
     )
-    footer_html = (
-        "<div style=\"margin-top:26px;border-top:1px solid #e2e8f0;padding-top:16px;"
-        "font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;"
-        "color:#64748b;line-height:1.6\">"
-        "Warmly,<br><strong style=\"color:#0f172a\">The FriendPlace Team</strong><br>"
-        "<a href=\"https://www.friendplace.com.au\" style=\"color:#0d9488;"
-        "text-decoration:none\">friendplace.com.au</a>"
-        "</div>"
-    )
+    footer_html = ""
+    footer_text = ""
+    if include_footer:
+        footer_html = (
+            "<div style=\"margin-top:26px;border-top:1px solid #e2e8f0;padding-top:16px;"
+            "font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:13px;"
+            "color:#64748b;line-height:1.6\">"
+            "Warmly,<br><strong style=\"color:#0f172a\">The FriendPlace Team</strong><br>"
+            "<a href=\"https://www.friendplace.com.au\" style=\"color:#0d9488;"
+            "text-decoration:none\">friendplace.com.au</a>"
+            "</div>"
+        )
+        footer_text = "\n\nWarmly,\nThe FriendPlace Team\nfriendplace.com.au"
     html = (
         "<div style=\"max-width:640px;margin:0 auto;padding:4px 2px\">"
         + body + footer_html + "</div>"
     )
-    text_out = (text or "").rstrip() + "\n\nWarmly,\nThe FriendPlace Team\nfriendplace.com.au"
+    text_out = (text or "").rstrip() + footer_text
     return {
         "subject": subj, "from_email": mailbox, "to_email": to_email,
         "html": html, "text": text_out,
